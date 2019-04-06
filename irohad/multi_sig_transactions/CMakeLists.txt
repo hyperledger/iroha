@@ -28,3 +28,12 @@ add_library(mst_hash
 target_link_libraries(mst_hash
     shared_model_interfaces
     )
+
+add_library(mst_propagation_to_pcs
+    impl/propagation_to_pcs.cpp
+    )
+
+target_link_libraries(mst_propagation_to_pcs
+    rxcpp
+    logger
+    )

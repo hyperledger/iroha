@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <mutex>
+
 #include <rxcpp/rx.hpp>
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
@@ -53,6 +54,9 @@ namespace iroha {
      * Observable emit expired by time transactions
      */
     rxcpp::observable<DataType> onExpiredBatches() const;
+
+    /// Get the next completed batch with at most max_txs transactions.
+    boost::optional<BatchPtr> getCompletedBatch(const size_t max_txs);
 
     virtual ~MstProcessor() = default;
 

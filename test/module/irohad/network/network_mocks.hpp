@@ -72,6 +72,8 @@ namespace iroha {
       MOCK_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 
       MOCK_METHOD1(setPcs, void(const PeerCommunicationService &));
+
+      MOCK_METHOD0(onReadyToAcceptTxs, rxcpp::observable<size_t>());
     };
 
     class MockConsensusGate : public ConsensusGate {

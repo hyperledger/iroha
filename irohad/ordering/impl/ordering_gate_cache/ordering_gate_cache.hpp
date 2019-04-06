@@ -81,6 +81,8 @@ namespace iroha {
          */
         virtual void rotate() = 0;
 
+        virtual size_t availableTxsCapacity() const = 0;
+
         virtual ~OrderingGateCache() = default;
       };
 

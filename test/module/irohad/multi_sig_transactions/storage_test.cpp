@@ -21,11 +21,11 @@ class StorageTest : public testing::Test {
 
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
-    storage =
-        std::make_shared<MstStorageStateImpl>(completer_,
-                                              kMstStateTxLimit,
-                                              getTestLogger("MstState"),
-                                              getTestLogger("MstStorage"));
+    storage = std::make_shared<MstStorageStateImpl>(
+        completer_,
+        std::make_shared<iroha::StorageLimit>(kMstStateTxLimit),
+        getTestLogger("MstState"),
+        getTestLogger("MstStorage"));
     fillOwnState();
   }
 

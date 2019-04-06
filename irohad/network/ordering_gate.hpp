@@ -41,6 +41,15 @@ namespace iroha {
        */
       virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
 
+      /**
+       * If propagateBatch returns false, which means the batch was not
+       * accepted by the OrderingGate, this observable signals when the
+       * OrderingGate is ready to accept more batches, so the propagateBatch
+       * method can be called again. The observable emits a rough amount of
+       * transactions that the gate is ready to accept for propagation.
+       */
+      virtual rxcpp::observable<size_t> onReadyToAcceptTxs() = 0;
+
       virtual ~OrderingGate() = default;
     };
   }  // namespace network

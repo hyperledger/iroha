@@ -87,3 +87,7 @@ void OnDemandCache::rotate() {
   auto second_element_it = boost::next(circ_buffer.begin());
   circ_buffer.rotate(second_element_it);
 }
+
+size_t OnDemandCache::availableTxsCapacity() const {
+  return max_cache_size_ - circ_buffer.back().first;
+}

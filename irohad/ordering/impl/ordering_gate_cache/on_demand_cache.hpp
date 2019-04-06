@@ -37,6 +37,8 @@ namespace iroha {
 
         virtual void rotate() override;
 
+        size_t availableTxsCapacity() const override;
+
        private:
         const uint64_t max_cache_size_;
         mutable std::shared_timed_mutex mutex_;

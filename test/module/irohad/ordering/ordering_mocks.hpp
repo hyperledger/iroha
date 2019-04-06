@@ -33,6 +33,7 @@ namespace iroha {
         MOCK_METHOD1(remove, void(const HashesSetType &));
         MOCK_CONST_METHOD0(front, const BatchesSetType &());
         MOCK_CONST_METHOD0(back, const BatchesSetType &());
+        MOCK_CONST_METHOD0(availableTxsCapacity, size_t());
       };
     }  // namespace cache
 
