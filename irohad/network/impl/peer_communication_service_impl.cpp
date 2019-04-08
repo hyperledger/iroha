@@ -27,8 +27,9 @@ namespace iroha {
     bool PeerCommunicationServiceImpl::propagate_batch(
         std::shared_ptr<shared_model::interface::TransactionBatch> batch)
         const {
-      log_->info("propagate batch");
-      return ordering_gate_->propagateBatch(batch);
+      const bool is_propagated = ordering_gate_->propagateBatch(batch);
+      log_->info("{}propagated batch", (is_propagated ? "" : "not "));
+      return is_propagated;
     }
 
     rxcpp::observable<OrderingEvent> PeerCommunicationServiceImpl::onProposal()

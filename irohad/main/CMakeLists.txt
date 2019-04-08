@@ -55,6 +55,7 @@ target_link_libraries(application
     torii_service
     pending_txs_storage
     common
+    mst_propagation_to_pcs
     )
 
 add_executable(irohad irohad.cpp)

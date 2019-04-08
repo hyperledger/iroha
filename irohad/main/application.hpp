@@ -306,6 +306,7 @@ class Irohad {
   // mst
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
+  rxcpp::composite_subscription mst_to_pcs_propagation_subscription;
 
   // pending transactions storage
   std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;

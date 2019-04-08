@@ -72,60 +72,73 @@ namespace iroha {
 
   // ------------------------------| public api |-------------------------------
 
+  MstState::MstState(MstState &&other)
+      : batches_(std::move(other.batches_)),
+        txs_quantity_(other.txs_quantity_),
+        log_(std::move(other.log_)) {}
+
   MstState MstState::empty(const CompleterType &completer,
-                           size_t transaction_limit,
+                           std::shared_ptr<BatchStorageLimit> storage_limit,
                            logger::LoggerPtr log) {
-    return MstState(completer, transaction_limit, std::move(log));
+    return MstState(completer, std::move(storage_limit), std::move(log));
   }
 
   StateUpdateResult MstState::operator+=(const DataType &rhs) {
-    auto state_update =
-        StateUpdateResult{std::make_shared<MstState>(
-                              MstState::empty(completer_, txs_limit_, log_)),
-                          std::make_shared<MstState>(
-                              MstState::empty(completer_, txs_limit_, log_))};
+    auto state_update = StateUpdateResult{completer_, log_};
     insertOne(state_update, rhs);
     return state_update;
   }
 
   StateUpdateResult MstState::operator+=(const MstState &rhs) {
-    auto state_update =
-        StateUpdateResult{std::make_shared<MstState>(
-                              MstState::empty(completer_, txs_limit_, log_)),
-                          std::make_shared<MstState>(
-                              MstState::empty(completer_, txs_limit_, log_))};
-    for (auto &&rhs_tx : rhs.batches_.right | boost::adaptors::map_keys) {
-      insertOne(state_update, rhs_tx);
-    }
-    return state_update;
+    auto state_update = StateUpdateResult{completer_, log_};
+    return rhs.batches_.access([this, &state_update](const auto &storage) {
+      for (auto &&rhs_tx : storage.batches.right | boost::adaptors::map_keys) {
+        this->insertOne(state_update, rhs_tx);
+      }
+      return state_update;
+    });
   }
 
   MstState MstState::operator-(const MstState &rhs) const {
-    const auto &my_batches = batches_.right | boost::adaptors::map_keys;
     std::vector<DataType> difference;
-    difference.reserve(boost::size(batches_));
-    for (const auto &batch : my_batches) {
-      if (rhs.batches_.right.find(batch) == rhs.batches_.right.end()) {
-        difference.push_back(batch);
-      }
-    }
-    return MstState(this->completer_, txs_limit_, difference, log_);
+    batches_.access([&difference, &rhs](const auto &storage) {
+      difference.reserve(boost::size(storage.batches));
+      rhs.batches_.access(
+          [&difference,
+           my_batches = storage.batches.right
+               | boost::adaptors::map_keys](const auto &storage) {
+            for (const auto &batch : my_batches) {
+              if (storage.batches.right.find(batch)
+                  == storage.batches.right.end()) {
+                difference.push_back(batch);
+              }
+            }
+          });
+    });
+    return MstState(this->completer_, batches_.sharedLimit(), difference, log_);
   }
 
   bool MstState::isEmpty() const {
-    return batches_.empty();
+    return batches_.access(
+        [](const auto &storage) { return storage.batches.empty(); });
   }
 
   std::unordered_set<DataType,
                      iroha::model::PointerBatchHasher,
                      BatchHashEquality>
   MstState::getBatches() const {
-    const auto batches_range = batches_.right | boost::adaptors::map_keys;
-    return {batches_range.begin(), batches_range.end()};
+    return batches_.access([](const auto &storage) {
+      const auto batches_range =
+          storage.batches.right | boost::adaptors::map_keys;
+      return std::unordered_set<DataType,
+                                iroha::model::PointerBatchHasher,
+                                BatchHashEquality>{batches_range.begin(),
+                                                   batches_range.end()};
+    });
   }
 
   MstState MstState::extractExpired(const TimeType &current_time) {
-    MstState out = MstState::empty(completer_, txs_limit_, log_);
+    MstState out = empty(completer_, batches_.sharedLimit(), log_);
     extractExpiredImpl(current_time, out);
     return out;
   }
@@ -135,13 +148,15 @@ namespace iroha {
   }
 
   size_t MstState::transactionsQuantity() const {
-    assert(txs_quantity_
-           == countTxsInBatches(batches_.right | boost::adaptors::map_keys));
+    assert(txs_quantity_ == batches_.access([](const auto &storage) {
+      return countTxsInBatches(storage.batches.right
+                               | boost::adaptors::map_keys);
+    }));
     return txs_quantity_;
   }
 
   size_t MstState::batchesQuantity() const {
-    return batches_.right.size();
+    return batches_.itemsQuantity();
   }
 
   // ------------------------------| private api |------------------------------
@@ -172,23 +187,23 @@ namespace iroha {
   }
 
   MstState::MstState(const CompleterType &completer,
-                     size_t transaction_limit,
+                     std::shared_ptr<BatchStorageLimit> storage_limit,
                      logger::LoggerPtr log)
       : MstState(completer,
-                 transaction_limit,
+                 std::move(storage_limit),
                  std::vector<DataType>{},
                  std::move(log)) {}
 
   MstState::MstState(const CompleterType &completer,
-                     size_t transaction_limit,
+                     std::shared_ptr<BatchStorageLimit> storage_limit,
                      const BatchesForwardCollectionType &batches,
                      logger::LoggerPtr log)
       : completer_(completer),
-        txs_limit_(transaction_limit),
+        batches_(std::move(storage_limit), std::make_unique<InternalStorage>()),
         txs_quantity_(0),
         log_(std::move(log)) {
     for (const auto &batch : batches) {
-      batches_.insert({oldestTimestamp(batch), batch});
+      batches_.insert(batch);
       txs_quantity_ += batch->transactions().size();
     }
   }
@@ -196,68 +211,86 @@ namespace iroha {
   void MstState::insertOne(StateUpdateResult &state_update,
                            const DataType &rhs_batch) {
     log_->info("batch: {}", *rhs_batch);
-    auto corresponding = batches_.right.find(rhs_batch);
-    if (corresponding == batches_.right.end()) {
-      // when state does not contain transaction
-      if (transactionsQuantity() + boost::size(rhs_batch->transactions())
-          <= txs_limit_) {
-        // there is enough room for the new batch
-        rawInsert(rhs_batch);
-        state_update.updated_state_->rawInsert(rhs_batch);
-      } else {
-        // there is not enough room for the new batch
-        log_->info(
-            "Dropped a batch because it would exceed the transaction limit "
-            "(currently have {} out of {} transactions in state): {}",
-            transactionsQuantity(),
-            txs_limit_,
-            *rhs_batch);
+    auto completed_batches = batches_.move([this, &state_update, &rhs_batch](
+                                               auto &storage)
+                                               -> std::vector<BatchPtr> {
+      auto corresponding = storage.batches.right.find(rhs_batch);
+      if (corresponding == storage.batches.right.end()) {
+        // when state does not contain transaction
+        if (this->rawInsert(rhs_batch)) {
+          // there is enough room for the new batch
+          BOOST_VERIFY_MSG(state_update.updated_state_->rawInsert(rhs_batch),
+                           "Could not insert new MST batch to state update.");
+        } else {
+          // there is not enough room for the new batch
+          log_->info("Dropped a batch because it did not fit into storage: {}",
+                     *rhs_batch);
+        }
+        return {};
       }
-      return;
-    }
 
-    DataType found = corresponding->first;
-    // Append new signatures to the existing state
-    auto inserted_new_signatures = mergeSignaturesInBatch(found, rhs_batch);
+      DataType found = corresponding->first;
+      // Append new signatures to the existing state
+      auto inserted_new_signatures = mergeSignaturesInBatch(found, rhs_batch);
 
-    if (completer_->isCompleted(found)) {
-      // state already has completed transaction,
-      // remove from state and return it
-      assert(txs_quantity_ >= boost::size(found->transactions()));
-      txs_quantity_ -= boost::size(found->transactions());
-      batches_.right.erase(found);
-      state_update.completed_state_->rawInsert(found);
-      return;
-    }
+      if (completer_->isCompleted(found)) {
+        // state already has completed transaction,
+        // remove from state and return it
+        assert(txs_quantity_ >= boost::size(found->transactions()));
+        txs_quantity_ -= boost::size(found->transactions());
+        storage.batches.right.erase(found);
+        return {found};
+      }
 
-    // if batch still isn't completed, return it, if new signatures were
-    // inserted
-    if (inserted_new_signatures) {
-      state_update.updated_state_->rawInsert(found);
+      // if batch still isn't completed, return it, if new signatures
+      // were inserted
+      if (inserted_new_signatures) {
+        state_update.updated_state_->rawInsert(found);
+      }
+      return {};
+    });
+    for (auto &batch : completed_batches) {
+      state_update.completed_state_.emplace_back(std::move(batch));
     }
   }
 
-  void MstState::rawInsert(const DataType &rhs_batch) {
-    txs_quantity_ += boost::size(rhs_batch->transactions());
-    batches_.insert({oldestTimestamp(rhs_batch), rhs_batch});
+  bool MstState::rawInsert(const DataType &rhs_batch) {
+    if (batches_.insert(rhs_batch)) {
+      txs_quantity_ += boost::size(rhs_batch->transactions());
+      return true;
+    }
+    return false;
   }
 
   bool MstState::contains(const DataType &element) const {
-    return batches_.right.find(element) != batches_.right.end();
+    return batches_.access([&element](const auto &storage) {
+      return storage.batches.right.find(element) != storage.batches.right.end();
+    });
   }
 
   void MstState::extractExpiredImpl(const TimeType &current_time,
-                                    boost::optional<MstState &> extracted) {
-    for (auto it = batches_.left.begin(); it != batches_.left.end()
-         and completer_->isExpired(it->second, current_time);) {
-      if (extracted) {
-        *extracted += it->second;
+                                    boost::optional<MstState &> opt_extracted) {
+    auto extracted = batches_.extract([this, &current_time, &opt_extracted](
+                                          auto &storage) {
+      std::vector<BatchPtr> extracted;
+      for (auto it = storage.batches.left.begin();
+           it != storage.batches.left.end()
+           and completer_->isExpired(it->second, current_time);) {
+        assert(txs_quantity_ >= boost::size(it->second->transactions()));
+        txs_quantity_ -= boost::size(it->second->transactions());
+        if (opt_extracted) {
+          *opt_extracted += it->second;
+        }
+        extracted.emplace_back(it->second);
+        it = storage.batches.left.erase(it);
+        assert(it == storage.batches.left.begin());
       }
-      assert(txs_quantity_ >= boost::size(it->second->transactions()));
-      txs_quantity_ -= boost::size(it->second->transactions());
-      it = batches_.left.erase(it);
-      assert(it == batches_.left.begin());
-    }
+      return extracted;
+    });
+  }
+
+  bool MstState::InternalStorage::insert(BatchPtr batch) {
+    return batches.insert({oldestTimestamp(batch), batch}).second;
   }
 
 }  // namespace iroha

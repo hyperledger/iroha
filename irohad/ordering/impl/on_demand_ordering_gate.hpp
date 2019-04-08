@@ -104,6 +104,7 @@ namespace iroha {
 
       rxcpp::composite_subscription proposal_notifier_lifetime_;
       rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;
+      rxcpp::subjects::subject<size_t> can_accept_txs_notifier_;
     };
 
   }  // namespace ordering

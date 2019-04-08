@@ -57,7 +57,7 @@ namespace iroha {
     // ------------------| MstTransportNotification override |------------------
 
     void onNewState(const shared_model::crypto::PublicKey &from,
-                    ConstRefState new_state) override;
+                    MstState new_state) override;
 
     // ----------------------------| end override |-----------------------------
 
@@ -75,14 +75,15 @@ namespace iroha {
      * signatures and ready to move forward
      * @param state with those batches
      */
-    void completedBatchesNotify(ConstRefState state) const;
+    void completedBatchesNotify(
+        std::vector<std::shared_ptr<MovedBatch>> completed) const;
 
     /**
      * Notify subscribers when some of the batches received new signatures, but
      * still are not completed
      * @param state with those batches
      */
-    void updatedBatchesNotify(ConstRefState state) const;
+    void updatedBatchesNotify(std::shared_ptr<const MstState> state) const;
 
     /**
      * Notify subscribers when some of the bathes get expired
@@ -99,10 +100,10 @@ namespace iroha {
     // rx subjects
 
     /// use for share new states from other peers
-    rxcpp::subjects::subject<std::shared_ptr<MstState>> state_subject_;
+    rxcpp::subjects::subject<std::shared_ptr<const MstState>> state_subject_;
 
     /// use for share completed batches
-    rxcpp::subjects::subject<DataType> batches_subject_;
+    rxcpp::subjects::subject<std::shared_ptr<MovedBatch>> batches_subject_;
 
     /// use for share expired batches
     rxcpp::subjects::subject<DataType> expired_subject_;

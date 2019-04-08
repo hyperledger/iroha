@@ -29,6 +29,8 @@ using ::testing::_;
 using ::testing::A;
 using ::testing::Invoke;
 
+using StorageLimitDummy = iroha::StorageLimitNone<iroha::BatchPtr>;
+
 class TransportTest : public ::testing::Test {
  public:
   TransportTest()
@@ -59,7 +61,6 @@ class TransportTest : public ::testing::Test {
   std::shared_ptr<iroha::DefaultCompleter> completer_;
   std::shared_ptr<iroha::MockMstTransportNotification>
       mst_notification_transport_;
-  size_t mst_state_txs_limit_{10};
 };
 
 static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
@@ -110,7 +111,7 @@ TEST_F(TransportTest, SendAndReceive) {
                                          std::move(batch_factory_),
                                          std::move(tx_presence_cache_),
                                          completer_,
-                                         mst_state_txs_limit_,
+                                         std::make_shared<StorageLimitDummy>(),
                                          my_key_.publicKey(),
                                          getTestLogger("MstState"),
                                          getTestLogger("MstTransportGrpc"));
@@ -120,8 +121,9 @@ TEST_F(TransportTest, SendAndReceive) {
   std::condition_variable cv;
 
   auto time = iroha::time::now();
-  auto state = iroha::MstState::empty(
-      completer_, mst_state_txs_limit_, getTestLogger("MstState"));
+  auto state = iroha::MstState::empty(completer_,
+                                      std::make_shared<StorageLimitDummy>(),
+                                      getTestLogger("MstState"));
   state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time)), 0, makeKey());
   state += addSignaturesFromKeyPairs(
@@ -152,7 +154,7 @@ TEST_F(TransportTest, SendAndReceive) {
   std::shared_ptr<shared_model::interface::Peer> peer = makePeer(address, pk);
   // we want to ensure that server side will call onNewState()
   // with same parameters as on the client side
-  EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
+  EXPECT_CALL(*mst_notification_transport_, onNewStateMock(_, _))
       .WillOnce(Invoke(
           [this, &cv, &state](const auto &from_key, auto const &target_state) {
             EXPECT_EQ(this->my_key_.publicKey(), from_key);
@@ -200,7 +202,7 @@ TEST_F(TransportTest, ReplayAttack) {
                                          std::move(batch_factory_),
                                          tx_presence_cache_,
                                          completer_,
-                                         mst_state_txs_limit_,
+                                         std::make_shared<StorageLimitDummy>(),
                                          my_key_.publicKey(),
                                          getTestLogger("MstState"),
                                          getTestLogger("MstTransportGrpc"));
@@ -208,12 +210,13 @@ TEST_F(TransportTest, ReplayAttack) {
   transport->subscribe(mst_notification_transport_);
 
   auto batch = makeTestBatch(txBuilder(1), txBuilder(2));
-  auto state = iroha::MstState::empty(
-      completer_, mst_state_txs_limit_, getTestLogger("MstState"));
+  auto state = iroha::MstState::empty(completer_,
+                                      std::make_shared<StorageLimitDummy>(),
+                                      getTestLogger("MstState"));
   state += addSignaturesFromKeyPairs(
       addSignaturesFromKeyPairs(batch, 0, makeKey()), 1, makeKey());
 
-  EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
+  EXPECT_CALL(*mst_notification_transport_, onNewStateMock(_, _))
       .Times(1)  // an empty state should not be propagated
       .WillOnce(
           Invoke([&batch](::testing::Unused, const iroha::MstState &state) {

@@ -15,6 +15,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
+#include "storage_shared_limit/storage_limit_none.hpp"
 
 auto log_ = getTestLogger("MstProcessorTest");
 
@@ -23,6 +24,8 @@ using namespace framework::test_subscriber;
 
 using testing::_;
 using testing::Return;
+
+using StorageLimitDummy = StorageLimitNone<BatchPtr>;
 
 class MstProcessorTest : public testing::Test {
  public:
@@ -34,7 +37,6 @@ class MstProcessorTest : public testing::Test {
   /// use effective implementation of storage
   std::shared_ptr<MstStorage> storage;
   std::shared_ptr<FairMstProcessor> mst_processor;
-  size_t mst_state_txs_limit{10};
 
   // ---------------------------------| mocks |---------------------------------
 
@@ -50,11 +52,11 @@ class MstProcessorTest : public testing::Test {
  protected:
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
-    storage =
-        std::make_shared<MstStorageStateImpl>(std::make_shared<TestCompleter>(),
-                                              mst_state_txs_limit,
-                                              getTestLogger("MstState"),
-                                              getTestLogger("MstStorage"));
+    storage = std::make_shared<MstStorageStateImpl>(
+        std::make_shared<TestCompleter>(),
+        std::make_shared<StorageLimitDummy>(),
+        getTestLogger("MstState"),
+        getTestLogger("MstStorage"));
 
     propagation_strategy = std::make_shared<MockPropagationStrategy>();
     EXPECT_CALL(*propagation_strategy, emitter())
@@ -256,12 +258,13 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
 
   // ---------------------------------| when |----------------------------------
   shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  auto transported_state = MstState::empty(std::make_shared<TestCompleter>(),
-                                           mst_state_txs_limit,
-                                           getTestLogger("MstState"));
+  auto transported_state =
+      MstState::empty(std::make_shared<TestCompleter>(),
+                      std::make_shared<StorageLimitDummy>(),
+                      getTestLogger("MstState"));
   transported_state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key, transported_state);
+  mst_processor->onNewState(another_peer_key, std::move(transported_state));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -310,7 +313,7 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
 
   auto another_peer_state = MstState::empty(
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)),
-      mst_state_txs_limit,
+      std::make_shared<StorageLimitDummy>(),
       getTestLogger("MstState"));
   another_peer_state += makeTestBatch(txBuilder(1));
 
@@ -322,36 +325,4 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
       another_peer};
   propagation_subject.get_subscriber().on_next(peers);
-}
-
-/**
- * @given initialised mst processor with 10 as transactions limit
- *
- * @when two batches of 6 transactions are propagated via mst processor
- *
- * @then only one batch is accepted due to a limit of transactions
- */
-TEST_F(MstProcessorTest, MstRespectsTransactionsLimit) {
-  auto batch1 =
-      addSignaturesFromKeyPairs(makeTestBatch(txBuilder(1, time_now),
-                                              txBuilder(1, time_now + 1),
-                                              txBuilder(1, time_now + 2),
-                                              txBuilder(1, time_now + 3),
-                                              txBuilder(1, time_now + 4),
-                                              txBuilder(1, time_now + 5)),
-                                0,
-                                makeKey());
-
-  auto batch2 =
-      addSignaturesFromKeyPairs(makeTestBatch(txBuilder(1, time_now + 6),
-                                              txBuilder(1, time_now + 7),
-                                              txBuilder(1, time_now + 8),
-                                              txBuilder(1, time_now + 9),
-                                              txBuilder(1, time_now + 10),
-                                              txBuilder(1, time_now + 11)),
-                                0,
-                                makeKey());
-
-  ASSERT_TRUE(mst_processor->propagateBatch(batch1));
-  ASSERT_FALSE(mst_processor->propagateBatch(batch2));
 }

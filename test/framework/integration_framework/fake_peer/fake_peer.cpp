@@ -37,8 +37,6 @@
 using namespace shared_model::crypto;
 using namespace framework::expected;
 
-static constexpr size_t kMstStateTxLimit = 100;
-
 static std::shared_ptr<shared_model::interface::Peer> createPeer(
     const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
         &common_objects_factory,
@@ -109,7 +107,8 @@ namespace integration_framework {
               tx_presence_cache,
               std::make_shared<iroha::DefaultCompleter>(
                   std::chrono::minutes(0)),
-              kMstStateTxLimit,
+              std::make_shared<iroha::StorageLimitNone<std::shared_ptr<
+                  shared_model::interface::TransactionBatch>>>(),
               keypair_->publicKey(),
               mst_log_manager_->getChild("State")->getLogger(),
               mst_log_manager_->getChild("Transport")->getLogger())),

@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "interfaces/common_objects/types.hpp"
+#include "storage_shared_limit/moved_item.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -21,6 +22,7 @@ namespace shared_model {
 namespace iroha {
 
   using BatchPtr = std::shared_ptr<shared_model::interface::TransactionBatch>;
+  using MovedBatch = MovedItem<BatchPtr>;
   using ConstPeer = const shared_model::interface::Peer;
   using TimeType = shared_model::interface::types::TimestampType;
   using TxResponse =
@@ -38,20 +40,6 @@ namespace iroha {
   using ConstRefState = ConstRefT<MstState>;
 
   using DataType = BatchPtr;
-
-  /**
-   * Contains result of updating local state:
-   *   - state with completed batches
-   *   - state with updated (still not enough signatures) batches
-   */
-  struct StateUpdateResult {
-    StateUpdateResult(std::shared_ptr<MstState> completed_state,
-                      std::shared_ptr<MstState> updated_state)
-        : completed_state_{std::move(completed_state)},
-          updated_state_{std::move(updated_state)} {}
-    std::shared_ptr<MstState> completed_state_;
-    std::shared_ptr<MstState> updated_state_;
-  };
 }  // namespace iroha
 
 #endif  // IROHA_MST_TYPES_HPP

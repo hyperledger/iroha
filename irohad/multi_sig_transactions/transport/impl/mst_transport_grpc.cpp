@@ -35,7 +35,7 @@ MstTransportGrpc::MstTransportGrpc(
         transaction_batch_factory,
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
     std::shared_ptr<Completer> mst_completer,
-    size_t transaction_limit,
+    std::shared_ptr<StorageLimit<BatchPtr>> mst_storage_limit,
     shared_model::crypto::PublicKey my_key,
     logger::LoggerPtr mst_state_logger,
     logger::LoggerPtr log)
@@ -45,7 +45,7 @@ MstTransportGrpc::MstTransportGrpc(
       batch_factory_(std::move(transaction_batch_factory)),
       tx_presence_cache_(std::move(tx_presence_cache)),
       mst_completer_(std::move(mst_completer)),
-      mst_state_txs_limit_(transaction_limit),
+      mst_storage_limit_(mst_storage_limit),
       my_key_(shared_model::crypto::toBinaryString(my_key)),
       mst_state_logger_(std::move(mst_state_logger)),
       log_(std::move(log)) {}
@@ -90,7 +90,7 @@ grpc::Status MstTransportGrpc::SendState(
   auto batches = batch_parser_->parseBatches(transactions);
 
   MstState new_state =
-      MstState::empty(mst_completer_, mst_state_txs_limit_, mst_state_logger_);
+      MstState::empty(mst_completer_, mst_storage_limit_, mst_state_logger_);
 
   for (auto &batch : batches) {
     batch_factory_->createTransactionBatch(batch).match(

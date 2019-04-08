@@ -10,6 +10,7 @@
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
+#include "storage_shared_limit/storage_limit.hpp"
 
 namespace iroha {
   class MstStorageStateImpl : public MstStorage {
@@ -33,7 +34,7 @@ namespace iroha {
      * @param log - the logger to use in the new object
      */
     MstStorageStateImpl(const CompleterType &completer,
-                        size_t transaction_limit,
+                        std::shared_ptr<StorageLimit<BatchPtr>> storage_limit,
                         logger::LoggerPtr mst_state_logger,
                         logger::LoggerPtr log);
 
@@ -61,7 +62,7 @@ namespace iroha {
     // ---------------------------| private fields |----------------------------
 
     const CompleterType completer_;
-    size_t txs_limit_;
+    std::shared_ptr<StorageLimit<BatchPtr>> storage_limit_;
     std::unordered_map<shared_model::crypto::PublicKey,
                        MstState,
                        iroha::model::BlobHasher>

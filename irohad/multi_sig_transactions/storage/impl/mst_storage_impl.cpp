@@ -13,22 +13,25 @@ namespace iroha {
     auto target_state_iter = peer_states_.find(target_peer_key);
     if (target_state_iter == peer_states_.end()) {
       return peer_states_
-          .insert({target_peer_key,
-                   MstState::empty(completer_, txs_limit_, mst_state_logger_)})
+          .emplace(
+              target_peer_key,
+              MstState::empty(completer_, storage_limit_, mst_state_logger_))
           .first;
     }
     return target_state_iter;
   }
   // -----------------------------| interface API |-----------------------------
 
-  MstStorageStateImpl::MstStorageStateImpl(const CompleterType &completer,
-                                           size_t transaction_limit,
-                                           logger::LoggerPtr mst_state_logger,
-                                           logger::LoggerPtr log)
+  MstStorageStateImpl::MstStorageStateImpl(
+      const CompleterType &completer,
+      std::shared_ptr<StorageLimit<BatchPtr>> storage_limit,
+      logger::LoggerPtr mst_state_logger,
+      logger::LoggerPtr log)
       : MstStorage(log),
         completer_(completer),
-        txs_limit_(transaction_limit),
-        own_state_(MstState::empty(completer_, txs_limit_, mst_state_logger)),
+        storage_limit_(std::move(storage_limit)),
+        own_state_(
+            MstState::empty(completer_, storage_limit_, mst_state_logger)),
         mst_state_logger_(std::move(mst_state_logger)) {}
 
   auto MstStorageStateImpl::applyImpl(

@@ -22,6 +22,10 @@
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
+#include "storage_shared_limit/limitable_storage.hpp"
+#include "storage_shared_limit/limited_storage.hpp"
+#include "storage_shared_limit/storage_limit.hpp"
+#include "storage_shared_limit/storage_limit_none.hpp"
 
 namespace iroha {
 
@@ -86,9 +90,15 @@ namespace iroha {
 
   using CompleterType = std::shared_ptr<const Completer>;
 
+  struct StateUpdateResult;
+
   class MstState {
    public:
     // -----------------------------| public api |------------------------------
+
+    using BatchStorageLimit = StorageLimit<BatchPtr>;
+
+    MstState(MstState &&other);
 
     /**
      * Create empty state
@@ -98,7 +108,7 @@ namespace iroha {
      * @return empty mst state
      */
     static MstState empty(const CompleterType &completer,
-                          size_t transaction_limit,
+                          std::shared_ptr<BatchStorageLimit> storage_limit,
                           logger::LoggerPtr log);
 
     /**
@@ -167,18 +177,21 @@ namespace iroha {
     /// Apply visitor to all batches.
     template <typename Visitor>
     inline void iterateBatches(const Visitor &visitor) const {
-      const auto batches_range = batches_.right | boost::adaptors::map_keys;
-      std::for_each(batches_range.begin(), batches_range.end(), visitor);
+      batches_.access([&visitor](const auto &storage) {
+        const auto batches_range =
+            storage.batches.right | boost::adaptors::map_keys;
+        std::for_each(batches_range.begin(), batches_range.end(), visitor);
+      });
     }
 
     /// Apply visitor to all transactions.
     template <typename Visitor>
     inline void iterateTransactions(const Visitor &visitor) const {
-      for (const auto &batch : batches_.right | boost::adaptors::map_keys) {
+      iterateBatches([&visitor](const BatchPtr &batch) {
         std::for_each(batch->transactions().begin(),
                       batch->transactions().end(),
                       visitor);
-      }
+      });
     }
 
    private:
@@ -195,11 +208,11 @@ namespace iroha {
                                         BatchHashEquality>>;
 
     MstState(const CompleterType &completer,
-             size_t transaction_limit,
+             std::shared_ptr<BatchStorageLimit> storage_limit,
              logger::LoggerPtr log);
 
     MstState(const CompleterType &completer,
-             size_t transaction_limit,
+             std::shared_ptr<BatchStorageLimit> storage_limit,
              const BatchesForwardCollectionType &batches,
              logger::LoggerPtr log);
 
@@ -214,8 +227,9 @@ namespace iroha {
     /**
      * Insert new value in state with keeping invariant
      * @param rhs_tx - data for insertion
+     * @return whether the batch was inserted
      */
-    void rawInsert(const DataType &rhs_tx);
+    bool rawInsert(const DataType &rhs_tx);
 
     /**
      * Erase expired batches, optionally returning them.
@@ -229,12 +243,35 @@ namespace iroha {
 
     CompleterType completer_;
 
-    BatchesBimap batches_;
+    struct InternalStorage : public LimitableStorage<BatchPtr> {
+      bool insert(BatchPtr batch) override;
 
-    size_t txs_limit_;
+      BatchesBimap batches;
+    };
+
+    LimitedStorage<InternalStorage> batches_;
+
     size_t txs_quantity_{0};
 
     logger::LoggerPtr log_;
+  };
+
+  /**
+   * Contains result of updating local state:
+   *   - state with completed batches
+   *   - state with updated (still not enough signatures) batches
+   */
+  struct StateUpdateResult {
+    StateUpdateResult(std::shared_ptr<const Completer> completer,
+                      logger::LoggerPtr log)
+        : updated_state_(std::make_shared<MstState>(MstState::empty(
+              std::move(completer),
+              std::make_shared<iroha::StorageLimitNone<BatchPtr>>(),
+              std::move(log)))) {}
+
+    std::vector<std::shared_ptr<MovedBatch>> completed_state_;
+
+    std::shared_ptr<MstState> updated_state_;
   };
 
 }  // namespace iroha

@@ -9,11 +9,13 @@
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
+#include "storage_shared_limit/storage_limit_none.hpp"
 
 using namespace iroha;
 
+using StorageLimitDummy = iroha::StorageLimitNone<iroha::BatchPtr>;
+
 auto log_ = getTestLogger("MstStorageTest");
-constexpr size_t kMstStateTxLimit{10};
 
 class StorageTest : public testing::Test {
  public:
@@ -23,7 +25,7 @@ class StorageTest : public testing::Test {
     completer_ = std::make_shared<TestCompleter>();
     storage = std::make_shared<MstStorageStateImpl>(
         completer_,
-        std::make_shared<iroha::StorageLimit>(kMstStateTxLimit),
+        std::make_shared<StorageLimitDummy>(),
         getTestLogger("MstState"),
         getTestLogger("MstStorage"));
     fillOwnState();
@@ -49,8 +51,9 @@ TEST_F(StorageTest, StorageWhenApplyOtherState) {
       "create state with default peers and other state => "
       "apply state");
 
-  auto new_state =
-      MstState::empty(completer_, kMstStateTxLimit, getTestLogger("MstState"));
+  auto new_state = MstState::empty(completer_,
+                                   std::make_shared<StorageLimitDummy>(),
+                                   getTestLogger("MstState"));
   new_state += makeTestBatch(txBuilder(5, creation_time));
   new_state += makeTestBatch(txBuilder(6, creation_time));
   new_state += makeTestBatch(txBuilder(7, creation_time));

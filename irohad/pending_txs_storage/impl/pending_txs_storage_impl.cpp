@@ -7,20 +7,21 @@
 
 #include "interfaces/transaction.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
+#include "storage_shared_limit/moved_item.hpp"
 
 namespace iroha {
 
   PendingTransactionStorageImpl::PendingTransactionStorageImpl(
       StateObservable updated_batches,
-      BatchObservable prepared_batch,
+      rxcpp::observable<std::shared_ptr<MovedBatch>> prepared_batch,
       BatchObservable expired_batch) {
     updated_batches_subscription_ =
         updated_batches.subscribe([this](const SharedState &batches) {
           this->updatedBatchesHandler(batches);
         });
     prepared_batch_subscription_ =
-        prepared_batch.subscribe([this](const SharedBatch &preparedBatch) {
-          this->removeBatch(preparedBatch);
+        prepared_batch.subscribe([this](const auto &preparedBatch) {
+          this->removeBatch(preparedBatch->get());
         });
     expired_batch_subscription_ =
         expired_batch.subscribe([this](const SharedBatch &expiredBatch) {

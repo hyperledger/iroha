@@ -127,9 +127,10 @@ class TransactionProcessorTest : public ::testing::Test {
     }
   }
 
-  rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
+  rxcpp::subjects::subject<std::shared_ptr<const iroha::MstState>>
       mst_update_notifier;
-  rxcpp::subjects::subject<iroha::DataType> mst_prepared_notifier;
+  rxcpp::subjects::subject<std::shared_ptr<iroha::MovedBatch>>
+      mst_prepared_notifier;
   rxcpp::subjects::subject<iroha::DataType> mst_expired_notifier;
   rxcpp::subjects::subject<
       std::shared_ptr<const shared_model::interface::Block>>
@@ -443,23 +444,6 @@ TEST_F(TransactionProcessorTest, MultisigTransactionToMst) {
 
   EXPECT_CALL(*mst, propagateBatchImpl(_)).Times(1);
   tp->batchHandle(std::move(after_mst));
-}
-
-/**
- * @given batch one transaction with quorum 2
- * AND one signature
- * @when MST emits the batch
- * @then checks that PCS is invoked.
- * This happens because tx processor is subscribed for MST
- */
-TEST_F(TransactionProcessorTest, MultisigTransactionFromMst) {
-  auto &&tx = addSignaturesFromKeyPairs(baseTestTx(2), makeKey(), makeKey());
-
-  auto &&after_mst = framework::batch::createBatchFromSingleTransaction(
-      std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
-
-  EXPECT_CALL(*pcs, propagate_batch(_)).Times(1);
-  mst_prepared_notifier.get_subscriber().on_next(after_mst);
 }
 
 /**

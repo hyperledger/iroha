@@ -12,6 +12,9 @@
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
 #include "network/peer_communication_service.hpp"
+#include "storage_shared_limit/limitable_storage.hpp"
+#include "storage_shared_limit/limited_storage.hpp"
+#include "storage_shared_limit/storage_limit.hpp"
 
 namespace iroha {
 
@@ -19,19 +22,28 @@ namespace iroha {
    public:
     MstToPcsPropagation(
         std::shared_ptr<iroha::network::PeerCommunicationService> pcs,
+        std::shared_ptr<StorageLimit<BatchPtr>> storage_limit,
         rxcpp::observable<size_t> propagation_available,
         logger::LoggerPtr log);
 
-    void notifyCompletedBatch(BatchPtr batch);
-
     virtual ~MstToPcsPropagation();
+
+    void notifyCompletedBatch(std::shared_ptr<MovedBatch> batch);
+
+    size_t pendingBatchesQuantity() const;
 
    private:
     logger::LoggerPtr log_;
     std::shared_ptr<iroha::network::PeerCommunicationService> pcs_;
 
-    // Batches not yet accepted by PCS in the order they were added.
-    std::list<DataType> pending_batches_;
+    struct InternalStorage : public LimitableStorage<BatchPtr> {
+      bool insert(BatchPtr batch) override;
+
+      // Batches not yet accepted by PCS in the order they were added.
+      std::list<DataType> pending_batches;
+    };
+
+    LimitedStorage<InternalStorage> pending_batches_;
 
     rxcpp::composite_subscription propagation_available_subscription_;
   };

@@ -376,7 +376,7 @@ namespace integration_framework {
      */
     IntegrationTestFramework &skipBlock();
 
-    rxcpp::observable<std::shared_ptr<iroha::MstState>>
+    rxcpp::observable<std::shared_ptr<const iroha::MstState>>
     getMstStateUpdateObservable();
 
     rxcpp::observable<iroha::BatchPtr> getMstPreparedBatchesObservable();

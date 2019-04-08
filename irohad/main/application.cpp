@@ -31,6 +31,7 @@
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
 #include "multi_sig_transactions/mst_time_provider_impl.hpp"
+#include "multi_sig_transactions/propagation_to_pcs.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
@@ -40,6 +41,7 @@
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 #include "simulator/impl/simulator.hpp"
+#include "storage_shared_limit/batch_storage_limit_by_txs.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
 #include "torii/impl/command_service_transport_grpc.hpp"
@@ -122,6 +124,7 @@ Irohad::Irohad(const std::string &block_store_dir,
 Irohad::~Irohad() {
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
+  mst_to_pcs_propagation_subscription.unsubscribe();
 }
 
 /**
@@ -554,9 +557,11 @@ void Irohad::initMstProcessor() {
       log_manager_->getChild("MultiSignatureTransactions");
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
+  auto mst_storage_limit =
+      std::make_shared<iroha::BatchStorageLimitByTxs>(mst_state_txs_limit_);
   auto mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
-      mst_state_txs_limit_,
+      mst_storage_limit,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
@@ -568,7 +573,7 @@ void Irohad::initMstProcessor() {
         transaction_batch_factory_,
         persistent_cache,
         mst_completer,
-        mst_state_txs_limit_,
+        mst_storage_limit,
         keypair.publicKey(),
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger());
@@ -588,6 +593,17 @@ void Irohad::initMstProcessor() {
       mst_logger_manager->getChild("Processor")->getLogger());
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
+
+  mst_to_pcs_propagation_subscription =
+      mst_processor->onPreparedBatches().subscribe(
+          [propagator = std::make_shared<iroha::MstToPcsPropagation>(
+               pcs,
+               mst_storage_limit,
+               ordering_gate->onReadyToAcceptTxs(),
+               mst_logger_manager->getChild("PropagationToPcs")->getLogger())](
+              auto batch) {
+            propagator->notifyCompletedBatch(std::move(batch));
+          });
   log_->info("[Init] => MST processor");
 }
 
