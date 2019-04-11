@@ -31,6 +31,8 @@ namespace iroha {
     class PeerQuery;
   }  // namespace ametsuchi
 
+  struct LedgerState;
+
   namespace validation {
     class ChainValidatorImpl : public ChainValidator {
      public:
@@ -49,6 +51,11 @@ namespace iroha {
           const shared_model::interface::Block &block,
           const shared_model::interface::types::HashType &top_hash) const;
 
+      /// Verifies whether block height directly follows top height
+      bool validateHeight(
+          const shared_model::interface::Block &block,
+          const shared_model::interface::types::HeightType &top_height) const;
+
       /// Verifies whether the block is signed by supermajority of peers
       bool validatePeerSupermajority(
           const shared_model::interface::Block &block,
@@ -61,9 +68,7 @@ namespace iroha {
        */
       bool validateBlock(
           std::shared_ptr<const shared_model::interface::Block> block,
-          // TODO 30.01.2019 lebdron: IR-265 Remove PeerQueryFactory
-          ametsuchi::PeerQuery &queries,
-          const shared_model::interface::types::HashType &top_hash) const;
+          const iroha::LedgerState &ledger_state) const;
 
       /**
        * Provide functions to check supermajority

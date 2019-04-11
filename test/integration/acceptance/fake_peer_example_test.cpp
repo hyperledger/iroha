@@ -158,7 +158,7 @@ TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
                                ->getBlockQuery()
                                ->getBlocksFrom(1)) {
     valid_block_storage->storeBlock(
-        std::static_pointer_cast<shared_model::proto::Block>(block));
+        std::static_pointer_cast<const shared_model::proto::Block>(block));
   }
 
   // From now the itf peer is considered unreachable from the rest network. //

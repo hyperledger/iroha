@@ -32,7 +32,6 @@ class ChainValidationTest : public ::testing::Test {
     validator = std::make_shared<ChainValidatorImpl>(
         supermajority_checker, getTestLogger("ChainValidato"));
     storage = std::make_shared<MockMutableStorage>();
-    query = std::make_shared<MockPeerQuery>();
     peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
     auto peer = std::make_shared<MockPeer>();
@@ -47,7 +46,7 @@ class ChainValidationTest : public ::testing::Test {
             shared_model::interface::types::PubkeyType(std::string(32, '0'))));
     signatures.push_back(signature);
 
-    EXPECT_CALL(*block, height()).WillRepeatedly(Return(1));
+    EXPECT_CALL(*block, height()).WillRepeatedly(Return(height));
     EXPECT_CALL(*block, prevHash()).WillRepeatedly(testing::ReturnRef(hash));
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(Return(signatures | boost::adaptors::indirected));
@@ -63,11 +62,12 @@ class ChainValidationTest : public ::testing::Test {
           std::make_shared<iroha::consensus::yac::MockSupermajorityChecker>();
   std::shared_ptr<ChainValidatorImpl> validator;
   std::shared_ptr<MockMutableStorage> storage;
-  std::shared_ptr<MockPeerQuery> query;
 
   std::vector<std::shared_ptr<shared_model::interface::Signature>> signatures;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
   shared_model::crypto::Hash hash = shared_model::crypto::Hash("valid hash");
+  shared_model::interface::types::HeightType prev_height = 1;
+  shared_model::interface::types::HeightType height = prev_height + 1;
   std::shared_ptr<MockBlock> block = std::make_shared<MockBlock>();
   rxcpp::observable<std::shared_ptr<shared_model::interface::Block>> blocks =
       rxcpp::observable<>::just(
@@ -85,10 +85,9 @@ TEST_F(ChainValidationTest, ValidCase) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(true)));
 
-  EXPECT_CALL(*query, getLedgerPeers()).WillOnce(Return(peers));
-
   EXPECT_CALL(*storage, apply(blocks, _))
-      .WillOnce(InvokeArgument<1>(block, ByRef(*query), ByRef(hash)));
+      .WillOnce(
+          InvokeArgument<1>(block, LedgerState{peers, prev_height, hash}));
 
   ASSERT_TRUE(validator->validateAndApply(blocks, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);
@@ -104,13 +103,12 @@ TEST_F(ChainValidationTest, FailWhenDifferentPrevHash) {
   shared_model::crypto::Hash another_hash =
       shared_model::crypto::Hash(std::string(32, '1'));
 
-  ON_CALL(*supermajority_checker, hasSupermajority(_, _))
-      .WillByDefault(Return(true));
-
-  EXPECT_CALL(*query, getLedgerPeers()).WillOnce(Return(peers));
+  EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
+      .WillRepeatedly(Return(true));
 
   EXPECT_CALL(*storage, apply(blocks, _))
-      .WillOnce(InvokeArgument<1>(block, ByRef(*query), ByRef(another_hash)));
+      .WillOnce(InvokeArgument<1>(
+          block, LedgerState{peers, prev_height, another_hash}));
 
   ASSERT_FALSE(validator->validateAndApply(blocks, *storage));
 }
@@ -126,10 +124,9 @@ TEST_F(ChainValidationTest, FailWhenNoSupermajority) {
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillOnce(DoAll(SaveArg<0>(&block_signatures_amount), Return(false)));
 
-  EXPECT_CALL(*query, getLedgerPeers()).WillOnce(Return(peers));
-
   EXPECT_CALL(*storage, apply(blocks, _))
-      .WillOnce(InvokeArgument<1>(block, ByRef(*query), ByRef(hash)));
+      .WillOnce(
+          InvokeArgument<1>(block, LedgerState{peers, prev_height, hash}));
 
   ASSERT_FALSE(validator->validateAndApply(blocks, *storage));
   ASSERT_EQ(boost::size(block->signatures()), block_signatures_amount);

@@ -93,9 +93,8 @@ namespace iroha {
           return boost::none;
         }
 
-        last_block = boost::get<expected::Value<
-            std::shared_ptr<shared_model::interface::Block>>>(&block_var)
-                         ->value;
+        last_block =
+            boost::get<decltype(block_var)::ValueType>(&block_var)->value;
       } else {
         log_->error("could not create block query");
         return boost::none;

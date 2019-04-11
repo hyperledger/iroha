@@ -9,8 +9,8 @@
 #include <memory>
 
 #include <boost/optional.hpp>
+#include "ametsuchi/commit_status.hpp"
 #include "common/result.hpp"
-#include "ametsuchi/ledger_state.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -38,9 +38,9 @@ namespace iroha {
        * This transforms Ametsuchi to the new state consistent with
        * MutableStorage.
        * @param mutableStorage
-       * @return new state of the ledger, boost::none if commit failed
+       * @return the status of commit
        */
-      virtual boost::optional<std::unique_ptr<LedgerState>> commit(
+      virtual CommitStatus commit(
           std::unique_ptr<MutableStorage> mutableStorage) = 0;
 
       /**

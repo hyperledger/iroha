@@ -55,8 +55,7 @@ namespace iroha {
           });
     }
 
-    boost::optional<std::unique_ptr<LedgerState>>
-    SynchronizerImpl::downloadMissingBlocks(
+    ametsuchi::CommitStatus SynchronizerImpl::downloadAndCommitMissingBlocks(
         const shared_model::interface::types::HeightType start_height,
         const shared_model::interface::types::HeightType target_height,
         const PublicKeysRange &public_keys) {
@@ -66,7 +65,7 @@ namespace iroha {
         for (const auto &public_key : public_keys) {
           auto storage = getStorage().value_or(nullptr);
           if (not storage) {
-            return boost::none;
+            return iroha::expected::makeError("Could not get mutable storage.");
           }
 
           shared_model::interface::types::HeightType my_height = start_height;
@@ -82,7 +81,6 @@ namespace iroha {
           }
         }
       }
-      return boost::none;
     }
 
     boost::optional<std::unique_ptr<ametsuchi::MutableStorage>>
@@ -116,15 +114,20 @@ namespace iroha {
         std::unique_ptr<ametsuchi::MutableStorage> storage =
             std::move(opt_storage.value());
         if (storage->apply(msg.block)) {
-          ledger_state = mutable_factory_->commit(std::move(storage));
-          if (ledger_state) {
-            notifier_.get_subscriber().on_next(
-                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     msg.round,
-                                     std::move(*ledger_state)});
-          } else {
-            log_->error("failed to commit mutable storage");
-          }
+          mutable_factory_->commit(std::move(storage))
+              .match(
+                  // TODO make it auto after #2226
+                  [this, &msg](ametsuchi::CommitStatus::ValueType &value) {
+                    auto &ledger_state = value.value;
+                    notifier_.get_subscriber().on_next(SynchronizationEvent{
+                        SynchronizationOutcomeType::kCommit,
+                        msg.round,
+                        std::move(ledger_state)});
+                  },
+                  [this](const ametsuchi::CommitStatus::ErrorType &error) {
+                    log_->error("Failed to commit mutable storage: {}",
+                                error.error);
+                  });
         } else {
           log_->warn("Block was not committed due to fail in mutable storage");
         }
@@ -175,28 +178,28 @@ namespace iroha {
 
       assert(height_diff > 0);
 
-      auto ledger_state = downloadMissingBlocks(
+      auto commit_result = downloadAndCommitMissingBlocks(
           *top_block_height, required_height, msg.public_keys);
 
-      shared_model::interface::types::HeightType new_height;
-      // TODO 11.04.2019 mboldyrev IR-442 use storage commit status type
-      BOOST_ASSERT_MSG(ledger_state, "Commit failed!");
-      if (ledger_state) {
-        new_height = (*ledger_state)->height;
-      } else {
-        log_->critical(
-            "Synchronization cancelled because "
-            "downloaded blocks commit failed!");
-        return;
-      }
-
-      const bool higher_than_expected = new_height > required_height;
-      notifier_.get_subscriber().on_next(SynchronizationEvent{
-          higher_than_expected ? SynchronizationOutcomeType::kCommit
-                               : alternative_outcome,
-          higher_than_expected ? consensus::Round{new_height, 0} : msg.round,
-          ledger_state ? std::move(*ledger_state)
-                       : std::unique_ptr<LedgerState>{}});
+      commit_result.match(
+          // TODO make it auto after #2226
+          [this, required_height, alternative_outcome, &msg](
+              ametsuchi::CommitStatus::ValueType &value) {
+            auto &ledger_state = value.value;
+            assert(ledger_state);
+            shared_model::interface::types::HeightType new_height =
+                ledger_state->height;
+            const bool higher_than_expected = new_height > required_height;
+            notifier_.get_subscriber().on_next(SynchronizationEvent{
+                higher_than_expected ? SynchronizationOutcomeType::kCommit
+                                     : alternative_outcome,
+                higher_than_expected ? consensus::Round{new_height, 0}
+                                     : msg.round,
+                std::move(ledger_state)});
+          },
+          [this](const ametsuchi::CommitStatus::ErrorType &error) {
+            log_->error("Synchronization failed: {}", error.error);
+          });
     }
 
     rxcpp::observable<SynchronizationEvent>

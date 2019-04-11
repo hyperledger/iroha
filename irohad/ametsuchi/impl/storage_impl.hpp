@@ -17,6 +17,7 @@
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -92,7 +93,7 @@ namespace iroha {
        * @return true if inserted
        */
       bool insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
+          const shared_model::interface::types::SharedBlocksForwardRange
               &blocks) override;
 
       void reset() override;
@@ -101,7 +102,7 @@ namespace iroha {
 
       void freeConnections() override;
 
-      boost::optional<std::unique_ptr<LedgerState>> commit(
+      CommitStatus commit(
           std::unique_ptr<MutableStorage> mutable_storage) override;
 
       boost::optional<std::unique_ptr<LedgerState>> commitPrepared(

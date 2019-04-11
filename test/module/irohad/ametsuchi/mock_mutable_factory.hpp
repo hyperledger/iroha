@@ -19,7 +19,7 @@ namespace iroha {
           createMutableStorage,
           expected::Result<std::unique_ptr<MutableStorage>, std::string>(void));
 
-      boost::optional<std::unique_ptr<LedgerState>> commit(
+      CommitStatus commit(
           std::unique_ptr<MutableStorage> mutableStorage) override {
         // gmock workaround for non-copyable parameters
         return commit_(mutableStorage);
@@ -28,9 +28,7 @@ namespace iroha {
       MOCK_METHOD1(commitPrepared,
                    boost::optional<std::unique_ptr<LedgerState>>(
                        std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(commit_,
-                   boost::optional<std::unique_ptr<LedgerState>>(
-                       std::unique_ptr<MutableStorage> &));
+      MOCK_METHOD1(commit_, CommitStatus(std::unique_ptr<MutableStorage> &));
     };
 
   }  // namespace ametsuchi

@@ -37,7 +37,7 @@ using testing::A;
 using testing::Return;
 
 using wPeer = std::shared_ptr<shared_model::interface::Peer>;
-using wBlock = std::shared_ptr<shared_model::interface::Block>;
+using wBlock = std::shared_ptr<const shared_model::interface::Block>;
 
 class BlockLoaderTest : public testing::Test {
  public:
@@ -281,8 +281,8 @@ TEST_F(BlockLoaderTest, ValidWhenBlockMissing) {
   EXPECT_CALL(*peer_query, getLedgerPeers())
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getBlocksFrom(1))
-      .WillOnce(
-          Return(std::vector<std::shared_ptr<shared_model::interface::Block>>{
+      .WillOnce(Return(
+          std::vector<std::shared_ptr<const shared_model::interface::Block>>{
               prev_block, cur_block}));
 
   auto block = loader->retrieveBlock(peer_key, prev_block->hash());
@@ -308,8 +308,8 @@ TEST_F(BlockLoaderTest, ValidWithEmptyCache) {
   EXPECT_CALL(*peer_query, getLedgerPeers())
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getBlocksFrom(1))
-      .WillOnce(
-          Return(std::vector<std::shared_ptr<shared_model::interface::Block>>{
+      .WillOnce(Return(
+          std::vector<std::shared_ptr<const shared_model::interface::Block>>{
               prev_block, cur_block}));
 
   auto block = loader->retrieveBlock(peer_key, prev_block->hash());
@@ -327,8 +327,9 @@ TEST_F(BlockLoaderTest, NoBlocksInStorage) {
   EXPECT_CALL(*peer_query, getLedgerPeers())
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getBlocksFrom(1))
-      .WillOnce(Return(
-          std::vector<std::shared_ptr<shared_model::interface::Block>>{}));
+      .WillOnce(
+          Return(std::vector<
+                 std::shared_ptr<const shared_model::interface::Block>>{}));
 
   auto block = loader->retrieveBlock(peer_key, kPrevHash);
   ASSERT_FALSE(block);

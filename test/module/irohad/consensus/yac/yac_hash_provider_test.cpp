@@ -41,8 +41,9 @@ TEST(YacHashProviderTest, MakeYacHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
   auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-  auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 1);
+  shared_model::crypto::Hash block_hash("hash");
+  auto ledger_state =
+      std::make_shared<LedgerState>(PeerList{peer}, 1, block_hash);
   auto proposal = std::make_shared<const MockProposal>();
   EXPECT_CALL(*proposal, hash())
       .WillRepeatedly(
@@ -52,8 +53,7 @@ TEST(YacHashProviderTest, MakeYacHashTest) {
       .WillRepeatedly(
           ReturnRefOfCopy(shared_model::crypto::Blob(std::string())));
   EXPECT_CALL(*block, hash())
-      .WillRepeatedly(
-          testing::ReturnRefOfCopy(shared_model::crypto::Hash("hash")));
+      .WillRepeatedly(testing::ReturnRefOfCopy(block_hash));
 
   EXPECT_CALL(*block, signatures())
       .WillRepeatedly(
@@ -78,8 +78,9 @@ TEST(YacHashProviderTest, ToModelHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
   auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-  auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 1);
+  shared_model::crypto::Hash block_hash("hash");
+  auto ledger_state =
+      std::make_shared<LedgerState>(PeerList{peer}, 1, block_hash);
   auto proposal = std::make_shared<MockProposal>();
   EXPECT_CALL(*proposal, hash())
       .WillRepeatedly(
@@ -97,8 +98,7 @@ TEST(YacHashProviderTest, ToModelHashTest) {
                          1, signature()))
                  | boost::adaptors::indirected));
   EXPECT_CALL(*block, hash())
-      .WillRepeatedly(
-          testing::ReturnRefOfCopy(shared_model::crypto::Hash("hash")));
+      .WillRepeatedly(testing::ReturnRefOfCopy(block_hash));
 
   auto yac_hash = hash_provider.makeHash(iroha::simulator::BlockCreatorEvent{
       iroha::simulator::RoundData{proposal, block}, round, ledger_state});

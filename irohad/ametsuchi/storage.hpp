@@ -10,11 +10,13 @@
 
 #include <rxcpp/rx.hpp>
 #include "ametsuchi/block_query_factory.hpp"
+#include "ametsuchi/commit_status.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"
 #include "ametsuchi/query_executor_factory.hpp"
 #include "ametsuchi/temporary_factory.hpp"
 #include "common/result.hpp"
+#include "interfaces/common_objects/range_types.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -57,7 +59,7 @@ namespace iroha {
        * @return true if inserted
        */
       virtual bool insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
+          const shared_model::interface::types::SharedBlocksForwardRange
               &blocks) = 0;
 
       /**

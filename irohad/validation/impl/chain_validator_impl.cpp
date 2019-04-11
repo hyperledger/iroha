@@ -5,6 +5,7 @@
 
 #include "validation/impl/chain_validator_impl.hpp"
 
+#include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/peer_query.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
@@ -29,11 +30,10 @@ namespace iroha {
         ametsuchi::MutableStorage &storage) const {
       log_->info("validate chain...");
 
-      return storage.apply(
-          blocks,
-          [this](auto block, auto &queries, const auto &top_hash) {
-            return this->validateBlock(block, queries, top_hash);
-          });
+      return storage.apply(blocks,
+                           [this](auto block, const auto &ledger_state) {
+                             return this->validateBlock(block, ledger_state);
+                           });
     }
 
     bool ChainValidatorImpl::validatePreviousHash(
@@ -50,6 +50,22 @@ namespace iroha {
       }
 
       return same_prev_hash;
+    }
+
+    bool ChainValidatorImpl::validateHeight(
+        const shared_model::interface::Block &block,
+        const shared_model::interface::types::HeightType &top_height) const {
+      const bool valid_height = block.height() == top_height + 1;
+
+      if (not valid_height) {
+        log_->info(
+            "Block height {} is does not consequently follow the top block "
+            "height {}.",
+            block.height(),
+            top_height);
+      }
+
+      return valid_height;
     }
 
     bool ChainValidatorImpl::validatePeerSupermajority(
@@ -85,20 +101,14 @@ namespace iroha {
 
     bool ChainValidatorImpl::validateBlock(
         std::shared_ptr<const shared_model::interface::Block> block,
-        ametsuchi::PeerQuery &queries,
-        const shared_model::interface::types::HashType &top_hash) const {
-      log_->info("validate block: height {}, hash {}",
+        const iroha::LedgerState &ledger_state) const {
+      log_->debug("validate block: height {}, hash {}",
                  block->height(),
                  block->hash().hex());
 
-      auto peers = queries.getLedgerPeers();
-      if (not peers) {
-        log_->info("Cannot retrieve peers from storage");
-        return false;
-      }
-
-      return validatePreviousHash(*block, top_hash)
-          and validatePeerSupermajority(*block, *peers);
+      return validatePreviousHash(*block, ledger_state.top_hash)
+          and validateHeight(*block, ledger_state.height)
+          and validatePeerSupermajority(*block, ledger_state.ledger_peers);
     }
 
   }  // namespace validation

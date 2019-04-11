@@ -6,6 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_RANGE_TYPES_HPP
 #define IROHA_SHARED_MODEL_RANGE_TYPES_HPP
 
+#include <memory>
+
 #include <boost/range/any_range.hpp>
 #include "interfaces/common_objects/types.hpp"
 
@@ -36,6 +38,10 @@ namespace shared_model {
           boost::any_range<HashType,
                            boost::forward_traversal_tag,
                            const HashType &>;
+      using SharedBlocksForwardRange =
+          boost::any_range<std::shared_ptr<const Block>,
+                           boost::forward_traversal_tag,
+                           const std::shared_ptr<const Block> &>;
 
     }  // namespace types
   }    // namespace interface

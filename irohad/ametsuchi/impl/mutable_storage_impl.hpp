@@ -43,6 +43,7 @@ namespace iroha {
                  MutableStoragePredicate predicate) override;
 
       shared_model::interface::types::HeightType getTopBlockHeight() const;
+      shared_model::interface::types::HashType getTopBlockHash() const;
 
       ~MutableStorageImpl() override;
 

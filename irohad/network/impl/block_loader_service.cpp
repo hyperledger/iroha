@@ -33,7 +33,7 @@ grpc::Status BlockLoaderService::retrieveBlocks(
   std::for_each(blocks.begin(), blocks.end(), [&writer](const auto &block) {
     protocol::Block proto_block;
     *proto_block.mutable_block_v1() =
-        std::dynamic_pointer_cast<shared_model::proto::Block>(block)
+        std::dynamic_pointer_cast<const shared_model::proto::Block>(block)
             ->getTransport();
 
     writer->Write(proto_block);
@@ -98,7 +98,7 @@ grpc::Status BlockLoaderService::retrieveBlock(
   }
 
   auto block_v1 =
-      std::static_pointer_cast<shared_model::proto::Block>(*found_block)
+      std::static_pointer_cast<const shared_model::proto::Block>(*found_block)
           ->getTransport();
   *response->mutable_block_v1() = block_v1;
   return grpc::Status::OK;

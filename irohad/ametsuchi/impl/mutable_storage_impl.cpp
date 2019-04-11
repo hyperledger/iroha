@@ -11,6 +11,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -72,8 +73,14 @@ namespace iroha {
                  block->height(),
                  block->hash().hex());
 
-      // TODO 09.04.2019 mboldyrev IR-440 add height check to predicate
-      auto block_applied = predicate(block, *peer_query_, top_hash_)
+      decltype(peer_query_->getLedgerPeers()) opt_ledger_peers;
+      while (not(opt_ledger_peers = peer_query_->getLedgerPeers())) {
+        log_->error("Failed to get ledger peers! Will retry.");
+      }
+      assert(opt_ledger_peers);
+      iroha::LedgerState ledger_state(
+          std::move(*opt_ledger_peers), top_height_, top_hash_);
+      auto block_applied = predicate(block, ledger_state)
           and std::all_of(block->transactions().begin(),
                           block->transactions().end(),
                           execute_transaction);
@@ -110,8 +117,7 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->apply(
-            block, [](const auto &, auto &, const auto &) { return true; });
+        return this->apply(block, [](const auto &, auto &) { return true; });
       });
     }
 
@@ -130,6 +136,11 @@ namespace iroha {
     shared_model::interface::types::HeightType
     MutableStorageImpl::getTopBlockHeight() const {
       return top_height_;
+    }
+
+    shared_model::interface::types::HashType
+    MutableStorageImpl::getTopBlockHash() const {
+      return top_hash_;
     }
 
     MutableStorageImpl::~MutableStorageImpl() {

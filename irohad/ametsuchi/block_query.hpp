@@ -23,7 +23,7 @@ namespace iroha {
      protected:
       using wTransaction =
           std::shared_ptr<shared_model::interface::Transaction>;
-      using wBlock = std::shared_ptr<shared_model::interface::Block>;
+      using wBlock = std::shared_ptr<const shared_model::interface::Block>;
 
      public:
       virtual ~BlockQuery() = default;

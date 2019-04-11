@@ -65,9 +65,9 @@ class TransactionProcessorTest : public ::testing::Test {
         getTestLogger("TransactionProcessor"));
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-    auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
-    ledger_state =
-        std::make_shared<LedgerState>(ledger_peers, round.block_round - 1);
+    shared_model::crypto::Hash top_block_hash("top_block_hash");
+    ledger_state = std::make_shared<LedgerState>(
+        PeerList{peer}, round.block_round - 1, top_block_hash);
   }
 
   auto base_tx() {

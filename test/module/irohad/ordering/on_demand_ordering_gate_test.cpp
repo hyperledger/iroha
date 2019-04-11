@@ -58,9 +58,8 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         getTestLogger("OrderingGate"));
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-    auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
-    ledger_state =
-        std::make_shared<LedgerState>(ledger_peers, round.block_round);
+    ledger_state = std::make_shared<LedgerState>(
+        PeerList{peer}, round.block_round, top_block_hash);
   }
 
   rxcpp::subjects::subject<
@@ -77,6 +76,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
 
   const consensus::Round round = {2, kFirstRejectRound};
 
+  shared_model::crypto::Hash top_block_hash{"top_block_hash"};
   std::shared_ptr<LedgerState> ledger_state;
 };
 
@@ -124,8 +124,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto val) {
     ASSERT_EQ(proposal, getProposalUnsafe(val).get());
-    EXPECT_EQ(*val.ledger_state->ledger_peers,
-              *event.ledger_state->ledger_peers);
+    EXPECT_EQ(val.ledger_state->ledger_peers, event.ledger_state->ledger_peers);
   });
 
   rounds.get_subscriber().on_next(event);
@@ -161,8 +160,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
   gate_wrapper.subscribe([&](auto val) {
     ASSERT_EQ(proposal, getProposalUnsafe(val).get());
-    EXPECT_EQ(*val.ledger_state->ledger_peers,
-              *event.ledger_state->ledger_peers);
+    EXPECT_EQ(val.ledger_state->ledger_peers, event.ledger_state->ledger_peers);
   });
 
   rounds.get_subscriber().on_next(event);

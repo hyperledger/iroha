@@ -9,6 +9,7 @@
 #include <functional>
 
 #include <rxcpp/rx.hpp>
+#include "ametsuchi/ledger_state.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -33,14 +34,11 @@ namespace iroha {
        * Predicate type checking block
        * Function parameters:
        *  - Block - block to be checked
-       *  - PeerQuery - interface for ledger peers list retrieval
-       *  - HashType - hash of top block in blockchain
+       *  - LedgerState - the state of ledger on which the block is applied
        */
       using MutableStoragePredicate = std::function<bool(
           std::shared_ptr<const shared_model::interface::Block>,
-          // TODO 30.01.2019 lebdron: IR-265 Remove PeerQueryFactory
-          PeerQuery &,
-          const shared_model::interface::types::HashType &)>;
+          const LedgerState &)>;
 
       /**
        * Applies block without additional validation function
