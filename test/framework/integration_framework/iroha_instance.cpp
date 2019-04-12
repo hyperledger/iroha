@@ -97,8 +97,8 @@ namespace integration_framework {
 
   void IrohaInstance::run() {
     instance_->run().match(
-        [](const Irohad::RunResult::ValueType &) {},
-        [](const Irohad::RunResult::ErrorType &error) {
+        [](const auto &) {},
+        [](const auto &error) {
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }

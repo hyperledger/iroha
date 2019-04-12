@@ -90,13 +90,8 @@ class ToriiQueriesTest : public testing::Test {
                                                 blocks_query_factory,
                                                 getTestLogger("QueryService")))
         .run()
-        .match(
-            [this](iroha::expected::Value<int> port) {
-              this->port = port.value;
-            },
-            [](iroha::expected::Error<std::string> err) {
-              FAIL() << err.error;
-            });
+        .match([this](auto port) { this->port = port.value; },
+               [](const auto &err) { FAIL() << err.error; });
 
     runner->waitForServersReady();
   }
