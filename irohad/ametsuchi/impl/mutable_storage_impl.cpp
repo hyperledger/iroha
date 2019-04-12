@@ -55,12 +55,11 @@ namespace iroha {
           auto command_applied =
               boost::apply_visitor(*command_executor_, command.get());
 
-          return command_applied.match(
-              [](expected::Value<void> &) { return true; },
-              [&](expected::Error<CommandError> &e) {
-                log_->error(e.error.toString());
-                return false;
-              });
+          return command_applied.match([](const auto &) { return true; },
+                                       [&](const auto &e) {
+                                         log_->error(e.error.toString());
+                                         return false;
+                                       });
         };
 
         return std::all_of(transaction.commands().begin(),

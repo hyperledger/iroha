@@ -107,13 +107,10 @@ namespace iroha {
                 factory
                     .createSignature(shared_model::crypto::PublicKey(pubkey),
                                      shared_model::crypto::Signed(signature))
-                    .match(
-                        [&](iroha::expected::Value<
-                            std::unique_ptr<shared_model::interface::Signature>>
-                                &sig) { val = std::move(sig.value); },
-                        [&](iroha::expected::Error<std::string> &reason) {
-                          log->error(msg, reason.error);
-                        });
+                    .match([&](auto &&sig) { val = std::move(sig.value); },
+                           [&](const auto &reason) {
+                             log->error(msg, reason.error);
+                           });
               };
 
           if (pb_vote.hash().has_block_signature()) {

@@ -57,12 +57,8 @@ MstTransportGrpc::deserializeTransactions(const transport::MstState *request) {
             [&](const auto &tx) { return transaction_factory_->build(tx); })
       | boost::adaptors::filtered([&](const auto &result) {
           return result.match(
-              [](const iroha::expected::Value<
-                  std::unique_ptr<shared_model::interface::Transaction>> &) {
-                return true;
-              },
-              [&](const iroha::expected::Error<TransportFactoryType::Error>
-                      &error) {
+              [](const auto &) { return true; },
+              [&](const auto &error) {
                 log_->info("Transaction deserialization failed: hash {}, {}",
                            error.error.hash,
                            error.error.error);
@@ -91,8 +87,7 @@ grpc::Status MstTransportGrpc::SendState(
 
   for (auto &batch : batches) {
     batch_factory_->createTransactionBatch(batch).match(
-        [&](iroha::expected::Value<std::unique_ptr<
-                shared_model::interface::TransactionBatch>> &value) {
+        [&](auto &&value) {
           auto cache_presence = tx_presence_cache_->check(*value.value);
           if (not cache_presence) {
             // TODO andrei 30.11.18 IR-51 Handle database error
@@ -115,7 +110,7 @@ grpc::Status MstTransportGrpc::SendState(
             new_state += std::move(value).value;
           }
         },
-        [&](iroha::expected::Error<std::string> &error) {
+        [&](const auto &error) {
           log_->warn("Batch deserialization failed: {}", error.error);
         });
   }

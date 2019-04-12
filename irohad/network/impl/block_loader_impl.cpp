@@ -61,17 +61,15 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         auto reader =
             this->getPeerStub(**peer).retrieveBlocks(&context, request);
         while (subscriber.is_subscribed() and reader->Read(&block)) {
-          auto proto_block = block_factory_.createBlock(std::move(block));
-          proto_block.match(
-              [&subscriber](
-                  iroha::expected::Value<std::unique_ptr<Block>> &result) {
-                subscriber.on_next(std::move(result.value));
-              },
-              [this,
-               &context](const iroha::expected::Error<std::string> &error) {
-                log_->error(error.error);
-                context.TryCancel();
-              });
+          block_factory_.createBlock(std::move(block))
+              .match(
+                  [&subscriber](auto &&result) {
+                    subscriber.on_next(std::move(result.value));
+                  },
+                  [this, &context](const auto &error) {
+                    log_->error(error.error);
+                    context.TryCancel();
+                  });
         }
         reader->Finish();
         subscriber.on_completed();
@@ -99,17 +97,16 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
     return boost::none;
   }
 
-  auto result = block_factory_.createBlock(std::move(block));
-
-  return result.match(
-      [](iroha::expected::Value<std::unique_ptr<Block>> &v) {
-        return boost::make_optional(std::shared_ptr<Block>(std::move(v.value)));
-      },
-      [this](const iroha::expected::Error<std::string> &e)
-          -> boost::optional<std::shared_ptr<Block>> {
-        log_->error(e.error);
-        return boost::none;
-      });
+  return block_factory_.createBlock(std::move(block))
+      .match(
+          [](auto &&v) {
+            return boost::make_optional(
+                std::shared_ptr<Block>(std::move(v.value)));
+          },
+          [this](const auto &e) -> boost::optional<std::shared_ptr<Block>> {
+            log_->error(e.error);
+            return boost::none;
+          });
 }
 
 boost::optional<std::shared_ptr<shared_model::interface::Peer>>

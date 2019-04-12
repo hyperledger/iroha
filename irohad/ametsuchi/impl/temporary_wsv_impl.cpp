@@ -107,8 +107,8 @@ namespace iroha {
           // in case of failed command, rollback and return
           auto cmd_is_valid =
               execute_command(commands[i])
-                  .match([](expected::Value<void> &) { return true; },
-                         [i, &cmd_error](expected::Error<CommandError> &error) {
+                  .match([](const auto &) { return true; },
+                         [i, &cmd_error](const auto &error) {
                            cmd_error = {error.error.command_name,
                                         error.error.error_code,
                                         error.error.error_extra,

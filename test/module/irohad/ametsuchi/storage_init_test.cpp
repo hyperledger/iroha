@@ -91,11 +91,11 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
                       std::move(block_storage_factory_),
                       storage_log_manager_)
       .match(
-          [&storage](const Value<std::shared_ptr<StorageImpl>> &value) {
+          [&storage](const auto &value) {
             storage = value.value;
             SUCCEED();
           },
-          [](const Error<std::string> &error) { FAIL() << error.error; });
+          [](const auto &error) { FAIL() << error.error; });
   soci::session sql(*soci::factory_postgresql(), pg_opt_without_dbname_);
   int size;
   sql << "SELECT COUNT(datname) FROM pg_catalog.pg_database WHERE datname = "
@@ -120,9 +120,6 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                       perm_converter_,
                       std::move(block_storage_factory_),
                       storage_log_manager_)
-      .match(
-          [](const Value<std::shared_ptr<StorageImpl>> &) {
-            FAIL() << "storage created, but should not";
-          },
-          [](const Error<std::string> &) { SUCCEED(); });
+      .match([](const auto &) { FAIL() << "storage created, but should not"; },
+             [](const auto &) { SUCCEED(); });
 }
