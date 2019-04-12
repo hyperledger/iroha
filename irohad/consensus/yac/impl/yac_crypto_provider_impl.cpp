@@ -46,13 +46,8 @@ namespace iroha {
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote
         factory_->createSignature(pubkey, signature)
-            .match(
-                [&](iroha::expected::Value<
-                    std::unique_ptr<shared_model::interface::Signature>> &sig) {
-                  vote.signature = std::move(sig.value);
-                },
-                [](iroha::expected::Error<std::string> &reason) {
-                });
+            .match([&](auto &&sig) { vote.signature = std::move(sig.value); },
+                   [](const auto &) {});
 
         return vote;
       }
