@@ -46,7 +46,9 @@ namespace shared_model {
       types::BatchesCollectionType batches;
       auto insert_batch =
           [&batches](iroha::expected::Value<std::unique_ptr<TransactionBatch>>
-                         &value) { batches.push_back(std::move(value.value)); };
+                         &&value) {
+            batches.push_back(std::move(value.value));
+          };
 
       validation::Answer result;
       if (transactions.empty()) {

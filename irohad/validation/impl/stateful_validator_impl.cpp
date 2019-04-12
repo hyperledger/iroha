@@ -32,9 +32,8 @@ namespace iroha {
         validation::TransactionsErrors &transactions_errors_log,
         const shared_model::interface::Transaction &tx) {
       return temporary_wsv.apply(tx).match(
-          [](expected::Value<void> &) { return true; },
-          [&tx, &transactions_errors_log](
-              expected::Error<validation::CommandError> &error) {
+          [](const auto &) { return true; },
+          [&tx, &transactions_errors_log](auto &&error) {
             transactions_errors_log.emplace_back(validation::TransactionError{
                 tx.hash(), std::move(error.error)});
             return false;

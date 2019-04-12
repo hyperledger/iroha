@@ -54,12 +54,12 @@ TEST_F(ProposalFactoryTest, ValidProposalTest) {
   auto proposal = valid_factory.createProposal(height, time, txs);
 
   proposal.match(
-      [&](const ValueOf<decltype(proposal)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(txs, v.value->transactions());
         ASSERT_EQ(height, v.value->height());
         ASSERT_EQ(time, v.value->createdTime());
       },
-      [](const ErrorOf<decltype(proposal)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -70,9 +70,6 @@ TEST_F(ProposalFactoryTest, ValidProposalTest) {
 TEST_F(ProposalFactoryTest, InvalidProposalTest) {
   auto proposal = factory.createProposal(height, time, txs);
 
-  proposal.match(
-      [&](const ValueOf<decltype(proposal)> &) {
-        FAIL() << "unexpected value case";
-      },
-      [](const ErrorOf<decltype(proposal)> &) { SUCCEED(); });
+  proposal.match([&](const auto &) { FAIL() << "unexpected value case"; },
+                 [](const auto &) { SUCCEED(); });
 }
