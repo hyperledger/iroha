@@ -16,12 +16,14 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
@@ -256,6 +258,18 @@ namespace iroha {
       return inserted;
     }
 
+    bool StorageImpl::insertPeer(const shared_model::interface::Peer &peer) {
+      log_->info("insert peer {}", peer.pubkey().hex());
+      soci::session sql(*connection_);
+      PostgresWsvCommand wsv_command(sql);
+      auto status = wsv_command.insertPeer(peer);
+      if (auto e = boost::get<expected::Error<std::string>>(&status)) {
+        log_->error("Failed to insert peer: {}", e->error);
+        return false;
+      }
+      return true;
+    }
+
     void StorageImpl::reset() {
       log_->info("drop wsv records from db tables");
       try {
@@ -269,6 +283,16 @@ namespace iroha {
         block_store_->dropAll();
       } catch (std::exception &e) {
         log_->warn("Drop wsv was failed. Reason: {}", e.what());
+      }
+    }
+
+    void StorageImpl::resetPeers() {
+      log_->info("remove everything from peers table");
+      try {
+        soci::session sql(*connection_);
+        sql << reset_peers_;
+      } catch (std::exception &e) {
+        log_->warn("peers reset failed, reason: {}", e.what());
       }
     }
 
@@ -649,6 +673,10 @@ TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
 TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
 TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
 TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+)";
+
+    const std::string &StorageImpl::reset_peers_ = R"(
+TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
 )";
 
     const std::string &StorageImpl::init_ =
