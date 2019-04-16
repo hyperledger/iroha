@@ -10,15 +10,18 @@
 #include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
 #include "ametsuchi/storage.hpp"
+#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
+#include "main/impl/peers_file_reader_impl.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "validators/field_validator.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
@@ -72,6 +75,11 @@ DEFINE_string(keypair_name, "", "Specify name of .pub and .priv files");
  * Registering validator for the keypair files location.
  */
 DEFINE_validator(keypair_name, &validate_keypair_name);
+
+/**
+ * Create input argument for the initial peer list
+ */
+DEFINE_string(peers, "", "Specify initial peers");
 
 /**
  * Creating boolean flag for overwriting already existing block storage
@@ -154,6 +162,30 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  boost::optional<std::vector<std::unique_ptr<shared_model::interface::Peer>>>
+      peers = boost::make_optional<
+          std::vector<std::unique_ptr<shared_model::interface::Peer>>>({});
+  if (not FLAGS_peers.empty()) {
+    iroha::main::PeersFileReaderImpl file_reader;
+    auto peers_file_data = file_reader.openFile(FLAGS_peers);
+    if (not peers_file_data) {
+      log->error("Failed to load peers file");
+      return EXIT_FAILURE;
+    }
+
+    auto validators_config =
+        std::make_shared<shared_model::validation::ValidatorsConfig>(
+            config.max_proposal_size);
+    peers = file_reader.readPeers(
+        *peers_file_data,
+        std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
+            shared_model::validation::FieldValidator>>(validators_config));
+    if (not peers) {
+      log->error("Failed to parse peers file");
+      return EXIT_FAILURE;
+    }
+  }
+
   // Configuring iroha daemon
   Irohad irohad(
       config.block_store_path,
@@ -171,6 +203,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
+      std::move(*peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));
