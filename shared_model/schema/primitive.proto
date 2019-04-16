@@ -1,0 +1,98 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * Messages related to primitive types, used in Commands and Queries
+ *
+ * Contains RolePermission, GrantablePermission, Signature, and Peer.
+ */
+
+syntax = "proto3";
+
+
+package iroha.protocol;
+
+
+/**
+ * Represents any possible value for permission field,
+ * then the account is capable of performing such action.
+ *
+ * Command and Query related permissions are included in the role,
+ * which an Account can have.
+ *
+ * Grantable permission is set as a relation between two accounts:
+ * Account A is granting Permission to Account B,
+ * so that Account B can perform actions over Account A.
+ */
+enum RolePermission {
+  // Command Permissions
+  can_append_role = 0;
+  can_create_role = 1;
+  can_detach_role = 2;
+  can_add_asset_qty = 3;
+  can_subtract_asset_qty = 4;
+  can_add_peer = 5;
+  can_add_signatory = 6;
+  can_remove_signatory = 7;
+  can_set_quorum = 8;
+  can_create_account = 9;
+  can_set_detail = 10;
+  can_create_asset = 11;
+  can_transfer = 12;
+  can_receive = 13;
+  can_create_domain = 14;
+  can_add_domain_asset_qty = 43;
+  can_subtract_domain_asset_qty = 44;
+
+  // Query permissions
+  can_read_assets = 15;
+  can_get_roles = 16;
+  can_get_my_account = 17;
+  can_get_all_accounts = 18;
+  can_get_domain_accounts = 19;
+  can_get_my_signatories = 20;
+  can_get_all_signatories = 21;
+  can_get_domain_signatories = 22;
+  can_get_my_acc_ast = 23;
+  can_get_all_acc_ast = 24;
+  can_get_domain_acc_ast = 25;
+  can_get_my_acc_detail = 26;
+  can_get_all_acc_detail = 27;
+  can_get_domain_acc_detail = 28;
+  can_get_my_acc_txs = 29;
+  can_get_all_acc_txs = 30;
+  can_get_domain_acc_txs = 31;
+  can_get_my_acc_ast_txs = 32;
+  can_get_all_acc_ast_txs = 33;
+  can_get_domain_acc_ast_txs = 34;
+  can_get_my_txs = 35;
+  can_get_all_txs = 36;
+  can_get_blocks = 42;
+
+  // Grant permissions
+  can_grant_can_set_my_quorum = 37;
+  can_grant_can_add_my_signatory = 38;
+  can_grant_can_remove_my_signatory = 39;
+  can_grant_can_transfer_my_assets = 40;
+  can_grant_can_set_my_account_detail = 41;
+}
+
+enum GrantablePermission {
+  can_add_my_signatory = 0;
+  can_remove_my_signatory = 1;
+  can_set_my_quorum = 2;
+  can_set_my_account_detail = 3;
+  can_transfer_my_assets = 4; // not implemented now
+}
+
+message Signature {
+  string public_key = 1;
+  string signature  = 2;
+}
+
+message Peer {
+  string address = 1;
+  string peer_key = 2; // hex string
+}

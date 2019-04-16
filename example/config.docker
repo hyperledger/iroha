@@ -1,0 +1,13 @@
+{
+  "block_store_path" : "/tmp/block_store/",
+  "torii_port" : 50051,
+  "internal_port" : 10001,
+  "pg_opt" : "host=some-postgres port=5432 user=postgres password=mysecretpassword",
+  "max_proposal_size" : 10,
+  "proposal_delay" : 5000,
+  "vote_delay" : 5000,
+  "mst_enable" : false,
+  "mst_expiration_time" : 1440,
+  "max_rounds_delay": 3000,
+  "stale_stream_max_rounds": 2
+}

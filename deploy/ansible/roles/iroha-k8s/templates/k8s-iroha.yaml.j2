@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: iroha
+  name: iroha
+spec:
+  clusterIP: None
+  ports:
+  - port: 50051
+  selector:
+    app: iroha
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: iroha
+  labels:
+    app: iroha
+spec:
+  serviceName: iroha
+  replicas: {{ replicas }}
+  selector:
+    matchLabels:
+      app: iroha
+  template:
+    metadata:
+      labels:
+        app: iroha
+    spec:
+      terminationGracePeriodSeconds: 7
+      initContainers:
+      - name: copy-data
+        image: busybox
+        command: ['sh', '-c', 'cp -v /opt/secrets/$PODNAME/node* /opt/iroha_data && cp -v /opt/iroha_config/* /opt/iroha_data']
+        env:
+          - name: PODNAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+        volumeMounts:
+{% for key_pair in peer_keys.stdout_lines %}
+        - name: iroha-secret-{{ loop.index - 1 }}
+          mountPath: /opt/secrets/iroha-{{ loop.index - 1 }}
+{% endfor %}
+        - name: iroha-config
+          mountPath: /opt/iroha_config
+        - name: iroha-data
+          mountPath: /opt/iroha_data
+      containers:
+      - name: postgres
+        image: postgres:9.5
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5432
+          name: pg-port
+        env:
+          - name: POSTGRES_PASSWORD
+            value: mysecretpassword
+          - name: PGDATA
+            value: /var/lib/postgresql/data/pgdata
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-h", "localhost", "-U", "postgres"]
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-h", "localhost", "-U", "postgres"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+        volumeMounts:
+        - name: pg-data
+          mountPath: /var/lib/postgresql/data
+      - name: iroha
+        image: {{ iroha_image }}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 10001
+          name: inter-peer
+        - containerPort: 50051
+          name: external
+        env:
+          - name: IROHA_POSTGRES_HOST
+            value: localhost
+          - name: KEY
+            value: node
+        volumeMounts:
+        - name: iroha-data
+          mountPath: /opt/iroha_data
+        - name: block-store
+          mountPath: /tmp/block_store
+      volumes:
+{% for key_pair in peer_keys.stdout_lines %}
+        - name: iroha-secret-{{ loop.index - 1 }}
+          secret:
+            secretName: iroha-peer-key-{{ loop.index - 1 }}
+{% endfor %}
+        - name: iroha-config
+          configMap:
+            name: iroha-config
+        - name: iroha-data
+          emptyDir: {}
+        - name: block-store
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data
+        labels:
+          app: iroha
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ postgres_volume_size }}
+    - metadata:
+        name: block-store
+        labels:
+          app: iroha
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ blockstore_volume_size }}

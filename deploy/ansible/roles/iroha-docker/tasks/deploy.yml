@@ -1,0 +1,71 @@
+- name: create deploy dir
+  file:
+    state: directory
+    path: "{{ deploy_dir }}/conf"
+
+- stat:
+    path: "{{ deploy_dir }}/docker-compose.yml"
+  register: docker_compose_file
+
+- name: stop Iroha
+  docker_service:
+    project_src: "{{ deploy_dir }}"
+    project_name: ansible_iroha
+    remove_volumes: yes
+    state: absent
+  when: docker_compose_file.stat.exists
+
+- name: remove Iroha network (overlay)
+  docker_network:
+    name: "{{ iroha_network_name }}"
+    driver: overlay
+    state: absent
+  run_once: yes
+  when: docker_compose_file.stat.exists and overlay_network
+
+- name: remove Iroha network
+  docker_network:
+    name: "{{ iroha_network_name }}"
+    state: absent
+  when: docker_compose_file.stat.exists and not overlay_network
+
+- name: generate Docker compose
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ deploy_dir }}/docker-compose.yml"
+
+- name: copy config files
+  synchronize:
+    src: "{{ config_local_dir }}/{{ inventory_hostname }}/conf/"
+    dest: "{{ deploy_dir }}/conf/"
+    recursive: yes
+    delete: yes
+
+- name: generate config files
+  template:
+    src: config.docker.j2
+    dest: "{{ deploy_dir }}/conf/{{ item.human_hostname }}/config.docker"
+  loop: "{{ iroha_nodes }}"
+
+- name: create Docker network
+  docker_network:
+    name: "{{ iroha_network_name }}"
+    driver: overlay
+  run_once: yes
+  when: overlay_network
+
+- name: create Docker network
+  docker_network:
+    name: "{{ iroha_network_name }}"
+  when: not overlay_network
+
+- name: pull Iroha
+  command: docker-compose pull
+  args:
+    chdir: "{{ deploy_dir }}"
+  changed_when: False
+
+- name: run Iroha
+  docker_service:
+    project_src: "{{ deploy_dir }}"
+    project_name: ansible_iroha

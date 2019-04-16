@@ -1,0 +1,8 @@
+# use https://github.com/skywinder/github-changelog-generator to generate a changelog
+unreleased=false
+issues-wo-labels=false
+pr-wo-labels=false
+exclude-labels=candidate-for-closing,status:in-progress,status:active,status:inactive,needs-review,needs-correction,question,status:wontfix
+bug-labels=bug
+enhancement-labels=enhancement
+issue-line-labels=true

@@ -1,0 +1,15 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+package iroha.protocol;
+
+import "transaction.proto";
+
+message Proposal {
+    uint64 height = 1;
+    repeated iroha.protocol.Transaction transactions = 2;
+    uint64 created_time = 3;
+}

@@ -1,0 +1,19 @@
+{
+  "block_store_path" : "{{ iroha_blockstore_path }}",
+  "torii_port" : {{ iroha_torii_port }},
+  "internal_port" : {{ iroha_peer_port }},
+  "pg_opt" : "host={{ item.human_hostname }}-postgres port={{ iroha_postgres_port }} user={{ iroha_postgres_user }} password={{ iroha_postgres_password }}",
+  "max_proposal_size" : {{ iroha_max_proposal_size }},
+  "proposal_delay" : {{ iroha_proposal_delay }},
+  "vote_delay" : {{ iroha_vote_delay }},
+  "mst_enable" : {{ iroha_mst_enable }}
+  {% if iroha_mst_expiration_time is defined %}
+    ,"mst_expiration_time": {{ iroha_mst_expiration_time }}
+  {% endif %}
+  {% if iroha_max_rounds_delay is defined %}
+    ,"max_rounds_delay": {{ iroha_max_rounds_delay }}
+  {% endif %}
+  {% if iroha_stale_stream_max_rounds is defined %}
+    ,"stale_stream_max_rounds": {{ iroha_stale_stream_max_rounds }}
+  {% endif %}
+}

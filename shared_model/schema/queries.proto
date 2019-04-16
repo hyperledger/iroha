@@ -1,0 +1,111 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+package iroha.protocol;
+
+import "primitive.proto";
+
+message TxPaginationMeta {
+  uint32 page_size = 1;
+  oneof opt_first_tx_hash {
+    string first_tx_hash = 2;
+  }
+}
+
+message GetAccount {
+  string account_id = 1;
+}
+
+message GetBlock {
+  uint64 height = 1;
+}
+
+message GetSignatories {
+  string account_id = 1;
+}
+
+message GetAccountTransactions {
+  string account_id = 1;
+  TxPaginationMeta pagination_meta = 2;
+}
+
+message GetAccountAssetTransactions {
+  string account_id = 1;
+  string asset_id = 2;
+  TxPaginationMeta pagination_meta = 3;
+}
+
+message GetTransactions {
+  repeated string tx_hashes = 1;
+}
+
+message GetAccountAssets {
+  string account_id = 1;
+}
+
+message GetAccountDetail {
+  oneof opt_account_id{
+    string account_id = 1;
+  }
+  oneof opt_key{
+    string key = 2;
+  }
+  oneof opt_writer{
+    string writer = 3;
+  }
+}
+
+message GetAssetInfo {
+  string asset_id = 1;
+}
+
+message GetRoles {
+
+}
+
+message GetRolePermissions{
+  string role_id = 1;
+}
+
+message GetPendingTransactions {
+
+}
+
+message QueryPayloadMeta {
+  uint64 created_time = 1;
+  string creator_account_id = 2;
+  // used to prevent replay attacks.
+  uint64 query_counter = 3;
+}
+
+
+message Query {
+  message Payload {
+    QueryPayloadMeta meta = 1;
+     oneof query {
+       GetAccount get_account = 3;
+       GetSignatories get_signatories = 4;
+       GetAccountTransactions get_account_transactions = 5;
+       GetAccountAssetTransactions get_account_asset_transactions = 6;
+       GetTransactions get_transactions = 7;
+       GetAccountAssets get_account_assets = 8;
+       GetAccountDetail get_account_detail = 9;
+       GetRoles get_roles = 10;
+       GetRolePermissions get_role_permissions = 11;
+       GetAssetInfo get_asset_info = 12;
+       GetPendingTransactions get_pending_transactions = 13;
+       GetBlock get_block = 14;
+     }
+  }
+
+  Payload payload = 1;
+  Signature signature = 2;
+}
+
+message BlocksQuery {
+  QueryPayloadMeta meta = 1;
+  Signature signature = 2;
+}

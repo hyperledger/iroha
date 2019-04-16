@@ -1,0 +1,12 @@
+BasedOnStyle: Google
+NamespaceIndentation: All
+BreakBeforeBinaryOperators: NonAssignment
+AlignOperands: false
+DerivePointerAlignment: false
+PointerAlignment: Right
+BinPackArguments: false
+BinPackParameters: false
+DerivePointerAlignment: false
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: false

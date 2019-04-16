@@ -1,0 +1,107 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c018d45..9497144 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -18,6 +18,7 @@ project(LibProtobufMutator CXX)
+ enable_language(C)
+ enable_language(CXX)
+ 
++option(TESTING "Enable test building" ON)
+ option(LIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF
+        "Automatically download working protobuf" OFF)
+ option(LIB_PROTO_MUTATOR_WITH_ASAN "Enable address sanitizer" OFF)
+@@ -110,20 +111,19 @@ else()
+   include_directories(${CMAKE_CURRENT_BINARY_DIR})
+ endif()
+ 
+-enable_testing()
+-
+-include(googletest)
++if (TESTING)
++  enable_testing()
++  find_package(GTest)
++  if (NOT GTEST_FOUND)
++    include(googletest)
++  endif()
+ 
+-if (NOT LIB_PROTO_MUTATOR_CTEST_JOBS)
+-  ProcessorCount(LIB_PROTO_MUTATOR_CTEST_JOBS)
++  if (NOT LIB_PROTO_MUTATOR_CTEST_JOBS)
++    ProcessorCount(LIB_PROTO_MUTATOR_CTEST_JOBS)
++  endif()
++  add_custom_target(check
++                    COMMAND ${CMAKE_CTEST_COMMAND} -j${LIB_PROTO_MUTATOR_CTEST_JOBS} --output-on-failure)
+ endif()
+-add_custom_target(check
+-                  COMMAND ${CMAKE_CTEST_COMMAND} -j${LIB_PROTO_MUTATOR_CTEST_JOBS} --output-on-failure)
+ 
+ add_subdirectory(src)
+ 
+-if (NOT "${LIB_PROTO_MUTATOR_FUZZER_LIBRARIES}" STREQUAL "" OR
+-    NOT "${FUZZING_FLAGS}" STREQUAL "")
+-  add_subdirectory(examples EXCLUDE_FROM_ALL)
+-endif()
+-
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 5c13d2d..624f8b6 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -24,31 +24,33 @@ target_link_libraries(protobuf-mutator
+ set_property(TARGET protobuf-mutator
+              PROPERTY COMPILE_FLAGS "${NO_FUZZING_FLAGS}")
+ 
+-protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS
+-                      mutator_test_proto2.proto
+-                      mutator_test_proto3.proto)
++if (TESTING)
++  protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS
++                        mutator_test_proto2.proto
++                        mutator_test_proto3.proto)
+ 
+-add_executable(mutator_test
+-               mutator_test.cc
+-               utf8_fix_test.cc
+-               weighted_reservoir_sampler_test.cc
+-               ${PROTO_SRCS})
+-target_link_libraries(mutator_test
+-                      protobuf-mutator
+-                      ${ZLIB_LIBRARIES}
+-                      ${GTEST_BOTH_LIBRARIES}
+-                      ${CMAKE_THREAD_LIBS_INIT})
++  add_executable(mutator_test
++                 mutator_test.cc
++                 utf8_fix_test.cc
++                 weighted_reservoir_sampler_test.cc
++                 ${PROTO_SRCS})
++  target_link_libraries(mutator_test
++                        protobuf-mutator
++                        ${ZLIB_LIBRARIES}
++                        ${GTEST_BOTH_LIBRARIES}
++                        ${CMAKE_THREAD_LIBS_INIT})
+ 
+-ProcessorCount(CPU_COUNT)
+-math(EXPR TEST_SHARDS_COUNT 2*${CPU_COUNT})
+-math(EXPR TEST_SHARDS_MAX ${TEST_SHARDS_COUNT}-1)
+-foreach(SHARD RANGE ${TEST_SHARDS_MAX})
+-  add_test(test.protobuf_mutator_test_${SHARD} mutator_test --gtest_color=yes AUTO)
+-  set_property(
+-      TEST test.protobuf_mutator_test_${SHARD}
+-      APPEND PROPERTY ENVIRONMENT
+-      GTEST_SHARD_INDEX=${SHARD}
+-      GTEST_TOTAL_SHARDS=${TEST_SHARDS_COUNT})
+-endforeach(SHARD)
++  ProcessorCount(CPU_COUNT)
++  math(EXPR TEST_SHARDS_COUNT 2*${CPU_COUNT})
++  math(EXPR TEST_SHARDS_MAX ${TEST_SHARDS_COUNT}-1)
++  foreach(SHARD RANGE ${TEST_SHARDS_MAX})
++    add_test(test.protobuf_mutator_test_${SHARD} mutator_test --gtest_color=yes AUTO)
++    set_property(
++        TEST test.protobuf_mutator_test_${SHARD}
++        APPEND PROPERTY ENVIRONMENT
++        GTEST_SHARD_INDEX=${SHARD}
++        GTEST_TOTAL_SHARDS=${TEST_SHARDS_COUNT})
++  endforeach(SHARD)
+ 
+-add_dependencies(check mutator_test)
++  add_dependencies(check mutator_test)
++endif()

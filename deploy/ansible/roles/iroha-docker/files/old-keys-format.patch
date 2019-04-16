@@ -1,0 +1,13 @@
+diff --git a/deploy/ansible/roles/iroha-docker/files/genesis-add-peers.py b/deploy/ansible/roles/iroha-docker/files/genesis-add-peers.py
+index ca855d7..b8893b3 100644
+--- a/deploy/ansible/roles/iroha-docker/files/genesis-add-peers.py
++++ b/deploy/ansible/roles/iroha-docker/files/genesis-add-peers.py
+@@ -30,7 +30,7 @@ def genesis_add_peers(peers_list, genesis_block_fp):
+             pass
+         genesis_dict['block_v1']['payload']['transactions'][0]['payload']['reducedPayload']['commands'] = list(genesis_dict['block_v1']['payload']['transactions'][0]['payload']['reducedPayload']['commands'])
+         for p in peers_list:
+-            p_add_command = {"addPeer": {"peer": {"address": "%s:%s" % (p.host, p.port), "peerKey": hex_to_b64(p.pub_key)}}}
++            p_add_command = {"addPeer": {"peer": {"address": "%s:%s" % (p.host, p.port), "peerKey": p.pub_key}}}
+             genesis_dict['block_v1']['payload']['transactions'][0]['payload']['reducedPayload']['commands'].append(p_add_command)
+         genesis_json.seek(0)
+         json.dump(genesis_dict, genesis_json, sort_keys=True)

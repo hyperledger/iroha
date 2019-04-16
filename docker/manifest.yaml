@@ -1,0 +1,65 @@
+# master branch
+image: hyperledger/iroha:latest
+manifests:
+  -
+    image: hyperledger/iroha:x86_64-latest
+    platform:
+      architecture: amd64
+      os: linux
+      features:
+        - sse
+  -
+    image: hyperledger/iroha:armv7l-latest
+    platform:
+      architecture: arm
+      os: linux
+      variant: v7
+  -
+    image: hyperledger/iroha:aarch64-latest
+    platform:
+      architecture: arm64
+      os: linux
+
+# develop branch
+image: hyperledger/iroha:develop
+manifests:
+  -
+    image: hyperledger/iroha:x86_64-develop
+    platform:
+      architecture: amd64
+      os: linux
+      features:
+        - sse
+  -
+    image: hyperledger/iroha:armv7l-develop
+    platform:
+      architecture: arm
+      os: linux
+      variant: v7
+  -
+    image: hyperledger/iroha:aarch64-develop
+    platform:
+      architecture: arm64
+      os: linux
+
+# develop branch, build env
+image: hyperledger/iroha:develop-build
+manifests:
+  -
+    image: hyperledger/iroha:x86_64-develop-build
+    platform:
+      architecture: amd64
+      os: linux
+      features:
+        - sse
+  -
+    image: hyperledger/iroha:armv7l-develop-build
+    platform:
+      architecture: arm
+      os: linux
+      variant: v7
+  -
+    image: hyperledger/iroha:aarch64-develop-build
+    platform:
+      architecture: arm64
+      os: linux

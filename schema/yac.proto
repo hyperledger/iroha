@@ -1,0 +1,43 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+package iroha.consensus.yac.proto;
+
+import "google/protobuf/empty.proto";
+
+message Signature {
+  bytes pubkey = 1;
+  bytes signature = 2;
+}
+
+message VoteRound {
+  uint64 block_round = 1;
+  uint32 reject_round = 2;
+}
+
+message VoteHashes {
+  bytes proposal = 1;
+  bytes block = 2;
+}
+
+message Hash {
+  VoteRound vote_round = 1;
+  VoteHashes vote_hashes = 2;
+  Signature block_signature = 3;
+}
+
+message Vote {
+  Hash hash = 1;
+  Signature signature = 2;
+}
+
+message State {
+  repeated Vote votes = 1;
+}
+
+service Yac {
+  rpc SendState (State) returns (google.protobuf.Empty);
+}

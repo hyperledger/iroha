@@ -1,0 +1,8 @@
+- name: generate Iroha configs
+  include: config-gen.yml
+
+- name: deploy Iroha
+  include: deploy.yml
+
+- debug:
+    msg: "Stop Iroha containers with `docker-compose -f {{ deploy_dir }}/docker-compose.yml -p ansible_iroha down -v`"

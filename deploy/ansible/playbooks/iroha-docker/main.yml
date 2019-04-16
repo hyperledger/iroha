@@ -1,0 +1,8 @@
+- hosts: all
+  strategy: linear
+  roles:
+    # docker role only works for Linux hosts
+    - { role: docker, tags: docker }
+    # - { role: iroha-docker, tags: iroha-docker }
+  vars:
+    hostnames: []

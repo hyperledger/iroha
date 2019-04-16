@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  node:
+    image: hyperledger/iroha-docker
+    ports:
+      - "50051:50051"
+    depends_on:
+      - postgres
+    tty: true
+
+  postgres:
+    image: postgres:9.5
+    environment:
+      - POSTGRES_USER=iroha
+      - IROHA_POSTGRES_PASSWORD=helloworld
+
+networks:
+  default:
+    external:
+      name: iroha_network

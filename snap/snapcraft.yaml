@@ -1,0 +1,156 @@
+name: iroha
+version: git
+summary: A simple, decentralized ledger
+description: |
+  Blockchain platform Hyperledger Iroha is designed for simple creation and
+  management of assets. This is a distributed ledger of transactions.
+
+grade: devel # must be 'stable' to release into candidate/stable channels
+confinement: devmode # use 'strict' once you have the right plugs and slots
+
+apps:
+  cli:
+    command: iroha-cli
+  daemon:
+    command: irohad
+
+build-packages:
+  - build-essential
+  - automake
+  - libtool
+  - libssl-dev
+  - zlib1g-dev
+  - libc6-dbg
+  - ccache
+  - gcc
+  - g++
+  - python
+
+parts:
+  iroha:
+    source: .
+    plugin: cmake
+    install: mv bin $SNAPCRAFT_PART_INSTALL/
+    after:
+      - cmake
+      - boost
+      - protobuf
+      - gflags
+      - c-ares
+      - grpc
+      - spdlog
+      - rxcpp
+      - rapidjson
+      - libpq
+      - soci
+      - tbb
+      - ed25519
+  cmake:
+    source: https://gitlab.kitware.com/cmake/cmake.git
+    source-commit: 64130a7e793483e24c1d68bdd234f81d5edb2d51
+    plugin: make
+    prepare: ./bootstrap --enable-ccache
+  boost:
+    source: https://github.com/boostorg/boost.git
+    source-commit: 436ad1dfcfc7e0246141beddd11c8a4e9c10b146
+    plugin: nil
+    build: |
+      ./bootstrap.sh --with-libraries=thread,system,filesystem
+      ./b2 headers
+      ./b2 cxxflags="-std=c++14" install
+  protobuf:
+    source: https://github.com/google/protobuf.git
+    source-commit: 106ffc04be1abf3ff3399f54ccf149815b287dd9 # Protocol Buffers v3.5.1
+    source-subdir: cmake
+    plugin: cmake
+    configflags: [-Dprotobuf_BUILD_TESTS=OFF, -Dprotobuf_BUILD_SHARED_LIBS=ON]
+    after: [cmake]
+  gflags:
+    source: https://github.com/gflags/gflags.git
+    source-commit: f8a0efe03aa69b3336d8e228b37d4ccb17324b88
+    plugin: cmake
+    configflags: [-DCMAKE_INSTALL_PREFIX=/]
+    after: [cmake]
+  c-ares:
+    source: https://github.com/c-ares/c-ares.git
+    source-commit: 3be1924221e1326df520f8498d704a5c4c8d0cce
+    plugin: cmake
+    configflags: [-DCMAKE_INSTALL_PREFIX=/]
+    after: [cmake]
+  grpc:
+    source: https://github.com/grpc/grpc.git
+    source-commit: bd44e485f69d70ca4095cea92decd98de3892aa6 # Release 1.11.0
+    plugin: cmake
+    configflags:
+     - -DgRPC_ZLIB_PROVIDER=package
+     - -DgRPC_CARES_PROVIDER=package
+     - -DgRPC_SSL_PROVIDER=package
+     - -DgRPC_PROTOBUF_PROVIDER=package
+     - -DgRPC_GFLAGS_PROVIDER=package
+     - -DBUILD_SHARED_LIBS=ON
+    after: [cmake, protobuf, c-ares, gflags]
+  spdlog:
+    source: https://github.com/gabime/spdlog.git
+    source-commit: f85a08622e20b74bff34381cafcb8ef8167b29d0
+    plugin: cmake
+    configflags: [-DSPDLOG_BUILD_TESTING=OFF]
+    after: [cmake]
+  rxcpp:
+    source: https://github.com/Reactive-Extensions/RxCpp.git
+    source-commit: 795587fa311fa41050111a830d91b183d8e53ff9
+    plugin: cmake
+    after: [cmake]
+  rapidjson:
+    source: https://github.com/miloyip/rapidjson.git
+    source-commit: f54b0e47a08782a6131cc3d60f94d038fa6e0a51
+    plugin: cmake
+    configflags: [-DRAPIDJSON_BUILD_EXAMPLES=OFF]
+    after: [cmake]
+  libpq:
+    source: https://git.postgresql.org/git/postgresql.git
+    source-commit: 029386ccbddd0a33d481b94e511f5219b03e6636
+    plugin: nil
+    build: |
+      ./configure --without-readline --prefix=
+      make -C src/bin/pg_config
+      make -C src/interfaces/libpq
+      make -C src/backend/utils fmgroids.h
+      cp $(pwd)/src/backend/utils/fmgroids.h src/include/utils/fmgroids.h
+    install: |
+      make -C src/bin/pg_config install DESTDIR=$SNAPCRAFT_PART_INSTALL
+      make -C src/interfaces/libpq install DESTDIR=$SNAPCRAFT_PART_INSTALL
+      make -C src/include install DESTDIR=$SNAPCRAFT_PART_INSTALL
+  soci:
+    source: https://github.com/SOCI/soci.git
+    source-commit: 111b50af8c3876ea392367640b4bd83b4f903ab8
+    plugin: cmake
+    configflags:
+     - -DWITH_BOOST=ON
+     - -DWITH_DB2=OFF
+     - -DWITH_FIREBIRD=OFF
+     - -DWITH_MYSQL=OFF
+     - -DWITH_ODBC=OFF
+     - -DWITH_ORACLE=OFF
+     - -DWITH_POSTGRESQL=ON
+     - -DWITH_SQLITE3=OFF
+     - -DCMAKE_INSTALL_PREFIX=/
+    after: [cmake, boost, libpq]
+  tbb:
+    source: https://github.com/01org/tbb.git
+    source-commit: eb6336ad29450f2a64af5123ca1b9429ff6bc11d
+    plugin: make
+    make-parameters: [tbb_build_prefix=build]
+    artifacts:
+      - include
+    install: |
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/local/lib
+      cp build/build_debug/*.so* $SNAPCRAFT_PART_INSTALL/usr/local/lib
+      cp build/build_release/*.so* $SNAPCRAFT_PART_INSTALL/usr/local/lib
+      mkdir -p $SNAPCRAFT_PART_INSTALL/usr/local
+      mv $SNAPCRAFT_PART_INSTALL/include $SNAPCRAFT_PART_INSTALL/usr/local/include
+  ed25519:
+    source: https://github.com/hyperledger/iroha-ed25519.git
+    source-commit: b61a1e77af5dc458ed6a5aee395d5b22775a4917
+    plugin: cmake
+    configflags: [-DTESTING=OFF, -DHASH=sha3_brainhub, -DEDIMPL=ref10]
+    after: [cmake]

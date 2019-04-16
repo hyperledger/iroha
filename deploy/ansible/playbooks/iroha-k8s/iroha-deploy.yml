@@ -1,0 +1,5 @@
+---
+  - hosts: localhost
+    connection: local
+    roles:
+      - { role: iroha-k8s, tags: iroha-k8s }

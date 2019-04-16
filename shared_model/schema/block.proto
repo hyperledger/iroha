@@ -1,0 +1,35 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+package iroha.protocol;
+import "primitive.proto";
+import "transaction.proto";
+
+message Block_v1 {
+  // everything that should be signed:
+  message Payload {
+    repeated Transaction transactions = 1;
+    uint32 tx_number = 2;  ///< The number of accepted transactions inside.
+                           ///< Maximum 16384 or 2^14.
+    uint64 height = 3;          ///< The current block number in a ledger.
+    string prev_block_hash = 4;  ///< Previous block hash.
+    uint64 created_time = 5;
+
+    /// Hashes of the transactions that did not pass stateful validation.
+    /// Needed here to be able to guarantee the client that this transaction
+    /// was not and will never be executed.
+    repeated string rejected_transactions_hashes = 6;
+  }
+
+  Payload payload = 1;
+  repeated Signature signatures = 2;
+}
+
+message Block {
+  oneof block_version {
+    Block_v1 block_v1 = 1;
+  }
+}
