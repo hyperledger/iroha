@@ -8,6 +8,7 @@
 #include <boost/filesystem.hpp>
 
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
+#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -74,21 +75,23 @@ static constexpr iroha::consensus::yac::ConsistencyModel
 /**
  * Configuring iroha daemon
  */
-Irohad::Irohad(const std::string &block_store_dir,
-               const std::string &pg_conn,
-               const std::string &listen_ip,
-               size_t torii_port,
-               size_t internal_port,
-               size_t max_proposal_size,
-               std::chrono::milliseconds proposal_delay,
-               std::chrono::milliseconds vote_delay,
-               std::chrono::minutes mst_expiration_time,
-               const shared_model::crypto::Keypair &keypair,
-               std::chrono::milliseconds max_rounds_delay,
-               size_t stale_stream_max_rounds,
-               logger::LoggerManagerTreePtr logger_manager,
-               const boost::optional<GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params)
+Irohad::Irohad(
+    const std::string &block_store_dir,
+    const std::string &pg_conn,
+    const std::string &listen_ip,
+    size_t torii_port,
+    size_t internal_port,
+    size_t max_proposal_size,
+    std::chrono::milliseconds proposal_delay,
+    std::chrono::milliseconds vote_delay,
+    std::chrono::minutes mst_expiration_time,
+    const shared_model::crypto::Keypair &keypair,
+    std::chrono::milliseconds max_rounds_delay,
+    size_t stale_stream_max_rounds,
+    std::vector<std::unique_ptr<shared_model::interface::Peer>> initial_peers,
+    logger::LoggerManagerTreePtr logger_manager,
+    const boost::optional<GossipPropagationStrategyParams>
+        &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
       pg_conn_(pg_conn),
       listen_ip_(listen_ip),
@@ -101,6 +104,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       mst_expiration_time_(mst_expiration_time),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
+      initial_peers_(std::move(initial_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
@@ -129,6 +133,7 @@ void Irohad::init() {
   // Recover WSV from the existing ledger to be sure it is consistent
   initWsvRestorer();
   restoreWsv();
+  updatePeers();
 
   initCryptoProvider();
   initBatchParser();
@@ -201,6 +206,20 @@ bool Irohad::restoreWsv() {
         log_->error(error.error);
         return false;
       });
+}
+
+bool Irohad::updatePeers() {
+  // drop old peers and insert new ones if --peers flag is set
+  if (not initial_peers_.empty()) {
+    storage->resetPeers();
+    for (const auto &peer : initial_peers_) {
+      if (not storage->insertPeer(*peer)) {
+        log_->error("Peer insertion failed");
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 /**
