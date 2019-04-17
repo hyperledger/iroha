@@ -10,10 +10,10 @@ namespace integration_framework {
 
     void MstNetworkNotifier::onNewState(
         const shared_model::crypto::PublicKey &from,
-        const iroha::MstState &new_state) {
+        iroha::MstState new_state) {
       std::lock_guard<std::mutex> guard(mst_subject_mutex_);
       mst_subject_.get_subscriber().on_next(
-          std::make_shared<MstMessage>(from, new_state));
+          std::make_shared<MstMessage>(from, std::move(new_state)));
     }
 
     rxcpp::observable<std::shared_ptr<MstMessage>>

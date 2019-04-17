@@ -319,3 +319,30 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
       another_peer};
   propagation_subject.get_subscriber().on_next(peers);
 }
+
+/**
+ * @given initialized mst processor with empty state
+ *
+ * @when received other peer's state containing an outdated batch
+ *
+ * @then check that transport was not invoked
+ * @and queues are not pushed to
+ * @and the batch does not get into our state
+ */
+TEST_F(MstProcessorTest, receivedOutdatedState) {
+  // ---------------------------------| then |----------------------------------
+  EXPECT_CALL(*transport, sendState(_, _)).Times(0);
+  auto observers = initObservers(mst_processor, 0, 0, 0);
+
+  // ---------------------------------| when |----------------------------------
+  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
+  auto transported_state = MstState::empty(getTestLogger("MstState"),
+                                           std::make_shared<TestCompleter>());
+  const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
+  transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
+  mst_processor->onNewState(another_peer_key, transported_state);
+
+  // ---------------------------------| then |----------------------------------
+  EXPECT_FALSE(storage->batchInStorage(expired_batch));
+  check(observers);
+}
