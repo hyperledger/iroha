@@ -222,6 +222,8 @@ void getVal<IrohadConfig>(const std::string &path,
   getValByKey(
       path, dest.mst_expiration_time, obj, config_members::MstExpirationTime);
   getValByKey(
+      path, dest.mst_state_txs_limit, obj, config_members::MstStateTxsLimit);
+  getValByKey(
       path, dest.max_round_delay_ms, obj, config_members::MaxRoundsDelay);
   getValByKey(path,
               dest.stale_stream_max_rounds,

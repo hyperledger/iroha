@@ -7,6 +7,7 @@
 #define IROHA_MST_PROCESSOR_IMPL_HPP
 
 #include <memory>
+
 #include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"

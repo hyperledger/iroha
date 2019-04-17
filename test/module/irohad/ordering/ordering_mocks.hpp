@@ -27,11 +27,12 @@ namespace iroha {
 
     namespace cache {
       struct MockOrderingGateCache : public OrderingGateCache {
-        MOCK_METHOD1(addToBack, void(const BatchesSetType &));
+        MOCK_METHOD1(addToBack, bool(const BatchesSetType &));
         MOCK_METHOD0(pop, BatchesSetType());
+        MOCK_METHOD0(rotate, void());
         MOCK_METHOD1(remove, void(const HashesSetType &));
-        MOCK_CONST_METHOD0(head, const BatchesSetType &());
-        MOCK_CONST_METHOD0(tail, const BatchesSetType &());
+        MOCK_CONST_METHOD0(front, const BatchesSetType &());
+        MOCK_CONST_METHOD0(back, const BatchesSetType &());
       };
     }  // namespace cache
 

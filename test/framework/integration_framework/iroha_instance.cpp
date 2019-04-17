@@ -40,6 +40,7 @@ namespace integration_framework {
         vote_delay_(0ms),
         // amount of minutes in a day
         mst_expiration_time_(std::chrono::minutes(24 * 60)),
+        mst_state_txs_limit_(10),
         opt_mst_gossip_params_(boost::make_optional(
             mst_support,
             [] {
@@ -87,6 +88,7 @@ namespace integration_framework {
                                              proposal_delay_,
                                              vote_delay_,
                                              mst_expiration_time_,
+                                             mst_state_txs_limit_,
                                              key_pair,
                                              max_rounds_delay_,
                                              stale_stream_max_rounds_,

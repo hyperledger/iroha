@@ -30,7 +30,7 @@ namespace iroha {
     class MockCommandService : public iroha::torii::CommandService {
      public:
       MOCK_METHOD1(handleTransactionBatch,
-                   void(std::shared_ptr<
+                   bool(std::shared_ptr<
                         shared_model::interface::TransactionBatch> batch));
       MOCK_METHOD1(
           getStatus,
@@ -47,7 +47,7 @@ namespace iroha {
      public:
       MOCK_CONST_METHOD1(
           batchHandle,
-          void(std::shared_ptr<shared_model::interface::TransactionBatch>
+          bool(std::shared_ptr<shared_model::interface::TransactionBatch>
                    transaction_batch));
     };
 

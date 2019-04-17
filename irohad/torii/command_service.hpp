@@ -30,8 +30,9 @@ namespace iroha {
       /**
        * Actual implementation of sync Torii in CommandService
        * @param batch - transactions we've received
+       * @return bool - true if batch was successfully accepted for processing
        */
-      virtual void handleTransactionBatch(
+      virtual bool handleTransactionBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch) = 0;
 
       /**

@@ -21,6 +21,7 @@ struct IrohadConfig {
   uint32_t vote_delay;
   bool mst_support;
   boost::optional<uint32_t> mst_expiration_time;
+  boost::optional<uint32_t> mst_state_txs_limit;
   boost::optional<uint32_t> max_round_delay_ms;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;

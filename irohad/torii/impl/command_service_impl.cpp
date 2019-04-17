@@ -57,9 +57,9 @@ namespace iroha {
       status_subscription_.unsubscribe();
     }
 
-    void CommandServiceImpl::handleTransactionBatch(
+    bool CommandServiceImpl::handleTransactionBatch(
         std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-      processBatch(batch);
+      return processBatch(batch);
     }
 
     std::shared_ptr<shared_model::interface::TransactionResponse>
@@ -192,7 +192,7 @@ namespace iroha {
       status_bus_->publish(response);
     }
 
-    void CommandServiceImpl::processBatch(
+    bool CommandServiceImpl::processBatch(
         std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
       const auto status_issuer = "ToriiBatchProcessor";
       const auto &txs = batch->transactions();
@@ -225,14 +225,14 @@ namespace iroha {
         // guarantees that the transaction was passed to consensus before
         log_->warn("Replayed batch would not be served - present in cache. {}",
                    *batch);
-        return;
+        return false;
       }
 
       auto cache_presence = tx_presence_cache_->check(*batch);
       if (not cache_presence) {
         // TODO andrei 30.11.18 IR-51 Handle database error
         log_->warn("Check tx presence database error. {}", *batch);
-        return;
+        return false;
       }
       auto is_replay = std::any_of(
           cache_presence->begin(),
@@ -267,10 +267,10 @@ namespace iroha {
         log_->warn(
             "Replayed batch would not be served - present in database. {}",
             *batch);
-        return;
+        return false;
       }
 
-      tx_processor_->batchHandle(batch);
+      return tx_processor_->batchHandle(batch);
     }
 
   }  // namespace torii

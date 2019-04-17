@@ -30,7 +30,7 @@ namespace iroha {
           std::shared_ptr<simulator::VerifiedProposalCreator> proposal_creator,
           logger::LoggerPtr log);
 
-      void propagate_batch(
+      bool propagate_batch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           const override;
 

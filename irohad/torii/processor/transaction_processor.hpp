@@ -25,8 +25,9 @@ namespace iroha {
       /**
        * Process batch and propagate it to the MST or PCS
        * @param transaction_batch - transaction batch for processing
+       * @return bool - true if batch was successfully accepted for processing
        */
-      virtual void batchHandle(
+      virtual bool batchHandle(
           std::shared_ptr<shared_model::interface::TransactionBatch>
               transaction_batch) const = 0;
 

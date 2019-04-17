@@ -73,12 +73,16 @@ OnDemandOrderingGate::~OnDemandOrderingGate() {
   round_switch_subscription_.unsubscribe();
 }
 
-void OnDemandOrderingGate::propagateBatch(
+bool OnDemandOrderingGate::propagateBatch(
     std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
-  cache_->addToBack({batch});
+  bool cached = cache_->addToBack({batch});
+  if (not cached) {
+    return false;
+  }
 
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
+  return true;
 }
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
@@ -104,8 +108,9 @@ OnDemandOrderingGate::processProposalRequest(
 void OnDemandOrderingGate::sendCachedTransactions() {
   // TODO mboldyrev 22.03.2019 IR-425
   // make cache_->getBatchesForRound(current_round) that respects sync
-  auto batches = cache_->pop();
-  cache_->addToBack(batches);
+
+  auto batches = cache_->front();
+  cache_->rotate();
 
   // get only transactions which fit to next proposal
   auto end_iterator = batches.begin();

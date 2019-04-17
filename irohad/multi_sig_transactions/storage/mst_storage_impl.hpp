@@ -26,7 +26,14 @@ namespace iroha {
 
    public:
     // ----------------------------| interface API |----------------------------
+    /**
+     * @param completer - strategy for determine completed and expired batches
+     * @param transaction_limit - maximum quantity of transactions stored
+     * @param mst_state_logger - the logger for created MST state
+     * @param log - the logger to use in the new object
+     */
     MstStorageStateImpl(const CompleterType &completer,
+                        size_t transaction_limit,
                         logger::LoggerPtr mst_state_logger,
                         logger::LoggerPtr log);
 
@@ -54,6 +61,7 @@ namespace iroha {
     // ---------------------------| private fields |----------------------------
 
     const CompleterType completer_;
+    size_t txs_limit_;
     std::unordered_map<shared_model::crypto::PublicKey,
                        MstState,
                        iroha::model::BlobHasher>

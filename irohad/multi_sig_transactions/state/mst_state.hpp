@@ -92,12 +92,14 @@ namespace iroha {
 
     /**
      * Create empty state
-     * @param log - the logger to use in the new object
      * @param completer - strategy for determine completed and expired batches
+     * @param transaction_limit - maximum quantity of transactions stored
+     * @param log - the logger to use in the new object
      * @return empty mst state
      */
-    static MstState empty(logger::LoggerPtr log,
-                          const CompleterType &completer);
+    static MstState empty(const CompleterType &completer,
+                          size_t transaction_limit,
+                          logger::LoggerPtr log);
 
     /**
      * Add batch to current state
@@ -156,6 +158,12 @@ namespace iroha {
      */
     bool contains(const DataType &element) const;
 
+    /// Get the quantity of stored transactions.
+    size_t transactionsQuantity() const;
+
+    /// Get the quantity of stored batches.
+    size_t batchesQuantity() const;
+
     /// Apply visitor to all batches.
     template <typename Visitor>
     inline void iterateBatches(const Visitor &visitor) const {
@@ -186,9 +194,12 @@ namespace iroha {
                                         iroha::model::PointerBatchHasher,
                                         BatchHashEquality>>;
 
-    MstState(const CompleterType &completer, logger::LoggerPtr log);
+    MstState(const CompleterType &completer,
+             size_t transaction_limit,
+             logger::LoggerPtr log);
 
     MstState(const CompleterType &completer,
+             size_t transaction_limit,
              const BatchesForwardCollectionType &batches,
              logger::LoggerPtr log);
 
@@ -219,6 +230,9 @@ namespace iroha {
     CompleterType completer_;
 
     BatchesBimap batches_;
+
+    size_t txs_limit_;
+    size_t txs_quantity_{0};
 
     logger::LoggerPtr log_;
   };

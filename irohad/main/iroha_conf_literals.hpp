@@ -22,6 +22,7 @@ namespace config_members {
   extern const char *VoteDelay;
   extern const char *MstSupport;
   extern const char *MstExpirationTime;
+  extern const char *MstStateTxsLimit;
   extern const char *MaxRoundsDelay;
   extern const char *StaleStreamMaxRounds;
   extern const char *LogSection;

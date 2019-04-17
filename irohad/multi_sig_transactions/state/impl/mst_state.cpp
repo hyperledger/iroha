@@ -18,6 +18,15 @@
 #include "logger/logger.hpp"
 
 namespace {
+  template <class T>
+  size_t countTxsInBatches(const T &batches) {
+    size_t size = 0;
+    for (const auto &batch : batches) {
+      size += boost::size(batch->transactions());
+    }
+    return size;
+  }
+
   shared_model::interface::types::TimestampType oldestTimestamp(
       const iroha::BatchPtr &batch) {
     const bool batch_is_empty = boost::empty(batch->transactions());
@@ -63,23 +72,28 @@ namespace iroha {
 
   // ------------------------------| public api |-------------------------------
 
-  MstState MstState::empty(logger::LoggerPtr log,
-                           const CompleterType &completer) {
-    return MstState(completer, std::move(log));
+  MstState MstState::empty(const CompleterType &completer,
+                           size_t transaction_limit,
+                           logger::LoggerPtr log) {
+    return MstState(completer, transaction_limit, std::move(log));
   }
 
   StateUpdateResult MstState::operator+=(const DataType &rhs) {
-    auto state_update = StateUpdateResult{
-        std::make_shared<MstState>(MstState::empty(log_, completer_)),
-        std::make_shared<MstState>(MstState::empty(log_, completer_))};
+    auto state_update =
+        StateUpdateResult{std::make_shared<MstState>(
+                              MstState::empty(completer_, txs_limit_, log_)),
+                          std::make_shared<MstState>(
+                              MstState::empty(completer_, txs_limit_, log_))};
     insertOne(state_update, rhs);
     return state_update;
   }
 
   StateUpdateResult MstState::operator+=(const MstState &rhs) {
-    auto state_update = StateUpdateResult{
-        std::make_shared<MstState>(MstState::empty(log_, completer_)),
-        std::make_shared<MstState>(MstState::empty(log_, completer_))};
+    auto state_update =
+        StateUpdateResult{std::make_shared<MstState>(
+                              MstState::empty(completer_, txs_limit_, log_)),
+                          std::make_shared<MstState>(
+                              MstState::empty(completer_, txs_limit_, log_))};
     for (auto &&rhs_tx : rhs.batches_.right | boost::adaptors::map_keys) {
       insertOne(state_update, rhs_tx);
     }
@@ -95,7 +109,7 @@ namespace iroha {
         difference.push_back(batch);
       }
     }
-    return MstState(this->completer_, difference, log_);
+    return MstState(this->completer_, txs_limit_, difference, log_);
   }
 
   bool MstState::isEmpty() const {
@@ -111,13 +125,23 @@ namespace iroha {
   }
 
   MstState MstState::extractExpired(const TimeType &current_time) {
-    MstState out = MstState::empty(log_, completer_);
+    MstState out = MstState::empty(completer_, txs_limit_, log_);
     extractExpiredImpl(current_time, out);
     return out;
   }
 
   void MstState::eraseExpired(const TimeType &current_time) {
     extractExpiredImpl(current_time, boost::none);
+  }
+
+  size_t MstState::transactionsQuantity() const {
+    assert(txs_quantity_
+           == countTxsInBatches(batches_.right | boost::adaptors::map_keys));
+    return txs_quantity_;
+  }
+
+  size_t MstState::batchesQuantity() const {
+    return batches_.right.size();
   }
 
   // ------------------------------| private api |------------------------------
@@ -147,15 +171,25 @@ namespace iroha {
     return inserted_new_signatures;
   }
 
-  MstState::MstState(const CompleterType &completer, logger::LoggerPtr log)
-      : MstState(completer, std::vector<DataType>{}, std::move(log)) {}
+  MstState::MstState(const CompleterType &completer,
+                     size_t transaction_limit,
+                     logger::LoggerPtr log)
+      : MstState(completer,
+                 transaction_limit,
+                 std::vector<DataType>{},
+                 std::move(log)) {}
 
   MstState::MstState(const CompleterType &completer,
+                     size_t transaction_limit,
                      const BatchesForwardCollectionType &batches,
                      logger::LoggerPtr log)
-      : completer_(completer), log_(std::move(log)) {
+      : completer_(completer),
+        txs_limit_(transaction_limit),
+        txs_quantity_(0),
+        log_(std::move(log)) {
     for (const auto &batch : batches) {
       batches_.insert({oldestTimestamp(batch), batch});
+      txs_quantity_ += batch->transactions().size();
     }
   }
 
@@ -165,8 +199,20 @@ namespace iroha {
     auto corresponding = batches_.right.find(rhs_batch);
     if (corresponding == batches_.right.end()) {
       // when state does not contain transaction
-      rawInsert(rhs_batch);
-      state_update.updated_state_->rawInsert(rhs_batch);
+      if (transactionsQuantity() + boost::size(rhs_batch->transactions())
+          <= txs_limit_) {
+        // there is enough room for the new batch
+        rawInsert(rhs_batch);
+        state_update.updated_state_->rawInsert(rhs_batch);
+      } else {
+        // there is not enough room for the new batch
+        log_->info(
+            "Dropped a batch because it would exceed the transaction limit "
+            "(currently have {} out of {} transactions in state): {}",
+            transactionsQuantity(),
+            txs_limit_,
+            *rhs_batch);
+      }
       return;
     }
 
@@ -177,6 +223,8 @@ namespace iroha {
     if (completer_->isCompleted(found)) {
       // state already has completed transaction,
       // remove from state and return it
+      assert(txs_quantity_ >= boost::size(found->transactions()));
+      txs_quantity_ -= boost::size(found->transactions());
       batches_.right.erase(found);
       state_update.completed_state_->rawInsert(found);
       return;
@@ -190,6 +238,7 @@ namespace iroha {
   }
 
   void MstState::rawInsert(const DataType &rhs_batch) {
+    txs_quantity_ += boost::size(rhs_batch->transactions());
     batches_.insert({oldestTimestamp(rhs_batch), rhs_batch});
   }
 
@@ -204,6 +253,8 @@ namespace iroha {
       if (extracted) {
         *extracted += it->second;
       }
+      assert(txs_quantity_ >= boost::size(it->second->transactions()));
+      txs_quantity_ -= boost::size(it->second->transactions());
       it = batches_.left.erase(it);
       assert(it == batches_.left.begin());
     }

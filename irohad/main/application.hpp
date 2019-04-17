@@ -88,6 +88,8 @@ class Irohad {
    * @param vote_delay - waiting time before sending vote to next peer
    * @param mst_expiration_time - maximum time until until MST transaction is
    * not considered as expired (in minutes)
+   * @param mst_state_txs_limit - maximum quantity of transactions stored in MST
+   * state
    * @param keypair - public and private keys for crypto signer
    * @param max_rounds_delay - maximum delay between consecutive rounds without
    * transactions
@@ -107,6 +109,7 @@ class Irohad {
          std::chrono::milliseconds proposal_delay,
          std::chrono::milliseconds vote_delay,
          std::chrono::minutes mst_expiration_time,
+         size_t mst_state_txs_limit,
          const shared_model::crypto::Keypair &keypair,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
@@ -195,6 +198,7 @@ class Irohad {
   std::chrono::milliseconds vote_delay_;
   bool is_mst_supported_;
   std::chrono::minutes mst_expiration_time_;
+  size_t mst_state_txs_limit_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
   boost::optional<iroha::GossipPropagationStrategyParams>

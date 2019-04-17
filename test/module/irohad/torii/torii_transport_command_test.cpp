@@ -23,6 +23,7 @@
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/torii/torii_mocks.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
+#include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "module/vendor/grpc_mocks.hpp"
 #include "torii/impl/status_bus_impl.hpp"
@@ -37,6 +38,15 @@ using ::testing::StrEq;
 
 using namespace iroha::torii;
 using namespace std::chrono_literals;
+
+auto getMockedBatch(
+    const shared_model::interface::types::SharedTxsCollectionType &transactions)
+    -> shared_model::interface::TransactionBatchFactory::FactoryResult<
+        std::unique_ptr<shared_model::interface::TransactionBatch>> {
+  return iroha::expected::makeValue<
+      std::unique_ptr<shared_model::interface::TransactionBatch>>(
+      createUniqueMockBatchWithTransactions(transactions, "batch_hash"));
+}
 
 class CommandServiceTransportGrpcTest : public testing::Test {
  private:
@@ -160,7 +170,8 @@ TEST_F(CommandServiceTransportGrpcTest, ListTorii) {
       *batch_factory,
       createTransactionBatch(
           A<const shared_model::interface::types::SharedTxsCollectionType &>()))
-      .Times(kTimes);
+      .Times(kTimes)
+      .WillRepeatedly(Invoke(getMockedBatch));
 
   EXPECT_CALL(*command_service, handleTransactionBatch(_)).Times(kTimes);
   transport_grpc->ListTorii(&context, &request, &response);
@@ -226,11 +237,13 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiPartialInvalid) {
         }
         return res;
       }));
+
   EXPECT_CALL(
       *batch_factory,
       createTransactionBatch(
           A<const shared_model::interface::types::SharedTxsCollectionType &>()))
-      .Times(kTimes - 1);
+      .Times(kTimes - 1)
+      .WillRepeatedly(Invoke(getMockedBatch));
 
   EXPECT_CALL(*command_service, handleTransactionBatch(_)).Times(kTimes - 1);
   EXPECT_CALL(*status_bus, publish(_)).WillOnce(Invoke([&kError](auto status) {

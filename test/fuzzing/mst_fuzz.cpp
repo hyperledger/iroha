@@ -21,6 +21,8 @@
 using namespace testing;
 using namespace iroha::network;
 
+constexpr size_t kMstStateTxLimit{10};
+
 namespace fuzzing {
   struct MstFixture {
     std::shared_ptr<iroha::TestCompleter> completer_;
@@ -62,6 +64,7 @@ namespace fuzzing {
           std::move(batch_factory),
           std::move(cache),
           completer_,
+          kMstStateTxLimit,
           shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
               .publicKey(),
           logger::getDummyLoggerPtr(),

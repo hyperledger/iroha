@@ -24,11 +24,11 @@ namespace iroha {
           proposal_creator_(std::move(proposal_creator)),
           log_{std::move(log)} {}
 
-    void PeerCommunicationServiceImpl::propagate_batch(
+    bool PeerCommunicationServiceImpl::propagate_batch(
         std::shared_ptr<shared_model::interface::TransactionBatch> batch)
         const {
       log_->info("propagate batch");
-      ordering_gate_->propagateBatch(batch);
+      return ordering_gate_->propagateBatch(batch);
     }
 
     rxcpp::observable<OrderingEvent> PeerCommunicationServiceImpl::onProposal()

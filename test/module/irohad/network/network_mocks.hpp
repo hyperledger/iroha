@@ -31,7 +31,7 @@ namespace iroha {
 
       MOCK_CONST_METHOD1(
           propagate_batch,
-          void(std::shared_ptr<shared_model::interface::TransactionBatch>));
+          bool(std::shared_ptr<shared_model::interface::TransactionBatch>));
 
       MOCK_CONST_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 
@@ -67,7 +67,7 @@ namespace iroha {
 
       MOCK_METHOD1(
           propagateBatch,
-          void(std::shared_ptr<shared_model::interface::TransactionBatch>));
+          bool(std::shared_ptr<shared_model::interface::TransactionBatch>));
 
       MOCK_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 

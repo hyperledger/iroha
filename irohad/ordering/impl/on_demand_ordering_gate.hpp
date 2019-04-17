@@ -60,7 +60,7 @@ namespace iroha {
 
       ~OnDemandOrderingGate() override;
 
-      void propagateBatch(
+      bool propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           override;
 

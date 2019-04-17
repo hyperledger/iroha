@@ -29,8 +29,9 @@ namespace iroha {
       /**
        * Propagate batch to the network
        * @param batch - batch for propagation
+       * @return bool - true if successfully propagated
        */
-      virtual void propagate_batch(
+      virtual bool propagate_batch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           const = 0;
 

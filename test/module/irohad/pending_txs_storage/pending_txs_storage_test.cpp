@@ -33,6 +33,7 @@ class PendingTxsStorageFixture : public ::testing::Test {
 
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
+  size_t mst_state_txs_limit_{10};
 
   logger::LoggerPtr mst_state_log_{getTestLogger("MstState")};
   logger::LoggerPtr log_{getTestLogger("PendingTxsStorageFixture")};
@@ -47,8 +48,7 @@ class PendingTxsStorageFixture : public ::testing::Test {
  */
 TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
   auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto transactions =
       addSignatures(makeTestBatch(txBuilder(1, getUniqueTime()),
                                   txBuilder(1, getUniqueTime())),
@@ -56,9 +56,9 @@ TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
                     makeSignature("1", "pub_key_1"));
 
   *state += transactions;
-  ASSERT_EQ(state->getBatches().size(), 1) << "Failed to prepare MST state";
-  ASSERT_EQ((*state->getBatches().begin())->transactions().size(), 2)
-      << "Test batch contains wrong amount of transactions";
+  ASSERT_EQ(state->batchesQuantity(), 1) << "Failed to prepare MST state";
+  ASSERT_EQ(state->transactionsQuantity(), 2)
+      << "Test batch contains wrong quantity of transactions";
 }
 
 /**
@@ -69,7 +69,7 @@ TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
  */
 TEST_F(PendingTxsStorageFixture, InsertionTest) {
   auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto transactions = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
@@ -108,9 +108,9 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
  */
 TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
   auto state1 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto state2 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto transactions = addSignatures(
       makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
       0,
@@ -143,7 +143,7 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
  */
 TEST_F(PendingTxsStorageFixture, SeveralBatches) {
   auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto batch1 = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
@@ -185,7 +185,7 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
  */
 TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
   auto state1 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto batch1 = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
@@ -193,7 +193,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       makeSignature("1", "pub_key_1"));
   *state1 += batch1;
   auto state2 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   auto batch2 = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
@@ -227,7 +227,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
  */
 TEST_F(PendingTxsStorageFixture, PreparedBatch) {
   auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   std::shared_ptr<shared_model::interface::TransactionBatch> batch =
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
@@ -263,7 +263,7 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
  */
 TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
   auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+      iroha::MstState::empty(completer_, mst_state_txs_limit_, mst_state_log_));
   std::shared_ptr<shared_model::interface::TransactionBatch> batch =
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),

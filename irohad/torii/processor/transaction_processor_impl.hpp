@@ -41,7 +41,7 @@ namespace iroha {
               std::shared_ptr<const shared_model::interface::Block>> commits,
           logger::LoggerPtr log);
 
-      void batchHandle(
+      bool batchHandle(
           std::shared_ptr<shared_model::interface::TransactionBatch>
               transaction_batch) const override;
 

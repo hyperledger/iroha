@@ -54,7 +54,7 @@ namespace iroha {
 
   struct MockMstProcessor : public MstProcessor {
     MockMstProcessor(logger::LoggerPtr log) : MstProcessor(std::move(log)) {}
-    MOCK_METHOD1(propagateBatchImpl, void(const DataType &));
+    MOCK_METHOD1(propagateBatchImpl, bool(const DataType &));
     MOCK_CONST_METHOD0(onStateUpdateImpl,
                        rxcpp::observable<std::shared_ptr<MstState>>());
     MOCK_CONST_METHOD0(onPreparedBatchesImpl, rxcpp::observable<DataType>());

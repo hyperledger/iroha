@@ -433,7 +433,24 @@ namespace integration_framework {
     log_->info("sending transaction");
     log_->debug("{}", tx);
 
-    command_client_.Torii(tx.getTransport());
+    grpc::Status status;
+    const size_t kTrialsLimit = 10;
+    size_t attempt;
+    auto tx_proto = tx.getTransport();
+    for (attempt = 0; attempt < kTrialsLimit; ++attempt) {
+      status = command_client_.Torii(tx_proto);
+      if (not status.ok()
+          and status.error_code() == grpc::StatusCode::RESOURCE_EXHAUSTED) {
+        log_->debug(
+            "Iroha was unable to serve Torii request. Attempt {} of {}. {}",
+            attempt + 1,
+            kTrialsLimit,
+            status.error_message());
+        continue;
+      }
+      break;
+    }
+
     return *this;
   }
 

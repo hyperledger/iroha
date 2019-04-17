@@ -13,6 +13,7 @@
 using namespace iroha;
 
 auto log_ = getTestLogger("MstStorageTest");
+constexpr size_t kMstStateTxLimit{10};
 
 class StorageTest : public testing::Test {
  public:
@@ -20,8 +21,11 @@ class StorageTest : public testing::Test {
 
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
-    storage = std::make_shared<MstStorageStateImpl>(
-        completer_, getTestLogger("MstState"), getTestLogger("MstStorage"));
+    storage =
+        std::make_shared<MstStorageStateImpl>(completer_,
+                                              kMstStateTxLimit,
+                                              getTestLogger("MstState"),
+                                              getTestLogger("MstStorage"));
     fillOwnState();
   }
 
@@ -45,39 +49,36 @@ TEST_F(StorageTest, StorageWhenApplyOtherState) {
       "create state with default peers and other state => "
       "apply state");
 
-  auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
+  auto new_state =
+      MstState::empty(completer_, kMstStateTxLimit, getTestLogger("MstState"));
   new_state += makeTestBatch(txBuilder(5, creation_time));
   new_state += makeTestBatch(txBuilder(6, creation_time));
   new_state += makeTestBatch(txBuilder(7, creation_time));
 
   storage->apply(shared_model::crypto::PublicKey("another"), new_state);
 
-  ASSERT_EQ(6,
-            storage->getDiffState(absent_peer_key, creation_time)
-                .getBatches()
-                .size());
+  ASSERT_EQ(
+      6,
+      storage->getDiffState(absent_peer_key, creation_time).batchesQuantity());
 }
 
 TEST_F(StorageTest, StorageInsertOtherState) {
   log_->info("init fixture state => get expired state");
 
-  ASSERT_EQ(3,
-            storage->extractExpiredTransactions(creation_time + 1)
-                .getBatches()
-                .size());
+  ASSERT_EQ(
+      3,
+      storage->extractExpiredTransactions(creation_time + 1).batchesQuantity());
   ASSERT_EQ(0,
             storage->getDiffState(absent_peer_key, creation_time + 1)
-                .getBatches()
-                .size());
+                .batchesQuantity());
 }
 
 TEST_F(StorageTest, StorageWhenCreateValidDiff) {
   log_->info("insert transactions => check their presence");
 
-  ASSERT_EQ(3,
-            storage->getDiffState(absent_peer_key, creation_time)
-                .getBatches()
-                .size());
+  ASSERT_EQ(
+      3,
+      storage->getDiffState(absent_peer_key, creation_time).batchesQuantity());
 }
 
 TEST_F(StorageTest, StorageWhenCreate) {
@@ -89,8 +90,7 @@ TEST_F(StorageTest, StorageWhenCreate) {
 
   ASSERT_EQ(0,
             storage->getDiffState(absent_peer_key, expiration_time)
-                .getBatches()
-                .size());
+                .batchesQuantity());
 }
 
 /**

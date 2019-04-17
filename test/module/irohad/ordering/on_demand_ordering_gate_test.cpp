@@ -90,7 +90,9 @@ TEST_F(OnDemandOrderingGateTest, propagateBatch) {
   auto batch = createMockBatchWithHash(hash1);
   OdOsNotification::CollectionType collection{batch};
 
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAre(batch))).Times(1);
+  EXPECT_CALL(*cache, addToBack(UnorderedElementsAre(batch)))
+      .Times(1)
+      .WillOnce(Return(true));
   EXPECT_CALL(*notification, onBatches(collection)).Times(1);
 
   ordering_gate->propagateBatch(batch);
@@ -113,6 +115,10 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
       .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash("")));
   ON_CALL(*proposal, transactions())
       .WillByDefault(Return(txs | boost::adaptors::indirected));
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
 
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
@@ -154,6 +160,10 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(oproposal))));
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
 
   auto event = OnDemandOrderingGate::RoundSwitch(round, ledger_state);
 
@@ -183,6 +193,10 @@ TEST_F(OnDemandOrderingGateTest, BlockEventNoProposal) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
 
   auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
@@ -207,6 +221,10 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(proposal))));
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
 
   auto gate_wrapper =
       make_test_subscriber<CallExact>(ordering_gate->onProposal(), 1);
@@ -239,6 +257,10 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       std::static_pointer_cast<const shared_model::interface::Proposal>(
           std::move(proposal)));
 
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
   // set expectations for ordering service
   EXPECT_CALL(*ordering_service, onCollaborationOutcome(round)).Times(1);
   EXPECT_CALL(*notification, onRequestProposal(round))
@@ -292,10 +314,9 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
 
   cache::OrderingGateCache::BatchesSetType collection{batch1, batch2};
 
-  EXPECT_CALL(*cache, pop()).WillOnce(Return(collection));
-
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAreArray(collection)))
-      .Times(1);
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(::testing::ReturnRef(::testing::Const(collection)));
   EXPECT_CALL(*notification, onBatches(UnorderedElementsAreArray(collection)))
       .Times(1);
 
@@ -310,11 +331,11 @@ TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
  * @then nothing is propagated to the network
  */
 TEST_F(OnDemandOrderingGateTest, PopEmptyBatchesFromTheCache) {
-  cache::OrderingGateCache::BatchesSetType empty_collection{};
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
 
-  EXPECT_CALL(*cache, pop()).WillOnce(Return(empty_collection));
-  EXPECT_CALL(*cache, addToBack(UnorderedElementsAreArray(empty_collection)))
-      .Times(1);
   EXPECT_CALL(*notification, onBatches(_)).Times(0);
 
   rounds.get_subscriber().on_next(
@@ -335,7 +356,10 @@ TEST_F(OnDemandOrderingGateTest, BatchesRemoveFromCache) {
   auto batch1 = createMockBatchWithHash(hash1);
   auto batch2 = createMockBatchWithHash(hash2);
 
-  EXPECT_CALL(*cache, pop()).Times(1);
+  EXPECT_CALL(*cache, rotate()).Times(1);
+  EXPECT_CALL(*cache, front())
+      .WillOnce(testing::ReturnRefOfCopy(testing::Const(
+          iroha::ordering::cache::OrderingGateCache::BatchesSetType{})));
   EXPECT_CALL(*cache, remove(UnorderedElementsAre(hash1, hash2))).Times(1);
 
   auto hashes =

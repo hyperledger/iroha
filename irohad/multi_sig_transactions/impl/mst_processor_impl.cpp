@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "multi_sig_transactions/mst_processor_impl.hpp"
+
 #include <utility>
 
 #include "logger/logger.hpp"
-#include "multi_sig_transactions/mst_processor_impl.hpp"
 
 namespace iroha {
 
@@ -38,6 +39,7 @@ namespace iroha {
     updatedBatchesNotify(*state_update.updated_state_);
     expiredBatchesNotify(
         storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));
+    return state_update.updated_state_->contains(batch);
   }
 
   auto FairMstProcessor::onStateUpdateImpl() const
@@ -94,8 +96,9 @@ namespace iroha {
 
     // updated batches
     updatedBatchesNotify(*state_update.updated_state_);
-    log_->info("New batches size: {}",
-               state_update.updated_state_->getBatches().size());
+    log_->info("New state has {} batches and {} transactions.",
+               state_update.updated_state_->batchesQuantity(),
+               state_update.updated_state_->transactionsQuantity());
 
     // completed batches
     completedBatchesNotify(*state_update.completed_state_);

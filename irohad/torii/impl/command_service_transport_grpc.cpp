@@ -122,13 +122,22 @@ namespace iroha {
       auto transactions = deserializeTransactions(request);
 
       auto batches = batch_parser_->parseBatches(transactions);
-
+      bool all_batches_processed = true;
       for (auto &batch : batches) {
         batch_factory_->createTransactionBatch(batch).match(
             [&](iroha::expected::Value<std::unique_ptr<
                     shared_model::interface::TransactionBatch>> &value) {
-              this->command_service_->handleTransactionBatch(
-                  std::move(value).value);
+              const shared_model::interface::types::HashType hash =
+                  value.value->reducedHash();
+              bool batch_is_processed =
+                  this->command_service_->handleTransactionBatch(
+                      std::move(value).value);
+              if (not batch_is_processed) {
+                all_batches_processed = false;
+                log_->info(
+                    "Transaction batch with reduced hash {} is not processed.",
+                    hash);
+              }
             },
             [&](iroha::expected::Error<std::string> &error) {
               std::vector<shared_model::crypto::Hash> hashes;
@@ -150,7 +159,13 @@ namespace iroha {
             });
       }
 
-      return grpc::Status::OK;
+      auto status = grpc::Status::OK;
+      if (not all_batches_processed) {
+        std::string message = "Some batches were not processed";
+        status = grpc::Status(grpc::StatusCode::RESOURCE_EXHAUSTED, message);
+      }
+
+      return status;
     }
 
     grpc::Status CommandServiceTransportGrpc::Status(

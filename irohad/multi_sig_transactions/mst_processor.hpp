@@ -27,8 +27,9 @@ namespace iroha {
      * Propagate batch in network for signing by other
      * participants
      * @param transaction - transaction for propagation
+     * @return true, when batch was accepted
      */
-    void propagateBatch(const DataType &batch);
+    bool propagateBatch(const DataType &batch);
 
     /**
      * Check, if passed batch is in pending storage

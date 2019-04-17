@@ -142,15 +142,15 @@ auto createMockBatchWithHash(
  * Creates mock batch with provided transactions
  * @param txs -- list of transactions in the batch
  * @param hash -- const ref to hash to be returned by the batch
- * @return shared_ptr for batch
+ * @return unique_ptr for batch
  */
-auto createMockBatchWithTransactions(
+auto createUniqueMockBatchWithTransactions(
     const shared_model::interface::types::SharedTxsCollectionType &txs,
     std::string hash) {
   using ::testing::NiceMock;
   using ::testing::ReturnRefOfCopy;
 
-  auto res = std::make_shared<NiceMock<MockTransactionBatch>>();
+  auto res = std::make_unique<NiceMock<MockTransactionBatch>>();
 
   ON_CALL(*res, transactions()).WillByDefault(ReturnRefOfCopy(txs));
 
@@ -158,6 +158,19 @@ auto createMockBatchWithTransactions(
       .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash{hash}));
 
   return res;
+}
+
+/**
+ * Creates mock batch with provided transactions
+ * @param txs -- list of transactions in the batch
+ * @param hash -- const ref to hash to be returned by the batch
+ * @return shared_ptr for batch
+ */
+auto createMockBatchWithTransactions(
+    const shared_model::interface::types::SharedTxsCollectionType &txs,
+    std::string hash) {
+  return std::shared_ptr<::testing::NiceMock<MockTransactionBatch>>(
+      createUniqueMockBatchWithTransactions(txs, std::move(hash)));
 }
 
 struct MockSignature : public shared_model::interface::Signature {

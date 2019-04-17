@@ -59,7 +59,7 @@ namespace iroha {
       CommandServiceImpl(const CommandServiceImpl &) = delete;
       CommandServiceImpl &operator=(const CommandServiceImpl &) = delete;
 
-      void handleTransactionBatch(
+      bool handleTransactionBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch)
           override;
 
@@ -93,8 +93,9 @@ namespace iroha {
        * Forward batch to transaction processor and set statuses of all
        * transactions inside it
        * @param batch to be processed
+       * @return bool - true if batch was successfully accepted for processing
        */
-      void processBatch(
+      bool processBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch);
 
       std::shared_ptr<iroha::torii::TransactionProcessor> tx_processor_;

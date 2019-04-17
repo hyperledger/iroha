@@ -326,7 +326,8 @@ namespace iroha {
                                   delay,
                                   std::move(initial_hashes),
                                   ordering_log_manager),
-          std::make_shared<ordering::cache::OnDemandCache>(),
+          std::make_shared<ordering::cache::OnDemandCache>(
+              max_number_of_transactions),
           std::move(proposal_factory),
           std::move(tx_cache),
           std::move(delay_func),

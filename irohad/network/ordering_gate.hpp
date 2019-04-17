@@ -30,8 +30,9 @@ namespace iroha {
       /**
        * Propagate a transaction batch for further processing
        * @param batch
+       * @return bool true if batch was accepted for processing
        */
-      virtual void propagateBatch(
+      virtual bool propagateBatch(
           std::shared_ptr<shared_model::interface::TransactionBatch> batch) = 0;
 
       /**

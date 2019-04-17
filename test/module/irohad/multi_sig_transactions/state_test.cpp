@@ -16,6 +16,7 @@ using namespace iroha::model;
 auto mst_state_log_ = getTestLogger("MstState");
 auto log_ = getTestLogger("MstStateTest");
 auto completer_ = std::make_shared<TestCompleter>();
+constexpr size_t kMstStateTxLimit{10};
 
 /**
  * @given empty state
@@ -23,12 +24,12 @@ auto completer_ = std::make_shared<TestCompleter>();
  * @then  checks that state contains the inserted batch
  */
 TEST(StateTest, CreateState) {
-  auto state = MstState::empty(mst_state_log_, completer_);
-  ASSERT_EQ(0, state.getBatches().size());
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
+  ASSERT_EQ(0, state.batchesQuantity());
   auto tx = addSignatures(
       makeTestBatch(txBuilder(1)), 0, makeSignature("1", "pub_key_1"));
   state += tx;
-  ASSERT_EQ(1, state.getBatches().size());
+  ASSERT_EQ(1, state.batchesQuantity());
   ASSERT_EQ(*tx, **state.getBatches().begin());
 }
 
@@ -38,9 +39,8 @@ TEST(StateTest, CreateState) {
  * @then  checks that signatures are merged into the state
  */
 TEST(StateTest, UpdateExistingState) {
-  auto state = MstState::empty(mst_state_log_, completer_);
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto time = iroha::time::now();
-
   auto first_signature = makeSignature("1", "pub_key_1");
   auto second_signature = makeSignature("2", "pub_key_2");
   auto base_tx = makeTestBatch(txBuilder(1, time));
@@ -50,7 +50,7 @@ TEST(StateTest, UpdateExistingState) {
 
   auto second_tx = addSignatures(base_tx, 0, second_signature);
   state += second_tx;
-  ASSERT_EQ(1, state.getBatches().size());
+  ASSERT_EQ(1, state.batchesQuantity());
 
   auto merged_tx = addSignatures(base_tx, 0, first_signature, second_signature);
   ASSERT_EQ(*merged_tx, **state.getBatches().begin());
@@ -62,8 +62,7 @@ TEST(StateTest, UpdateExistingState) {
  * @then "contains" method shows presence of the batch
  */
 TEST(StateTest, ContainsMethodFindsInsertedBatch) {
-  auto state = MstState::empty(mst_state_log_, completer_);
-
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto first_signature = makeSignature("1", "pub_key_1");
   auto batch = makeTestBatch(txBuilder(1, iroha::time::now()));
   auto tx = addSignatures(batch, 0, first_signature);
@@ -78,9 +77,8 @@ TEST(StateTest, ContainsMethodFindsInsertedBatch) {
  * @then "contains" method shows absence of the batch
  */
 TEST(StateTest, ContainsMethodDoesNotFindNonInsertedBatch) {
-  auto state = MstState::empty(mst_state_log_, completer_);
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto batch = makeTestBatch(txBuilder(1, iroha::time::now()));
-
   EXPECT_FALSE(state.contains(batch));
 }
 
@@ -92,8 +90,7 @@ TEST(StateTest, ContainsMethodDoesNotFindNonInsertedBatch) {
 TEST(StateTest, UpdateStateWhenTransactionsSame) {
   log_->info("Create empty state => insert two equal transaction");
 
-  auto state = MstState::empty(mst_state_log_, completer_);
-
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto time = iroha::time::now();
   state += addSignatures(
       makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
@@ -119,8 +116,7 @@ TEST(StateTest, UpdateStateWhenTransactionsSame) {
 TEST(StateTest, DifferentSignaturesUnionTest) {
   log_->info("Create two states => merge them");
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
-
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 +=
       addSignatures(makeTestBatch(txBuilder(1)), 0, makeSignature("1", "1"));
 
@@ -129,17 +125,20 @@ TEST(StateTest, DifferentSignaturesUnionTest) {
   state1 +=
       addSignatures(makeTestBatch(txBuilder(3)), 0, makeSignature("3", "3"));
 
-  ASSERT_EQ(3, state1.getBatches().size());
+  ASSERT_EQ(3, state1.batchesQuantity());
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state2 +=
       addSignatures(makeTestBatch(txBuilder(4)), 0, makeSignature("4", "4"));
   state2 +=
       addSignatures(makeTestBatch(txBuilder(5)), 0, makeSignature("5", "5"));
-  ASSERT_EQ(2, state2.getBatches().size());
+  ASSERT_EQ(2, state2.batchesQuantity());
 
+  ASSERT_LE(state1.transactionsQuantity() + state2.transactionsQuantity(),
+            kMstStateTxLimit)
+      << "Bad test!";
   state1 += state2;
-  ASSERT_EQ(5, state1.getBatches().size());
+  ASSERT_EQ(5, state1.batchesQuantity());
 }
 
 /**
@@ -156,9 +155,8 @@ TEST(StateTest, UnionStateWhenSameTransactionHaveDifferentSignatures) {
 
   auto time = iroha::time::now();
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
-  auto state2 = MstState::empty(mst_state_log_, completer_);
-
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(
       makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
   state2 += addSignatures(
@@ -185,23 +183,23 @@ TEST(StateTest, UnionStateWhenSameTransactionHaveDifferentSignatures) {
 TEST(StateTest, UnionStateWhenTransactionsSame) {
   auto time = iroha::time::now();
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(
       makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
   state1 += addSignatures(
       makeTestBatch(txBuilder(2)), 0, makeSignature("other", "other"));
 
-  ASSERT_EQ(2, state1.getBatches().size());
+  ASSERT_EQ(2, state1.batchesQuantity());
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state2 += addSignatures(
       makeTestBatch(txBuilder(1, time)), 0, makeSignature("1", "1"));
   state2 += addSignatures(
       makeTestBatch(txBuilder(3)), 0, makeSignature("other_", "other_"));
-  ASSERT_EQ(2, state2.getBatches().size());
+  ASSERT_EQ(2, state2.batchesQuantity());
 
   state1 += state2;
-  ASSERT_EQ(3, state1.getBatches().size());
+  ASSERT_EQ(3, state1.batchesQuantity());
 }
 
 /**
@@ -221,17 +219,17 @@ TEST(StateTest, DifferenceTest) {
   auto common_batch = makeTestBatch(txBuilder(1, time));
   auto another_batch = makeTestBatch(txBuilder(3));
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(common_batch, 0, first_signature);
   state1 += addSignatures(common_batch, 0, second_signature);
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state2 += addSignatures(common_batch, 0, second_signature);
   state2 += addSignatures(common_batch, 0, third_signature);
   state2 += addSignatures(another_batch, 0, another_signature);
 
   MstState diff = state1 - state2;
-  ASSERT_EQ(1, diff.getBatches().size());
+  ASSERT_EQ(1, diff.batchesQuantity());
   auto expected_batch = addSignatures(common_batch, 0, first_signature);
   ASSERT_EQ(*expected_batch, **diff.getBatches().begin());
 }
@@ -247,25 +245,24 @@ TEST(StateTest, UpdateTxUntillQuorum) {
   auto quorum = 3u;
   auto time = iroha::time::now();
 
-  auto state = MstState::empty(mst_state_log_, completer_);
-
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto state_after_one_tx = state += addSignatures(
       makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("1", "1"));
-  ASSERT_EQ(1, state_after_one_tx.updated_state_->getBatches().size());
-  ASSERT_EQ(0, state_after_one_tx.completed_state_->getBatches().size());
+  ASSERT_EQ(1, state_after_one_tx.updated_state_->batchesQuantity());
+  ASSERT_EQ(0, state_after_one_tx.completed_state_->batchesQuantity());
 
   auto state_after_two_txes = state += addSignatures(
       makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("2", "2"));
-  ASSERT_EQ(1, state_after_two_txes.updated_state_->getBatches().size());
-  ASSERT_EQ(0, state_after_two_txes.completed_state_->getBatches().size());
+  ASSERT_EQ(1, state_after_two_txes.updated_state_->batchesQuantity());
+  ASSERT_EQ(0, state_after_two_txes.completed_state_->batchesQuantity());
 
   auto state_after_three_txes = state += addSignatures(
       makeTestBatch(txBuilder(1, time, quorum)), 0, makeSignature("3", "3"));
-  ASSERT_EQ(0, state_after_three_txes.updated_state_->getBatches().size());
+  ASSERT_EQ(0, state_after_three_txes.updated_state_->batchesQuantity());
   ASSERT_EQ(1, state_after_three_txes.completed_state_->getBatches().size());
   ASSERT_TRUE((*state_after_three_txes.completed_state_->getBatches().begin())
                   ->hasAllSignatures());
-  ASSERT_EQ(0, state.getBatches().size());
+  ASSERT_EQ(0, state.batchesQuantity());
 }
 
 /**
@@ -278,7 +275,7 @@ TEST(StateTest, UpdateStateWithNewStateUntilQuorum) {
   auto keypair = makeKey();
   auto time = iroha::time::now();
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
                           makeSignature("1_1", "1_1"));
@@ -286,20 +283,20 @@ TEST(StateTest, UpdateStateWithNewStateUntilQuorum) {
       makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
   state1 += addSignatures(
       makeTestBatch(txBuilder(2, time)), 0, makeSignature("3", "3"));
-  ASSERT_EQ(2, state1.getBatches().size());
+  ASSERT_EQ(2, state1.batchesQuantity());
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state2 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
                           makeSignature("1_2", "1_2"));
   state2 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
                           makeSignature("1_3", "1_3"));
-  ASSERT_EQ(1, state2.getBatches().size());
+  ASSERT_EQ(1, state2.batchesQuantity());
 
   auto final_state = state1 += state2;
-  ASSERT_EQ(1, final_state.completed_state_->getBatches().size());
-  ASSERT_EQ(1, state1.getBatches().size());
+  ASSERT_EQ(1, final_state.completed_state_->batchesQuantity());
+  ASSERT_EQ(1, state1.batchesQuantity());
 }
 
 /**
@@ -316,14 +313,13 @@ TEST(StateTest, TimeIndexInsertionByTx) {
                                       0,
                                       makeSignature("1_1", "1_1"));
 
-  auto state = MstState::empty(mst_state_log_, completer_);
-
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state += prepared_batch;
 
   auto expired_state = state.extractExpired(time + 1);
   ASSERT_EQ(1, expired_state.getBatches().size());
   ASSERT_EQ(*prepared_batch, **expired_state.getBatches().begin());
-  ASSERT_EQ(0, state.getBatches().size());
+  ASSERT_EQ(0, state.batchesQuantity());
 }
 
 /**
@@ -336,7 +332,7 @@ TEST(StateTest, TimeIndexInsertionByAddState) {
   auto quorum = 3u;
   auto time = iroha::time::now();
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(makeTestBatch(txBuilder(1, time, quorum)),
                           0,
                           makeSignature("1_1", "1_1"));
@@ -344,15 +340,15 @@ TEST(StateTest, TimeIndexInsertionByAddState) {
                           0,
                           makeSignature("1_2", "1_2"));
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state2 += addSignatures(
       makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
   state2 += addSignatures(
       makeTestBatch(txBuilder(3, time)), 0, makeSignature("3", "3"));
 
   auto final_state = state1 += state2;
-  ASSERT_EQ(0, final_state.completed_state_->getBatches().size());
-  ASSERT_EQ(2, final_state.updated_state_->getBatches().size());
+  ASSERT_EQ(0, final_state.completed_state_->batchesQuantity());
+  ASSERT_EQ(2, final_state.updated_state_->batchesQuantity());
 }
 
 /**
@@ -365,15 +361,68 @@ TEST(StateTest, TimeIndexInsertionByAddState) {
 TEST(StateTest, RemovingTestWhenByTimeHasExpired) {
   auto time = iroha::time::now();
 
-  auto state1 = MstState::empty(mst_state_log_, completer_);
+  auto state1 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   state1 += addSignatures(
       makeTestBatch(txBuilder(1, time)), 0, makeSignature("2", "2"));
   state1 += addSignatures(
       makeTestBatch(txBuilder(2, time)), 0, makeSignature("2", "2"));
 
-  auto state2 = MstState::empty(mst_state_log_, completer_);
-
+  auto state2 = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
   auto diff_state = state1 - state2;
 
-  ASSERT_EQ(2, diff_state.getBatches().size());
+  ASSERT_EQ(2, diff_state.batchesQuantity());
+}
+
+/**
+ * @given empty state
+ * @when  insert the batches until the transaction limit is reached
+ * @and  sometimes trying to insert more than allowed
+ * @then  the transaction limit is not exceeded
+ */
+TEST(StateTest, TxsLimit) {
+  auto state = MstState::empty(completer_, kMstStateTxLimit, mst_state_log_);
+
+  auto gen_additional_state =
+      [](size_t first_tx_num, auto... tx_builders) {
+        auto sign_batch = [first_tx_num](auto &&batch) {
+          const auto n_txs = boost::size(batch->transactions());
+          for (size_t tx_num = 0; tx_num < n_txs; ++tx_num) {
+            std::string key_str = std::to_string(first_tx_num + tx_num);
+            auto sig = makeSignature(key_str, key_str);
+            batch->addSignature(tx_num, sig.first, sig.second);
+          }
+          return std::move(batch);
+        };
+
+        auto additional_state =
+            MstState::empty(completer_, sizeof...(tx_builders), mst_state_log_);
+        additional_state += sign_batch(makeTestBatch(tx_builders...));
+        EXPECT_EQ(additional_state.transactionsQuantity(),
+                  sizeof...(tx_builders));
+        return additional_state;
+      };
+
+  auto try_insert = [&](auto... tx_builders) {
+    const auto current_size = state.transactionsQuantity();
+    const auto inserted_size = sizeof...(tx_builders);
+    const auto expected_size = current_size + inserted_size <= kMstStateTxLimit
+        ? current_size + inserted_size
+        : current_size;
+    state += gen_additional_state(current_size, tx_builders...);
+    ASSERT_EQ(state.transactionsQuantity(), expected_size);
+  };
+
+  auto next_tx_builder = []{
+    static size_t counter = 0;
+    return txBuilder(counter++);
+  };
+
+  try_insert(next_tx_builder(), next_tx_builder());                     // 0 + 2
+  try_insert(next_tx_builder(), next_tx_builder(), next_tx_builder());  // 2 + 3
+  try_insert(next_tx_builder(), next_tx_builder(), next_tx_builder());  // 5 + 3
+  try_insert(next_tx_builder(), next_tx_builder(), next_tx_builder());  // 8 + 3
+  try_insert(next_tx_builder());                                        // 8 + 1
+  try_insert(next_tx_builder(), next_tx_builder());                     // 9 + 2
+  try_insert(next_tx_builder());                                        // 9 + 1
+  try_insert(next_tx_builder());  // 10 + 1
 }

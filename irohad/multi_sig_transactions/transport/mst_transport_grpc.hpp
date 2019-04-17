@@ -43,6 +43,7 @@ namespace iroha {
               transaction_batch_factory,
           std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
           std::shared_ptr<Completer> mst_completer,
+          size_t transaction_limit,
           shared_model::crypto::PublicKey my_key,
           logger::LoggerPtr mst_state_logger,
           logger::LoggerPtr log);
@@ -83,6 +84,7 @@ namespace iroha {
       std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
       /// source peer key for MST propogation messages
       std::shared_ptr<Completer> mst_completer_;
+      size_t mst_state_txs_limit_;
       const std::string my_key_;
 
       logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState

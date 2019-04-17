@@ -50,8 +50,10 @@ namespace iroha {
 
         /**
          * Concatenates batches from the tail of the queue with provided batches
+         * @param batches - input batches
+         * @return bool - true if batches were stored in cache
          */
-        virtual void addToBack(const BatchesSetType &batches) = 0;
+        virtual bool addToBack(const BatchesSetType &batches) = 0;
 
         /**
          * Pops the head batches and returns them
@@ -66,12 +68,18 @@ namespace iroha {
         /**
          * Return the head batches
          */
-        virtual const BatchesSetType &head() const = 0;
+        virtual const BatchesSetType &front() const = 0;
 
         /**
          * Return the tail batches
          */
-        virtual const BatchesSetType &tail() const = 0;
+        virtual const BatchesSetType &back() const = 0;
+
+        /**
+         * Puts the head batches to back. The second set of batches will be a
+         * head.
+         */
+        virtual void rotate() = 0;
 
         virtual ~OrderingGateCache() = default;
       };

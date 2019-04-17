@@ -83,6 +83,7 @@ Irohad::Irohad(const std::string &block_store_dir,
                std::chrono::milliseconds proposal_delay,
                std::chrono::milliseconds vote_delay,
                std::chrono::minutes mst_expiration_time,
+               size_t mst_state_txs_limit,
                const shared_model::crypto::Keypair &keypair,
                std::chrono::milliseconds max_rounds_delay,
                size_t stale_stream_max_rounds,
@@ -99,6 +100,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       vote_delay_(vote_delay),
       is_mst_supported_(opt_mst_gossip_params),
       mst_expiration_time_(mst_expiration_time),
+      mst_state_txs_limit_(mst_state_txs_limit),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_mst_gossip_params_(opt_mst_gossip_params),
@@ -554,6 +556,7 @@ void Irohad::initMstProcessor() {
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
   auto mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
+      mst_state_txs_limit_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
@@ -565,6 +568,7 @@ void Irohad::initMstProcessor() {
         transaction_batch_factory_,
         persistent_cache,
         mst_completer,
+        mst_state_txs_limit_,
         keypair.publicKey(),
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger());
