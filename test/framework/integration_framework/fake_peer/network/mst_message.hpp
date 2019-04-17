@@ -12,9 +12,8 @@
 namespace integration_framework {
   namespace fake_peer {
     struct MstMessage final {
-      MstMessage(const shared_model::crypto::PublicKey &f,
-                 const iroha::MstState &s)
-          : from(f), state(s) {}
+      MstMessage(const shared_model::crypto::PublicKey &f, iroha::MstState s)
+          : from(f), state(std::move(s)) {}
       shared_model::crypto::PublicKey from;
       iroha::MstState state;
     };
