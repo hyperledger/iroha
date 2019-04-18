@@ -230,6 +230,11 @@ namespace integration_framework {
       return *keypair_;
     }
 
+    std::shared_ptr<shared_model::interface::Peer> FakePeer::getThisPeer()
+        const {
+      return this_peer_;
+    }
+
     rxcpp::observable<std::shared_ptr<MstMessage>>
     FakePeer::getMstStatesObservable() {
       return mst_network_notifier_->getObservable();

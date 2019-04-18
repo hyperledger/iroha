@@ -103,6 +103,9 @@ namespace integration_framework {
       /// Get the keypair of this peer.
       const shared_model::crypto::Keypair &getKeypair() const;
 
+      /// Get interface::Peer object for this instance.
+      std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
+
       /// Get the observable of MST states received by this peer.
       rxcpp::observable<std::shared_ptr<MstMessage>> getMstStatesObservable();
 
