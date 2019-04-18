@@ -383,6 +383,11 @@ namespace integration_framework {
     iroha_instance_->run();
   }
 
+  std::shared_ptr<shared_model::interface::Peer>
+  IntegrationTestFramework::getThisPeer() const {
+    return this_peer_;
+  }
+
   rxcpp::observable<std::shared_ptr<iroha::MstState>>
   IntegrationTestFramework::getMstStateUpdateObservable() {
     return iroha_instance_->getIrohaInstance()
