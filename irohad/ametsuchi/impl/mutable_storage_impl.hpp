@@ -19,6 +19,7 @@
 namespace iroha {
   namespace ametsuchi {
     class BlockIndex;
+    class PeerQuery;
     class PostgresCommandExecutor;
 
     class MutableStorageImpl : public MutableStorage {

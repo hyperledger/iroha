@@ -27,10 +27,6 @@ namespace iroha {
     }  // namespace yac
   }    // namespace consensus
 
-  namespace ametsuchi {
-    class PeerQuery;
-  }  // namespace ametsuchi
-
   struct LedgerState;
 
   namespace validation {

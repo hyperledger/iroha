@@ -22,7 +22,6 @@ namespace iroha {
   namespace ametsuchi {
 
     class WsvQuery;
-    class PeerQuery;
 
     /**
      * Mutable storage is used apply blocks to the storage.
