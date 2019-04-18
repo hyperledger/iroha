@@ -418,6 +418,9 @@ namespace integration_framework {
     /// Start the ITF.
     void subscribeQueuesAndRun();
 
+    /// Get interface::Peer object for this instance.
+    std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
+
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
