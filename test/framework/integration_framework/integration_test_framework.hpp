@@ -421,6 +421,9 @@ namespace integration_framework {
     /// Get interface::Peer object for this instance.
     std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
 
+    /// Get this node address.
+    std::string getAddress() const;
+
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 

@@ -233,8 +233,7 @@ namespace integration_framework {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer(format_address(kLocalHost, internal_port_),
-                     key.publicKey())
+            .addPeer(getAddress(), key.publicKey())
             .createRole(kAdminRole, all_perms)
             .createRole(kDefaultRole, {})
             .createDomain(kDomain, kDefaultRole)
@@ -314,8 +313,7 @@ namespace integration_framework {
     my_key_ = keypair;
     this_peer_ =
         framework::expected::val(common_objects_factory_->createPeer(
-                                     format_address(kLocalHost, internal_port_),
-                                     keypair.publicKey()))
+                                     getAddress(), keypair.publicKey()))
             .value()
             .value;
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
@@ -386,6 +384,10 @@ namespace integration_framework {
   std::shared_ptr<shared_model::interface::Peer>
   IntegrationTestFramework::getThisPeer() const {
     return this_peer_;
+  }
+
+  std::string IntegrationTestFramework::getAddress() const {
+    return format_address(kLocalHost, internal_port_);
   }
 
   rxcpp::observable<std::shared_ptr<iroha::MstState>>
