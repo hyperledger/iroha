@@ -1,4 +1,4 @@
-##Hello! 
+## Hello! 
 
 It is great that you've decided to contribute to Hyperledger Iroha by telling us more about the issue you've encountered!
 The thing is that we now create and store issues only in [Hyperledger JIRA](https://jira.hyperledger.org) so we would kindly ask you to create your issue there. 
