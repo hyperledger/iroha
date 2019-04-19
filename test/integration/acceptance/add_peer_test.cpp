@@ -175,6 +175,7 @@ TEST_F(FakePeerExampleFixture, MstStatePropagtesToNewPeer) {
  * @then itf peer gets synchronized, sees itself in the WSV and can commit txs
  */
 TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
+  // ------------------------ GIVEN ------------------------
   // create the initial fake peer
   auto initial_peer = itf_->addFakePeer(boost::none);
 
@@ -225,15 +226,17 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
           .signAndAddSignature(initial_peer->getKeypair())
           .finish();
 
+  // provide the initial_peer with the blocks 
   auto block_storage =
       std::make_shared<fake_peer::BlockStorage>(getTestLogger("BlockStorage"));
   block_storage->storeBlock(clone(genesis_block));
   block_storage->storeBlock(clone(block_with_add_peer));
   initial_peer->setBlockStorage(block_storage);
 
+  // instruct the initial fake peer to send a commit when synchronization needed
   using iroha::consensus::yac::YacHash;
   struct SynchronizerBehaviour : public fake_peer::HonestBehaviour {
-    SynchronizerBehaviour(YacHash sync_hash)
+    explicit SynchronizerBehaviour(YacHash sync_hash)
         : sync_hash_(std::move(sync_hash)) {}
     void processYacMessage(
         std::shared_ptr<const fake_peer::YacMessage> message) override {
@@ -253,6 +256,8 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
                                       iroha::ordering::kFirstRejectRound},
               "proposal_hash",
               block_with_add_peer.hash().hex()}));
+
+  // launch the initial_peer
   auto new_peer_server = initial_peer->run();
 
   // init the itf peer with our genesis block
@@ -262,8 +267,12 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
   auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();
   itf_sync_events_observable.connect();
 
+  // ------------------------ WHEN -------------------------
+  // launch the itf peer
   itf_->subscribeQueuesAndRun();
 
+  // ------------------------ THEN -------------------------
+  // check that itf peer is synchronized
   itf_sync_events_observable
       .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
       .filter([](const auto &sync_event) {
@@ -290,7 +299,20 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
             }
           });
 
-  // send some valid tx and check that it gets committed
+  // check that itf peer sees the two peers in the WSV
+  auto opt_peers = itf_->getIrohaInstance()
+                       .getIrohaInstance()
+                       ->getStorage()
+                       ->createPeerQuery()
+                       .value()
+                       ->getLedgerPeers();
+  ASSERT_TRUE(opt_peers);
+  EXPECT_THAT(*opt_peers,
+              ::testing::UnorderedElementsAre(
+                  makePeerPointeeMatcher(itf_->getThisPeer()),
+                  makePeerPointeeMatcher(initial_peer->getThisPeer())));
+
+  // send some valid tx to itf and check that it gets committed
   itf_->sendTxAwait(
       complete(
           baseTx(kAdminId)
