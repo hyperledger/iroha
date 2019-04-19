@@ -238,28 +238,38 @@ namespace iroha {
               .lift<iroha::synchronizer::SynchronizationEvent>(
                   iroha::makeDelay<iroha::synchronizer::SynchronizationEvent>(
                       delay_func, rxcpp::identity_current_thread()))
-              .map([log = log_](const auto &event) {
+              .flat_map([log = log_,
+                         previous_round = boost::optional<consensus::Round>{}](
+                            const auto &event) mutable
+                        -> rxcpp::observable<
+                            ordering::OnDemandOrderingGate::RoundSwitch> {
+                if (previous_round and event.round <= *previous_round) {
+                  return rxcpp::observable<>::empty<
+                      ordering::OnDemandOrderingGate::RoundSwitch>();
+                }
+                previous_round = event.round;
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
                   case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
-                    log->debug("Sync event on {}: commit.", event.round);
-                    current_round = ordering::nextCommitRound(event.round);
+                    log->debug("Sync event on {}: commit.", *previous_round);
+                    current_round = ordering::nextCommitRound(*previous_round);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::kReject:
-                    log->debug("Sync event on {}: reject.", event.round);
-                    current_round = ordering::nextRejectRound(event.round);
+                    log->debug("Sync event on {}: reject.", *previous_round);
+                    current_round = ordering::nextRejectRound(*previous_round);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::
                       kNothing:
-                    log->debug("Sync event on {}: nothing.", event.round);
-                    current_round = ordering::nextRejectRound(event.round);
+                    log->debug("Sync event on {}: nothing.", *previous_round);
+                    current_round = ordering::nextRejectRound(*previous_round);
                     break;
                   default:
                     log->error("unknown SynchronizationOutcomeType");
                     assert(false);
                 }
-                return ordering::OnDemandOrderingGate::RoundSwitch(
-                    std::move(current_round), event.ledger_state);
+                return rxcpp::observable<>::just(
+                    ordering::OnDemandOrderingGate::RoundSwitch{
+                        std::move(current_round), event.ledger_state});
               }),
           std::move(cache),
           std::move(proposal_factory),
