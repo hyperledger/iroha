@@ -80,7 +80,7 @@ namespace integration_framework {
       FakePeer &setBehaviour(const std::shared_ptr<Behaviour> &behaviour);
 
       /// Get the behaviour assigned to this peer, if any, otherwise nullptr.
-      const std::shared_ptr<Behaviour> &getBehaviour() const;
+      std::shared_ptr<Behaviour> getBehaviour() const;
 
       /// Assign this peer a block storage. Used by behaviours.
       FakePeer &setBlockStorage(
@@ -249,6 +249,8 @@ namespace integration_framework {
       std::shared_ptr<Behaviour> behaviour_;
       std::shared_ptr<BlockStorage> block_storage_;
       ProposalStorage proposal_storage_;
+
+      mutable std::shared_timed_mutex behaviour_mutex_;
     };
 
   }  // namespace fake_peer
