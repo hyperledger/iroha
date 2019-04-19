@@ -293,6 +293,113 @@ TEST_F(YacGateTest, DifferentCommit) {
   ASSERT_TRUE(gate_wrapper.validate());
 }
 
+/**
+ * The fixture checks the following case for different types of commit messages
+ * (VoteOther, AgreementOnNone, BlockReject, ProposalReject):
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when reject for round (i, j + 1) is received
+ * @then peer goes to round (i, j + 1)
+ */
+class CommitFromTheFuture : public YacGateTest {
+ public:
+  void SetUp() override {
+    YacGateTest::SetUp();
+    // make hash from block
+    EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
+
+    // generate order of peers
+    EXPECT_CALL(*peer_orderer, getOrdering(_, _))
+        .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
+
+    EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);
+
+    block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+        RoundData{expected_proposal, expected_block}, round, ledger_state});
+
+    Hash actual_hash("actual_hash");
+    PublicKey actual_pubkey("actual_pubkey");
+    auto signature = std::make_shared<MockSignature>();
+    EXPECT_CALL(*signature, publicKey())
+        .WillRepeatedly(ReturnRefOfCopy(actual_pubkey));
+
+    future_round =
+        iroha::consensus::Round(round.block_round, round.reject_round + 1);
+    message.hash = YacHash(future_round, "actual_proposal", "actual_block");
+    message.signature = signature;
+  }
+
+  template <typename CommitType>
+  void validate() {
+    // verify that yac gate emit expected block
+    auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
+    gate_wrapper.subscribe([this](auto outcome) {
+      auto concrete_outcome = boost::get<CommitType>(outcome);
+
+      ASSERT_EQ(future_round, concrete_outcome.round);
+    });
+
+    outcome_notifier.get_subscriber().on_next(expected_commit);
+    ASSERT_TRUE(gate_wrapper.validate());
+  }
+
+  iroha::consensus::Round future_round;
+};
+
+/**
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when reject for round (i, j + 1) is received
+ * @then peer goes to round (i, j + 1)
+ */
+TEST_F(CommitFromTheFuture, BlockReject) {
+  expected_commit = RejectMessage({message});
+
+  validate<iroha::consensus::BlockReject>();
+}
+
+/**
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when reject with two proposals for round (i, j + 1) is received
+ * @then peer goes to round (i, j + 1)
+ */
+TEST_F(CommitFromTheFuture, ProposalReject) {
+  PublicKey second_actual_pubkey("actual_pubkey_2");
+  auto second_signature = std::make_shared<MockSignature>();
+  EXPECT_CALL(*second_signature, publicKey())
+      .WillRepeatedly(ReturnRefOfCopy(second_actual_pubkey));
+
+  VoteMessage second_message;
+  second_message.hash =
+      YacHash(future_round, "actual_proposal_2", "actual_block_2");
+  second_message.signature = second_signature;
+  expected_commit = RejectMessage({message, second_message});
+
+  validate<iroha::consensus::ProposalReject>();
+}
+
+/**
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when commit for round (i, j + 1) is received
+ * @then peer goes to round (i, j + 1)
+ */
+TEST_F(CommitFromTheFuture, VoteOther) {
+  expected_commit = CommitMessage({message});
+
+  validate<iroha::consensus::VoteOther>();
+}
+
+/**
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when commit without proposal (empty proposal hash) for round (i, j + 1) is
+ * received
+ * @then peer goes to round (i, j + 1)
+ */
+TEST_F(CommitFromTheFuture, AgreementOnNone) {
+  message.hash = YacHash(future_round, "", "");
+  expected_commit = CommitMessage({message});
+
+  validate<iroha::consensus::AgreementOnNone>();
+}
+
 class YacGateOlderTest : public YacGateTest {
   void SetUp() override {
     YacGateTest::SetUp();
