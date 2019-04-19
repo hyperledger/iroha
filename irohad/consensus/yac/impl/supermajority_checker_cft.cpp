@@ -19,6 +19,12 @@ namespace iroha {
             agreed, all, detail::kSupermajorityCheckerKfPlus1Cft);
       }
 
+      bool SupermajorityCheckerCft::hasMajority(PeersNumberType voted,
+                                                PeersNumberType all) const {
+        return checkKfPlus1Majority(
+            voted, all, detail::kSupermajorityCheckerKfPlus1Cft);
+      }
+
       bool SupermajorityCheckerCft::canHaveSupermajority(
           const VoteGroups &votes, PeersNumberType all) const {
         const PeersNumberType largest_group =

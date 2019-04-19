@@ -30,6 +30,9 @@ namespace shared_model {
     class Block;
     class Proposal;
   }  // namespace proto
+  namespace validation {
+    class FieldValidator;
+  }  // namespace validation
 }  // namespace shared_model
 
 namespace iroha {
@@ -58,6 +61,7 @@ namespace iroha {
     }
     class OrderingGateTransportGrpc;
     class OrderingServiceTransportGrpc;
+    class ProposalCreationStrategy;
   }  // namespace ordering
   class MstState;
 }  // namespace iroha

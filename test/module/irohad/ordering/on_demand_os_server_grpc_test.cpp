@@ -12,7 +12,9 @@
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
+#include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 #include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
@@ -47,16 +49,26 @@ struct OnDemandOsServerGrpcTest : public ::testing::Test {
     auto batch_parser =
         std::make_shared<shared_model::interface::TransactionBatchParserImpl>();
     batch_factory = std::make_shared<MockTransactionBatchFactory>();
+    // todo rework field validator with mock
+    auto field_validator =
+        std::make_shared<shared_model::validation::FieldValidator>(
+            test::kTestsValidatorsConfig);
+    proposal_creation_strategy =
+        std::make_shared<MockProposalCreationStrategy>();
+
     server =
         std::make_shared<OnDemandOsServerGrpc>(notification,
                                                std::move(transaction_factory),
                                                std::move(batch_parser),
                                                batch_factory,
+                                               field_validator,
+                                               proposal_creation_strategy,
                                                getTestLogger("OdOsServerGrpc"));
   }
 
   std::shared_ptr<MockOdOsNotification> notification;
   std::shared_ptr<MockTransactionBatchFactory> batch_factory;
+  std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
   std::shared_ptr<OnDemandOsServerGrpc> server;
   consensus::Round round{1, 2};
 };
@@ -95,6 +107,7 @@ TEST_F(OnDemandOsServerGrpcTest, SendBatches) {
                   }));
   EXPECT_CALL(*notification, onBatches(_)).WillOnce(SaveArg0Move(&collection));
   proto::BatchesRequest request;
+  *request.mutable_peer_key() = std::string(32, 'f');
   request.add_transactions()
       ->mutable_payload()
       ->mutable_reduced_payload()
@@ -115,6 +128,7 @@ TEST_F(OnDemandOsServerGrpcTest, SendBatches) {
 TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
   auto creator = "test";
   proto::ProposalRequest request;
+  *request.mutable_peer_key() = std::string(32, 'f');
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
   proto::ProposalResponse response;
@@ -149,6 +163,7 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
  */
 TEST_F(OnDemandOsServerGrpcTest, RequestProposalNone) {
   proto::ProposalRequest request;
+  *request.mutable_peer_key() = std::string(32, 'f');
   request.mutable_round()->set_block_round(round.block_round);
   request.mutable_round()->set_reject_round(round.reject_round);
   proto::ProposalResponse response;

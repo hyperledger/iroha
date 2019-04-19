@@ -54,13 +54,15 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
     proto_proposal_validator = proto_validator.get();
     proposal_factory = std::make_shared<ProtoProposalTransportFactory>(
         std::move(validator), std::move(proto_validator));
-    client =
-        std::make_shared<OnDemandOsClientGrpc>(std::move(ustub),
-                                               async_call,
-                                               proposal_factory,
-                                               [&] { return timepoint; },
-                                               timeout,
-                                               getTestLogger("OdOsClientGrpc"));
+    my_key = "self";
+    client = std::make_shared<OnDemandOsClientGrpc>(
+        std::move(ustub),
+        async_call,
+        proposal_factory,
+        [&] { return timepoint; },
+        timeout,
+        shared_model::crypto::PublicKey{my_key},
+        getTestLogger("OdOsClientGrpc"));
   }
 
   proto::MockOnDemandOrderingStub *stub;
@@ -69,6 +71,7 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
   std::chrono::milliseconds timeout{1};
   std::shared_ptr<OnDemandOsClientGrpc> client;
   consensus::Round round{1, 2};
+  std::string my_key;
 
   MockProposalValidator *proposal_validator;
   MockProtoProposalValidator *proto_proposal_validator;
@@ -104,6 +107,7 @@ TEST_F(OnDemandOsClientGrpcTest, onBatches) {
                 .reduced_payload()
                 .creator_account_id(),
             creator);
+  ASSERT_EQ(my_key, request.peer_key());
 }
 
 /**
@@ -143,6 +147,7 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
   ASSERT_EQ(request.round().reject_round(), round.reject_round);
   ASSERT_TRUE(proposal);
   ASSERT_EQ(proposal.value()->transactions()[0].creatorAccountId(), creator);
+  ASSERT_EQ(my_key, request.peer_key());
 }
 
 /**

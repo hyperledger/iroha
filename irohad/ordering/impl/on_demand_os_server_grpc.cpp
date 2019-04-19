@@ -9,8 +9,10 @@
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include "backend/protobuf/common_objects/peer.hpp"
 #include "backend/protobuf/proposal.hpp"
 #include "common/bind.hpp"
+#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
 
@@ -24,11 +26,15 @@ OnDemandOsServerGrpc::OnDemandOsServerGrpc(
         batch_parser,
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory,
+    std::shared_ptr<shared_model::validation::FieldValidator> field_validator,
+    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     logger::LoggerPtr log)
     : ordering_service_(ordering_service),
       transaction_factory_(std::move(transaction_factory)),
       batch_parser_(std::move(batch_parser)),
       batch_factory_(std::move(transaction_batch_factory)),
+      field_validator_(std::move(field_validator)),
+      proposal_creation_strategy_(proposal_creation_strategy),
       log_(std::move(log)) {}
 
 shared_model::interface::types::SharedTxsCollectionType
@@ -78,7 +84,9 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
         return acc;
       });
 
-  ordering_service_->onBatches(std::move(batches));
+  fetchPeer(request->peer_key()) | [this, &batches](auto &&peer) {
+    ordering_service_->onBatches(std::move(batches));
+  };
 
   return ::grpc::Status::OK;
 }
@@ -87,12 +95,29 @@ grpc::Status OnDemandOsServerGrpc::RequestProposal(
     ::grpc::ServerContext *context,
     const proto::ProposalRequest *request,
     proto::ProposalResponse *response) {
-  ordering_service_->onRequestProposal(
-      {request->round().block_round(), request->round().reject_round()})
-      | [&](auto &&proposal) {
-          *response->mutable_proposal() =
-              static_cast<const shared_model::proto::Proposal *>(proposal.get())
-                  ->getTransport();
-        };
+  fetchPeer(request->peer_key()) | [this, &request, &response](auto &&peer) {
+    consensus::Round round{request->round().block_round(),
+                           request->round().reject_round()};
+    proposal_creation_strategy_->onProposalRequest(peer, round);
+    ordering_service_->onRequestProposal(round) | [&](auto &&proposal) {
+      *response->mutable_proposal() =
+          static_cast<const shared_model::proto::Proposal *>(proposal.get())
+              ->getTransport();
+    };
+  };
   return ::grpc::Status::OK;
+}
+
+boost::optional<shared_model::crypto::PublicKey>
+OnDemandOsServerGrpc::fetchPeer(const std::string &pub_key) const {
+  shared_model::crypto::PublicKey key{pub_key};
+  shared_model::validation::ReasonsGroupType reason;
+  field_validator_->validatePubkey(reason, key);
+  if (not reason.second.empty()) {
+    shared_model::validation::Answer answer;
+    answer.addReason(std::move(reason));
+    log_->error("Failed to parse peer key struct, {}", answer.reason());
+    return boost::none;
+  }
+  return key;
 }
