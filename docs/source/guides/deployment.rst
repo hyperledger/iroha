@@ -1,3 +1,5 @@
+.. _deploy-guide:
+
 Deploying Iroha
 ===============
 
