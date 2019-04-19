@@ -113,7 +113,8 @@ Let's look in details what this command does:
 - ``-v YOUR_PATH_TO_CONF_FILES:/opt/iroha_data \`` is how we pass our configuration files to docker container. The example directory is indicated in the code block above. 
 - ``-v blockstore:/tmp/block_store \`` adds persistent block storage (Docker volume) to a container, so that the blocks aren't lost after we stop the container
 - ``--network=iroha-network \`` adds our container to previously created ``iroha-network`` for communication with PostgreSQL server
-- ``-e KEY='node0' \`` - 
+- ``-e KEY='node0' \`` - here please indicate a key name that will identify the node allowing it to confirm operations. 
+The keys should be placed in the directory with configuration files mentioned above. 
 - ``hyperledger/iroha:latest`` is a reference to the image pointing to the last `release <https://github.com/hyperledger/iroha/releases>`__
 
 
