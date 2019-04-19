@@ -35,11 +35,13 @@ namespace iroha {
   auto FairMstProcessor::propagateBatchImpl(const iroha::DataType &batch)
       -> decltype(propagateBatch(batch)) {
     auto state_update = storage_->updateOwnState(batch);
+    const bool batch_is_accepted = not state_update.updated_state_->isEmpty()
+        or not state_update.completed_state_.empty();
     completedBatchesNotify(state_update.completed_state_);
     updatedBatchesNotify(state_update.updated_state_);
     expiredBatchesNotify(
         storage_->extractExpiredTransactions(time_provider_->getCurrentTime()));
-    return state_update.updated_state_->contains(batch);
+    return batch_is_accepted;
   }
 
   auto FairMstProcessor::onStateUpdateImpl() const
