@@ -78,6 +78,8 @@ class Irohad {
    * Constructor that initializes common iroha pipeline
    * @param block_store_dir - folder where blocks will be stored
    * @param pg_conn - initialization string for postgre
+   * @param number_of_attempts_to_reconnect - number of tries for reconnection
+   * to data base
    * @param listen_ip - ip address for opening ports (internal & torii)
    * @param torii_port - port for torii binding
    * @param internal_port - port for internal communication - ordering service,
@@ -100,6 +102,7 @@ class Irohad {
    */
   Irohad(const std::string &block_store_dir,
          const std::string &pg_conn,
+         size_t number_of_attempts_to_reconnect,
          const std::string &listen_ip,
          size_t torii_port,
          size_t internal_port,
@@ -199,6 +202,7 @@ class Irohad {
   size_t stale_stream_max_rounds_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
+  size_t number_of_attempts_to_reconnect_;
 
   // ------------------------| internal dependencies |-------------------------
  public:

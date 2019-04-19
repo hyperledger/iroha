@@ -22,6 +22,8 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     impl/flat_file_block_storage.cpp
     impl/flat_file_block_storage_factory.cpp
+    reconnection/impl/storage_connection_wrapper.cpp
+        reconnection/impl/k_times_reconnection_strategy.cpp
     )
 
 target_link_libraries(ametsuchi
@@ -34,6 +36,7 @@ target_link_libraries(ametsuchi
     shared_model_stateless_validation
     SOCI::core
     SOCI::postgresql
+    tbb
     )
 
 target_compile_definitions(ametsuchi

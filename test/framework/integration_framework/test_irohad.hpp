@@ -34,6 +34,7 @@ namespace integration_framework {
                    &opt_mst_gossip_params = boost::none)
         : Irohad(block_store_dir,
                  pg_conn,
+                 1,
                  listen_ip,
                  torii_port,
                  internal_port,

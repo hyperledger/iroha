@@ -160,7 +160,11 @@ namespace iroha {
       }
       shared_model::interface::types::HashType hash{""};
       shared_model::interface::types::HeightType height{0};
-      getBlockQuery()->getTopBlock().match(
+      auto block_query = getBlockQuery();
+      if (not block_query) {
+        return expected::makeError("Can't create blockQuery");
+      }
+      (*block_query)->getTopBlock().match(
           [&hash, &height](
               expected::Value<std::shared_ptr<shared_model::interface::Block>>
                   &block) {
@@ -187,17 +191,13 @@ namespace iroha {
       if (not wsv) {
         return boost::none;
       }
-      return boost::make_optional<std::shared_ptr<PeerQuery>>(
-          std::make_shared<PeerQueryWsv>(wsv));
+      auto peer_query = std::make_shared<PeerQueryWsv>(*wsv);
+      return boost::make_optional<std::shared_ptr<PeerQuery>>(peer_query);
     }
 
     boost::optional<std::shared_ptr<BlockQuery>> StorageImpl::createBlockQuery()
         const {
-      auto block_query = getBlockQuery();
-      if (not block_query) {
-        return boost::none;
-      }
-      return boost::make_optional(block_query);
+      return getBlockQuery();
     }
 
     boost::optional<std::shared_ptr<QueryExecutor>>
@@ -222,7 +222,7 @@ namespace iroha {
               log_manager_->getChild("QueryExecutor")));
     }
 
-    bool StorageImpl::insertBlock(
+    ReturnWrapperType<bool> StorageImpl::insertBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       log_->info("create mutable storage");
       auto storageResult = createMutableStorage();
@@ -241,7 +241,7 @@ namespace iroha {
       return inserted;
     }
 
-    bool StorageImpl::insertBlocks(
+    ReturnWrapperType<bool> StorageImpl::insertBlocks(
         const std::vector<std::shared_ptr<shared_model::interface::Block>>
             &blocks) {
       log_->info("create mutable storage");
@@ -533,29 +533,33 @@ namespace iroha {
       }
     }
 
-    std::shared_ptr<WsvQuery> StorageImpl::getWsvQuery() const {
+    ReturnWrapperType<std::shared_ptr<WsvQuery>> StorageImpl::getWsvQuery()
+        const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
       if (not connection_) {
         log_->info("getWsvQuery: connection to database is not initialised");
-        return nullptr;
+        return DefaultError;
       }
-      return std::make_shared<PostgresWsvQuery>(
+      auto wsv = std::make_shared<PostgresWsvQuery>(
           std::make_unique<soci::session>(*connection_),
           factory_,
           log_manager_->getChild("WsvQuery")->getLogger());
+      return wrapValue<std::shared_ptr<WsvQuery>>(wsv);
     }
 
-    std::shared_ptr<BlockQuery> StorageImpl::getBlockQuery() const {
+    ReturnWrapperType<std::shared_ptr<BlockQuery>> StorageImpl::getBlockQuery()
+        const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
       if (not connection_) {
         log_->info("getBlockQuery: connection to database is not initialised");
-        return nullptr;
+        return DefaultError;
       }
-      return std::make_shared<PostgresBlockQuery>(
+      auto block_query = std::make_shared<PostgresBlockQuery>(
           std::make_unique<soci::session>(*connection_),
           *block_store_,
           converter_,
           log_manager_->getChild("PostgresBlockQuery")->getLogger());
+      return wrapValue<std::shared_ptr<BlockQuery>>(block_query);
     }
 
     rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>

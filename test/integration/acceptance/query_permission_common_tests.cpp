@@ -118,7 +118,7 @@ TYPED_TEST(QueryPermissionFixture, OwnWithPermissionForDomain) {
 TYPED_TEST(QueryPermissionFixture, OwnWithPermissionForAll) {
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryEveryone})
       .sendQuery(this->impl_.makeQuery(*this, kUserId, kUserId, kUserKeypair),
-                 this->impl_.getGeneralResponseChecker());
+                 this->impl_.getGeneralResponseChecker()).done();
 }
 
 /**

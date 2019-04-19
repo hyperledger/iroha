@@ -11,6 +11,9 @@
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
+#include "ametsuchi/reconnection/impl/k_times_reconnection_strategy.hpp"
+#include "ametsuchi/reconnection/storage_connection_wrapper.hpp"
+#include "ametsuchi/reconnection/unsafe_storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
@@ -76,6 +79,7 @@ static constexpr iroha::consensus::yac::ConsistencyModel
  */
 Irohad::Irohad(const std::string &block_store_dir,
                const std::string &pg_conn,
+               size_t number_of_attempts_to_reconnect,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,
@@ -98,10 +102,11 @@ Irohad::Irohad(const std::string &block_store_dir,
       proposal_delay_(proposal_delay),
       vote_delay_(vote_delay),
       is_mst_supported_(opt_mst_gossip_params),
-      mst_expiration_time_(mst_expiration_time),
+      number_of_attempts_to_reconnect_(number_of_attempts_to_reconnect),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_mst_gossip_params_(opt_mst_gossip_params),
+      mst_expiration_time_(mst_expiration_time),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
@@ -163,35 +168,51 @@ void Irohad::dropStorage() {
  * Initializing iroha daemon storage
  */
 void Irohad::initStorage() {
-  common_objects_factory_ =
-      std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-          shared_model::validation::FieldValidator>>(validators_config_);
-  auto perm_converter =
-      std::make_shared<shared_model::proto::ProtoPermissionToString>();
-  auto block_converter =
-      std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-  auto block_storage_factory = std::make_unique<FlatFileBlockStorageFactory>(
-      []() {
-        return (boost::filesystem::temp_directory_path()
-                / boost::filesystem::unique_path())
-            .string();
-      },
-      block_converter,
-      log_manager_);
-  auto storageResult = StorageImpl::create(block_store_dir_,
-                                           pg_conn_,
-                                           common_objects_factory_,
-                                           std::move(block_converter),
-                                           perm_converter,
-                                           std::move(block_storage_factory),
-                                           log_manager_->getChild("Storage"));
-  storageResult.match(
-      [&](expected::Value<std::shared_ptr<ametsuchi::StorageImpl>> &_storage) {
-        storage = _storage.value;
-      },
-      [&](expected::Error<std::string> &error) { log_->error(error.error); });
+  using UnsafeStorageType = std::shared_ptr<iroha::ametsuchi::UnsafeStorage>;
+  auto storage_creation = [this]() -> UnsafeStorageType {
+    common_objects_factory_ =
+        std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
+            shared_model::validation::FieldValidator>>(validators_config_);
+    auto perm_converter =
+        std::make_shared<shared_model::proto::ProtoPermissionToString>();
+    auto block_converter =
+        std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
+    auto block_storage_factory = std::make_unique<FlatFileBlockStorageFactory>(
+        []() {
+          return (boost::filesystem::temp_directory_path()
+                  / boost::filesystem::unique_path())
+              .string();
+        },
+        block_converter,
+        log_manager_);
+    auto storageResult = StorageImpl::create(block_store_dir_,
+                                             pg_conn_,
+                                             common_objects_factory_,
+                                             std::move(block_converter),
+                                             perm_converter,
+                                             std::move(block_storage_factory),
+                                             log_manager_->getChild("Storage"));
+    return storageResult.match(
+        [&](expected::Value<std::shared_ptr<ametsuchi::StorageImpl>> &_storage)
+            -> UnsafeStorageType {
+          log_->info("[Init] => storage initialized");
+          return _storage.value;
+        },
+        [&](expected::Error<std::string> &error) -> UnsafeStorageType {
+          log_->error(
+              " [Init] => storage initialization has failed. The reason: {}",
+              error.error);
+          return nullptr;
+        });
+  };
 
-  log_->info("[Init] => storage ({})", logger::logBool(storage));
+  std::shared_ptr<ametsuchi::ReconnectionStorageStrategy>
+      reconnection_strategy_ =
+          std::make_shared<KTimesReconnectionStorageStrategy>(
+              number_of_attempts_to_reconnect_);
+
+  storage = std::make_shared<iroha::ametsuchi::StorageConnectionWrapper>(
+      storage_creation, reconnection_strategy_);
 }
 
 bool Irohad::restoreWsv() {

@@ -158,6 +158,7 @@ int main(int argc, char *argv[]) {
   Irohad irohad(
       config.block_store_path,
       config.pg_opt,
+      3,
       kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                   // config file and/or command-line arguments?
       config.torii_port,

@@ -28,7 +28,7 @@ namespace iroha {
 
       /**
        * Prepare state which was accumulated in temporary WSV.
-       * After preparation, this state is not visible until commited.
+       * After preparation, this state is not visible until it isn't committed.
        *
        * @param wsv - state which will be prepared.
        */

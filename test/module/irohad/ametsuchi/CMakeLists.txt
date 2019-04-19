@@ -89,3 +89,8 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     SOCI::postgresql
     test_logger
     )
+
+addtest(k_times_reconnection_strategy_test k_times_reconnection_strategy_test.cpp)
+target_link_libraries(k_times_reconnection_strategy_test
+    ametsuchi
+    )

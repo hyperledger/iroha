@@ -14,6 +14,9 @@
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
+#include "ametsuchi/reconnection/impl/k_times_reconnection_strategy.hpp"
+#include "ametsuchi/reconnection/storage_connection_wrapper.hpp"
+#include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
@@ -54,11 +57,28 @@ namespace iroha {
                             perm_converter_,
                             std::move(block_storage_factory),
                             getTestLoggerManager()->getChild("Storage"))
-            .match([&](iroha::expected::Value<std::shared_ptr<StorageImpl>>
-                           &_storage) { storage = _storage.value; },
-                   [](iroha::expected::Error<std::string> &error) {
-                     FAIL() << "StorageImpl: " << error.error;
-                   });
+            .match(
+                [&](iroha::expected::Value<std::shared_ptr<StorageImpl>>
+                        &_storage) {
+                  auto storage_creation = [s = _storage.value]() {
+                    getTestLoggerManager()
+                        ->getChild("Storage")
+                        ->getLogger()
+                        ->info("Initialized");
+                    return s;
+                  };
+                  std::shared_ptr<ametsuchi::ReconnectionStorageStrategy>
+                      recall_strategy_ =
+                          std::make_shared<KTimesReconnectionStorageStrategy>(
+                              1);
+
+                  storage = std::make_shared<
+                      iroha::ametsuchi::StorageConnectionWrapper>(
+                      storage_creation, recall_strategy_);
+                },
+                [](iroha::expected::Error<std::string> &error) {
+                  FAIL() << "StorageImpl: " << error.error;
+                });
         sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
         sql_query =
@@ -89,7 +109,7 @@ namespace iroha {
        *  static storage
        */
       static logger::LoggerPtr storage_logger_;
-      static std::shared_ptr<StorageImpl> storage;
+      static std::shared_ptr<Storage> storage;
       static std::unique_ptr<framework::ametsuchi::SqlQuery> sql_query;
 
       static std::shared_ptr<shared_model::interface::PermissionToString>
@@ -215,7 +235,7 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     // hold the storage static logger while the static storage is alive
     logger::LoggerPtr AmetsuchiTest::storage_logger_ =
         getTestLoggerManager()->getChild("Storage")->getLogger();
-    std::shared_ptr<StorageImpl> AmetsuchiTest::storage = nullptr;
+    std::shared_ptr<Storage> AmetsuchiTest::storage = nullptr;
     std::unique_ptr<framework::ametsuchi::SqlQuery> AmetsuchiTest::sql_query =
         nullptr;
   }  // namespace ametsuchi

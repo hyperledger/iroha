@@ -6,7 +6,7 @@
 #ifndef IROHA_STORAGE_IMPL_HPP
 #define IROHA_STORAGE_IMPL_HPP
 
-#include "ametsuchi/storage.hpp"
+#include "ametsuchi/reconnection/unsafe_storage.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -34,7 +34,7 @@ namespace iroha {
       std::unique_ptr<KeyValueStorage> block_store;
     };
 
-    class StorageImpl : public Storage {
+    class StorageImpl : public UnsafeStorage {
      protected:
       static expected::Result<bool, std::string> createDatabaseIfNotExist(
           const std::string &dbname,
@@ -83,7 +83,7 @@ namespace iroha {
        * @param blocks - block for insertion
        * @return true if all blocks are inserted
        */
-      bool insertBlock(
+      ReturnWrapperType<bool> insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       /**
@@ -91,7 +91,7 @@ namespace iroha {
        * @param blocks - collection of blocks for insertion
        * @return true if inserted
        */
-      bool insertBlocks(
+      ReturnWrapperType<bool> insertBlocks(
           const std::vector<std::shared_ptr<shared_model::interface::Block>>
               &blocks) override;
 
@@ -107,9 +107,10 @@ namespace iroha {
       boost::optional<std::unique_ptr<LedgerState>> commitPrepared(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
-      std::shared_ptr<WsvQuery> getWsvQuery() const override;
+      ReturnWrapperType<std::shared_ptr<WsvQuery>> getWsvQuery() const override;
 
-      std::shared_ptr<BlockQuery> getBlockQuery() const override;
+      ReturnWrapperType<std::shared_ptr<BlockQuery>> getBlockQuery()
+          const override;
 
       rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>
       on_commit() override;
