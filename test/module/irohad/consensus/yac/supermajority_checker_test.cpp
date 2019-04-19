@@ -11,7 +11,6 @@
 
 #include <boost/foreach.hpp>
 #include "boost/tuple/tuple.hpp"
-#include "consensus/yac/supermajority_checker.hpp"
 #include "logger/logger.hpp"
 
 #include "framework/test_logger.hpp"
@@ -45,6 +44,10 @@ class SupermajorityCheckerTest
     return total_peers - getAllowedFaultyPeers(total_peers);
   }
 
+  size_t getMajority(size_t total_peers) const {
+    return getAllowedFaultyPeers(total_peers) + 1;
+  }
+
   std::string modelToString() const {
     return "`" + std::to_string(getK()) + " * f + 1' "
         + (GetParam() == ConsistencyModel::kBft ? "BFT" : "CFT") + " model";
@@ -53,6 +56,10 @@ class SupermajorityCheckerTest
   bool hasSupermajority(PeersNumberType current,
                         PeersNumberType all) const override {
     return checker->hasSupermajority(current, all);
+  }
+
+  bool hasMajority(PeersNumberType voted, PeersNumberType all) const {
+    return checker->hasMajority(voted, all);
   }
 
   bool canHaveSupermajority(const VoteGroups &votes,
@@ -72,13 +79,13 @@ INSTANTIATE_TEST_CASE_P(Instance,
                         ::testing::Values(ConsistencyModel::kCft,
                                           ConsistencyModel::kBft),
                         // empty argument for the macro
-                        );
+);
 
 INSTANTIATE_TEST_CASE_P(Instance,
                         BftSupermajorityCheckerTest,
                         ::testing::Values(ConsistencyModel::kBft),
                         // empty argument for the macro
-                        );
+);
 
 /**
  * @given 2 participants
@@ -88,7 +95,7 @@ INSTANTIATE_TEST_CASE_P(Instance,
 TEST_P(CftAndBftSupermajorityCheckerTest, SuperMajorityCheckWithSize2) {
   log_->info("-----------| F(x, 2), x in [0..3] |-----------");
 
-  size_t A = 2; // number of all peers
+  size_t A = 2;  // number of all peers
   for (size_t i = 0; i < 4; ++i) {
     if (i >= getSupermajority(A)  // enough votes
         and i <= A                // not more than total peers amount
@@ -109,10 +116,10 @@ TEST_P(CftAndBftSupermajorityCheckerTest, SuperMajorityCheckWithSize2) {
  * @when check range of voted participants
  * @then correct result
  */
-TEST_P(SupermajorityCheckerTest, SuperMajorityCheckWithSize4) {
+TEST_P(CftAndBftSupermajorityCheckerTest, SuperMajorityCheckWithSize4) {
   log_->info("-----------| F(x, 4), x in [0..5] |-----------");
 
-  size_t A = 6; // number of all peers
+  size_t A = 6;  // number of all peers
   for (size_t i = 0; i < 5; ++i) {
     if (i >= getSupermajority(A)  // enough votes
         and i <= A                // not more than total peers amount
@@ -124,6 +131,24 @@ TEST_P(SupermajorityCheckerTest, SuperMajorityCheckWithSize4) {
       ASSERT_FALSE(hasSupermajority(i, A))
           << i << " votes out of " << A << " are not a supermajority in "
           << modelToString();
+    }
+  }
+}
+
+/**
+ * @given 4 participants
+ * @when check range of voted participants
+ * @then correct result
+ */
+TEST_P(CftAndBftSupermajorityCheckerTest, MajorityWithSize4) {
+  size_t A = 4;
+  for (size_t i = 0; i < 5; ++i) {
+    if (i >= getMajority(A) and i <= A) {
+      ASSERT_TRUE(hasMajority(i, A))
+          << i << " votes out of " << A << " in " << modelToString();
+    } else {
+      ASSERT_FALSE(hasMajority(i, A))
+          << i << " votes out of " << A << " in " << modelToString();
     }
   }
 }
@@ -153,8 +178,8 @@ TEST_P(CftAndBftSupermajorityCheckerTest, OneLargeAndManySingleVoteGroups) {
   };
 
   struct Case {
-    size_t V; // Voted peers
-    size_t A; // All peers
+    size_t V;  // Voted peers
+    size_t A;  // All peers
   };
 
   for (const auto &c : std::initializer_list<Case>({{6, 7}, {8, 12}})) {

@@ -11,6 +11,7 @@ target_link_libraries(on_demand_common
 
 add_library(on_demand_ordering_service
     impl/on_demand_ordering_service_impl.cpp
+    impl/kick_out_proposal_creation_strategy.cpp
     )
 
 target_link_libraries(on_demand_ordering_service

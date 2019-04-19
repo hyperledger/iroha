@@ -40,6 +40,7 @@
 #include "logger/logger_manager.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/ordering/proposal_creation_strategy_stub.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/validators/always_valid_validators.hpp"
@@ -165,7 +166,12 @@ namespace integration_framework {
               std::move(proposal_validator),
               std::move(proto_proposal_validator));
         }()),
+        field_validator_(
+            std::make_shared<shared_model::validation::FieldValidator>(
+                iroha::test::kTestsValidatorsConfig)),
         tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
+        proposal_creation_strategy_(
+            std::make_shared<iroha::ordering::ProposalCreationStrategyStub>()),
         yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
             async_call_,
             [](const shared_model::interface::Peer &peer) {
@@ -203,7 +209,9 @@ namespace integration_framework {
         batch_parser_,
         transaction_batch_factory_,
         proposal_factory_,
+        field_validator_,
         tx_presence_cache_,
+        proposal_creation_strategy_,
         log_manager_->getChild("FakePeer")
             ->getChild("at " + format_address(kLocalHost, port)));
     fake_peer->initialize();
@@ -599,6 +607,7 @@ namespace integration_framework {
                                            // only used when waiting a response
                                            // for a proposal request, which our
                                            // client does not do
+            my_key_->publicKey(),
             log_manager_->getChild("OrderingClientTransport")->getLogger())
             .create(*this_peer_);
     on_demand_os_transport->onBatches(batches);
@@ -614,6 +623,7 @@ namespace integration_framework {
             proposal_factory_,
             [] { return std::chrono::system_clock::now(); },
             timeout,
+            my_key_->publicKey(),
             log_manager_->getChild("OrderingClientTransport")->getLogger())
             .create(*this_peer_);
     return on_demand_os_transport->onRequestProposal(round);

@@ -21,10 +21,12 @@ message ProposalRound {
 
 message BatchesRequest {
   repeated protocol.Transaction transactions = 1;
+  bytes peer_key = 2;
 }
 
 message ProposalRequest {
   ProposalRound round = 1;
+  bytes peer_key = 2;
 }
 
 message ProposalResponse {

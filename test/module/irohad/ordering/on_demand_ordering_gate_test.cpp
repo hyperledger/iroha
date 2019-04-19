@@ -11,7 +11,9 @@
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
+#include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
+#include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -41,6 +43,8 @@ class OnDemandOrderingGateTest : public ::testing::Test {
     auto ufactory = std::make_unique<NiceMock<MockUnsafeProposalFactory>>();
     factory = ufactory.get();
     tx_cache = std::make_shared<ametsuchi::MockTxPresenceCache>();
+    proposal_creation_strategy =
+        std::make_shared<MockProposalCreationStrategy>();
     ON_CALL(*tx_cache,
             check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
         .WillByDefault(
@@ -54,7 +58,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         cache,
         std::move(ufactory),
         tx_cache,
-        1000,
+        proposal_creation_strategy,1000,
         getTestLogger("OrderingGate"));
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
@@ -71,6 +75,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
   std::shared_ptr<MockOdOsNotification> notification;
   NiceMock<MockUnsafeProposalFactory> *factory;
   std::shared_ptr<ametsuchi::MockTxPresenceCache> tx_cache;
+  std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
   std::shared_ptr<OnDemandOrderingGate> ordering_gate;
 
   std::shared_ptr<cache::MockOrderingGateCache> cache;

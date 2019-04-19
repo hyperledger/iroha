@@ -34,6 +34,15 @@ namespace iroha {
         return agreed * k >= (k - 1) * (all - 1) + k;
       }
 
+      inline bool checkKfPlus1Majority(PeersNumberType agreed,
+                                            PeersNumberType all,
+                                            unsigned int k) {
+        if (agreed > all) {
+          return false;
+        }
+        return agreed * k > all - 1;
+      }
+
     }  // namespace yac
   }    // namespace consensus
 }  // namespace iroha

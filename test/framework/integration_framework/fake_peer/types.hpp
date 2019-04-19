@@ -17,7 +17,7 @@ namespace shared_model {
   namespace crypto {
     class Keypair;
     class Hash;
-  }
+  }  // namespace crypto
   namespace interface {
     class CommonObjectsFactory;
     class Proposal;
@@ -29,6 +29,9 @@ namespace shared_model {
   namespace proto {
     class Block;
     class Proposal;
+  }  // namespace proto
+  namespace validation {
+    class FieldValidator;
   }
 }  // namespace shared_model
 
@@ -51,13 +54,14 @@ namespace iroha {
       struct VoteMessage;
     }  // namespace yac
     struct Round;
-  }    // namespace consensus
+  }  // namespace consensus
   namespace ordering {
     namespace transport {
       class OnDemandOsServerGrpc;
     }
     class OrderingGateTransportGrpc;
     class OrderingServiceTransportGrpc;
+    class ProposalCreationStrategy;
   }  // namespace ordering
   class MstState;
 }  // namespace iroha
