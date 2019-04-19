@@ -157,6 +157,7 @@ namespace integration_framework {
 
     FakePeer &FakePeer::setBehaviour(
         const std::shared_ptr<Behaviour> &behaviour) {
+      std::lock_guard<std::shared_timed_mutex> lock(behaviour_mutex_);
       ensureInitialized();
       behaviour_ = behaviour;
       behaviour_->setup(shared_from_this(),
@@ -164,7 +165,8 @@ namespace integration_framework {
       return *this;
     }
 
-    const std::shared_ptr<Behaviour> &FakePeer::getBehaviour() const {
+    std::shared_ptr<Behaviour> FakePeer::getBehaviour() const {
+      std::shared_lock<std::shared_timed_mutex> lock(behaviour_mutex_);
       return behaviour_;
     }
 
