@@ -40,6 +40,7 @@
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
+#include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
@@ -498,6 +499,14 @@ Irohad::RunResult Irohad::initOrderingGate() {
     return reject_delay;
   };
 
+  std::shared_ptr<iroha::ordering::ProposalCreationStrategy> proposal_strategy =
+      std::make_shared<ordering::KickOutProposalCreationStrategy>(
+          getSupermajorityChecker(kConsensusConsistencyModel));
+
+  auto field_validator =
+      std::make_shared<shared_model::validation::FieldValidator>(
+          validators_config_);
+
   ordering_gate =
       ordering_init.initOrderingGate(max_proposal_size_,
                                      proposal_delay_,
@@ -510,7 +519,10 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      proposal_factory,
                                      persistent_cache,
                                      delay,
-                                     log_manager_->getChild("Ordering"));
+                                     log_manager_->getChild("Ordering"),
+                                     field_validator,
+                                     proposal_strategy,
+                                     keypair.publicKey());
   log_->info("[Init] => init ordering gate - [{}]",
              logger::logBool(ordering_gate));
   return {};

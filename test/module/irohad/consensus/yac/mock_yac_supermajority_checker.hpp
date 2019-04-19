@@ -18,6 +18,7 @@ namespace iroha {
        public:
         MOCK_CONST_METHOD2(hasSupermajority,
                            bool(PeersNumberType, PeersNumberType));
+        MOCK_CONST_METHOD2(hasMajority, bool(PeersNumberType, PeersNumberType));
         MOCK_CONST_METHOD2(canHaveSupermajority,
                            bool(const VoteGroups &, PeersNumberType));
       };

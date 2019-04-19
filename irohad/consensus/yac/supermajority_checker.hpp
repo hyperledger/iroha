@@ -50,6 +50,15 @@ namespace iroha {
                                       PeersNumberType all) const = 0;
 
         /**
+         * Check if majority of votes is achieved
+         * @param voted - number of voted peers
+         * @param all - number of all peers in network
+         * @return true if majority is reached
+         */
+        virtual bool hasMajority(PeersNumberType voted,
+                                 PeersNumberType all) const = 0;
+
+        /**
          * Check if supermajority is possible
          * @param voted - numbers of peers voted for each option
          * @param all - number of peers in round

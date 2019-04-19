@@ -13,6 +13,7 @@
 #include <boost/range/empty.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "common/visitor.hpp"
+#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
@@ -31,6 +32,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<cache::OrderingGateCache> cache,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     size_t transaction_limit,
     logger::LoggerPtr log)
     : log_(std::move(log)),
@@ -48,7 +50,10 @@ OnDemandOrderingGate::OnDemandOrderingGate(
           round_switch_events.subscribe([this](auto event) {
             log_->debug("Current: {}", event.next_round);
 
-            // notify our ordering service about new round
+            proposal_creation_strategy_->onCollaborationOutcome(
+            *event.ledger_state->ledger_peers
+            | boost::adaptors::transformed(
+                  [](auto &peer) -> decltype(auto) { return peer->pubkey(); }));// notify our ordering service about new round
             ordering_service_->onCollaborationOutcome(event.next_round);
 
             this->sendCachedTransactions();
@@ -65,6 +70,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       cache_(std::move(cache)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
+      proposal_creation_strategy_(std::move(proposal_creation_strategy)),
       proposal_notifier_(proposal_notifier_lifetime_) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
