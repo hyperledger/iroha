@@ -23,12 +23,14 @@ Let's check out the `tx-example.py` file.
 Here are Iroha dependencies. Python library generally consists of 3 parts: Iroha, IrohaCrypto and IrohaGrpc which we need to import: 
 
 .. code-block:: python
+
 	from iroha import Iroha, IrohaGrpc
 	from iroha import IrohaCrypto
 
 The line 
 
 .. code-block:: python
+
 	from iroha.primitive_pb2 import can_set_my_account_detail
 
 
@@ -39,6 +41,7 @@ You can find a full list here: ref:`Permissions`.
 In the next block we can see the following: 
 
 .. code-block:: python
+
 	admin_private_key = 'f101537e319568c765b2cc89698325604991dca57b9716b58016b253506cab70'
 	user_private_key = IrohaCrypto.private_key()
 	user_public_key = IrohaCrypto.derive_public_key(user_private_key)
@@ -54,6 +57,7 @@ Defining the commands
 Let's look at the first of the difined commands: 
 
 .. code-block:: python
+
 	def create_domain_and_asset():
 	    commands = [
 	        iroha.command('CreateDomain', domain_id='domain', default_role='user'),
@@ -79,6 +83,7 @@ Running the commands
 Last lines 
 
 .. code-block:: python
+
 	create_domain_and_asset()
 	add_coin_to_admin()
 	create_account_userone()

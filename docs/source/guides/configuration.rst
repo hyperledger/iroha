@@ -1,10 +1,12 @@
+.. _configuration:
+
 Configuration
 =============
 
 In this section we will understand how to configure Iroha. Let's take a look
 at ``example/config.sample``
 
-.. code-block:: json
+.. code-block:: javascript
   :linenos:
 
   {
@@ -91,7 +93,7 @@ its parent, able to be overridden through config file.
 This means all the component loggers are organized in a tree with a single root.
 The relevant section of the configuration file contains the overriding values:
 
-.. code-block:: json
+.. code-block:: javascript
   :linenos:
 
   "log": {
