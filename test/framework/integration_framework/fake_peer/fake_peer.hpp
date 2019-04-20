@@ -249,8 +249,6 @@ namespace integration_framework {
       std::shared_ptr<Behaviour> behaviour_;
       std::shared_ptr<BlockStorage> block_storage_;
       ProposalStorage proposal_storage_;
-
-      mutable std::shared_timed_mutex behaviour_mutex_;
     };
 
   }  // namespace fake_peer

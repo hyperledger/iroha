@@ -5,6 +5,8 @@
 
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 
+#include <atomic>
+
 #include <boost/assert.hpp>
 #include "backend/protobuf/transaction.hpp"
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
@@ -129,8 +131,9 @@ namespace integration_framework {
     }
 
     FakePeer::~FakePeer() {
-      if (behaviour_) {
-        behaviour_->absolve();
+      auto behaviour = getBehaviour();
+      if (behaviour) {
+        behaviour->absolve();
       }
     }
 
@@ -157,17 +160,15 @@ namespace integration_framework {
 
     FakePeer &FakePeer::setBehaviour(
         const std::shared_ptr<Behaviour> &behaviour) {
-      std::lock_guard<std::shared_timed_mutex> lock(behaviour_mutex_);
       ensureInitialized();
-      behaviour_ = behaviour;
+      std::atomic_store(&behaviour_, behaviour);
       behaviour_->setup(shared_from_this(),
                         log_manager_->getChild("Behaviour")->getLogger());
       return *this;
     }
 
     std::shared_ptr<Behaviour> FakePeer::getBehaviour() const {
-      std::shared_lock<std::shared_timed_mutex> lock(behaviour_mutex_);
-      return behaviour_;
+      return std::atomic_load(&behaviour_);
     }
 
     FakePeer &FakePeer::setBlockStorage(
