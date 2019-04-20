@@ -23,11 +23,12 @@ namespace iroha {
           : order_(std::move(order)) {}
 
       // TODO :  24/03/2018 x3medima17: make it const, IR-1164
-      const shared_model::interface::Peer &ClusterOrdering::currentLeader() {
+      std::shared_ptr<shared_model::interface::Peer>
+          ClusterOrdering::currentLeader() {
         if (index_ >= order_.size()) {
           index_ = 0;
         }
-        return *order_.at(index_);
+        return order_.at(index_);
       }
 
       bool ClusterOrdering::hasNext() const {

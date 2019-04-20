@@ -16,4 +16,5 @@ target_link_libraries(mst_transport
     shared_model_stateless_validation
     shared_model_cryptography
     shared_model_proto_backend
+    async_grpc_client
     )

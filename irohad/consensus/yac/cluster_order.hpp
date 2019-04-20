@@ -39,7 +39,7 @@ namespace iroha {
         /**
          * Provide current leader peer
          */
-        const shared_model::interface::Peer &currentLeader();
+        std::shared_ptr<shared_model::interface::Peer> currentLeader();
 
         /**
          * Switch to next peer as leader

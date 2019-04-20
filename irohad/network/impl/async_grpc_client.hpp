@@ -12,6 +12,7 @@
 #include <google/protobuf/empty.pb.h>
 #include <grpc++/grpc++.h>
 #include <grpcpp/impl/codegen/async_unary_call.h>
+#include <rxcpp/rx.hpp>
 #include "logger/logger.hpp"
 
 namespace iroha {
@@ -36,9 +37,11 @@ namespace iroha {
         auto ok = false;
         while (cq_.Next(&got_tag, &ok)) {
           auto call = static_cast<AsyncClientCall *>(got_tag);
+          call->status_subject_.get_subscriber().on_next(call->status);
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
           }
+          call->status_subject_.get_subscriber().on_completed();
           delete call;
         }
       }
@@ -65,18 +68,22 @@ namespace iroha {
 
         std::unique_ptr<grpc::ClientAsyncResponseReaderInterface<Response>>
             response_reader;
+
+        rxcpp::subjects::subject<grpc::Status> status_subject_;
       };
 
       /**
        * Universal method to perform all needed sends
        * @tparam lambda which must return unique pointer to
        * ClientAsyncResponseReader<Response> object
+       * @return observable with connection status
        */
       template <typename F>
-      void Call(F &&lambda) {
+      rxcpp::observable<grpc::Status> Call(F &&lambda) {
         auto call = new AsyncClientCall;
         call->response_reader = lambda(&call->context, &cq_);
         call->response_reader->Finish(&call->reply, &call->status, call);
+        return call->status_subject_.get_observable();
       }
 
      private:
