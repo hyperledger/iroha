@@ -26,8 +26,8 @@ namespace iroha {
         }
 
         MOCK_METHOD2(sendState,
-                     void(const shared_model::interface::Peer &,
-                          const std::vector<VoteMessage> &));
+                     void(std::shared_ptr<shared_model::interface::Peer>,
+                          std::vector<VoteMessage>));
 
         MockYacNetwork() = default;
 

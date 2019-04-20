@@ -169,8 +169,7 @@ namespace iroha {
                    vote.hash.vote_hashes.proposal_hash,
                    vote.hash.vote_hashes.block_hash,
                    current_leader);
-
-        network_->sendState(current_leader, {vote});
+        propagateStateDirectly(current_leader, {vote});
         cluster_order_.switchToNext();
         auto has_next = cluster_order_.hasNext();
         lock.unlock();
@@ -279,7 +278,7 @@ namespace iroha {
                            last_round,
                            from->address());
                 auto votes = [](const auto &state) { return state.votes; };
-                this->propagateStateDirectly(*from,
+                this->propagateStateDirectly(from,
                                              visit_in_place(last_state, votes));
               };
             };
@@ -291,13 +290,14 @@ namespace iroha {
 
       void Yac::propagateState(const std::vector<VoteMessage> &msg) {
         for (const auto &peer : cluster_order_.getPeers()) {
-          propagateStateDirectly(*peer, msg);
+          propagateStateDirectly(peer, msg);
         }
       }
 
-      void Yac::propagateStateDirectly(const shared_model::interface::Peer &to,
-                                       const std::vector<VoteMessage> &msg) {
-        network_->sendState(to, msg);
+      void Yac::propagateStateDirectly(
+          std::shared_ptr<shared_model::interface::Peer> to,
+          const std::vector<VoteMessage> &msg) {
+        network_->sendState(std::move(to), msg);
       }
 
     }  // namespace yac

@@ -22,6 +22,7 @@
 #include "builders/protobuf/transaction_sequence_builder.hpp"
 #include "common/files.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/yac_network_sender.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
@@ -166,13 +167,16 @@ namespace integration_framework {
               std::move(proto_proposal_validator));
         }()),
         tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
-        yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
-            async_call_,
-            [](const shared_model::interface::Peer &peer) {
-              return iroha::network::createClient<
-                  iroha::consensus::yac::proto::Yac>(peer.address());
-            },
-            log_manager_->getChild("ConsensusTransport")->getLogger())),
+        yac_transport_(
+            std::make_shared<iroha::consensus::yac::YacNetworkSender>(
+                std::make_shared<iroha::consensus::yac::NetworkImpl>(
+                    async_call_,
+                    [](const shared_model::interface::Peer &peer) {
+                      return iroha::network::createClient<
+                          iroha::consensus::yac::proto::Yac>(peer.address());
+                    },
+                    log_manager_->getChild("ConsensusTransport")
+                        ->getLogger()))),
         cleanup_on_exit_(cleanup_on_exit) {}
 
   IntegrationTestFramework::~IntegrationTestFramework() {
@@ -629,7 +633,7 @@ namespace integration_framework {
 
   IntegrationTestFramework &IntegrationTestFramework::sendYacState(
       const std::vector<iroha::consensus::yac::VoteMessage> &yac_state) {
-    yac_transport_->sendState(*this_peer_, yac_state);
+    yac_transport_->sendState(this_peer_, yac_state);
     return *this;
   }
 

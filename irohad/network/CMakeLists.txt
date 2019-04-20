@@ -40,3 +40,11 @@ add_library(ordering_gate_common
 target_link_libraries(ordering_gate_common
     boost
     )
+
+add_library(async_grpc_client INTERFACE
+    # impl/async_grpc_client.hpp
+    )
+
+target_link_libraries(async_grpc_client INTERFACE
+    rxcpp
+    )

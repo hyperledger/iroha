@@ -27,7 +27,8 @@ namespace iroha {
        * Class which provides implementation of transport for consensus based on
        * grpc
        */
-      class NetworkImpl : public YacNetwork, public proto::Yac::Service {
+      class NetworkImpl : public YacNetworkWithFeedBack,
+                          public proto::Yac::Service {
        public:
         explicit NetworkImpl(
             std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
@@ -39,8 +40,9 @@ namespace iroha {
         void subscribe(
             std::shared_ptr<YacNetworkNotifications> handler) override;
 
-        void sendState(const shared_model::interface::Peer &to,
-                       const std::vector<VoteMessage> &state) override;
+        YacNetworkWithFeedBack::SendStateReturnType sendState(
+            const shared_model::interface::Peer &to,
+            const std::vector<VoteMessage> &state) override;
 
         /**
          * Receive votes from another peer;
@@ -59,6 +61,9 @@ namespace iroha {
          * @param peer to instantiate connection with
          */
         void createPeerConnection(const shared_model::interface::Peer &peer);
+
+        static YacNetworkWithFeedBack::ValueStateReturnType makeSendStateStatus(
+            const grpc::Status &);
 
         /**
          * Mapping of peer objects to connections

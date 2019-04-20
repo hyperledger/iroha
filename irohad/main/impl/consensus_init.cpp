@@ -76,7 +76,7 @@ namespace iroha {
         BOOST_ASSERT_MSG(initialized_,
                          "YacInit::initConsensusGate(...) must be called prior "
                          "to YacInit::getConsensusNetwork()!");
-        return consensus_network_;
+        return proto_yac_network;
       }
 
       auto YacInit::createTimer(std::chrono::milliseconds delay_milliseconds) {
@@ -107,23 +107,25 @@ namespace iroha {
         auto peers = peer_query_factory->createPeerQuery() |
             [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
-        consensus_network_ = std::make_shared<NetworkImpl>(
+        proto_yac_network = std::make_shared<NetworkImpl>(
             async_call,
             [](const shared_model::interface::Peer &peer) {
               return network::createClient<proto::Yac>(peer.address());
             },
             consensus_log_manager->getChild("Network")->getLogger());
 
+        yac_network = std::make_shared<YacNetworkSender>(proto_yac_network);
+
         auto yac = createYac(*ClusterOrdering::create(peers.value()),
                              initial_round,
                              keypair,
                              createTimer(vote_delay_milliseconds),
-                             consensus_network_,
+                             yac_network,
                              std::move(common_objects_factory),
                              consistency_model,
                              rxcpp::observe_on_new_thread(),
                              consensus_log_manager);
-        consensus_network_->subscribe(yac);
+        yac_network->subscribe(yac);
 
         auto hash_provider = createHashProvider();
 

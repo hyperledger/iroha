@@ -43,6 +43,7 @@ target_compile_definitions(yac
 
 add_library(yac_transport
     transport/impl/network_impl.cpp
+    transport/impl/yac_network_sender.cpp
     impl/yac_crypto_provider_impl.cpp
     )
 target_link_libraries(yac_transport

@@ -13,6 +13,7 @@
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/timer.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/yac_network_sender.hpp"
 #include "consensus/yac/yac.hpp"
 #include "consensus/yac/yac_gate.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
@@ -53,7 +54,8 @@ namespace iroha {
         auto createTimer(std::chrono::milliseconds delay_milliseconds);
 
         bool initialized_{false};
-        std::shared_ptr<NetworkImpl> consensus_network_;
+        std::shared_ptr<NetworkImpl> proto_yac_network;
+        std::shared_ptr<YacNetworkSender> yac_network;
       };
     }  // namespace yac
   }    // namespace consensus

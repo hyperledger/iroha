@@ -35,8 +35,9 @@ namespace iroha {
         handler_ = handler;
       }
 
-      void NetworkImpl::sendState(const shared_model::interface::Peer &to,
-                                  const std::vector<VoteMessage> &state) {
+      YacNetworkWithFeedBack::SendStateReturnType NetworkImpl::sendState(
+          const shared_model::interface::Peer &to,
+          const std::vector<VoteMessage> &state) {
         createPeerConnection(to);
 
         proto::State request;
@@ -45,12 +46,58 @@ namespace iroha {
           *pb_vote = PbConverters::serializeVote(vote);
         }
 
-        async_call_->Call([&](auto context, auto cq) {
-          return peers_.at(to.address())->AsyncSendState(context, request, cq);
-        });
-
         log_->info(
             "Send votes bundle[size={}] to {}", state.size(), to.address());
+
+        auto log_outcome = [log = log_, destination_peer = to.toString()](
+                               const grpc::Status &status) {
+          log->info("Sent to {} with status details [{}]",
+                    destination_peer,
+                    status.ok() ? "OK" : status.error_details());
+        };
+
+        return async_call_
+            ->Call([&](auto context, auto cq) {
+              return peers_.at(to.address())
+                  ->AsyncSendState(context, request, cq);
+            })
+            .tap(log_outcome)
+            .map(
+                [](const auto &status) { return makeSendStateStatus(status); });
+      }
+
+      YacNetworkWithFeedBack::ValueStateReturnType
+      NetworkImpl::makeSendStateStatus(const grpc::Status &status) {
+        auto is_ok = [](const auto &code) {
+          return code == grpc::StatusCode::OK;
+        };
+
+        auto is_troubles_with_recipient = [](const auto &code) {
+          using namespace grpc;
+          std::set<StatusCode> codes = {StatusCode::CANCELLED,
+                                    StatusCode::INVALID_ARGUMENT,
+                                    StatusCode::UNAUTHENTICATED,
+                                    StatusCode::RESOURCE_EXHAUSTED,
+                                    StatusCode::ABORTED,
+                                    StatusCode::UNIMPLEMENTED,
+                                    StatusCode::UNAVAILABLE,
+                                    StatusCode::DATA_LOSS};
+          return codes.find(code) != codes.end();
+        };
+
+        auto code = status.error_code();
+
+        using namespace iroha::consensus::yac::sending_statuses;
+
+        if (is_ok(code)) {
+          return SuccessfulSent();
+        }
+
+        if (is_troubles_with_recipient(code)) {
+          return UnavailableReceiver();
+        }
+
+        return UnavailableNetwork();
       }
 
       grpc::Status NetworkImpl::SendState(
