@@ -63,6 +63,10 @@ DEFINE_validator(config, &validate_config);
  * Creating input argument for the genesis block file location.
  */
 DEFINE_string(genesis_block, "", "Specify file with initial block");
+/**
+ * Registering validator for the genesis block file location.
+ */
+DEFINE_validator(genesis_block, &validate_genesis_block);
 
 /**
  * Creating input argument for the keypair files location.
