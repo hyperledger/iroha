@@ -175,6 +175,8 @@ class Irohad {
 
   virtual void initPendingTxsStorage();
 
+  virtual void initProfiling();
+
   virtual void initTransactionCommandService();
 
   virtual void initQueryService();

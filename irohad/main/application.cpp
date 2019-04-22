@@ -26,6 +26,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/profiling.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
@@ -149,6 +150,7 @@ void Irohad::init() {
   initStatusBus();
   initMstProcessor();
   initPendingTxsStorage();
+  initProfiling();
 
   // Torii
   initTransactionCommandService();
@@ -596,6 +598,15 @@ void Irohad::initPendingTxsStorage() {
       mst_processor->onPreparedBatches(),
       mst_processor->onExpiredBatches());
   log_->info("[Init] => pending transactions storage");
+}
+
+void Irohad::initProfiling() {
+  storage->on_commit().subscribe([this](const auto &block) {
+    if ((block->height() % 100) == 0) {
+      debug::flushCpuProfile();
+    }
+    debug::flushMemProfile();
+  });
 }
 
 /**

@@ -55,6 +55,7 @@ target_link_libraries(application
     torii_service
     pending_txs_storage
     common
+    profiling
     )
 
 add_executable(irohad irohad.cpp)
@@ -69,7 +70,35 @@ target_link_libraries(irohad
     logger
     logger_manager
     irohad_version
+    profiling
     )
+if(PROFILING)
+  add_library(profiling profiling.cpp)
+  if(PROFILING STREQUAL "HEAP")
+    target_compile_options(profiling PRIVATE "-DPROFILING_HEAP")
+    target_link_libraries(irohad
+        tcmalloc.a
+        )
+  elseif(PROFILING STREQUAL "CPU")
+    target_compile_options(profiling PRIVATE "-DPROFILING_CPU")
+    target_link_libraries(irohad
+        profiler.a
+        )
+  elseif(PROFILING STREQUAL "ALL")
+    target_compile_options(profiling PRIVATE "-DPROFILING_HEAP")
+    target_compile_options(profiling PRIVATE "-DPROFILING_CPU")
+    target_link_libraries(irohad
+        tcmalloc_and_profiler.a
+        )
+  else()
+    message(FATAL_ERROR "PROFILING must be one of 'HEAP', 'CPU' or 'ALL' when enabled!")
+  endif()
+  target_link_libraries(irohad
+      unwind
+      )
+else()
+  add_library(profiling profiling_dummy.cpp)
+endif()
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)
 target_link_libraries(iroha_conf_loader
