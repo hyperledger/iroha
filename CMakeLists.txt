@@ -92,6 +92,11 @@ endif()
 if(SANITIZE_UNDEFINED)
   append_build_flags(-fsanitize=undefined)
 endif()
+if(PROFILING)
+  append_build_flags(-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-omit-frame-pointer -DPROFILING)
+else()
+  unset(PROFILING)
+endif()
 set(DEPS_CMAKE_ARGS
     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
@@ -115,6 +120,7 @@ option(SANITIZE_THREAD       "Build with thread sanitizer"              OFF)
 option(SANITIZE_ADDRESS      "Build with address sanitizer"             OFF)
 option(SANITIZE_MEMORY       "Build with memory sanitizer"              OFF)
 option(SANITIZE_UNDEFINED    "Build with undefined behaviour sanitizer" OFF)
+option(PROFILING             "Build with gperftools profiler"           OFF)
 
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -151,6 +157,7 @@ message(STATUS "-DSANITIZE_THREAD=${SANITIZE_THREAD}")
 message(STATUS "-DSANITIZE_ADDRESS=${SANITIZE_ADDRESS}")
 message(STATUS "-DSANITIZE_MEMORY=${SANITIZE_MEMORY}")
 message(STATUS "-DSANITIZE_UNDEFINED=${SANITIZE_UNDEFINED}")
+message(STATUS "-DPROFILING=${PROFILING}")
 
 set(IROHA_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/schema")
 set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")

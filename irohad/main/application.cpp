@@ -26,6 +26,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/profiling.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
@@ -527,6 +528,10 @@ void Irohad::initPeerCommunicationService() {
     switch (event.sync_outcome) {
       case SynchronizationOutcomeType::kCommit:
         log_->info(R"(~~~~~~~~~| COMMIT =^._.^= |~~~~~~~~~ )");
+        if ((event.ledger_state->height % 100) == 0) {
+          debug::flushCpuProfile();
+        }
+        debug::flushMemProfile();
         break;
       case SynchronizationOutcomeType::kReject:
         log_->info(R"(~~~~~~~~~| REJECT \(*.*)/ |~~~~~~~~~ )");

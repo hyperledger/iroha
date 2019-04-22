@@ -18,6 +18,7 @@
 #include "main/application.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
+#include "main/profiling.hpp"
 #include "main/raw_block_loader.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
@@ -99,6 +100,13 @@ static bool validateVerbosity(const char *flagname, const std::string &val) {
 DEFINE_string(verbosity, kLogSettingsFromConfigFile, "Log verbosity");
 DEFINE_validator(verbosity, &validateVerbosity);
 
+#if defined(PROFILING)
+// profiling output path
+DEFINE_string(profiling_path,
+              "",
+              "To enable profiling, specify a path to store profiling data");
+#endif
+
 std::promise<void> exit_requested;
 
 logger::LoggerManagerTreePtr getDefaultLogManager() {
@@ -142,6 +150,12 @@ int main(int argc, char *argv[]) {
   }
   log->info("Irohad version: {}", iroha::kGitPrettyVersion);
   log->info("config initialized");
+
+#if defined(PROFILING)
+  if (not FLAGS_profiling_path.empty()) {
+    iroha::debug::startProfiling(FLAGS_profiling_path);
+  }
+#endif
 
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
@@ -273,7 +287,10 @@ int main(int argc, char *argv[]) {
   // init pipeline components
   irohad.init();
 
-  auto handler = [](int s) { exit_requested.set_value(); };
+  auto handler = [](int s) {
+    iroha::debug::stopProfiling();
+    exit_requested.set_value();
+  };
   std::signal(SIGINT, handler);
   std::signal(SIGTERM, handler);
 #ifdef SIGQUIT
