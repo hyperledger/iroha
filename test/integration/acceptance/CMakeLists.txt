@@ -217,3 +217,11 @@ target_link_libraries(set_account_quorum_test
     acceptance_fixture
     integration_framework
     )
+
+addtest(hex_keys_test
+   hex_keys_test.cpp
+   )
+target_link_libraries(hex_keys_test
+   acceptance_fixture
+   integration_framework
+   )
