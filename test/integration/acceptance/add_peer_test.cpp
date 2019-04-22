@@ -59,12 +59,8 @@ class FakePeerExampleFixture : public AcceptanceFixture {
     auto permissions =
         interface::RolePermissionSet({Role::kReceive, Role::kTransfer});
 
-    return itf_
-        ->sendTxAwait(makeUserWithPerms(permissions), checkBlockHasNTxs<1>)
-        .sendTxAwait(
-            complete(baseTx(kAdminId).addAssetQuantity(kAssetId, "20000.0"),
-                     kAdminKeypair),
-            checkBlockHasNTxs<1>);
+    return itf_->sendTxAwait(makeUserWithPerms(permissions),
+                             checkBlockHasNTxs<1>);
   }
 
  protected:
@@ -94,9 +90,11 @@ auto makePeerPointeeMatcher(std::shared_ptr<interface::Peer> peer) {
  * @given a network of single peer
  * @when it receives a valid signed addPeer command
  * @then the transaction is committed
+ *    @and the ledger state after commit contains the two peers,
  *    @and the WSV reports that there are two peers: the initial and the added one
  */
 TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
+  // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
 
@@ -105,11 +103,44 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
           .publicKey();
 
+  // capture itf synchronization events
+  auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();
+  itf_sync_events_observable.connect();
+
+  // ------------------------ WHEN -------------------------
+  // send addPeer command
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_pubkey),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
+  // ------------------------ THEN -------------------------
+  // check that ledger state contains the two peers
+  itf_sync_events_observable
+      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
+      .filter([](const auto &sync_event) {
+        return sync_event.sync_outcome
+            == iroha::synchronizer::SynchronizationOutcomeType::kCommit;
+      })
+      .take(1)
+      .as_blocking()
+      .subscribe(
+          [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
+            EXPECT_THAT(
+                *sync_event.ledger_state->ledger_peers,
+                ::testing::UnorderedElementsAre(
+                    makePeerPointeeMatcher(itf_peer),
+                    makePeerPointeeMatcher(new_peer_address, new_peer_pubkey)));
+          },
+          [](std::exception_ptr ep) {
+            try {
+              std::rethrow_exception(ep);
+            } catch (const std::exception &e) {
+              FAIL() << "Error waiting for synchronization: " << e.what();
+            }
+          });
+
+  // query WSV peers
   auto opt_peers = itf.getIrohaInstance()
                        .getIrohaInstance()
                        ->getStorage()
@@ -117,6 +148,7 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
                        .value()
                        ->getLedgerPeers();
 
+  // check the two peers are there
   ASSERT_TRUE(opt_peers);
   EXPECT_THAT(*opt_peers,
               ::testing::UnorderedElementsAre(
@@ -130,6 +162,7 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
  * @then the first peer propagates MST state to the newly added peer
  */
 TEST_F(FakePeerExampleFixture, MstStatePropagtesToNewPeer) {
+  // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
 
@@ -139,19 +172,19 @@ TEST_F(FakePeerExampleFixture, MstStatePropagtesToNewPeer) {
   mst_states_observable.connect();
   auto new_peer_server = new_peer->run();
 
+  // ------------------------ WHEN -------------------------
   // and add it with addPeer
+  itf.sendTxWithoutValidation(complete(
+      baseTx(kAdminId).setAccountDetail(kAdminId, "fav_meme", "doge").quorum(2),
+      kAdminKeypair));
+
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(new_peer->getAddress(),
                                         new_peer->getKeypair().publicKey()),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
-  itf.sendTxWithoutValidation(complete(
-      baseTx(kAdminId)
-          .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
-          .quorum(2),
-      kAdminKeypair));
-
+  // ------------------------ THEN -------------------------
   mst_states_observable
       .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
       .take(1)
@@ -313,13 +346,11 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
                   makePeerPointeeMatcher(initial_peer->getThisPeer())));
 
   // send some valid tx to itf and check that it gets committed
-  itf_->sendTxAwait(
-      complete(
-          baseTx(kAdminId)
-              .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
-              .quorum(1),
-          kAdminKeypair),
-      checkBlockHasNTxs<1>);
+  itf_->sendTxAwait(complete(baseTx(kAdminId)
+                                 .setAccountDetail(kUserId, "fav_meme", "doge")
+                                 .quorum(1),
+                             kAdminKeypair),
+                    checkBlockHasNTxs<1>);
 
   new_peer_server->shutdown();
 }
