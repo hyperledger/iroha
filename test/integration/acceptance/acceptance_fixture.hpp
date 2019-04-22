@@ -45,6 +45,8 @@ namespace {
 
 #define CHECK_COMMITTED BASE_CHECK_RESPONSE(CommittedTxResponse)
 
+#define CHECK_REJECTED BASE_CHECK_RESPONSE(RejectedTxResponse)
+
 #define CHECK_MST_PENDING BASE_CHECK_RESPONSE(MstPendingResponse)
 
 #define CHECK_TXS_QUANTITY(i) \
