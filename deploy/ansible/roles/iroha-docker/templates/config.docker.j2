@@ -2,7 +2,7 @@
   "block_store_path" : "{{ iroha_blockstore_path }}",
   "torii_port" : {{ iroha_torii_port }},
   "internal_port" : {{ iroha_peer_port }},
-  "pg_opt" : "host={{ item.human_hostname }}-postgres port={{ iroha_postgres_port }} user={{ iroha_postgres_user }} password={{ iroha_postgres_password }}",
+  "pg_opt" : "host={{ iroha_inventory_human_hostname }}-postgres port={{ iroha_postgres_port }} user={{ iroha_postgres_user }} password={{ iroha_postgres_password }} dbname={{ item.human_hostname }}",
   "max_proposal_size" : {{ iroha_max_proposal_size }},
   "proposal_delay" : {{ iroha_proposal_delay }},
   "vote_delay" : {{ iroha_vote_delay }},

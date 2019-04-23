@@ -18,38 +18,38 @@ services:
 {% endif %}
     environment:
       KEY: {{ node.hostname }}
-      IROHA_POSTGRES_HOST: {{ node.human_hostname }}-postgres
+      IROHA_POSTGRES_HOST: {{ iroha_inventory_human_hostname }}-postgres
     volumes:
       - iroha_block_store-{{ node.human_hostname }}:/tmp/block_store
       - ./conf/{{ node.human_hostname }}:/opt/iroha_data
     depends_on:
-      - {{ node.human_hostname }}-postgres
+      - {{ iroha_inventory_human_hostname }}-postgres
     networks:
       - {{ iroha_network_name }}
       - iroha-db-net
 
-  {{ node.human_hostname }}-postgres:
+{% endfor %}
+
+  {{ iroha_inventory_human_hostname }}-postgres:
     image: postgres:{{ postgres_docker_tag }}
-    container_name: {{ node.human_hostname }}-postgres
+    container_name: {{ iroha_inventory_human_hostname }}-postgres
     environment:
       POSTGRES_PASSWORD: {{ iroha_postgres_password }}
     expose:
       - {{ iroha_postgres_port }}
     volumes:
-      - psql_storage-{{ node.human_hostname }}:/var/lib/postgresql/data
+      - psql_storage-{{ iroha_inventory_human_hostname }}:/var/lib/postgresql/data
     networks:
       - iroha-db-net
 {% if iroha_postgres_max_prepared_transactions is defined %}
     command: -c max_prepared_transactions={{ iroha_postgres_max_prepared_transactions }}
 {% endif %}
 
-{% endfor %}
-
 volumes:
 {% for node in iroha_nodes %}
   iroha_block_store-{{ node.human_hostname }}:
-  psql_storage-{{ node.human_hostname }}:
 {% endfor %}
+  psql_storage-{{ iroha_inventory_human_hostname }}:
 
 networks:
   {{ iroha_network_name }}:

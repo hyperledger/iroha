@@ -31,8 +31,14 @@
       iroha_peers_map: "{{ iroha_peers_map | default([]) }} + [ {{ {'hostname': item, 'human_hostname': 'c_' + item | regex_replace('\\.', '_') | regex_replace(':', '_'), 'peer_port': item.split(':')[1] } }} ]"
     loop: "{{ iroha_nodes }}"
 
+  - set_fact:
+      iroha_inventory_human_hostname: "{{ 'c_' + inventory_hostname | regex_replace('\\.', '_') }}"
+
   - debug:
       var: iroha_peers_map
+
+  - debug:
+      var: iroha_inventory_human_hostname
 
   - set_fact:
       iroha_nodes: "{{ iroha_peers_map }}"
