@@ -79,7 +79,7 @@ DEFINE_validator(keypair_name, &validate_keypair_name);
 /**
  * Create input argument for the initial peer list
  */
-DEFINE_string(peers, "", "Specify initial peers");
+DEFINE_string(peers, "", "Path to file with current peers list");
 
 /**
  * Creating boolean flag for overwriting already existing block storage
@@ -162,26 +162,26 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  boost::optional<std::vector<std::unique_ptr<shared_model::interface::Peer>>>
-      peers = boost::make_optional<
-          std::vector<std::unique_ptr<shared_model::interface::Peer>>>({});
+  iroha::expected::Result<shared_model::interface::types::PeerList, std::string>
+      peers;
   if (not FLAGS_peers.empty()) {
-    iroha::main::PeersFileReaderImpl file_reader;
-    auto peers_file_data = file_reader.openFile(FLAGS_peers);
-    if (not peers_file_data) {
-      log->error("Failed to load peers file");
-      return EXIT_FAILURE;
-    }
-
     auto validators_config =
         std::make_shared<shared_model::validation::ValidatorsConfig>(
             config.max_proposal_size);
-    peers = file_reader.readPeers(
-        *peers_file_data,
+    iroha::main::PeersFileReaderImpl file_reader(
         std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
             shared_model::validation::FieldValidator>>(validators_config));
-    if (not peers) {
-      log->error("Failed to parse peers file");
+    peers = file_reader.readPeers(FLAGS_peers);
+    if (auto e = boost::get<iroha::expected::Error<std::string>>(&peers)) {
+      log->error("Error happened in a peer file list read process: "
+                 + e->error);
+      return EXIT_FAILURE;
+    }
+    if (boost::get<
+            iroha::expected::Value<shared_model::interface::types::PeerList>>(
+            peers)
+            .value.empty()) {
+      log->error("Got peers list file without peers");
       return EXIT_FAILURE;
     }
   }
@@ -203,7 +203,11 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
-      std::move(*peers),
+      std::move(
+          boost::get<
+              iroha::expected::Value<shared_model::interface::types::PeerList>>(
+              peers)
+              .value),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));

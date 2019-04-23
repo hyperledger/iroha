@@ -28,8 +28,7 @@ namespace integration_framework {
                const shared_model::crypto::Keypair &keypair,
                std::chrono::milliseconds max_rounds_delay,
                size_t stale_stream_max_rounds,
-               std::vector<std::unique_ptr<shared_model::interface::Peer>>
-                   initial_peers,
+               shared_model::interface::types::PeerList alternative_peers,
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
                const boost::optional<iroha::GossipPropagationStrategyParams>
@@ -46,7 +45,7 @@ namespace integration_framework {
                  keypair,
                  max_rounds_delay,
                  stale_stream_max_rounds,
-                 std::move(initial_peers),
+                 std::move(alternative_peers),
                  std::move(irohad_log_manager),
                  opt_mst_gossip_params),
           log_(std::move(log)) {}
