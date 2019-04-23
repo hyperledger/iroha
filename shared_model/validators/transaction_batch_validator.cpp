@@ -22,12 +22,15 @@ namespace {
    * and are positioned correctly
    * @param transactions to be checked
    * @param max_batch_size - maximum amount of transactions within a batch
+   * @param partial_ordered_batches_are_valid - batch meta can contain more
+   * hashes of batch transactions than it actually has
    * @return enum, reporting about success result or containing a found error
    */
   BatchCheckResult batchIsWellFormed(
       const shared_model::interface::types::TransactionsForwardCollectionType
           &transactions,
-      const uint64_t max_batch_size) {
+      const uint64_t max_batch_size,
+      const bool partial_ordered_batches_are_valid) {
     // a batch cannot contain more transactions than max_proposal_size,
     // otherwise it would not be processed anyway
     const uint64_t batch_size = boost::size(transactions);
@@ -46,19 +49,44 @@ namespace {
       return BatchCheckResult::kNoBatchMeta;
     }
 
-    const auto &batch_hashes = batch_meta_opt->get()->reducedHashes();
-    if (batch_hashes.size() != transactions_quantity) {
-      return BatchCheckResult::kIncorrectBatchMetaSize;
-    }
+    bool batch_is_ordered = batch_meta_opt->get()->type()
+        == shared_model::interface::types::BatchType::ORDERED;
 
-    auto hashes_are_correct =
-        std::equal(boost::begin(batch_hashes),
-                   boost::end(batch_hashes),
-                   boost::begin(transactions),
-                   boost::end(transactions),
-                   [](const auto &tx_reduced_hash, const auto &tx) {
-                     return tx_reduced_hash == tx.reducedHash();
-                   });
+    const auto &batch_hashes = batch_meta_opt->get()->reducedHashes();
+    bool hashes_are_correct = true;
+
+    auto hashes_begin = boost::begin(batch_hashes);
+    auto hashes_end = boost::end(batch_hashes);
+    auto transactions_begin = boost::begin(transactions);
+    auto transactions_end = boost::end(transactions);
+
+    if (batch_is_ordered and partial_ordered_batches_are_valid) {
+      // checking that transactions' hashes are subsequence of batch meta hashes
+      for (; transactions_begin != transactions_end; ++hashes_begin) {
+        if (hashes_begin == hashes_end) {
+          hashes_are_correct = false;
+          break;
+        }
+        if (*hashes_begin == transactions_begin->reducedHash()) {
+          ++transactions_begin;
+        }
+      }
+    } else {
+      // batch is ATOMIC or ORDERED but NO partial batches are valid
+      // checking that transactions' hashes equal to batch meta hashes
+      if (batch_hashes.size() != transactions_quantity) {
+        return BatchCheckResult::kIncorrectBatchMetaSize;
+
+        hashes_are_correct =
+            std::equal(hashes_begin,
+                       hashes_end,
+                       transactions_begin,
+                       transactions_end,
+                       [](const auto &tx_reduced_hash, const auto &tx) {
+                         return tx_reduced_hash == tx.reducedHash();
+                       });
+      }
+    }
     if (not hashes_are_correct) {
       return BatchCheckResult::kIncorrectHashes;
     }
@@ -71,7 +99,9 @@ namespace shared_model {
   namespace validation {
 
     BatchValidator::BatchValidator(std::shared_ptr<ValidatorsConfig> config)
-        : max_batch_size_(config->max_batch_size) {}
+        : max_batch_size_(config->max_batch_size),
+          partial_ordered_batches_are_valid_(
+              config->partial_ordered_batches_are_valid) {}
 
     Answer BatchValidator::validate(
         const interface::TransactionBatch &batch) const {
@@ -97,7 +127,8 @@ namespace shared_model {
         // here we are checking only batch logic, not transaction-related
       }
 
-      switch (batchIsWellFormed(transactions, max_batch_size_)) {
+      switch (batchIsWellFormed(
+          transactions, max_batch_size_, partial_ordered_batches_are_valid_)) {
         case BatchCheckResult::kOk:
           break;
         case BatchCheckResult::kNoBatchMeta:
