@@ -64,7 +64,7 @@ class SynchronizerTest : public ::testing::Test {
     consensus_gate = std::make_shared<MockConsensusGate>();
     block_query = std::make_shared<::testing::NiceMock<MockBlockQuery>>();
 
-    ledger_peers = std::make_shared<PeerList>();
+    ledger_peers = std::make_shared<shared_model::interface::types::PeerList>();
     for (int i = 0; i < 3; ++i) {
       // TODO mboldyrev 21.03.2019 IR-424 Avoid using honest crypto
       ledger_peer_keys.emplace_back(
@@ -123,7 +123,7 @@ class SynchronizerTest : public ::testing::Test {
   std::shared_ptr<shared_model::interface::Block> commit_message;
   shared_model::interface::types::PublicKeyCollectionType public_keys;
   shared_model::interface::types::HashType hash;
-  std::shared_ptr<PeerList> ledger_peers;
+  std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers;
   std::shared_ptr<LedgerState> ledger_state;
   std::vector<shared_model::crypto::Keypair> ledger_peer_keys;
 

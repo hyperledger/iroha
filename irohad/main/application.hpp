@@ -93,29 +93,28 @@ class Irohad {
    * transactions
    * @param stale_stream_max_rounds - maximum number of rounds between
    * consecutive status emissions
-   *
+   * @param alternative_peers - alternative peer list
    * @param logger_manager - the logger manager to use
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
-  Irohad(
-      const std::string &block_store_dir,
-      const std::string &pg_conn,
-      const std::string &listen_ip,
-      size_t torii_port,
-      size_t internal_port,
-      size_t max_proposal_size,
-      std::chrono::milliseconds proposal_delay,
-      std::chrono::milliseconds vote_delay,
-      std::chrono::minutes mst_expiration_time,
-      const shared_model::crypto::Keypair &keypair,
-      std::chrono::milliseconds max_rounds_delay,
-      size_t stale_stream_max_rounds,
-      std::vector<std::unique_ptr<shared_model::interface::Peer>> initial_peers,
-      logger::LoggerManagerTreePtr logger_manager,
-      const boost::optional<iroha::GossipPropagationStrategyParams>
-          &opt_mst_gossip_params = boost::none);
+  Irohad(const std::string &block_store_dir,
+         const std::string &pg_conn,
+         const std::string &listen_ip,
+         size_t torii_port,
+         size_t internal_port,
+         size_t max_proposal_size,
+         std::chrono::milliseconds proposal_delay,
+         std::chrono::milliseconds vote_delay,
+         std::chrono::minutes mst_expiration_time,
+         const shared_model::crypto::Keypair &keypair,
+         std::chrono::milliseconds max_rounds_delay,
+         size_t stale_stream_max_rounds,
+         shared_model::interface::types::PeerList alternative_peers,
+         logger::LoggerManagerTreePtr logger_manager,
+         const boost::optional<iroha::GossipPropagationStrategyParams>
+             &opt_mst_gossip_params = boost::none);
 
   /**
    * Initialization of whole objects in system
@@ -128,6 +127,10 @@ class Irohad {
    */
   bool restoreWsv();
 
+  /**
+   * Replaces peers in WSV by external provided peers list if any
+   * @return true on success
+   */
   bool updatePeers();
 
   /**
@@ -202,7 +205,7 @@ class Irohad {
   std::chrono::minutes mst_expiration_time_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
-  std::vector<std::unique_ptr<shared_model::interface::Peer>> initial_peers_;
+  shared_model::interface::types::PeerList alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 

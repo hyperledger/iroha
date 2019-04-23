@@ -61,7 +61,7 @@ namespace iroha {
               &blocks) = 0;
 
       /**
-       * Inserts peer into WSV
+       * Insert a peer into WSV
        * @param peer - peer to insert
        * @return true if inserted
        */
@@ -81,7 +81,7 @@ namespace iroha {
       virtual void reset() = 0;
 
       /**
-       * Removes all saved peers
+       * Removes all peers from WSV
        */
       virtual void resetPeers() = 0;
 

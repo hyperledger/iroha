@@ -259,7 +259,7 @@ namespace iroha {
     }
 
     bool StorageImpl::insertPeer(const shared_model::interface::Peer &peer) {
-      log_->info("insert peer {}", peer.pubkey().hex());
+      log_->info("Insert peer {}", peer.pubkey().hex());
       soci::session sql(*connection_);
       PostgresWsvCommand wsv_command(sql);
       auto status = wsv_command.insertPeer(peer);
@@ -287,12 +287,12 @@ namespace iroha {
     }
 
     void StorageImpl::resetPeers() {
-      log_->info("remove everything from peers table");
+      log_->info("Remove everything from peers table");
       try {
         soci::session sql(*connection_);
         sql << reset_peers_;
       } catch (std::exception &e) {
-        log_->warn("peers reset failed, reason: {}", e.what());
+        log_->error("Failed to reset peers list, reason: {}", e.what());
       }
     }
 
@@ -485,10 +485,11 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<std::unique_ptr<LedgerState>>(
-                    std::make_unique<LedgerState>(
-                        std::make_shared<PeerList>(std::move(peers)),
-                        storage->getTopBlockHeight()));
+                return boost::optional<
+                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
+                    storage->getTopBlockHeight()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -537,7 +538,8 @@ namespace iroha {
                 log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<PeerList>(std::move(peers)),
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
                     block_query.getTopBlockHeight()));
           }
           return boost::none;
