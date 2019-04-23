@@ -28,9 +28,12 @@ auto BlockLoaderInit::createLoader(
     std::shared_ptr<shared_model::validation::ValidatorsConfig>
         validators_config,
     logger::LoggerPtr loader_log) {
+  auto block_loader_validators_config =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          validators_config->max_batch_size, true);
   shared_model::proto::ProtoBlockFactory factory(
       std::make_unique<shared_model::validation::DefaultSignedBlockValidator>(
-          validators_config),
+          block_loader_validators_config),
       std::make_unique<shared_model::validation::ProtoBlockValidator>());
   return std::make_shared<BlockLoaderImpl>(
       std::move(peer_query_factory), std::move(factory), std::move(loader_log));
