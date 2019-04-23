@@ -12,13 +12,22 @@ namespace iroha {
   namespace main {
     class PeersFileReaderImpl : public PeersFileReader {
      public:
-      boost::optional<std::string> openFile(const std::string &name) override;
+      /**
+       * Creates new PeersFileReaderImpl object
+       * @param common_objects_factory - factory to create peers
+       */
+      explicit PeersFileReaderImpl(
+          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+              common_objects_factory);
 
-      boost::optional<
-          std::vector<std::unique_ptr<shared_model::interface::Peer>>>
-      readPeers(const std::string &peers_data,
-                std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-                    common_objects_factory) override;
+      expected::Result<shared_model::interface::types::PeerList, std::string>
+      readPeers(const std::string &name) override;
+
+     private:
+      boost::optional<std::string> openFile(const std::string &name);
+
+      std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+          common_objects_factory_;
     };
   }  // namespace main
 }  // namespace iroha

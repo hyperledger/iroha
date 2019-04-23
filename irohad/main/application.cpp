@@ -75,23 +75,22 @@ static constexpr iroha::consensus::yac::ConsistencyModel
 /**
  * Configuring iroha daemon
  */
-Irohad::Irohad(
-    const std::string &block_store_dir,
-    const std::string &pg_conn,
-    const std::string &listen_ip,
-    size_t torii_port,
-    size_t internal_port,
-    size_t max_proposal_size,
-    std::chrono::milliseconds proposal_delay,
-    std::chrono::milliseconds vote_delay,
-    std::chrono::minutes mst_expiration_time,
-    const shared_model::crypto::Keypair &keypair,
-    std::chrono::milliseconds max_rounds_delay,
-    size_t stale_stream_max_rounds,
-    std::vector<std::unique_ptr<shared_model::interface::Peer>> initial_peers,
-    logger::LoggerManagerTreePtr logger_manager,
-    const boost::optional<GossipPropagationStrategyParams>
-        &opt_mst_gossip_params)
+Irohad::Irohad(const std::string &block_store_dir,
+               const std::string &pg_conn,
+               const std::string &listen_ip,
+               size_t torii_port,
+               size_t internal_port,
+               size_t max_proposal_size,
+               std::chrono::milliseconds proposal_delay,
+               std::chrono::milliseconds vote_delay,
+               std::chrono::minutes mst_expiration_time,
+               const shared_model::crypto::Keypair &keypair,
+               std::chrono::milliseconds max_rounds_delay,
+               size_t stale_stream_max_rounds,
+               shared_model::interface::types::PeerList alternative_peers,
+               logger::LoggerManagerTreePtr logger_manager,
+               const boost::optional<GossipPropagationStrategyParams>
+                   &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
       pg_conn_(pg_conn),
       listen_ip_(listen_ip),
@@ -104,7 +103,7 @@ Irohad::Irohad(
       mst_expiration_time_(mst_expiration_time),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
-      initial_peers_(std::move(initial_peers)),
+      alternative_peers_(std::move(alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
@@ -211,11 +210,10 @@ bool Irohad::restoreWsv() {
 
 bool Irohad::updatePeers() {
   // drop old peers and insert new ones if --peers flag is set
-  if (not initial_peers_.empty()) {
+  if (not alternative_peers_.empty()) {
     storage->resetPeers();
-    for (const auto &peer : initial_peers_) {
+    for (const auto &peer : alternative_peers_) {
       if (not storage->insertPeer(*peer)) {
-        log_->error("Peer insertion failed");
         return false;
       }
     }
@@ -739,7 +737,9 @@ Irohad::RunResult Irohad::run() {
                 [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
             auto initial_ledger_state = std::make_shared<LedgerState>(
-                std::make_unique<PeerList>(peers.value()), block->height());
+                std::make_unique<shared_model::interface::types::PeerList>(
+                    peers.value()),
+                block->height());
 
             pcs->onSynchronization().subscribe(
                 ordering_init.sync_event_notifier.get_subscriber());

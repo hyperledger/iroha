@@ -98,7 +98,8 @@ class YacGateTest : public ::testing::Test {
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
     auto ledger_peers =
-        std::make_shared<iroha::PeerList>(iroha::PeerList{peer});
+        std::make_shared<shared_model::interface::types::PeerList>(
+            shared_model::interface::types::PeerList{peer});
     ledger_state = std::make_shared<iroha::LedgerState>(std::move(ledger_peers),
                                                         block->height());
   }
