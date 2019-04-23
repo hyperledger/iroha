@@ -81,6 +81,10 @@ namespace iroha {
          */
         virtual void rotate() = 0;
 
+        /**
+         * How many transactions may a batch at most contain to be added to
+         * cache.
+         */
         virtual size_t availableTxsCapacity() const = 0;
 
         virtual ~OrderingGateCache() = default;
