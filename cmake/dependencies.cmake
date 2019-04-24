@@ -49,6 +49,9 @@ find_package(spdlog 1.3.1 REQUIRED)
 #           protobuf           #
 ################################
 option(FIND_PROTOBUF "Try to find protobuf in system" ON)
+if (PROFILING)
+  set(FIND_PROTOBUF OFF)
+endif()
 if (MSVC)
   find_package(Protobuf REQUIRED CONFIG)
   add_library(protobuf INTERFACE IMPORTED)
@@ -82,6 +85,9 @@ endif()
 #         gRPC          #
 #########################
 option(FIND_GRPC "Try to find gRPC in system" ON)
+if (PROFILING)
+  set(FIND_GRPC OFF)
+endif()
 if (MSVC)
   find_package(gRPC REQUIRED CONFIG)
 

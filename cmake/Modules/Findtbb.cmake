@@ -17,7 +17,7 @@ set(VERSION eb6336ad29450f2a64af5123ca1b9429ff6bc11d)
 set_target_description(tbb "Concurrent queue" ${URL} ${VERSION})
 
 
-if (NOT tbb_FOUND)
+if (NOT tbb_FOUND OR PROFILING)
   ExternalProject_Add(01org_tbb
       GIT_REPOSITORY ${URL}
       GIT_TAG        ${VERSION}
@@ -55,4 +55,8 @@ if (NOT TBB_USE_GLIBCXX_VERSION AND UNIX AND NOT APPLE AND "${CMAKE_CXX_COMPILER
   string(REPLACE "." "0" TBB_USE_GLIBCXX_VERSION ${CMAKE_CXX_COMPILER_VERSION})
   set_target_properties(tbb PROPERTIES
     INTERFACE_COMPILE_DEFINITIONS "TBB_USE_GLIBCXX_VERSION=${TBB_USE_GLIBCXX_VERSION}")
+endif()
+
+if(ENABLE_LIBS_PACKAGING)
+  add_install_step_for_lib(${tbb_LIBRARY})
 endif()

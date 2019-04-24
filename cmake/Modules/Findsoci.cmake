@@ -36,7 +36,7 @@ set(URL https://github.com/SOCI/soci)
 set(VERSION 111b50af8c3876ea392367640b4bd83b4f903ab8) # 3.2.3
 set_target_description(soci "The C++ Database Access Library" ${URL} ${VERSION})
 
-if (NOT soci_FOUND)
+if (NOT soci_FOUND OR PROFILING)
   SET(CMAKE_CXX_SOCI_FLAGS "${CMAKE_CXX_FLAGS} -I${postgres_INCLUDE_DIR}")
   externalproject_add(soci_soci
       GIT_REPOSITORY  ${URL}
