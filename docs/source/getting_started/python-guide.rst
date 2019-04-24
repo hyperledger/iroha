@@ -4,7 +4,7 @@ Sending transactions with Python library
 Prerequisites
 -------------
 
-.. note:: the library only works in Python 3 environment (Python 2 is not supported yet).
+.. note:: The library only works in Python 3 environment (Python 2 is not supported yet).
 
 To use Iroha Python library, you need to get it from the
 `repository <https://github.com/hyperledger/iroha-python>`_ or via pip3:
@@ -39,7 +39,7 @@ The line
 
 
 is actually about the permissions you might be using for the transaction.
-You can find a full list here: ref:`Permissions`.
+You can find a full list here: :ref:`Permissions`.
 
 
 In the next block we can see the following:
@@ -75,13 +75,13 @@ Let's look at the first of the defined commands:
 	    send_transaction_and_print_status(tx)
 
 Here we define a transaction made of 2 commands: CreateDomain and CreateAsset.
-You can find a full list here: ref:`commands`.
+You can find a full list here: :ref:`commands`.
 Each of Iroha commands has its own set of parameters.
-You can check them in command descriptions in ref:`iroha-api-reference`.
+You can check them in command descriptions in :ref:`iroha-api-reference`.
 
 Then we sign the transaction with the parameters defined earlier.
 
-You can define ref:`queries` the same way.
+You can define :ref:`queries` the same way.
 
 Running the commands
 --------------------
