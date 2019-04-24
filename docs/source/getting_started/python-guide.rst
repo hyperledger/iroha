@@ -60,7 +60,7 @@ the set of data in this part might also change depending on what you need.
 Defining the commands
 ---------------------
 
-Let's look at the first of the difined commands:
+Let's look at the first of the defined commands:
 
 .. code-block:: python
 
