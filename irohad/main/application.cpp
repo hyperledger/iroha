@@ -87,7 +87,8 @@ Irohad::Irohad(const std::string &block_store_dir,
                const shared_model::crypto::Keypair &keypair,
                std::chrono::milliseconds max_rounds_delay,
                size_t stale_stream_max_rounds,
-               shared_model::interface::types::PeerList alternative_peers,
+               boost::optional<shared_model::interface::types::PeerList>
+                   opt_alternative_peers,
                logger::LoggerManagerTreePtr logger_manager,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
@@ -103,7 +104,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       mst_expiration_time_(mst_expiration_time),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
-      alternative_peers_(std::move(alternative_peers)),
+      opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
@@ -135,7 +136,10 @@ void Irohad::init() {
   // Recover WSV from the existing ledger to be sure it is consistent
   initWsvRestorer();
   restoreWsv();
-  updatePeers();
+  if (opt_alternative_peers_) {
+    // replace the peers if the `--peers' flag is set on the command line
+    resetPeers(*opt_alternative_peers_);
+  }
 
   initCryptoProvider();
   initBatchParser();
@@ -208,14 +212,12 @@ bool Irohad::restoreWsv() {
       });
 }
 
-bool Irohad::updatePeers() {
-  // drop old peers and insert new ones if --peers flag is set
-  if (not alternative_peers_.empty()) {
-    storage->resetPeers();
-    for (const auto &peer : alternative_peers_) {
-      if (not storage->insertPeer(*peer)) {
-        return false;
-      }
+bool Irohad::resetPeers(
+    shared_model::interface::types::PeerList alternative_peers) {
+  storage->resetPeers();
+  for (const auto &peer : alternative_peers) {
+    if (not storage->insertPeer(*peer)) {
+      return false;
     }
   }
   return true;
