@@ -5,8 +5,9 @@
 
 #include "backend/protobuf/proto_block_factory.hpp"
 
+#include <sstream>
+
 #include <boost/assert.hpp>
-#include <iostream>
 #include "backend/protobuf/block.hpp"
 
 using namespace shared_model;
@@ -64,9 +65,14 @@ ProtoBlockFactory::unsafeCreateBlock(
   bool block_is_stateless_valid =
       not(proto_block_validation_result.hasErrors()
           or interface_block_validation_result.hasErrors());
-  BOOST_ASSERT_MSG(block_is_stateless_valid,
-                   "ProtoBlockFactory has created stateless invalid block");
-
+  std::stringstream validaton_results;
+  validaton_results << "ProtoBlockFactory has created stateless invalid block: "
+                    << "Proto validator response: "
+                    << proto_block_validation_result.reason()
+                    << "; Interface validator response: "
+                    << interface_block_validation_result.reason() << ";"
+                    << std::endl;
+  BOOST_ASSERT_MSG(block_is_stateless_valid, validaton_results.str().c_str());
   return model_proto_block;
 }
 
