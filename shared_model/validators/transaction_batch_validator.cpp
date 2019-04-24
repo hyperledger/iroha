@@ -49,50 +49,38 @@ namespace {
       return BatchCheckResult::kNoBatchMeta;
     }
 
-    bool batch_is_ordered = batch_meta_opt->get()->type()
-        == shared_model::interface::types::BatchType::ORDERED;
+    bool batch_is_atomic = batch_meta_opt->get()->type()
+        == shared_model::interface::types::BatchType::ATOMIC;
 
     const auto &batch_hashes = batch_meta_opt->get()->reducedHashes();
-    bool hashes_are_correct = true;
+    // todo igor-egorov 24.04.2019 IR-455 Split batches validator
+    if ((batch_is_atomic or not partial_ordered_batches_are_valid)
+        and (batch_hashes.size() != transactions_quantity)) {
+      return BatchCheckResult::kIncorrectBatchMetaSize;
+    }
 
     auto hashes_begin = boost::begin(batch_hashes);
     auto hashes_end = boost::end(batch_hashes);
     auto transactions_begin = boost::begin(transactions);
     auto transactions_end = boost::end(transactions);
+    bool hashes_are_correct = true;
 
-    if (batch_is_ordered and partial_ordered_batches_are_valid) {
-      // checking that transactions' hashes are subsequence of batch meta hashes
-      for (; transactions_begin != transactions_end; ++hashes_begin) {
-        if (hashes_begin == hashes_end) {
-          hashes_are_correct = false;
-          break;
-        }
-        if (*hashes_begin == transactions_begin->reducedHash()) {
-          ++transactions_begin;
-        }
+    for (; transactions_begin != transactions_end; ++hashes_begin) {
+      if (hashes_begin == hashes_end) {
+        hashes_are_correct = false;
+        break;
       }
-    } else {
-      // batch is ATOMIC or ORDERED but NO partial batches are valid
-      // checking that transactions' hashes equal to batch meta hashes
-      if (batch_hashes.size() != transactions_quantity) {
-        return BatchCheckResult::kIncorrectBatchMetaSize;
-
-        hashes_are_correct =
-            std::equal(hashes_begin,
-                       hashes_end,
-                       transactions_begin,
-                       transactions_end,
-                       [](const auto &tx_reduced_hash, const auto &tx) {
-                         return tx_reduced_hash == tx.reducedHash();
-                       });
+      if (*hashes_begin == transactions_begin->reducedHash()) {
+        ++transactions_begin;
       }
     }
+
     if (not hashes_are_correct) {
       return BatchCheckResult::kIncorrectHashes;
     }
 
     return BatchCheckResult::kOk;
-  }
+  }  // namespace
 }  // namespace
 
 namespace shared_model {
