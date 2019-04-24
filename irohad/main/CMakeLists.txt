@@ -74,26 +74,14 @@ target_link_libraries(irohad
     )
 if(PROFILING)
   add_library(profiling profiling.cpp)
-  if(PROFILING STREQUAL "HEAP")
+  if(PROFILING MATCHES "(HEAP|ALL)")
     target_compile_options(profiling PRIVATE "-DPROFILING_HEAP")
-    target_link_libraries(irohad
-        tcmalloc.a
-        )
-  elseif(PROFILING STREQUAL "CPU")
-    target_compile_options(profiling PRIVATE "-DPROFILING_CPU")
-    target_link_libraries(irohad
-        profiler.a
-        )
-  elseif(PROFILING STREQUAL "ALL")
-    target_compile_options(profiling PRIVATE "-DPROFILING_HEAP")
-    target_compile_options(profiling PRIVATE "-DPROFILING_CPU")
-    target_link_libraries(irohad
-        tcmalloc_and_profiler.a
-        )
-  else()
-    message(FATAL_ERROR "PROFILING must be one of 'HEAP', 'CPU' or 'ALL' when enabled!")
   endif()
-  target_link_libraries(irohad
+  if(PROFILING MATCHES "(CPU|ALL)")
+    target_compile_options(profiling PRIVATE "-DPROFILING_CPU")
+  endif()
+  target_link_libraries(profiling
+      gperftools
       unwind
       )
 else()
