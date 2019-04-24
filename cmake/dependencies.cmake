@@ -207,6 +207,16 @@ find_package(ed25519)
 ###################################
 find_package(fmt 5.3.0 REQUIRED)
 
+###################################
+#            libiroha             #
+###################################
 if (USE_LIBIROHA)
   find_package(libiroha)
+endif()
+
+###################################
+#           gperftools            #
+###################################
+if (PROFILING)
+  find_package(gperftools 2.7 REQUIRED)
 endif()
