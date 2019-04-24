@@ -80,7 +80,7 @@ namespace {
     }
 
     return BatchCheckResult::kOk;
-  }  // namespace
+  }
 }  // namespace
 
 namespace shared_model {

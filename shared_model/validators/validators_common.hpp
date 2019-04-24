@@ -21,7 +21,8 @@ namespace shared_model {
       /// Maximum allowed amount of transactions within a batch
       const uint64_t max_batch_size;
 
-      /// Turns on special batches validation logic for blocks from synchronizer
+      /// Batch meta can contain more hashes of batch transactions than it
+      /// actually has. Used for block validation
       const bool partial_ordered_batches_are_valid;
     };
 
