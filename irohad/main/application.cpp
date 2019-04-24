@@ -112,6 +112,9 @@ Irohad::Irohad(const std::string &block_store_dir,
   validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           max_proposal_size_);
+  block_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, true);
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
   initStorage();
@@ -418,7 +421,7 @@ void Irohad::initSimulator() {
       //  are validated in the ordering gate, where they are received from the
       //  ordering service.
       std::make_unique<shared_model::validation::DefaultUnsignedBlockValidator>(
-          validators_config_),
+          block_validators_config_),
       std::make_unique<shared_model::validation::ProtoBlockValidator>());
   simulator = std::make_shared<Simulator>(
       ordering_gate,
@@ -449,7 +452,7 @@ void Irohad::initBlockLoader() {
       loader_init.initBlockLoader(storage,
                                   storage,
                                   consensus_result_cache_,
-                                  validators_config_,
+                                  block_validators_config_,
                                   log_manager_->getChild("BlockLoader"));
 
   log_->info("[Init] => block loader");
