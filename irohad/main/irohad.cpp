@@ -162,8 +162,8 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  iroha::expected::Result<shared_model::interface::types::PeerList, std::string>
-      peers;
+  using shared_model::interface::types::PeerList;
+  boost::optional<PeerList> opt_alternative_peers;
   if (not FLAGS_peers.empty()) {
     auto validators_config =
         std::make_shared<shared_model::validation::ValidatorsConfig>(
@@ -171,19 +171,20 @@ int main(int argc, char *argv[]) {
     iroha::main::PeersFileReaderImpl file_reader(
         std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
             shared_model::validation::FieldValidator>>(validators_config));
-    peers = file_reader.readPeers(FLAGS_peers);
-    if (auto e = boost::get<iroha::expected::Error<std::string>>(&peers)) {
+    auto peers_result = file_reader.readPeers(FLAGS_peers);
+    if (auto e =
+            boost::get<iroha::expected::Error<std::string>>(&peers_result)) {
       log->error("Error happened in a peer file list read process: "
                  + e->error);
       return EXIT_FAILURE;
     }
-    if (boost::get<
-            iroha::expected::Value<shared_model::interface::types::PeerList>>(
-            peers)
-            .value.empty()) {
+    auto &peers =
+        boost::get<iroha::expected::Value<PeerList>>(peers_result).value;
+    if (peers.empty()) {
       log->error("Got peers list file without peers");
       return EXIT_FAILURE;
     }
+    opt_alternative_peers = std::move(peers);
   }
 
   // Configuring iroha daemon
@@ -203,11 +204,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
-      std::move(
-          boost::get<
-              iroha::expected::Value<shared_model::interface::types::PeerList>>(
-              peers)
-              .value),
+      std::move(opt_alternative_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));
