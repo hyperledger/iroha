@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/proto_block_factory.hpp"
 
+#include <boost/assert.hpp>
+#include <iostream>
 #include "backend/protobuf/block.hpp"
 
 using namespace shared_model;
@@ -48,7 +50,24 @@ ProtoBlockFactory::unsafeCreateBlock(
                   (*next_hash) = hash.hex();
                 });
 
-  return std::make_unique<shared_model::proto::Block>(std::move(block));
+  iroha::protocol::Block proto_block_container;
+  proto_block_container.set_allocated_block_v1(&block);
+  auto proto_block_validation_result =
+      proto_validator_->validate(proto_block_container);
+  proto_block_container.release_block_v1();
+
+  auto model_proto_block =
+      std::make_unique<shared_model::proto::Block>(std::move(block));
+  auto interface_block_validation_result =
+      interface_validator_->validate(*model_proto_block);
+
+  bool block_is_stateless_valid =
+      not(proto_block_validation_result.hasErrors()
+          or interface_block_validation_result.hasErrors());
+  BOOST_ASSERT_MSG(block_is_stateless_valid,
+                   "ProtoBlockFactory has created stateless invalid block");
+
+  return model_proto_block;
 }
 
 iroha::expected::Result<std::unique_ptr<shared_model::interface::Block>,
