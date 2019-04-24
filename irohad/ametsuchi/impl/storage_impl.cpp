@@ -247,6 +247,10 @@ namespace iroha {
                                    log_->error(
                                        "Block could not be applied to "
                                        "MutableStorage: {}.",
+                                       block->hash());
+                                   log_->debug(
+                                       "The block that could not be applied to "
+                                       "MutableStorage is {}.",
                                        block);
                                  }
                                  return applied;
