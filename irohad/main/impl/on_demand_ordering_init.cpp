@@ -235,36 +235,51 @@ namespace iroha {
                 return hashes;
               }),
           sync_event_notifier.get_observable()
+              .tap([this](const synchronizer::SynchronizationEvent &event) {
+                last_received_round_ = event.round;
+              })
               .lift<iroha::synchronizer::SynchronizationEvent>(
                   iroha::makeDelay<iroha::synchronizer::SynchronizationEvent>(
                       delay_func, rxcpp::identity_current_thread()))
-              .flat_map([log = log_,
-                         previous_round = boost::optional<consensus::Round>{}](
-                            const auto &event) mutable
+              .flat_map([this](const auto &event) mutable
                         -> rxcpp::observable<
                             ordering::OnDemandOrderingGate::RoundSwitch> {
-                if (previous_round and event.round <= *previous_round) {
+                assert(last_received_round_);
+                if (not last_received_round_) {
+                  log_->error("Cannot continue without last received round");
                   return rxcpp::observable<>::empty<
                       ordering::OnDemandOrderingGate::RoundSwitch>();
                 }
-                previous_round = event.round;
+                if (event.round < *last_received_round_) {
+                  log_->debug("Dropping {}, since {} is already processed",
+                              event.round,
+                              *last_received_round_);
+                  return rxcpp::observable<>::empty<
+                      ordering::OnDemandOrderingGate::RoundSwitch>();
+                }
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
                   case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
-                    log->debug("Sync event on {}: commit.", *previous_round);
-                    current_round = ordering::nextCommitRound(*previous_round);
+                    log_->debug("Sync event on {}: commit.",
+                                *last_received_round_);
+                    current_round =
+                        ordering::nextCommitRound(*last_received_round_);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::kReject:
-                    log->debug("Sync event on {}: reject.", *previous_round);
-                    current_round = ordering::nextRejectRound(*previous_round);
+                    log_->debug("Sync event on {}: reject.",
+                                *last_received_round_);
+                    current_round =
+                        ordering::nextRejectRound(*last_received_round_);
                     break;
                   case iroha::synchronizer::SynchronizationOutcomeType::
                       kNothing:
-                    log->debug("Sync event on {}: nothing.", *previous_round);
-                    current_round = ordering::nextRejectRound(*previous_round);
+                    log_->debug("Sync event on {}: nothing.",
+                                *last_received_round_);
+                    current_round =
+                        ordering::nextRejectRound(*last_received_round_);
                     break;
                   default:
-                    log->error("unknown SynchronizationOutcomeType");
+                    log_->error("unknown SynchronizationOutcomeType");
                     assert(false);
                 }
                 return rxcpp::observable<>::just(
