@@ -93,7 +93,7 @@ class Irohad {
    * transactions
    * @param stale_stream_max_rounds - maximum number of rounds between
    * consecutive status emissions
-   * @param alternative_peers - alternative peer list
+   * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
@@ -111,7 +111,8 @@ class Irohad {
          const shared_model::crypto::Keypair &keypair,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
-         shared_model::interface::types::PeerList alternative_peers,
+         boost::optional<shared_model::interface::types::PeerList>
+             opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none);
@@ -128,10 +129,11 @@ class Irohad {
   bool restoreWsv();
 
   /**
-   * Replaces peers in WSV by external provided peers list if any
+   * Replaces peers in WSV with an externally provided peers list
+   * @param alternative_peers - the peers to place into WSV
    * @return true on success
    */
-  bool updatePeers();
+  bool resetPeers(shared_model::interface::types::PeerList alternative_peers);
 
   /**
    * Drop wsv and block store
@@ -205,7 +207,8 @@ class Irohad {
   std::chrono::minutes mst_expiration_time_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
-  shared_model::interface::types::PeerList alternative_peers_;
+  const boost::optional<shared_model::interface::types::PeerList>
+      opt_alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 
