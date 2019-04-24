@@ -36,7 +36,7 @@ set(URL https://git.postgresql.org/git/postgresql.git)
 set(VERSION 029386ccbddd0a33d481b94e511f5219b03e6636)
 set_target_description(pq "C postgres client library" ${URL} ${VERSION})
 
-if (NOT pq_FOUND)
+if (NOT pq_FOUND OR PROFILING)
   externalproject_add(postgres_postgres
       GIT_REPOSITORY  ${URL}
       GIT_TAG         ${VERSION}

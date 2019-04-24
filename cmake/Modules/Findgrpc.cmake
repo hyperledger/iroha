@@ -3,23 +3,25 @@ add_library(grpc++ UNKNOWN IMPORTED)
 add_library(gpr UNKNOWN IMPORTED)
 add_executable(grpc_cpp_plugin IMPORTED)
 
-find_path(grpc_INCLUDE_DIR grpc/grpc.h)
-mark_as_advanced(grpc_INCLUDE_DIR)
+if (FIND_GRPC)
+  find_path(grpc_INCLUDE_DIR grpc/grpc.h)
+  mark_as_advanced(grpc_INCLUDE_DIR)
 
-find_library(grpc_LIBRARY grpc)
-mark_as_advanced(grpc_LIBRARY)
+  find_library(grpc_LIBRARY grpc)
+  mark_as_advanced(grpc_LIBRARY)
 
-find_library(grpc_grpc++_LIBRARY grpc++)
-mark_as_advanced(grpc_grpc++_LIBRARY)
+  find_library(grpc_grpc++_LIBRARY grpc++)
+  mark_as_advanced(grpc_grpc++_LIBRARY)
 
-find_library(gpr_LIBRARY gpr)
-mark_as_advanced(gpr_LIBRARY)
+  find_library(gpr_LIBRARY gpr)
+  mark_as_advanced(gpr_LIBRARY)
 
-find_library(address_sorting_LIBRARY address_sorting)
-mark_as_advanced(address_sorting_LIBRARY)
+  find_library(address_sorting_LIBRARY address_sorting)
+  mark_as_advanced(address_sorting_LIBRARY)
 
-find_program(grpc_CPP_PLUGIN grpc_cpp_plugin)
-mark_as_advanced(grpc_CPP_PLUGIN)
+  find_program(grpc_CPP_PLUGIN grpc_cpp_plugin)
+  mark_as_advanced(grpc_CPP_PLUGIN)
+endif()
 
 find_package_handle_standard_args(grpc DEFAULT_MSG
     grpc_LIBRARY
