@@ -6,7 +6,7 @@
 
   # Attachable overlay network cannot be created with a `docker_network` module
   - name: create Docker network
-    shell: "docker network create -d overlay --attachable {{ iroha_network_name }} || true"
+    shell: "docker network create -d overlay --attachable {{ iroha_network_name }} --gateway {{ iroha_network_gateway }} --subnet {{ iroha_network_address }} || true"
     when: iroha_overlay_network
     run_once: yes
 
