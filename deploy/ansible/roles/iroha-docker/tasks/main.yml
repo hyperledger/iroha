@@ -1,3 +1,6 @@
+- name: init vars
+  include: init-vars.yml
+
 - name: generate Iroha configs
   include: config-gen.yml
 
@@ -5,4 +8,6 @@
   include: deploy.yml
 
 - debug:
-    msg: "Stop Iroha containers with `docker-compose -f {{ deploy_dir }}/docker-compose.yml -p ansible_iroha down -v`"
+    msg: "Stop Iroha containers with `docker-compose -f {{ iroha_deploy_dir }}/docker-compose.yml down`"
+  when: iroha_update_runtime_configs
+  run_once: yes

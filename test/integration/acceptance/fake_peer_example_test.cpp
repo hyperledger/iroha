@@ -40,7 +40,7 @@ class FakePeerExampleFixture : public AcceptanceFixture {
    * @param num_fake_peers - the amount of fake peers to create
    */
   void createFakePeers(size_t num_fake_peers) {
-    fake_peers_ = itf_->addInitialPeers(num_fake_peers);
+    fake_peers_ = itf_->addFakePeers(num_fake_peers);
   }
 
   /**
