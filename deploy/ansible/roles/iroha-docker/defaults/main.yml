@@ -34,6 +34,8 @@ iroha_deploy_dir: /opt/iroha-deploy
 # The network will be created automatically if deploying locally or with `iroha_overlay_network`
 # set to `false`
 iroha_network_name: iroha-net
+iroha_network_address: '10.10.111.0/24'
+iroha_network_gateway: '10.10.111.1'
 
 # The role is incompatible with Iroha versions below RC2 since keys format has changed.
 # Apply the patch (files/old-keys-format.patch) if you need support for previous Iroha versions.
