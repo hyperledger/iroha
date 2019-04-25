@@ -16,9 +16,14 @@ namespace shared_model {
      * A validator may read only specific fields.
      */
     struct ValidatorsConfig {
-      ValidatorsConfig(const uint64_t max_batch_size);
+      ValidatorsConfig(uint64_t max_batch_size,
+                       bool partial_ordered_batches_are_valid = false);
       /// Maximum allowed amount of transactions within a batch
       const uint64_t max_batch_size;
+
+      /// Batch meta can contain more hashes of batch transactions than it
+      /// actually has. Used for block validation
+      const bool partial_ordered_batches_are_valid;
     };
 
     /**
