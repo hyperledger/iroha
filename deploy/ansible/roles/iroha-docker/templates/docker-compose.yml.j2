@@ -4,12 +4,12 @@ services:
 {% for node in iroha_nodes %}
   {{ node.human_hostname }}:
     image: hyperledger/iroha:{{ iroha_docker_tag }}
-{% if overlay_network %}
+{% if iroha_overlay_network %}
     container_name: {{ node.hostname.split(':')[0] }}
     expose:
       - {{ iroha_peer_port }}
     ports:
-        - 127.0.0.1:{{ iroha_torii_port | int + loop.index - 1 }}:{{ iroha_torii_port }}
+        - {{ iroha_torii_port | int + loop.index - 1 }}:{{ iroha_torii_port }}
 {% else %}
     container_name: {{ node.human_hostname }}
     ports:
@@ -27,9 +27,10 @@ services:
     networks:
       - {{ iroha_network_name }}
       - iroha-db-net
+    restart: always
 
   {{ node.human_hostname }}-postgres:
-    image: postgres:{{ postgres_docker_tag }}
+    image: postgres:{{ iroha_postgres_docker_tag }}
     container_name: {{ node.human_hostname }}-postgres
     environment:
       POSTGRES_PASSWORD: {{ iroha_postgres_password }}
@@ -39,6 +40,7 @@ services:
       - psql_storage-{{ node.human_hostname }}:/var/lib/postgresql/data
     networks:
       - iroha-db-net
+    restart: always
 {% if iroha_postgres_max_prepared_transactions is defined %}
     command: -c max_prepared_transactions={{ iroha_postgres_max_prepared_transactions }}
 {% endif %}
