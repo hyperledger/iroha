@@ -85,7 +85,7 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     integration_framework_config_helper
     shared_model_proto_backend
     framework_sql_query
-    SOCI::core
     SOCI::postgresql
+    SOCI::core
     test_logger
     )
