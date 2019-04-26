@@ -188,12 +188,15 @@ RUN set -e; \
     # remove
     rm -rf /tmp/postgresql
 
-# install soci 3.2.3
+# install soci
 RUN set -e; \
     git clone https://github.com/SOCI/soci /tmp/soci; \
-    (cd /tmp/soci ; git checkout 111b50af8c3876ea392367640b4bd83b4f903ab8); \
+    (cd /tmp/soci ; git checkout 1f2343e32822549df85660c0eb7acea3f0e5ed8d); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+        -DSOCI_CXX_C11=ON \
+        -DSOCI_TESTS=OFF \
+        -DSOCI_EMPTY=OFF \
         -DWITH_BOOST=ON \
         -DWITH_DB2=OFF \
         -DWITH_FIREBIRD=OFF \
@@ -202,7 +205,7 @@ RUN set -e; \
         -DWITH_ORACLE=OFF \
         -DWITH_POSTGRESQL=ON \
         -DWITH_SQLITE3=OFF \
-        -H/tmp/soci/src \
+        -H/tmp/soci \
         -B/tmp/soci/build; \
     cmake --build /tmp/soci/build --target install; \
     ldconfig; \

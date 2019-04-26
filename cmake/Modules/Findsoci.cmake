@@ -14,14 +14,14 @@ mark_as_advanced(SOCI_INCLUDE_DIRS)
 
 find_library(
     SOCI_LIBRARY
-    NAMES soci_core soci_core_3_2
+    NAMES soci_core soci_core_4_0
     HINTS ${SOCI_INCLUDE_DIR}/..
     PATH_SUFFIXES lib${LIB_SUFFIX})
 mark_as_advanced(SOCI_LIBRARY)
 
 find_library(
     SOCI_postgresql_PLUGIN
-    NAMES soci_postgresql soci_postgresql_3_2
+    NAMES soci_postgresql soci_postgresql_4_0
     HINTS ${SOCI_INCLUDE_DIR}/..
     PATH_SUFFIXES lib${LIB_SUFFIX})
 mark_as_advanced(SOCI_postgresql_PLUGIN)
@@ -33,7 +33,7 @@ include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(soci DEFAULT_MSG ${_SOCI_REQUIRED_VARS})
 
 set(URL https://github.com/SOCI/soci)
-set(VERSION 111b50af8c3876ea392367640b4bd83b4f903ab8) # 3.2.3
+set(VERSION 1f2343e32822549df85660c0eb7acea3f0e5ed8d)
 set_target_description(soci "The C++ Database Access Library" ${URL} ${VERSION})
 
 if (NOT soci_FOUND)
@@ -43,7 +43,7 @@ if (NOT soci_FOUND)
       GIT_TAG         ${VERSION}
       CONFIGURE_COMMAND ${CMAKE_COMMAND}
                       -G${CMAKE_GENERATOR}
-                      -H${EP_PREFIX}/src/soci_soci/src
+                      -H${EP_PREFIX}/src/soci_soci
                       -B${EP_PREFIX}/src/soci_soci-build
                       -DCMAKE_INCLUDE_PATH=${pq_INCLUDE_DIR}
                       -DCMAKE_LIBRARY_PATH=${pq_INCLUDE_DIR}
@@ -53,6 +53,9 @@ if (NOT soci_FOUND)
                       -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
                       -DCMAKE_CXX_FLAGS=${CMAKE_CXX_SOCI_FLAGS}
                       -DCMAKE_INSTALL_PREFIX=${EP_PREFIX}
+                      -DSOCI_CXX_C11=ON
+                      -DSOCI_TESTS=OFF
+                      -DSOCI_EMPTY=OFF
                       -DWITH_BOOST=ON
                       -DWITH_DB2=OFF
                       -DWITH_FIREBIRD=OFF
