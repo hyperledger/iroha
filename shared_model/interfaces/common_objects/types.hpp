@@ -7,6 +7,7 @@
 #define IROHA_SHARED_MODEL_TYPES_HPP
 
 #include <cstdint>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
