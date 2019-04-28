@@ -29,6 +29,10 @@ namespace config_members {
   extern const char *LogPatternsSection;
   extern const char *LogChildrenSection;
   extern const std::unordered_map<std::string, logger::LogLevel> LogLevels;
+  extern const char *InitialPeers;
+  extern const char *Address;
+  extern const char *PublicKey;
+
 }  // namespace config_members
 
 #endif  // IROHA_CONF_LITERALS_HPP

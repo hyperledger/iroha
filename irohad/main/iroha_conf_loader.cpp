@@ -15,6 +15,7 @@
 #include <rapidjson/rapidjson.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/map.hpp>
+#include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
 
 /// The length of the string around the error place to print in case of JSON
@@ -32,6 +33,11 @@ static_assert(kBadJsonPrintOffsset <= kBadJsonPrintLength,
  */
 class JsonDeserializerImpl {
  public:
+  JsonDeserializerImpl(
+      std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+          common_objects_factory)
+      : common_objects_factory_(std::move(common_objects_factory)) {}
+
   /**
    * Load the data from rapidjson::Value. Checks the JSON type and throws
    * exception if it is wrong.
@@ -135,6 +141,30 @@ class JsonDeserializerImpl {
   }
 
   template <>
+  void getVal<std::unique_ptr<shared_model::interface::Peer>>(
+      const std::string &path,
+      std::unique_ptr<shared_model::interface::Peer> &dest,
+      const rapidjson::Value &src) {
+    assert_fatal(src.IsObject(), path + " must be a dictionary");
+    const auto obj = src.GetObject();
+    std::string address;
+    getValByKey(path, address, obj, config_members::Address);
+    std::string public_key_str;
+    getValByKey(path, public_key_str, obj, config_members::PublicKey);
+    common_objects_factory_
+        ->createPeer(address, shared_model::crypto::PublicKey(public_key_str))
+        .match(
+            [&dest](iroha::expected::Value<
+                    std::unique_ptr<shared_model::interface::Peer>> &v) {
+              dest = std::move(v.value);
+            },
+            [&path](const iroha::expected::Error<std::string> &error) {
+              throw std::runtime_error("Failed to create a peer at '" + path
+                                       + "': " + error.error);
+            });
+  }
+
+  template <>
   void getVal<IrohadConfig>(const std::string &path,
                             IrohadConfig &dest,
                             const rapidjson::Value &src) {
@@ -160,6 +190,7 @@ class JsonDeserializerImpl {
                 obj,
                 config_members::StaleStreamMaxRounds);
     getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
+    getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
   }
 
   // ------------ end of getVal(path, dst, src) ------------
@@ -307,6 +338,9 @@ class JsonDeserializerImpl {
       throw std::runtime_error(error);
     }
   }
+
+  std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+      common_objects_factory_;
 };
 
 std::string reportJsonParsingError(const rapidjson::Document &doc,
@@ -323,7 +357,10 @@ std::string reportJsonParsingError(const rapidjson::Document &doc,
       + "'): " + std::string(rapidjson::GetParseError_En(doc.GetParseError()));
 }
 
-IrohadConfig parse_iroha_config(const std::string &conf_path) {
+IrohadConfig parse_iroha_config(
+    const std::string &conf_path,
+    std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+        common_objects_factory) {
   const rapidjson::Document doc{[&conf_path] {
     rapidjson::Document doc;
     std::ifstream ifs_iroha(conf_path);
@@ -336,7 +373,7 @@ IrohadConfig parse_iroha_config(const std::string &conf_path) {
     return doc;
   }()};
 
-  JsonDeserializerImpl parser;
+  JsonDeserializerImpl parser(common_objects_factory);
   IrohadConfig config = parser.deserialize<IrohadConfig>(doc);
   return config;
 }
