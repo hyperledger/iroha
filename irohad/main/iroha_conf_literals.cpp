@@ -29,4 +29,7 @@ namespace config_members {
       {"warning", logger::LogLevel::kWarn},
       {"error", logger::LogLevel::kError},
       {"critical", logger::LogLevel::kCritical}};
+  const char *Address = "address";
+  const char *PublicKey = "public_key";
+  const char *InitialPeers = "initial_peers";
 }  // namespace config_members
