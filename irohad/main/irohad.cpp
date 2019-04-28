@@ -17,7 +17,6 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
-#include "main/impl/peers_file_reader_impl.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
@@ -77,11 +76,6 @@ DEFINE_string(keypair_name, "", "Specify name of .pub and .priv files");
 DEFINE_validator(keypair_name, &validate_keypair_name);
 
 /**
- * Create input argument for the initial peer list
- */
-DEFINE_string(peers, "", "Path to file with current peers list");
-
-/**
  * Creating boolean flag for overwriting already existing block storage
  */
 DEFINE_bool(overwrite_ledger, false, "Overwrite ledger data if existing");
@@ -114,6 +108,14 @@ logger::LoggerManagerTreePtr getDefaultLogManager() {
       logger::LogLevel::kInfo, logger::getDefaultLogPatterns()});
 }
 
+std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+getCommonObjectsFactory() {
+  auto validators_config =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(0);
+  return std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
+      shared_model::validation::FieldValidator>>(validators_config);
+}
+
 int main(int argc, char *argv[]) {
   gflags::SetVersionString(iroha::kGitPrettyVersion);
 
@@ -143,13 +145,22 @@ int main(int argc, char *argv[]) {
   }
 
   // Reading iroha configuration file
-  const auto config = parse_iroha_config(FLAGS_config);
+  const auto config =
+      parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
   if (not log_manager) {
     log_manager = config.logger_manager.value_or(getDefaultLogManager());
     log = log_manager->getChild("Init")->getLogger();
   }
   log->info("Irohad version: {}", iroha::kGitPrettyVersion);
   log->info("config initialized");
+
+  if (config.initial_peers and config.initial_peers->empty()) {
+    log->critical(
+        "Got an empty initial peers list in configuration file. You have to "
+        "either specify some peers or avoid overriding the peers from genesis "
+        "block!");
+    return EXIT_FAILURE;
+  }
 
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
@@ -160,31 +171,6 @@ int main(int argc, char *argv[]) {
     // Abort execution if not
     log->error("Failed to load keypair");
     return EXIT_FAILURE;
-  }
-
-  using shared_model::interface::types::PeerList;
-  boost::optional<PeerList> opt_alternative_peers;
-  if (not FLAGS_peers.empty()) {
-    auto validators_config =
-        std::make_shared<shared_model::validation::ValidatorsConfig>(
-            config.max_proposal_size);
-    iroha::main::PeersFileReaderImpl file_reader(
-        std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-            shared_model::validation::FieldValidator>>(validators_config));
-    auto peers_result = file_reader.readPeers(FLAGS_peers);
-    if (auto e =
-            boost::get<iroha::expected::Error<std::string>>(&peers_result)) {
-      log->error("Error happened in a peer file list read process: "
-                 + e->error);
-      return EXIT_FAILURE;
-    }
-    auto &peers =
-        boost::get<iroha::expected::Value<PeerList>>(peers_result).value;
-    if (peers.empty()) {
-      log->error("Got peers list file without peers");
-      return EXIT_FAILURE;
-    }
-    opt_alternative_peers = std::move(peers);
   }
 
   // Configuring iroha daemon
@@ -204,7 +190,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
-      std::move(opt_alternative_peers),
+      std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));
