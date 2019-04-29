@@ -271,7 +271,10 @@ int main(int argc, char *argv[]) {
   }
 
   // init pipeline components
-  irohad.init();
+  irohad.init().match([](const auto &) {},
+                      [&log](const auto &error) {
+                        log->critical("Irohad startup failed: {}", error.error);
+                      });
 
   auto handler = [](int s) { exit_requested.set_value(); };
   std::signal(SIGINT, handler);

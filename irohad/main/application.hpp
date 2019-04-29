@@ -117,13 +117,13 @@ class Irohad {
   /**
    * Initialization of whole objects in system
    */
-  virtual void init();
+  virtual RunResult init();
 
   /**
    * Restore World State View
    * @return true on success, false otherwise
    */
-  bool restoreWsv();
+  RunResult restoreWsv();
 
   /**
    * Drop wsv and block store
@@ -141,48 +141,48 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
 
-  virtual void initStorage();
+  virtual RunResult initStorage();
 
-  virtual void initCryptoProvider();
+  virtual RunResult initCryptoProvider();
 
-  virtual void initBatchParser();
+  virtual RunResult initBatchParser();
 
-  virtual void initValidators();
+  virtual RunResult initValidators();
 
-  virtual void initNetworkClient();
+  virtual RunResult initNetworkClient();
 
-  virtual void initFactories();
+  virtual RunResult initFactories();
 
-  virtual void initPersistentCache();
+  virtual RunResult initPersistentCache();
 
-  virtual void initOrderingGate();
+  virtual RunResult initOrderingGate();
 
-  virtual void initSimulator();
+  virtual RunResult initSimulator();
 
-  virtual void initConsensusCache();
+  virtual RunResult initConsensusCache();
 
-  virtual void initBlockLoader();
+  virtual RunResult initBlockLoader();
 
-  virtual void initConsensusGate();
+  virtual RunResult initConsensusGate();
 
-  virtual void initSynchronizer();
+  virtual RunResult initSynchronizer();
 
-  virtual void initPeerCommunicationService();
+  virtual RunResult initPeerCommunicationService();
 
-  virtual void initStatusBus();
+  virtual RunResult initStatusBus();
 
-  virtual void initMstProcessor();
+  virtual RunResult initMstProcessor();
 
-  virtual void initPendingTxsStorage();
+  virtual RunResult initPendingTxsStorage();
 
-  virtual void initTransactionCommandService();
+  virtual RunResult initTransactionCommandService();
 
-  virtual void initQueryService();
+  virtual RunResult initQueryService();
 
   /**
    * Initialize WSV restorer
    */
-  virtual void initWsvRestorer();
+  virtual RunResult initWsvRestorer();
 
   // constructor dependencies
   std::string block_store_dir_;
