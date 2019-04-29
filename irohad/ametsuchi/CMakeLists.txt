@@ -32,8 +32,8 @@ target_link_libraries(ametsuchi
     common
     shared_model_interfaces
     shared_model_stateless_validation
-    SOCI::core
     SOCI::postgresql
+    SOCI::core
     )
 
 target_compile_definitions(ametsuchi

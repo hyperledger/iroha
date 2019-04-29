@@ -85,12 +85,8 @@ void apply(S &&storage,
   std::unique_ptr<MutableStorage> ms;
   auto storageResult = storage->createMutableStorage();
   storageResult.match(
-      [&](iroha::expected::Value<std::unique_ptr<MutableStorage>> &_storage) {
-        ms = std::move(_storage.value);
-      },
-      [](iroha::expected::Error<std::string> &error) {
-        FAIL() << "MutableStorage: " << error.error;
-      });
+      [&](auto &&_storage) { ms = std::move(_storage.value); },
+      [](const auto &error) { FAIL() << "MutableStorage: " << error.error; });
   ms->apply(block);
   storage->commit(std::move(ms));
 }
@@ -400,8 +396,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
 
   std::unique_ptr<MutableStorage> mutable_storage;
   storage->createMutableStorage().match(
-      [&mutable_storage](iroha::expected::Value<std::unique_ptr<MutableStorage>>
-                             &mut_storage) {
+      [&mutable_storage](auto &&mut_storage) {
         mutable_storage = std::move(mut_storage.value);
       },
       [](const auto &) { FAIL() << "Mutable storage cannot be created"; });
@@ -461,10 +456,8 @@ TEST_F(AmetsuchiTest, TestRestoreWSV) {
   // recover storage and check it is recovered
   WsvRestorerImpl wsvRestorer;
   wsvRestorer.restoreWsv(*storage).match(
-      [](iroha::expected::Value<void>) {},
-      [&](iroha::expected::Error<std::string> &error) {
-        FAIL() << "Failed to recover WSV";
-      });
+      [](const auto &) {},
+      [&](const auto &error) { FAIL() << "Failed to recover WSV"; });
 
   res = sql_query->getDomain("test");
   EXPECT_TRUE(res);

@@ -24,6 +24,7 @@ namespace shared_model {
                           transactions) const;
 
       const uint64_t max_batch_size_;
+      const bool partial_ordered_batches_are_valid_;
     };
   }  // namespace validation
 }  // namespace shared_model

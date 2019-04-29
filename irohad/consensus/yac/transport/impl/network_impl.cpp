@@ -59,8 +59,9 @@ namespace iroha {
           ::google::protobuf::Empty *response) {
         std::vector<VoteMessage> state;
         for (const auto &pb_vote : request->votes()) {
-          auto vote = *PbConverters::deserializeVote(pb_vote, log_);
-          state.push_back(vote);
+          if (auto vote = PbConverters::deserializeVote(pb_vote, log_)) {
+            state.push_back(*vote);
+          }
         }
         if (state.empty()) {
           log_->info("Received an empty votes collection");

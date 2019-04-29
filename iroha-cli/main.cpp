@@ -129,9 +129,8 @@ int main(int argc, char *argv[]) {
         iroha::model::converters::PbBlockFactory().serialize(block).block_v1());
 
     shared_model::proto::ProtoBlockJsonConverter().serialize(bl).match(
-        [&logger,
-         &output_file](const iroha::expected::Value<std::string> &json) {
-          output_file << json.value;
+        [&logger, &output_file](auto &&json) {
+          output_file << std::move(json.value);
           logger->info("File saved to genesis.block");
         },
         [&logger](const auto &error) {

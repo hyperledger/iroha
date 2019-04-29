@@ -79,7 +79,9 @@ target_link_libraries(consensus_fuzz
   gtest::gtest
   gmock::gmock
   yac_transport
+  yac
   protobuf-mutator
+  test_logger
   )
 
 add_executable(mst_fuzz mst_fuzz.cpp)
