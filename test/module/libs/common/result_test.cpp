@@ -148,74 +148,80 @@ TEST(ResultTest, ResultVoidError) {
 
 /**
  * @given Pair of results with some values
- * @when and_res function is invoked
+ * @when operator& is invoked
  * @then result contains the last value
  */
 TEST(ResultTest, AndResWithValVal) {
   Result<int, void> result = makeValue(5);
   Result<int, void> new_res = makeValue(4);
-  result.and_res(new_res).match([](Value<int> v) { ASSERT_EQ(4, v.value); },
-                                makeFailCase<Error<void>>(kErrorCaseMessage));
+  (result & new_res)
+      .match([](Value<int> v) { ASSERT_EQ(4, v.value); },
+             makeFailCase<Error<void>>(kErrorCaseMessage));
 }
 
 /**
  * @given Pair of results: first with error, second with value
- * @when and_res function is invoked
+ * @when operator& is invoked
  * @then result contains the first error
  */
 TEST(ResultTest, AndResWithErrVal) {
   Result<int, int> result = makeError(5);
   Result<int, int> new_res = makeValue(4);
-  result.and_res(new_res).match(makeFailCase<Value<int>>(kValueCaseMessage),
-                                [](Error<int> e) { ASSERT_EQ(5, e.error); });
+  (result & new_res)
+      .match(makeFailCase<Value<int>>(kValueCaseMessage),
+             [](Error<int> e) { ASSERT_EQ(5, e.error); });
 }
 
 /**
  * @given Pair of results: first with value, second with error
- * @when and_res function is invoked
+ * @when operator& is invoked
  * @then result contains the second error
  */
 TEST(ResultTest, AndResWithValErr) {
   Result<int, int> result = makeValue(5);
   Result<int, int> new_res = makeError(4);
-  result.and_res(new_res).match(makeFailCase<Value<int>>(kValueCaseMessage),
-                                [](Error<int> e) { ASSERT_EQ(4, e.error); });
+  (result & new_res)
+      .match(makeFailCase<Value<int>>(kValueCaseMessage),
+             [](Error<int> e) { ASSERT_EQ(4, e.error); });
 }
 
 /**
  * @given Pair of results with some values
- * @when or_res function is invoked
+ * @when operator| is invoked
  * @then result contains the first value
  */
 TEST(ResultTest, OrResWithValVal) {
   Result<int, void> result = makeValue(5);
   Result<int, void> new_res = makeValue(4);
-  result.or_res(new_res).match([](Value<int> v) { ASSERT_EQ(5, v.value); },
-                               makeFailCase<Error<void>>(kErrorCaseMessage));
+  (result | new_res)
+      .match([](Value<int> v) { ASSERT_EQ(5, v.value); },
+             makeFailCase<Error<void>>(kErrorCaseMessage));
 }
 
 /**
  * @given Pair of results: first with error, second with value
- * @when or_res function is invoked
+ * @when operator| is invoked
  * @then result contains the second value
  */
 TEST(ResultTest, OrResWithErrVal) {
   Result<int, int> result = makeError(5);
   Result<int, int> new_res = makeValue(4);
-  result.or_res(new_res).match([](Value<int> v) { ASSERT_EQ(4, v.value); },
-                               makeFailCase<Error<int>>(kErrorCaseMessage));
+  (result | new_res)
+      .match([](Value<int> v) { ASSERT_EQ(4, v.value); },
+             makeFailCase<Error<int>>(kErrorCaseMessage));
 }
 
 /**
  * @given Pair of results with some errors
- * @when or_res function is invoked
+ * @when operator| is invoked
  * @then result contains the last value
  */
 TEST(ResultTest, OrResWithErrErr) {
   Result<int, int> result = makeError(5);
   Result<int, int> new_res = makeError(4);
-  result.or_res(new_res).match(makeFailCase<Value<int>>(kValueCaseMessage),
-                               [](Error<int> e) { ASSERT_EQ(4, e.error); });
+  (result | new_res)
+      .match(makeFailCase<Value<int>>(kValueCaseMessage),
+             [](Error<int> e) { ASSERT_EQ(4, e.error); });
 }
 
 /**

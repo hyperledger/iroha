@@ -127,8 +127,8 @@ namespace iroha {
        *         otherwise return this
        */
       template <typename Value>
-      constexpr Result<Value, E> and_res(const Result<Value, E> &new_res) const
-          noexcept {
+      constexpr Result<Value, E> operator&(
+          const Result<Value, E> &new_res) const noexcept {
         return visit_in_place(
             *this,
             [res = new_res](ValueType) { return res; },
@@ -147,8 +147,8 @@ namespace iroha {
        *         otherwise return this
        */
       template <typename Value>
-      constexpr Result<Value, E> or_res(const Result<Value, E> &new_res) const
-          noexcept {
+      constexpr Result<Value, E> operator|(
+          const Result<Value, E> &new_res) const noexcept {
         return visit_in_place(
             *this,
             [](ValueType val) -> Result<Value, E> { return val; },
