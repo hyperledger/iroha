@@ -197,7 +197,19 @@ void Irohad::initStorage() {
 
 bool Irohad::restoreWsv() {
   return wsv_restorer_->restoreWsv(*storage).match(
-      [](const auto &) { return true; },
+      [this](const auto &value) {
+        if (not value.value) {
+          log_->critical("Did not get ledger state after WSV restoration!");
+          return false;
+        }
+        auto &ledger_state = value.value.value();  // value
+        assert(ledger_state);
+        if (ledger_state->ledger_peers->empty()) {
+          log_->critical("Have no peers in WSV after restoration!");
+          return false;
+        }
+        return true;
+      },
       [this](const auto &error) {
         log_->error(error.error);
         return false;
