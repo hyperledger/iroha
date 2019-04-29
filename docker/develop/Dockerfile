@@ -248,11 +248,11 @@ RUN set -e; \
 RUN set -e; \
     curl -L -o /tmp/lcov_cobertura.py https://raw.githubusercontent.com/eriwen/lcov-to-cobertura-xml/8c55cd11f80a21e7e46f20f8c81fcde0bf11f5e5/lcov_cobertura/lcov_cobertura.py
 
+# OpenJDK 8
 RUN set -e; \
-    add-apt-repository -y ppa:webupd8team/java; \
-    apt-get update; \
-    echo oracle-java8-installer shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections; \
-    apt-get -y install oracle-java8-installer; \
+    apt-get -y install openjdk-8-jdk; \
+    # dirname with openjdk differs on different architectures
+    ln -s $(dirname $(dirname $(find /usr/lib/jvm -type f -name jni.h))) /usr/lib/jvm/java-8-openjdk; \
     java -version
 
 RUN set -e; \
