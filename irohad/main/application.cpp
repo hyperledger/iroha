@@ -188,19 +188,17 @@ void Irohad::initStorage() {
                                            perm_converter,
                                            std::move(block_storage_factory),
                                            log_manager_->getChild("Storage"));
-  storageResult.match(
-      [&](expected::Value<std::shared_ptr<ametsuchi::StorageImpl>> &_storage) {
-        storage = _storage.value;
-      },
-      [&](expected::Error<std::string> &error) { log_->error(error.error); });
+  std::move(storageResult)
+      .match([&](auto &&v) { storage = std::move(v.value); },
+             [&](const auto &error) { log_->error(error.error); });
 
   log_->info("[Init] => storage ({})", logger::logBool(storage));
 }
 
 bool Irohad::restoreWsv() {
   return wsv_restorer_->restoreWsv(*storage).match(
-      [](iroha::expected::Value<void> v) { return true; },
-      [&](iroha::expected::Error<std::string> &error) {
+      [](const auto &) { return true; },
+      [this](const auto &error) {
         log_->error(error.error);
         return false;
       });
@@ -738,7 +736,7 @@ Irohad::RunResult Irohad::run() {
                     initial_ledger_state});
             return {};
           },
-          [&](const expected::Error<std::string> &e) -> RunResult {
+          [&](const auto &e) -> RunResult {
             log_->error(e.error);
             return e;
           });

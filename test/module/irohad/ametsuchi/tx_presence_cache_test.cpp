@@ -154,8 +154,7 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
                   }));
 
   batch_factory->createTransactionBatch(txs).match(
-      [&](iroha::expected::Value<
-          std::unique_ptr<shared_model::interface::TransactionBatch>> &batch) {
+      [&](const auto &batch) {
         auto batch_statuses = *cache.check(*batch.value);
         ASSERT_EQ(3, batch_statuses.size());
         tx_cache_status_responses::Rejected ts1;
@@ -171,7 +170,5 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
         ASSERT_EQ(hash2, ts2.hash);
         ASSERT_EQ(hash3, ts3.hash);
       },
-      [&](iroha::expected::Error<std::string> &error) {
-        FAIL() << error.error;
-      });
+      [&](const auto &error) { FAIL() << error.error; });
 }

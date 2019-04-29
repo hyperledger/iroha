@@ -100,12 +100,10 @@ namespace iroha {
       shared_model::interface::types::SharedTxsCollectionType tx_collection;
       for (const auto &tx : request->transactions()) {
         transaction_factory_->build(tx).match(
-            [&tx_collection](
-                iroha::expected::Value<
-                    std::unique_ptr<shared_model::interface::Transaction>> &v) {
+            [&tx_collection](auto &&v) {
               tx_collection.emplace_back(std::move(v).value);
             },
-            [this](iroha::expected::Error<TransportFactoryType::Error> &error) {
+            [this](const auto &error) {
               status_bus_->publish(status_factory_->makeStatelessFail(
                   error.error.hash,
                   shared_model::interface::TxStatusFactory::TransactionError{
@@ -125,12 +123,11 @@ namespace iroha {
 
       for (auto &batch : batches) {
         batch_factory_->createTransactionBatch(batch).match(
-            [&](iroha::expected::Value<std::unique_ptr<
-                    shared_model::interface::TransactionBatch>> &value) {
+            [&](auto &&value) {
               this->command_service_->handleTransactionBatch(
                   std::move(value).value);
             },
-            [&](iroha::expected::Error<std::string> &error) {
+            [&](const auto &error) {
               std::vector<shared_model::crypto::Hash> hashes;
 
               std::transform(batch.begin(),

@@ -258,7 +258,7 @@ int main(int argc, char *argv[]) {
   // check if at least one block is available in the ledger
   auto blocks_exist = irohad.storage->getBlockQuery()->getTopBlock().match(
       [](const auto &) { return true; },
-      [](iroha::expected::Error<std::string> &) { return false; });
+      [](const auto &) { return false; });
 
   if (not blocks_exist) {
     log->error(

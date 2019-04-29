@@ -41,12 +41,11 @@ namespace framework {
     boost::optional<std::shared_ptr<T>> SqlQuery::fromResult(
         shared_model::interface::CommonObjectsFactory::FactoryResult<
             std::unique_ptr<T>> &&result) {
-      return result.match(
-          [](iroha::expected::Value<std::unique_ptr<T>> &v) {
+      return std::move(result).match(
+          [](auto &&v) {
             return boost::make_optional(std::shared_ptr<T>(std::move(v.value)));
           },
-          [&](iroha::expected::Error<std::string> &e)
-              -> boost::optional<std::shared_ptr<T>> {
+          [&](const auto &e) -> boost::optional<std::shared_ptr<T>> {
             log_->error(e.error);
             return boost::none;
           });
