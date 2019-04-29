@@ -54,11 +54,13 @@ namespace iroha {
       /**
        * Raw insertion of blocks without validation
        * @param blocks - collection of blocks for insertion
-       * @return true if inserted
+       * @return final ledger if inserted, error description otherwise
        */
-      virtual bool insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
-              &blocks) = 0;
+      virtual iroha::expected::
+          Result<boost::optional<std::unique_ptr<LedgerState>>, std::string>
+          insertBlocks(
+              const std::vector<std::shared_ptr<shared_model::interface::Block>>
+                  &blocks) = 0;
 
       /**
        * method called when block is written to the storage

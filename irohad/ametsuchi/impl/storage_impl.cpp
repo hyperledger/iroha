@@ -235,25 +235,33 @@ namespace iroha {
       return inserted;
     }
 
-    bool StorageImpl::insertBlocks(
+    iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
+                            std::string>
+    StorageImpl::insertBlocks(
         const std::vector<std::shared_ptr<shared_model::interface::Block>>
             &blocks) {
       log_->info("create mutable storage");
-      bool inserted = true;
-      createMutableStorage().match(
-          [&, this](auto &&mutableStorage) {
-            std::for_each(blocks.begin(), blocks.end(), [&](auto block) {
-              inserted &= mutableStorage.value->apply(block);
-            });
-            this->commit(std::move(mutableStorage.value));
+      return createMutableStorage().match(
+          [&, this](auto &&mutableStorage) -> decltype(insertBlocks(blocks)) {
+            for (auto &block : blocks) {
+              if (not mutableStorage.value->apply(block)) {
+                log_->error(
+                    "Insert blocks failed: block {} could not be applied.",
+                    block->hash());
+                log_->debug("The failed block is {}.", block);
+                return expected::makeError(std::string{"Block "}
+                                           + block->hash().hex()
+                                           + " could ont be applied.");
+              }
+            }
+            log_->info("insert blocks succeeded");
+            return iroha::expected::makeValue(
+                this->commit(std::move(mutableStorage.value)));
           },
-          [&](const auto &error) {
-            log_->error(error.error);
-            inserted = false;
+          [&](const auto &error) -> decltype(insertBlocks(blocks)) {
+            log_->error("insert blocks failed: {}", error.error);
+            return std::move(error);
           });
-
-      log_->info("insert blocks finished");
-      return inserted;
     }
 
     void StorageImpl::reset() {
