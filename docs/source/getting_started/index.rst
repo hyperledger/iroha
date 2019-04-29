@@ -100,11 +100,12 @@ Starting Iroha Container
 We are almost ready to launch our Iroha container.
 You just need to know the path to configuration files (from the step above).
 
-Let's start Iroha node in Docker container via the following command:
+Let's start Iroha node in Docker container with the following command:
 
 .. code-block:: shell
 
   docker run --name iroha \
+  -d \
   -p 50051:50051 \
   -v $(pwd)/iroha/example:/opt/iroha_data \
   -v blockstore:/tmp/block_store \
@@ -112,11 +113,12 @@ Let's start Iroha node in Docker container via the following command:
   -e KEY='node0' \
   hyperledger/iroha:latest
 
-If you started the node successfully you would see the logs in the same console where you started the container.
+If you started the node successfully you would see the container id in the same console where you started the container.
 
 Let's look in details what this command does:
 
 - ``docker run --name iroha \`` creates a container ``iroha``
+- ``-d \`` runs container in the background
 - ``-p 50051:50051 \`` exposes a port for communication with a client (we will use this later)
 - ``-v YOUR_PATH_TO_CONF_FILES:/opt/iroha_data \`` is how we pass our configuration files to
   docker container. The example directory is indicated in the code block above.
@@ -127,25 +129,10 @@ Let's look in details what this command does:
 - ``-e KEY='node0' \`` - here please indicate a key name that will identify the node allowing it to confirm operations.
   The keys should be placed in the directory with configuration files mentioned above.
 - ``hyperledger/iroha:latest`` is a reference to the image pointing to the
-  last `release <https://github.com/hyperledger/iroha/releases>`__
+  latest `release <https://github.com/hyperledger/iroha/releases>`__
 
+You can check the logs by running ``docker logs iroha``.
 
-Launching Iroha Daemon
-^^^^^^^^^^^^^^^^^^^^^^
-Now you are in the interactive shell of Iroha's container.
-To actually run Iroha, we need to launch Iroha daemon – ``irohad``.
-
-.. code-block:: shell
-
-  irohad --config config.docker --genesis_block genesis.block --keypair_name node0
-
-.. Attention:: In the usual situation, you need to provide a config file, generate genesis block and keypair.
-  However, as a part of this guide, we provide an example configuration for you.
-  Please do not use these settings in a production.
-  You can read more about :ref:`configuration`.
-
-Congratulations!
-You have an Iroha node up and running!
 You can try using one of sample guides in order to send some transactions to Iroha and query its state.
 
 Try other guides
