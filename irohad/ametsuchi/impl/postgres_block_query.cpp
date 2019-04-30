@@ -48,14 +48,9 @@ namespace iroha {
         return result;
       }
       for (auto i = height; i <= to; i++) {
-        auto block = getBlock(i);
-        block.match(
-            [&result](
-                expected::Value<std::unique_ptr<shared_model::interface::Block>>
-                    &v) { result.emplace_back(std::move(v.value)); },
-            [this](const expected::Error<std::string> &e) {
-              log_->error(e.error);
-            });
+        getBlock(i).match(
+            [&result](auto &&v) { result.emplace_back(std::move(v.value)); },
+            [this](const auto &e) { log_->error(e.error); });
       }
       return result;
     }
@@ -107,13 +102,13 @@ namespace iroha {
     PostgresBlockQuery::getTopBlock() {
       return getBlock(block_store_.last_id())
           .match(
-              [](expected::Value<
-                  std::unique_ptr<shared_model::interface::Block>> &v)
+              [](auto &&v)
                   -> expected::Result<BlockQuery::wBlock, std::string> {
-                return expected::makeValue<BlockQuery::wBlock>(
+                return expected::makeValue<
+                    std::shared_ptr<shared_model::interface::Block>>(
                     std::move(v.value));
               },
-              [](expected::Error<std::string> &e)
+              [](auto &&e)
                   -> expected::Result<BlockQuery::wBlock, std::string> {
                 return expected::makeError(std::move(e.error));
               });

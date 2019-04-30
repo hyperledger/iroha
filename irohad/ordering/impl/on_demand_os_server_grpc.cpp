@@ -41,12 +41,8 @@ OnDemandOsServerGrpc::deserializeTransactions(
             [&](const auto &tx) { return transaction_factory_->build(tx); })
       | boost::adaptors::filtered([&](const auto &result) {
           return result.match(
-              [](const iroha::expected::Value<
-                  std::unique_ptr<shared_model::interface::Transaction>> &) {
-                return true;
-              },
-              [&](const iroha::expected::Error<TransportFactoryType::Error>
-                      &error) {
+              [](const auto &) { return true; },
+              [&](const auto &error) {
                 log_->info("Transaction deserialization failed: hash {}, {}",
                            error.error.hash,
                            error.error.error);
@@ -75,10 +71,8 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
       OdOsNotification::CollectionType{},
       [this](auto &acc, const auto &cand) {
         batch_factory_->createTransactionBatch(cand).match(
-            [&](iroha::expected::Value<
-                std::unique_ptr<shared_model::interface::TransactionBatch>>
-                    &value) { acc.push_back(std::move(value).value); },
-            [&](iroha::expected::Error<std::string> &error) {
+            [&](auto &&value) { acc.push_back(std::move(value).value); },
+            [&](const auto &error) {
               log_->warn("Batch deserialization failed: {}", error.error);
             });
         return acc;

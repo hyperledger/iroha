@@ -29,7 +29,7 @@ FlatFileBlockStorage::~FlatFileBlockStorage() {
 bool FlatFileBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
   return json_converter_->serialize(*block).match(
-      [&](const expected::Value<std::string> &block_json) {
+      [&](const auto &block_json) {
         return flat_file_storage_->add(block->height(),
                                        stringToBytes(block_json.value));
       },
@@ -49,13 +49,12 @@ FlatFileBlockStorage::fetch(
 
   return json_converter_->deserialize(bytesToString(*storage_block))
       .match(
-          [&](expected::Value<std::unique_ptr<shared_model::interface::Block>>
-                  &block) {
+          [&](auto &&block) {
             return boost::make_optional<
                 std::shared_ptr<const shared_model::interface::Block>>(
                 std::move(block.value));
           },
-          [&](expected::Error<std::string> &error)
+          [&](const auto &error)
               -> boost::optional<
                   std::shared_ptr<const shared_model::interface::Block>> {
             log_->warn("Error while block deserialization: {}", error.error);

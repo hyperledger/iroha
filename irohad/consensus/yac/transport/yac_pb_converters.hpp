@@ -102,31 +102,44 @@ namespace iroha {
 
           auto vote = deserealizeRoundAndHashes(pb_vote);
 
-          auto deserialize =
-              [&](auto &pubkey, auto &signature, auto &val, const auto &msg) {
-                factory
-                    .createSignature(shared_model::crypto::PublicKey(pubkey),
-                                     shared_model::crypto::Signed(signature))
-                    .match(
-                        [&](iroha::expected::Value<
-                            std::unique_ptr<shared_model::interface::Signature>>
-                                &sig) { val = std::move(sig.value); },
-                        [&](iroha::expected::Error<std::string> &reason) {
-                          log->error(msg, reason.error);
-                        });
-              };
+          auto deserialize = [&](auto &pubkey,
+                                 auto &signature,
+                                 const auto &msg) {
+            return factory
+                .createSignature(shared_model::crypto::PublicKey(pubkey),
+                                 shared_model::crypto::Signed(signature))
+                .match(
+                    [&](auto &&sig) -> boost::optional<std::unique_ptr<
+                                        shared_model::interface::Signature>> {
+                      return std::move(sig).value;
+                    },
+                    [&](const auto &reason)
+                        -> boost::optional<std::unique_ptr<
+                            shared_model::interface::Signature>> {
+                      log->error(msg, reason.error);
+                      return boost::none;
+                    });
+          };
 
           if (pb_vote.hash().has_block_signature()) {
-            deserialize(pb_vote.hash().block_signature().pubkey(),
-                        pb_vote.hash().block_signature().signature(),
-                        vote.hash.block_signature,
-                        "Cannot build vote hash block signature: {}");
+            if (auto block_signature =
+                    deserialize(pb_vote.hash().block_signature().pubkey(),
+                                pb_vote.hash().block_signature().signature(),
+                                "Cannot build vote hash block signature: {}")) {
+              vote.hash.block_signature = *std::move(block_signature);
+            } else {
+              return boost::none;
+            }
           }
 
-          deserialize(pb_vote.signature().pubkey(),
-                      pb_vote.signature().signature(),
-                      vote.signature,
-                      "Cannot build vote signature: {}");
+          if (auto vote_signature =
+                  deserialize(pb_vote.signature().pubkey(),
+                              pb_vote.signature().signature(),
+                              "Cannot build vote signature: {}")) {
+            vote.signature = *std::move(vote_signature);
+          } else {
+            return boost::none;
+          }
 
           return vote;
         }

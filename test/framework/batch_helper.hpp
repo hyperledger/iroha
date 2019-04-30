@@ -218,10 +218,8 @@ namespace framework {
           batch_validator);
       return batch_factory->createTransactionBatch(std::move(tx))
           .match(
-              [](iroha::expected::Value<std::unique_ptr<
-                     shared_model::interface::TransactionBatch>> &value)
-                  -> std::shared_ptr<
-                      shared_model::interface::TransactionBatch> {
+              [](auto &&value) -> std::shared_ptr<
+                                   shared_model::interface::TransactionBatch> {
                 return std::move(value.value);
               },
               [](const auto &err)

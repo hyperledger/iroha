@@ -627,8 +627,7 @@ namespace iroha {
 
       return converter_->deserialize(bytesToString(*serialized_block))
           .match(
-              [this](iroha::expected::Value<
-                     std::unique_ptr<shared_model::interface::Block>> &block) {
+              [this](auto &&block) {
                 return this->query_response_factory_->createBlockResponse(
                     std::move(block.value), query_hash_);
               },

@@ -85,7 +85,7 @@ class BlockQueryTest : public AmetsuchiTest {
 
     for (const auto &b : {std::move(block1), std::move(block2)}) {
       converter->serialize(b).match(
-          [this, &b](const iroha::expected::Value<std::string> &json) {
+          [this, &b](const auto &json) {
             file->add(b.height(), iroha::stringToBytes(json.value));
             index->index(b);
             blocks_total++;
