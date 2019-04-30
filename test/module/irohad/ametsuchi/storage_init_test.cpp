@@ -12,6 +12,7 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
@@ -59,10 +60,17 @@ class StorageInitTest : public ::testing::Test {
   std::unique_ptr<BlockStorageFactory> block_storage_factory_ =
       std::make_unique<InMemoryBlockStorageFactory>();
 
+  std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+      reconnection_strategy_factory_;
+
   void SetUp() override {
     ASSERT_FALSE(boost::filesystem::exists(block_store_path))
         << "Temporary block store " << block_store_path
         << " directory already exists";
+
+    reconnection_strategy_factory_ =
+        std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(
+            0);
   }
 
   void TearDown() override {
@@ -89,6 +97,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
                       converter,
                       perm_converter_,
                       std::move(block_storage_factory_),
+                      std::move(reconnection_strategy_factory_),
                       storage_log_manager_)
       .match(
           [&storage](const auto &value) {
@@ -119,6 +128,7 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                       converter,
                       perm_converter_,
                       std::move(block_storage_factory_),
+                      std::move(reconnection_strategy_factory_),
                       storage_log_manager_)
       .match([](const auto &) { FAIL() << "storage created, but should not"; },
              [](const auto &) { SUCCEED(); });

@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/storage_impl.hpp"
 
+#include <soci/callbacks.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -63,6 +64,59 @@ namespace {
 
 namespace iroha {
   namespace ametsuchi {
+
+    class FailOverCallback : public soci::failover_callback {
+     public:
+      FailOverCallback(
+          std::shared_ptr<ReconnectionStrategy> reconnection_strategy,
+          logger::LoggerPtr log)
+          : reconnection_strategy_(std::move(reconnection_strategy)),
+            log_(std::move(log)) {}
+
+      virtual void started() {
+        reconnection_strategy_->reset();
+        log_->debug("Reconnection process is initiated");
+      }
+
+      virtual void finished(soci::session &) {
+        reconnection_strategy_->reset();
+        log_->debug("Reconnection has re-established successfully");
+      }
+
+      virtual void failed(bool &should_reconnect, std::string &) {
+        should_reconnect = reconnection_strategy_->canReconnect();
+        log_->warn(
+            "troubles with storage connections are occurred. The system will "
+            "try to reconnect [{}]",
+            should_reconnect);
+      }
+
+      virtual void aborted() {
+        reconnection_strategy_->reset();
+        log_->error(
+            "Exceeded number of attempts to reconnect. Connection will be "
+            "failed");
+      }
+
+     private:
+      std::shared_ptr<ReconnectionStrategy> reconnection_strategy_;
+      logger::LoggerPtr log_;
+    };
+
+    class FailOverCallbackFactory {
+     public:
+      FailOverCallback &makeFailOverCallback(
+          std::shared_ptr<ReconnectionStrategy> reconnection_strategy,
+          logger::LoggerPtr log) {
+        callbacks_.push_back(std::make_unique<FailOverCallback>(
+            std::move(reconnection_strategy), std::move(log)));
+        return *callbacks_.at(callbacks_.size() - 1);
+      }
+
+     private:
+      std::vector<std::unique_ptr<FailOverCallback>> callbacks_;
+    };
+
     const char *kCommandExecutorError = "Cannot create CommandExecutorFactory";
     const char *kPsqlBroken = "Connection to PostgreSQL broken: %s";
     const char *kTmpWsv = "TemporaryWsv";
@@ -81,6 +135,8 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
+        std::unique_ptr<ReconnectionStrategyFactory>
+            reconnection_strategy_factory,
         size_t pool_size,
         bool enable_prepared_blocks,
         logger::LoggerManagerTreePtr log_manager)
@@ -95,17 +151,26 @@ namespace iroha {
           block_storage_factory_(std::move(block_storage_factory)),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()),
+          reconnection_strategy_factory_(
+              std::move(reconnection_strategy_factory)),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
           block_is_prepared(false) {
       prepared_block_name_ =
           "prepared_block" + postgres_options_.dbname().value_or("");
 
+      FailOverCallbackFactory callback_factory_;
+
       for (size_t i = 0; i != pool_size_; i++) {
         soci::session &session = connection_->at(i);
         auto *backend = static_cast<soci::postgresql_session_backend *>(
             session.get_backend());
         PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
+        auto callback_ptr = callback_factory_.makeFailOverCallback(
+            nullptr,
+            log_manager_->getChild("SOCI connection pool")->getLogger());
+
+        session.set_failover_callback(callback_ptr);
       }
 
       soci::session sql(*connection_);
@@ -420,6 +485,8 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
+        std::unique_ptr<ReconnectionStrategyFactory>
+            reconnection_strategy_factory,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
       boost::optional<std::string> string_res = boost::none;
@@ -449,19 +516,20 @@ namespace iroha {
                       soci::session sql(*connection.value);
                       bool enable_prepared_transactions =
                           preparedTransactionsAvailable(sql);
-                      storage =
-                          expected::makeValue(std::shared_ptr<StorageImpl>(
-                              new StorageImpl(block_store_dir,
-                                              options,
-                                              std::move(ctx.value.block_store),
-                                              std::move(connection.value),
-                                              factory,
-                                              converter,
-                                              perm_converter,
-                                              std::move(block_storage_factory),
-                                              pool_size,
-                                              enable_prepared_transactions,
-                                              std::move(log_manager))));
+                      storage = expected::makeValue(
+                          std::shared_ptr<StorageImpl>(new StorageImpl(
+                              block_store_dir,
+                              options,
+                              std::move(ctx.value.block_store),
+                              std::move(connection.value),
+                              factory,
+                              converter,
+                              perm_converter,
+                              std::move(block_storage_factory),
+                              std::move(reconnection_strategy_factory),
+                              pool_size,
+                              enable_prepared_transactions,
+                              std::move(log_manager))));
                     },
                     [&](const auto &error) { storage = error; });
               },
