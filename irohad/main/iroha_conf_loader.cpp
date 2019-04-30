@@ -79,120 +79,6 @@ class JsonDeserializerImpl {
     dest = val;
   }
 
-  template <>
-  void getVal<bool>(const std::string &path,
-                    bool &dest,
-                    const rapidjson::Value &src) {
-    assert_fatal(src.IsBool(), path + " must be a boolean");
-    dest = src.GetBool();
-  }
-
-  template <>
-  void getVal<std::string>(const std::string &path,
-                           std::string &dest,
-                           const rapidjson::Value &src) {
-    assert_fatal(src.IsString(), path + " must be a string");
-    dest = src.GetString();
-  }
-
-  template <>
-  void getVal<logger::LogLevel>(const std::string &path,
-                                logger::LogLevel &dest,
-                                const rapidjson::Value &src) {
-    std::string level_str;
-    getVal(path, level_str, src);
-    const auto it = config_members::LogLevels.find(level_str);
-    if (it == config_members::LogLevels.end()) {
-      BOOST_THROW_EXCEPTION(std::runtime_error(
-          "Wrong log level at " + path + ": must be one of '"
-          + boost::algorithm::join(
-                config_members::LogLevels | boost::adaptors::map_keys, "', '")
-          + "'."));
-    }
-    dest = it->second;
-  }
-
-  template <>
-  void getVal<logger::LogPatterns>(const std::string &path,
-                                   logger::LogPatterns &dest,
-                                   const rapidjson::Value &src) {
-    assert_fatal(src.IsObject(),
-                 path + " must be a map from log level to pattern");
-    for (const auto &pattern_entry : src.GetObject()) {
-      logger::LogLevel level;
-      std::string pattern_str;
-      getVal(sublevelPath(path, "(level name)"), level, pattern_entry.name);
-      getVal(sublevelPath(path, "(pattern)"), pattern_str, pattern_entry.value);
-      dest.setPattern(level, pattern_str);
-    }
-  }
-
-  template <>
-  void getVal<logger::LoggerManagerTreePtr>(const std::string &path,
-                                            logger::LoggerManagerTreePtr &dest,
-                                            const rapidjson::Value &src) {
-    assert_fatal(src.IsObject(), path + " must be a logger tree config");
-    logger::LoggerConfig root_config{logger::kDefaultLogLevel,
-                                     logger::LogPatterns{}};
-    updateLoggerConfig(path, root_config, src.GetObject());
-    dest = std::make_shared<logger::LoggerManagerTree>(
-        std::make_shared<const logger::LoggerConfig>(std::move(root_config)));
-    addChildrenLoggerConfigs(path, dest, src.GetObject());
-  }
-
-  template <>
-  void getVal<std::unique_ptr<shared_model::interface::Peer>>(
-      const std::string &path,
-      std::unique_ptr<shared_model::interface::Peer> &dest,
-      const rapidjson::Value &src) {
-    assert_fatal(src.IsObject(), path + " must be a dictionary");
-    const auto obj = src.GetObject();
-    std::string address;
-    getValByKey(path, address, obj, config_members::Address);
-    std::string public_key_str;
-    getValByKey(path, public_key_str, obj, config_members::PublicKey);
-    common_objects_factory_
-        ->createPeer(address, shared_model::crypto::PublicKey(public_key_str))
-        .match(
-            [&dest](iroha::expected::Value<
-                    std::unique_ptr<shared_model::interface::Peer>> &v) {
-              dest = std::move(v.value);
-            },
-            [&path](const iroha::expected::Error<std::string> &error) {
-              throw std::runtime_error("Failed to create a peer at '" + path
-                                       + "': " + error.error);
-            });
-  }
-
-  template <>
-  void getVal<IrohadConfig>(const std::string &path,
-                            IrohadConfig &dest,
-                            const rapidjson::Value &src) {
-    assert_fatal(src.IsObject(),
-                 path + " Irohad config top element must be an object.");
-    const auto obj = src.GetObject();
-    getValByKey(
-        path, dest.block_store_path, obj, config_members::BlockStorePath);
-    getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
-    getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
-    getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
-    getValByKey(
-        path, dest.max_proposal_size, obj, config_members::MaxProposalSize);
-    getValByKey(path, dest.proposal_delay, obj, config_members::ProposalDelay);
-    getValByKey(path, dest.vote_delay, obj, config_members::VoteDelay);
-    getValByKey(path, dest.mst_support, obj, config_members::MstSupport);
-    getValByKey(
-        path, dest.mst_expiration_time, obj, config_members::MstExpirationTime);
-    getValByKey(
-        path, dest.max_round_delay_ms, obj, config_members::MaxRoundsDelay);
-    getValByKey(path,
-                dest.stale_stream_max_rounds,
-                obj,
-                config_members::StaleStreamMaxRounds);
-    getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
-    getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
-  }
-
   // ------------ end of getVal(path, dst, src) ------------
 
   /**
@@ -279,7 +165,6 @@ class JsonDeserializerImpl {
     return true;  // value loaded any way, either from file or boost::none
   }
 
-
   /**
    * Gets an optional value by a key from a JSON object.
    * @param path - current config node path used to denote the possible error
@@ -342,6 +227,127 @@ class JsonDeserializerImpl {
   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
       common_objects_factory_;
 };
+
+// ------------ getVal(path, dst, src) specializations ------------
+
+template <>
+inline void JsonDeserializerImpl::getVal<bool>(const std::string &path,
+                                        bool &dest,
+                                        const rapidjson::Value &src) {
+  assert_fatal(src.IsBool(), path + " must be a boolean");
+  dest = src.GetBool();
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<std::string>(const std::string &path,
+                                               std::string &dest,
+                                               const rapidjson::Value &src) {
+  assert_fatal(src.IsString(), path + " must be a string");
+  dest = src.GetString();
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<logger::LogLevel>(
+    const std::string &path,
+    logger::LogLevel &dest,
+    const rapidjson::Value &src) {
+  std::string level_str;
+  getVal(path, level_str, src);
+  const auto it = config_members::LogLevels.find(level_str);
+  if (it == config_members::LogLevels.end()) {
+    BOOST_THROW_EXCEPTION(std::runtime_error(
+        "Wrong log level at " + path + ": must be one of '"
+        + boost::algorithm::join(
+              config_members::LogLevels | boost::adaptors::map_keys, "', '")
+        + "'."));
+  }
+  dest = it->second;
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<logger::LogPatterns>(
+    const std::string &path,
+    logger::LogPatterns &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(),
+               path + " must be a map from log level to pattern");
+  for (const auto &pattern_entry : src.GetObject()) {
+    logger::LogLevel level;
+    std::string pattern_str;
+    getVal(sublevelPath(path, "(level name)"), level, pattern_entry.name);
+    getVal(sublevelPath(path, "(pattern)"), pattern_str, pattern_entry.value);
+    dest.setPattern(level, pattern_str);
+  }
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<logger::LoggerManagerTreePtr>(
+    const std::string &path,
+    logger::LoggerManagerTreePtr &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a logger tree config");
+  logger::LoggerConfig root_config{logger::kDefaultLogLevel,
+                                   logger::LogPatterns{}};
+  updateLoggerConfig(path, root_config, src.GetObject());
+  dest = std::make_shared<logger::LoggerManagerTree>(
+      std::make_shared<const logger::LoggerConfig>(std::move(root_config)));
+  addChildrenLoggerConfigs(path, dest, src.GetObject());
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<
+    std::unique_ptr<shared_model::interface::Peer>>(
+    const std::string &path,
+    std::unique_ptr<shared_model::interface::Peer> &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  std::string address;
+  getValByKey(path, address, obj, config_members::Address);
+  std::string public_key_str;
+  getValByKey(path, public_key_str, obj, config_members::PublicKey);
+  common_objects_factory_
+      ->createPeer(address, shared_model::crypto::PublicKey(public_key_str))
+      .match(
+          [&dest](iroha::expected::Value<
+                  std::unique_ptr<shared_model::interface::Peer>> &v) {
+            dest = std::move(v.value);
+          },
+          [&path](const iroha::expected::Error<std::string> &error) {
+            throw std::runtime_error("Failed to create a peer at '" + path
+                                     + "': " + error.error);
+          });
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig>(const std::string &path,
+                                                IrohadConfig &dest,
+                                                const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(),
+               path + " Irohad config top element must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
+  getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
+  getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
+  getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
+  getValByKey(
+      path, dest.max_proposal_size, obj, config_members::MaxProposalSize);
+  getValByKey(path, dest.proposal_delay, obj, config_members::ProposalDelay);
+  getValByKey(path, dest.vote_delay, obj, config_members::VoteDelay);
+  getValByKey(path, dest.mst_support, obj, config_members::MstSupport);
+  getValByKey(
+      path, dest.mst_expiration_time, obj, config_members::MstExpirationTime);
+  getValByKey(
+      path, dest.max_round_delay_ms, obj, config_members::MaxRoundsDelay);
+  getValByKey(path,
+              dest.stale_stream_max_rounds,
+              obj,
+              config_members::StaleStreamMaxRounds);
+  getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
+  getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
+}
+
+ // ------------ end of getVal(path, dst, src) specializations ------------
 
 std::string reportJsonParsingError(const rapidjson::Document &doc,
                                    const std::string &conf_path,
