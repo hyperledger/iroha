@@ -16,7 +16,7 @@ void iroha::remove_dir_contents(const std::string &dir,
 
   bool exists = boost::filesystem::exists(dir, error_code);
   if (error_code != boost::system::errc::success) {
-    log->error(error_code.message());
+    log->error("{}", error_code.message());
     return;
   }
   if (not exists) {
@@ -26,7 +26,7 @@ void iroha::remove_dir_contents(const std::string &dir,
 
   bool is_dir = boost::filesystem::is_directory(dir, error_code);
   if (error_code != boost::system::errc::success) {
-    log->error(error_code.message());
+    log->error("{}", error_code.message());
     return;
   }
   if (not is_dir) {
@@ -37,6 +37,6 @@ void iroha::remove_dir_contents(const std::string &dir,
   for (auto entry : boost::filesystem::directory_iterator(dir)) {
     boost::filesystem::remove_all(entry.path(), error_code);
     if (error_code != boost::system::errc::success)
-      log->error(error_code.message());
+      log->error("{}", error_code.message());
   }
 }
