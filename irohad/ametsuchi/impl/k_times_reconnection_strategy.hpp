@@ -10,8 +10,15 @@
 
 namespace iroha {
   namespace ametsuchi {
+    /**
+     * Class provides a strategy for reconnection with the limited number of
+     * attempts
+     */
     class KTimesReconnectionStrategy : public ReconnectionStrategy {
      public:
+      /**
+       * @param number_of_reconnections - number of attempts for reconnection
+       */
       KTimesReconnectionStrategy(size_t number_of_reconnections);
 
       KTimesReconnectionStrategy(const KTimesReconnectionStrategy &) = delete;

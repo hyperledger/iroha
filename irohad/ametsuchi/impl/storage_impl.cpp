@@ -153,22 +153,22 @@ namespace iroha {
           log_(log_manager_->getLogger()),
           reconnection_strategy_factory_(
               std::move(reconnection_strategy_factory)),
+          callback_factory_(std::make_unique<FailOverCallbackFactory>()),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
           block_is_prepared(false) {
       prepared_block_name_ =
           "prepared_block" + postgres_options_.dbname().value_or("");
 
-      FailOverCallbackFactory callback_factory_;
-
       for (size_t i = 0; i != pool_size_; i++) {
         soci::session &session = connection_->at(i);
         auto *backend = static_cast<soci::postgresql_session_backend *>(
             session.get_backend());
         PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
-        auto callback_ptr = callback_factory_.makeFailOverCallback(
-            nullptr,
-            log_manager_->getChild("SOCI connection pool")->getLogger());
+        auto callback_ptr = callback_factory_->makeFailOverCallback(
+            reconnection_strategy_factory_->create(),
+            log_manager_->getChild("SOCI connection " + std::to_string(i))
+                ->getLogger());
 
         session.set_failover_callback(callback_ptr);
       }

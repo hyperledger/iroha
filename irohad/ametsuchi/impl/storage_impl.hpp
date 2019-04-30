@@ -28,6 +28,7 @@ namespace iroha {
   namespace ametsuchi {
 
     class FlatFile;
+    class FailOverCallbackFactory;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
@@ -191,6 +192,8 @@ namespace iroha {
 
       std::unique_ptr<ReconnectionStrategyFactory>
           reconnection_strategy_factory_;
+
+      std::unique_ptr<FailOverCallbackFactory> callback_factory_;
 
       const size_t pool_size_;
 
