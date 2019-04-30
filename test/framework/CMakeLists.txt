@@ -60,8 +60,8 @@ add_library(framework_sql_query
     sql_query.cpp
     )
 target_link_libraries(framework_sql_query
-    SOCI::core
     SOCI::postgresql
+    SOCI::core
     logger
     shared_model_proto_backend
     )

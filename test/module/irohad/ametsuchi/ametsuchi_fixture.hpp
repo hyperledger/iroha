@@ -54,9 +54,8 @@ namespace iroha {
                             perm_converter_,
                             std::move(block_storage_factory),
                             getTestLoggerManager()->getChild("Storage"))
-            .match([&](iroha::expected::Value<std::shared_ptr<StorageImpl>>
-                           &_storage) { storage = _storage.value; },
-                   [](iroha::expected::Error<std::string> &error) {
+            .match([&](const auto &_storage) { storage = _storage.value; },
+                   [](const auto &error) {
                      FAIL() << "StorageImpl: " << error.error;
                    });
         sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
