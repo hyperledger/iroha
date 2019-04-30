@@ -77,7 +77,7 @@ struct HexKeys : public AcceptanceFixture {
 
 /**
  * @given an account with kAddSignatory permission
- * @when an the same public key is used twice but written in different case
+ * @when the same public key is used twice but written in different case
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatory) {
@@ -104,7 +104,7 @@ TEST_F(HexKeys, AddSignatory) {
  * first.
  *
  * @given an account with kAddSignatory permission
- * @when an the same public key is used twice but written in different case
+ * @when the same public key is used twice but written in different case
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatoryReverse) {
