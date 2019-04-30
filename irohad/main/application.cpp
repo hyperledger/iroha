@@ -112,6 +112,9 @@ Irohad::Irohad(const std::string &block_store_dir,
   validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           max_proposal_size_);
+  block_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, true);
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
   initStorage();
@@ -185,19 +188,17 @@ void Irohad::initStorage() {
                                            perm_converter,
                                            std::move(block_storage_factory),
                                            log_manager_->getChild("Storage"));
-  storageResult.match(
-      [&](expected::Value<std::shared_ptr<ametsuchi::StorageImpl>> &_storage) {
-        storage = _storage.value;
-      },
-      [&](expected::Error<std::string> &error) { log_->error(error.error); });
+  std::move(storageResult)
+      .match([&](auto &&v) { storage = std::move(v.value); },
+             [&](const auto &error) { log_->error(error.error); });
 
   log_->info("[Init] => storage ({})", logger::logBool(storage));
 }
 
 bool Irohad::restoreWsv() {
   return wsv_restorer_->restoreWsv(*storage).match(
-      [](iroha::expected::Value<void> v) { return true; },
-      [&](iroha::expected::Error<std::string> &error) {
+      [](const auto &) { return true; },
+      [this](const auto &error) {
         log_->error(error.error);
         return false;
       });
@@ -418,7 +419,7 @@ void Irohad::initSimulator() {
       //  are validated in the ordering gate, where they are received from the
       //  ordering service.
       std::make_unique<shared_model::validation::DefaultUnsignedBlockValidator>(
-          validators_config_),
+          block_validators_config_),
       std::make_unique<shared_model::validation::ProtoBlockValidator>());
   simulator = std::make_shared<Simulator>(
       ordering_gate,
@@ -449,7 +450,7 @@ void Irohad::initBlockLoader() {
       loader_init.initBlockLoader(storage,
                                   storage,
                                   consensus_result_cache_,
-                                  validators_config_,
+                                  block_validators_config_,
                                   log_manager_->getChild("BlockLoader"));
 
   log_->info("[Init] => block loader");
@@ -735,7 +736,7 @@ Irohad::RunResult Irohad::run() {
                     initial_ledger_state});
             return {};
           },
-          [&](const expected::Error<std::string> &e) -> RunResult {
+          [&](const auto &e) -> RunResult {
             log_->error(e.error);
             return e;
           });

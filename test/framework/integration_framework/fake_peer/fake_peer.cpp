@@ -47,14 +47,8 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
   std::shared_ptr<shared_model::interface::Peer> peer;
   common_objects_factory->createPeer(address, key)
       .match(
-          [&peer](iroha::expected::Result<
-                  std::unique_ptr<shared_model::interface::Peer>,
-                  std::string>::ValueType &result) {
-            peer = std::move(result.value);
-          },
-          [&address](const iroha::expected::Result<
-                     std::unique_ptr<shared_model::interface::Peer>,
-                     std::string>::ErrorType &error) {
+          [&peer](auto &&result) { peer = std::move(result.value); },
+          [&address](const auto &error) {
             BOOST_THROW_EXCEPTION(
                 std::runtime_error("Failed to create peer object for peer "
                                    + address + ". " + error.error));
@@ -209,8 +203,7 @@ namespace integration_framework {
           .append(synchronizer_transport_)
           .run()
           .match(
-              [this](const iroha::expected::Result<int, std::string>::ValueType
-                         &val) {
+              [this](const auto &val) {
                 const size_t bound_port = val.value;
                 BOOST_VERIFY_MSG(
                     bound_port == internal_port_,
@@ -291,14 +284,14 @@ namespace integration_framework {
       std::shared_ptr<shared_model::interface::Signature> signature_with_pubkey;
       common_objects_factory_
           ->createSignature(keypair_->publicKey(), bare_signature)
-          .match([&signature_with_pubkey](
-                     iroha::expected::Value<
-                         std::unique_ptr<shared_model::interface::Signature>> &
-                         sig) { signature_with_pubkey = std::move(sig.value); },
-                 [](iroha::expected::Error<std::string> &reason) {
-                   BOOST_THROW_EXCEPTION(std::runtime_error(
-                       "Cannot build signature: " + reason.error));
-                 });
+          .match(
+              [&signature_with_pubkey](auto &&sig) {
+                signature_with_pubkey = std::move(sig.value);
+              },
+              [](const auto &reason) {
+                BOOST_THROW_EXCEPTION(std::runtime_error(
+                    "Cannot build signature: " + reason.error));
+              });
       return signature_with_pubkey;
     }
 
