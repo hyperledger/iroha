@@ -10,17 +10,31 @@
 
 namespace iroha {
   namespace ametsuchi {
+    /**
+     * Class provides an interface for reconnection condition.
+     */
     class ReconnectionStrategy {
      public:
+      /**
+       * Checks the possibility of reconnection
+       * @return true if the reconnection can be applied
+       */
       virtual bool canReconnect() = 0;
+
+      /**
+       * Reset a strategy to default value
+       */
       virtual void reset() = 0;
+
       virtual ~ReconnectionStrategy() = default;
     };
 
+    /**
+     * Class provides a factory which creates strategies on request
+     */
     class ReconnectionStrategyFactory {
      public:
-      virtual std::shared_ptr<ReconnectionStrategy>
-      create() = 0;
+      virtual std::shared_ptr<ReconnectionStrategy> create() = 0;
 
       virtual ~ReconnectionStrategyFactory() = default;
     };
