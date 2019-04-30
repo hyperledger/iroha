@@ -87,6 +87,11 @@ namespace integration_framework {
     using TransactionBatchType = shared_model::interface::TransactionBatch;
     using TransactionBatchSPtr = std::shared_ptr<TransactionBatchType>;
 
+   private:
+    std::mutex queue_mu;
+    std::condition_variable queue_cond;
+
+   public:
     /**
      * Construct test framework instance
      * @param maximum_proposal_size - Maximum number of transactions per
@@ -504,8 +509,6 @@ namespace integration_framework {
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:
-    std::mutex queue_mu;
-    std::condition_variable queue_cond;
     bool cleanup_on_exit_;
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;
     std::vector<std::unique_ptr<ServerRunner>> fake_peers_servers_;
