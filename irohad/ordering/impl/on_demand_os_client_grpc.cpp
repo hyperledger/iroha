@@ -72,7 +72,7 @@ OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
                     std::move(v).value));
           },
           [this](const auto &error) {
-            log_->info(error.error.error);  // error
+            log_->info("{}", error.error.error);  // error
             return boost::optional<
                 std::shared_ptr<const OdOsNotification::ProposalType>>();
           });

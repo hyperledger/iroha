@@ -168,7 +168,7 @@ namespace iroha {
       // boost::get of pointer returns pointer to requested type, or nullptr
       if (auto e =
               boost::get<expected::Error<std::string>>(&deserialized_block)) {
-        log_->error(e->error);
+        log_->error("{}", e->error);
         return result;
       }
 
@@ -261,7 +261,7 @@ namespace iroha {
             soci::use(query.creatorAccountId(), "account_id"),
             soci::use(keys, "pk");
       } catch (const std::exception &e) {
-        log_->error(e.what());
+        log_->error("{}", e.what());
         return false;
       }
 

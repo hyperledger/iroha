@@ -42,7 +42,7 @@ namespace iroha {
             return boost::make_optional(std::shared_ptr<T>(std::move(v.value)));
           },
           [&](const auto &e) -> boost::optional<std::shared_ptr<T>> {
-            log_->error(e.error);
+            log_->error("{}", e.error);
             return boost::none;
           });
     }
