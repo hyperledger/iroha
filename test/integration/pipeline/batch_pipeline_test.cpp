@@ -43,7 +43,7 @@ class BatchPipelineTest
   }
 
   /**
-   * Create transaction to add one more signatory and change account quorum
+   * Create transaction to add one more signatory and set account quorum equal 2
    */
   auto raiseFirstUserQuorum() {
     return AcceptanceFixture::complete(
@@ -183,6 +183,23 @@ class BatchPipelineTest
             batch});
   };
 
+  integration_framework::IntegrationTestFramework &prepareState(
+      integration_framework::IntegrationTestFramework &itf,
+      const std::string &amount1,
+      const std::string &amount2) {
+    return itf.setInitialState(kAdminKeypair)
+        .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(createAndAddAssets(
+                         kFirstUserId, kAssetA, amount1, kFirstUserKeypair),
+                     CHECK_TXS_QUANTITY(1))
+        .sendTxAwait(createAndAddAssets(
+                         kSecondUserId, kAssetB, amount2, kSecondUserKeypair),
+                     CHECK_TXS_QUANTITY(1));
+  }
+
  protected:
   const std::string kAdmin = "admin";
   const std::string kFirstUser = "first";
@@ -229,19 +246,8 @@ TEST_P(BatchPipelineTest, ValidBatch) {
   auto transaction_sequence = createTransactionSequence(
       {signedTx(batch_transactions[0], kFirstUserKeypair),
        signedTx(batch_transactions[1], kSecondUserKeypair)});
-
-  integration_framework::IntegrationTestFramework(2)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kFirstUserId, kAssetA, "1.0", kFirstUserKeypair),
-          CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kSecondUserId, kAssetB, "1.0", kSecondUserKeypair),
-          CHECK_TXS_QUANTITY(1))
+  integration_framework::IntegrationTestFramework itf(2);
+  prepareState(itf, "1.0", "1.0")
       .sendTxSequenceAwait(
           transaction_sequence, [&transaction_sequence](const auto &block) {
             // check that transactions from block are the same as transactions
@@ -273,18 +279,8 @@ TEST_F(BatchPipelineTest, InvalidAtomicBatch) {
       {signedTx(batch_transactions[0], kFirstUserKeypair),
        signedTx(batch_transactions[1], kSecondUserKeypair)});
 
-  integration_framework::IntegrationTestFramework(2)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kFirstUserId, kAssetA, "1.0", kFirstUserKeypair),
-          CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kSecondUserId, kAssetB, "1.0", kSecondUserKeypair),
-          CHECK_TXS_QUANTITY(1))
+  integration_framework::IntegrationTestFramework itf(2);
+  prepareState(itf, "1.0", "1.0")
       .sendTxSequence(
           transaction_sequence,
           [](const auto &statuses) {
@@ -335,18 +331,8 @@ TEST_F(BatchPipelineTest, InvalidOrderedBatch) {
        signedTx(batch_transactions[1], kSecondUserKeypair),
        signedTx(batch_transactions[2], kFirstUserKeypair)});
 
-  integration_framework::IntegrationTestFramework(3)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kFirstUserId, kAssetA, "1.0", kFirstUserKeypair),
-          CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kSecondUserId, kAssetB, "1.0", kSecondUserKeypair),
-          CHECK_TXS_QUANTITY(1))
+  integration_framework::IntegrationTestFramework itf(3);
+  prepareState(itf, "1.0", "1.0")
       .sendTxSequenceAwait(transaction_sequence, [&](const auto block) {
         ASSERT_THAT(
             block->transactions(),
@@ -389,16 +375,7 @@ TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
   auto firstTxHash = batch->transactions()[0]->hash();
 
   integration_framework::IntegrationTestFramework itf(2);
-  itf.setInitialState(kAdminKeypair)
-      .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kFirstUserId, kAssetA, "10.0", kFirstUserKeypair),
-          CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createAndAddAssets(
-          kSecondUserId, kAssetB, "20.0", kSecondUserKeypair))
+  prepareState(itf, "10.0", "20.0")
       .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
       .sendTxSequence(batchToSequence(batch))
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
@@ -422,7 +399,7 @@ TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
  * @when
  *   signatures are added sequentially
  * @then
- *   batch remain pending till all signatures are collected
+ *   batch remains pending till all signatures are collected
  */
 TEST_F(BatchPipelineTest, CommitAtomicBatchStepByStepSigning) {
   auto batch = framework::batch::makeTestBatch(
@@ -434,17 +411,7 @@ TEST_F(BatchPipelineTest, CommitAtomicBatchStepByStepSigning) {
   auto firstTxHash = batch->transactions()[0]->hash();
 
   integration_framework::IntegrationTestFramework itf(2);
-  itf.setInitialState(kAdminKeypair)
-      .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(
-          createAndAddAssets(kFirstUserId, kAssetA, "10.0", kFirstUserKeypair),
-          CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(createAndAddAssets(
-                       kSecondUserId, kAssetB, "20.0", kSecondUserKeypair),
-                   CHECK_TXS_QUANTITY(1))
+  prepareState(itf, "10.0", "20.0")
       .sendTxAwait(raiseFirstUserQuorum(), CHECK_TXS_QUANTITY(1))
       .sendTxSequence(batchToSequence(batch1))
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
