@@ -42,7 +42,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
       [this, height, &peer_pubkey](auto subscriber) {
         auto peer = this->findPeer(peer_pubkey);
         if (not peer) {
-          log_->error(kPeerNotFound);
+          log_->error("{}", kPeerNotFound);
           subscriber.on_completed();
           return;
         }
@@ -67,7 +67,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
                     subscriber.on_next(std::move(result.value));
                   },
                   [this, &context](const auto &error) {
-                    log_->error(error.error);
+                    log_->error("{}", error.error);
                     context.TryCancel();
                   });
         }
@@ -80,7 +80,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
     const PublicKey &peer_pubkey, const types::HashType &block_hash) {
   auto peer = findPeer(peer_pubkey);
   if (not peer) {
-    log_->error(kPeerNotFound);
+    log_->error("{}", kPeerNotFound);
     return boost::none;
   }
 
@@ -93,7 +93,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
 
   auto status = getPeerStub(**peer).retrieveBlock(&context, request, &block);
   if (not status.ok()) {
-    log_->warn(status.error_message());
+    log_->warn("{}", status.error_message());
     return boost::none;
   }
 
@@ -104,7 +104,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
                 std::shared_ptr<Block>(std::move(v.value)));
           },
           [this](const auto &e) -> boost::optional<std::shared_ptr<Block>> {
-            log_->error(e.error);
+            log_->error("{}", e.error);
             return boost::none;
           });
 }
@@ -114,7 +114,7 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
   auto peers = peer_query_factory_->createPeerQuery() |
       [](const auto &query) { return query->getLedgerPeers(); };
   if (not peers) {
-    log_->error(kPeerRetrieveFail);
+    log_->error("{}", kPeerRetrieveFail);
     return boost::none;
   }
 
@@ -124,7 +124,7 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
         return peer->pubkey().blob() == blob;
       });
   if (it == peers.value().end()) {
-    log_->error(kPeerFindFail);
+    log_->error("{}", kPeerFindFail);
     return boost::none;
   }
   return *it;

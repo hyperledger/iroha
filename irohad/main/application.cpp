@@ -190,7 +190,7 @@ void Irohad::initStorage() {
                                            log_manager_->getChild("Storage"));
   std::move(storageResult)
       .match([&](auto &&v) { storage = std::move(v.value); },
-             [&](const auto &error) { log_->error(error.error); });
+             [&](const auto &error) { log_->error("{}", error.error); });
 
   log_->info("[Init] => storage ({})", logger::logBool(storage));
 }
@@ -199,7 +199,7 @@ bool Irohad::restoreWsv() {
   return wsv_restorer_->restoreWsv(*storage).match(
       [](const auto &) { return true; },
       [this](const auto &error) {
-        log_->error(error.error);
+        log_->error("{}", error.error);
         return false;
       });
 }
@@ -737,7 +737,7 @@ Irohad::RunResult Irohad::run() {
             return {};
           },
           [&](const auto &e) -> RunResult {
-            log_->error(e.error);
+            log_->error("{}", e.error);
             return e;
           });
 }
