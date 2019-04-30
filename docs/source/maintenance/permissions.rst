@@ -374,7 +374,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 .. literalinclude:: ../../../example/python/permissions/can_add_domain_asset_qty.py
     :language: python
     :linenos:
-    :lines: 1-8
+    :lines: 1-10
 
 can_subtract_domain_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -388,7 +388,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 .. literalinclude:: ../../../example/python/permissions/can_subtract_domain_asset_qty.py
     :language: python
     :linenos:
-    :lines: 1-8
+    :lines: 1-10
 
 Domain
 ------
