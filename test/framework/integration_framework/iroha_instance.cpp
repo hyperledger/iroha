@@ -78,7 +78,6 @@ namespace integration_framework {
 
   void IrohaInstance::initPipeline(
       const shared_model::crypto::Keypair &key_pair, size_t max_proposal_size) {
-    shared_model::interface::types::PeerList alternative_peers{};
     instance_ = std::make_shared<TestIrohad>(block_store_dir_,
                                              pg_conn_,
                                              listen_ip_,
@@ -91,7 +90,7 @@ namespace integration_framework {
                                              key_pair,
                                              max_rounds_delay_,
                                              stale_stream_max_rounds_,
-                                             std::move(alternative_peers),
+                                             boost::none,
                                              irohad_log_manager_,
                                              log_,
                                              opt_mst_gossip_params_);
