@@ -232,16 +232,15 @@ class JsonDeserializerImpl {
 
 template <>
 inline void JsonDeserializerImpl::getVal<bool>(const std::string &path,
-                                        bool &dest,
-                                        const rapidjson::Value &src) {
+                                               bool &dest,
+                                               const rapidjson::Value &src) {
   assert_fatal(src.IsBool(), path + " must be a boolean");
   dest = src.GetBool();
 }
 
 template <>
-inline void JsonDeserializerImpl::getVal<std::string>(const std::string &path,
-                                               std::string &dest,
-                                               const rapidjson::Value &src) {
+inline void JsonDeserializerImpl::getVal<std::string>(
+    const std::string &path, std::string &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsString(), path + " must be a string");
   dest = src.GetString();
 }
@@ -295,8 +294,8 @@ inline void JsonDeserializerImpl::getVal<logger::LoggerManagerTreePtr>(
 }
 
 template <>
-inline void JsonDeserializerImpl::getVal<
-    std::unique_ptr<shared_model::interface::Peer>>(
+inline void
+JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
     const std::string &path,
     std::unique_ptr<shared_model::interface::Peer> &dest,
     const rapidjson::Value &src) {
@@ -308,21 +307,16 @@ inline void JsonDeserializerImpl::getVal<
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
   common_objects_factory_
       ->createPeer(address, shared_model::crypto::PublicKey(public_key_str))
-      .match(
-          [&dest](iroha::expected::Value<
-                  std::unique_ptr<shared_model::interface::Peer>> &v) {
-            dest = std::move(v.value);
-          },
-          [&path](const iroha::expected::Error<std::string> &error) {
-            throw std::runtime_error("Failed to create a peer at '" + path
-                                     + "': " + error.error);
-          });
+      .match([&dest](auto &&v) { dest = std::move(v.value); },
+             [&path](const auto &error) {
+               throw std::runtime_error("Failed to create a peer at '" + path
+                                        + "': " + error.error);
+             });
 }
 
 template <>
-inline void JsonDeserializerImpl::getVal<IrohadConfig>(const std::string &path,
-                                                IrohadConfig &dest,
-                                                const rapidjson::Value &src) {
+inline void JsonDeserializerImpl::getVal<IrohadConfig>(
+    const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
                path + " Irohad config top element must be an object.");
   const auto obj = src.GetObject();
@@ -347,7 +341,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(const std::string &path,
   getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
 }
 
- // ------------ end of getVal(path, dst, src) specializations ------------
+// ------------ end of getVal(path, dst, src) specializations ------------
 
 std::string reportJsonParsingError(const rapidjson::Document &doc,
                                    const std::string &conf_path,
