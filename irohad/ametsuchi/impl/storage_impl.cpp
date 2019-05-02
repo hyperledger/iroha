@@ -232,7 +232,7 @@ namespace iroha {
             log_->info("block inserted: {}", inserted);
             this->commit(std::move(storage.value));
           },
-          [&](const auto &error) { log_->error(error.error); });
+          [&](const auto &error) { log_->error("{}", error.error); });
 
       return inserted;
     }
@@ -250,7 +250,7 @@ namespace iroha {
             this->commit(std::move(mutableStorage.value));
           },
           [&](const auto &error) {
-            log_->error(error.error);
+            log_->error("{}", error.error);
             inserted = false;
           });
 
