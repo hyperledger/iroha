@@ -38,7 +38,7 @@ namespace iroha {
      public:
       KTimesReconnectionStrategyFactory(size_t number_of_reconnections);
 
-      std::shared_ptr<ReconnectionStrategy> create() override;
+      std::unique_ptr<ReconnectionStrategy> create() override;
 
      private:
       const size_t max_number_of_reconnections_;
