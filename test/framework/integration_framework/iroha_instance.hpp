@@ -21,6 +21,7 @@
 namespace shared_model {
   namespace interface {
     class Block;
+    class Peer;
   }  // namespace interface
   namespace crypto {
     class Keypair;

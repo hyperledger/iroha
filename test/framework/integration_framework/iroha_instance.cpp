@@ -90,6 +90,7 @@ namespace integration_framework {
                                              key_pair,
                                              max_rounds_delay_,
                                              stale_stream_max_rounds_,
+                                             boost::none,
                                              irohad_log_manager_,
                                              log_,
                                              opt_mst_gossip_params_);

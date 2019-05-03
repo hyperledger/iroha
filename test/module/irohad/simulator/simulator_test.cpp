@@ -86,8 +86,10 @@ class SimulatorTest : public ::testing::Test {
   rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
   std::shared_ptr<Simulator> simulator;
-  std::shared_ptr<PeerList> ledger_peers = std::make_shared<PeerList>(
-      PeerList{makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
+  std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers =
+      std::make_shared<shared_model::interface::types::PeerList>(
+          shared_model::interface::types::PeerList{
+              makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
 };
 
 shared_model::proto::Block makeBlock(int height) {

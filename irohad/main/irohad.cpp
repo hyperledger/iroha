@@ -10,6 +10,7 @@
 #include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
 #include "ametsuchi/storage.hpp"
+#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
@@ -19,6 +20,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "validators/field_validator.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
@@ -106,6 +108,14 @@ logger::LoggerManagerTreePtr getDefaultLogManager() {
       logger::LogLevel::kInfo, logger::getDefaultLogPatterns()});
 }
 
+std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+getCommonObjectsFactory() {
+  auto validators_config =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(0);
+  return std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
+      shared_model::validation::FieldValidator>>(validators_config);
+}
+
 int main(int argc, char *argv[]) {
   gflags::SetVersionString(iroha::kGitPrettyVersion);
 
@@ -135,13 +145,22 @@ int main(int argc, char *argv[]) {
   }
 
   // Reading iroha configuration file
-  const auto config = parse_iroha_config(FLAGS_config);
+  const auto config =
+      parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
   if (not log_manager) {
     log_manager = config.logger_manager.value_or(getDefaultLogManager());
     log = log_manager->getChild("Init")->getLogger();
   }
   log->info("Irohad version: {}", iroha::kGitPrettyVersion);
   log->info("config initialized");
+
+  if (config.initial_peers and config.initial_peers->empty()) {
+    log->critical(
+        "Got an empty initial peers list in configuration file. You have to "
+        "either specify some peers or avoid overriding the peers from genesis "
+        "block!");
+    return EXIT_FAILURE;
+  }
 
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
@@ -171,6 +190,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
+      std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}));

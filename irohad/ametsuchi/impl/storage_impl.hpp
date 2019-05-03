@@ -95,7 +95,12 @@ namespace iroha {
           const std::vector<std::shared_ptr<shared_model::interface::Block>>
               &blocks) override;
 
+      expected::Result<void, std::string> insertPeer(
+          const shared_model::interface::Peer &peer) override;
+
       void reset() override;
+
+      void resetPeers() override;
 
       void dropStorage() override;
 
@@ -188,6 +193,7 @@ namespace iroha {
      protected:
       static const std::string &drop_;
       static const std::string &reset_;
+      static const std::string &reset_peers_;
       static const std::string &init_;
     };
   }  // namespace ametsuchi

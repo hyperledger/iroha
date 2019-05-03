@@ -16,12 +16,14 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
@@ -256,6 +258,14 @@ namespace iroha {
       return inserted;
     }
 
+    expected::Result<void, std::string> StorageImpl::insertPeer(
+        const shared_model::interface::Peer &peer) {
+      log_->info("Insert peer {}", peer.pubkey().hex());
+      soci::session sql(*connection_);
+      PostgresWsvCommand wsv_command(sql);
+      return wsv_command.insertPeer(peer);
+    }
+
     void StorageImpl::reset() {
       log_->info("drop wsv records from db tables");
       try {
@@ -269,6 +279,16 @@ namespace iroha {
         block_store_->dropAll();
       } catch (std::exception &e) {
         log_->warn("Drop wsv was failed. Reason: {}", e.what());
+      }
+    }
+
+    void StorageImpl::resetPeers() {
+      log_->info("Remove everything from peers table");
+      try {
+        soci::session sql(*connection_);
+        sql << reset_peers_;
+      } catch (std::exception &e) {
+        log_->error("Failed to reset peers list, reason: {}", e.what());
       }
     }
 
@@ -404,9 +424,7 @@ namespace iroha {
       options.dbname() | [&options, &string_res](const std::string &dbname) {
         createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
             .match([](auto &&val) {},
-                   [&string_res](auto &&error) {
-                     string_res = error.error;
-                   });
+                   [&string_res](auto &&error) { string_res = error.error; });
       };
 
       if (string_res) {
@@ -461,10 +479,11 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<std::unique_ptr<LedgerState>>(
-                    std::make_unique<LedgerState>(
-                        std::make_shared<PeerList>(std::move(peers)),
-                        storage->getTopBlockHeight()));
+                return boost::optional<
+                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
+                    storage->getTopBlockHeight()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -513,7 +532,8 @@ namespace iroha {
                 log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<PeerList>(std::move(peers)),
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
                     block_query.getTopBlockHeight()));
           }
           return boost::none;
@@ -649,6 +669,10 @@ TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
 TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
 TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
 TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+)";
+
+    const std::string &StorageImpl::reset_peers_ = R"(
+TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
 )";
 
     const std::string &StorageImpl::init_ =

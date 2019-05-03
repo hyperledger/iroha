@@ -86,6 +86,8 @@ Irohad::Irohad(const std::string &block_store_dir,
                const shared_model::crypto::Keypair &keypair,
                std::chrono::milliseconds max_rounds_delay,
                size_t stale_stream_max_rounds,
+               boost::optional<shared_model::interface::types::PeerList>
+                   opt_alternative_peers,
                logger::LoggerManagerTreePtr logger_manager,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
@@ -101,6 +103,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       mst_expiration_time_(mst_expiration_time),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
+      opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
@@ -132,6 +135,10 @@ void Irohad::init() {
   // Recover WSV from the existing ledger to be sure it is consistent
   initWsvRestorer();
   restoreWsv();
+  if (opt_alternative_peers_) {
+    if (not resetPeers(*opt_alternative_peers_))
+      return;
+  }
 
   initCryptoProvider();
   initBatchParser();
@@ -202,6 +209,19 @@ bool Irohad::restoreWsv() {
         log_->error("{}", error.error);
         return false;
       });
+}
+
+bool Irohad::resetPeers(
+    const shared_model::interface::types::PeerList &alternative_peers) {
+  storage->resetPeers();
+  for (const auto &peer : alternative_peers) {
+    auto result = storage->insertPeer(*peer);
+    if (auto e = boost::get<expected::Error<std::string>>(&result)) {
+      log_->error("{}", e->error);
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -720,7 +740,9 @@ Irohad::RunResult Irohad::run() {
                 [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
             auto initial_ledger_state = std::make_shared<LedgerState>(
-                std::make_unique<PeerList>(peers.value()), block->height());
+                std::make_unique<shared_model::interface::types::PeerList>(
+                    peers.value()),
+                block->height());
 
             pcs->onSynchronization().subscribe(
                 ordering_init.sync_event_notifier.get_subscriber());

@@ -7,6 +7,7 @@
 #define IROHA_SHARED_MODEL_TYPES_HPP
 
 #include <cstdint>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -25,6 +26,7 @@ namespace shared_model {
     class Signature;
     class Transaction;
     class AccountAsset;
+    class Peer;
 
     namespace types {
       /// Type of hash
@@ -57,8 +59,6 @@ namespace shared_model {
       using QuorumType = uint16_t;
       /// Type of timestamp
       using TimestampType = uint64_t;
-      /// Type of peer address
-      using AddressType = std::string;
       /// Type of counter
       using CounterType = uint64_t;
       /// Type of account name
@@ -77,6 +77,9 @@ namespace shared_model {
       using TransactionsNumberType = uint16_t;
       /// Type of the transfer message
       using DescriptionType = std::string;
+      /// Type of peers collection
+      using PeerList =
+          std::vector<std::shared_ptr<shared_model::interface::Peer>>;
 
       enum class BatchType { ATOMIC = 0, ORDERED = 1 };
 

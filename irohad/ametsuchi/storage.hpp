@@ -61,6 +61,14 @@ namespace iroha {
               &blocks) = 0;
 
       /**
+       * Insert a peer into WSV
+       * @param peer - peer to insert
+       * @return error reason if not inserted
+       */
+      virtual expected::Result<void, std::string> insertPeer(
+          const shared_model::interface::Peer &peer) = 0;
+
+      /**
        * method called when block is written to the storage
        * @return observable with the Block committed
        */
@@ -72,6 +80,11 @@ namespace iroha {
        * Remove all records from the tables and remove all the blocks
        */
       virtual void reset() = 0;
+
+      /**
+       * Removes all peers from WSV
+       */
+      virtual void resetPeers() = 0;
 
       /**
        * Remove all information from ledger
