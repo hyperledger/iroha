@@ -9,7 +9,7 @@ find_package_handle_standard_args(rxcpp DEFAULT_MSG
 
 
 set(URL https://github.com/Reactive-Extensions/rxcpp.git)
-set(VERSION 795587fa311fa41050111a830d91b183d8e53ff9)
+set(VERSION f38fb8e3c30b01b07c57e08039b2942f1685224d)
 set_target_description(rxcpp "Library for reactive programming" ${URL} ${VERSION})
 
 
