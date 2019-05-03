@@ -28,8 +28,8 @@ KTimesReconnectionStrategyFactory::KTimesReconnectionStrategyFactory(
     size_t number_of_reconnections)
     : max_number_of_reconnections_(number_of_reconnections) {}
 
-std::shared_ptr<ReconnectionStrategy>
+std::unique_ptr<ReconnectionStrategy>
 KTimesReconnectionStrategyFactory::create() {
-  return std::make_shared<KTimesReconnectionStrategy>(
+  return std::make_unique<KTimesReconnectionStrategy>(
       max_number_of_reconnections_);
 }
