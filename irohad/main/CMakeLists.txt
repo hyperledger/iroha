@@ -21,12 +21,6 @@ target_link_libraries(raw_block_loader
     logger
     )
 
-add_library(peers_file_reader impl/peers_file_reader_impl.cpp)
-target_link_libraries(peers_file_reader
-    shared_model_interfaces
-    parser
-    )
-
 add_library(application
     application.cpp
     # TODO andrei 08.11.2018 IR-1851 Create separate targets for initialization
@@ -67,7 +61,6 @@ add_executable(irohad irohad.cpp)
 target_link_libraries(irohad
     application
     raw_block_loader
-    peers_file_reader
     gflags
     rapidjson
     keys_manager

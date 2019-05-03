@@ -95,7 +95,8 @@ namespace iroha {
           const std::vector<std::shared_ptr<shared_model::interface::Block>>
               &blocks) override;
 
-      bool insertPeer(const shared_model::interface::Peer &peer) override;
+      expected::Result<void, std::string> insertPeer(
+          const shared_model::interface::Peer &peer) override;
 
       void reset() override;
 

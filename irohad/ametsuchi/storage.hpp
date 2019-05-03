@@ -63,9 +63,10 @@ namespace iroha {
       /**
        * Insert a peer into WSV
        * @param peer - peer to insert
-       * @return true if inserted
+       * @return error reason if not inserted
        */
-      virtual bool insertPeer(const shared_model::interface::Peer &peer) = 0;
+      virtual expected::Result<void, std::string> insertPeer(
+          const shared_model::interface::Peer &peer) = 0;
 
       /**
        * method called when block is written to the storage

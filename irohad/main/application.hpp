@@ -133,7 +133,8 @@ class Irohad {
    * @param alternative_peers - the peers to place into WSV
    * @return true on success
    */
-  bool resetPeers(shared_model::interface::types::PeerList alternative_peers);
+  bool resetPeers(
+      const shared_model::interface::types::PeerList &alternative_peers);
 
   /**
    * Drop wsv and block store
