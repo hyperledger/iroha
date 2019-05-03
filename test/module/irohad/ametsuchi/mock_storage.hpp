@@ -45,7 +45,9 @@ namespace iroha {
       MOCK_METHOD1(insertBlocks,
                    bool(const std::vector<
                         std::shared_ptr<shared_model::interface::Block>> &));
-      MOCK_METHOD1(insertPeer, bool(const shared_model::interface::Peer &));
+      MOCK_METHOD1(insertPeer,
+                   expected::Result<void, std::string>(
+                       const shared_model::interface::Peer &));
       MOCK_METHOD0(reset, void(void));
       MOCK_METHOD0(resetPeers, void(void));
       MOCK_METHOD0(dropStorage, void(void));
