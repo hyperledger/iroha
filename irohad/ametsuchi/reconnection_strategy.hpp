@@ -17,12 +17,12 @@ namespace iroha {
      public:
       /**
        * Checks the possibility of reconnection
-       * @return true if the reconnection can be applied
+       * @return true if the reconnection can be performed
        */
       virtual bool canReconnect() = 0;
 
       /**
-       * Reset a strategy to default value
+       * Reset strategy to default value
        */
       virtual void reset() = 0;
 
@@ -34,7 +34,7 @@ namespace iroha {
      */
     class ReconnectionStrategyFactory {
      public:
-      virtual std::shared_ptr<ReconnectionStrategy> create() = 0;
+      virtual std::unique_ptr<ReconnectionStrategy> create() = 0;
 
       virtual ~ReconnectionStrategyFactory() = default;
     };
