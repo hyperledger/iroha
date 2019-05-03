@@ -258,16 +258,12 @@ namespace iroha {
       return inserted;
     }
 
-    bool StorageImpl::insertPeer(const shared_model::interface::Peer &peer) {
+    expected::Result<void, std::string> StorageImpl::insertPeer(
+        const shared_model::interface::Peer &peer) {
       log_->info("Insert peer {}", peer.pubkey().hex());
       soci::session sql(*connection_);
       PostgresWsvCommand wsv_command(sql);
-      auto status = wsv_command.insertPeer(peer);
-      if (auto e = boost::get<expected::Error<std::string>>(&status)) {
-        log_->error("Failed to insert peer: {}", e->error);
-        return false;
-      }
-      return true;
+      return wsv_command.insertPeer(peer);
     }
 
     void StorageImpl::reset() {
@@ -428,9 +424,7 @@ namespace iroha {
       options.dbname() | [&options, &string_res](const std::string &dbname) {
         createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
             .match([](auto &&val) {},
-                   [&string_res](auto &&error) {
-                     string_res = error.error;
-                   });
+                   [&string_res](auto &&error) { string_res = error.error; });
       };
 
       if (string_res) {

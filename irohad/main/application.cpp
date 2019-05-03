@@ -8,7 +8,6 @@
 #include <boost/filesystem.hpp>
 
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
-#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -137,8 +136,8 @@ void Irohad::init() {
   initWsvRestorer();
   restoreWsv();
   if (opt_alternative_peers_) {
-    // replace the peers if the `--peers' flag is set on the command line
-    resetPeers(*opt_alternative_peers_);
+    if (not resetPeers(*opt_alternative_peers_))
+      return;
   }
 
   initCryptoProvider();
@@ -213,10 +212,12 @@ bool Irohad::restoreWsv() {
 }
 
 bool Irohad::resetPeers(
-    shared_model::interface::types::PeerList alternative_peers) {
+    const shared_model::interface::types::PeerList &alternative_peers) {
   storage->resetPeers();
   for (const auto &peer : alternative_peers) {
-    if (not storage->insertPeer(*peer)) {
+    auto result = storage->insertPeer(*peer);
+    if (auto e = boost::get<expected::Error<std::string>>(&result)) {
+      log_->error("{}", e->error);
       return false;
     }
   }
