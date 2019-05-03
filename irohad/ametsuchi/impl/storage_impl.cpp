@@ -65,12 +65,19 @@ namespace {
 namespace iroha {
   namespace ametsuchi {
 
+    /**
+     * Class provides a reconnection for the session by manual manipilations
+     * Note: the class is a workaround for SOCI 4.0, supporting of further
+     * versions is not guaranteed
+     */
     class FailOverCallback : public soci::failover_callback {
      public:
       FailOverCallback(
+          soci::postgresql_session_backend &connection,
           std::shared_ptr<ReconnectionStrategy> reconnection_strategy,
           logger::LoggerPtr log)
-          : reconnection_strategy_(std::move(reconnection_strategy)),
+          : connection_(connection_),
+            reconnection_strategy_(std::move(reconnection_strategy)),
             log_(std::move(log)) {}
 
       virtual void started() {
@@ -78,27 +85,42 @@ namespace iroha {
         log_->debug("Reconnection process is initiated");
       }
 
-      virtual void finished(soci::session &) {
-        reconnection_strategy_->reset();
-        log_->debug("Reconnection has re-established successfully");
-      }
+      virtual void finished(soci::session &) {}
 
       virtual void failed(bool &should_reconnect, std::string &) {
-        should_reconnect = reconnection_strategy_->canReconnect();
+        // don't rely on reconnection in soci because we are going to conduct
+        // our own reconnection process
+        should_reconnect = false;
         log_->warn(
             "troubles with storage connections are occurred. The system will "
             "try to reconnect [{}]",
             should_reconnect);
+        auto is_reconnected = reconnectionLoop();
+        log_->info("The connection re-established: {}", is_reconnected);
       }
 
       virtual void aborted() {
-        reconnection_strategy_->reset();
-        log_->error(
-            "Exceeded number of attempts to reconnect. Connection will be "
-            "failed");
+        log_->error("has invoked aborted method of FailOverCallback");
       }
 
      private:
+      bool reconnectionLoop() {
+        bool successful_reconnection = false;
+        while (reconnection_strategy_->canReconnect()
+               and not successful_reconnection) {
+          try {
+            soci::connection_parameters parameters("postgresql", "");
+            connection_.clean_up();
+            connection_.connect(parameters);
+            successful_reconnection = true;
+          } catch (...) {
+            log_->warn("attempt to reconnect has failed");
+          }
+        }
+        return successful_reconnection;
+      }
+
+      soci::postgresql_session_backend &connection_;
       std::shared_ptr<ReconnectionStrategy> reconnection_strategy_;
       logger::LoggerPtr log_;
     };
@@ -106,10 +128,11 @@ namespace iroha {
     class FailOverCallbackFactory {
      public:
       FailOverCallback &makeFailOverCallback(
+          soci::postgresql_session_backend &connection,
           std::shared_ptr<ReconnectionStrategy> reconnection_strategy,
           logger::LoggerPtr log) {
         callbacks_.push_back(std::make_unique<FailOverCallback>(
-            std::move(reconnection_strategy), std::move(log)));
+            connection, std::move(reconnection_strategy), std::move(log)));
         return *callbacks_.at(callbacks_.size() - 1);
       }
 
@@ -166,6 +189,7 @@ namespace iroha {
             session.get_backend());
         PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
         auto callback_ptr = callback_factory_->makeFailOverCallback(
+            *backend,
             reconnection_strategy_factory_->create(),
             log_manager_->getChild("SOCI connection " + std::to_string(i))
                 ->getLogger());
