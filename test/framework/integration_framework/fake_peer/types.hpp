@@ -17,7 +17,7 @@ namespace shared_model {
   namespace crypto {
     class Keypair;
     class Hash;
-  }
+  }  // namespace crypto
   namespace interface {
     class CommonObjectsFactory;
     class Proposal;
@@ -29,7 +29,7 @@ namespace shared_model {
   namespace proto {
     class Block;
     class Proposal;
-  }
+  }  // namespace proto
 }  // namespace shared_model
 
 namespace iroha {
@@ -51,7 +51,7 @@ namespace iroha {
       struct VoteMessage;
     }  // namespace yac
     struct Round;
-  }    // namespace consensus
+  }  // namespace consensus
   namespace ordering {
     namespace transport {
       class OnDemandOsServerGrpc;
@@ -77,7 +77,7 @@ namespace integration_framework {
     struct MstMessage;
 
     using YacMessage = std::vector<iroha::consensus::yac::VoteMessage>;
-    using LoaderBlockRequest = std::shared_ptr<shared_model::crypto::Hash>;
+    using LoaderBlockRequest = shared_model::interface::types::HeightType;
     using LoaderBlocksRequest = shared_model::interface::types::HeightType;
     using LoaderBlockRequestResult =
         boost::optional<std::shared_ptr<const shared_model::proto::Block>>;

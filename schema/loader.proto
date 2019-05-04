@@ -8,15 +8,11 @@ package iroha.network.proto;
 
 import "block.proto";
 
-message BlocksRequest {
+message BlockRequest {
   uint64 height = 1;
 }
 
-message BlockRequest {
-  bytes hash = 1;
-}
-
 service Loader {
-  rpc retrieveBlocks (BlocksRequest) returns (stream iroha.protocol.Block);
+  rpc retrieveBlocks (BlockRequest) returns (stream iroha.protocol.Block);
   rpc retrieveBlock (BlockRequest) returns (iroha.protocol.Block);
 }
