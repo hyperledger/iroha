@@ -55,7 +55,7 @@ namespace iroha {
           retrieveBlock,
           boost::optional<std::shared_ptr<shared_model::interface::Block>>(
               const shared_model::crypto::PublicKey &,
-              const shared_model::interface::types::HashType &));
+              shared_model::interface::types::HeightType));
     };
 
     class MockOrderingGate : public OrderingGate {

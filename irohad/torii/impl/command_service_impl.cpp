@@ -5,13 +5,12 @@
 
 #include "torii/impl/command_service_impl.hpp"
 
-#include <thread>
-
 #include "ametsuchi/block_query.hpp"
 #include "common/byteutils.hpp"
 #include "common/is_any.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/transaction.hpp"
 #include "interfaces/transaction_responses/not_received_tx_response.hpp"
 #include "logger/logger.hpp"
 

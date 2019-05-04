@@ -31,16 +31,16 @@ namespace iroha {
                      const shared_model::crypto::PublicKey &peer_pubkey) = 0;
 
       /**
-       * Retrieve block by its block_hash from given peer
+       * Retrieve block by its block_height from given peer
        * @param peer_pubkey - peer for requesting blocks
-       * @param block_hash - requested block hash
+       * @param block_height - requested block height
        * @return block on success, nullopt on failure
        * TODO 14/02/17 (@l4l) IR-960 rework method with returning result
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlock(
           const shared_model::crypto::PublicKey &peer_pubkey,
-          const shared_model::interface::types::HashType &block_hash) = 0;
+          shared_model::interface::types::HeightType block_height) = 0;
 
       virtual ~BlockLoader() = default;
     };

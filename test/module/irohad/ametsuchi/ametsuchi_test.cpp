@@ -100,7 +100,11 @@ TEST_F(AmetsuchiTest, GetBlocksCompletedWhenCalled) {
 
   apply(storage, block);
 
-  ASSERT_EQ(*blocks->getBlocks(1, 1)[0], *block);
+  ASSERT_EQ(*boost::get<iroha::expected::Value<
+                 std::unique_ptr<shared_model::interface::Block>>>(
+                 blocks->getBlock(1))
+                 .value,
+            *block);
 }
 
 TEST_F(AmetsuchiTest, SampleTest) {
@@ -149,10 +153,12 @@ TEST_F(AmetsuchiTest, SampleTest) {
   // Block store tests
   auto hashes = {block1->hash(), block2->hash()};
 
-  auto stored_blocks = blocks->getBlocks(1, 2);
-  ASSERT_EQ(2, stored_blocks.size());
-  for (size_t i = 0; i < stored_blocks.size(); i++) {
-    EXPECT_EQ(*(hashes.begin() + i), stored_blocks[i]->hash());
+  for (size_t i = 0; i < hashes.size(); i++) {
+    EXPECT_EQ(*(hashes.begin() + i),
+              boost::get<iroha::expected::Value<
+                  std::unique_ptr<shared_model::interface::Block>>>(
+                  blocks->getBlock(i + 1))
+                  .value->hash());
   }
 }
 

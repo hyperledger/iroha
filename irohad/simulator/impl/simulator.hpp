@@ -72,7 +72,7 @@ namespace iroha {
       logger::LoggerPtr log_;
 
       // last block
-      std::shared_ptr<shared_model::interface::Block> last_block;
+      std::unique_ptr<shared_model::interface::Block> last_block;
     };
   }  // namespace simulator
 }  // namespace iroha

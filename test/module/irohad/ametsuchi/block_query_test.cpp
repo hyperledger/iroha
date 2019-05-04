@@ -7,6 +7,7 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
+#include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "common/byteutils.hpp"
@@ -120,30 +121,28 @@ class BlockQueryTest : public AmetsuchiTest {
  * @then nothing is returned
  */
 TEST_F(BlockQueryTest, GetNonExistentBlock) {
-  auto stored_blocks = blocks->getBlocks(1000, 1);
-  ASSERT_TRUE(stored_blocks.empty());
+  auto stored_block = blocks->getBlock(1000);
+  stored_block.match(
+      [](auto &&v) {
+        FAIL() << "Nonexistent block request matched value "
+               << v.value->toString();
+      },
+      [](auto &&e) { SUCCEED(); });
 }
 
 /**
  * @given block store with 2 blocks totally containing 3 txs created by
  * user1@test AND 1 tx created by user2@test
- * @when height=1, count=1
+ * @when height=1
  * @then returned exactly 1 block
  */
 TEST_F(BlockQueryTest, GetExactlyOneBlock) {
-  auto stored_blocks = blocks->getBlocks(1, 1);
-  ASSERT_EQ(stored_blocks.size(), 1);
-}
-
-/**
- * @given block store with 2 blocks totally containing 3 txs created by
- * user1@test AND 1 tx created by user2@test
- * @when count=0
- * @then no blocks returned
- */
-TEST_F(BlockQueryTest, GetBlocks_Count0) {
-  auto stored_blocks = blocks->getBlocks(1, 0);
-  ASSERT_TRUE(stored_blocks.empty());
+  auto stored_block = blocks->getBlock(1);
+  stored_block.match([](auto &&v) { SUCCEED(); },
+                     [](auto &&e) {
+                       FAIL() << "Existing block request matched error "
+                              << e.error;
+                     });
 }
 
 /**
@@ -153,24 +152,13 @@ TEST_F(BlockQueryTest, GetBlocks_Count0) {
  * @then no blocks returned
  */
 TEST_F(BlockQueryTest, GetZeroBlock) {
-  auto stored_blocks = blocks->getBlocks(0, 1);
-  ASSERT_TRUE(stored_blocks.empty());
-}
-
-/**
- * @given block store with 2 blocks totally containing 3 txs created by
- * user1@test AND 1 tx created by user2@test
- * @when get all blocks starting from 1
- * @then returned all blocks (2)
- */
-TEST_F(BlockQueryTest, GetBlocksFrom1) {
-  auto stored_blocks = blocks->getBlocksFrom(1);
-  ASSERT_EQ(stored_blocks.size(), blocks_total);
-  for (size_t i = 0; i < stored_blocks.size(); i++) {
-    auto b = stored_blocks[i];
-    ASSERT_EQ(b->height(), i + 1)
-        << "block height: " << b->height() << "counter: " << i;
-  }
+  auto stored_block = blocks->getBlock(0);
+  stored_block.match(
+      [](auto &&v) {
+        FAIL() << "Nonexistent block request matched value "
+               << v.value->toString();
+      },
+      [](auto &&e) { SUCCEED(); });
 }
 
 /**
@@ -191,8 +179,13 @@ TEST_F(BlockQueryTest, GetBlockButItIsNotJSON) {
   block_file << content;
   block_file.close();
 
-  auto stored_blocks = blocks->getBlocks(block_n, 1);
-  ASSERT_TRUE(stored_blocks.empty());
+  auto stored_block = blocks->getBlock(block_n);
+  stored_block.match(
+      [](auto &&v) {
+        FAIL() << "Nonexistent block request matched value "
+               << v.value->toString();
+      },
+      [](auto &&e) { SUCCEED(); });
 }
 
 /**
@@ -216,26 +209,13 @@ TEST_F(BlockQueryTest, GetBlockButItIsInvalidBlock) {
   block_file << content;
   block_file.close();
 
-  auto stored_blocks = blocks->getBlocks(block_n, 1);
-  ASSERT_TRUE(stored_blocks.empty());
-}
-
-/**
- * @given block store with 2 blocks totally containing 3 txs created by
- * user1@test AND 1 tx created by user2@test
- * @when get top 2 blocks
- * @then last 2 blocks returned with correct height
- */
-TEST_F(BlockQueryTest, GetTop2Blocks) {
-  size_t blocks_n = 2;  // top 2 blocks
-
-  auto stored_blocks = blocks->getTopBlocks(blocks_n);
-  ASSERT_EQ(stored_blocks.size(), blocks_n);
-
-  for (size_t i = 0; i < blocks_n; i++) {
-    auto b = stored_blocks[i];
-    ASSERT_EQ(b->height(), i + 1);
-  }
+  auto stored_block = blocks->getBlock(block_n);
+  stored_block.match(
+      [](auto &&v) {
+        FAIL() << "Nonexistent block request matched value "
+               << v.value->toString();
+      },
+      [](auto &&e) { SUCCEED(); });
 }
 
 /**
@@ -288,7 +268,8 @@ TEST_F(BlockQueryTest, HasTxWithRejectedHash) {
  * @then returned top block's height is equal to the inserted one's
  */
 TEST_F(BlockQueryTest, GetTopBlockSuccess) {
-  auto top_block_opt = framework::expected::val(blocks->getTopBlock());
+  auto top_block_opt =
+      framework::expected::val(blocks->getBlock(blocks->getTopBlockHeight()));
   ASSERT_TRUE(top_block_opt);
   ASSERT_EQ(top_block_opt.value().value->height(), 2);
 }
@@ -303,9 +284,11 @@ TEST_F(BlockQueryTest, GetTopBlockFail) {
   EXPECT_CALL(*mock_file, get(mock_file->last_id()))
       .WillOnce(Return(boost::none));
 
-  auto top_block_error = framework::expected::err(empty_blocks->getTopBlock());
+  auto top_block_error = framework::expected::err(
+      empty_blocks->getBlock(empty_blocks->getTopBlockHeight()));
   ASSERT_TRUE(top_block_error);
-  auto expected_error = boost::format("Failed to retrieve block with id %d");
+  auto expected_error =
+      boost::format("Failed to retrieve block with height %d");
   ASSERT_EQ(top_block_error.value().error,
             (expected_error % mock_file->last_id()).str());
 }

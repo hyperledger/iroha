@@ -228,8 +228,8 @@ Irohad::RunResult Irohad::restoreWsv() {
       [](auto &&error) -> RunResult { return std::move(error); });
 }
 
- Irohad::RunResult Irohad::resetPeers(
-        const shared_model::interface::types::PeerList &alternative_peers) {
+Irohad::RunResult Irohad::resetPeers(
+    const shared_model::interface::types::PeerList &alternative_peers) {
   storage->resetPeers();
 
   for (const auto &peer : alternative_peers) {
@@ -388,19 +388,30 @@ Irohad::RunResult Irohad::initOrderingGate() {
   // since delay is 2, it is required to get two more hashes from block store,
   // in addition to top block
   const size_t kNumBlocks = 3;
-  auto blocks = (*block_query)->getTopBlocks(kNumBlocks);
+  auto top_height = (*block_query)->getTopBlockHeight();
+  decltype(top_height) block_hashes =
+      top_height > kNumBlocks ? kNumBlocks : top_height;
+
   auto hash_stub = shared_model::interface::types::HashType{std::string(
       shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0')};
-  auto hashes = std::accumulate(
-      blocks.begin(),
-      std::prev(blocks.end()),
-      // add hash stubs if there are not enough blocks in storage
-      std::vector<shared_model::interface::types::HashType>{
-          kNumBlocks - blocks.size(), hash_stub},
-      [](auto &acc, const auto &val) {
-        acc.push_back(val->hash());
-        return acc;
-      });
+  std::vector<shared_model::interface::types::HashType> hashes{
+      kNumBlocks - block_hashes, hash_stub};
+
+  for (decltype(top_height) i = top_height - block_hashes + 1; i <= top_height;
+       ++i) {
+    auto block_result = (*block_query)->getBlock(i);
+
+    if (auto e = boost::get<expected::Error<std::string>>(&block_result)) {
+      return iroha::expected::makeError(std::move(e->error));
+    }
+
+    auto &block =
+        boost::get<
+            expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
+            block_result)
+            .value;
+    hashes.push_back(block->hash());
+  }
 
   auto factory = std::make_unique<shared_model::proto::ProtoProposalFactory<
       shared_model::validation::DefaultProposalValidator>>(validators_config_);
@@ -512,15 +523,16 @@ Irohad::RunResult Irohad::initConsensusGate() {
     return iroha::expected::makeError<std::string>(
         "Failed to create block query");
   }
-  auto block_var = (*block_query)->getTopBlock();
+  auto block_var =
+      (*block_query)->getBlock((*block_query)->getTopBlockHeight());
   if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
     return iroha::expected::makeError<std::string>(
         "Failed to get the top block: " + e->error);
   }
 
-  auto block =
+  auto &block =
       boost::get<
-          expected::Value<std::shared_ptr<shared_model::interface::Block>>>(
+          expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
           &block_var)
           ->value;
   consensus_gate = yac_init->initConsensusGate(
@@ -762,15 +774,17 @@ Irohad::RunResult Irohad::run() {
             if (not block_query) {
               return expected::makeError("Failed to create block query");
             }
-            auto block_var = (*block_query)->getTopBlock();
+            auto block_var =
+                (*block_query)->getBlock((*block_query)->getTopBlockHeight());
             if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
               return expected::makeError("Failed to get the top block: "
                                          + e->error);
             }
 
-            auto block = boost::get<expected::Value<
-                std::shared_ptr<shared_model::interface::Block>>>(&block_var)
-                             ->value;
+            auto &block = boost::get<expected::Value<
+                std::unique_ptr<shared_model::interface::Block>>>(&block_var)
+                              ->value;
+            auto block_height = block->height();
 
             auto peers = storage->createPeerQuery() |
                 [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
@@ -785,12 +799,13 @@ Irohad::RunResult Irohad::run() {
             storage->on_commit().subscribe(
                 ordering_init.commit_notifier.get_subscriber());
 
-            ordering_init.commit_notifier.get_subscriber().on_next(block);
+            ordering_init.commit_notifier.get_subscriber().on_next(
+                std::move(block));
 
             ordering_init.sync_event_notifier.get_subscriber().on_next(
                 synchronizer::SynchronizationEvent{
                     SynchronizationOutcomeType::kCommit,
-                    {block->height(), ordering::kFirstRejectRound},
+                    {block_height, ordering::kFirstRejectRound},
                     initial_ledger_state});
             return {};
           },

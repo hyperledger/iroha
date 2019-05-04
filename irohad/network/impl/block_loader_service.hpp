@@ -23,7 +23,7 @@ namespace iroha {
 
       grpc::Status retrieveBlocks(
           ::grpc::ServerContext *context,
-          const proto::BlocksRequest *request,
+          const proto::BlockRequest *request,
           ::grpc::ServerWriter<protocol::Block> *writer) override;
 
       grpc::Status retrieveBlock(::grpc::ServerContext *context,

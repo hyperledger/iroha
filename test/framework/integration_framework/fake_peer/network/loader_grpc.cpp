@@ -19,10 +19,10 @@ namespace integration_framework {
                            logger::LoggerPtr log)
         : fake_peer_wptr_(fake_peer), log_(std::move(log)) {}
 
-    bool LoaderGrpc::sendBlockRequest(
-        const std::string &dest_address, const LoaderBlockRequest &hash) {
+    bool LoaderGrpc::sendBlockRequest(const std::string &dest_address,
+                                      const LoaderBlockRequest &height) {
       iroha::network::proto::BlockRequest request;
-      request.set_hash(hash->hex());
+      request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
       auto client = iroha::network::createClient<iroha::network::proto::Loader>(
@@ -38,7 +38,7 @@ namespace integration_framework {
 
     size_t LoaderGrpc::sendBlocksRequest(const std::string &dest_address,
                                          const LoaderBlocksRequest &height) {
-      iroha::network::proto::BlocksRequest request;
+      iroha::network::proto::BlockRequest request;
       request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
@@ -70,8 +70,7 @@ namespace integration_framework {
         ::grpc::ServerContext *context,
         const iroha::network::proto::BlockRequest *request,
         iroha::protocol::Block *response) {
-      LoaderBlockRequest hash =
-          std::make_shared<shared_model::crypto::Hash>(request->hash());
+      LoaderBlockRequest height = request->height();
       auto fake_peer = fake_peer_wptr_.lock();
       BOOST_VERIFY_MSG(fake_peer, "Fake Peer is not set!");
       auto behaviour = fake_peer->getBehaviour();
@@ -79,7 +78,7 @@ namespace integration_framework {
         return ::grpc::Status(::grpc::StatusCode::INTERNAL,
                               "Fake Peer has no behaviour set!");
       }
-      auto opt_block = behaviour->processLoaderBlockRequest(hash);
+      auto opt_block = behaviour->processLoaderBlockRequest(height);
       if (!opt_block) {
         return ::grpc::Status(::grpc::StatusCode::NOT_FOUND, "Block not found");
       }
@@ -89,7 +88,7 @@ namespace integration_framework {
 
     ::grpc::Status LoaderGrpc::retrieveBlocks(
         ::grpc::ServerContext *context,
-        const iroha::network::proto::BlocksRequest *request,
+        const iroha::network::proto::BlockRequest *request,
         ::grpc::ServerWriter<iroha::protocol::Block> *writer) {
       LoaderBlocksRequest height = request->height();
       auto fake_peer = fake_peer_wptr_.lock();
