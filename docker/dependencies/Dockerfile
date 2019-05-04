@@ -147,7 +147,7 @@ RUN set -e; \
 # install rxcpp
 RUN set -e; \
     git clone https://github.com/Reactive-Extensions/RxCpp /tmp/RxCpp; \
-    (cd /tmp/RxCpp ; git checkout 795587fa311fa41050111a830d91b183d8e53ff9); \
+    (cd /tmp/RxCpp ; git checkout f38fb8e3c30b01b07c57e08039b2942f1685224d); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -H/tmp/RxCpp \
