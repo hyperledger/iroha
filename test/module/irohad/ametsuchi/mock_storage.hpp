@@ -42,16 +42,15 @@ namespace iroha {
                        std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(
-          insertBlocks,
-          iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
-                                  std::string>(
-              const std::vector<std::shared_ptr<shared_model::interface::Block>>
-                  &));
+      MOCK_METHOD0(
+          createMutableStorageWithoutBlockStorage,
+          expected::Result<std::unique_ptr<MutableStorage>, std::string>());
+
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(
                        const shared_model::interface::Peer &));
       MOCK_METHOD0(reset, void(void));
+      MOCK_METHOD0(resetWsv, expected::Result<void, std::string>());
       MOCK_METHOD0(resetPeers, void(void));
       MOCK_METHOD0(dropStorage, void(void));
       MOCK_METHOD0(freeConnections, void(void));
