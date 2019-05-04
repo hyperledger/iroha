@@ -13,18 +13,17 @@
 
 namespace iroha {
   namespace ametsuchi {
-    expected::Result<void, std::string> WsvRestorerImpl::restoreWsv(
-        Storage &storage) {
+    iroha::expected::Result<
+        boost::optional<std::unique_ptr<iroha::LedgerState>>,
+        std::string>
+    WsvRestorerImpl::restoreWsv(Storage &storage) {
       // get all blocks starting from the genesis
-      std::vector<std::shared_ptr<shared_model::interface::Block>> blocks=
-      storage.getBlockQuery()->getBlocksFrom(1);
+      std::vector<std::shared_ptr<shared_model::interface::Block>> blocks =
+          storage.getBlockQuery()->getBlocksFrom(1);
 
       storage.reset();
 
-      if (not storage.insertBlocks(blocks))
-        return expected::makeError("cannot insert blocks");
-
-      return expected::Value<void>();
+      return storage.insertBlocks(blocks);
     }
   }  // namespace ametsuchi
 }  // namespace iroha

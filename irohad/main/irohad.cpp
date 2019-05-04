@@ -277,8 +277,7 @@ int main(int argc, char *argv[]) {
 
   // check if at least one block is available in the ledger
   auto blocks_exist = irohad.storage->getBlockQuery()->getTopBlock().match(
-      [](const auto &) { return true; },
-      [](const auto &) { return false; });
+      [](const auto &) { return true; }, [](const auto &) { return false; });
 
   if (not blocks_exist) {
     log->error(
@@ -291,7 +290,12 @@ int main(int argc, char *argv[]) {
   }
 
   // init pipeline components
-  irohad.init();
+  auto init_result = irohad.init();
+  if (auto error =
+          boost::get<iroha::expected::Error<std::string>>(&init_result)) {
+    log->critical("Irohad startup failed: {}", error->error);
+    return EXIT_FAILURE;
+  }
 
   auto handler = [](int s) { exit_requested.set_value(); };
   std::signal(SIGINT, handler);
@@ -302,7 +306,12 @@ int main(int argc, char *argv[]) {
 
   // runs iroha
   log->info("Running iroha");
-  irohad.run();
+  auto run_result = irohad.run();
+  if (auto error =
+          boost::get<iroha::expected::Error<std::string>>(&run_result)) {
+    log->critical("Irohad startup failed: {}", error->error);
+    return EXIT_FAILURE;
+  }
   exit_requested.get_future().wait();
 
   // We do not care about shutting down grpc servers
