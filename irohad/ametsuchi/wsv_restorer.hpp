@@ -22,10 +22,12 @@ namespace iroha {
       /**
        * Recover WSV (World State View).
        * @param storage storage of blocks in ledger
-       * @return void on success, otherwise error string
+       * @return ledger state after restoration on success, otherwise error
+       * string
        */
-      virtual expected::Result<void, std::string> restoreWsv(
-          Storage &storage) = 0;
+      virtual iroha::expected::
+          Result<boost::optional<std::unique_ptr<LedgerState>>, std::string>
+          restoreWsv(Storage &storage) = 0;
     };
 
   }  // namespace ametsuchi

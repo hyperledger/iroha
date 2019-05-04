@@ -116,7 +116,7 @@ namespace iroha {
       }
 
       /**
-       * Lazy error AND-chaining
+       * Error AND-chaining
        * Works by the following table (aka boolean lazy AND):
        * err1 * any  -> err1
        * val1 * err2 -> err2
@@ -136,7 +136,7 @@ namespace iroha {
       }
 
       /**
-       * Lazy error OR-chaining
+       * Error OR-chaining
        * Works by the following table (aka boolean lazy OR):
        * val1 * any  -> val1
        * err1 * val2 -> val2

@@ -42,9 +42,12 @@ namespace iroha {
                        std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(insertBlocks,
-                   bool(const std::vector<
-                        std::shared_ptr<shared_model::interface::Block>> &));
+      MOCK_METHOD1(
+          insertBlocks,
+          iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
+                                  std::string>(
+              const std::vector<std::shared_ptr<shared_model::interface::Block>>
+                  &));
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(
                        const shared_model::interface::Peer &));
