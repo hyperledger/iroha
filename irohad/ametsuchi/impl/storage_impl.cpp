@@ -62,9 +62,9 @@ namespace iroha {
   namespace ametsuchi {
 
     /**
-     * Class provides reconnection callback for postgresql session by manual
-     * manipilations Note: the class is a workaround for SOCI 4.0, support in
-     * future versions is not guaranteed
+     * Class provides reconnection callback for postgresql session
+     * Note: the class is a workaround for SOCI 4.0, support in future versions
+     * is not guaranteed
      */
     class FailoverCallback : public soci::failover_callback {
      public:
