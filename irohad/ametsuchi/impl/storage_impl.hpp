@@ -78,29 +78,18 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory) const override;
 
-      /**
-       * Insert block without validation
-       * @param blocks - block for insertion
-       * @return true if all blocks are inserted
-       */
       bool insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) override;
-
-      /**
-       * Insert blocks without validation
-       * @param blocks - collection of blocks for insertion
-       * @return final ledger if inserted, error description otherwise
-       */
-      iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
-                              std::string>
-      insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
-              &blocks) override;
 
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 
+      expected::Result<std::unique_ptr<MutableStorage>, std::string>
+      createMutableStorageWithoutBlockStorage() override;
+
       void reset() override;
+
+      expected::Result<void, std::string> resetWsv() override;
 
       void resetPeers() override;
 
@@ -150,6 +139,13 @@ namespace iroha {
       const PostgresOptions postgres_options_;
 
      private:
+      /**
+       * Create mutable storage with given block storage factory lambda
+       */
+      template <typename Factory>
+      expected::Result<std::unique_ptr<MutableStorage>, std::string>
+      createMutableStorage(Factory factory);
+
       /**
        * revert prepared transaction
        */
