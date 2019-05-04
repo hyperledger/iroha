@@ -35,11 +35,11 @@ namespace integration_framework {
             "Got a Loader.retrieveBlock call, but have no block storage!");
         return {};
       }
-      const auto block = block_storage->getBlockByHash(*request);
+      const auto block = block_storage->getBlockByHeight(request);
       if (!block) {
         getLogger()->debug(
             "Got a Loader.retrieveBlock call for {}, but have no such block!",
-            request->toString());
+            request);
         return {};
       }
       return block;

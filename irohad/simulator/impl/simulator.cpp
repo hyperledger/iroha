@@ -87,15 +87,18 @@ namespace iroha {
 
       // Get last block from local ledger
       if (auto block_query_opt = block_query_factory_->createBlockQuery()) {
-        auto block_var = block_query_opt.value()->getTopBlock();
+        auto block_var =
+            (*block_query_opt)
+                ->getBlock((*block_query_opt)->getTopBlockHeight());
         if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
           log_->warn("Could not fetch last block: " + e->error);
           return boost::none;
         }
 
-        last_block = boost::get<expected::Value<
-            std::shared_ptr<shared_model::interface::Block>>>(&block_var)
-                         ->value;
+        last_block = std::move(
+            boost::get<expected::Value<
+                std::unique_ptr<shared_model::interface::Block>>>(&block_var)
+                ->value);
       } else {
         log_->error("could not create block query");
         return boost::none;

@@ -276,8 +276,15 @@ int main(int argc, char *argv[]) {
   }
 
   // check if at least one block is available in the ledger
-  auto blocks_exist = irohad.storage->getBlockQuery()->getTopBlock().match(
-      [](const auto &) { return true; }, [](const auto &) { return false; });
+  auto block_query = irohad.storage->getBlockQuery();
+  if (not block_query) {
+    log->error("Cannot create BlockQuery");
+    return EXIT_FAILURE;
+  }
+  auto blocks_exist = block_query->getBlock(block_query->getTopBlockHeight())
+                          .match([](const auto &) { return true; },
+                                 [](const auto &) { return false; });
+  block_query.reset();
 
   if (not blocks_exist) {
     log->error(

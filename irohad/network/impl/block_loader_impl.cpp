@@ -47,7 +47,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
           return;
         }
 
-        proto::BlocksRequest request;
+        proto::BlockRequest request;
         grpc::ClientContext context;
         protocol::Block block;
 
@@ -77,7 +77,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
 }
 
 boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
-    const PublicKey &peer_pubkey, const types::HashType &block_hash) {
+    const PublicKey &peer_pubkey, types::HeightType block_height) {
   auto peer = findPeer(peer_pubkey);
   if (not peer) {
     log_->error("{}", kPeerNotFound);
@@ -88,8 +88,8 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
   grpc::ClientContext context;
   protocol::Block block;
 
-  // request block with specified hash
-  request.set_hash(toBinaryString(block_hash));
+  // request block with specified height
+  request.set_height(block_height);
 
   auto status = getPeerStub(**peer).retrieveBlock(&context, request, &block);
   if (not status.ok()) {
