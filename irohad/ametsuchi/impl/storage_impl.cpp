@@ -275,10 +275,9 @@ namespace iroha {
               log_manager_->getChild("TemporaryWorldStateView")));
     }
 
+    template <typename Factory>
     expected::Result<std::unique_ptr<MutableStorage>, std::string>
-    StorageImpl::createMutableStorage() {
-      boost::optional<shared_model::interface::types::HashType> top_hash;
-
+    StorageImpl::createMutableStorage(Factory factory) {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
       if (connection_ == nullptr) {
         return expected::makeError("Connection was closed");
@@ -313,8 +312,14 @@ namespace iroha {
               std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
               std::move(sql),
               factory_,
-              block_storage_factory_->create(),
+              factory(),
               log_manager_->getChild("MutableStorageImpl")));
+    }
+
+    expected::Result<std::unique_ptr<MutableStorage>, std::string>
+    StorageImpl::createMutableStorage() {
+      return createMutableStorage(
+          [this] { return block_storage_factory_->create(); });
     }
 
     boost::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
@@ -369,30 +374,7 @@ namespace iroha {
             this->commit(std::move(storage.value));
           },
           [&](const auto &error) { log_->error("{}", error.error); });
-
       return inserted;
-    }
-
-    iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
-                            std::string>
-    StorageImpl::insertBlocks(
-        const std::vector<std::shared_ptr<shared_model::interface::Block>>
-            &blocks) {
-      log_->info("create mutable storage");
-      return createMutableStorage().match(
-          [&, this](auto &&mutableStorage) -> decltype(insertBlocks(blocks)) {
-            for (auto &block : blocks) {
-              if (not mutableStorage.value->apply(block)) {
-                return expected::makeError(block->toString()
-                                           + " could not be applied.");
-              }
-            }
-            return iroha::expected::makeValue(
-                this->commit(std::move(mutableStorage.value)));
-          },
-          [&](const auto &error) -> decltype(insertBlocks(blocks)) {
-            return std::move(error);
-          });
     }
 
     expected::Result<void, std::string> StorageImpl::insertPeer(
@@ -403,8 +385,47 @@ namespace iroha {
       return wsv_command.insertPeer(peer);
     }
 
+    expected::Result<std::unique_ptr<MutableStorage>, std::string>
+    StorageImpl::createMutableStorageWithoutBlockStorage() {
+      return createMutableStorage([] {
+        struct BlockStorageStub : public BlockStorage {
+          bool insert(std::shared_ptr<const shared_model::interface::Block>
+                          block) override {
+            return true;
+          }
+
+          boost::optional<std::shared_ptr<const shared_model::interface::Block>>
+          fetch(shared_model::interface::types::HeightType height)
+              const override {
+            return boost::none;
+          }
+
+          size_t size() const override {
+            return 0;
+          }
+
+          void clear() override {}
+
+          void forEach(FunctionType function) const override {}
+        };
+
+        return std::make_unique<BlockStorageStub>();
+      });
+    }
+
     void StorageImpl::reset() {
-      log_->info("drop wsv records from db tables");
+      resetWsv().match(
+          [this](auto &&v) {
+            log_->debug("drop blocks from disk");
+            block_store_->dropAll();
+          },
+          [this](auto &&e) {
+            log_->warn("Failed to drop WSV. Reason: {}", e.error);
+          });
+    }
+
+    expected::Result<void, std::string> StorageImpl::resetWsv() {
+      log_->debug("drop wsv records from db tables");
       try {
         soci::session sql(*connection_);
         // rollback possible prepared transaction
@@ -412,11 +433,10 @@ namespace iroha {
           rollbackPrepared(sql);
         }
         sql << reset_;
-        log_->info("drop blocks from disk");
-        block_store_->dropAll();
       } catch (std::exception &e) {
-        log_->warn("Drop wsv was failed. Reason: {}", e.what());
+        return expected::makeError(e.what());
       }
+      return expected::Value<void>();
     }
 
     void StorageImpl::resetPeers() {
