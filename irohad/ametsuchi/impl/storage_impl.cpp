@@ -162,14 +162,19 @@ namespace iroha {
       }
       shared_model::interface::types::HashType hash{""};
       shared_model::interface::types::HeightType height{0};
-      getBlockQuery()->getTopBlock().match(
-          [&hash, &height](const auto &v) {
-            hash = v.value->hash();
-            height = v.value->height();
-          },
-          [this](const auto &e) {
-            log_->error("Could not get top block: {}", e.error);
-          });
+      auto block_query = getBlockQuery();
+      if (not block_query) {
+        return expected::makeError("Cannot create BlockQuery");
+      }
+      block_query->getBlock(block_query->getTopBlockHeight())
+          .match(
+              [&hash, &height](const auto &v) {
+                hash = v.value->hash();
+                height = v.value->height();
+              },
+              [this](const auto &e) {
+                log_->error("Could not get top block: {}", e.error);
+              });
       return expected::makeValue<std::unique_ptr<MutableStorage>>(
           std::make_unique<MutableStorageImpl>(
               hash,

@@ -6,9 +6,6 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 
 #include <boost/format.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/algorithm/for_each.hpp>
-
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "common/byteutils.hpp"
 #include "logger/logger.hpp"
@@ -38,33 +35,20 @@ namespace iroha {
           converter_(std::move(converter)),
           log_(std::move(log)) {}
 
-    std::vector<BlockQuery::wBlock> PostgresBlockQuery::getBlocks(
-        shared_model::interface::types::HeightType height, uint32_t count) {
-      shared_model::interface::types::HeightType last_id =
-          block_store_.last_id();
-      auto to = std::min(last_id, height + count - 1);
-      std::vector<BlockQuery::wBlock> result;
-      if (height > to or count == 0) {
-        return result;
-      }
-      for (auto i = height; i <= to; i++) {
-        getBlock(i).match(
-            [&result](auto &&v) { result.emplace_back(std::move(v.value)); },
-            [this](const auto &e) { log_->error(e.error); });
-      }
-      return result;
-    }
-
-    std::vector<BlockQuery::wBlock> PostgresBlockQuery::getBlocksFrom(
+    BlockQuery::BlockResult PostgresBlockQuery::getBlock(
         shared_model::interface::types::HeightType height) {
-      return getBlocks(height, block_store_.last_id());
+      auto serialized_block = block_store_.get(height);
+      if (not serialized_block) {
+        auto error =
+            boost::format("Failed to retrieve block with height %d") % height;
+        return expected::makeError(error.str());
+      }
+      return converter_->deserialize(bytesToString(*serialized_block));
     }
 
-    std::vector<BlockQuery::wBlock> PostgresBlockQuery::getTopBlocks(
-        uint32_t count) {
-      auto last_id = block_store_.last_id();
-      count = std::min(count, last_id);
-      return getBlocks(last_id - count + 1, count);
+    shared_model::interface::types::HeightType
+    PostgresBlockQuery::getTopBlockHeight() {
+      return block_store_.last_id();
     }
 
     boost::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(
@@ -94,36 +78,5 @@ namespace iroha {
           tx_cache_status_responses::Missing{hash});
     }
 
-    uint32_t PostgresBlockQuery::getTopBlockHeight() {
-      return block_store_.last_id();
-    }
-
-    expected::Result<BlockQuery::wBlock, std::string>
-    PostgresBlockQuery::getTopBlock() {
-      return getBlock(block_store_.last_id())
-          .match(
-              [](auto &&v)
-                  -> expected::Result<BlockQuery::wBlock, std::string> {
-                return expected::makeValue<
-                    std::shared_ptr<shared_model::interface::Block>>(
-                    std::move(v.value));
-              },
-              [](auto &&e)
-                  -> expected::Result<BlockQuery::wBlock, std::string> {
-                return expected::makeError(std::move(e.error));
-              });
-    }
-
-    expected::Result<std::unique_ptr<shared_model::interface::Block>,
-                     std::string>
-    PostgresBlockQuery::getBlock(
-        shared_model::interface::types::HeightType id) const {
-      auto serialized_block = block_store_.get(id);
-      if (not serialized_block) {
-        auto error = boost::format("Failed to retrieve block with id %d") % id;
-        return expected::makeError(error.str());
-      }
-      return converter_->deserialize(bytesToString(*serialized_block));
-    }
   }  // namespace ametsuchi
 }  // namespace iroha

@@ -33,7 +33,7 @@ namespace iroha {
       boost::optional<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlock(
           const shared_model::crypto::PublicKey &peer_pubkey,
-          const shared_model::interface::types::HashType &block_hash) override;
+          shared_model::interface::types::HeightType block_height) override;
 
      private:
       /**

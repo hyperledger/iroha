@@ -50,7 +50,7 @@ namespace integration_framework {
       /// Handler of grpc retrieveBlocks calls.
       grpc::Status retrieveBlocks(
           ::grpc::ServerContext *context,
-          const iroha::network::proto::BlocksRequest *request,
+          const iroha::network::proto::BlockRequest *request,
           ::grpc::ServerWriter<iroha::protocol::Block> *writer) override;
 
       /// Handler of grpc retrieveBlock calls.
@@ -67,7 +67,7 @@ namespace integration_framework {
 
       logger::LoggerPtr log_;
     };
-  }
-}
+  }  // namespace fake_peer
+}  // namespace integration_framework
 
 #endif /* INTEGRATION_FRAMEWORK_FAKE_PEER_LOADER_GRPC_HPP_ */
