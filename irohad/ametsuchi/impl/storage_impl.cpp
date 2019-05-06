@@ -117,8 +117,98 @@ namespace iroha {
             auto *pg_connection =
                 static_cast<soci::postgresql_session_backend *>(
                     connection_.get_backend());
-            pg_connection->clean_up();
-            pg_connection->connect(parameters);
+            auto &conn_ = pg_connection->conn_;
+
+            auto clean_up = [](auto &conn_) {
+              if (0 != conn_) {
+                PQfinish(conn_);
+                conn_ = 0;
+              }
+            };
+
+            auto check_for_data =
+                [](auto &sessionBackend_, auto *result_, auto *errMsg) {
+                  std::string msg(errMsg);
+
+                  ExecStatusType const status = PQresultStatus(result_);
+                  switch (status) {
+                    case PGRES_EMPTY_QUERY:
+                    case PGRES_COMMAND_OK:
+                      // No data but don't throw neither.
+                      return false;
+
+                    case PGRES_TUPLES_OK:
+                      return true;
+
+                    case PGRES_FATAL_ERROR:
+                      msg += " Fatal error.";
+
+                      if (PQstatus(sessionBackend_.conn_) == CONNECTION_BAD) {
+                        msg += " Connection failed.";
+                      }
+
+                      break;
+
+                    default:
+                      // Some of the other status codes are not really errors
+                      // but we're not prepared to handle them right now and
+                      // shouldn't ever receive them so throw nevertheless
+
+                      break;
+                  }
+
+                  const char *const pqError = PQresultErrorMessage(result_);
+                  if (pqError && *pqError) {
+                    msg += " ";
+                    msg += pqError;
+                  }
+
+                  const char *sqlstate =
+                      PQresultErrorField(result_, PG_DIAG_SQLSTATE);
+                  const char *const blank_sql_state = "     ";
+                  if (!sqlstate) {
+                    sqlstate = blank_sql_state;
+                  }
+
+                  throw std::runtime_error(msg);
+                };
+
+            auto connect = [check_for_data](auto &session_backend,
+                                            auto &parameters,
+                                            auto &conn_) {
+              PGconn *conn =
+                  PQconnectdb(parameters.get_connect_string().c_str());
+              if (0 == conn || CONNECTION_OK != PQstatus(conn)) {
+                std::string msg =
+                    "Cannot establish connection to the database.";
+                if (0 != conn) {
+                  msg += '\n';
+                  msg += PQerrorMessage(conn);
+                  PQfinish(conn);
+                }
+
+                throw std::runtime_error(msg);
+              }
+
+              // Increase the number of digits used for floating point values to
+              // ensure that the conversions to/from text round trip correctly,
+              // which is not the case with the default value of 0. Use the
+              // maximal supported value, which was 2 until 9.x and is 3 since
+              // it.
+              int const version = PQserverVersion(conn);
+              check_for_data(
+                  session_backend,
+                  PQexec(conn,
+                         version >= 90000 ? "SET extra_float_digits = 3"
+                                          : "SET extra_float_digits = 2"),
+                  "Cannot set extra_float_digits parameter");
+
+              conn_ = conn;
+            };
+
+            clean_up(conn_);
+            connect(*pg_connection, parameters, conn_);
+
             init_session_(connection_);
             successful_reconnection = true;
           } catch (const std::exception &e) {
@@ -208,26 +298,25 @@ namespace iroha {
 
         // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
         // IR-464
-        on_init_db();
+        on_init_db(session);
         iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
       };
 
       /// lambda contains special actions which should be execute once
-      auto init_db = [&]() {
-        soci::session sql(*connection_);
+      auto init_db = [&](soci::session &session) {
         // rollback current prepared transaction
         // if there exists any since last session
         if (prepared_blocks_enabled_) {
-          rollbackPrepared(sql);
+          rollbackPrepared(session);
         }
-        sql << init_;
+        session << init_;
       };
 
       /// lambda contains actions which should be invoked once for each session
       auto init_failover_callback = [&](soci::session &session) {
         static size_t connection_index = 0;
         auto restore_session = [connection_initialization](soci::session &s) {
-          return connection_initialization(s, [] {}, [](auto &) {});
+          return connection_initialization(s, [](auto &) {}, [](auto &) {});
         };
 
         auto &callback = callback_factory_->makeFailoverCallback(
@@ -249,7 +338,8 @@ namespace iroha {
           connection_->at(0), init_db, init_failover_callback);
       for (size_t i = 1; i != pool_size_; i++) {
         soci::session &session = connection_->at(i);
-        connection_initialization(session, [] {}, init_failover_callback);
+        connection_initialization(
+            session, [](auto &) {}, init_failover_callback);
       }
     }
 
