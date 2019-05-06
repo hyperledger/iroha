@@ -196,14 +196,15 @@ Irohad::RunResult Irohad::initStorage() {
       log_manager_);
 
   return StorageImpl::create(
-      block_store_dir_,
-      pg_conn_,
-      common_objects_factory_,
-      std::move(block_converter),
-      perm_converter,
-      std::move(block_storage_factory),
-      std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10),
-      log_manager_->getChild("Storage"))
+             block_store_dir_,
+             pg_conn_,
+             common_objects_factory_,
+             std::move(block_converter),
+             perm_converter,
+             std::move(block_storage_factory),
+             std::make_unique<
+                 iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10),
+             log_manager_->getChild("Storage"))
       .match(
           [&](auto &&v) -> RunResult {
             storage = std::move(v.value);
