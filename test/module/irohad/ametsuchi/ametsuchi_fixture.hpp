@@ -13,6 +13,7 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
@@ -47,12 +48,15 @@ namespace iroha {
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
         auto block_storage_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
+        auto reconnection_strategy_factory = std::make_unique<
+            iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
         StorageImpl::create(block_store_path,
                             pgopt_,
                             factory,
                             converter,
                             perm_converter_,
                             std::move(block_storage_factory),
+                            std::move(reconnection_strategy_factory),
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {

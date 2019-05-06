@@ -195,7 +195,7 @@ namespace iroha {
      * result
      */
     template <typename T, typename E, typename Transform>
-    constexpr auto operator|(Result<T, E> r, Transform &&f) ->
+    constexpr auto operator|(const Result<T, E> &r, Transform &&f) ->
         typename std::enable_if<
             not std::is_same<decltype(f(std::declval<T>())), void>::value,
             decltype(f(std::declval<T>()))>::type {
@@ -206,19 +206,46 @@ namespace iroha {
     }
 
     /**
+     * Mutable alternative for bind with parameters
+     */
+    template <typename T, typename E, typename Transform>
+    constexpr auto operator|(Result<T, E> &r, Transform &&f) ->
+        typename std::enable_if<
+            not std::is_same<decltype(f(std::declval<T>())), void>::value,
+            decltype(f(std::declval<T>()))>::type {
+      using return_type = decltype(f(std::declval<T>()));
+      return r.match(
+          [&f](Value<T> &v) { return f(v.value); },
+          [](Error<E> &e) { return return_type(makeError(e.error)); });
+    }
+
+    /**
      * Bind operator overload for functions which do not accept anything as a
      * parameter. Allows execution of a sequence of unrelated functions, given
      * that all of them return Result
      * @param f function which accepts no parameters and returns result
      */
     template <typename T, typename E, typename Procedure>
-    constexpr auto operator|(Result<T, E> r, Procedure f) ->
+    constexpr auto operator|(const Result<T, E> &r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 decltype(f())>::type {
       using return_type = decltype(f());
       return r.match(
           [&f](const Value<T> &v) { return f(); },
           [](const Error<E> &e) { return return_type(makeError(e.error)); });
+    }
+
+    /**
+     * Mutable alternative for bind without parameters
+     */
+    template <typename T, typename E, typename Procedure>
+    constexpr auto operator|(Result<T, E> &r, Procedure f) ->
+        typename std::enable_if<not std::is_same<decltype(f()), void>::value,
+                                decltype(f())>::type {
+      using return_type = decltype(f());
+      return r.match(
+          [&f](Value<T> &v) { return f(); },
+          [](Error<E> &e) { return return_type(makeError(e.error)); });
     }
 
     /**
