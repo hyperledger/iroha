@@ -10,6 +10,7 @@ add_library(logger
 target_link_libraries(logger
     fmt
     spdlog
+    boost
 )
 # ensure that externals are downloaded before any dependants
 add_dependencies(logger
