@@ -22,6 +22,8 @@ auto operator<<(StreamType &os, const T &object)
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+// Windows includes transitively included by format.h define interface as
+// struct, leading to compilation issues
 #undef interface
 
 namespace logger {
@@ -41,63 +43,63 @@ namespace logger {
   };
 
   class Logger {
-    public:
-     using Level = LogLevel;
+   public:
+    using Level = LogLevel;
 
-     virtual ~Logger() = default;
+    virtual ~Logger() = default;
 
-     // --- Logging functions ---
+    // --- Logging functions ---
 
-     template <typename... Args>
-     void trace(const std::string &format, const Args &... args) const {
-       log(LogLevel::kTrace, format, args...);
-     }
+    template <typename... Args>
+    void trace(const std::string &format, const Args &... args) const {
+      log(LogLevel::kTrace, format, args...);
+    }
 
-     template <typename... Args>
-     void debug(const std::string &format, const Args &... args) const {
-       log(LogLevel::kDebug, format, args...);
-     }
+    template <typename... Args>
+    void debug(const std::string &format, const Args &... args) const {
+      log(LogLevel::kDebug, format, args...);
+    }
 
-     template <typename... Args>
-     void info(const std::string &format, const Args &... args) const {
-       log(LogLevel::kInfo, format, args...);
-     }
+    template <typename... Args>
+    void info(const std::string &format, const Args &... args) const {
+      log(LogLevel::kInfo, format, args...);
+    }
 
-     template <typename... Args>
-     void warn(const std::string &format, const Args &... args) const {
-       log(LogLevel::kWarn, format, args...);
-     }
+    template <typename... Args>
+    void warn(const std::string &format, const Args &... args) const {
+      log(LogLevel::kWarn, format, args...);
+    }
 
-     template <typename... Args>
-     void error(const std::string &format, const Args &... args) const {
-       log(LogLevel::kError, format, args...);
-     }
+    template <typename... Args>
+    void error(const std::string &format, const Args &... args) const {
+      log(LogLevel::kError, format, args...);
+    }
 
-     template <typename... Args>
-     void critical(const std::string &format, const Args &... args) const {
-       log(LogLevel::kCritical, format, args...);
-     }
+    template <typename... Args>
+    void critical(const std::string &format, const Args &... args) const {
+      log(LogLevel::kCritical, format, args...);
+    }
 
-     template <typename... Args>
-     void log(Level level,
-              const std::string &format,
-              const Args &... args) const {
-       if (shouldLog(level)) {
-         try {
-           logInternal(level, fmt::format(format, args...));
-         } catch (const fmt::v5::format_error &error) {
-           std::string error_msg("Exception was thrown while logging: ");
-           logInternal(LogLevel::kError, error_msg.append(error.what()));
-         }
-       }
-     }
+    template <typename... Args>
+    void log(Level level,
+             const std::string &format,
+             const Args &... args) const {
+      if (shouldLog(level)) {
+        try {
+          logInternal(level, fmt::format(format, args...));
+        } catch (const fmt::v5::format_error &error) {
+          std::string error_msg("Exception was thrown while logging: ");
+          logInternal(LogLevel::kError, error_msg.append(error.what()));
+        }
+      }
+    }
 
-    protected:
-     virtual void logInternal(Level level, const std::string &s) const = 0;
+   protected:
+    virtual void logInternal(Level level, const std::string &s) const = 0;
 
-     /// Whether the configured logging level is at least as verbose as the
-     /// one given in parameter.
-     virtual bool shouldLog(Level level) const = 0;
+    /// Whether the configured logging level is at least as verbose as the
+    /// one given in parameter.
+    virtual bool shouldLog(Level level) const = 0;
   };
 
   /**
