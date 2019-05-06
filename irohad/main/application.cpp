@@ -8,6 +8,7 @@
 #include <boost/filesystem.hpp>
 
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -194,13 +195,16 @@ Irohad::RunResult Irohad::initStorage() {
       block_converter,
       log_manager_);
 
-  return StorageImpl::create(block_store_dir_,
-                             pg_conn_,
-                             common_objects_factory_,
-                             std::move(block_converter),
-                             perm_converter,
-                             std::move(block_storage_factory),
-                             log_manager_->getChild("Storage"))
+  return StorageImpl::create(
+             block_store_dir_,
+             pg_conn_,
+             common_objects_factory_,
+             std::move(block_converter),
+             perm_converter,
+             std::move(block_storage_factory),
+             std::make_unique<
+                 iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10),
+             log_manager_->getChild("Storage"))
       .match(
           [&](auto &&v) -> RunResult {
             storage = std::move(v.value);
