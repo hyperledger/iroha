@@ -1,11 +1,11 @@
-#include <utility>
-
 /**
  * Copyright Soramitsu Co., Ltd. All Rights Reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "ametsuchi/impl/storage_impl.hpp"
+
+#include <utility>
 
 #include <soci/callbacks.h>
 #include <soci/postgresql/soci-postgresql.h>
@@ -76,7 +76,7 @@ namespace iroha {
           std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
           logger::LoggerPtr log)
           : connection_(connection),
-            init_function_(std::move(init)),
+            init_session_(std::move(init)),
             connection_options_(std::move(connection_options)),
             reconnection_strategy_(std::move(reconnection_strategy)),
             log_(std::move(log)) {}
@@ -96,8 +96,8 @@ namespace iroha {
         // our own reconnection process
         should_reconnect = false;
         log_->warn(
-            "troubles with storage connections are occurred. The system will "
-            "try to reconnect");
+            "failed to connect to the database. The system will try to "
+            "reconnect");
         auto is_reconnected = reconnectionLoop();
         log_->info("re-established: {}", is_reconnected);
       }
@@ -112,24 +112,24 @@ namespace iroha {
         while (reconnection_strategy_->canReconnect()
                and not successful_reconnection) {
           try {
-            soci::connection_parameters parameters("postgresql",
+            soci::connection_parameters parameters(*soci::factory_postgresql(),
                                                    connection_options_);
             auto *pg_connection =
                 static_cast<soci::postgresql_session_backend *>(
                     connection_.get_backend());
             pg_connection->clean_up();
             pg_connection->connect(parameters);
-            init_function_(connection_);
+            init_session_(connection_);
             successful_reconnection = true;
-          } catch (...) {
-            log_->warn("attempt to reconnect has failed");
+          } catch (const std::exception &e) {
+            log_->warn("attempt to reconnect has failed: {}", e.what());
           }
         }
         return successful_reconnection;
       }
 
       soci::session &connection_;
-      InitFunctionType init_function_;
+      InitFunctionType init_session_;
       const std::string connection_options_;
       std::unique_ptr<ReconnectionStrategy> reconnection_strategy_;
       logger::LoggerPtr log_;
@@ -195,30 +195,21 @@ namespace iroha {
           callback_factory_(std::make_unique<FailoverCallbackFactory>()),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
-          block_is_prepared(false) {
-      prepared_block_name_ =
-          "prepared_block" + postgres_options_.dbname().value_or("");
+          block_is_prepared(false),
+          prepared_block_name_("prepared_block"
+                               + postgres_options_.dbname().value_or("")) {
+      auto connection_initialization = [&](soci::session &session,
+                                           auto on_init_db,
+                                           auto on_init_connection) {
+        auto *backend = static_cast<soci::postgresql_session_backend *>(
+            session.get_backend());
+        PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
+        on_init_connection(session);
 
-      /// function performs reconnection
-      auto connection_initialization_lambda =
-          [&](soci::session &session,
-              auto on_initialization_db,
-              auto on_initialization_connection) {
-
-            auto *backend = static_cast<soci::postgresql_session_backend *>(
-                session.get_backend());
-            PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
-            on_initialization_connection(session);
-
-            try {
-              on_initialization_db();
-              iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(
-                  session);
-            } catch (std::exception &e) {
-              log_->error("Storage was not initialized. Reason: {}", e.what());
-            }
-
-          };
+        // // TODO: 2019-05-06 @muratovv unhandled exception IR-??
+        on_init_db();
+        iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
+      };
 
       /// lambda contains special actions which should be execute once
       auto init_db = [&]() {
@@ -234,13 +225,13 @@ namespace iroha {
       /// lambda contains actions which should be invoked once for each session
       auto init_failover_callback = [&](soci::session &session) {
         static size_t connection_index = 0;
-        auto reconnect_function = [&](soci::session &s) {
-          return connection_initialization_lambda(s, [] {}, [](auto &) {});
+        auto restore_session = [connection_initialization](soci::session &s) {
+          return connection_initialization(s, [] {}, [](auto &) {});
         };
 
-        auto &callback_ptr = callback_factory_->makeFailoverCallback(
+        auto &callback = callback_factory_->makeFailoverCallback(
             session,
-            reconnect_function,
+            restore_session,
             postgres_options_.optionsStringWithoutDbName(),
             reconnection_strategy_factory_->create(),
             log_manager_
@@ -248,17 +239,16 @@ namespace iroha {
                            + std::to_string(connection_index++))
                 ->getLogger());
 
-        session.set_failover_callback(callback_ptr);
+        session.set_failover_callback(callback);
       };
 
       assert(pool_size > 0);
 
-      connection_initialization_lambda(
+      connection_initialization(
           connection_->at(0), init_db, init_failover_callback);
       for (size_t i = 1; i != pool_size_; i++) {
         soci::session &session = connection_->at(i);
-        connection_initialization_lambda(
-            session, [] {}, init_failover_callback);
+        connection_initialization(session, [] {}, init_failover_callback);
       }
     }
 
@@ -591,20 +581,24 @@ namespace iroha {
                       soci::session sql(*connection.value);
                       bool enable_prepared_transactions =
                           preparedTransactionsAvailable(sql);
-                      storage = expected::makeValue(
-                          std::shared_ptr<StorageImpl>(new StorageImpl(
-                              block_store_dir,
-                              options,
-                              std::move(ctx.value.block_store),
-                              std::move(connection.value),
-                              factory,
-                              converter,
-                              perm_converter,
-                              std::move(block_storage_factory),
-                              std::move(reconnection_strategy_factory),
-                              pool_size,
-                              enable_prepared_transactions,
-                              std::move(log_manager))));
+                      try {
+                        storage = expected::makeValue(
+                            std::shared_ptr<StorageImpl>(new StorageImpl(
+                                block_store_dir,
+                                options,
+                                std::move(ctx.value.block_store),
+                                std::move(connection.value),
+                                factory,
+                                converter,
+                                perm_converter,
+                                std::move(block_storage_factory),
+                                std::move(reconnection_strategy_factory),
+                                pool_size,
+                                enable_prepared_transactions,
+                                std::move(log_manager))));
+                      } catch (const std::exception &e) {
+                        storage = expected::makeError(e.what());
+                      }
                     },
                     [&](const auto &error) { storage = error; });
               },
@@ -733,8 +727,7 @@ namespace iroha {
       }
       if (block_is_prepared) {
         log_->warn(
-            "Refusing to add new prepared state, because there already is "
-            "one. "
+            "Refusing to add new prepared state, because there already is one. "
             "Multiple prepared states are not yet supported.");
       } else {
         soci::session &sql = *wsv_impl.sql_;

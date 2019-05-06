@@ -11,9 +11,9 @@ using namespace iroha::ametsuchi;
 
 /**
  * @given initialized strategy with k limit
- * @when  canReconnect invokes k + 1 times
- * @then  k times it returns true
- *        @and last returns false
+ * @when  canReconnect is invoked k + 1 times
+ * @then  it returns true k times
+ *        @and returns false last time
  */
 TEST(KTimesReconnectionStrategyTest, FirstUse) {
   size_t K = 10;
@@ -27,11 +27,11 @@ TEST(KTimesReconnectionStrategyTest, FirstUse) {
 
 /**
  * @given initialized strategy with k limit
- *        @and canReconnect invokes k times
- * @when  reset invokes
- *        @and k + 1 times invokes canReconnect
- * @then  checks that k times it returns true
- *        @and last time it returns false
+ *        @and canReconnect is invoked k times
+ * @when  reset method is invoked
+ *        @and canReconnect is invoked k + 1 times
+ * @then  checks that strategy returns true k times
+ *        @and it returns false last time
  */
 TEST(KTimesReconnectionStrategyTest, UseAfterReset) {
   size_t K = 10;
