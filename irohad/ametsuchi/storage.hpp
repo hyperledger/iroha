@@ -60,6 +60,8 @@ namespace iroha {
       virtual expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) = 0;
 
+      using MutableFactory::createMutableStorage;
+
       /**
        * Creates a mutable storage from the current state
        * @return Created Result with mutable storage or error string
