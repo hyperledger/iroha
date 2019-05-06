@@ -9,6 +9,7 @@
 #include "ametsuchi/storage.hpp"
 
 #include <gmock/gmock.h>
+#include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 
@@ -42,9 +43,9 @@ namespace iroha {
                        std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD0(
-          createMutableStorageWithoutBlockStorage,
-          expected::Result<std::unique_ptr<MutableStorage>, std::string>());
+      MOCK_METHOD1(createMutableStorage,
+                   expected::Result<std::unique_ptr<MutableStorage>,
+                                    std::string>(BlockStorageFactory &));
 
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(

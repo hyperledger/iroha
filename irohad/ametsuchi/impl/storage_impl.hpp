@@ -89,7 +89,7 @@ namespace iroha {
           const shared_model::interface::Peer &peer) override;
 
       expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorageWithoutBlockStorage() override;
+      createMutableStorage(BlockStorageFactory &storage_factory) override;
 
       void reset() override;
 
@@ -145,13 +145,6 @@ namespace iroha {
       const PostgresOptions postgres_options_;
 
      private:
-      /**
-       * Create mutable storage with given block storage factory lambda
-       */
-      template <typename Factory>
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage(Factory factory);
-
       /**
        * revert prepared transaction
        */
