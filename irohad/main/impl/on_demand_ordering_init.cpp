@@ -236,27 +236,33 @@ namespace iroha {
               }),
           sync_event_notifier.get_observable()
               .tap([this](const synchronizer::SynchronizationEvent &event) {
-                last_received_round_ = event.round;
+                if (not last_received_round_
+                    or *last_received_round_ < event.round) {
+                  last_received_round_ = event.round;
+                } else {
+                  log_->debug("Dropping {}, since {} is already processed",
+                              event.round,
+                              *last_received_round_);
+                }
               })
               .lift<iroha::synchronizer::SynchronizationEvent>(
                   iroha::makeDelay<iroha::synchronizer::SynchronizationEvent>(
                       delay_func, rxcpp::identity_current_thread()))
-              .flat_map([this](const auto &event) mutable
-                        -> rxcpp::observable<
-                            ordering::OnDemandOrderingGate::RoundSwitch> {
+              .filter([this](const auto &event) {
                 assert(last_received_round_);
                 if (not last_received_round_) {
                   log_->error("Cannot continue without last received round");
-                  return rxcpp::observable<>::empty<
-                      ordering::OnDemandOrderingGate::RoundSwitch>();
+                  return false;
                 }
                 if (event.round < *last_received_round_) {
                   log_->debug("Dropping {}, since {} is already processed",
                               event.round,
                               *last_received_round_);
-                  return rxcpp::observable<>::empty<
-                      ordering::OnDemandOrderingGate::RoundSwitch>();
+                  return false;
                 }
+                return true;
+              })
+              .map([this](const auto &event) {
                 consensus::Round current_round;
                 switch (event.sync_outcome) {
                   case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
@@ -282,9 +288,8 @@ namespace iroha {
                     log_->error("unknown SynchronizationOutcomeType");
                     assert(false);
                 }
-                return rxcpp::observable<>::just(
-                    ordering::OnDemandOrderingGate::RoundSwitch{
-                        std::move(current_round), event.ledger_state});
+                return ordering::OnDemandOrderingGate::RoundSwitch{
+                    std::move(current_round), event.ledger_state};
               }),
           std::move(cache),
           std::move(proposal_factory),
