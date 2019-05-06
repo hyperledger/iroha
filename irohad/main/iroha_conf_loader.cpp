@@ -61,15 +61,13 @@ class JsonDeserializerImpl {
   // a given destination variable. They check the JSON type and throw exception
   // if it is wrong. The path argument is used to denote the possible error
   // place.
-  template <typename TDest>
-  typename std::enable_if<not std::numeric_limits<TDest>::is_integer>::type
-  getVal(const std::string &path, TDest &, const rapidjson::Value &) {
-    BOOST_THROW_EXCEPTION(
-        std::runtime_error("Wrong type. Should never reach here."));
-  }
+
+  template <typename T>
+  static constexpr bool IsIntegerLike =
+      std::numeric_limits<T>::is_integer or std::is_enum<T>::value;
 
   template <typename TDest>
-  typename std::enable_if<std::numeric_limits<TDest>::is_integer>::type getVal(
+  typename std::enable_if<IsIntegerLike<TDest>>::type getVal(
       const std::string &path, TDest &dest, const rapidjson::Value &src) {
     assert_fatal(src.IsInt64(), path + " must be an integer");
     const int64_t val = src.GetInt64();
@@ -77,6 +75,37 @@ class JsonDeserializerImpl {
                      && val <= std::numeric_limits<TDest>::max(),
                  path + ": integer value out of range");
     dest = val;
+  }
+
+  template <typename Elem>
+  void getVal(const std::string &path,
+              std::vector<Elem> &dest,
+              const rapidjson::Value &src) {
+    assert_fatal(src.IsArray(), path + " must be an array.");
+    const auto arr = src.GetArray();
+    for (size_t i = 0; i < arr.Size(); ++i) {
+      Elem el;
+      getVal(sublevelPath(path, std::to_string(i)), el, arr[i]);
+      dest.emplace_back(std::move(el));
+    }
+  }
+
+  template <typename T>
+  void getVal(const std::string &path,
+              std::shared_ptr<T> &dest,
+              const rapidjson::Value &src) {
+    std::unique_ptr<T> uniq_dest;
+    getVal<std::unique_ptr<T>>(path, uniq_dest, src);
+    dest = std::move(uniq_dest);
+  }
+
+  // This is the fallback template function specialization that is overriden by
+  // multiple partial specializations below.
+  template <typename TDest>
+  typename std::enable_if<not IsIntegerLike<TDest>>::type getVal(
+      const std::string &path, TDest &, const rapidjson::Value &) {
+    BOOST_THROW_EXCEPTION(
+        std::runtime_error("Wrong type. Should never reach here."));
   }
 
   // ------------ end of getVal(path, dst, src) ------------
@@ -93,7 +122,7 @@ class JsonDeserializerImpl {
    */
   void addChildrenLoggerConfigs(
       const std::string &path,
-      const logger::LoggerManagerTreePtr &parent_config,
+      logger::LoggerManagerTree &parent_config,
       const rapidjson::Value::ConstObject &parent_obj) {
     const auto it = parent_obj.FindMember(config_members::LogChildrenSection);
     if (it != parent_obj.MemberEnd()) {
@@ -107,13 +136,13 @@ class JsonDeserializerImpl {
         auto child_tag = child_json.name.GetString();
         const auto child_obj = child_json.value.GetObject();
         auto child_path = sublevelPath(children_section_path, child_tag);
-        auto child_conf = parent_config->registerChild(
+        auto child_conf = parent_config.registerChild(
             std::move(child_tag),
             getOptValByKey<logger::LogLevel>(
                 child_path, child_obj, config_members::LogLevel),
             getOptValByKey<logger::LogPatterns>(
                 child_path, child_obj, config_members::LogPatternsSection));
-        addChildrenLoggerConfigs(std::move(child_path), child_conf, child_obj);
+        addChildrenLoggerConfigs(std::move(child_path), *child_conf, child_obj);
       }
     }
   }
@@ -280,17 +309,18 @@ inline void JsonDeserializerImpl::getVal<logger::LogPatterns>(
 }
 
 template <>
-inline void JsonDeserializerImpl::getVal<logger::LoggerManagerTreePtr>(
+inline void
+JsonDeserializerImpl::getVal<std::unique_ptr<logger::LoggerManagerTree>>(
     const std::string &path,
-    logger::LoggerManagerTreePtr &dest,
+    std::unique_ptr<logger::LoggerManagerTree> &dest,
     const rapidjson::Value &src) {
   assert_fatal(src.IsObject(), path + " must be a logger tree config");
   logger::LoggerConfig root_config{logger::kDefaultLogLevel,
                                    logger::LogPatterns{}};
   updateLoggerConfig(path, root_config, src.GetObject());
-  dest = std::make_shared<logger::LoggerManagerTree>(
+  dest = std::make_unique<logger::LoggerManagerTree>(
       std::make_shared<const logger::LoggerConfig>(std::move(root_config)));
-  addChildrenLoggerConfigs(path, dest, src.GetObject());
+  addChildrenLoggerConfigs(path, *dest, src.GetObject());
 }
 
 template <>
@@ -306,7 +336,10 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
   common_objects_factory_
-      ->createPeer(address, shared_model::crypto::PublicKey(public_key_str))
+      ->createPeer(
+          address,
+          shared_model::crypto::PublicKey(
+              shared_model::crypto::Blob::fromHexString(public_key_str)))
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {
                throw std::runtime_error("Failed to create a peer at '" + path
@@ -357,6 +390,7 @@ std::string reportJsonParsingError(const rapidjson::Document &doc,
       + "'): " + std::string(rapidjson::GetParseError_En(doc.GetParseError()));
 }
 
+// TODO mboldyrev 2019.05.06 IR-465 make config loader testable
 IrohadConfig parse_iroha_config(
     const std::string &conf_path,
     std::shared_ptr<shared_model::interface::CommonObjectsFactory>
