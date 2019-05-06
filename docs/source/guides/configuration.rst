@@ -55,8 +55,10 @@ Environment-specific parameters
   to start with 100-1000 milliseconds.
 - ``mst_enable`` enables or disables multisignature transaction network
   transport in Iroha.
-  Note that MST engine always works for any peer even when the flag is set to ``false``.
-  The flag only allows sharing information about MST transactions among the peers.
+  Note that MST engine always works for any peer even when the flag is set to
+  ``false``.
+  The flag only allows sharing information about MST transactions among the
+  peers.
 - ``mst_expiration_time`` is an optional parameter specifying the time period
   in which a not fully signed transaction (or a batch) is considered expired
   (in minutes).
@@ -79,6 +81,15 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
+- ``"initial_peers`` is an optional parameter specifying list of peers a node will
+  use after startup instead of peers from genesis block. It could be useful when
+  you add a new node to the network where the most of initial peers became
+  malicious. Example:
+
+  ``"initial_peers" : [{"address":"127.0.0.1:10001", "public_key":
+  "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"}]``
+
+  Typically you should not need to use this option.
 
 Logging
 -------
