@@ -6,8 +6,8 @@ Building Iroha
 In this guide we will learn how to install all dependencies, required to build
 Iroha and how to build it.
 
-.. note:: You don't need to build Iroha to start using it. 
-  Instead, you can download prepared Docker image from the Hub, 
+.. note:: You don't need to build Iroha to start using it.
+  Instead, you can download prepared Docker image from the Hub,
   this process explained in details in the :ref:`getting-started` page of this documentation.
 
 Preparing the Environment
@@ -21,6 +21,10 @@ Linux distros and macOS). If you happen to have Windows or you don't want to
 spend time installing all dependencies you might want to consider using Docker
 environment. Also, Windows users might consider using
 `WSL <https://en.wikipedia.org/wiki/Windows_Subsystem_for_Linux>`_
+
+Technically Iroha can be built under Windows natively in experimental mode.
+This guide covers that way too.
+All the stages related to native Windows build are separated from the main flow due to its significant differences.
 
 .. hint:: Having troubles? Check FAQ section or communicate to us directly, in
   case you were stuck on something. We don't expect this to happen, but some
@@ -131,6 +135,99 @@ to install all dependencies with Homebrew.
 
   ``ruby -e "$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)"``
 
+
+Windows
+^^^^^^^
+
+All the listed commands are desinged for building 64-bit version of Iroha.
+
+Chocolatey Package Manager
+""""""""""""""""""""""""""
+
+First of all you need chocolatey package manager installed.
+Please refer `the guide <https://chocolatey.org/install>`_ for chocoloatey installation.
+
+Build Toolset
+"""""""""""""
+
+Install CMake, Git, Microsoft compilers via chocolatey being in Administrative mode of command prompt:
+
+.. code-block:: shell
+
+  choco install cmake git visualstudio2017-workload-vctools
+
+.. hint::
+  Despite PostgreSQL is not a build dependency it is recommended to install Postgres now for the testing later.
+
+  .. code-block:: shell
+
+    choco install postgresql
+    # Don't forget the password you set!
+
+
+Vcpkg Dependency Manager
+""""""""""""""""""""""""
+
+Although Vcpkg is aimed to control dependency hell among the C++ libraries,
+unfortunately, we cannot install its default version.
+The first problem is that Iroha dependency called SOCI is not able to work with the latest Boost.
+The second reason - Vcpkg does not provide Postgres related libraries for Debug build.
+
+The solution is to use Vcpkg from a `pull request <https://github.com/Microsoft/vcpkg/pull/6328>`_ (until it is merged):
+
+.. code-block:: shell
+
+  git clone https://github.com/Microsoft/vcpkg.git --depth=1
+  cd vcpkg
+  git fetch origin pull/6328/head:vcpkg_for_iroha
+  git checkout vcpkg_for_iroha
+
+Then follow Vcpkg installation `guide <https://github.com/Microsoft/vcpkg/blob/master/README.md>`_:
+
+.. code-block:: text
+
+  # execute in Power shell
+  .\bootstrap-vcpkg.bat
+  .\vcpkg.exe integrate install
+
+After the installation of vcpkg you will be provided with a CMake build parameter like
+``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
+Save it somewhere for the later use.
+
+Vcpkg Packages
+""""""""""""""
+
+Install C++ dependencies via vcpkg:
+
+.. code-block:: shell
+
+  # Execute this from cmd.exe NOT from Power Shell
+
+  vcpkg.exe install ^
+  protobuf:x64-windows ^
+  grpc:x64-windows ^
+  tbb:x64-windows ^
+  gtest:x64-windows ^
+  gflags:x64-windows ^
+  soci[boost,postgresql]:x64-windows ^
+  boost-filesystem:x64-windows ^
+  boost-system:x64-windows ^
+  boost-thread:x64-windows ^
+  boost-variant:x64-windows ^
+  boost-multiprecision:x64-windows ^
+  boost-bimap:x64-windows ^
+  boost-format:x64-windows ^
+  boost-circular-buffer:x64-windows ^
+  boost-assign:x64-windows ^
+  boost-uuid:x64-windows ^
+  boost-accumulators:x64-windows ^
+  boost-property-tree:x64-windows ^
+  boost-process:x64-windows
+
+.. note:: If you plan to build 32-bit version of Iroha -
+  you will need to install all the mentioned librares above
+  prefixed with ``x86`` term instead of ``x64``.
+
 Build Process
 -------------
 
@@ -152,6 +249,9 @@ directory of your choice.
 
 Building Iroha
 ^^^^^^^^^^^^^^
+
+Building on Windows differs from the main flow and the guide is `here <#building-iroha-on-windows>`_.
+
 To build Iroha, use those commands
 
 .. code-block:: shell
@@ -240,3 +340,49 @@ Alternatively, you can run following command in the ``build`` folder
     -e POSTGRES_PASSWORD=mysecretpassword \
     -p 5432:5432 \
     -d postgres:9.5
+
+
+Building Iroha on Windows
+"""""""""""""""""""""""""
+
+Configure the CMake project using configuration parameter acquired from vcpkg.
+
+.. code-block:: text
+
+  cmake -HC:\path\to\iroha -BC:\path\to\build ^
+  -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
+  -G "Visual Studio 15 2017 Win64" -T host=x64
+
+.. note:: To build a 32-bit version of Iroha change ``-G "Visual Studio 15 2017 Win64"``
+  to ``-G "Visual Studio 15 2017"``
+
+.. note:: ``-T host=x64`` indicates only the fact that 64-bit system is used as a host,
+  where Iroha is going to be compiled.
+
+Build ``irohad`` and ``iroha-cli``:
+
+.. code-block:: text
+
+  cmake --build C:\path\to\build --target irohad
+  cmake --build C:\path\to\build --target iroha-cli
+
+
+Running Iroha on Windows
+""""""""""""""""""""""""
+
+Set the correct path and PostgreSQL password in ``config-win.sample``
+
+.. code-block:: text
+
+  C:\path\to\irohad.exe ^
+  --config C:\path\to\iroha\example\config-win.sample ^
+  --genesis_block C:\path\to\iroha\example\genesis-win.block ^
+  --keypair_name C:\path\to\iroha\example\node0
+
+As we stated before Windows build support is on experimental stage,
+that is why there no much details regarding the process.
+If you want to explore the maximum of Windows-related works around
+Iroha please take a look at these pull requests:
+`1 <https://github.com/hyperledger-archives/iroha/pull/1988>`_,
+`2 <https://github.com/hyperledger-archives/iroha/pull/2022>`_,
+`3 <https://github.com/hyperledger/iroha/pull/55>`_.
