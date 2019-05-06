@@ -206,7 +206,8 @@ namespace iroha {
         PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
         on_init_connection(session);
 
-        // // TODO: 2019-05-06 @muratovv unhandled exception IR-??
+        // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
+        // IR-464
         on_init_db();
         iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
       };

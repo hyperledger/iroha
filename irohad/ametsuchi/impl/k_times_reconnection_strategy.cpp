@@ -15,7 +15,7 @@ KTimesReconnectionStrategy::KTimesReconnectionStrategy(
       current_number_of_reconnections_(0u) {}
 
 bool KTimesReconnectionStrategy::canReconnect() {
-  if(current_number_of_reconnections_ > max_number_of_reconnections_) {
+  if (current_number_of_reconnections_ > max_number_of_reconnections_) {
     return false;
   }
   return ++current_number_of_reconnections_ <= max_number_of_reconnections_;
