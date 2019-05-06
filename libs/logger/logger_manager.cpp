@@ -6,6 +6,7 @@
 #include "logger/logger_manager.hpp"
 
 #include <atomic>
+#include <ciso646>
 
 static const std::string kTagHierarchySeparator = "/";
 

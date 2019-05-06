@@ -80,7 +80,9 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
   {
     std::shared_lock<std::shared_timed_mutex> lock(proposals_mutex_);
     auto it = proposal_map_.find(round);
-    result = boost::make_optional(it != proposal_map_.end(), it->second);
+    if (it != proposal_map_.end()) {
+      result = it->second;
+    }
   }
   // space between '{}' and 'returning' is not missing, since either nothing, or
   // NOT with space is printed
