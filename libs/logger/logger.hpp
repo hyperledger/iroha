@@ -22,6 +22,7 @@ auto operator<<(StreamType &os, const T &object)
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+#undef interface
 
 namespace logger {
 
