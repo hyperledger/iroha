@@ -26,6 +26,7 @@ namespace iroha {
 
   namespace ametsuchi {
 
+    class BlockStorageFactory;
     class BlockQuery;
     class WsvQuery;
 
@@ -60,12 +61,11 @@ namespace iroha {
           const shared_model::interface::Peer &peer) = 0;
 
       /**
-       * Creates a mutable storage, which does not store blocks, from the
-       * current state
+       * Creates a mutable storage from the current state
        * @return Created Result with mutable storage or error string
        */
       virtual expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorageWithoutBlockStorage() = 0;
+      createMutableStorage(BlockStorageFactory &storage_factory) = 0;
 
       /**
        * method called when block is written to the storage

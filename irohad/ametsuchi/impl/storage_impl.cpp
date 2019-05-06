@@ -144,51 +144,9 @@ namespace iroha {
               log_manager_->getChild("TemporaryWorldStateView")));
     }
 
-    template <typename Factory>
-    expected::Result<std::unique_ptr<MutableStorage>, std::string>
-    StorageImpl::createMutableStorage(Factory factory) {
-      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
-      if (connection_ == nullptr) {
-        return expected::makeError("Connection was closed");
-      }
-
-      auto sql = std::make_unique<soci::session>(*connection_);
-      // if we create mutable storage, then we intend to mutate wsv
-      // this means that any state prepared before that moment is not needed
-      // and must be removed to prevent locking
-      if (block_is_prepared) {
-        rollbackPrepared(*sql);
-      }
-      shared_model::interface::types::HashType hash{""};
-      shared_model::interface::types::HeightType height{0};
-      auto block_query = getBlockQuery();
-      if (not block_query) {
-        return expected::makeError("Cannot create BlockQuery");
-      }
-      block_query->getBlock(block_query->getTopBlockHeight())
-          .match(
-              [&hash, &height](const auto &v) {
-                hash = v.value->hash();
-                height = v.value->height();
-              },
-              [this](const auto &e) {
-                log_->error("Could not get top block: {}", e.error);
-              });
-      return expected::makeValue<std::unique_ptr<MutableStorage>>(
-          std::make_unique<MutableStorageImpl>(
-              hash,
-              height,
-              std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
-              std::move(sql),
-              factory_,
-              factory(),
-              log_manager_->getChild("MutableStorageImpl")));
-    }
-
     expected::Result<std::unique_ptr<MutableStorage>, std::string>
     StorageImpl::createMutableStorage() {
-      return createMutableStorage(
-          [this] { return block_storage_factory_->create(); });
+      return createMutableStorage(*block_storage_factory_);
     }
 
     boost::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
@@ -255,31 +213,43 @@ namespace iroha {
     }
 
     expected::Result<std::unique_ptr<MutableStorage>, std::string>
-    StorageImpl::createMutableStorageWithoutBlockStorage() {
-      return createMutableStorage([] {
-        struct BlockStorageStub : public BlockStorage {
-          bool insert(std::shared_ptr<const shared_model::interface::Block>
-                          block) override {
-            return true;
-          }
+    StorageImpl::createMutableStorage(BlockStorageFactory &storage_factory) {
+      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
+      if (connection_ == nullptr) {
+        return expected::makeError("Connection was closed");
+      }
 
-          boost::optional<std::shared_ptr<const shared_model::interface::Block>>
-          fetch(shared_model::interface::types::HeightType height)
-              const override {
-            return boost::none;
-          }
-
-          size_t size() const override {
-            return 0;
-          }
-
-          void clear() override {}
-
-          void forEach(FunctionType function) const override {}
-        };
-
-        return std::make_unique<BlockStorageStub>();
-      });
+      auto sql = std::make_unique<soci::session>(*connection_);
+      // if we create mutable storage, then we intend to mutate wsv
+      // this means that any state prepared before that moment is not needed
+      // and must be removed to prevent locking
+      if (block_is_prepared) {
+        rollbackPrepared(*sql);
+      }
+      shared_model::interface::types::HashType hash{""};
+      shared_model::interface::types::HeightType height{0};
+      auto block_query = getBlockQuery();
+      if (not block_query) {
+        return expected::makeError("Cannot create BlockQuery");
+      }
+      block_query->getBlock(block_query->getTopBlockHeight())
+          .match(
+              [&hash, &height](const auto &v) {
+                hash = v.value->hash();
+                height = v.value->height();
+              },
+              [this](const auto &e) {
+                log_->error("Could not get top block: {}", e.error);
+              });
+      return expected::makeValue<std::unique_ptr<MutableStorage>>(
+          std::make_unique<MutableStorageImpl>(
+              hash,
+              height,
+              std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
+              std::move(sql),
+              factory_,
+              storage_factory.create(),
+              log_manager_->getChild("MutableStorageImpl")));
     }
 
     void StorageImpl::reset() {
