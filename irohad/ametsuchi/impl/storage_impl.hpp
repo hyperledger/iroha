@@ -17,6 +17,7 @@
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
+#include "ametsuchi/reconnection_strategy.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -27,6 +28,7 @@ namespace iroha {
   namespace ametsuchi {
 
     class FlatFile;
+    class FailoverCallbackFactory;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
@@ -58,6 +60,8 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::unique_ptr<BlockStorageFactory> block_storage_factory,
+          std::unique_ptr<ReconnectionStrategyFactory>
+              reconnection_strategy_factory,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -78,29 +82,18 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory) const override;
 
-      /**
-       * Insert block without validation
-       * @param blocks - block for insertion
-       * @return true if all blocks are inserted
-       */
       bool insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) override;
-
-      /**
-       * Insert blocks without validation
-       * @param blocks - collection of blocks for insertion
-       * @return final ledger if inserted, error description otherwise
-       */
-      iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
-                              std::string>
-      insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
-              &blocks) override;
 
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 
+      expected::Result<std::unique_ptr<MutableStorage>, std::string>
+      createMutableStorage(BlockStorageFactory &storage_factory) override;
+
       void reset() override;
+
+      expected::Result<void, std::string> resetWsv() override;
 
       void resetPeers() override;
 
@@ -137,6 +130,8 @@ namespace iroha {
                   std::shared_ptr<shared_model::interface::PermissionToString>
                       perm_converter,
                   std::unique_ptr<BlockStorageFactory> block_storage_factory,
+                  std::unique_ptr<ReconnectionStrategyFactory>
+                      reconnection_strategy_factory,
                   size_t pool_size,
                   bool enable_prepared_blocks,
                   logger::LoggerManagerTreePtr log_manager);
@@ -184,7 +179,12 @@ namespace iroha {
 
       mutable std::shared_timed_mutex drop_mutex;
 
-      size_t pool_size_;
+      std::unique_ptr<ReconnectionStrategyFactory>
+          reconnection_strategy_factory_;
+
+      std::unique_ptr<FailoverCallbackFactory> callback_factory_;
+
+      const size_t pool_size_;
 
       bool prepared_blocks_enabled_;
 

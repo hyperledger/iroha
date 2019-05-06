@@ -22,6 +22,7 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     impl/flat_file_block_storage.cpp
     impl/flat_file_block_storage_factory.cpp
+    impl/k_times_reconnection_strategy.cpp
     )
 
 target_link_libraries(ametsuchi
