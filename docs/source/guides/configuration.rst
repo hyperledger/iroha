@@ -23,7 +23,7 @@ at ``example/config.sample``
     "stale_stream_max_rounds": 2
   }
 
-As you can see, configuration file is a valid ``json`` structure. Let's go 
+As you can see, configuration file is a valid ``json`` structure. Let's go
 line-by-line and understand what every parameter means.
 
 Deployment-specific parameters
@@ -43,25 +43,23 @@ Environment-specific parameters
 -------------------------------
 
 - ``max_proposal_size`` is the maximum amount of transactions that can be in
-  one proposal, and as a result in a single block as well. So, by changing this 
-  value you define the size of potential block. For a starter you can stick to 
-  ``10``. However, we recommend to increase this number if you have a lot of 
+  one proposal, and as a result in a single block as well. So, by changing this
+  value you define the size of potential block. For a starter you can stick to
+  ``10``. However, we recommend to increase this number if you have a lot of
   transactions per second.
-- ``proposal_delay`` is a maximum waiting time in milliseconds before emitting
-  a new proposal. Proposal is emitted if the ``max_proposal_size`` is reached 
-  or ``proposal_delay`` milliseconds had passed. You can start with ``5000``
-  and increase this number if you have a lot of transactions per second since
-  it is likely that with an intense load (over 100 transactions per second)
-  and low value of ``proposal_delay`` there will be many proposals of small
-  size.
+- ``proposal_delay`` is a timeout in milliseconds that a peer waits a response
+  from the orderding service with a proposal.
 - ``vote_delay`` is a waiting time in milliseconds before sending vote to the
   next peer. Optimal value depends heavily on the amount of Iroha peers in the
   network (higher amount of nodes requires longer ``vote_delay``). We recommend
   to start with 100-1000 milliseconds.
 - ``mst_enable`` enables or disables multisignature transaction network
-  transport in Iroha. We recommend setting this parameter to ``false`` at the
-  moment until you really need it.
-  ``mst_expiration_time`` is an optional parameter specifying the time period
+  transport in Iroha.
+  Note that MST engine always works for any peer even when the flag is set to
+  ``false``.
+  The flag only allows sharing information about MST transactions among the
+  peers.
+- ``mst_expiration_time`` is an optional parameter specifying the time period
   in which a not fully signed transaction (or a batch) is considered expired
   (in minutes).
   The default value is 1440.
@@ -83,6 +81,14 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
+- ``"initial_peers`` is an optional parameter specifying list of peers a node
+  will use after startup instead of peers from genesis block.
+  It could be useful when you add a new node to the network where the most of
+  initial peers may become malicious.
+  Peers list should be provided as a JSON array:
+
+  ``"initial_peers" : [{"address":"127.0.0.1:10001", "public_key":
+  "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"}]``
 
 Logging
 -------

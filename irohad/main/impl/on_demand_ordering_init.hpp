@@ -158,6 +158,8 @@ namespace iroha {
      private:
       logger::LoggerPtr log_;
 
+      boost::optional<consensus::Round> last_received_round_;
+
       std::vector<std::shared_ptr<shared_model::interface::Peer>>
           current_peers_;
 
