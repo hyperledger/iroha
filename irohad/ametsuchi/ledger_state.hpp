@@ -12,13 +12,11 @@
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
-  using PeerList = std::vector<std::shared_ptr<shared_model::interface::Peer>>;
-
   struct LedgerState {
-    std::shared_ptr<PeerList> ledger_peers;
+    std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers;
     shared_model::interface::types::HeightType height;
 
-    LedgerState(std::shared_ptr<PeerList> peers,
+    LedgerState(std::shared_ptr<shared_model::interface::types::PeerList> peers,
                 shared_model::interface::types::HeightType height)
         : ledger_peers(std::move(peers)), height(height) {}
   };

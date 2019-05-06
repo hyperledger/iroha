@@ -90,6 +90,7 @@ namespace integration_framework {
                                              key_pair,
                                              max_rounds_delay_,
                                              stale_stream_max_rounds_,
+                                             boost::none,
                                              irohad_log_manager_,
                                              log_,
                                              opt_mst_gossip_params_);
@@ -97,8 +98,8 @@ namespace integration_framework {
 
   void IrohaInstance::run() {
     instance_->run().match(
-        [](const Irohad::RunResult::ValueType &) {},
-        [](const Irohad::RunResult::ErrorType &error) {
+        [](const auto &) {},
+        [](const auto &error) {
           BOOST_THROW_EXCEPTION(std::runtime_error(error.error));
         });
   }

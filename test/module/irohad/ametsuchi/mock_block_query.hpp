@@ -15,18 +15,14 @@ namespace iroha {
 
     class MockBlockQuery : public BlockQuery {
      public:
-      MOCK_METHOD2(getBlocks,
-                   std::vector<BlockQuery::wBlock>(
-                       shared_model::interface::types::HeightType, uint32_t));
-      MOCK_METHOD1(getBlocksFrom,
-                   std::vector<BlockQuery::wBlock>(
-                       shared_model::interface::types::HeightType));
-      MOCK_METHOD1(getTopBlocks, std::vector<BlockQuery::wBlock>(uint32_t));
-      MOCK_METHOD0(getTopBlock, expected::Result<wBlock, std::string>(void));
+      MOCK_METHOD1(
+          getBlock,
+          BlockQuery::BlockResult(shared_model::interface::types::HeightType));
       MOCK_METHOD1(checkTxPresence,
                    boost::optional<TxCacheStatusType>(
                        const shared_model::crypto::Hash &));
-      MOCK_METHOD0(getTopBlockHeight, uint32_t(void));
+      MOCK_METHOD0(getTopBlockHeight,
+                   shared_model::interface::types::HeightType());
     };
 
   }  // namespace ametsuchi

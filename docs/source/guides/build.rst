@@ -1,3 +1,5 @@
+.. _build-guide:
+
 Building Iroha
 ==============
 

@@ -82,7 +82,12 @@ namespace logger {
               const std::string &format,
               const Args &... args) const {
        if (shouldLog(level)) {
-         logInternal(level, fmt::format(format, args...));
+         try {
+           logInternal(level, fmt::format(format, args...));
+         } catch (const fmt::v5::format_error &error) {
+           std::string error_msg("Exception was thrown while logging: ");
+           logInternal(LogLevel::kError, error_msg.append(error.what()));
+         }
        }
      }
 

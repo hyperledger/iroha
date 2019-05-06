@@ -66,14 +66,13 @@ OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   }
   return proposal_factory_->build(response.proposal())
       .match(
-          [&](iroha::expected::Value<
-              std::unique_ptr<shared_model::interface::Proposal>> &v) {
+          [&](auto &&v) {
             return boost::make_optional(
                 std::shared_ptr<const OdOsNotification::ProposalType>(
                     std::move(v).value));
           },
-          [this](iroha::expected::Error<TransportFactoryType::Error> &error) {
-            log_->info(error.error.error);  // error
+          [this](const auto &error) {
+            log_->info("{}", error.error.error);  // error
             return boost::optional<
                 std::shared_ptr<const OdOsNotification::ProposalType>>();
           });

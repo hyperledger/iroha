@@ -81,10 +81,25 @@ namespace iroha {
        * @nocode
        */
       template <typename ValueMatch, typename ErrorMatch>
-      constexpr auto match(ValueMatch &&value_func, ErrorMatch &&error_func) {
+      constexpr auto match(ValueMatch &&value_func, ErrorMatch &&error_func) & {
         return visit_in_place(*this,
-                              std::forward<ValueMatch>(value_func),
-                              std::forward<ErrorMatch>(error_func));
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  ValueType &v) { return f(v); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  ErrorType &e) { return f(e); });
+      }
+
+      /**
+       * Move alternative for match function
+       */
+      template <typename ValueMatch, typename ErrorMatch>
+      constexpr auto match(ValueMatch &&value_func,
+                           ErrorMatch &&error_func) && {
+        return visit_in_place(*this,
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  ValueType &v) { return f(std::move(v)); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  ErrorType &e) { return f(std::move(e)); });
       }
 
       /**
@@ -92,14 +107,16 @@ namespace iroha {
        */
       template <typename ValueMatch, typename ErrorMatch>
       constexpr auto match(ValueMatch &&value_func,
-                           ErrorMatch &&error_func) const {
+                           ErrorMatch &&error_func) const & {
         return visit_in_place(*this,
-                              std::forward<ValueMatch>(value_func),
-                              std::forward<ErrorMatch>(error_func));
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  const ValueType &v) { return f(v); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  const ErrorType &e) { return f(e); });
       }
 
       /**
-       * Lazy error AND-chaining
+       * Error AND-chaining
        * Works by the following table (aka boolean lazy AND):
        * err1 * any  -> err1
        * val1 * err2 -> err2
@@ -119,7 +136,7 @@ namespace iroha {
       }
 
       /**
-       * Lazy error OR-chaining
+       * Error OR-chaining
        * Works by the following table (aka boolean lazy OR):
        * val1 * any  -> val1
        * err1 * val2 -> val2

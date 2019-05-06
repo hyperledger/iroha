@@ -54,11 +54,21 @@ namespace iroha {
       /**
        * Raw insertion of blocks without validation
        * @param blocks - collection of blocks for insertion
-       * @return true if inserted
+       * @return final ledger if inserted, error description otherwise
        */
-      virtual bool insertBlocks(
-          const std::vector<std::shared_ptr<shared_model::interface::Block>>
-              &blocks) = 0;
+      virtual iroha::expected::
+          Result<boost::optional<std::unique_ptr<LedgerState>>, std::string>
+          insertBlocks(
+              const std::vector<std::shared_ptr<shared_model::interface::Block>>
+                  &blocks) = 0;
+
+      /**
+       * Insert a peer into WSV
+       * @param peer - peer to insert
+       * @return error reason if not inserted
+       */
+      virtual expected::Result<void, std::string> insertPeer(
+          const shared_model::interface::Peer &peer) = 0;
 
       /**
        * method called when block is written to the storage
@@ -72,6 +82,11 @@ namespace iroha {
        * Remove all records from the tables and remove all the blocks
        */
       virtual void reset() = 0;
+
+      /**
+       * Removes all peers from WSV
+       */
+      virtual void resetPeers() = 0;
 
       /**
        * Remove all information from ledger

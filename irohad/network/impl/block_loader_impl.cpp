@@ -42,12 +42,12 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
       [this, height, &peer_pubkey](auto subscriber) {
         auto peer = this->findPeer(peer_pubkey);
         if (not peer) {
-          log_->error(kPeerNotFound);
+          log_->error("{}", kPeerNotFound);
           subscriber.on_completed();
           return;
         }
 
-        proto::BlocksRequest request;
+        proto::BlockRequest request;
         grpc::ClientContext context;
         protocol::Block block;
 
@@ -61,17 +61,15 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         auto reader =
             this->getPeerStub(**peer).retrieveBlocks(&context, request);
         while (subscriber.is_subscribed() and reader->Read(&block)) {
-          auto proto_block = block_factory_.createBlock(std::move(block));
-          proto_block.match(
-              [&subscriber](
-                  iroha::expected::Value<std::unique_ptr<Block>> &result) {
-                subscriber.on_next(std::move(result.value));
-              },
-              [this,
-               &context](const iroha::expected::Error<std::string> &error) {
-                log_->error(error.error);
-                context.TryCancel();
-              });
+          block_factory_.createBlock(std::move(block))
+              .match(
+                  [&subscriber](auto &&result) {
+                    subscriber.on_next(std::move(result.value));
+                  },
+                  [this, &context](const auto &error) {
+                    log_->error("{}", error.error);
+                    context.TryCancel();
+                  });
         }
         reader->Finish();
         subscriber.on_completed();
@@ -79,10 +77,10 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
 }
 
 boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
-    const PublicKey &peer_pubkey, const types::HashType &block_hash) {
+    const PublicKey &peer_pubkey, types::HeightType block_height) {
   auto peer = findPeer(peer_pubkey);
   if (not peer) {
-    log_->error(kPeerNotFound);
+    log_->error("{}", kPeerNotFound);
     return boost::none;
   }
 
@@ -90,26 +88,25 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
   grpc::ClientContext context;
   protocol::Block block;
 
-  // request block with specified hash
-  request.set_hash(toBinaryString(block_hash));
+  // request block with specified height
+  request.set_height(block_height);
 
   auto status = getPeerStub(**peer).retrieveBlock(&context, request, &block);
   if (not status.ok()) {
-    log_->warn(status.error_message());
+    log_->warn("{}", status.error_message());
     return boost::none;
   }
 
-  auto result = block_factory_.createBlock(std::move(block));
-
-  return result.match(
-      [](iroha::expected::Value<std::unique_ptr<Block>> &v) {
-        return boost::make_optional(std::shared_ptr<Block>(std::move(v.value)));
-      },
-      [this](const iroha::expected::Error<std::string> &e)
-          -> boost::optional<std::shared_ptr<Block>> {
-        log_->error(e.error);
-        return boost::none;
-      });
+  return block_factory_.createBlock(std::move(block))
+      .match(
+          [](auto &&v) {
+            return boost::make_optional(
+                std::shared_ptr<Block>(std::move(v.value)));
+          },
+          [this](const auto &e) -> boost::optional<std::shared_ptr<Block>> {
+            log_->error("{}", e.error);
+            return boost::none;
+          });
 }
 
 boost::optional<std::shared_ptr<shared_model::interface::Peer>>
@@ -117,7 +114,7 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
   auto peers = peer_query_factory_->createPeerQuery() |
       [](const auto &query) { return query->getLedgerPeers(); };
   if (not peers) {
-    log_->error(kPeerRetrieveFail);
+    log_->error("{}", kPeerRetrieveFail);
     return boost::none;
   }
 
@@ -127,7 +124,7 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
         return peer->pubkey().blob() == blob;
       });
   if (it == peers.value().end()) {
-    log_->error(kPeerFindFail);
+    log_->error("{}", kPeerFindFail);
     return boost::none;
   }
   return *it;

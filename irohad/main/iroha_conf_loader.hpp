@@ -9,6 +9,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "interfaces/common_objects/common_objects_factory.hpp"
+#include "interfaces/common_objects/types.hpp"
 #include "logger/logger_manager.hpp"
 
 struct IrohadConfig {
@@ -24,6 +26,7 @@ struct IrohadConfig {
   boost::optional<uint32_t> max_round_delay_ms;
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
+  boost::optional<shared_model::interface::types::PeerList> initial_peers;
 };
 
 /**
@@ -31,6 +34,9 @@ struct IrohadConfig {
  * @param conf_path is a path to iroha's config
  * @return a parsed equivalent of that file
  */
-IrohadConfig parse_iroha_config(const std::string &conf_path);
+IrohadConfig parse_iroha_config(
+    const std::string &conf_path,
+    std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+        common_objects_factory);
 
 #endif  // IROHA_CONF_LOADER_HPP

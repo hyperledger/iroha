@@ -41,22 +41,24 @@ if (NOT pq_FOUND)
       GIT_REPOSITORY  ${URL}
       GIT_TAG         ${VERSION}
       CONFIGURE_COMMAND
-                      ./configure --without-readline
+                      ./configure --without-readline --prefix=${EP_PREFIX}
                       CC=${CMAKE_C_COMPILER}
 
       BUILD_IN_SOURCE 1
       BUILD_COMMAND ${MAKE} COPT=${CMAKE_C_FLAGS} -C ./src/bin/pg_config &&
-                    ${MAKE} COPT=${CMAKE_C_FLAGS} -C ./src/interfaces/libpq
-      BUILD_BYPRODUCTS ${EP_PREFIX}/src/postgres_postgres/src/interfaces/libpq/libpq.a
-      INSTALL_COMMAND "" # remove install step
+                    ${MAKE} COPT=${CMAKE_C_FLAGS} -C ./src/interfaces/libpq &&
+                    ${MAKE} COPT=${CMAKE_C_FLAGS} -C ./src/backend ../../src/include/utils/fmgroids.h
+      BUILD_BYPRODUCTS ${EP_PREFIX}/lib/libpq.a
+      INSTALL_COMMAND make -C src/bin/pg_config install &&
+                      make -C src/interfaces/libpq install &&
+                      make -C src/include install
       TEST_COMMAND "" # remove test step
       UPDATE_COMMAND "" # remove update step
       )
-  externalproject_get_property(postgres_postgres source_dir)
-  set(postgres_INCLUDE_DIR ${source_dir}/src/include)
-  set(pq_INCLUDE_DIR ${source_dir}/src/interfaces/libpq)
-  set(pq_LIBRARY ${source_dir}/src/interfaces/libpq/libpq.a)
-  set(pg_config_EXECUTABLE ${source_dir}/src/bin/pg_config/pg_config)
+  set(postgres_INCLUDE_DIR ${EP_PREFIX}/include)
+  set(pq_INCLUDE_DIR ${EP_PREFIX}/include)
+  set(pq_LIBRARY ${EP_PREFIX}/lib/libpq.a)
+  set(pg_config_EXECUTABLE ${EP_PREFIX}/bin/pg_config)
   file(MAKE_DIRECTORY ${pq_INCLUDE_DIR} ${postgres_INCLUDE_DIR})
 
   add_dependencies(pg_config postgres_postgres)

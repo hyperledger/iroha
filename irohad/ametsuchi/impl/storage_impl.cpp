@@ -16,12 +16,14 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
@@ -160,16 +162,19 @@ namespace iroha {
       }
       shared_model::interface::types::HashType hash{""};
       shared_model::interface::types::HeightType height{0};
-      getBlockQuery()->getTopBlock().match(
-          [&hash, &height](
-              expected::Value<std::shared_ptr<shared_model::interface::Block>>
-                  &block) {
-            hash = block.value->hash();
-            height = block.value->height();
-          },
-          [this](expected::Error<std::string> &) {
-            log_->error("Could not get top block!");
-          });
+      auto block_query = getBlockQuery();
+      if (not block_query) {
+        return expected::makeError("Cannot create BlockQuery");
+      }
+      block_query->getBlock(block_query->getTopBlockHeight())
+          .match(
+              [&hash, &height](const auto &v) {
+                hash = v.value->hash();
+                height = v.value->height();
+              },
+              [this](const auto &e) {
+                log_->error("Could not get top block: {}", e.error);
+              });
       return expected::makeValue<std::unique_ptr<MutableStorage>>(
           std::make_unique<MutableStorageImpl>(
               hash,
@@ -225,43 +230,46 @@ namespace iroha {
     bool StorageImpl::insertBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       log_->info("create mutable storage");
-      auto storageResult = createMutableStorage();
       bool inserted = false;
-      storageResult.match(
-          [&](expected::Value<std::unique_ptr<ametsuchi::MutableStorage>>
-                  &storage) {
+      createMutableStorage().match(
+          [&, this](auto &&storage) {
             inserted = storage.value->apply(block);
             log_->info("block inserted: {}", inserted);
-            commit(std::move(storage.value));
+            this->commit(std::move(storage.value));
           },
-          [&](expected::Error<std::string> &error) {
-            log_->error(error.error);
-          });
+          [&](const auto &error) { log_->error("{}", error.error); });
 
       return inserted;
     }
 
-    bool StorageImpl::insertBlocks(
+    iroha::expected::Result<boost::optional<std::unique_ptr<LedgerState>>,
+                            std::string>
+    StorageImpl::insertBlocks(
         const std::vector<std::shared_ptr<shared_model::interface::Block>>
             &blocks) {
       log_->info("create mutable storage");
-      bool inserted = true;
-      auto storageResult = createMutableStorage();
-      storageResult.match(
-          [&](iroha::expected::Value<std::unique_ptr<MutableStorage>>
-                  &mutableStorage) {
-            std::for_each(blocks.begin(), blocks.end(), [&](auto block) {
-              inserted &= mutableStorage.value->apply(block);
-            });
-            commit(std::move(mutableStorage.value));
+      return createMutableStorage().match(
+          [&, this](auto &&mutableStorage) -> decltype(insertBlocks(blocks)) {
+            for (auto &block : blocks) {
+              if (not mutableStorage.value->apply(block)) {
+                return expected::makeError(block->toString()
+                                           + " could not be applied.");
+              }
+            }
+            return iroha::expected::makeValue(
+                this->commit(std::move(mutableStorage.value)));
           },
-          [&](iroha::expected::Error<std::string> &error) {
-            log_->error(error.error);
-            inserted = false;
+          [&](const auto &error) -> decltype(insertBlocks(blocks)) {
+            return std::move(error);
           });
+    }
 
-      log_->info("insert blocks finished");
-      return inserted;
+    expected::Result<void, std::string> StorageImpl::insertPeer(
+        const shared_model::interface::Peer &peer) {
+      log_->info("Insert peer {}", peer.pubkey().hex());
+      soci::session sql(*connection_);
+      PostgresWsvCommand wsv_command(sql);
+      return wsv_command.insertPeer(peer);
     }
 
     void StorageImpl::reset() {
@@ -277,6 +285,16 @@ namespace iroha {
         block_store_->dropAll();
       } catch (std::exception &e) {
         log_->warn("Drop wsv was failed. Reason: {}", e.what());
+      }
+    }
+
+    void StorageImpl::resetPeers() {
+      log_->info("Remove everything from peers table");
+      try {
+        soci::session sql(*connection_);
+        sql << reset_peers_;
+      } catch (std::exception &e) {
+        log_->error("Failed to reset peers list, reason: {}", e.what());
       }
     }
 
@@ -411,10 +429,8 @@ namespace iroha {
       // create database if
       options.dbname() | [&options, &string_res](const std::string &dbname) {
         createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
-            .match([](expected::Value<bool> &val) {},
-                   [&string_res](expected::Error<std::string> &error) {
-                     string_res = error.error;
-                   });
+            .match([](auto &&val) {},
+                   [&string_res](auto &&error) { string_res = error.error; });
       };
 
       if (string_res) {
@@ -425,30 +441,31 @@ namespace iroha {
           initConnections(block_store_dir, log_manager->getLogger());
       auto db_result = initPostgresConnection(postgres_options, pool_size);
       expected::Result<std::shared_ptr<StorageImpl>, std::string> storage;
-      ctx_result.match(
-          [&](expected::Value<ConnectionContext> &ctx) {
-            db_result.match(
-                [&](expected::Value<std::shared_ptr<soci::connection_pool>>
-                        &connection) {
-                  soci::session sql(*connection.value);
-                  bool enable_prepared_transactions =
-                      preparedTransactionsAvailable(sql);
-                  storage = expected::makeValue(std::shared_ptr<StorageImpl>(
-                      new StorageImpl(block_store_dir,
-                                      options,
-                                      std::move(ctx.value.block_store),
-                                      connection.value,
-                                      factory,
-                                      converter,
-                                      perm_converter,
-                                      std::move(block_storage_factory),
-                                      pool_size,
-                                      enable_prepared_transactions,
-                                      std::move(log_manager))));
-                },
-                [&](expected::Error<std::string> &error) { storage = error; });
-          },
-          [&](expected::Error<std::string> &error) { storage = error; });
+      std::move(ctx_result)
+          .match(
+              [&](auto &&ctx) {
+                std::move(db_result).match(
+                    [&](auto &&connection) {
+                      soci::session sql(*connection.value);
+                      bool enable_prepared_transactions =
+                          preparedTransactionsAvailable(sql);
+                      storage =
+                          expected::makeValue(std::shared_ptr<StorageImpl>(
+                              new StorageImpl(block_store_dir,
+                                              options,
+                                              std::move(ctx.value.block_store),
+                                              std::move(connection.value),
+                                              factory,
+                                              converter,
+                                              perm_converter,
+                                              std::move(block_storage_factory),
+                                              pool_size,
+                                              enable_prepared_transactions,
+                                              std::move(log_manager))));
+                    },
+                    [&](const auto &error) { storage = error; });
+              },
+              [&](const auto &error) { storage = error; });
       return storage;
     }
 
@@ -468,10 +485,11 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<std::unique_ptr<LedgerState>>(
-                    std::make_unique<LedgerState>(
-                        std::make_shared<PeerList>(std::move(peers)),
-                        storage->getTopBlockHeight()));
+                return boost::optional<
+                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
+                    storage->getTopBlockHeight()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -520,7 +538,8 @@ namespace iroha {
                 log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<PeerList>(std::move(peers)),
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
                     block_query.getTopBlockHeight()));
           }
           return boost::none;
@@ -602,9 +621,8 @@ namespace iroha {
 
     bool StorageImpl::storeBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
-      auto json_result = converter_->serialize(*block);
-      return json_result.match(
-          [this, &block](const expected::Value<std::string> &v) {
+      return converter_->serialize(*block).match(
+          [this, &block](const auto &v) {
             if (block_store_->add(block->height(), stringToBytes(v.value))) {
               notifier_.get_subscriber().on_next(block);
               return true;
@@ -613,7 +631,7 @@ namespace iroha {
               return false;
             }
           },
-          [this, &block](const expected::Error<std::string> &e) {
+          [this, &block](const auto &e) {
             log_->error("Block serialization failed: {}: {}", *block, e.error);
             return false;
           });
@@ -657,6 +675,10 @@ TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
 TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
 TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
 TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+)";
+
+    const std::string &StorageImpl::reset_peers_ = R"(
+TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
 )";
 
     const std::string &StorageImpl::init_ =

@@ -38,11 +38,11 @@ TEST_F(PeerTest, ValidPeerInitialization) {
   auto peer = factory.createPeer(valid_address, valid_pubkey);
 
   peer.match(
-      [&](const ValueOf<decltype(peer)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->address(), valid_address);
         ASSERT_EQ(v.value->pubkey().hex(), valid_pubkey.hex());
       },
-      [](const ErrorOf<decltype(peer)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -53,9 +53,8 @@ TEST_F(PeerTest, ValidPeerInitialization) {
 TEST_F(PeerTest, InvalidPeerInitialization) {
   auto peer = factory.createPeer(invalid_address, valid_pubkey);
 
-  peer.match(
-      [](const ValueOf<decltype(peer)> &v) { FAIL() << "Expected error case"; },
-      [](const ErrorOf<decltype(peer)> &e) { SUCCEED(); });
+  peer.match([](const auto &v) { FAIL() << "Expected error case"; },
+             [](const auto &e) { SUCCEED(); });
 }
 
 class AccountTest : public ProtoFixture {
@@ -78,13 +77,13 @@ TEST_F(AccountTest, ValidAccountInitialization) {
       valid_account_id, valid_domain_id, valid_quorum, valid_json);
 
   account.match(
-      [&](const ValueOf<decltype(account)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->accountId(), valid_account_id);
         ASSERT_EQ(v.value->domainId(), valid_domain_id);
         ASSERT_EQ(v.value->quorum(), valid_quorum);
         ASSERT_EQ(v.value->jsonData(), valid_json);
       },
-      [](const ErrorOf<decltype(account)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -96,11 +95,8 @@ TEST_F(AccountTest, InvalidAccountInitialization) {
   auto account = factory.createAccount(
       invalid_account_id, valid_domain_id, valid_quorum, valid_json);
 
-  account.match(
-      [](const ValueOf<decltype(account)> &v) {
-        FAIL() << "Expected error case";
-      },
-      [](const ErrorOf<decltype(account)> &e) { SUCCEED(); });
+  account.match([](const auto &v) { FAIL() << "Expected error case"; },
+                [](const auto &e) { SUCCEED(); });
 }
 
 class AccountAssetTest : public ProtoFixture {
@@ -122,12 +118,12 @@ TEST_F(AccountAssetTest, ValidAccountAssetInitialization) {
       valid_account_id, valid_asset_id, valid_amount);
 
   account_asset.match(
-      [&](const ValueOf<decltype(account_asset)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->accountId(), valid_account_id);
         ASSERT_EQ(v.value->assetId(), valid_asset_id);
         ASSERT_EQ(v.value->balance(), valid_amount);
       },
-      [](const ErrorOf<decltype(account_asset)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -139,11 +135,8 @@ TEST_F(AccountAssetTest, InvalidAccountAssetInitialization) {
   auto account_asset = factory.createAccountAsset(
       invalid_account_id, valid_asset_id, valid_amount);
 
-  account_asset.match(
-      [](const ValueOf<decltype(account_asset)> &v) {
-        FAIL() << "Expected error case";
-      },
-      [](const ErrorOf<decltype(account_asset)> &e) { SUCCEED(); });
+  account_asset.match([](const auto &v) { FAIL() << "Expected error case"; },
+                      [](const auto &e) { SUCCEED(); });
 }
 
 class AssetTest : public ProtoFixture {
@@ -165,12 +158,12 @@ TEST_F(AssetTest, ValidAssetInitialization) {
       factory.createAsset(valid_asset_id, valid_domain_id, valid_precision);
 
   asset.match(
-      [&](const ValueOf<decltype(asset)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->assetId(), valid_asset_id);
         ASSERT_EQ(v.value->domainId(), valid_domain_id);
         ASSERT_EQ(v.value->precision(), valid_precision);
       },
-      [](const ErrorOf<decltype(asset)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -182,11 +175,8 @@ TEST_F(AssetTest, InvalidAssetInitialization) {
   auto asset =
       factory.createAsset(invalid_asset_id, valid_domain_id, valid_precision);
 
-  asset.match(
-      [](const ValueOf<decltype(asset)> &v) {
-        FAIL() << "Expected error case";
-      },
-      [](const ErrorOf<decltype(asset)> &e) { SUCCEED(); });
+  asset.match([](const auto &v) { FAIL() << "Expected error case"; },
+              [](const auto &e) { SUCCEED(); });
 }
 
 class DomainTest : public ProtoFixture {
@@ -206,11 +196,11 @@ TEST_F(DomainTest, ValidDomainInitialization) {
   auto domain = factory.createDomain(valid_domain_id, valid_role_id);
 
   domain.match(
-      [&](const ValueOf<decltype(domain)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->domainId(), valid_domain_id);
         ASSERT_EQ(v.value->defaultRole(), valid_role_id);
       },
-      [](const ErrorOf<decltype(domain)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -221,11 +211,8 @@ TEST_F(DomainTest, ValidDomainInitialization) {
 TEST_F(DomainTest, InvalidDomainInitialization) {
   auto domain = factory.createDomain(invalid_domain_id, valid_role_id);
 
-  domain.match(
-      [](const ValueOf<decltype(domain)> &v) {
-        FAIL() << "Expected error case";
-      },
-      [](const ErrorOf<decltype(domain)> &e) { SUCCEED(); });
+  domain.match([](const auto &v) { FAIL() << "Expected error case"; },
+               [](const auto &e) { SUCCEED(); });
 }
 
 class SignatureTest : public ProtoFixture {
@@ -245,11 +232,11 @@ TEST_F(SignatureTest, ValidSignatureInitialization) {
   auto signature = factory.createSignature(valid_pubkey, valid_data);
 
   signature.match(
-      [&](const ValueOf<decltype(signature)> &v) {
+      [&](const auto &v) {
         ASSERT_EQ(v.value->publicKey().hex(), valid_pubkey.hex());
         ASSERT_EQ(v.value->signedData().hex(), valid_data.hex());
       },
-      [](const ErrorOf<decltype(signature)> &e) { FAIL() << e.error; });
+      [](const auto &e) { FAIL() << e.error; });
 }
 
 /**
@@ -260,9 +247,6 @@ TEST_F(SignatureTest, ValidSignatureInitialization) {
 TEST_F(SignatureTest, InvalidSignatureInitialization) {
   auto signature = factory.createSignature(invalid_pubkey, valid_data);
 
-  signature.match(
-      [](const ValueOf<decltype(signature)> &v) {
-        FAIL() << "Expected error case";
-      },
-      [](const ErrorOf<decltype(signature)> &e) { SUCCEED(); });
+  signature.match([](const auto &v) { FAIL() << "Expected error case"; },
+                  [](const auto &e) { SUCCEED(); });
 }

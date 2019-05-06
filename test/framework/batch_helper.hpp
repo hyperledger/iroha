@@ -127,6 +127,32 @@ namespace framework {
     }
 
     /**
+     * Creates batch transactions, where every transaction has single signature
+     * @param batch_type - the type of batch to set to all transactions batch
+     * meta
+     * @param transactions_creators - vector of creator account ids for batch
+     * transactions
+     * @param now created time for every transaction
+     * @param quorum quorum for every transaction
+     * @return batch with the same size as size of range of pairs
+     */
+    auto createBatchOneSignTransactions(
+        const shared_model::interface::types::BatchType batch_type,
+        std::vector<shared_model::interface::types::AccountIdType>
+            transactions_creators,
+        size_t now = iroha::time::now(),
+        const shared_model::interface::types::QuorumType &quorum = 1) {
+      std::vector<std::pair<shared_model::interface::types::BatchType,
+                            shared_model::interface::types::AccountIdType>>
+          batch_types_and_creators;
+      for (const auto &creator : transactions_creators) {
+        batch_types_and_creators.emplace_back(batch_type, creator);
+      }
+      return createBatchOneSignTransactions(
+          batch_types_and_creators, now, quorum);
+    }
+
+    /**
      * Creates atomic batch from provided creator accounts
      * @param creators vector of creator account ids
      * @return unsigned batch of the same size as the size of creator account
@@ -218,10 +244,8 @@ namespace framework {
           batch_validator);
       return batch_factory->createTransactionBatch(std::move(tx))
           .match(
-              [](iroha::expected::Value<std::unique_ptr<
-                     shared_model::interface::TransactionBatch>> &value)
-                  -> std::shared_ptr<
-                      shared_model::interface::TransactionBatch> {
+              [](auto &&value) -> std::shared_ptr<
+                                   shared_model::interface::TransactionBatch> {
                 return std::move(value.value);
               },
               [](const auto &err)
