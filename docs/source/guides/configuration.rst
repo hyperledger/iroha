@@ -81,10 +81,11 @@ Environment-specific parameters
   track a transaction if for some reason it is not updated with new rounds.
   However large values increase the average number of connected clients during
   each round.
-- ``"initial_peers`` is an optional parameter specifying list of peers a node will
-  use after startup instead of peers from genesis block. It could be useful when
-  you add a new node to the network where the most of initial peers became
-  malicious. Peers list should be provided as a JSON array:
+- ``"initial_peers`` is an optional parameter specifying list of peers a node
+  will use after startup instead of peers from genesis block.
+  It could be useful when you add a new node to the network where the most of
+  initial peers may become malicious.
+  Peers list should be provided as a JSON array:
 
   ``"initial_peers" : [{"address":"127.0.0.1:10001", "public_key":
   "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"}]``
