@@ -95,5 +95,9 @@ Deploying 6 Iroha peers on two remote hosts communicating over overlay network (
 
 **TBD**
 
-##### Caveats
-1. If `/usr/bin/python` does not exist on a remote host, Ansible will fail with the misleading message: `... Make sure this host can be reached over ssh`. This usually happens when Ansible uses Python 3. On Ubuntu systems `/usr/bin/python3` is not symlinked to `/usr/bin/python` which Ansible expects to find. The problem can be solved by setting `ansible_python_interpreter` variable to `/usr/bin/python3`.
+**Caveats**
+
+> If `/usr/bin/python` does not exist on a remote host, Ansible will fail with the misleading message: `... Make sure this host can be reached over ssh`.
+This usually happens when Ansible uses Python 3.
+On Ubuntu systems `/usr/bin/python3` is not symlinked to `/usr/bin/python` which Ansible expects to find.
+The problem can be solved by setting `ansible_python_interpreter` variable to `/usr/bin/python3`.
