@@ -49,6 +49,9 @@ namespace iroha {
                               std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
+      static expected::Result<void, std::string> rollbackPrepared(
+          soci::session &sql, const std::string &prepared_block_name);
+
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
@@ -119,22 +122,23 @@ namespace iroha {
       ~StorageImpl() override;
 
      protected:
-      StorageImpl(std::string block_store_dir,
-                  PostgresOptions postgres_options,
-                  std::unique_ptr<KeyValueStorage> block_store,
-                  std::shared_ptr<soci::connection_pool> connection,
-                  std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-                      factory,
-                  std::shared_ptr<shared_model::interface::BlockJsonConverter>
-                      converter,
-                  std::shared_ptr<shared_model::interface::PermissionToString>
-                      perm_converter,
-                  std::unique_ptr<BlockStorageFactory> block_storage_factory,
-                  std::unique_ptr<ReconnectionStrategyFactory>
-                      reconnection_strategy_factory,
-                  size_t pool_size,
-                  bool enable_prepared_blocks,
-                  logger::LoggerManagerTreePtr log_manager);
+      StorageImpl(
+          std::string block_store_dir,
+          PostgresOptions postgres_options,
+          std::unique_ptr<KeyValueStorage> block_store,
+          std::shared_ptr<soci::connection_pool> connection,
+          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
+              factory,
+          std::shared_ptr<shared_model::interface::BlockJsonConverter>
+              converter,
+          std::shared_ptr<shared_model::interface::PermissionToString>
+              perm_converter,
+          std::unique_ptr<BlockStorageFactory> block_storage_factory,
+          std::unique_ptr<FailoverCallbackFactory> failover_callback_factory,
+          size_t pool_size,
+          bool enable_prepared_blocks,
+          const std::string &prepared_block_name,
+          logger::LoggerManagerTreePtr log_manager);
 
       /**
        * Folder with raw blocks
@@ -148,7 +152,6 @@ namespace iroha {
       /**
        * revert prepared transaction
        */
-      void rollbackPrepared(soci::session &sql);
 
       /**
        * add block to block storage
@@ -179,9 +182,6 @@ namespace iroha {
 
       mutable std::shared_timed_mutex drop_mutex;
 
-      std::unique_ptr<ReconnectionStrategyFactory>
-          reconnection_strategy_factory_;
-
       std::unique_ptr<FailoverCallbackFactory> callback_factory_;
 
       const size_t pool_size_;
@@ -191,6 +191,9 @@ namespace iroha {
       std::atomic<bool> block_is_prepared;
 
       std::string prepared_block_name_;
+
+      /// function try to execute rollback on prepared block
+      std::function<void(soci::session &)> try_rollback_;
 
      protected:
       static const std::string &drop_;
