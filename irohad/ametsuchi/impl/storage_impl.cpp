@@ -495,12 +495,14 @@ namespace iroha {
         return;
       }
       // rollback possible prepared transaction
-      soci::session sql(*connection_);
-      try_rollback_(sql);
+      {
+        soci::session sql(*connection_);
+        try_rollback_(sql);
+      }
       std::vector<std::shared_ptr<soci::session>> connections;
       for (size_t i = 0; i < pool_size_; i++) {
         connections.push_back(std::make_shared<soci::session>(*connection_));
-        connections[i]->close();
+        connections.at(i)->close();
         log_->debug("Closed connection {}", i);
       }
       connections.clear();
@@ -577,14 +579,28 @@ namespace iroha {
       return {};
     }
 
+    /**
+     * Function intitialize existed connection pool
+     * @param connection_pool - pool with connections
+     * @param pool_size - number of connection in pool
+     * @param prepare_tables_sql - sql code for initialization db
+     * @param try_rollback - function which performs blocks rollback before
+     * initialization
+     * @param callback_factory - factory for creation reconnect callbacks
+     * @param reconnection_strategy_factory - factory which creates strategies
+     * for each connection
+     * @param pg_reconnection_options - parameter of connection startup on
+     * reconnect
+     * @param log_manager - log manager of storage
+     */
     void connectionInitialization(
         soci::connection_pool &connection_pool,
         size_t pool_size,
-        const std::string &init_,
+        const std::string &prepare_tables_sql,
         std::function<void(soci::session &)> try_rollback,
-        FailoverCallbackFactory &callback_factory_,
-        ReconnectionStrategyFactory &reconnection_strategy_factory_,
-        const std::string &pg_options,
+        FailoverCallbackFactory &callback_factory,
+        ReconnectionStrategyFactory &reconnection_strategy_factory,
+        const std::string &pg_reconnection_options,
         logger::LoggerManagerTreePtr log_manager) {
       auto log = log_manager->getLogger();
       auto connection_initialization = [&](soci::session &session,
@@ -606,7 +622,7 @@ namespace iroha {
         // rollback current prepared transaction
         // if there exists any since last session
         try_rollback(session);
-        session << init_;
+        session << prepare_tables_sql;
       };
 
       /// lambda contains actions which should be invoked once for each session
@@ -616,11 +632,11 @@ namespace iroha {
           return connection_initialization(s, [](auto &) {}, [](auto &) {});
         };
 
-        auto &callback = callback_factory_.makeFailoverCallback(
+        auto &callback = callback_factory.makeFailoverCallback(
             session,
             restore_session,
-            pg_options,
-            reconnection_strategy_factory_.create(),
+            pg_reconnection_options,
+            reconnection_strategy_factory.create(),
             log_manager
                 ->getChild("SOCI connection "
                            + std::to_string(connection_index++))
@@ -683,11 +699,20 @@ namespace iroha {
                       try {
                         std::string prepared_block_name =
                             "prepared_block" + options.dbname().value_or("");
+
                         auto try_rollback = [&prepared_block_name,
-                                             enable_prepared_transactions](
+                                             &enable_prepared_transactions,
+                                             &log_manager](
                                                 soci::session &session) {
                           if (enable_prepared_transactions) {
-                            rollbackPrepared(session, prepared_block_name);
+                            rollbackPrepared(session, prepared_block_name)
+                                .match(
+                                    [](auto &&v) {},
+                                    [log = log_manager->getLogger()](auto &&e) {
+                                      log->warn(
+                                          "rollback on creation has failed: {}",
+                                          std::move(e.error));
+                                    });
                           }
                         };
 
