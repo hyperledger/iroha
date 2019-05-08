@@ -84,3 +84,8 @@ limitations under the License.
 Iroha documentation files are made available under the Creative Commons
 Attribution 4.0 International License (CC-BY-4.0), available at
 http://creativecommons.org/licenses/by/4.0/
+
+
+## Quick Bash for running node:
+
+./build/bin/irohad --config ./config.docker --genesis_block ./genesis.block --keypair_name ./node0
