@@ -1,4 +1,4 @@
-##### Description
+# Description
 [This role](https://github.com/hyperledger/iroha/tree/master/deploy/ansible/roles/iroha-docker) deploys multiple replicas of Iroha containers (one Iroha peer per container) on remote hosts. Each Iroha peer can communicate with others in two ways:
   - using public IP addresses or hostnames set in inventory list OR
   - using private IP addresses of the Docker overlay network
@@ -7,11 +7,11 @@ The first one is easier to implement since it does not require preliminary confi
 
 This option is enabled by default.
 
-The second one can be used when there exists an overlay network between the hosts. In short, overlay network allows for Docker containers to communicate using a single subnet. Such that each container would have a unique IP address in that subnet. Learn more in official Docker documentation (https://docs.docker.com/network/overlay). We recommend to use Calico for setting up Docker overlay network since it can be used as a network plugin (https://docs.projectcalico.org/v1.5/getting-started/docker/tutorials/basic).
+The second one can be used when there exists an overlay network between the hosts. In short, overlay network allows for Docker containers to communicate using a single subnet. Such that each container would have a unique IP address in that subnet. Learn more in official Docker documentation (https://docs.docker.com/network/overlay). Overlay network can be created if your instance is part of a Swarm cluster. Another method does not involve creating a Swarm cluster but requires a distributed key-value storage. [There is a guide](https://docker-k8s-lab.readthedocs.io/en/latest/docker/docker-etcd.html) on how to create such overlay network.
 
-The second way is also suitable for local-only deployments.
+This method is also suitable for local-only deployments and does not require any key-value storage.
 
-##### Requirements
+# Requirements
   Tested on Ubuntu 16.04, 18.04
   - Local:
     - python3, python3-dev
@@ -26,7 +26,7 @@ The second way is also suitable for local-only deployments.
 **Note:**
 > `docker.io` package from Ubuntu repos will not work. Either use Ansible role or install Docker following official instructions for your OS flavor.
 
-##### Quick Start
+# Quick Start
 1. Install Ansible
     ```
     pip3 install ansible
@@ -49,11 +49,11 @@ It will also install Docker along with required python modules. If you want to s
 **Note:**
 > This command escalates privileges on a remote host during the run. It is required to be able to spin up Docker containers. We recommend to run the playbook using a passwordless remote sudo user.
 
-##### Initial configuration
+# Initial configuration
 
 See `defaults/main.yml` file to get more details about available configuration options.
 
-##### Examples
+# Examples
 **Example 1**
 <!-- TODO: Cover more example cases -->
 Deploying 6 Iroha peers on two remote hosts communicating using public IP addresses. With 2 and 4 replicas on each host respectively.
@@ -77,12 +77,12 @@ Deploying 6 Iroha peers on two remote hosts communicating using public IP addres
 
     **192.168.122.109.yml**
     ```
-    replicas: 2
+    iroha_replicas: 2
     ```
 
     **192.168.122.30.yml**
     ```
-    replicas: 4
+    iroha_replicas: 4
     ```
 
 4. Run the playbook
@@ -95,5 +95,9 @@ Deploying 6 Iroha peers on two remote hosts communicating over overlay network (
 
 **TBD**
 
-##### Caveats
-1. If `/usr/bin/python` does not exist on a remote host, Ansible will fail with the misleading message: `... Make sure this host can be reached over ssh`. This usually happens when Ansible uses Python 3. On Ubuntu systems `/usr/bin/python3` is not symlinked to `/usr/bin/python` which Ansible expects to find. The problem can be solved by setting `ansible_python_interpreter` variable to `/usr/bin/python3`.
+**Caveats**
+
+> If `/usr/bin/python` does not exist on a remote host, Ansible will fail with the misleading message: `... Make sure this host can be reached over ssh`.
+This usually happens when Ansible uses Python 3.
+On Ubuntu systems `/usr/bin/python3` is not symlinked to `/usr/bin/python` which Ansible expects to find.
+The problem can be solved by setting `ansible_python_interpreter` variable to `/usr/bin/python3`.

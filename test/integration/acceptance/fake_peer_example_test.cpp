@@ -40,7 +40,7 @@ class FakePeerExampleFixture : public AcceptanceFixture {
    * @param num_fake_peers - the amount of fake peers to create
    */
   void createFakePeers(size_t num_fake_peers) {
-    fake_peers_ = itf_->addInitialPeers(num_fake_peers);
+    fake_peers_ = itf_->addFakePeers(num_fake_peers);
   }
 
   /**
@@ -152,11 +152,18 @@ TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
   // Create the valid branch, supported by the good fake peers:
   auto valid_block_storage =
       std::make_shared<fake_peer::BlockStorage>(getTestLogger("BlockStorage"));
-  for (const auto &block : itf.getIrohaInstance()
-                               .getIrohaInstance()
-                               ->getStorage()
-                               ->getBlockQuery()
-                               ->getBlocksFrom(1)) {
+  auto block_query =
+      itf.getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
+  ASSERT_TRUE(block_query);
+  auto top_height = block_query->getTopBlockHeight();
+  for (decltype(top_height) i = 1; i <= top_height; ++i) {
+    auto block_result = block_query->getBlock(i);
+
+    std::shared_ptr<shared_model::interface::Block> block =
+        boost::get<iroha::expected::Value<
+            std::unique_ptr<shared_model::interface::Block>>>(
+            std::move(block_result))
+            .value;
     valid_block_storage->storeBlock(
         std::static_pointer_cast<shared_model::proto::Block>(block));
   }

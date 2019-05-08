@@ -45,6 +45,8 @@ namespace {
 
 #define CHECK_COMMITTED BASE_CHECK_RESPONSE(CommittedTxResponse)
 
+#define CHECK_REJECTED BASE_CHECK_RESPONSE(RejectedTxResponse)
+
 #define CHECK_MST_PENDING BASE_CHECK_RESPONSE(MstPendingResponse)
 
 #define CHECK_TXS_QUANTITY(i) \
@@ -221,7 +223,7 @@ class AcceptanceFixture : public ::testing::Test {
  private:
   iroha::time::time_t initial_time;
   /// number of created transactions, used to provide unique time
-  int nonce_counter;
+  std::atomic_int nonce_counter;
 };
 
 #endif  // IROHA_ACCEPTANCE_FIXTURE_HPP

@@ -7,6 +7,7 @@
 
 #include "common/visitor.hpp"
 
+using namespace iroha::consensus;
 using namespace iroha::consensus::yac;
 
 boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(

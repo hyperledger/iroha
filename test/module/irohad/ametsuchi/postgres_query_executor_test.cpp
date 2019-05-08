@@ -791,11 +791,9 @@ namespace iroha {
       void commitBlocks(shared_model::interface::types::HeightType
                             number_of_blocks = kLedgerHeight) {
         std::unique_ptr<MutableStorage> ms;
-        auto storageResult = storage->createMutableStorage();
-        storageResult.match(
-            [&ms](iroha::expected::Value<std::unique_ptr<MutableStorage>>
-                      &storage) { ms = std::move(storage.value); },
-            [](iroha::expected::Error<std::string> &error) {
+        storage->createMutableStorage().match(
+            [&ms](auto &&storage) { ms = std::move(storage.value); },
+            [](const auto &error) {
               FAIL() << "MutableStorage: " << error.error;
             });
 
@@ -1069,11 +1067,9 @@ namespace iroha {
       void apply(S &&storage,
                  std::shared_ptr<const shared_model::interface::Block> block) {
         std::unique_ptr<MutableStorage> ms;
-        auto storageResult = storage->createMutableStorage();
-        storageResult.match(
-            [&](iroha::expected::Value<std::unique_ptr<MutableStorage>>
-                    &_storage) { ms = std::move(_storage.value); },
-            [](iroha::expected::Error<std::string> &error) {
+        storage->createMutableStorage().match(
+            [&](auto &&_storage) { ms = std::move(_storage.value); },
+            [](const auto &error) {
               FAIL() << "MutableStorage: " << error.error;
             });
         ms->apply(block);

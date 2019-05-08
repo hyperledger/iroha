@@ -5,6 +5,9 @@
 
 #include "ametsuchi/impl/storage_impl.hpp"
 
+#include <utility>
+
+#include <soci/callbacks.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -16,22 +19,18 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
 namespace {
-  void prepareStatements(soci::connection_pool &connections, size_t pool_size) {
-    for (size_t i = 0; i != pool_size; i++) {
-      soci::session &session = connections.at(i);
-      iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
-    }
-  }
 
   /**
    * Verify whether postgres supports prepared transactions
@@ -61,6 +60,192 @@ namespace {
 
 namespace iroha {
   namespace ametsuchi {
+
+    /**
+     * Class provides reconnection callback for postgresql session
+     * Note: the class is a workaround for SOCI 4.0, support in future versions
+     * is not guaranteed
+     */
+    class FailoverCallback : public soci::failover_callback {
+     public:
+      using InitFunctionType = std::function<void(soci::session &)>;
+      FailoverCallback(
+          soci::session &connection,
+          InitFunctionType init,
+          std::string connection_options,
+          std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
+          logger::LoggerPtr log)
+          : connection_(connection),
+            init_session_(std::move(init)),
+            connection_options_(std::move(connection_options)),
+            reconnection_strategy_(std::move(reconnection_strategy)),
+            log_(std::move(log)) {}
+
+      FailoverCallback(const FailoverCallback &) = delete;
+      FailoverCallback &operator=(const FailoverCallback &) = delete;
+
+      virtual void started() {
+        reconnection_strategy_->reset();
+        log_->debug("Reconnection process is initiated");
+      }
+
+      virtual void finished(soci::session &) {}
+
+      virtual void failed(bool &should_reconnect, std::string &) {
+        // don't rely on reconnection in soci because we are going to conduct
+        // our own reconnection process
+        should_reconnect = false;
+        log_->warn(
+            "failed to connect to the database. The system will try to "
+            "reconnect");
+        auto is_reconnected = reconnectionLoop();
+        log_->info("re-established: {}", is_reconnected);
+      }
+
+      virtual void aborted() {
+        log_->error("has invoked aborted method of FailoverCallback");
+      }
+
+     private:
+      bool reconnectionLoop() {
+        bool successful_reconnection = false;
+        while (reconnection_strategy_->canReconnect()
+               and not successful_reconnection) {
+          try {
+            soci::connection_parameters parameters(*soci::factory_postgresql(),
+                                                   connection_options_);
+            auto *pg_connection =
+                static_cast<soci::postgresql_session_backend *>(
+                    connection_.get_backend());
+            auto &conn_ = pg_connection->conn_;
+
+            auto clean_up = [](auto &conn_) {
+              if (0 != conn_) {
+                PQfinish(conn_);
+                conn_ = 0;
+              }
+            };
+
+            auto check_for_data =
+                [](auto &sessionBackend_, auto *result_, auto *errMsg) {
+                  std::string msg(errMsg);
+
+                  ExecStatusType const status = PQresultStatus(result_);
+                  switch (status) {
+                    case PGRES_EMPTY_QUERY:
+                    case PGRES_COMMAND_OK:
+                      // No data but don't throw neither.
+                      return false;
+
+                    case PGRES_TUPLES_OK:
+                      return true;
+
+                    case PGRES_FATAL_ERROR:
+                      msg += " Fatal error.";
+
+                      if (PQstatus(sessionBackend_.conn_) == CONNECTION_BAD) {
+                        msg += " Connection failed.";
+                      }
+
+                      break;
+
+                    default:
+                      // Some of the other status codes are not really errors
+                      // but we're not prepared to handle them right now and
+                      // shouldn't ever receive them so throw nevertheless
+
+                      break;
+                  }
+
+                  const char *const pqError = PQresultErrorMessage(result_);
+                  if (pqError && *pqError) {
+                    msg += " ";
+                    msg += pqError;
+                  }
+
+                  const char *sqlstate =
+                      PQresultErrorField(result_, PG_DIAG_SQLSTATE);
+                  const char *const blank_sql_state = "     ";
+                  if (!sqlstate) {
+                    sqlstate = blank_sql_state;
+                  }
+
+                  throw std::runtime_error(msg);
+                };
+
+            auto connect = [check_for_data](auto &session_backend,
+                                            auto &parameters,
+                                            auto &conn_) {
+              PGconn *conn =
+                  PQconnectdb(parameters.get_connect_string().c_str());
+              if (0 == conn || CONNECTION_OK != PQstatus(conn)) {
+                std::string msg =
+                    "Cannot establish connection to the database.";
+                if (0 != conn) {
+                  msg += '\n';
+                  msg += PQerrorMessage(conn);
+                  PQfinish(conn);
+                }
+
+                throw std::runtime_error(msg);
+              }
+
+              // Increase the number of digits used for floating point values to
+              // ensure that the conversions to/from text round trip correctly,
+              // which is not the case with the default value of 0. Use the
+              // maximal supported value, which was 2 until 9.x and is 3 since
+              // it.
+              int const version = PQserverVersion(conn);
+              check_for_data(
+                  session_backend,
+                  PQexec(conn,
+                         version >= 90000 ? "SET extra_float_digits = 3"
+                                          : "SET extra_float_digits = 2"),
+                  "Cannot set extra_float_digits parameter");
+
+              conn_ = conn;
+            };
+
+            clean_up(conn_);
+            connect(*pg_connection, parameters, conn_);
+
+            init_session_(connection_);
+            successful_reconnection = true;
+          } catch (const std::exception &e) {
+            log_->warn("attempt to reconnect has failed: {}", e.what());
+          }
+        }
+        return successful_reconnection;
+      }
+
+      soci::session &connection_;
+      InitFunctionType init_session_;
+      const std::string connection_options_;
+      std::unique_ptr<ReconnectionStrategy> reconnection_strategy_;
+      logger::LoggerPtr log_;
+    };
+
+    class FailoverCallbackFactory {
+     public:
+      FailoverCallback &makeFailoverCallback(
+          soci::session &connection,
+          FailoverCallback::InitFunctionType init,
+          std::string connection_options,
+          std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
+          logger::LoggerPtr log) {
+        callbacks_.push_back(
+            std::make_unique<FailoverCallback>(connection,
+                                               std::move(init),
+                                               std::move(connection_options),
+                                               std::move(reconnection_strategy),
+                                               std::move(log)));
+        return *callbacks_.back();
+      }
+
+     private:
+      std::vector<std::unique_ptr<FailoverCallback>> callbacks_;
+    };
+
     const char *kCommandExecutorError = "Cannot create CommandExecutorFactory";
     const char *kPsqlBroken = "Connection to PostgreSQL broken: %s";
     const char *kTmpWsv = "TemporaryWsv";
@@ -79,6 +264,8 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
+        std::unique_ptr<ReconnectionStrategyFactory>
+            reconnection_strategy_factory,
         size_t pool_size,
         bool enable_prepared_blocks,
         logger::LoggerManagerTreePtr log_manager)
@@ -93,30 +280,66 @@ namespace iroha {
           block_storage_factory_(std::move(block_storage_factory)),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()),
+          reconnection_strategy_factory_(
+              std::move(reconnection_strategy_factory)),
+          callback_factory_(std::make_unique<FailoverCallbackFactory>()),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
-          block_is_prepared(false) {
-      prepared_block_name_ =
-          "prepared_block" + postgres_options_.dbname().value_or("");
-
-      for (size_t i = 0; i != pool_size_; i++) {
-        soci::session &session = connection_->at(i);
+          block_is_prepared(false),
+          prepared_block_name_("prepared_block"
+                               + postgres_options_.dbname().value_or("")) {
+      auto connection_initialization = [&](soci::session &session,
+                                           auto on_init_db,
+                                           auto on_init_connection) {
         auto *backend = static_cast<soci::postgresql_session_backend *>(
             session.get_backend());
         PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
-      }
+        on_init_connection(session);
 
-      soci::session sql(*connection_);
-      // rollback current prepared transaction
-      // if there exists any since last session
-      if (prepared_blocks_enabled_) {
-        rollbackPrepared(sql);
-      }
-      try {
-        sql << init_;
-        prepareStatements(*connection_, pool_size_);
-      } catch (std::exception &e) {
-        log_->error("Storage was not initialized. Reason: {}", e.what());
+        // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
+        // IR-464
+        on_init_db(session);
+        iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
+      };
+
+      /// lambda contains special actions which should be execute once
+      auto init_db = [&](soci::session &session) {
+        // rollback current prepared transaction
+        // if there exists any since last session
+        if (prepared_blocks_enabled_) {
+          rollbackPrepared(session);
+        }
+        session << init_;
+      };
+
+      /// lambda contains actions which should be invoked once for each session
+      auto init_failover_callback = [&](soci::session &session) {
+        static size_t connection_index = 0;
+        auto restore_session = [connection_initialization](soci::session &s) {
+          return connection_initialization(s, [](auto &) {}, [](auto &) {});
+        };
+
+        auto &callback = callback_factory_->makeFailoverCallback(
+            session,
+            restore_session,
+            postgres_options_.optionsStringWithoutDbName(),
+            reconnection_strategy_factory_->create(),
+            log_manager_
+                ->getChild("SOCI connection "
+                           + std::to_string(connection_index++))
+                ->getLogger());
+
+        session.set_failover_callback(callback);
+      };
+
+      assert(pool_size > 0);
+
+      connection_initialization(
+          connection_->at(0), init_db, init_failover_callback);
+      for (size_t i = 1; i != pool_size_; i++) {
+        soci::session &session = connection_->at(i);
+        connection_initialization(
+            session, [](auto &) {}, init_failover_callback);
       }
     }
 
@@ -128,8 +351,8 @@ namespace iroha {
       }
       auto sql = std::make_unique<soci::session>(*connection_);
       // if we create temporary storage, then we intend to validate a new
-      // proposal. this means that any state prepared before that moment is not
-      // needed and must be removed to prevent locking
+      // proposal. this means that any state prepared before that moment is
+      // not needed and must be removed to prevent locking
       if (block_is_prepared) {
         rollbackPrepared(*sql);
       }
@@ -144,41 +367,7 @@ namespace iroha {
 
     expected::Result<std::unique_ptr<MutableStorage>, std::string>
     StorageImpl::createMutableStorage() {
-      boost::optional<shared_model::interface::types::HashType> top_hash;
-
-      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
-      if (connection_ == nullptr) {
-        return expected::makeError("Connection was closed");
-      }
-
-      auto sql = std::make_unique<soci::session>(*connection_);
-      // if we create mutable storage, then we intend to mutate wsv
-      // this means that any state prepared before that moment is not needed
-      // and must be removed to prevent locking
-      if (block_is_prepared) {
-        rollbackPrepared(*sql);
-      }
-      shared_model::interface::types::HashType hash{""};
-      shared_model::interface::types::HeightType height{0};
-      getBlockQuery()->getTopBlock().match(
-          [&hash, &height](
-              expected::Value<std::shared_ptr<shared_model::interface::Block>>
-                  &block) {
-            hash = block.value->hash();
-            height = block.value->height();
-          },
-          [this](expected::Error<std::string> &) {
-            log_->error("Could not get top block!");
-          });
-      return expected::makeValue<std::unique_ptr<MutableStorage>>(
-          std::make_unique<MutableStorageImpl>(
-              hash,
-              height,
-              std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
-              std::move(sql),
-              factory_,
-              block_storage_factory_->create(),
-              log_manager_->getChild("MutableStorageImpl")));
+      return createMutableStorage(*block_storage_factory_);
     }
 
     boost::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
@@ -225,47 +414,78 @@ namespace iroha {
     bool StorageImpl::insertBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       log_->info("create mutable storage");
-      auto storageResult = createMutableStorage();
       bool inserted = false;
-      storageResult.match(
-          [&](expected::Value<std::unique_ptr<ametsuchi::MutableStorage>>
-                  &storage) {
+      createMutableStorage().match(
+          [&, this](auto &&storage) {
             inserted = storage.value->apply(block);
             log_->info("block inserted: {}", inserted);
-            commit(std::move(storage.value));
+            this->commit(std::move(storage.value));
           },
-          [&](expected::Error<std::string> &error) {
-            log_->error(error.error);
-          });
-
+          [&](const auto &error) { log_->error("{}", error.error); });
       return inserted;
     }
 
-    bool StorageImpl::insertBlocks(
-        const std::vector<std::shared_ptr<shared_model::interface::Block>>
-            &blocks) {
-      log_->info("create mutable storage");
-      bool inserted = true;
-      auto storageResult = createMutableStorage();
-      storageResult.match(
-          [&](iroha::expected::Value<std::unique_ptr<MutableStorage>>
-                  &mutableStorage) {
-            std::for_each(blocks.begin(), blocks.end(), [&](auto block) {
-              inserted &= mutableStorage.value->apply(block);
-            });
-            commit(std::move(mutableStorage.value));
-          },
-          [&](iroha::expected::Error<std::string> &error) {
-            log_->error(error.error);
-            inserted = false;
-          });
+    expected::Result<void, std::string> StorageImpl::insertPeer(
+        const shared_model::interface::Peer &peer) {
+      log_->info("Insert peer {}", peer.pubkey().hex());
+      soci::session sql(*connection_);
+      PostgresWsvCommand wsv_command(sql);
+      return wsv_command.insertPeer(peer);
+    }
 
-      log_->info("insert blocks finished");
-      return inserted;
+    expected::Result<std::unique_ptr<MutableStorage>, std::string>
+    StorageImpl::createMutableStorage(BlockStorageFactory &storage_factory) {
+      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex);
+      if (connection_ == nullptr) {
+        return expected::makeError("Connection was closed");
+      }
+
+      auto sql = std::make_unique<soci::session>(*connection_);
+      // if we create mutable storage, then we intend to mutate wsv
+      // this means that any state prepared before that moment is not needed
+      // and must be removed to prevent locking
+      if (block_is_prepared) {
+        rollbackPrepared(*sql);
+      }
+      shared_model::interface::types::HashType hash{""};
+      shared_model::interface::types::HeightType height{0};
+      auto block_query = getBlockQuery();
+      if (not block_query) {
+        return expected::makeError("Cannot create BlockQuery");
+      }
+      block_query->getBlock(block_query->getTopBlockHeight())
+          .match(
+              [&hash, &height](const auto &v) {
+                hash = v.value->hash();
+                height = v.value->height();
+              },
+              [this](const auto &e) {
+                log_->error("Could not get top block: {}", e.error);
+              });
+      return expected::makeValue<std::unique_ptr<MutableStorage>>(
+          std::make_unique<MutableStorageImpl>(
+              hash,
+              height,
+              std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
+              std::move(sql),
+              factory_,
+              storage_factory.create(),
+              log_manager_->getChild("MutableStorageImpl")));
     }
 
     void StorageImpl::reset() {
-      log_->info("drop wsv records from db tables");
+      resetWsv().match(
+          [this](auto &&v) {
+            log_->debug("drop blocks from disk");
+            block_store_->dropAll();
+          },
+          [this](auto &&e) {
+            log_->warn("Failed to drop WSV. Reason: {}", e.error);
+          });
+    }
+
+    expected::Result<void, std::string> StorageImpl::resetWsv() {
+      log_->debug("drop wsv records from db tables");
       try {
         soci::session sql(*connection_);
         // rollback possible prepared transaction
@@ -273,10 +493,19 @@ namespace iroha {
           rollbackPrepared(sql);
         }
         sql << reset_;
-        log_->info("drop blocks from disk");
-        block_store_->dropAll();
       } catch (std::exception &e) {
-        log_->warn("Drop wsv was failed. Reason: {}", e.what());
+        return expected::makeError(e.what());
+      }
+      return expected::Value<void>();
+    }
+
+    void StorageImpl::resetPeers() {
+      log_->info("Remove everything from peers table");
+      try {
+        soci::session sql(*connection_);
+        sql << reset_peers_;
+      } catch (std::exception &e) {
+        log_->error("Failed to reset peers list, reason: {}", e.what());
       }
     }
 
@@ -402,6 +631,8 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
+        std::unique_ptr<ReconnectionStrategyFactory>
+            reconnection_strategy_factory,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
       boost::optional<std::string> string_res = boost::none;
@@ -411,10 +642,8 @@ namespace iroha {
       // create database if
       options.dbname() | [&options, &string_res](const std::string &dbname) {
         createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
-            .match([](expected::Value<bool> &val) {},
-                   [&string_res](expected::Error<std::string> &error) {
-                     string_res = error.error;
-                   });
+            .match([](auto &&val) {},
+                   [&string_res](auto &&error) { string_res = error.error; });
       };
 
       if (string_res) {
@@ -425,30 +654,36 @@ namespace iroha {
           initConnections(block_store_dir, log_manager->getLogger());
       auto db_result = initPostgresConnection(postgres_options, pool_size);
       expected::Result<std::shared_ptr<StorageImpl>, std::string> storage;
-      ctx_result.match(
-          [&](expected::Value<ConnectionContext> &ctx) {
-            db_result.match(
-                [&](expected::Value<std::shared_ptr<soci::connection_pool>>
-                        &connection) {
-                  soci::session sql(*connection.value);
-                  bool enable_prepared_transactions =
-                      preparedTransactionsAvailable(sql);
-                  storage = expected::makeValue(std::shared_ptr<StorageImpl>(
-                      new StorageImpl(block_store_dir,
-                                      options,
-                                      std::move(ctx.value.block_store),
-                                      connection.value,
-                                      factory,
-                                      converter,
-                                      perm_converter,
-                                      std::move(block_storage_factory),
-                                      pool_size,
-                                      enable_prepared_transactions,
-                                      std::move(log_manager))));
-                },
-                [&](expected::Error<std::string> &error) { storage = error; });
-          },
-          [&](expected::Error<std::string> &error) { storage = error; });
+      std::move(ctx_result)
+          .match(
+              [&](auto &&ctx) {
+                std::move(db_result).match(
+                    [&](auto &&connection) {
+                      soci::session sql(*connection.value);
+                      bool enable_prepared_transactions =
+                          preparedTransactionsAvailable(sql);
+                      try {
+                        storage = expected::makeValue(
+                            std::shared_ptr<StorageImpl>(new StorageImpl(
+                                block_store_dir,
+                                options,
+                                std::move(ctx.value.block_store),
+                                std::move(connection.value),
+                                factory,
+                                converter,
+                                perm_converter,
+                                std::move(block_storage_factory),
+                                std::move(reconnection_strategy_factory),
+                                pool_size,
+                                enable_prepared_transactions,
+                                std::move(log_manager))));
+                      } catch (const std::exception &e) {
+                        storage = expected::makeError(e.what());
+                      }
+                    },
+                    [&](const auto &error) { storage = error; });
+              },
+              [&](const auto &error) { storage = error; });
       return storage;
     }
 
@@ -468,10 +703,11 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<std::unique_ptr<LedgerState>>(
-                    std::make_unique<LedgerState>(
-                        std::make_shared<PeerList>(std::move(peers)),
-                        storage->getTopBlockHeight()));
+                return boost::optional<
+                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
+                    storage->getTopBlockHeight()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -520,7 +756,8 @@ namespace iroha {
                 log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<PeerList>(std::move(peers)),
+                    std::make_shared<shared_model::interface::types::PeerList>(
+                        std::move(peers)),
                     block_query.getTopBlockHeight()));
           }
           return boost::none;
@@ -602,9 +839,8 @@ namespace iroha {
 
     bool StorageImpl::storeBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
-      auto json_result = converter_->serialize(*block);
-      return json_result.match(
-          [this, &block](const expected::Value<std::string> &v) {
+      return converter_->serialize(*block).match(
+          [this, &block](const auto &v) {
             if (block_store_->add(block->height(), stringToBytes(v.value))) {
               notifier_.get_subscriber().on_next(block);
               return true;
@@ -613,7 +849,7 @@ namespace iroha {
               return false;
             }
           },
-          [this, &block](const expected::Error<std::string> &e) {
+          [this, &block](const auto &e) {
             log_->error("Block serialization failed: {}: {}", *block, e.error);
             return false;
           });
@@ -657,6 +893,10 @@ TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
 TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
 TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
 TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+)";
+
+    const std::string &StorageImpl::reset_peers_ = R"(
+TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
 )";
 
     const std::string &StorageImpl::init_ =

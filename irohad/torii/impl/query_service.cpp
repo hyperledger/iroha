@@ -40,9 +40,7 @@ namespace iroha {
       }
 
       query_factory_->build(request).match(
-          [this, &hash, &response](
-              const iroha::expected::Value<
-                  std::unique_ptr<shared_model::interface::Query>> &query) {
+          [this, &hash, &response](const auto &query) {
             // Send query to iroha
             response = static_cast<shared_model::proto::QueryResponse &>(
                            *query_processor_->queryHandle(*query.value))
@@ -51,8 +49,7 @@ namespace iroha {
             // 0 is used as a dummy value
             cache_.addItem(hash, 0);
           },
-          [&hash, &response](
-              const iroha::expected::Error<QueryFactoryType::Error> &error) {
+          [&hash, &response](auto &&error) {
             response.set_query_hash(hash.hex());
             response.mutable_error_response()->set_reason(
                 iroha::protocol::ErrorResponse::STATELESS_INVALID);
@@ -80,8 +77,7 @@ namespace iroha {
 
       blocks_query_factory_->build(*request).match(
           [this, context, request, writer, &current_thread, &run_loop](
-              const iroha::expected::Value<std::unique_ptr<
-                  shared_model::interface::BlocksQuery>> &query) {
+              const auto &query) {
             rxcpp::composite_subscription subscription;
             std::string client_id =
                 (boost::format("Peer: '%s'") % context->peer()).str();
@@ -143,7 +139,7 @@ namespace iroha {
 
             iroha::schedulers::handleEvents(subscription, run_loop);
           },
-          [this, writer](const auto &error) {
+          [this, writer](auto &&error) {
             log_->debug("Stateless invalid: {}", error.error.error);
             iroha::protocol::BlockQueryResponse response;
             response.mutable_block_error_response()->set_message(

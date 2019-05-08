@@ -34,6 +34,7 @@
 #include "interfaces/queries/get_transactions.hpp"
 #include "interfaces/queries/query.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
+#include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
@@ -168,7 +169,7 @@ namespace iroha {
       // boost::get of pointer returns pointer to requested type, or nullptr
       if (auto e =
               boost::get<expected::Error<std::string>>(&deserialized_block)) {
-        log_->error(e->error);
+        log_->error("{}", e->error);
         return result;
       }
 
@@ -261,7 +262,7 @@ namespace iroha {
             soci::use(query.creatorAccountId(), "account_id"),
             soci::use(keys, "pk");
       } catch (const std::exception &e) {
-        log_->error(e.what());
+        log_->error("{}", e.what());
         return false;
       }
 
@@ -627,8 +628,7 @@ namespace iroha {
 
       return converter_->deserialize(bytesToString(*serialized_block))
           .match(
-              [this](iroha::expected::Value<
-                     std::unique_ptr<shared_model::interface::Block>> &block) {
+              [this](auto &&block) {
                 return this->query_response_factory_->createBlockResponse(
                     std::move(block.value), query_hash_);
               },

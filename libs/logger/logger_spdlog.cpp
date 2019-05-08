@@ -6,6 +6,7 @@
 #include "logger/logger_spdlog.hpp"
 
 #include <atomic>
+#include <ciso646>
 #include <mutex>
 
 #define SPDLOG_FMT_EXTERNAL

@@ -53,6 +53,12 @@ set_target_properties(ed25519 PROPERTIES
     IMPORTED_LOCATION ${ed25519_LIBRARY}
     )
 
+if (MSVC)
+  set_target_properties(ed25519 PROPERTIES
+      INTERFACE_LINK_LIBRARIES bcrypt
+      )
+endif()
+
 if(ENABLE_LIBS_PACKAGING)
   add_install_step_for_lib(${ed25519_LIBRARY})
 endif()

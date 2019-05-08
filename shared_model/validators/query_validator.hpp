@@ -125,6 +125,12 @@ namespace shared_model {
         reason.first = "GetAccountDetail";
 
         validator_.validateAccountId(reason, qry.accountId());
+        if (qry.key()) {
+          validator_.validateAccountDetailKey(reason, *qry.key());
+        }
+        if (qry.writer()) {
+          validator_.validateAccountId(reason, *qry.writer());
+        }
 
         return reason;
       }

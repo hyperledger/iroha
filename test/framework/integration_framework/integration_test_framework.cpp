@@ -189,7 +189,7 @@ namespace integration_framework {
     }
   }
 
-  std::shared_ptr<FakePeer> IntegrationTestFramework::addInitialPeer(
+  std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
       const boost::optional<Keypair> &key) {
     BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
     const auto port = port_guard_->getPort(kDefaultInternalPort);
@@ -212,10 +212,10 @@ namespace integration_framework {
   }
 
   std::vector<std::shared_ptr<fake_peer::FakePeer>>
-  IntegrationTestFramework::addInitialPeers(size_t amount) {
+  IntegrationTestFramework::addFakePeers(size_t amount) {
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers;
     std::generate_n(std::back_inserter(fake_peers), amount, [this] {
-      auto fake_peer = addInitialPeer({});
+      auto fake_peer = addFakePeer({});
       fake_peer->setBehaviour(std::make_shared<fake_peer::HonestBehaviour>());
       return fake_peer;
     });
@@ -233,8 +233,7 @@ namespace integration_framework {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer(format_address(kLocalHost, internal_port_),
-                     key.publicKey())
+            .addPeer(getAddress(), key.publicKey())
             .createRole(kAdminRole, all_perms)
             .createRole(kDefaultRole, {})
             .createDomain(kDomain, kDefaultRole)
@@ -314,8 +313,7 @@ namespace integration_framework {
     my_key_ = keypair;
     this_peer_ =
         framework::expected::val(common_objects_factory_->createPeer(
-                                     format_address(kLocalHost, internal_port_),
-                                     keypair.publicKey()))
+                                     getAddress(), keypair.publicKey()))
             .value()
             .value;
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
@@ -381,6 +379,15 @@ namespace integration_framework {
     // start instance
     log_->info("starting main iroha instance");
     iroha_instance_->run();
+  }
+
+  std::shared_ptr<shared_model::interface::Peer>
+  IntegrationTestFramework::getThisPeer() const {
+    return this_peer_;
+  }
+
+  std::string IntegrationTestFramework::getAddress() const {
+    return format_address(kLocalHost, internal_port_);
   }
 
   rxcpp::observable<std::shared_ptr<iroha::MstState>>

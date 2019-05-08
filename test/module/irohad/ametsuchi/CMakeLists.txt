@@ -85,7 +85,12 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     integration_framework_config_helper
     shared_model_proto_backend
     framework_sql_query
-    SOCI::core
     SOCI::postgresql
+    SOCI::core
     test_logger
+    )
+
+addtest(k_times_reconnection_strategy_test k_times_reconnection_strategy_test.cpp)
+target_link_libraries(k_times_reconnection_strategy_test
+    ametsuchi
     )

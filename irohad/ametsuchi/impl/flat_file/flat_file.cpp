@@ -33,8 +33,8 @@ boost::optional<Identifier> FlatFile::name_to_id(const std::string &name) {
     return boost::none;
   }
   try {
-    auto id = std::stoul(name);
-    return boost::make_optional<Identifier>(id);
+    Identifier id = std::stoul(name);
+    return boost::make_optional(id);
   } catch (const std::exception &e) {
     return boost::none;
   }

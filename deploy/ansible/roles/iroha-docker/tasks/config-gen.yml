@@ -1,81 +1,63 @@
 - block:
-  - set_fact:
-      iroha_nodes: []
-      iroha_all_nodes: []
-
-  - name: generate hostnames (no overlay)
-    set_fact:
-      iroha_nodes: "{{ iroha_nodes }} + [ '{{ inventory_hostname }}:{{ iroha_peer_port | int + item | int }}' ]"
-    loop: "{{ range(0, replicas |int) | list }}"
-    when: not custom_hostnames and not overlay_network
-
-  - shell: "cat /dev/urandom | tr -cd [:xdigit:] | tr '[:upper:]' '[:lower:]' | head -c {{ 8 * replicas | int}}"
-    register: random_hex
-    when: not custom_hostnames and overlay_network
-
-  - name: generate hostnames (overlay)
-    set_fact:
-      iroha_nodes: "{{ iroha_nodes }} + [ '{{ container_basename }}-{{ item }}-{{ random_hex.stdout[item|int*8:(item|int+1)*8-1] }}:{{ iroha_peer_port }}' ]"
-    loop: "{{ range(0, replicas) | list }}"
-    when: not custom_hostnames and overlay_network
-
-  - name: generate hostnames (custom_hostnames)
-    set_fact:
-      iroha_nodes: "{{ iroha_nodes }} + [ '{% if item.split(':') | length < 2 %}{{ item }}:{{ iroha_peer_port | int + idx }}{% else %}{{ item }}{% endif %}' ]"
-    when: custom_hostnames and hostnames is defined
-    loop: "{{ hostnames }}"
-    loop_control:
-      index_var: idx
-
-  - set_fact:
-      iroha_peers_map: "{{ iroha_peers_map | default([]) }} + [ {{ {'hostname': item, 'human_hostname': 'c_' + item | regex_replace('\\.', '_') | regex_replace(':', '_'), 'peer_port': item.split(':')[1] } }} ]"
-    loop: "{{ iroha_nodes }}"
-
-  - debug:
-      var: iroha_peers_map
-
-  - set_fact:
-      iroha_nodes: "{{ iroha_peers_map }}"
-
-  - set_fact:
-      iroha_all_nodes: "{{ iroha_all_nodes }} + {{ hostvars[item]['iroha_nodes'] }}"
-    loop: "{{ ansible_play_hosts }}"
+  - name: copy custom genesis block
+    copy:
+      src: "{{ iroha_custom_genesis_block_path }}"
+      dest: "{{ role_path }}/files/genesis.block"
     run_once: yes
+    when: iroha_custom_genesis_block
+    failed_when: iroha_custom_genesis_block_path is not defined
 
   - name: generate Iroha configs
-    command: "./config_gen.sh -p{{ iroha_all_nodes | join(',', attribute='hostname') }} -o{{ config_local_dir }} -f"
+    command: "./config_gen.sh -p{{ iroha_all_nodes | join(',', attribute='hostname') }} -o{{ iroha_config_local_dir }} -f"
     run_once: yes
     args:
       chdir: "{{ role_path }}/files"
 
   - name: make config dirs
     file:
-      path: "{{ config_local_dir }}/{{ inventory_hostname }}/conf/{{ item.human_hostname }}"
+      path: "{{ iroha_config_local_dir }}/{{ inventory_hostname }}/conf/{{ item.human_hostname }}"
       state: directory
     loop: "{{ iroha_nodes }}"
 
   - name: move keys
     copy:
-      src: "{{ config_local_dir }}/{{ item[0].hostname }}{{ item[1] }}"
-      dest: "{{ config_local_dir }}/{{ inventory_hostname }}/conf/{{ item[0].human_hostname }}"
+      src: "{{ iroha_config_local_dir }}/{{ item[0].hostname }}{{ item[1] }}"
+      dest: "{{ iroha_config_local_dir }}/{{ inventory_hostname }}/conf/{{ item[0].human_hostname }}"
     loop: "{{ iroha_nodes | product(['.priv', '.pub']) | list }}"
 
   - name: move genesis.block
     copy:
-      src: "{{ config_local_dir }}/genesis.block"
-      dest: "{{ config_local_dir }}/{{ inventory_hostname }}/conf/{{ item.human_hostname }}"
+      src: "{{ iroha_config_local_dir }}/genesis.block"
+      dest: "{{ iroha_config_local_dir }}/{{ inventory_hostname }}/conf/{{ item.human_hostname }}"
     loop: "{{ iroha_nodes }}"
 
   - name: cleanup
     file:
-      path: "{{ config_local_dir }}/{{ item[0].hostname }}{{ item[1] }}"
+      path: "{{ iroha_config_local_dir }}/{{ item[0].hostname }}{{ item[1] }}"
       state: absent
     loop: "{{ iroha_nodes | product(['.priv', '.pub']) | list }}"
 
   - name: cleanup
     file:
-      path: "{{ config_local_dir }}/genesis.block"
+      path: "{{ iroha_config_local_dir }}/genesis.block"
       state: absent
     run_once: yes
   become: no
   delegate_to: localhost
+  when: iroha_generate_init_configs
+  tags: ["iroha-config-gen"]
+
+- name: create deploy dir
+  file:
+    state: directory
+    path: "{{ iroha_deploy_dir }}/conf"
+  tags: ["iroha-config-gen"]
+
+- name: copy config files
+  synchronize:
+    src: "{{ iroha_config_local_dir }}/{{ inventory_hostname }}/conf/"
+    dest: "{{ iroha_deploy_dir }}/conf/"
+    recursive: yes
+    checksum: yes
+  when: iroha_generate_init_configs
+  tags: ["iroha-config-gen"]

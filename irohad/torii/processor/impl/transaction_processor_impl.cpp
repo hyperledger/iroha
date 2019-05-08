@@ -69,7 +69,7 @@ namespace iroha {
             // notify about failed txs
             const auto &errors = proposal_and_errors->rejected_transactions;
             for (const auto &tx_error : errors) {
-              log_->info(composeErrorMessage(tx_error));
+              log_->info("{}", composeErrorMessage(tx_error));
               this->publishStatus(TxStatusType::kStatefulFailed,
                                   tx_error.tx_hash,
                                   tx_error.error);

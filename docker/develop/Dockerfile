@@ -148,7 +148,7 @@ RUN set -e; \
 # install rxcpp
 RUN set -e; \
     git clone https://github.com/Reactive-Extensions/RxCpp /tmp/RxCpp; \
-    (cd /tmp/RxCpp ; git checkout 795587fa311fa41050111a830d91b183d8e53ff9); \
+    (cd /tmp/RxCpp ; git checkout f38fb8e3c30b01b07c57e08039b2942f1685224d); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -H/tmp/RxCpp \
@@ -188,12 +188,15 @@ RUN set -e; \
     # remove
     rm -rf /tmp/postgresql
 
-# install soci 3.2.3
+# install soci
 RUN set -e; \
     git clone https://github.com/SOCI/soci /tmp/soci; \
-    (cd /tmp/soci ; git checkout 111b50af8c3876ea392367640b4bd83b4f903ab8); \
+    (cd /tmp/soci ; git checkout 1f2343e32822549df85660c0eb7acea3f0e5ed8d); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+        -DSOCI_CXX_C11=ON \
+        -DSOCI_TESTS=OFF \
+        -DSOCI_EMPTY=OFF \
         -DWITH_BOOST=ON \
         -DWITH_DB2=OFF \
         -DWITH_FIREBIRD=OFF \
@@ -202,7 +205,7 @@ RUN set -e; \
         -DWITH_ORACLE=OFF \
         -DWITH_POSTGRESQL=ON \
         -DWITH_SQLITE3=OFF \
-        -H/tmp/soci/src \
+        -H/tmp/soci \
         -B/tmp/soci/build; \
     cmake --build /tmp/soci/build --target install; \
     ldconfig; \
@@ -248,11 +251,9 @@ RUN set -e; \
 RUN set -e; \
     curl -L -o /tmp/lcov_cobertura.py https://raw.githubusercontent.com/eriwen/lcov-to-cobertura-xml/8c55cd11f80a21e7e46f20f8c81fcde0bf11f5e5/lcov_cobertura/lcov_cobertura.py
 
+# OpenJRE 8
 RUN set -e; \
-    add-apt-repository -y ppa:webupd8team/java; \
-    apt-get update; \
-    echo oracle-java8-installer shared/accepted-oracle-license-v1-1 select true | /usr/bin/debconf-set-selections; \
-    apt-get -y install oracle-java8-installer; \
+    apt-get -y install openjdk-8-jre; \
     java -version
 
 RUN set -e; \

@@ -58,8 +58,9 @@ namespace iroha {
                           WHERE account_id = :account_id) AS CTE3(quorum))");
 
       try {
+        auto keys_range_size = boost::size(keys_range);
         *sql_ << (query % keys).str(), soci::into(signatories_valid),
-            soci::use(boost::size(keys_range), "signatures_count"),
+            soci::use(keys_range_size, "signatures_count"),
             soci::use(transaction.creatorAccountId(), "account_id");
       } catch (const std::exception &e) {
         auto error_str = "Transaction " + transaction.toString()
@@ -107,8 +108,8 @@ namespace iroha {
           // in case of failed command, rollback and return
           auto cmd_is_valid =
               execute_command(commands[i])
-                  .match([](expected::Value<void> &) { return true; },
-                         [i, &cmd_error](expected::Error<CommandError> &error) {
+                  .match([](const auto &) { return true; },
+                         [i, &cmd_error](const auto &error) {
                            cmd_error = {error.error.command_name,
                                         error.error.error_code,
                                         error.error.error_extra,

@@ -81,10 +81,25 @@ namespace iroha {
        * @nocode
        */
       template <typename ValueMatch, typename ErrorMatch>
-      constexpr auto match(ValueMatch &&value_func, ErrorMatch &&error_func) {
+      constexpr auto match(ValueMatch &&value_func, ErrorMatch &&error_func) & {
         return visit_in_place(*this,
-                              std::forward<ValueMatch>(value_func),
-                              std::forward<ErrorMatch>(error_func));
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  ValueType &v) { return f(v); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  ErrorType &e) { return f(e); });
+      }
+
+      /**
+       * Move alternative for match function
+       */
+      template <typename ValueMatch, typename ErrorMatch>
+      constexpr auto match(ValueMatch &&value_func,
+                           ErrorMatch &&error_func) && {
+        return visit_in_place(*this,
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  ValueType &v) { return f(std::move(v)); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  ErrorType &e) { return f(std::move(e)); });
       }
 
       /**
@@ -92,14 +107,16 @@ namespace iroha {
        */
       template <typename ValueMatch, typename ErrorMatch>
       constexpr auto match(ValueMatch &&value_func,
-                           ErrorMatch &&error_func) const {
+                           ErrorMatch &&error_func) const & {
         return visit_in_place(*this,
-                              std::forward<ValueMatch>(value_func),
-                              std::forward<ErrorMatch>(error_func));
+                              [f = std::forward<ValueMatch>(value_func)](
+                                  const ValueType &v) { return f(v); },
+                              [f = std::forward<ErrorMatch>(error_func)](
+                                  const ErrorType &e) { return f(e); });
       }
 
       /**
-       * Lazy error AND-chaining
+       * Error AND-chaining
        * Works by the following table (aka boolean lazy AND):
        * err1 * any  -> err1
        * val1 * err2 -> err2
@@ -119,7 +136,7 @@ namespace iroha {
       }
 
       /**
-       * Lazy error OR-chaining
+       * Error OR-chaining
        * Works by the following table (aka boolean lazy OR):
        * val1 * any  -> val1
        * err1 * val2 -> val2
@@ -178,7 +195,7 @@ namespace iroha {
      * result
      */
     template <typename T, typename E, typename Transform>
-    constexpr auto operator|(Result<T, E> r, Transform &&f) ->
+    constexpr auto operator|(const Result<T, E> &r, Transform &&f) ->
         typename std::enable_if<
             not std::is_same<decltype(f(std::declval<T>())), void>::value,
             decltype(f(std::declval<T>()))>::type {
@@ -189,19 +206,46 @@ namespace iroha {
     }
 
     /**
+     * Mutable alternative for bind with parameters
+     */
+    template <typename T, typename E, typename Transform>
+    constexpr auto operator|(Result<T, E> &r, Transform &&f) ->
+        typename std::enable_if<
+            not std::is_same<decltype(f(std::declval<T>())), void>::value,
+            decltype(f(std::declval<T>()))>::type {
+      using return_type = decltype(f(std::declval<T>()));
+      return r.match(
+          [&f](Value<T> &v) { return f(v.value); },
+          [](Error<E> &e) { return return_type(makeError(e.error)); });
+    }
+
+    /**
      * Bind operator overload for functions which do not accept anything as a
      * parameter. Allows execution of a sequence of unrelated functions, given
      * that all of them return Result
      * @param f function which accepts no parameters and returns result
      */
     template <typename T, typename E, typename Procedure>
-    constexpr auto operator|(Result<T, E> r, Procedure f) ->
+    constexpr auto operator|(const Result<T, E> &r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 decltype(f())>::type {
       using return_type = decltype(f());
       return r.match(
           [&f](const Value<T> &v) { return f(); },
           [](const Error<E> &e) { return return_type(makeError(e.error)); });
+    }
+
+    /**
+     * Mutable alternative for bind without parameters
+     */
+    template <typename T, typename E, typename Procedure>
+    constexpr auto operator|(Result<T, E> &r, Procedure f) ->
+        typename std::enable_if<not std::is_same<decltype(f()), void>::value,
+                                decltype(f())>::type {
+      using return_type = decltype(f());
+      return r.match(
+          [&f](Value<T> &v) { return f(); },
+          [](Error<E> &e) { return return_type(makeError(e.error)); });
     }
 
     /**

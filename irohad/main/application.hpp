@@ -93,6 +93,7 @@ class Irohad {
    * transactions
    * @param stale_stream_max_rounds - maximum number of rounds between
    * consecutive status emissions
+   * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
@@ -110,6 +111,8 @@ class Irohad {
          const shared_model::crypto::Keypair &keypair,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
+         boost::optional<shared_model::interface::types::PeerList>
+             opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none);
@@ -117,13 +120,21 @@ class Irohad {
   /**
    * Initialization of whole objects in system
    */
-  virtual void init();
+  virtual RunResult init();
 
   /**
    * Restore World State View
-   * @return true on success, false otherwise
+   * @return void value on success, error message otherwise
    */
-  bool restoreWsv();
+  RunResult restoreWsv();
+
+  /**
+   * Replaces peers in WSV with an externally provided peers list
+   * @param alternative_peers - the peers to place into WSV
+   * @return void on success, error otherwise
+   */
+  Irohad::RunResult resetPeers(
+      const shared_model::interface::types::PeerList &alternative_peers);
 
   /**
    * Drop wsv and block store
@@ -141,48 +152,48 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
 
-  virtual void initStorage();
+  virtual RunResult initStorage();
 
-  virtual void initCryptoProvider();
+  virtual RunResult initCryptoProvider();
 
-  virtual void initBatchParser();
+  virtual RunResult initBatchParser();
 
-  virtual void initValidators();
+  virtual RunResult initValidators();
 
-  virtual void initNetworkClient();
+  virtual RunResult initNetworkClient();
 
-  virtual void initFactories();
+  virtual RunResult initFactories();
 
-  virtual void initPersistentCache();
+  virtual RunResult initPersistentCache();
 
-  virtual void initOrderingGate();
+  virtual RunResult initOrderingGate();
 
-  virtual void initSimulator();
+  virtual RunResult initSimulator();
 
-  virtual void initConsensusCache();
+  virtual RunResult initConsensusCache();
 
-  virtual void initBlockLoader();
+  virtual RunResult initBlockLoader();
 
-  virtual void initConsensusGate();
+  virtual RunResult initConsensusGate();
 
-  virtual void initSynchronizer();
+  virtual RunResult initSynchronizer();
 
-  virtual void initPeerCommunicationService();
+  virtual RunResult initPeerCommunicationService();
 
-  virtual void initStatusBus();
+  virtual RunResult initStatusBus();
 
-  virtual void initMstProcessor();
+  virtual RunResult initMstProcessor();
 
-  virtual void initPendingTxsStorage();
+  virtual RunResult initPendingTxsStorage();
 
-  virtual void initTransactionCommandService();
+  virtual RunResult initTransactionCommandService();
 
-  virtual void initQueryService();
+  virtual RunResult initQueryService();
 
   /**
    * Initialize WSV restorer
    */
-  virtual void initWsvRestorer();
+  virtual RunResult initWsvRestorer();
 
   // constructor dependencies
   std::string block_store_dir_;
@@ -197,6 +208,8 @@ class Irohad {
   std::chrono::minutes mst_expiration_time_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
+  const boost::optional<shared_model::interface::types::PeerList>
+      opt_alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 
@@ -229,6 +242,8 @@ class Irohad {
   // validators
   std::shared_ptr<shared_model::validation::ValidatorsConfig>
       validators_config_;
+  std::shared_ptr<shared_model::validation::ValidatorsConfig>
+      block_validators_config_;
   std::shared_ptr<iroha::validation::StatefulValidator> stateful_validator;
   std::shared_ptr<iroha::validation::ChainValidator> chain_validator;
 

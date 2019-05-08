@@ -87,6 +87,11 @@ namespace integration_framework {
     using TransactionBatchType = shared_model::interface::TransactionBatch;
     using TransactionBatchSPtr = std::shared_ptr<TransactionBatchType>;
 
+   private:
+    std::mutex queue_mu;
+    std::condition_variable queue_cond;
+
+   public:
     /**
      * Construct test framework instance
      * @param maximum_proposal_size - Maximum number of transactions per
@@ -116,12 +121,12 @@ namespace integration_framework {
     ~IntegrationTestFramework();
 
     /// Add a fake peer with given key.
-    std::shared_ptr<fake_peer::FakePeer> addInitialPeer(
+    std::shared_ptr<fake_peer::FakePeer> addFakePeer(
         const boost::optional<shared_model::crypto::Keypair> &key);
 
     /// Add the given amount of fake peers with generated default keys and
     /// "honest" behaviours.
-    std::vector<std::shared_ptr<fake_peer::FakePeer>> addInitialPeers(
+    std::vector<std::shared_ptr<fake_peer::FakePeer>> addFakePeers(
         size_t amount);
 
     /**
@@ -418,6 +423,12 @@ namespace integration_framework {
     /// Start the ITF.
     void subscribeQueuesAndRun();
 
+    /// Get interface::Peer object for this instance.
+    std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
+
+    /// Get this node address.
+    std::string getAddress() const;
+
    protected:
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
@@ -498,8 +509,6 @@ namespace integration_framework {
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:
-    std::mutex queue_mu;
-    std::condition_variable queue_cond;
     bool cleanup_on_exit_;
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;
     std::vector<std::unique_ptr<ServerRunner>> fake_peers_servers_;

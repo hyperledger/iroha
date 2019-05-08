@@ -41,7 +41,9 @@ TEST(YacHashProviderTest, MakeYacHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
   auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-  auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
+  auto ledger_peers =
+      std::make_shared<shared_model::interface::types::PeerList>(
+          shared_model::interface::types::PeerList{peer});
   auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 1);
   auto proposal = std::make_shared<const MockProposal>();
   EXPECT_CALL(*proposal, hash())
@@ -78,7 +80,9 @@ TEST(YacHashProviderTest, ToModelHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
   auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-  auto ledger_peers = std::make_shared<PeerList>(PeerList{peer});
+  auto ledger_peers =
+      std::make_shared<shared_model::interface::types::PeerList>(
+          shared_model::interface::types::PeerList{peer});
   auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 1);
   auto proposal = std::make_shared<MockProposal>();
   EXPECT_CALL(*proposal, hash())

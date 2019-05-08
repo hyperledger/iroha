@@ -80,7 +80,7 @@ namespace integration_framework {
       FakePeer &setBehaviour(const std::shared_ptr<Behaviour> &behaviour);
 
       /// Get the behaviour assigned to this peer, if any, otherwise nullptr.
-      const std::shared_ptr<Behaviour> &getBehaviour() const;
+      std::shared_ptr<Behaviour> getBehaviour() const;
 
       /// Assign this peer a block storage. Used by behaviours.
       FakePeer &setBlockStorage(
@@ -102,6 +102,9 @@ namespace integration_framework {
 
       /// Get the keypair of this peer.
       const shared_model::crypto::Keypair &getKeypair() const;
+
+      /// Get interface::Peer object for this instance.
+      std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
 
       /// Get the observable of MST states received by this peer.
       rxcpp::observable<std::shared_ptr<MstMessage>> getMstStatesObservable();

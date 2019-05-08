@@ -36,6 +36,7 @@ using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
+using ::testing::ByMove;
 using ::testing::Invoke;
 using ::testing::NiceMock;
 using ::testing::Return;
@@ -86,8 +87,10 @@ class SimulatorTest : public ::testing::Test {
   rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
   std::shared_ptr<Simulator> simulator;
-  std::shared_ptr<PeerList> ledger_peers = std::make_shared<PeerList>(
-      PeerList{makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
+  std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers =
+      std::make_shared<shared_model::interface::types::PeerList>(
+          shared_model::interface::types::PeerList{
+              makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
 };
 
 shared_model::proto::Block makeBlock(int height) {
@@ -147,12 +150,14 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
               .build());
   const auto &proposal = validation_result->verified_proposal;
   shared_model::proto::Block block = makeBlock(proposal->height() - 1);
+  auto block_height = block.height();
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
-  EXPECT_CALL(*query, getTopBlock())
-      .WillOnce(Return(expected::makeValue(wBlock(clone(block)))));
+  EXPECT_CALL(*query, getTopBlockHeight()).WillRepeatedly(Return(block_height));
+  EXPECT_CALL(*query, getBlock(block_height))
+      .WillOnce(Return(ByMove(
+          expected::makeValue(clone<shared_model::interface::Block>(block)))));
 
-  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block.height()));
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&validation_result](const auto &p, auto &v) {
         return std::move(validation_result);
@@ -161,8 +166,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
       .Times(1);
 
-  auto ledger_state =
-      std::make_shared<LedgerState>(ledger_peers, block.height());
+  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 
@@ -198,8 +202,10 @@ TEST_F(SimulatorTest, FailWhenNoBlock) {
   auto proposal = makeProposal(2);
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(0);
-  EXPECT_CALL(*query, getTopBlock())
-      .WillOnce(Return(expected::makeError("no block")));
+  auto block_height = 1;
+  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
+  EXPECT_CALL(*query, getBlock(block_height))
+      .WillOnce(Return(ByMove(expected::makeError("no block"))));
 
   EXPECT_CALL(*validator, validate(_, _)).Times(0);
 
@@ -226,11 +232,14 @@ TEST_F(SimulatorTest, FailWhenSameAsProposalHeight) {
   auto proposal = makeProposal(2);
 
   auto block = makeBlock(proposal->height());
+  auto block_height = block.height();
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(0);
 
-  EXPECT_CALL(*query, getTopBlock())
-      .WillOnce(Return(expected::makeValue(wBlock(clone(block)))));
+  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
+  EXPECT_CALL(*query, getBlock(block_height))
+      .WillOnce(Return(ByMove(
+          expected::makeValue(clone<shared_model::interface::Block>(block)))));
 
   EXPECT_CALL(*validator, validate(_, _)).Times(0);
 
@@ -244,8 +253,7 @@ TEST_F(SimulatorTest, FailWhenSameAsProposalHeight) {
   auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 0);
   block_wrapper.subscribe();
 
-  auto ledger_state =
-      std::make_shared<LedgerState>(ledger_peers, block.height());
+  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
   ordering_events.get_subscriber().on_next(
       OrderingEvent{proposal, consensus::Round{}, ledger_state});
 
@@ -296,10 +304,13 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
             validation::CommandError{"SomeCommand", 1, "", true}});
   }
   shared_model::proto::Block block = makeBlock(proposal->height() - 1);
+  auto block_height = block.height();
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
-  EXPECT_CALL(*query, getTopBlock())
-      .WillOnce(Return(expected::makeValue(wBlock(clone(block)))));
+  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
+  EXPECT_CALL(*query, getBlock(block_height))
+      .WillOnce(Return(ByMove(
+          expected::makeValue(clone<shared_model::interface::Block>(block)))));
 
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&verified_proposal_and_errors](const auto &p, auto &v) {

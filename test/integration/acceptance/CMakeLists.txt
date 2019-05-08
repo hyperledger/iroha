@@ -25,6 +25,12 @@ target_link_libraries(add_asset_qty_test
     integration_framework
     )
 
+addtest(add_peer_test add_peer_test.cpp)
+target_link_libraries(add_peer_test
+    acceptance_fixture
+    integration_framework
+    )
+
 addtest(create_account_test create_account_test.cpp)
 target_link_libraries(create_account_test
     acceptance_fixture
@@ -217,3 +223,11 @@ target_link_libraries(set_account_quorum_test
     acceptance_fixture
     integration_framework
     )
+
+addtest(hex_keys_test
+   hex_keys_test.cpp
+   )
+target_link_libraries(hex_keys_test
+   acceptance_fixture
+   integration_framework
+   )
