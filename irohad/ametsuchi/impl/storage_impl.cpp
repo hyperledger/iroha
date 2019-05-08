@@ -264,10 +264,10 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
-        std::unique_ptr<ReconnectionStrategyFactory>
-            reconnection_strategy_factory,
+        std::unique_ptr<FailoverCallbackFactory> failover_callback_factory,
         size_t pool_size,
         bool enable_prepared_blocks,
+        const std::string &prepared_block_name,
         logger::LoggerManagerTreePtr log_manager)
         : block_store_dir_(std::move(block_store_dir)),
           postgres_options_(std::move(postgres_options)),
@@ -280,67 +280,21 @@ namespace iroha {
           block_storage_factory_(std::move(block_storage_factory)),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()),
-          reconnection_strategy_factory_(
-              std::move(reconnection_strategy_factory)),
-          callback_factory_(std::make_unique<FailoverCallbackFactory>()),
+          callback_factory_(std::move(failover_callback_factory)),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
           block_is_prepared(false),
-          prepared_block_name_("prepared_block"
-                               + postgres_options_.dbname().value_or("")) {
-      auto connection_initialization = [&](soci::session &session,
-                                           auto on_init_db,
-                                           auto on_init_connection) {
-        auto *backend = static_cast<soci::postgresql_session_backend *>(
-            session.get_backend());
-        PQsetNoticeProcessor(backend->conn_, &processPqNotice, log_.get());
-        on_init_connection(session);
-
-        // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
-        // IR-464
-        on_init_db(session);
-        iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
-      };
-
-      /// lambda contains special actions which should be execute once
-      auto init_db = [&](soci::session &session) {
-        // rollback current prepared transaction
-        // if there exists any since last session
-        if (prepared_blocks_enabled_) {
-          rollbackPrepared(session);
+          prepared_block_name_(prepared_block_name) {
+      try_rollback_ = [this](soci::session &session) {
+        if (block_is_prepared) {
+          rollbackPrepared(session, prepared_block_name_)
+              .match([this](auto &&v) { block_is_prepared = false; },
+                     [this](auto &&e) {
+                       log_->info("Block rollback  error: {}",
+                                  std::move(e.error));
+                     });
         }
-        session << init_;
       };
-
-      /// lambda contains actions which should be invoked once for each session
-      auto init_failover_callback = [&](soci::session &session) {
-        static size_t connection_index = 0;
-        auto restore_session = [connection_initialization](soci::session &s) {
-          return connection_initialization(s, [](auto &) {}, [](auto &) {});
-        };
-
-        auto &callback = callback_factory_->makeFailoverCallback(
-            session,
-            restore_session,
-            postgres_options_.optionsStringWithoutDbName(),
-            reconnection_strategy_factory_->create(),
-            log_manager_
-                ->getChild("SOCI connection "
-                           + std::to_string(connection_index++))
-                ->getLogger());
-
-        session.set_failover_callback(callback);
-      };
-
-      assert(pool_size > 0);
-
-      connection_initialization(
-          connection_->at(0), init_db, init_failover_callback);
-      for (size_t i = 1; i != pool_size_; i++) {
-        soci::session &session = connection_->at(i);
-        connection_initialization(
-            session, [](auto &) {}, init_failover_callback);
-      }
     }
 
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
@@ -353,10 +307,7 @@ namespace iroha {
       // if we create temporary storage, then we intend to validate a new
       // proposal. this means that any state prepared before that moment is
       // not needed and must be removed to prevent locking
-      if (block_is_prepared) {
-        rollbackPrepared(*sql);
-      }
-
+      try_rollback_(*sql);
       return expected::makeValue<std::unique_ptr<TemporaryWsv>>(
           std::make_unique<TemporaryWsvImpl>(
               std::move(sql),
@@ -444,9 +395,7 @@ namespace iroha {
       // if we create mutable storage, then we intend to mutate wsv
       // this means that any state prepared before that moment is not needed
       // and must be removed to prevent locking
-      if (block_is_prepared) {
-        rollbackPrepared(*sql);
-      }
+      try_rollback_(*sql);
       shared_model::interface::types::HashType hash{""};
       shared_model::interface::types::HeightType height{0};
       auto block_query = getBlockQuery();
@@ -489,9 +438,7 @@ namespace iroha {
       try {
         soci::session sql(*connection_);
         // rollback possible prepared transaction
-        if (block_is_prepared) {
-          rollbackPrepared(sql);
-        }
+        try_rollback_(sql);
         sql << reset_;
       } catch (std::exception &e) {
         return expected::makeError(e.what());
@@ -548,10 +495,8 @@ namespace iroha {
         return;
       }
       // rollback possible prepared transaction
-      if (block_is_prepared) {
-        soci::session sql(*connection_);
-        rollbackPrepared(sql);
-      }
+      soci::session sql(*connection_);
+      try_rollback_(sql);
       std::vector<std::shared_ptr<soci::session>> connections;
       for (size_t i = 0; i < pool_size_; i++) {
         connections.push_back(std::make_shared<soci::session>(*connection_));
@@ -622,6 +567,79 @@ namespace iroha {
       return expected::makeValue(pool);
     }
 
+    expected::Result<void, std::string> StorageImpl::rollbackPrepared(
+        soci::session &sql, const std::string &prepared_block_name) {
+      try {
+        sql << "ROLLBACK PREPARED '" + prepared_block_name + "';";
+      } catch (const std::exception &e) {
+        return expected::makeError(formatPostgresMessage(e.what()));
+      }
+      return {};
+    }
+
+    void connectionInitialization(
+        soci::connection_pool &connection_pool,
+        size_t pool_size,
+        const std::string &init_,
+        std::function<void(soci::session &)> try_rollback,
+        FailoverCallbackFactory &callback_factory_,
+        ReconnectionStrategyFactory &reconnection_strategy_factory_,
+        const std::string &pg_options,
+        logger::LoggerManagerTreePtr log_manager) {
+      auto log = log_manager->getLogger();
+      auto connection_initialization = [&](soci::session &session,
+                                           auto on_init_db,
+                                           auto on_init_connection) {
+        auto *backend = static_cast<soci::postgresql_session_backend *>(
+            session.get_backend());
+        PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
+        on_init_connection(session);
+
+        // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
+        // IR-464
+        on_init_db(session);
+        iroha::ametsuchi::PostgresCommandExecutor::prepareStatements(session);
+      };
+
+      /// lambda contains special actions which should be execute once
+      auto init_db = [&](soci::session &session) {
+        // rollback current prepared transaction
+        // if there exists any since last session
+        try_rollback(session);
+        session << init_;
+      };
+
+      /// lambda contains actions which should be invoked once for each session
+      auto init_failover_callback = [&](soci::session &session) {
+        static size_t connection_index = 0;
+        auto restore_session = [connection_initialization](soci::session &s) {
+          return connection_initialization(s, [](auto &) {}, [](auto &) {});
+        };
+
+        auto &callback = callback_factory_.makeFailoverCallback(
+            session,
+            restore_session,
+            pg_options,
+            reconnection_strategy_factory_.create(),
+            log_manager
+                ->getChild("SOCI connection "
+                           + std::to_string(connection_index++))
+                ->getLogger());
+
+        session.set_failover_callback(callback);
+      };
+
+      assert(pool_size > 0);
+
+      connection_initialization(
+          connection_pool.at(0), init_db, init_failover_callback);
+      for (size_t i = 1; i != pool_size; i++) {
+        soci::session &session = connection_pool.at(i);
+        connection_initialization(
+            session, [](auto &) {}, init_failover_callback);
+      }
+    }
+
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
         std::string block_store_dir,
@@ -663,6 +681,30 @@ namespace iroha {
                       bool enable_prepared_transactions =
                           preparedTransactionsAvailable(sql);
                       try {
+                        std::string prepared_block_name =
+                            "prepared_block" + options.dbname().value_or("");
+                        auto try_rollback = [&prepared_block_name,
+                                             enable_prepared_transactions](
+                                                soci::session &session) {
+                          if (enable_prepared_transactions) {
+                            rollbackPrepared(session, prepared_block_name);
+                          }
+                        };
+
+                        std::unique_ptr<FailoverCallbackFactory>
+                            failover_callback_factory =
+                                std::make_unique<FailoverCallbackFactory>();
+
+                        connectionInitialization(
+                            *connection.value,
+                            pool_size,
+                            init_,
+                            try_rollback,
+                            *failover_callback_factory,
+                            *reconnection_strategy_factory,
+                            options.optionsStringWithoutDbName(),
+                            log_manager);
+
                         storage = expected::makeValue(
                             std::shared_ptr<StorageImpl>(new StorageImpl(
                                 block_store_dir,
@@ -673,9 +715,10 @@ namespace iroha {
                                 converter,
                                 perm_converter,
                                 std::move(block_storage_factory),
-                                std::move(reconnection_strategy_factory),
+                                std::move(failover_callback_factory),
                                 pool_size,
                                 enable_prepared_transactions,
+                                prepared_block_name,
                                 std::move(log_manager))));
                       } catch (const std::exception &e) {
                         storage = expected::makeError(e.what());
@@ -826,15 +869,6 @@ namespace iroha {
     StorageImpl::~StorageImpl() {
       notifier_lifetime_.unsubscribe();
       freeConnections();
-    }
-
-    void StorageImpl::rollbackPrepared(soci::session &sql) {
-      try {
-        sql << "ROLLBACK PREPARED '" + prepared_block_name_ + "';";
-        block_is_prepared = false;
-      } catch (const std::exception &e) {
-        log_->info("{}", formatPostgresMessage(e.what()));
-      }
     }
 
     bool StorageImpl::storeBlock(
