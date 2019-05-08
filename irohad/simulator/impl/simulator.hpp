@@ -10,7 +10,6 @@
 #include "simulator/verified_proposal_creator.hpp"
 
 #include <boost/optional.hpp>
-#include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/temporary_factory.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "interfaces/iroha_internal/unsafe_block_factory.hpp"
@@ -30,7 +29,6 @@ namespace iroha {
           std::shared_ptr<network::OrderingGate> ordering_gate,
           std::shared_ptr<validation::StatefulValidator> statefulValidator,
           std::shared_ptr<ametsuchi::TemporaryFactory> factory,
-          std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
           std::shared_ptr<CryptoSignerType> crypto_signer,
           std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
               block_factory,
@@ -48,7 +46,9 @@ namespace iroha {
       boost::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
           const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
-              &verified_proposal_and_errors) override;
+              &verified_proposal_and_errors,
+          shared_model::interface::types::HeightType height,
+          const shared_model::crypto::Hash &top_hash) override;
 
       rxcpp::observable<BlockCreatorEvent> onBlock() override;
 
@@ -64,15 +64,11 @@ namespace iroha {
 
       std::shared_ptr<validation::StatefulValidator> validator_;
       std::shared_ptr<ametsuchi::TemporaryFactory> ametsuchi_factory_;
-      std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory_;
       std::shared_ptr<CryptoSignerType> crypto_signer_;
       std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
           block_factory_;
 
       logger::LoggerPtr log_;
-
-      // last block
-      std::unique_ptr<shared_model::interface::Block> last_block;
     };
   }  // namespace simulator
 }  // namespace iroha

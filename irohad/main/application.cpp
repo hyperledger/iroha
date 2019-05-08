@@ -484,7 +484,6 @@ Irohad::RunResult Irohad::initSimulator() {
       ordering_gate,
       stateful_validator,
       storage,
-      storage,
       crypto_signer_,
       std::move(block_factory),
       log_manager_->getChild("Simulator")->getLogger());
