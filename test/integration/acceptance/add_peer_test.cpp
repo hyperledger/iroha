@@ -91,7 +91,8 @@ auto makePeerPointeeMatcher(std::shared_ptr<interface::Peer> peer) {
  * @when it receives a valid signed addPeer command
  * @then the transaction is committed
  *    @and the ledger state after commit contains the two peers,
- *    @and the WSV reports that there are two peers: the initial and the added one
+ *    @and the WSV reports that there are two peers: the initial and the added
+ * one
  */
 TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
@@ -127,7 +128,7 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
       .subscribe(
           [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
             EXPECT_THAT(
-                *sync_event.ledger_state->ledger_peers,
+                sync_event.ledger_state->ledger_peers,
                 ::testing::UnorderedElementsAre(
                     makePeerPointeeMatcher(itf_peer),
                     makePeerPointeeMatcher(new_peer_address, new_peer_pubkey)));
@@ -259,7 +260,7 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
           .signAndAddSignature(initial_peer->getKeypair())
           .finish();
 
-  // provide the initial_peer with the blocks 
+  // provide the initial_peer with the blocks
   auto block_storage =
       std::make_shared<fake_peer::BlockStorage>(getTestLogger("BlockStorage"));
   block_storage->storeBlock(clone(genesis_block));
@@ -319,7 +320,7 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
            itf_peer = itf_->getThisPeer(),
            initial_peer = initial_peer->getThisPeer()](const auto &sync_event) {
             EXPECT_EQ(sync_event.ledger_state->height, height);
-            EXPECT_THAT(*sync_event.ledger_state->ledger_peers,
+            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
                         ::testing::UnorderedElementsAre(
                             makePeerPointeeMatcher(itf_peer),
                             makePeerPointeeMatcher(initial_peer)));

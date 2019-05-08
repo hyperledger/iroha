@@ -87,10 +87,8 @@ class SimulatorTest : public ::testing::Test {
   rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
   std::shared_ptr<Simulator> simulator;
-  std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers =
-      std::make_shared<shared_model::interface::types::PeerList>(
-          shared_model::interface::types::PeerList{
-              makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
+  shared_model::interface::types::PeerList ledger_peers{
+      makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))};
 };
 
 shared_model::proto::Block makeBlock(int height) {
@@ -166,7 +164,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
       .Times(1);
 
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
+  auto ledger_state =
+      std::make_shared<LedgerState>(ledger_peers, block_height, block.hash());
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 
@@ -178,8 +177,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
     EXPECT_EQ(verified_proposal->height(), proposal->height());
     EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
     EXPECT_TRUE(verification_result->rejected_transactions.empty());
-    EXPECT_EQ(*event.ledger_state->ledger_peers,
-              *ordering_event.ledger_state->ledger_peers);
+    EXPECT_EQ(event.ledger_state->ledger_peers,
+              ordering_event.ledger_state->ledger_peers);
   });
 
   auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 1);
@@ -187,8 +186,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
     auto block = getBlockUnsafe(event);
     EXPECT_EQ(block->height(), proposal->height());
     EXPECT_EQ(block->transactions(), proposal->transactions());
-    EXPECT_EQ(*event.ledger_state->ledger_peers,
-              *ordering_event.ledger_state->ledger_peers);
+    EXPECT_EQ(event.ledger_state->ledger_peers,
+              ordering_event.ledger_state->ledger_peers);
   });
 
   ordering_events.get_subscriber().on_next(ordering_event);
@@ -219,7 +218,8 @@ TEST_F(SimulatorTest, FailWhenNoBlock) {
   auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 0);
   block_wrapper.subscribe();
 
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 0);
+  auto ledger_state = std::make_shared<LedgerState>(
+      ledger_peers, 0, shared_model::crypto::Hash{"hash"});
   ordering_events.get_subscriber().on_next(
       OrderingEvent{proposal, consensus::Round{}, ledger_state});
 
@@ -253,7 +253,8 @@ TEST_F(SimulatorTest, FailWhenSameAsProposalHeight) {
   auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 0);
   block_wrapper.subscribe();
 
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
+  auto ledger_state =
+      std::make_shared<LedgerState>(ledger_peers, block_height, block.hash());
   ordering_events.get_subscriber().on_next(
       OrderingEvent{proposal, consensus::Round{}, ledger_state});
 
