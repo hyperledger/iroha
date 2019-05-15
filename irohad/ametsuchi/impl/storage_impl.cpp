@@ -285,7 +285,7 @@ namespace iroha {
           callback_factory_(std::make_unique<FailoverCallbackFactory>()),
           pool_size_(pool_size),
           prepared_blocks_enabled_(enable_prepared_blocks),
-          block_is_prepared(false),
+          block_is_prepared_(false),
           prepared_block_name_("prepared_block"
                                + postgres_options_.dbname().value_or("")) {
       auto connection_initialization = [&](soci::session &session,
@@ -306,7 +306,7 @@ namespace iroha {
       auto init_db = [&](soci::session &session) {
         // rollback current prepared transaction
         // if there exists any since last session
-        if (prepared_blocks_enabled_) {
+        if (block_is_prepared_) {
           rollbackPrepared(session);
         }
         session << init_;
@@ -353,7 +353,7 @@ namespace iroha {
       // if we create temporary storage, then we intend to validate a new
       // proposal. this means that any state prepared before that moment is
       // not needed and must be removed to prevent locking
-      if (block_is_prepared) {
+      if (block_is_prepared_) {
         rollbackPrepared(*sql);
       }
 
@@ -444,7 +444,7 @@ namespace iroha {
       // if we create mutable storage, then we intend to mutate wsv
       // this means that any state prepared before that moment is not needed
       // and must be removed to prevent locking
-      if (block_is_prepared) {
+      if (block_is_prepared_) {
         rollbackPrepared(*sql);
       }
       shared_model::interface::types::HashType hash{""};
@@ -489,7 +489,7 @@ namespace iroha {
       try {
         soci::session sql(*connection_);
         // rollback possible prepared transaction
-        if (block_is_prepared) {
+        if (block_is_prepared_) {
           rollbackPrepared(sql);
         }
         sql << reset_;
@@ -548,7 +548,7 @@ namespace iroha {
         return;
       }
       // rollback possible prepared transaction
-      if (block_is_prepared) {
+      if (block_is_prepared_) {
         soci::session sql(*connection_);
         rollbackPrepared(sql);
       }
@@ -723,7 +723,7 @@ namespace iroha {
         return boost::none;
       }
 
-      if (not block_is_prepared) {
+      if (not block_is_prepared_) {
         log_->info("there are no prepared blocks");
         return boost::none;
       }
@@ -741,7 +741,7 @@ namespace iroha {
         PostgresBlockIndex block_index(
             sql, log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);
-        block_is_prepared = false;
+        block_is_prepared_ = false;
         return PostgresWsvQuery(sql,
                                 factory_,
                                 log_manager_->getChild("WsvQuery")->getLogger())
@@ -806,7 +806,7 @@ namespace iroha {
         log_->warn("prepared blocks are not enabled");
         return;
       }
-      if (block_is_prepared) {
+      if (block_is_prepared_) {
         log_->warn(
             "Refusing to add new prepared state, because there already is one. "
             "Multiple prepared states are not yet supported.");
@@ -814,7 +814,7 @@ namespace iroha {
         soci::session &sql = *wsv_impl.sql_;
         try {
           sql << "PREPARE TRANSACTION '" + prepared_block_name_ + "';";
-          block_is_prepared = true;
+          block_is_prepared_ = true;
         } catch (const std::exception &e) {
           log_->warn("failed to prepare state: {}", e.what());
         }
@@ -831,7 +831,7 @@ namespace iroha {
     void StorageImpl::rollbackPrepared(soci::session &sql) {
       try {
         sql << "ROLLBACK PREPARED '" + prepared_block_name_ + "';";
-        block_is_prepared = false;
+        block_is_prepared_ = false;
       } catch (const std::exception &e) {
         log_->info("{}", formatPostgresMessage(e.what()));
       }
