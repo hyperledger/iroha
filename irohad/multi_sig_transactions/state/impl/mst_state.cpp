@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <boost/algorithm/cxx11/all_of.hpp>
+#include <boost/algorithm/minmax_element.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/find.hpp>
 #include <boost/range/combine.hpp>
@@ -30,7 +31,8 @@ namespace {
         | boost::adaptors::transformed(
               +[](const std::shared_ptr<shared_model::interface::Transaction>
                       &tx) { return tx->createdTime(); });
-    const auto min_it = std::min_element(timestamps.begin(), timestamps.end());
+    const auto min_it =
+        boost::first_min_element(timestamps.begin(), timestamps.end());
     assert(min_it != timestamps.end());
     return min_it == timestamps.end() ? 0 : *min_it;
   }
