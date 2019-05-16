@@ -12,6 +12,7 @@
 #include "libfuzzer/libfuzzer_macro.h"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "torii/processor/query_processor_impl.hpp"
@@ -50,7 +51,8 @@ struct QueryFixture {
     std::unique_ptr<shared_model::validation::AbstractValidator<
         shared_model::interface::Query>>
         query_validator = std::make_unique<
-            shared_model::validation::DefaultSignedQueryValidator>();
+            shared_model::validation::DefaultSignedQueryValidator>(
+            iroha::test::kTestsValidatorsConfig);
     std::unique_ptr<
         shared_model::validation::AbstractValidator<iroha::protocol::Query>>
         proto_query_validator =
@@ -62,7 +64,8 @@ struct QueryFixture {
                                          std::move(proto_query_validator));
 
     auto blocks_query_validator = std::make_unique<
-        shared_model::validation::DefaultSignedBlocksQueryValidator>();
+        shared_model::validation::DefaultSignedBlocksQueryValidator>(
+        iroha::test::kTestsValidatorsConfig);
     auto proto_blocks_query_validator =
         std::make_unique<shared_model::validation::ProtoBlocksQueryValidator>();
     auto blocks_query_factory =
