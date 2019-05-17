@@ -1111,6 +1111,7 @@ namespace iroha {
                            .build());
 
         auto block2 = createBlock(txs2, 2, block1->hash());
+        second_block_hash = block2->hash();
 
         apply(storage, block2);
 
@@ -1119,11 +1120,30 @@ namespace iroha {
         hash3 = txs2.at(0).hash();
       }
 
+      void commitAdditionalBlocks(const size_t amount) {
+        shared_model::crypto::Hash prev_block_hash = second_block_hash;
+        size_t starting_height = 3;
+        for (size_t i = 0; i < amount; ++i) {
+          std::vector<shared_model::proto::Transaction> txs;
+          std::string role_name = "test_role_" + std::to_string(i);
+          txs.push_back(TestTransactionBuilder()
+                            .creatorAccountId(account_id)
+                            .createRole(role_name, {})
+                            .build());
+          auto block = createBlock(txs, starting_height + i, prev_block_hash);
+          prev_block_hash = block->hash();
+          apply(storage, block);
+          hashes.push_back(txs.at(0).hash());
+        }
+      }
+
       const std::string asset_id = "coin#domain";
       shared_model::crypto::PublicKey fake_pubkey{zero_string};
       shared_model::crypto::Hash hash1;
       shared_model::crypto::Hash hash2;
       shared_model::crypto::Hash hash3;
+      shared_model::crypto::Hash second_block_hash;
+      std::vector<shared_model::crypto::Hash> hashes;
     };
 
     template <typename QueryTxPaginationTest>
@@ -1331,6 +1351,37 @@ namespace iroha {
       checkSuccessfulResult<shared_model::interface::TransactionsPageResponse>(
           std::move(result), [](const auto &cast_resp) {
             ASSERT_EQ(cast_resp.transactions().size(), 3);
+            for (const auto &tx : cast_resp.transactions()) {
+              static size_t i = 0;
+              EXPECT_EQ(account_id, tx.creatorAccountId())
+                  << tx.toString() << " ~~ " << i;
+              ++i;
+            }
+          });
+    }
+
+    /**
+     * This test checks that tables data is sorted as integrals and not as text
+     * @given initialized storage with 10 blocks, permissioned account
+     * @when get account transactions with first_tx_hash offset to get the last
+     * tx when page_size is more than one
+     * @then Return only one (the last) transaction
+     */
+    TEST_F(GetAccountTransactionsExecutorTest, ValidPaginationOrder) {
+      addPerms({shared_model::interface::permissions::Role::kGetMyAccTxs});
+
+      commitBlocks();
+      commitAdditionalBlocks(kTxPageSize);
+
+      auto query =
+          TestQueryBuilder()
+              .creatorAccountId(account_id)
+              .getAccountTransactions(account_id, kTxPageSize, hashes.back())
+              .build();
+      auto result = executeQuery(query);
+      checkSuccessfulResult<shared_model::interface::TransactionsPageResponse>(
+          std::move(result), [](const auto &cast_resp) {
+            ASSERT_EQ(cast_resp.transactions().size(), 1);
             for (const auto &tx : cast_resp.transactions()) {
               static size_t i = 0;
               EXPECT_EQ(account_id, tx.creatorAccountId())
