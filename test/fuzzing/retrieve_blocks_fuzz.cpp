@@ -14,7 +14,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
     return 0;
   }
 
-  iroha::network::proto::BlocksRequest request;
+  iroha::network::proto::BlockRequest request;
   if (protobuf_mutator::libfuzzer::LoadProtoInput(true, data, size, &request)) {
     grpc::ServerContext context;
     iroha::MockServerWriter<iroha::protocol::Block> serverWriter;
