@@ -157,7 +157,7 @@ node ('master') {
   forceDockerDevelopBuild = false
   checkTag = sh(script: 'git describe --tags --exact-match ${scmVars.GIT_COMMIT}', returnStatus: true)
 
-  if (scmVars.GIT_LOCAL_BRANCH in ["master","develop"] || scmVars.CHANGE_BRANCH_LOCAL in ["develop"] || checkTag == 0 )
+  if (scmVars.GIT_LOCAL_BRANCH in ["master"] || checkTag == 0 )
     specialBranch =  true
   else
     specialBranch = false
@@ -168,10 +168,8 @@ node ('master') {
     doxygen = true
   }
 
-  if (scmVars.GIT_LOCAL_BRANCH == "develop")
-    pushDockerTag =  'develop'
-  else if (scmVars.GIT_LOCAL_BRANCH == 'master')
-    pushDockerTag = 'latest'
+  if (scmVars.GIT_LOCAL_BRANCH == "master")
+    pushDockerTag = 'master'
   else if (checkTag == 0 )
     pushDockerTag = sh(script: 'git describe --tags --exact-match ${GIT_COMMIT}', returnStdout: true).trim().replaceAll('-','_')
   else

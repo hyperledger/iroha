@@ -82,7 +82,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
     iC = dockerUtils.dockerPullOrBuild("${platform}-develop-build",
         "${env.GIT_RAW_BASE_URL}/${scmVars.GIT_COMMIT}/docker/develop/Dockerfile",
         "${env.GIT_RAW_BASE_URL}/${utils.previousCommitOrCurrent(scmVars)}/docker/develop/Dockerfile",
-        "${env.GIT_RAW_BASE_URL}/develop/docker/develop/Dockerfile",
+        "${env.GIT_RAW_BASE_URL}/master/docker/develop/Dockerfile",
         scmVars,
         environment,
         forceDockerDevelopBuild,
