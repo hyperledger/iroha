@@ -53,6 +53,7 @@ if (NOT soci_FOUND)
                       -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
                       -DCMAKE_CXX_FLAGS=${CMAKE_CXX_SOCI_FLAGS}
                       -DCMAKE_INSTALL_PREFIX=${EP_PREFIX}
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                       -DSOCI_CXX_C11=ON
                       -DSOCI_TESTS=OFF
                       -DSOCI_EMPTY=OFF
