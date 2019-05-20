@@ -1120,7 +1120,9 @@ namespace iroha {
         hash3 = txs2.at(0).hash();
       }
 
-      void commitAdditionalBlocks(const size_t amount) {
+      std::vector<shared_model::crypto::Hash> commitAdditionalBlocks(
+          const size_t amount) {
+        std::vector<shared_model::crypto::Hash> hashes;
         shared_model::crypto::Hash prev_block_hash = second_block_hash;
         size_t starting_height = 3;
         for (size_t i = 0; i < amount; ++i) {
@@ -1135,6 +1137,7 @@ namespace iroha {
           apply(storage, block);
           hashes.push_back(txs.at(0).hash());
         }
+        return hashes;
       }
 
       const std::string asset_id = "coin#domain";
@@ -1143,7 +1146,6 @@ namespace iroha {
       shared_model::crypto::Hash hash2;
       shared_model::crypto::Hash hash3;
       shared_model::crypto::Hash second_block_hash;
-      std::vector<shared_model::crypto::Hash> hashes;
     };
 
     template <typename QueryTxPaginationTest>
@@ -1371,7 +1373,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetMyAccTxs});
 
       commitBlocks();
-      commitAdditionalBlocks(kTxPageSize);
+      auto hashes = commitAdditionalBlocks(kTxPageSize);
 
       auto query =
           TestQueryBuilder()
@@ -1380,11 +1382,13 @@ namespace iroha {
               .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::TransactionsPageResponse>(
-          std::move(result), [](const auto &cast_resp) {
-            ASSERT_EQ(cast_resp.transactions().size(), 1);
+          std::move(result), [&hashes](const auto &cast_resp) {
+            EXPECT_EQ(cast_resp.transactions().size(), 1);
             for (const auto &tx : cast_resp.transactions()) {
+              // we put a loop here with EXPECT inside to get the trace when
+              // more than one transaction is returned
               static size_t i = 0;
-              EXPECT_EQ(account_id, tx.creatorAccountId())
+              EXPECT_EQ(hashes.back(), tx.hash())
                   << tx.toString() << " ~~ " << i;
               ++i;
             }
