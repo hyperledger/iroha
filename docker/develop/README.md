@@ -2,7 +2,7 @@
 
 Navigate to this folder and run:
 ```
-docker build -t iroha-docker-develop .
+docker build -t hyperledger/iroha-docker-develop:v1 .
 ```
 
 # Why
