@@ -10,8 +10,8 @@ else()
   add_library(fuzzing_engine standalone_fuzz_target_runner.cpp)
 endif()
 
-add_executable(torii_fuzzing torii_fuzz.cpp)
-target_link_libraries(torii_fuzzing
+add_executable(torii_fuzz torii_fuzz.cpp)
+target_link_libraries(torii_fuzz
   rxcpp
   gtest::gtest
   gmock::gmock
@@ -21,8 +21,8 @@ target_link_libraries(torii_fuzzing
   ${fuzzing_engine}
   )
 
-add_executable(status_fuzzing status_fuzz.cpp)
-target_link_libraries(status_fuzzing
+add_executable(status_fuzz status_fuzz.cpp)
+target_link_libraries(status_fuzz
   rxcpp
   gtest::gtest
   gmock::gmock
@@ -32,8 +32,8 @@ target_link_libraries(status_fuzzing
   ${fuzzing_engine}
   )
 
-add_executable(find_fuzzing find_fuzz.cpp)
-target_link_libraries(find_fuzzing
+add_executable(find_fuzz find_fuzz.cpp)
+target_link_libraries(find_fuzz
   rxcpp
   gtest::gtest
   gmock::gmock
