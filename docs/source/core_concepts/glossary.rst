@@ -4,24 +4,16 @@ Account
 An Iroha entity that is able to perform specified set of actions.
 Each account belongs to one of existing `domains <#domain>`__.
 
-An account has some number of `roles <#role>`__ (can be none) — which is a collection of permissions.
+An account has some number of `roles <#role>`__ (can be null) — which is a collection of permissions.
 Only `grantable permissions <#grantable-permission>`__ are assigned to an account directly.
 
-Ametsuchi
-=========
-
-Iroha storage component,
-which stores blocks and a state generated from blocks,
-called `World State View <#world-state-view>`__.
-There is no way for the `client <#client>`__ to directly interact with Ametsuchi.
 
 Asset
 =====
 
 Any countable commodity or value.
 Each asset is related to one of existing `domains <#domain>`__.
-For example, an asset can represent any kind of such units -
-currency unit, a bar of gold, real estate unit, etc.
+For example, an asset can represent any kind of such units - currency unit, a bar of gold, real estate unit, etc.
 
 Block
 =====
@@ -29,8 +21,7 @@ Block
 Transaction data is permanently recorded in files called blocks.
 Blocks are organized into a linear sequence over time (also known as the block chain) [#f1]_.
 
-Blocks are signed with the cryptographic signatures of Iroha `peers <#peer>`__,
-voting for this block during `consensus <#consensus>`__.
+Blocks are signed with the cryptographic signatures of Iroha `peers <#peer>`__, voting for this block during `consensus <#consensus>`__.
 Signable content is called payload, so the structure of a block looks like this:
 
 *Outside payload*
@@ -45,83 +36,26 @@ Signable content is called payload, so the structure of a block looks like this:
     - hash of a previous block in the chain
     - rejected transactions hashes — array of transaction hashes, which did not pass stateful validation step; this field is optional
 
-Block Creator
-=============
-
-System component that forms a block from a set of transactions that
-have been passed `stateless <#stateless-validation>`__ and `stateful <#stateful-validation>`__
-validation for further propagation to `consensus <#consensus>`__.
 
 Client
 ======
 
 Any application that uses Iroha is treated as a client.
 
-A distinctive feature of Iroha is that all clients are using simple client-server abstractions
-when they interact with a peer network: they don't use any abstractions
-which are specific for blockchain-related systems.
-For example, in Bitcoin clients have to validate blocks,
-or in Fabric they need to poll several peers to make sure that a transaction was written in a block,
-whereas in Iroha a client interacts with any peer similarly to a single server.
+A distinctive feature of Iroha is that all clients are using simple client-server abstractions when they interact with a peer network: they don't use any abstractions which are specific for blockchain-related systems.
+For example, in Bitcoin clients have to validate blocks, or in HL Fabric they need to poll several peers to make sure that a transaction was written in a block, whereas in HL Iroha a client interacts with any peer similarly to a single server.
 
 Command
 =======
 
-A command is an intention to change the `state <#world-state-view>`__.
-For example, in order to create a new `role <#role>`__ in Iroha you have to issue
-`Create role <../api/commands.html#create-role>`__ command.
-
-Consensus
-=========
-
-A consensus algorithm is a process in computer science used to achieve agreement
-on a single data value among distributed processes or systems.
-Consensus algorithms are designed to achieve reliability
-in a network involving multiple unreliable nodes.
-Solving that issue -- known as the consensus problem
--- is important in distributed computing and multi-agent systems.
-
-*Consensus, as an algorithm*
-
-    An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
-
-*Consensus, as a component*
-
-    Preserves consistent state among the `peers <#peer>`__ within a peer network.
-    Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC).
-    Distinctive features of this algorithm are its scalability, performance,
-    and `Byzantine fault tolerance <https://en.wikipedia.org/wiki/Byzantine_fault_tolerance>`_.
-    If there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__.
-    Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage.
+A command is an intention to change the `state <#world-state-view>`__ of the network.
+For example, in order to create a new `role <#role>`__ in Iroha you have to issue `Create role <../api/commands.html#create-role>`__ command.
 
 Domain
 ======
 
-A named abstraction for grouping `accounts <#account>`__ and `assets <#asset>`__.
-
-Ordering Gate
-=============
-
-Internal Iroha component that passes `transactions <#transaction>`__
-from `Peer Communication Service <#peer-communication-service>`__ to `Ordering Service <#ordering-service>`__.
-Ordering Gate eventually recieves `proposals <#proposal>`__ from Ordering Service
-and sends them to `Simulator <#simulator>`__ for `stateful validation <#stateful-validation>`__.
-
-Ordering Service
-================
-
-Internal Iroha component that combines several `transactions <#transaction>`__
-that have been passed `stateless validation <#stateless-validation>`__ into a `proposal <#proposal>`__.
-Proposal creation could be triggered by one of the following events:
-
-1. Time limit dedicated to transactions collection has expired.
-
-2. Ordering service has received the maximum amount of transactions allowed for a single proposal.
-
-Both parameters (timeout and maximum size of proposal) are configurable (check `environment-specific parameters <../guides/configuration.html#environment-specific-parameters>`_ page).
-
-A common precondition for both triggers is that at least one transaction should reach ordering service.
-Otherwise, no proposal will be formed.
+A named abstraction for grouping `accounts <#account>`__ and `assets <#asset>`__. 
+For example, it can represent an organisation in the group of organisations working with Iroha. 
 
 Peer
 ====
@@ -129,20 +63,11 @@ Peer
 A node that is a part of Iroha network.
 It participates in `consensus <#consensus>`_ process.
 
-Peer Communication Service
-==========================
-
-Internal component of Iroha - an intermediary that transmits `transaction <#transaction>`__
-from `Torii <#torii>`__ to `Ordering Gate <#ordering-gate>`__.
-The main goal of PCS is to hide the complexity of interaction
-with consensus implementation.
-
 Permission
 ==========
 
 A named rule that gives the privilege to perform a command.
-Permission **cannot** be granted to an `account <#account>`__ directly,
-instead, an account has roles, which are the collection of permissions.
+Permission **cannot** be granted to an `account <#account>`__ directly, instead, account has roles, which are collections of permissions. Although, there is an exception, see `Grantable Permission <#grantable-permission>`__.
 
 `List of Iroha permissions <../maintenance/permissions.html>`_.
 
@@ -150,37 +75,32 @@ Grantable Permission
 --------------------
 
 Only grantable permission is given to an `account <#account>`__ directly.
-An account that holds grantable permission is allowed to perform some particular
-action on behalf of another account.
-For example, if the account a@domain1 gives the account b@domain2 a permission
-that it can transfer assets —
-then  b@domain2 can transfer assets of a@domain1 to anyone.
+An account that holds grantable permission is allowed to perform some particular action on behalf of another account.
+For example, if account a@domain1 gives the account b@domain2 a permission that it can transfer assets — then  b@domain2 can transfer assets of a@domain1 to anyone.
 
 Proposal
 ========
 
-A set of `transactions <#transaction>`__ that
-have passed only `stateless validation <#stateless-validation>`__.
+A set of `transactions <#transaction>`__ that have passed only `stateless validation <#stateless-validation>`__.
 
 Verified Proposal
 -----------------
 
-A set of transactions that have been passed `stateless <#stateless-validation>`__
-and `stateful <#stateful-validation>`__ validation, but were not committed yet.
+A set of transactions that have passed both `stateless <#stateless-validation>`__ and `stateful <#stateful-validation>`__ validation, but were not committed yet.
 
 Query
 =====
 
-A request to Iroha that does **not** change the `state <#world-state-view>`__.
-By performing a query, a client can get request data from the state,
-for example a balance of his account, a history of transactions, etc.
+A request to Iroha that does **not** change the `state <#world-state-view>`__ of the network.
+By performing a query, a client can request data from the state, for example a balance of his account, a history of transactions, etc.
 
 Quorum
 ======
 
-In the context of transactions signing, quorum number is a minimum amount
-of signatures required to consider a transaction signed.
+In the context of transactions signing, quorum number is a minimum amount of signatures required to consider a transaction signed.
 The default value is 1.
+For `MST transactions <#multisignature-transactions>`__ you will need to increase that number.
+
 Each account can link additional public keys and increase own quorum number.
 
 Role
@@ -191,36 +111,14 @@ A named abstraction that holds a set of `permissions <#permission>`__.
 Signatory
 =========
 
-Represents an entity that can confirm multisignature transactions for some `account <#account>`__.
+Represents an entity that can confirm multisignature transactions for an `account <#account>`__.
 It can be attached to account via `AddSignatory <../api/commands.html#add-signatory>`__ and detached via `RemoveSignatory <../api/commands.html#remove-signatory>`__.
-
-Simulator
-=========
-
-See `Verified Proposal Creator <#verified-proposal-creator>`__.
-
-Synchronizer
-============
-
-Is a part of `consensus <#consensus>`__.
-Adds missing blocks to `peers' <#peer>`__ chains (downloads them from other peers).
-
-Torii
-=====
-
-⛩.
-Entry point for `clients <#client>`__.
-Uses gRPC as a transport.
-In order to interact with Iroha anyone can use gRPC endpoints,
-described in `Commands <../api/commands.html>`__ and `Queries <../api/queries.html>`__ sections,
-or use `client libraries <../guides/libraries.html>`__.
 
 Transaction
 ===========
 
 An ordered set of `commands <#command>`__, which is applied to the ledger atomically.
-Any nonvalid command within a transaction leads to rejection of the whole
-transaction during the validation process.
+Any non-valid command within a transaction leads to rejection of the whole transaction during the validation process.
 
 Transaction Structure
 ---------------------
@@ -247,9 +145,8 @@ Transaction Statuses
 --------------------
 
 Hyperledger Iroha supports both push and pull interaction mode with a client.
-A client that uses pull mode requests status updates about transactions from
-Iroha peer by sending transaction hashes and awaiting a response. In contrary push
-interaction is done over the listening of an event stream for each transaction.
+A client that uses pull mode requests status updates about transactions from Iroha peer by sending transaction hashes and awaiting a response. 
+On the contrary, push interaction is performed by listening of an event stream for each transaction.
 In any of these modes, the set of transaction statuses is the same:
 
  .. image:: ./../../image_assets/tx_status.png
@@ -283,13 +180,14 @@ Batch of Transactions
 Transactions batch is a feature that allows sending several transactions to Iroha at once preserving their order.
 
 Each transaction within a batch includes batch meta information.
-Batch meta contains batch type identifier (atomic or ordered) and a list of `reduced hashes <#reduced-transaction-hash>`_
-of all transactions within a batch.
-The order of hashes prescribes transactions sequence.
+Batch meta contains batch type identifier (atomic or ordered) and a list of `reduced hashes <#reduced-transaction-hash>`_ of all transactions within a batch.
+The order of hashes defines transactions sequence.
 
 Batch can contain transactions created by different accounts.
 Any transaction within a batch can require single or `multiple <#multisignature-transactions>`__ signatures (depends on quorum set for an account of transaction creator).
 At least one transaction inside a batch should have at least one signature to let the batch pass `stateless validation`_.
+
+You can read an article about batches on our Contributors' Page on `Medium <https://medium.com/iroha-contributors/batches-in-iroha-117614cf1e88>`__.
 
 Atomic Batch
 ------------
@@ -310,15 +208,15 @@ A transaction which has the `quorum`_ greater than one is considered as multisig
 To achieve `stateful validity <#stateful-validation>`__ the confirmation is required by the `signatories <#signatory>`__ of the creator account.
 These participants need to send the same transaction with their signature.
 
-Validator
-=========
+Validation
+==========
 
 There are two kinds of validation - stateless and stateful.
 
 Stateless Validation
 --------------------
 
-Performed in `Torii <#torii>`__.
+Performed in `Torii <../architecture/index.html#torii>`__.
 Checks if an object is well-formed, including the signatures.
 
 Stateful Validation
@@ -327,15 +225,6 @@ Stateful Validation
 Performed in `Verified Proposal Creator <#verified-proposal-creator>`__.
 Validates against `World State View <#world-state-view>`__.
 
-Verified Proposal Creator
-=========================
-
-Internal Iroha component that performs `stateful validation <#stateful-validation>`_
-of `transactions <#transaction>`__ contained in received `proposal <#proposal>`__.
-On the basis of transactions that have been passed stateful validation **verified proposal**
-will be created and passed to `Block Creator <#block-creator>`__.
-All the transactions that have not passed stateful validation will be dropped
-and not included in a verified proposal.
 
 World State View
 ================
