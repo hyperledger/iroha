@@ -28,7 +28,7 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, previousDockerfileURL, re
     referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
     contextDir = "/tmp/${randDir}"
     if (utils.filesDiffer(currentDockerfile, referenceDockerfile) || forceBuild ) {
-      // Dockerfile is differ from develop
+      // Dockerfile is differ from reference
       if (utils.filesDiffer(currentDockerfile, previousDockerfile)) {
         // Dockerfile has been changed compared to both the previous commit and reference Dockerfile
         // Worst case scenario. We cannot count on the local cache
@@ -41,9 +41,9 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, previousDockerfileURL, re
       }
     }
     else {
-      // Dockerfile is same as develop
-      if ( scmVars.GIT_LOCAL_BRANCH == "develop" && utils.filesDiffer(currentDockerfile, previousDockerfile)) {
-        // we in dev branch and docker file was changed
+      // Dockerfile is same as reference
+      if ( scmVars.GIT_LOCAL_BRANCH == "master" && utils.filesDiffer(currentDockerfile, previousDockerfile)) {
+        // we are in master branch and docker file was changed
         iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --no-cache -f ${currentDockerfile} ${contextDir}")
       } else {
         // try pulling image from Dockerhub, probably image is already there
