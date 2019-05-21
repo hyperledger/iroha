@@ -122,7 +122,7 @@ parts:
       make -C src/include install DESTDIR=$SNAPCRAFT_PART_INSTALL
   soci:
     source: https://github.com/SOCI/soci.git
-    source-commit: 1f2343e32822549df85660c0eb7acea3f0e5ed8d
+    source-commit: 349ce86b79e63b99ba95200bc4bd1d83791e9094
     plugin: cmake
     configflags:
      - -DSOCI_CXX_C11=ON
