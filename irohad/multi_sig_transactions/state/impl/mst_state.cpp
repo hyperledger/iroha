@@ -5,7 +5,6 @@
 
 #include "multi_sig_transactions/state/mst_state.hpp"
 
-#include <algorithm>
 #include <utility>
 #include <vector>
 
