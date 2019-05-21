@@ -13,6 +13,7 @@
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/peer.hpp"
+#include "interfaces/queries/account_asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/field_validator.hpp"
@@ -385,10 +386,8 @@ namespace shared_model {
       return boost::none;
     }
 
-    void FieldValidator::validateTxPaginationMeta(
-        ReasonsGroupType &reason,
-        const interface::TxPaginationMeta &tx_pagination_meta) const {
-      const auto page_size = tx_pagination_meta.pageSize();
+    void validatePaginationMetaPageSize(ReasonsGroupType &reason,
+                                        const size_t &page_size) {
       if (page_size <= 0) {
         reason.second.push_back(
             (boost::format(
@@ -396,9 +395,27 @@ namespace shared_model {
              % (page_size == 0 ? "zero" : "negative") % page_size)
                 .str());
       }
+    }
+
+    void FieldValidator::validateTxPaginationMeta(
+        ReasonsGroupType &reason,
+        const interface::TxPaginationMeta &tx_pagination_meta) const {
+      validatePaginationMetaPageSize(reason, tx_pagination_meta.pageSize());
       const auto first_hash = tx_pagination_meta.firstTxHash();
       if (first_hash) {
         validateHash(reason, *first_hash);
+      }
+    }
+
+    void FieldValidator::validateAccountAssetPaginationMeta(
+        ReasonsGroupType &reason,
+        const interface::AccountAssetPaginationMeta
+            &account_asset_pagination_meta) const {
+      validatePaginationMetaPageSize(reason,
+                                     account_asset_pagination_meta.pageSize());
+      const auto first_asset_id = account_asset_pagination_meta.firstAssetId();
+      if (first_asset_id) {
+        validateAssetId(reason, *first_asset_id);
       }
     }
 

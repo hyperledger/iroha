@@ -5,6 +5,8 @@
 
 #include "interfaces/queries/get_account_assets.hpp"
 
+#include "interfaces/queries/account_asset_pagination_meta.hpp"
+
 namespace shared_model {
   namespace interface {
 
@@ -12,6 +14,8 @@ namespace shared_model {
       return detail::PrettyStringBuilder()
           .init("GetAccountAssets")
           .append("account_id", accountId())
+          .append("pagination_meta",
+                  paginationMeta() ? paginationMeta()->toString() : "(not set)")
           .finalize();
     }
 

@@ -39,6 +39,7 @@ add_library(shared_model_interfaces
     queries/impl/blocks_query.cpp
     queries/impl/query_payload_meta.cpp
     queries/impl/tx_pagination_meta.cpp
+    queries/impl/account_asset_pagination_meta.cpp
     common_objects/impl/amount.cpp
     common_objects/impl/signature.cpp
     common_objects/impl/peer.cpp

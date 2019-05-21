@@ -354,7 +354,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
                          .creatorAccountId(creator)
                          .queryCounter(1)
                          .createdTime(iroha::time::now())
-                         .getAccountAssets(accountb_id)
+                         .getAccountAssets(accountb_id, 999, boost::none)
                          .build()
                          .signAndAddSignature(pair)
                          .finish();
@@ -396,7 +396,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
                          .creatorAccountId(creator)
                          .queryCounter(1)
                          .createdTime(iroha::time::now())
-                         .getAccountAssets(creator)
+                         .getAccountAssets(creator, 999, boost::none)
                          .build()
                          .signAndAddSignature(pair)
                          .finish();

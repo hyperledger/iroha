@@ -6,11 +6,14 @@
 #ifndef IROHA_SHARED_MODEL_GET_ACCOUNT_ASSETS_HPP
 #define IROHA_SHARED_MODEL_GET_ACCOUNT_ASSETS_HPP
 
+#include <boost/optional.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace interface {
+    class AccountAssetPaginationMeta;
+
     /**
      * Query for get all account's assets and balance
      */
@@ -20,6 +23,10 @@ namespace shared_model {
        * @return account identifier
        */
       virtual const types::AccountIdType &accountId() const = 0;
+
+      /// Get the query pagination metadata.
+      virtual boost::optional<const interface::AccountAssetPaginationMeta &>
+      paginationMeta() const = 0;
 
       std::string toString() const override;
 

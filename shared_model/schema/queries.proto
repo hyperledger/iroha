@@ -15,6 +15,13 @@ message TxPaginationMeta {
   }
 }
 
+message AccountAssetPaginationMeta {
+  uint32 page_size = 1;
+  oneof opt_first_asset_id {
+    string first_asset_id = 2;
+  }
+}
+
 message GetAccount {
   string account_id = 1;
 }
@@ -44,6 +51,7 @@ message GetTransactions {
 
 message GetAccountAssets {
   string account_id = 1;
+  AccountAssetPaginationMeta pagination_meta = 2;
 }
 
 message GetAccountDetail {

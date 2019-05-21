@@ -79,6 +79,7 @@ shared_model::proto::Query QueryPermissionAssets::makeQuery(
     const interface::types::AccountIdType &target,
     const interface::types::AccountIdType &spectator,
     const crypto::Keypair &spectator_keypair) {
-  return fixture.complete(fixture.baseQry(spectator).getAccountAssets(target),
-                          spectator_keypair);
+  return fixture.complete(
+      fixture.baseQry(spectator).getAccountAssets(target, 999, boost::none),
+      spectator_keypair);
 }

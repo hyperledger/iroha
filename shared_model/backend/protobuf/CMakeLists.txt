@@ -46,6 +46,7 @@ add_library(shared_model_proto_backend
     queries/impl/proto_blocks_query.cpp
     queries/impl/proto_query_payload_meta.cpp
     queries/impl/proto_tx_pagination_meta.cpp
+    queries/impl/proto_account_asset_pagination_meta.cpp
     )
 
 if (IROHA_ROOT_PROJECT)

@@ -517,7 +517,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetMyAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id)
+                       .getAccountAssets(account_id, 999, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -536,7 +536,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetAllAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id2)
+                       .getAccountAssets(account_id2, 999, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -555,7 +555,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetDomainAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id2)
+                       .getAccountAssets(account_id2, 999, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -574,7 +574,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetDomainAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(another_account_id)
+                       .getAccountAssets(another_account_id, 999, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
@@ -590,7 +590,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetAllAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets("some@domain")
+                       .getAccountAssets("some@domain", 999, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkStatefulError<shared_model::interface::NoAccountAssetsErrorResponse>(

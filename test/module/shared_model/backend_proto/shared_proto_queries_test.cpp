@@ -50,6 +50,9 @@ TEST(ProtoQueryBuilder, Builder) {
   {
     auto &query = *payload.mutable_get_account_assets();
     query.set_account_id(account_id);
+    auto pagination_meta = query.mutable_pagination_meta();
+    pagination_meta->set_page_size(999);
+    pagination_meta->set_first_asset_id(asset_id);
   }
 
   auto keypair =
@@ -65,7 +68,7 @@ TEST(ProtoQueryBuilder, Builder) {
   auto query = shared_model::proto::QueryBuilder()
                    .createdTime(created_time)
                    .creatorAccountId(account_id)
-                   .getAccountAssets(account_id)
+                   .getAccountAssets(account_id, 999, asset_id)
                    .queryCounter(query_counter)
                    .build();
 

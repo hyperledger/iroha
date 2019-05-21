@@ -11,6 +11,7 @@
 #include "datetime/time.hpp"
 #include "interfaces/base/signable.hpp"
 #include "interfaces/permissions.hpp"
+#include "interfaces/queries/account_asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "validators/answer.hpp"
 #include "validators/validators_common.hpp"
@@ -168,6 +169,11 @@ namespace shared_model {
       void validateTxPaginationMeta(
           ReasonsGroupType &reason,
           const interface::TxPaginationMeta &tx_pagination_meta) const;
+
+      void validateAccountAssetPaginationMeta(
+          ReasonsGroupType &reason,
+          const interface::AccountAssetPaginationMeta
+              &account_asset_pagination_meta) const;
 
      private:
       const static std::string account_name_pattern_;
