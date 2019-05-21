@@ -8,6 +8,7 @@ if(DEFINED ENV{LIB_FUZZING_ENGINE})
   set(fuzzing_engine "")
 else()
   add_library(fuzzing_engine standalone_fuzz_target_runner.cpp)
+  set(fuzzing_engine fuzzing_engine)
 endif()
 
 add_executable(torii_fuzz torii_fuzz.cpp)
