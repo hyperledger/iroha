@@ -36,38 +36,77 @@ class ValidatorsTest : public ::testing::Test {
     auto addEnum = setField(&google::protobuf::Reflection::AddEnumValue);
     auto setEnum = setField(&google::protobuf::Reflection::SetEnumValue);
 
-    for (const auto &id : {"account_id", "src_account_id"}) {
-      field_setters[id] = setString(account_id);
-    }
-    for (const auto &id : {"role_name", "default_role", "role_id"}) {
-      field_setters[id] = setString(role_name);
-    }
-    field_setters["public_key"] = setString(public_key);
-    field_setters["dest_account_id"] = setString(dest_id);
-    field_setters["asset_id"] = setString(asset_id);
-    field_setters["account_name"] = setString(account_name);
-    field_setters["domain_id"] = setString(domain_id);
-    field_setters["asset_name"] = setString(asset_name);
-    field_setters["precision"] = setUInt32(precision);
-    field_setters["permissions"] = addEnum(role_permission);
-    field_setters["grantable_permissions"] = addEnum(grantable_permission);
-    field_setters["permission"] = setEnum(role_permission);
-    field_setters["grantable_permission"] = setEnum(grantable_permission);
-    field_setters["key"] = setString(detail_key);
-    field_setters["writer"] = setString(writer);
-    field_setters["detail"] = setString(detail_key);
-    field_setters["value"] = setString("");
-    field_setters["tx_hashes"] = addString(hash);
-    field_setters["quorum"] = setUInt32(quorum);
-    field_setters["description"] = setString("");
-    field_setters["amount"] = setString(amount);
-    field_setters["peer"] = [&](auto refl, auto msg, auto field) {
-      refl->MutableMessage(msg, field)->CopyFrom(peer);
-    };
-    field_setters["pagination_meta"] = [&](auto refl, auto msg, auto field) {
-      refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
-    };
-    field_setters["height"] = setUInt64(height);
+    field_setters = {
+        {"iroha.protocol.GetAccount.account_id", setString(account_id)},
+        {"iroha.protocol.GetSignatories.account_id", setString(account_id)},
+        {"iroha.protocol.GetAccountTransactions.account_id",
+         setString(account_id)},
+        {"iroha.protocol.GetAccountAssetTransactions.account_id",
+         setString(account_id)},
+        {"iroha.protocol.GetAccountAssets.account_id", setString(account_id)},
+        {"iroha.protocol.GetAccountDetail.account_id", setString(account_id)},
+        {"iroha.protocol.TransferAsset.src_account_id", setString(account_id)},
+        {"iroha.protocol.AddSignatory.account_id", setString(account_id)},
+        {"iroha.protocol.AppendRole.account_id", setString(account_id)},
+        {"iroha.protocol.DetachRole.account_id", setString(account_id)},
+        {"iroha.protocol.GrantPermission.account_id", setString(account_id)},
+        {"iroha.protocol.RemoveSignatory.account_id", setString(account_id)},
+        {"iroha.protocol.RevokePermission.account_id", setString(account_id)},
+        {"iroha.protocol.SetAccountDetail.account_id", setString(account_id)},
+        {"iroha.protocol.SetAccountQuorum.account_id", setString(account_id)},
+        {"iroha.protocol.AppendRole.role_name", setString(role_name)},
+        {"iroha.protocol.DetachRole.role_name", setString(role_name)},
+        {"iroha.protocol.CreateRole.role_name", setString(role_name)},
+        {"iroha.protocol.CreateDomain.default_role", setString(role_name)},
+        {"iroha.protocol.GetRolePermissions.role_id", setString(role_name)},
+        {"iroha.protocol.AddSignatory.public_key", setString(public_key)},
+        {"iroha.protocol.CreateAccount.public_key", setString(public_key)},
+        {"iroha.protocol.RemoveSignatory.public_key", setString(public_key)},
+        {"iroha.protocol.TransferAsset.dest_account_id", setString(dest_id)},
+        {"iroha.protocol.AddAssetQuantity.asset_id", setString(asset_id)},
+        {"iroha.protocol.TransferAsset.asset_id", setString(asset_id)},
+        {"iroha.protocol.SubtractAssetQuantity.asset_id", setString(asset_id)},
+        {"iroha.protocol.GetAccountAssetTransactions.asset_id",
+         setString(asset_id)},
+        {"iroha.protocol.GetAssetInfo.asset_id", setString(asset_id)},
+        {"iroha.protocol.CreateAccount.account_name", setString(account_name)},
+        {"iroha.protocol.CreateAsset.domain_id", setString(domain_id)},
+        {"iroha.protocol.CreateAccount.domain_id", setString(domain_id)},
+        {"iroha.protocol.CreateDomain.domain_id", setString(domain_id)},
+        {"iroha.protocol.CreateAsset.asset_name", setString(asset_name)},
+        {"iroha.protocol.CreateAsset.precision", setUInt32(precision)},
+        {"iroha.protocol.CreateRole.permissions", addEnum(role_permission)},
+        {"iroha.protocol.GrantPermission.permission", setEnum(role_permission)},
+        {"iroha.protocol.RevokePermission.permission",
+         setEnum(role_permission)},
+        {"iroha.protocol.SetAccountDetail.key", setString(detail_key)},
+        {"iroha.protocol.GetAccountDetail.key", setString(detail_key)},
+        {"iroha.protocol.GetAccountDetail.writer", setString(writer)},
+        {"iroha.protocol.SetAccountDetail.value", setString("")},
+        {"iroha.protocol.GetTransactions.tx_hashes", addString(hash)},
+        {"iroha.protocol.SetAccountQuorum.quorum", setUInt32(quorum)},
+        {"iroha.protocol.TransferAsset.description", setString("")},
+        {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
+        {"iroha.protocol.TransferAsset.amount", setString(amount)},
+        {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
+        {"iroha.protocol.AddPeer.peer",
+         [&](auto refl, auto msg, auto field) {
+           refl->MutableMessage(msg, field)->CopyFrom(peer);
+         }},
+        {"iroha.protocol.GetAccountTransactions.pagination_meta",
+         [&](auto refl, auto msg, auto field) {
+           refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
+         }},
+        {"iroha.protocol.GetAccountAssetTransactions.pagination_meta",
+         [&](auto refl, auto msg, auto field) {
+           refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
+         }},
+        {"iroha.protocol.GetAccountAssets.pagination_meta",
+         [&](auto refl, auto msg, auto field) {
+           refl->MutableMessage(msg, field)
+               ->CopyFrom(account_assets_pagination_meta);
+         }},
+        {"iroha.protocol.GetBlock.height", setUInt64(height)}};
   }
 
   /**
@@ -190,6 +229,7 @@ class ValidatorsTest : public ::testing::Test {
     peer.set_address(address_localhost);
     peer.set_peer_key(public_key);
     tx_pagination_meta.set_page_size(10);
+    account_assets_pagination_meta.set_page_size(10);
   }
 
   size_t public_key_size{0};
@@ -224,6 +264,7 @@ class ValidatorsTest : public ::testing::Test {
   decltype(iroha::time::now()) created_time;
   iroha::protocol::QueryPayloadMeta meta;
   iroha::protocol::TxPaginationMeta tx_pagination_meta;
+  iroha::protocol::AccountAssetPaginationMeta account_assets_pagination_meta;
 
   // List all used fields in commands
   std::unordered_map<
