@@ -319,7 +319,7 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
           [height = block_with_add_peer.height(),
            itf_peer = itf_->getThisPeer(),
            initial_peer = initial_peer->getThisPeer()](const auto &sync_event) {
-            EXPECT_EQ(sync_event.ledger_state->height, height);
+            EXPECT_EQ(sync_event.ledger_state->top_block_info.height, height);
             EXPECT_THAT(sync_event.ledger_state->ledger_peers,
                         ::testing::UnorderedElementsAre(
                             makePeerPointeeMatcher(itf_peer),
