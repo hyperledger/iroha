@@ -15,7 +15,6 @@
 #include <thread>
 #include <vector>
 
-#include <tbb/concurrent_queue.h>
 #include <boost/filesystem.hpp>
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
@@ -103,6 +102,8 @@ namespace integration_framework {
      * @param proposal_waiting - timeout for next proposal appearing
      * @param block_waiting - timeout for next committed block appearing
      * @param log_manager - log manager
+     *
+     * TODO 21/12/2017 muratovv make relation of timeouts with instance's config
      */
     explicit IntegrationTestFramework(
         size_t maximum_proposal_size,
@@ -433,6 +434,15 @@ namespace integration_framework {
     using AsyncCall = iroha::network::AsyncGrpcClient<google::protobuf::Empty>;
 
     /**
+     * A wrapper over a queue that provides thread safety and blocking pop
+     * operation with timeout. Is intended to be used as an intermediate storage
+     * for intercepted objects from iroha instance on their way to checker
+     * predicates.
+     */
+    template <typename T>
+    class CheckerQueue;
+
+    /**
      * general way to fetch object from concurrent queue
      * @tparam Queue - Type of queue
      * @tparam ObjectType - Type of fetched object
@@ -451,16 +461,17 @@ namespace integration_framework {
     /// Cleanup the resources
     void cleanup();
 
-    tbb::concurrent_queue<
-        std::shared_ptr<const shared_model::interface::Proposal>>
-        proposal_queue_;
-    tbb::concurrent_queue<VerifiedProposalType> verified_proposal_queue_;
-    tbb::concurrent_queue<BlockType> block_queue_;
-    std::map<std::string, tbb::concurrent_queue<TxResponseType>>
-        responses_queues_;
-
     logger::LoggerPtr log_;
     logger::LoggerManagerTreePtr log_manager_;
+
+    std::unique_ptr<
+        CheckerQueue<std::shared_ptr<const shared_model::interface::Proposal>>>
+        proposal_queue_;
+    std::unique_ptr<CheckerQueue<VerifiedProposalType>>
+        verified_proposal_queue_;
+    std::unique_ptr<CheckerQueue<BlockType>> block_queue_;
+    std::map<std::string, std::unique_ptr<CheckerQueue<TxResponseType>>>
+        responses_queues_;
 
     std::unique_ptr<PortGuard> port_guard_;
     size_t torii_port_;
@@ -472,13 +483,6 @@ namespace integration_framework {
     std::shared_ptr<AsyncCall> async_call_;
 
     // config area
-
-    /// maximum time of waiting before appearing next proposal
-    // TODO 21/12/2017 muratovv make relation of time with instance's config
-    milliseconds proposal_waiting;
-
-    /// maximum time of waiting before appearing next committed block
-    milliseconds block_waiting;
 
     /// maximum time of waiting before appearing next transaction response
     milliseconds tx_response_waiting;
@@ -514,18 +518,6 @@ namespace integration_framework {
     std::vector<std::unique_ptr<ServerRunner>> fake_peers_servers_;
   };
 
-  template <typename Queue, typename ObjectType, typename WaitTime>
-  void IntegrationTestFramework::fetchFromQueue(
-      Queue &queue,
-      ObjectType &ref_for_insertion,
-      const WaitTime &wait,
-      const std::string &error_reason) {
-    std::unique_lock<std::mutex> lk(queue_mu);
-    queue_cond.wait_for(lk, wait, [&]() { return not queue.empty(); });
-    if (!queue.try_pop(ref_for_insertion)) {
-      throw std::runtime_error(error_reason);
-    }
-  }
 }  // namespace integration_framework
 
 #endif  // IROHA_INTEGRATION_FRAMEWORK_HPP
