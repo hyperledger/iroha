@@ -150,7 +150,8 @@ namespace iroha {
 
       auto top_block_height = getTopBlockHeight();
       if (not top_block_height) {
-        log_->error("Failed to synchronize: could not get my top block height.");
+        log_->error(
+            "Failed to synchronize: could not get my top block height.");
         return;
       }
 
@@ -182,7 +183,7 @@ namespace iroha {
       // TODO 11.04.2019 mboldyrev IR-442 use storage commit status type
       BOOST_ASSERT_MSG(ledger_state, "Commit failed!");
       if (ledger_state) {
-        new_height = (*ledger_state)->height;
+        new_height = (*ledger_state)->top_block_info.height;
       } else {
         log_->critical(
             "Synchronization cancelled because "

@@ -11,17 +11,24 @@
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
-  struct LedgerState {
-    shared_model::interface::types::PeerList ledger_peers;
+  struct TopBlockInfo {
     shared_model::interface::types::HeightType height;
     shared_model::crypto::Hash top_hash;
+
+    TopBlockInfo(shared_model::interface::types::HeightType height,
+                 shared_model::crypto::Hash top_hash)
+        : height(height), top_hash(std::move(top_hash)) {}
+  };
+
+  struct LedgerState {
+    shared_model::interface::types::PeerList ledger_peers;
+    TopBlockInfo top_block_info;
 
     LedgerState(shared_model::interface::types::PeerList peers,
                 shared_model::interface::types::HeightType height,
                 shared_model::crypto::Hash top_hash)
         : ledger_peers(std::move(peers)),
-          height(height),
-          top_hash(std::move(top_hash)) {}
+          top_block_info(height, std::move(top_hash)) {}
   };
 }  // namespace iroha
 

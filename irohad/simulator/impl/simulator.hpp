@@ -47,8 +47,7 @@ namespace iroha {
       processVerifiedProposal(
           const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
               &verified_proposal_and_errors,
-          shared_model::interface::types::HeightType height,
-          const shared_model::crypto::Hash &top_hash) override;
+          const TopBlockInfo &top_block_info) override;
 
       rxcpp::observable<BlockCreatorEvent> onBlock() override;
 
