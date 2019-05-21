@@ -407,7 +407,8 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
       assets;
   assets.push_back(std::make_tuple(account_id, asset_id, amount));
   auto *r = query_response_factory
-                ->createAccountAssetResponse(assets, model_query.hash())
+                ->createAccountAssetResponse(
+                    assets, assets.size(), boost::none, model_query.hash())
                 .release();
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))

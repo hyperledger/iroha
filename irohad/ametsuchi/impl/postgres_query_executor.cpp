@@ -901,8 +901,9 @@ namespace iroha {
                           shared_model::interface::Amount(amount)));
                     });
             });
+            // TODO mboldyrev 2019.05.17 IR-473 implement pagination
             return query_response_factory_->createAccountAssetResponse(
-                assets, query_hash_);
+                assets, assets.size(), boost::none, query_hash_);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccAst,
