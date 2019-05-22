@@ -161,7 +161,7 @@ In order to form a block, which includes more than a single peer, or requires cu
 Automated
 ---------
 
-.. mdinclude:: ../../../deploy/ansible/roles/iroha-docker/README.md
+Follow `this guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__
 
 Dealing with troubles
 ^^^^^^^^^^^^^^^^^^^^^
