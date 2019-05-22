@@ -394,6 +394,9 @@ namespace integration_framework {
     rxcpp::observable<iroha::synchronizer::SynchronizationEvent>
     getPcsOnCommitObservable();
 
+    /// Get block query for iroha block storage.
+    std::shared_ptr<iroha::ametsuchi::BlockQuery> getBlockQuery();
+
     /**
      * Request next status of the transaction
      * @param tx_hash is hash for filtering responses
