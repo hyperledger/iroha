@@ -307,6 +307,7 @@ namespace integration_framework {
   IntegrationTestFramework &IntegrationTestFramework::setGenesisBlock(
       const shared_model::interface::Block &block) {
     iroha_instance_->makeGenesis(clone(block));
+    iroha_instance_->init();
     return *this;
   }
 
@@ -339,7 +340,7 @@ namespace integration_framework {
   IntegrationTestFramework &IntegrationTestFramework::recoverState(
       const Keypair &keypair) {
     initPipeline(keypair);
-    iroha_instance_->getIrohaInstance()->init();
+    iroha_instance_->init();
     subscribeQueuesAndRun();
     return *this;
   }

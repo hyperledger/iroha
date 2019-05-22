@@ -52,11 +52,21 @@ namespace integration_framework {
         irohad_log_manager_(std::move(irohad_log_manager)),
         log_(std::move(log)) {}
 
+  void IrohaInstance::init() {
+    auto init_result = instance_->init();
+    if (auto error =
+            boost::get<iroha::expected::Error<std::string>>(&init_result)) {
+      std::string error_msg("Irohad startup failed: ");
+      error_msg.append(error->error);
+      log_->critical("{}", error_msg);
+      throw(std::runtime_error(error_msg));
+    }
+  }
+
   void IrohaInstance::makeGenesis(
       std::shared_ptr<const shared_model::interface::Block> block) {
     instance_->storage->reset();
     rawInsertBlock(block);
-    instance_->init();
   }
 
   void IrohaInstance::rawInsertBlock(
