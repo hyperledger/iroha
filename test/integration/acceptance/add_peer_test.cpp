@@ -98,6 +98,7 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
+  const auto prepared_height = itf.getBlockQuery()->getTopBlockHeight();
 
   const std::string new_peer_address = "127.0.0.1:1234";
   const auto new_peer_pubkey =
@@ -118,12 +119,11 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
   // ------------------------ THEN -------------------------
   // check that ledger state contains the two peers
   itf_sync_events_observable
-      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
-      .filter([](const auto &sync_event) {
-        return sync_event.sync_outcome
-            == iroha::synchronizer::SynchronizationOutcomeType::kCommit;
+      .filter([prepared_height](const auto &sync_event) {
+        return sync_event.ledger_state->top_block_info.height > prepared_height;
       })
       .take(1)
+      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
       .as_blocking()
       .subscribe(
           [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
@@ -308,12 +308,11 @@ TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
   // ------------------------ THEN -------------------------
   // check that itf peer is synchronized
   itf_sync_events_observable
-      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
-      .filter([](const auto &sync_event) {
-        return sync_event.sync_outcome
-            == iroha::synchronizer::SynchronizationOutcomeType::kCommit;
+      .filter([height = block_with_add_peer.height()](const auto &sync_event) {
+        return sync_event.ledger_state->top_block_info.height >= height;
       })
       .take(1)
+      .timeout(kSynchronizerWaitingTime, rxcpp::observe_on_new_thread())
       .as_blocking()
       .subscribe(
           [height = block_with_add_peer.height(),

@@ -152,9 +152,7 @@ TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
   // Create the valid branch, supported by the good fake peers:
   auto valid_block_storage =
       std::make_shared<fake_peer::BlockStorage>(getTestLogger("BlockStorage"));
-  auto block_query =
-      itf.getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
-  ASSERT_TRUE(block_query);
+  const auto block_query = itf.getBlockQuery();
   auto top_height = block_query->getTopBlockHeight();
   for (decltype(top_height) i = 1; i <= top_height; ++i) {
     auto block_result = block_query->getBlock(i);

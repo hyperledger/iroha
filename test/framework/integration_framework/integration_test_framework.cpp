@@ -423,6 +423,11 @@ namespace integration_framework {
         ->onSynchronization();
   }
 
+  std::shared_ptr<iroha::ametsuchi::BlockQuery>
+  IntegrationTestFramework::getBlockQuery() {
+    return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
+  }
+
   IntegrationTestFramework &IntegrationTestFramework::getTxStatus(
       const shared_model::crypto::Hash &hash,
       std::function<void(const shared_model::proto::TransactionResponse &)>
