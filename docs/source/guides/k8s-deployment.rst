@@ -1,5 +1,6 @@
 Deploying Iroha on Kubernetes cluster
 =====================================
+.. TODO: Update the guide. https://soramitsu.atlassian.net/browse/DOPS-391
 .. warning:: Some parts of this guide are deprecated. Proceed at your own discretion.
 
 By following this guide you will be able to deploy a Kubernetes cluster from scratch on AWS cloud using Terraform and Kubespray, and deploy a network of Iroha nodes on it.
