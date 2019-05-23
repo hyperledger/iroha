@@ -16,12 +16,11 @@ namespace shared_model {
           account_assets_{account_asset_response_.account_assets().begin(),
                           account_asset_response_.account_assets().end()},
           next_asset_id_{[this]() -> decltype(next_asset_id_) {
-            switch (account_asset_response_.opt_next_asset_id_case()) {
-              case iroha::protocol::AccountAssetResponse::kNextAssetId:
-                return this->account_asset_response_.next_asset_id();
-              default:
-                return boost::none;
+            if (account_asset_response_.opt_next_asset_id_case()
+                == iroha::protocol::AccountAssetResponse::kNextAssetId) {
+              return this->account_asset_response_.next_asset_id();
             }
+            return boost::none;
           }()} {}
 
     template AccountAssetResponse::AccountAssetResponse(
