@@ -223,7 +223,7 @@ Irohad::RunResult Irohad::restoreWsv() {
         }
         auto &ledger_state = value.value.value();  // value
         assert(ledger_state);
-        if (ledger_state->ledger_peers->empty()) {
+        if (ledger_state->ledger_peers.empty()) {
           return iroha::expected::makeError<std::string>(
               "Have no peers in WSV after restoration!");
         }
@@ -483,7 +483,6 @@ Irohad::RunResult Irohad::initSimulator() {
   simulator = std::make_shared<Simulator>(
       ordering_gate,
       stateful_validator,
-      storage,
       storage,
       crypto_signer_,
       std::move(block_factory),
@@ -794,9 +793,7 @@ Irohad::RunResult Irohad::run() {
                 [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
             auto initial_ledger_state = std::make_shared<LedgerState>(
-                std::make_unique<shared_model::interface::types::PeerList>(
-                    peers.value()),
-                block->height());
+                peers.value(), block->height(), block->hash());
 
             pcs->onSynchronization().subscribe(
                 ordering_init.sync_event_notifier.get_subscriber());

@@ -95,6 +95,37 @@ namespace {
 
 namespace integration_framework {
 
+  template <typename T>
+  class IntegrationTestFramework::CheckerQueue {
+   public:
+    CheckerQueue(std::chrono::milliseconds timeout) : timeout_(timeout) {}
+
+    void push(T obj) {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      queue_.push(std::move(obj));
+      cv_.notify_one();
+    }
+
+    boost::optional<T> try_pop() {
+      std::unique_lock<std::mutex> lock(queue_mutex_);
+      if (queue_.empty()) {
+        if (not cv_.wait_for(
+                lock, timeout_, [this] { return not queue_.empty(); })) {
+          return boost::none;
+        }
+      }
+      T obj(std::move(queue_.front()));
+      queue_.pop();
+      return obj;
+    }
+
+   private:
+    std::chrono::milliseconds timeout_;
+    std::queue<T> queue_;
+    std::mutex queue_mutex_;
+    std::condition_variable cv_;
+  };
+
   IntegrationTestFramework::IntegrationTestFramework(
       size_t maximum_proposal_size,
       const boost::optional<std::string> &dbname,
@@ -107,6 +138,14 @@ namespace integration_framework {
       logger::LoggerManagerTreePtr log_manager)
       : log_(log_manager->getLogger()),
         log_manager_(std::move(log_manager)),
+        proposal_queue_(
+            std::make_unique<CheckerQueue<
+                std::shared_ptr<const shared_model::interface::Proposal>>>(
+                proposal_waiting)),
+        verified_proposal_queue_(
+            std::make_unique<CheckerQueue<VerifiedProposalType>>(
+                proposal_waiting)),
+        block_queue_(std::make_unique<CheckerQueue<BlockType>>(block_waiting)),
         port_guard_(std::make_unique<PortGuard>()),
         torii_port_(port_guard_->getPort(kDefaultToriiPort)),
         internal_port_(port_guard_->getPort(kDefaultInternalPort)),
@@ -126,8 +165,6 @@ namespace integration_framework {
         query_client_(kLocalHost, torii_port_),
         async_call_(std::make_shared<AsyncCall>(
             log_manager_->getChild("AsyncCall")->getLogger())),
-        proposal_waiting(proposal_waiting),
-        block_waiting(block_waiting),
         tx_response_waiting(tx_response_waiting),
         maximum_proposal_size_(maximum_proposal_size),
         common_objects_factory_(
@@ -331,9 +368,8 @@ namespace integration_framework {
         [](const auto &event) { return event.proposal; });
 
     received_proposals.subscribe([this](const auto &event) {
-      proposal_queue_.push(getProposalUnsafe(event));
+      proposal_queue_->push(getProposalUnsafe(event));
       log_->info("proposal");
-      queue_cond.notify_all();
     });
 
     auto proposal_flat_map =
@@ -350,24 +386,30 @@ namespace integration_framework {
         .zip(requested_proposals)
         .flat_map(proposal_flat_map)
         .subscribe([this](auto verified_proposal_and_errors) {
-          verified_proposal_queue_.push(
+          verified_proposal_queue_->push(
               getVerifiedProposalUnsafe(verified_proposal_and_errors));
           log_->info("verified proposal");
-          queue_cond.notify_all();
         });
 
     iroha_instance_->getIrohaInstance()->getStorage()->on_commit().subscribe(
         [this](auto committed_block) {
-          block_queue_.push(committed_block);
+          block_queue_->push(committed_block);
           log_->info("block commit");
-          queue_cond.notify_all();
         });
     iroha_instance_->getIrohaInstance()->getStatusBus()->statuses().subscribe(
         [this](auto response) {
-          responses_queues_[response->transactionHash().hex()].push(response);
+          const auto hash = response->transactionHash().hex();
+          auto it = responses_queues_.find(hash);
+          if (it == responses_queues_.end()) {
+            it = responses_queues_
+                     .emplace(hash,
+                              std::make_unique<CheckerQueue<TxResponseType>>(
+                                  tx_response_waiting))
+                     .first;
+          }
+          it->second->push(response);
           log_->info("response added to status queue: {}",
                      response->toString());
-          queue_cond.notify_all();
         });
 
     if (fake_peers_.size() > 0) {
@@ -421,6 +463,11 @@ namespace integration_framework {
     return iroha_instance_->getIrohaInstance()
         ->getPeerCommunicationService()
         ->onSynchronization();
+  }
+
+  std::shared_ptr<iroha::ametsuchi::BlockQuery>
+  IntegrationTestFramework::getBlockQuery() {
+    return getIrohaInstance().getIrohaInstance()->getStorage()->getBlockQuery();
   }
 
   IntegrationTestFramework &IntegrationTestFramework::getTxStatus(
@@ -646,10 +693,11 @@ namespace integration_framework {
           validation) {
     log_->info("check proposal");
     // fetch first proposal from proposal queue
-    std::shared_ptr<const shared_model::interface::Proposal> proposal;
-    fetchFromQueue(
-        proposal_queue_, proposal, proposal_waiting, "missed proposal");
-    validation(proposal);
+    auto opt_proposal = proposal_queue_->try_pop();
+    if (not opt_proposal) {
+      throw std::runtime_error("missed proposal");
+    }
+    validation(*opt_proposal);
     return *this;
   }
 
@@ -664,12 +712,11 @@ namespace integration_framework {
           validation) {
     log_->info("check verified proposal");
     // fetch first proposal from proposal queue
-    VerifiedProposalType verified_proposal_and_errors;
-    fetchFromQueue(verified_proposal_queue_,
-                   verified_proposal_and_errors,
-                   proposal_waiting,
-                   "missed verified proposal");
-    validation(verified_proposal_and_errors->verified_proposal);
+    auto opt_verified_proposal_and_errors = verified_proposal_queue_->try_pop();
+    if (not opt_verified_proposal_and_errors) {
+      throw std::runtime_error("missed verified proposal");
+    }
+    validation(opt_verified_proposal_and_errors.value()->verified_proposal);
     return *this;
   }
 
@@ -682,9 +729,11 @@ namespace integration_framework {
       std::function<void(const BlockType &)> validation) {
     // fetch first from block queue
     log_->info("check block");
-    BlockType block;
-    fetchFromQueue(block_queue_, block, block_waiting, "missed block");
-    validation(block);
+    auto opt_block = block_queue_->try_pop();
+    if (not opt_block) {
+      throw std::runtime_error("missed block");
+    }
+    validation(*opt_block);
     return *this;
   }
 
@@ -698,13 +747,16 @@ namespace integration_framework {
       std::function<void(const shared_model::proto::TransactionResponse &)>
           validation) {
     // fetch first response associated with the tx from related queue
-    TxResponseType response;
-    fetchFromQueue(responses_queues_[tx_hash.hex()],
-                   response,
-                   tx_response_waiting,
-                   "missed status");
+    boost::optional<TxResponseType> opt_response;
+    const auto it = responses_queues_.find(tx_hash.hex());
+    if (it != responses_queues_.end()) {
+      opt_response = it->second->try_pop();
+    }
+    if (not opt_response) {
+      throw std::runtime_error("missed status");
+    }
     validation(static_cast<const shared_model::proto::TransactionResponse &>(
-        *response));
+        *opt_response.value()));
     return *this;
   }
 

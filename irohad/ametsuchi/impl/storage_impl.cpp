@@ -703,11 +703,10 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<
-                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
-                    std::make_shared<shared_model::interface::types::PeerList>(
-                        std::move(peers)),
-                    storage->getTopBlockHeight()));
+                return boost::optional<std::unique_ptr<LedgerState>>(
+                    std::make_unique<LedgerState>(std::move(peers),
+                                                  storage->getTopBlockHeight(),
+                                                  storage->getTopBlockHash()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -749,16 +748,9 @@ namespace iroha {
                    | [this, &block, &sql](auto &&peers)
                    -> boost::optional<std::unique_ptr<LedgerState>> {
           if (this->storeBlock(block)) {
-            PostgresBlockQuery block_query(
-                sql,
-                *block_store_,
-                converter_,
-                log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<shared_model::interface::types::PeerList>(
-                        std::move(peers)),
-                    block_query.getTopBlockHeight()));
+                    std::move(peers), block->height(), block->hash()));
           }
           return boost::none;
         };

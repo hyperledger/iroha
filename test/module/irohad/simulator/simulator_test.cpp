@@ -15,8 +15,6 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
-#include "module/irohad/ametsuchi/mock_block_query.hpp"
-#include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_temporary_factory.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/validation/mock_stateful_validator.hpp"
@@ -52,13 +50,8 @@ class SimulatorTest : public ::testing::Test {
   void SetUp() override {
     validator = std::make_shared<MockStatefulValidator>();
     factory = std::make_shared<NiceMock<MockTemporaryFactory>>();
-    query = std::make_shared<MockBlockQuery>();
     ordering_gate = std::make_shared<MockOrderingGate>();
     crypto_signer = std::make_shared<CryptoSignerType>();
-    block_query_factory = std::make_shared<MockBlockQueryFactory>();
-    EXPECT_CALL(*block_query_factory, createBlockQuery())
-        .WillRepeatedly(testing::Return(boost::make_optional(
-            std::shared_ptr<iroha::ametsuchi::BlockQuery>(query))));
     block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
         std::make_unique<shared_model::validation::MockValidator<
             shared_model::interface::Block>>(),
@@ -71,7 +64,6 @@ class SimulatorTest : public ::testing::Test {
     simulator = std::make_shared<Simulator>(ordering_gate,
                                             validator,
                                             factory,
-                                            block_query_factory,
                                             crypto_signer,
                                             std::move(block_factory),
                                             getTestLogger("Simulator"));
@@ -79,27 +71,15 @@ class SimulatorTest : public ::testing::Test {
 
   std::shared_ptr<MockStatefulValidator> validator;
   std::shared_ptr<MockTemporaryFactory> factory;
-  std::shared_ptr<MockBlockQuery> query;
-  std::shared_ptr<MockBlockQueryFactory> block_query_factory;
   std::shared_ptr<MockOrderingGate> ordering_gate;
   std::shared_ptr<CryptoSignerType> crypto_signer;
   std::unique_ptr<shared_model::interface::UnsafeBlockFactory> block_factory;
   rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
   std::shared_ptr<Simulator> simulator;
-  std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers =
-      std::make_shared<shared_model::interface::types::PeerList>(
-          shared_model::interface::types::PeerList{
-              makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))});
+  shared_model::interface::types::PeerList ledger_peers{
+      makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))};
 };
-
-shared_model::proto::Block makeBlock(int height) {
-  return TestBlockBuilder()
-      .transactions(std::vector<shared_model::proto::Transaction>())
-      .height(height)
-      .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
-      .build();
-}
 
 auto makeProposal(int height) {
   auto tx = shared_model::proto::TransactionBuilder()
@@ -149,14 +129,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
               .transactions(txs)
               .build());
   const auto &proposal = validation_result->verified_proposal;
-  shared_model::proto::Block block = makeBlock(proposal->height() - 1);
-  auto block_height = block.height();
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
-  EXPECT_CALL(*query, getTopBlockHeight()).WillRepeatedly(Return(block_height));
-  EXPECT_CALL(*query, getBlock(block_height))
-      .WillOnce(Return(ByMove(
-          expected::makeValue(clone<shared_model::interface::Block>(block)))));
 
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&validation_result](const auto &p, auto &v) {
@@ -166,7 +140,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
       .Times(1);
 
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
+  auto ledger_state = std::make_shared<LedgerState>(
+      ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 
@@ -178,8 +153,8 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
     EXPECT_EQ(verified_proposal->height(), proposal->height());
     EXPECT_EQ(verified_proposal->transactions(), proposal->transactions());
     EXPECT_TRUE(verification_result->rejected_transactions.empty());
-    EXPECT_EQ(*event.ledger_state->ledger_peers,
-              *ordering_event.ledger_state->ledger_peers);
+    EXPECT_EQ(event.ledger_state->ledger_peers,
+              ordering_event.ledger_state->ledger_peers);
   });
 
   auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 1);
@@ -187,78 +162,14 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
     auto block = getBlockUnsafe(event);
     EXPECT_EQ(block->height(), proposal->height());
     EXPECT_EQ(block->transactions(), proposal->transactions());
-    EXPECT_EQ(*event.ledger_state->ledger_peers,
-              *ordering_event.ledger_state->ledger_peers);
+    EXPECT_EQ(event.ledger_state->ledger_peers,
+              ordering_event.ledger_state->ledger_peers);
   });
 
   ordering_events.get_subscriber().on_next(ordering_event);
 
   EXPECT_TRUE(proposal_wrapper.validate());
   EXPECT_TRUE(block_wrapper.validate());
-}
-
-TEST_F(SimulatorTest, FailWhenNoBlock) {
-  // height 2 proposal => height 1 block not present => no validated proposal
-  auto proposal = makeProposal(2);
-
-  EXPECT_CALL(*factory, createTemporaryWsv()).Times(0);
-  auto block_height = 1;
-  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
-  EXPECT_CALL(*query, getBlock(block_height))
-      .WillOnce(Return(ByMove(expected::makeError("no block"))));
-
-  EXPECT_CALL(*validator, validate(_, _)).Times(0);
-
-  EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
-      .Times(0);
-
-  auto proposal_wrapper =
-      make_test_subscriber<CallExact>(simulator->onVerifiedProposal(), 0);
-  proposal_wrapper.subscribe();
-
-  auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 0);
-  block_wrapper.subscribe();
-
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, 0);
-  ordering_events.get_subscriber().on_next(
-      OrderingEvent{proposal, consensus::Round{}, ledger_state});
-
-  ASSERT_TRUE(proposal_wrapper.validate());
-  ASSERT_TRUE(block_wrapper.validate());
-}
-
-TEST_F(SimulatorTest, FailWhenSameAsProposalHeight) {
-  // proposal with height 2 => height 2 block present => no validated proposal
-  auto proposal = makeProposal(2);
-
-  auto block = makeBlock(proposal->height());
-  auto block_height = block.height();
-
-  EXPECT_CALL(*factory, createTemporaryWsv()).Times(0);
-
-  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
-  EXPECT_CALL(*query, getBlock(block_height))
-      .WillOnce(Return(ByMove(
-          expected::makeValue(clone<shared_model::interface::Block>(block)))));
-
-  EXPECT_CALL(*validator, validate(_, _)).Times(0);
-
-  EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
-      .Times(0);
-
-  auto proposal_wrapper =
-      make_test_subscriber<CallExact>(simulator->onVerifiedProposal(), 0);
-  proposal_wrapper.subscribe();
-
-  auto block_wrapper = make_test_subscriber<CallExact>(simulator->onBlock(), 0);
-  block_wrapper.subscribe();
-
-  auto ledger_state = std::make_shared<LedgerState>(ledger_peers, block_height);
-  ordering_events.get_subscriber().on_next(
-      OrderingEvent{proposal, consensus::Round{}, ledger_state});
-
-  ASSERT_TRUE(proposal_wrapper.validate());
-  ASSERT_TRUE(block_wrapper.validate());
 }
 
 /**
@@ -303,14 +214,8 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
             rejected_tx->hash(),
             validation::CommandError{"SomeCommand", 1, "", true}});
   }
-  shared_model::proto::Block block = makeBlock(proposal->height() - 1);
-  auto block_height = block.height();
 
   EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
-  EXPECT_CALL(*query, getTopBlockHeight()).WillOnce(Return(block_height));
-  EXPECT_CALL(*query, getBlock(block_height))
-      .WillOnce(Return(ByMove(
-          expected::makeValue(clone<shared_model::interface::Block>(block)))));
 
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&verified_proposal_and_errors](const auto &p, auto &v) {
