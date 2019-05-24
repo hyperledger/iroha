@@ -6,19 +6,29 @@
 #ifndef IROHA_LEDGER_STATE_HPP
 #define IROHA_LEDGER_STATE_HPP
 
-#include <memory>
-
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
-  struct LedgerState {
-    std::shared_ptr<shared_model::interface::types::PeerList> ledger_peers;
+  struct TopBlockInfo {
     shared_model::interface::types::HeightType height;
+    shared_model::crypto::Hash top_hash;
 
-    LedgerState(std::shared_ptr<shared_model::interface::types::PeerList> peers,
-                shared_model::interface::types::HeightType height)
-        : ledger_peers(std::move(peers)), height(height) {}
+    TopBlockInfo(shared_model::interface::types::HeightType height,
+                 shared_model::crypto::Hash top_hash)
+        : height(height), top_hash(std::move(top_hash)) {}
+  };
+
+  struct LedgerState {
+    shared_model::interface::types::PeerList ledger_peers;
+    TopBlockInfo top_block_info;
+
+    LedgerState(shared_model::interface::types::PeerList peers,
+                shared_model::interface::types::HeightType height,
+                shared_model::crypto::Hash top_hash)
+        : ledger_peers(std::move(peers)),
+          top_block_info(height, std::move(top_hash)) {}
   };
 }  // namespace iroha
 
