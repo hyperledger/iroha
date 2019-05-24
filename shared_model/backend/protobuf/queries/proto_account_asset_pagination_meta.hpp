@@ -6,9 +6,10 @@
 #ifndef IROHA_SHARED_PROTO_MODEL_QUERY_ACCOUNT_ASSET_PAGINATION_META_HPP
 #define IROHA_SHARED_PROTO_MODEL_QUERY_ACCOUNT_ASSET_PAGINATION_META_HPP
 
+#include "interfaces/queries/account_asset_pagination_meta.hpp"
+
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "interfaces/queries/account_asset_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
