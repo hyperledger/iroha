@@ -6,18 +6,25 @@
 #include "fuzzing/ordering_service_fixture.hpp"
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
+#include "backend/protobuf/proto_proposal_factory.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 
 struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
-  std::shared_ptr<MockUnsafeProposalFactory> proposal_factory_;
+  std::unique_ptr<shared_model::proto::ProtoProposalFactory<
+      shared_model::validation::DefaultProposalValidator>>
+      proposal_factory_;
   std::shared_ptr<iroha::ametsuchi::MockStorage> storage_;
   std::shared_ptr<iroha::ametsuchi::TxPresenceCacheImpl> persistent_cache_;
   std::shared_ptr<OnDemandOrderingServiceImpl> ordering_service_;
   std::shared_ptr<OnDemandOsServerGrpc> server_;
 
   RequestProposalFixture() : OrderingServiceFixture() {
-    proposal_factory_ = std::make_unique<MockUnsafeProposalFactory>();
+    proposal_factory_ =
+        std::make_unique<shared_model::proto::ProtoProposalFactory<
+            shared_model::validation::DefaultProposalValidator>>(
+            iroha::test::kTestsValidatorsConfig);
+
     storage_ = std::make_shared<iroha::ametsuchi::MockStorage>();
     persistent_cache_ =
         std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage_);
