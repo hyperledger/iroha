@@ -1,4 +1,0 @@
-replicas: 4
-iroha_port: 50051
-pod_basename: iroha
-service_name: iroha
