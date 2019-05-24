@@ -106,7 +106,8 @@ namespace iroha {
       static std::string block_store_path;
 
       // TODO(warchant): IR-1019 hide SQLs under some interface
-
+      // TODO igor-egorov 24-05-2019 IR-517 Refactor SQL in test
+      // (remove sql from here and use it from the application init funcs)
       const std::string init_ = R"(
 CREATE TABLE IF NOT EXISTS role (
     role_id character varying(32),
