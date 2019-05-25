@@ -78,7 +78,7 @@ Please post your question in [your favourite messenger](#places-where-community-
 
 ### Your First Code Contribution
 
-Read our [C++ Style Guide](#c-style-guide) and start with beginner-friendly issues with JIRA label [`[good-first-issue]`](https://jira.hyperledger.org/issues/?jql=project%20%3D%20IR%20and%20labels%20%3D%20good-first-issue%20ORDER%20BY%20updated%20DESC) <- click here. Indicate somehow that you are working on this task: get in touch with maintainers team, community or simply assign this issue to yourself.
+Read our [C++ Style Guide](#c-style-guide) and start with beginner-friendly issues with JIRA label [good-first-issue](https://jira.hyperledger.org/issues/?jql=project%20%3D%20IR%20and%20labels%20%3D%20good-first-issue%20ORDER%20BY%20updated%20DESC). Indicate somehow that you are working on this task: get in touch with maintainers team, community or simply assign this issue to yourself.
 
 ### Pull Requests
 
