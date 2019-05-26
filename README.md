@@ -58,7 +58,7 @@ Yes, in [Java](https://github.com/hyperledger/iroha-java), [Python](https://gith
 ### Want to help us develop Iroha?
 
 That's great! 
-Check out [this document](https://github.com/hyperledger/iroha/blob/master/CONTRIBUTING.md)
+Check out [this document](https://github.com/hyperledger/iroha/blob/master/CONTRIBUTING.rst)
 
 ## Need help?
 
