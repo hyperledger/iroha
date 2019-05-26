@@ -1,4 +1,4 @@
 Contribution
 ============
 
-.. mdinclude:: ../../../CONTRIBUTING.md
+.. include:: ../../../CONTRIBUTING.rst
