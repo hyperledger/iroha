@@ -1,9 +1,0 @@
-# config.sample
-max_proposal_size: 3000
-proposal_delay: 300
-vote_delay: 5000
-load_delay: 5000
-# k8s-iroha.yaml
-iroha_image: hyperledger/iroha:develop
-postgres_volume_size: 1Gi
-blockstore_volume_size: 1Gi

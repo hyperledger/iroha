@@ -33,7 +33,7 @@ include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(soci DEFAULT_MSG ${_SOCI_REQUIRED_VARS})
 
 set(URL https://github.com/SOCI/soci)
-set(VERSION 1f2343e32822549df85660c0eb7acea3f0e5ed8d)
+set(VERSION 349ce86b79e63b99ba95200bc4bd1d83791e9094)
 set_target_description(soci "The C++ Database Access Library" ${URL} ${VERSION})
 
 if (NOT soci_FOUND)
