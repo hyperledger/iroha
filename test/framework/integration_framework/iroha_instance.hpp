@@ -52,6 +52,9 @@ namespace integration_framework {
                   logger::LoggerPtr log,
                   const boost::optional<std::string> &dbname = boost::none);
 
+    /// Initialize Irohad. Throws on error.
+    void init();
+
     void makeGenesis(
         std::shared_ptr<const shared_model::interface::Block> block);
 

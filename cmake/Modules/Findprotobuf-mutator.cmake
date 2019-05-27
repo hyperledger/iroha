@@ -1,15 +1,18 @@
 add_library(protobuf-mutator UNKNOWN IMPORTED)
 
 set(URL https://github.com/google/libprotobuf-mutator.git)
-set(VERSION c9a1e56750a4eef6ffca95f41f79f06979056e01)
+set(VERSION 50168166d03e26bc83ab2be7aed587a883bb9cc9)
 set(protomutator_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}protobuf-mutator${CMAKE_STATIC_LIBRARY_SUFFIX})
 set(libfuzzer_LIB ${CMAKE_STATIC_LIBRARY_PREFIX}protobuf-mutator-libfuzzer${CMAKE_STATIC_LIBRARY_SUFFIX})
 
 externalproject_add(google_protobuf-mutator
     GIT_REPOSITORY  ${URL}
     GIT_TAG         ${VERSION}
-    PATCH_COMMAND patch -p1 < ${PROJECT_SOURCE_DIR}/patch/libprotobuf-mutator.patch || true
-    CMAKE_ARGS -G${CMAKE_GENERATOR} -DTESTING=OFF
+    CMAKE_ARGS
+                    -G${CMAKE_GENERATOR}
+                    -DLIB_PROTO_MUTATOR_TESTING=OFF
+                    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+                    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
     BUILD_BYPRODUCTS ${EP_PREFIX}/src/google_protobuf-mutator-build/src/${protomutator_LIB}
                      ${EP_PREFIX}/src/google_protobuf-mutator-build/src/libfuzzer/${libfuzzer_LIB}
     INSTALL_COMMAND ""

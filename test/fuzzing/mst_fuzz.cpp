@@ -14,6 +14,7 @@
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
@@ -35,7 +36,8 @@ namespace fuzzing {
       std::unique_ptr<shared_model::validation::AbstractValidator<
           shared_model::interface::Transaction>>
           interface_validator = std::make_unique<
-              shared_model::validation::DefaultUnsignedTransactionValidator>();
+              shared_model::validation::DefaultUnsignedTransactionValidator>(
+              iroha::test::kTestsValidatorsConfig);
       std::unique_ptr<shared_model::validation::AbstractValidator<
           iroha::protocol::Transaction>>
           tx_validator = std::make_unique<
@@ -48,8 +50,14 @@ namespace fuzzing {
                                                  std::move(tx_validator));
       auto parser = std::make_shared<
           shared_model::interface::TransactionBatchParserImpl>();
+      std::shared_ptr<shared_model::validation::AbstractValidator<
+          shared_model::interface::TransactionBatch>>
+          batch_validator =
+              std::make_shared<shared_model::validation::BatchValidator>(
+                  iroha::test::kTestsValidatorsConfig);
       auto batch_factory = std::make_shared<
-          shared_model::interface::TransactionBatchFactoryImpl>();
+          shared_model::interface::TransactionBatchFactoryImpl>(
+          batch_validator);
       auto storage =
           std::make_shared<NiceMock<iroha::ametsuchi::MockStorage>>();
       auto cache =
