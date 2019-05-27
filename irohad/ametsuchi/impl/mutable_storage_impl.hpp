@@ -44,6 +44,8 @@ namespace iroha {
 
       shared_model::interface::types::HeightType getTopBlockHeight() const;
 
+      shared_model::interface::types::HashType getTopBlockHash() const;
+
       ~MutableStorageImpl() override;
 
      private:
