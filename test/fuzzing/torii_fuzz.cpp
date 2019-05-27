@@ -17,6 +17,7 @@
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "synchronizer/synchronizer_common.hpp"
@@ -49,7 +50,8 @@ struct CommandFixture {
   rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>>
       mst_state_notifier_;
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_notifier_;
-  rxcpp::subjects::subject<std::shared_ptr<shared_model::interface::Block>>
+  rxcpp::subjects::subject<
+      std::shared_ptr<const shared_model::interface::Block>>
       commit_notifier_;
 
   CommandFixture() {
@@ -94,7 +96,8 @@ struct CommandFixture {
         shared_model::interface::Transaction>>
         transaction_validator =
             std::make_unique<shared_model::validation::
-                                 DefaultOptionalSignedTransactionValidator>();
+                                 DefaultOptionalSignedTransactionValidator>(
+                iroha::test::kTestsValidatorsConfig);
     std::unique_ptr<shared_model::validation::AbstractValidator<
         iroha::protocol::Transaction>>
         proto_transaction_validator = std::make_unique<
@@ -111,9 +114,15 @@ struct CommandFixture {
     std::shared_ptr<shared_model::interface::TransactionBatchParser>
         batch_parser = std::make_shared<
             shared_model::interface::TransactionBatchParserImpl>();
+    std::shared_ptr<shared_model::validation::AbstractValidator<
+        shared_model::interface::TransactionBatch>>
+        batch_validator =
+            std::make_shared<shared_model::validation::BatchValidator>(
+                iroha::test::kTestsValidatorsConfig);
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory = std::make_shared<
-            shared_model::interface::TransactionBatchFactoryImpl>();
+            shared_model::interface::TransactionBatchFactoryImpl>(
+            batch_validator);
 
     service_transport_ =
         std::make_shared<iroha::torii::CommandServiceTransportGrpc>(

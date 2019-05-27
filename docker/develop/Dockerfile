@@ -191,7 +191,7 @@ RUN set -e; \
 # install soci
 RUN set -e; \
     git clone https://github.com/SOCI/soci /tmp/soci; \
-    (cd /tmp/soci ; git checkout 1f2343e32822549df85660c0eb7acea3f0e5ed8d); \
+    (cd /tmp/soci ; git checkout 349ce86b79e63b99ba95200bc4bd1d83791e9094); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -DSOCI_CXX_C11=ON \
