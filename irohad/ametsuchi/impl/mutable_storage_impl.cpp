@@ -131,6 +131,11 @@ namespace iroha {
       return top_height_;
     }
 
+    shared_model::interface::types::HashType
+    MutableStorageImpl::getTopBlockHash() const {
+      return top_hash_;
+    }
+
     MutableStorageImpl::~MutableStorageImpl() {
       if (not committed) {
         try {

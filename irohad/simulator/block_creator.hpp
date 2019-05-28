@@ -22,12 +22,13 @@ namespace iroha {
     class BlockCreator {
      public:
       /**
-       * Creates a block from given proposal
+       * Creates a block from given proposal and top block info
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
           const std::shared_ptr<validation::VerifiedProposalAndErrors>
-              &verified_proposal_and_errors) = 0;
+              &verified_proposal_and_errors,
+          const TopBlockInfo &top_block_info) = 0;
 
       /**
        * Emit blocks made from proposals
