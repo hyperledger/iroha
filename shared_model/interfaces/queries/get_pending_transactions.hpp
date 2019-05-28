@@ -11,6 +11,7 @@
 
 namespace shared_model {
   namespace interface {
+    class TxPaginationMeta;
 
     /**
      * Get all pending (not fully signed) multisignature transactions or batches
@@ -19,6 +20,11 @@ namespace shared_model {
     class GetPendingTransactions
         : public ModelPrimitive<GetPendingTransactions> {
      public:
+      /**
+       *  Get the query pagination metadata.
+       */
+      virtual const TxPaginationMeta &paginationMeta() const = 0;
+
       std::string toString() const override;
 
       bool operator==(const ModelType &rhs) const override;

@@ -10,7 +10,9 @@ namespace shared_model {
 
     template <typename QueryType>
     GetPendingTransactions::GetPendingTransactions(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)) {}
+        : CopyableProto(std::forward<QueryType>(query)),
+          pending_transactions_{proto_->payload().get_pending_transactions()},
+          pagination_meta_{pending_transactions_.pagination_meta()} {}
 
     template GetPendingTransactions::GetPendingTransactions(
         GetPendingTransactions::TransportType &);
@@ -26,6 +28,11 @@ namespace shared_model {
     GetPendingTransactions::GetPendingTransactions(
         GetPendingTransactions &&o) noexcept
         : GetPendingTransactions(std::move(o.proto_)) {}
+
+    const interface::TxPaginationMeta &GetPendingTransactions::paginationMeta()
+        const {
+      return pagination_meta_;
+    }
 
   }  // namespace proto
 }  // namespace shared_model
