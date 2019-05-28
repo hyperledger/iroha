@@ -901,6 +901,10 @@ namespace iroha {
                           shared_model::interface::Amount(amount)));
                     });
             });
+            if (assets.empty()) {
+              return this->logAndReturnErrorResponse(
+                  QueryErrorType::kNoAccountAssets, q.accountId(), 0);
+            }
             return query_response_factory_->createAccountAssetResponse(
                 assets, query_hash_);
           },
