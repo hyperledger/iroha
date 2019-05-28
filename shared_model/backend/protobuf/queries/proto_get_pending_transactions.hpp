@@ -8,6 +8,8 @@
 
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
+#include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
@@ -23,6 +25,12 @@ namespace shared_model {
       GetPendingTransactions(const GetPendingTransactions &o);
 
       GetPendingTransactions(GetPendingTransactions &&o) noexcept;
+
+      const interface::TxPaginationMeta &paginationMeta() const override;
+
+     private:
+      const TxPaginationMeta pagination_meta_;
+      const iroha::protocol::GetPendingTransactions &pending_transactions_;
     };
   }  // namespace proto
 }  // namespace shared_model
