@@ -100,7 +100,6 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
           proposal_factory_;
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
-      std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy_;
 
       rxcpp::composite_subscription proposal_notifier_lifetime_;
       rxcpp::subjects::subject<network::OrderingEvent> proposal_notifier_;

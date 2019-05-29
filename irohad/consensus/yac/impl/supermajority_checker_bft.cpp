@@ -19,10 +19,10 @@ namespace iroha {
             agreed, all, detail::kSupermajorityCheckerKfPlus1Bft);
       }
 
-      bool SupermajorityCheckerBft::hasMajority(PeersNumberType voted,
+      bool SupermajorityCheckerBft::isTolerated(PeersNumberType number,
                                                 PeersNumberType all) const {
         return checkKfPlus1Majority(
-            voted, all, detail::kSupermajorityCheckerKfPlus1Bft);
+            number, all, detail::kSupermajorityCheckerKfPlus1Bft);
       }
 
       bool SupermajorityCheckerBft::canHaveSupermajority(
