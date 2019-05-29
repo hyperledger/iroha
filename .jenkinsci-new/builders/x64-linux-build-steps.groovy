@@ -31,7 +31,7 @@ def dockerManifestPush(dockerImageObj, String dockerTag, environment) {
 
 def testSteps(String buildDir, List environment, String testList) {
   withEnv(environment) {
-    sh "cd ${buildDir}; ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true"
+    sh "cd ${buildDir}; rm -f Testing/*/Test.xml; ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true"
     sh """ python .jenkinsci-new/helpers/platform_tag.py "Linux \$(uname -m)" \$(ls ${buildDir}/Testing/*/Test.xml) """
     // Mark build as UNSTABLE if there are any failed tests (threshold <100%)
     xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
@@ -82,7 +82,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
     iC = dockerUtils.dockerPullOrBuild("${platform}-develop-build",
         "${env.GIT_RAW_BASE_URL}/${scmVars.GIT_COMMIT}/docker/develop/Dockerfile",
         "${env.GIT_RAW_BASE_URL}/${utils.previousCommitOrCurrent(scmVars)}/docker/develop/Dockerfile",
-        "${env.GIT_RAW_BASE_URL}/develop/docker/develop/Dockerfile",
+        "${env.GIT_RAW_BASE_URL}/master/docker/develop/Dockerfile",
         scmVars,
         environment,
         forceDockerDevelopBuild,

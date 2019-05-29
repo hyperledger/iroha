@@ -1,3 +1,0 @@
-[submodule "deploy/ansible/kubespray"]
-	path = deploy/ansible/kubespray
-	url = https://github.com/soramitsu/kubespray.git

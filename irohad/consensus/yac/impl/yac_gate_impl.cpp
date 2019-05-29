@@ -86,7 +86,7 @@ namespace iroha {
         }
 
         auto order = orderer_->getOrdering(current_hash_,
-                                           *event.ledger_state->ledger_peers);
+                                           event.ledger_state->ledger_peers);
         if (not order) {
           log_->error("ordering doesn't provide peers => pass round");
           return;

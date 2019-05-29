@@ -33,7 +33,7 @@ include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(soci DEFAULT_MSG ${_SOCI_REQUIRED_VARS})
 
 set(URL https://github.com/SOCI/soci)
-set(VERSION 1f2343e32822549df85660c0eb7acea3f0e5ed8d)
+set(VERSION 349ce86b79e63b99ba95200bc4bd1d83791e9094)
 set_target_description(soci "The C++ Database Access Library" ${URL} ${VERSION})
 
 if (NOT soci_FOUND)
@@ -53,6 +53,7 @@ if (NOT soci_FOUND)
                       -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}
                       -DCMAKE_CXX_FLAGS=${CMAKE_CXX_SOCI_FLAGS}
                       -DCMAKE_INSTALL_PREFIX=${EP_PREFIX}
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
                       -DSOCI_CXX_C11=ON
                       -DSOCI_TESTS=OFF
                       -DSOCI_EMPTY=OFF

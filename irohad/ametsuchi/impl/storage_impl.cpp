@@ -769,11 +769,10 @@ namespace iroha {
                                 log_manager_->getChild("WsvQuery")->getLogger())
                    .getPeers()
             | [&storage](auto &&peers) {
-                return boost::optional<
-                    std::unique_ptr<LedgerState>>(std::make_unique<LedgerState>(
-                    std::make_shared<shared_model::interface::types::PeerList>(
-                        std::move(peers)),
-                    storage->getTopBlockHeight()));
+                return boost::optional<std::unique_ptr<LedgerState>>(
+                    std::make_unique<LedgerState>(std::move(peers),
+                                                  storage->getTopBlockHeight(),
+                                                  storage->getTopBlockHash()));
               };
       } catch (std::exception &e) {
         storage->committed = false;
@@ -815,16 +814,9 @@ namespace iroha {
                    | [this, &block, &sql](auto &&peers)
                    -> boost::optional<std::unique_ptr<LedgerState>> {
           if (this->storeBlock(block)) {
-            PostgresBlockQuery block_query(
-                sql,
-                *block_store_,
-                converter_,
-                log_manager_->getChild("PostgresBlockQuery")->getLogger());
             return boost::optional<std::unique_ptr<LedgerState>>(
                 std::make_unique<LedgerState>(
-                    std::make_shared<shared_model::interface::types::PeerList>(
-                        std::move(peers)),
-                    block_query.getTopBlockHeight()));
+                    std::move(peers), block->height(), block->hash()));
           }
           return boost::none;
         };
@@ -1035,8 +1027,8 @@ CREATE TABLE IF NOT EXISTS account_has_grantable_permissions (
 );
 CREATE TABLE IF NOT EXISTS position_by_hash (
     hash varchar,
-    height text,
-    index text
+    height bigint,
+    index bigint
 );
 
 CREATE TABLE IF NOT EXISTS tx_status_by_hash (
@@ -1047,19 +1039,19 @@ CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index ON tx_status_by_hash USI
 
 CREATE TABLE IF NOT EXISTS height_by_account_set (
     account_id text,
-    height text
+    height bigint
 );
 CREATE TABLE IF NOT EXISTS index_by_creator_height (
     id serial,
     creator_id text,
-    height text,
-    index text
+    height bigint,
+    index bigint
 );
 CREATE TABLE IF NOT EXISTS position_by_account_asset (
     account_id text,
     asset_id text,
-    height text,
-    index text
+    height bigint,
+    index bigint
 );
 )";
   }  // namespace ametsuchi
