@@ -51,6 +51,7 @@ namespace iroha {
           // test fails
           message.hash.block_signature = createSig("");
           message.signature = createSig("");
+          message.hash.vote_round = {};
           network->subscribe(notifications);
 
           int port = 0;

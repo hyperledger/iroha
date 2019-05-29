@@ -60,7 +60,10 @@ namespace iroha {
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
-                     FAIL() << "StorageImpl: " << error.error;
+                     storage_logger_->error(
+                         "Storage initialization has failed: {}", error.error);
+                     // TODO: 2019-05-29 @muratovv find assert workaround IR-522
+                     std::terminate();
                    });
         sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
@@ -106,7 +109,8 @@ namespace iroha {
       static std::string block_store_path;
 
       // TODO(warchant): IR-1019 hide SQLs under some interface
-
+      // TODO igor-egorov 24-05-2019 IR-517 Refactor SQL in test
+      // (remove sql from here and use it from the application init funcs)
       const std::string init_ = R"(
 CREATE TABLE IF NOT EXISTS role (
     role_id character varying(32),
@@ -169,8 +173,8 @@ CREATE TABLE IF NOT EXISTS account_has_grantable_permissions (
 );
 CREATE TABLE IF NOT EXISTS position_by_hash (
     hash varchar,
-    height text,
-    index text
+    height bigint,
+    index bigint
 );
 
 CREATE TABLE IF NOT EXISTS tx_status_by_hash (
@@ -181,19 +185,19 @@ CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index ON tx_status_by_hash USI
 
 CREATE TABLE IF NOT EXISTS height_by_account_set (
     account_id text,
-    height text
+    height bigint
 );
 CREATE TABLE IF NOT EXISTS index_by_creator_height (
     id serial,
     creator_id text,
-    height text,
-    index text
+    height bigint,
+    index bigint
 );
 CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     id text,
-    height text,
+    height bigint,
     asset_id text,
-    index text
+    index bigint
 );
 )";
     };
