@@ -10,7 +10,7 @@
 
 def testSteps(scmVars, String buildDir, List environment, String testList) {
   withEnv(environment) {
-      sh """
+      sh """#!/bin/bash
         export IROHA_POSTGRES_PASSWORD=${IROHA_POSTGRES_PASSWORD}; \
         export IROHA_POSTGRES_USER=${IROHA_POSTGRES_USER}; \
         mkdir -p /var/jenkins/${scmVars.GIT_COMMIT}-${BUILD_NUMBER}; \
