@@ -70,7 +70,8 @@ class OnDemandOsTest : public ::testing::Test {
 
     proposal_creation_strategy =
         std::make_shared<MockProposalCreationStrategy>();
-    ON_CALL(*proposal_creation_strategy, shouldCreateRound(_, _));
+    ON_CALL(*proposal_creation_strategy, shouldCreateRound(_, _))
+        .WillByDefault(Invoke([](auto, const auto &action) { action(); }));
 
     os = std::make_shared<OnDemandOrderingServiceImpl>(
         transaction_limit,
@@ -407,7 +408,8 @@ TEST_F(OnDemandOsTest, RejectCommit) {
  * @then check that prposal isn't created
  */
 TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
-  EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_, _));
+  EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_, _))
+      .WillRepeatedly(Invoke([](auto, const auto &) {}));
 
   generateTransactionsAndInsert({1, 2});
 
