@@ -60,7 +60,10 @@ namespace iroha {
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
-                     FAIL() << "StorageImpl: " << error.error;
+                     storage_logger_->error(
+                         "Storage initialization has failed: {}", error.error);
+                     // TODO: 2019-05-29 @muratovv find assert workaround IR-522
+                     std::terminate();
                    });
         sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
