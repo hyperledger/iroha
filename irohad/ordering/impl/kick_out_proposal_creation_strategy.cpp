@@ -28,7 +28,7 @@ void KickOutProposalCreationStrategy::onCollaborationOutcome(
       last_requested.insert({peer, RoundType{0, 0}});
     }
   }
-  last_requested_ = last_requested;
+  last_requested_ = std::move(last_requested);
 }
 
 void KickOutProposalCreationStrategy::shouldCreateRound(
@@ -39,7 +39,7 @@ void KickOutProposalCreationStrategy::shouldCreateRound(
       last_requested_.end(),
       [&round](const auto &elem) { return elem.second >= round; });
 
-  if(not majority_checker_->hasMajority(counter, last_requested_.size())) {
+  if(not majority_checker_->isTolerated(counter, last_requested_.size())) {
     on_create();
   }
 }

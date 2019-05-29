@@ -46,32 +46,34 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                         hashes->size());
             cache_->remove(*hashes);
           })),
-      round_switch_subscription_(round_switch_events.subscribe([this](
-                                                                   auto event) {
-        log_->debug("Current: {}", event.next_round);
+      round_switch_subscription_(round_switch_events.subscribe(
+          [this,
+           proposal_creation_strategy =
+               std::move(proposal_creation_strategy)](auto event) {
+            log_->debug("Current: {}", event.next_round);
 
-        proposal_creation_strategy_->onCollaborationOutcome(
-            event.ledger_state->ledger_peers
-            | boost::adaptors::transformed([](auto &peer) -> decltype(auto) {
-                return peer->pubkey();
-              }));  // notify our ordering service about new round
-        ordering_service_->onCollaborationOutcome(event.next_round);
+            proposal_creation_strategy->onCollaborationOutcome(
+                event.ledger_state->ledger_peers
+                | boost::adaptors::transformed(
+                      [](auto &peer) -> decltype(auto) {
+                        return peer->pubkey();
+                      }));  // notify our ordering service about new round
+            ordering_service_->onCollaborationOutcome(event.next_round);
 
-        this->sendCachedTransactions();
+            this->sendCachedTransactions();
 
-        // request proposal for the current round
-        auto proposal = this->processProposalRequest(
-            network_client_->onRequestProposal(event.next_round));
-        // vote for the object received from the network
-        proposal_notifier_.get_subscriber().on_next(
-            network::OrderingEvent{std::move(proposal),
-                                   event.next_round,
-                                   std::move(event.ledger_state)});
-      })),
+            // request proposal for the current round
+            auto proposal = this->processProposalRequest(
+                network_client_->onRequestProposal(event.next_round));
+            // vote for the object received from the network
+            proposal_notifier_.get_subscriber().on_next(
+                network::OrderingEvent{std::move(proposal),
+                                       event.next_round,
+                                       std::move(event.ledger_state)});
+          })),
       cache_(std::move(cache)),
       proposal_factory_(std::move(factory)),
       tx_cache_(std::move(tx_cache)),
-      proposal_creation_strategy_(std::move(proposal_creation_strategy)),
       proposal_notifier_(proposal_notifier_lifetime_) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {

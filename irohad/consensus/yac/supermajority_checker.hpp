@@ -51,11 +51,11 @@ namespace iroha {
 
         /**
          * Check if majority of votes is achieved
-         * @param voted - number of voted peers
+         * @param number - voted peers
          * @param all - number of all peers in network
          * @return true if majority is reached
          */
-        virtual bool hasMajority(PeersNumberType voted,
+        virtual bool isTolerated(PeersNumberType number,
                                  PeersNumberType all) const = 0;
 
         /**

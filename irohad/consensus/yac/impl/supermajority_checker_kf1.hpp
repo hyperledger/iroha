@@ -19,13 +19,13 @@ namespace iroha {
        * at least N - f peers agree. For the networks of arbitrary peers amount
        * Na the tolerated number of faulty peers is (Na - 1) % K.
        *
-       * @param agreed - the number of peers agreed on the state
+       * @param number - the number of peers agreed on the state
        * @param all - the total number of peers in the network
        * @param k - the free parameter of the model
        *
        * @return whether supermajority is achieved by the agreed peers
        */
-      inline bool checkKfPlus1Supermajority(PeersNumberType agreed,
+      inline bool checkKfPlus1Supermajority(PeersNumberType number,
                                             PeersNumberType all,
                                             unsigned int k) {
         if (agreed > all) {
