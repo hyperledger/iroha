@@ -288,6 +288,7 @@ namespace iroha {
           postgres_options_(std::move(postgres_options)),
           block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
+          connection_(pool_wrapper_.connection_pool_),
           factory_(std::move(factory)),
           notifier_(notifier_lifetime_),
           converter_(std::move(converter)),
@@ -303,11 +304,10 @@ namespace iroha {
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
     StorageImpl::createTemporaryWsv() {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (pool_wrapper_.connection_pool_ == nullptr) {
+      if (connection_ == nullptr) {
         return expected::makeError("Connection was closed");
       }
-      auto sql =
-          std::make_unique<soci::session>(*pool_wrapper_.connection_pool_);
+      auto sql = std::make_unique<soci::session>(*connection_);
       // if we create temporary storage, then we intend to validate a new
       // proposal. this means that any state prepared before that moment is
       // not needed and must be removed to prevent locking
@@ -350,14 +350,14 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory) const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (not pool_wrapper_.connection_pool_) {
+      if (not connection_) {
         log_->info(
             "createQueryExecutor: connection to database is not initialised");
         return boost::none;
       }
       return boost::make_optional<std::shared_ptr<QueryExecutor>>(
           std::make_shared<PostgresQueryExecutor>(
-              std::make_unique<soci::session>(*pool_wrapper_.connection_pool_),
+              std::make_unique<soci::session>(*connection_),
               *block_store_,
               std::move(pending_txs_storage),
               converter_,
@@ -383,7 +383,7 @@ namespace iroha {
     expected::Result<void, std::string> StorageImpl::insertPeer(
         const shared_model::interface::Peer &peer) {
       log_->info("Insert peer {}", peer.pubkey().hex());
-      soci::session sql(*pool_wrapper_.connection_pool_);
+      soci::session sql(*connection_);
       PostgresWsvCommand wsv_command(sql);
       return wsv_command.insertPeer(peer);
     }
@@ -391,12 +391,11 @@ namespace iroha {
     expected::Result<std::unique_ptr<MutableStorage>, std::string>
     StorageImpl::createMutableStorage(BlockStorageFactory &storage_factory) {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (pool_wrapper_.connection_pool_ == nullptr) {
+      if (connection_ == nullptr) {
         return expected::makeError("Connection was closed");
       }
 
-      auto sql =
-          std::make_unique<soci::session>(*pool_wrapper_.connection_pool_);
+      auto sql = std::make_unique<soci::session>(*connection_);
       // if we create mutable storage, then we intend to mutate wsv
       // this means that any state prepared before that moment is not needed
       // and must be removed to prevent locking
@@ -441,7 +440,7 @@ namespace iroha {
     expected::Result<void, std::string> StorageImpl::resetWsv() {
       log_->debug("drop wsv records from db tables");
       try {
-        soci::session sql(*pool_wrapper_.connection_pool_);
+        soci::session sql(*connection_);
         // rollback possible prepared transaction
         tryRollback(sql);
         sql << reset_;
@@ -454,7 +453,7 @@ namespace iroha {
     void StorageImpl::resetPeers() {
       log_->info("Remove everything from peers table");
       try {
-        soci::session sql(*pool_wrapper_.connection_pool_);
+        soci::session sql(*connection_);
         sql << reset_peers_;
       } catch (std::exception &e) {
         log_->error("Failed to reset peers list, reason: {}", e.what());
@@ -463,7 +462,7 @@ namespace iroha {
 
     void StorageImpl::dropStorage() {
       log_->info("drop storage");
-      if (pool_wrapper_.connection_pool_ == nullptr) {
+      if (connection_ == nullptr) {
         log_->warn("Tried to drop storage without active connection");
         return;
       }
@@ -484,9 +483,9 @@ namespace iroha {
       } else {
         // Clear all the tables first, as it takes much less time because the
         // foreign key triggers are ignored.
-        soci::session(*pool_wrapper_.connection_pool_) << reset_;
+        soci::session(*connection_) << reset_;
         // Empty tables can now be dropped very fast.
-        soci::session(*pool_wrapper_.connection_pool_) << drop_;
+        soci::session(*connection_) << drop_;
       }
 
       // erase blocks
@@ -495,24 +494,23 @@ namespace iroha {
     }
 
     void StorageImpl::freeConnections() {
-      if (pool_wrapper_.connection_pool_ == nullptr) {
+      if (connection_ == nullptr) {
         log_->warn("Tried to free connections without active connection");
         return;
       }
       // rollback possible prepared transaction
       {
-        soci::session sql(*pool_wrapper_.connection_pool_);
+        soci::session sql(*connection_);
         tryRollback(sql);
       }
       std::vector<std::shared_ptr<soci::session>> connections;
       for (size_t i = 0; i < pool_size_; i++) {
-        connections.push_back(
-            std::make_shared<soci::session>(*pool_wrapper_.connection_pool_));
+        connections.push_back(std::make_shared<soci::session>(*connection_));
         connections.at(i)->close();
         log_->debug("Closed connection {}", i);
       }
       connections.clear();
-      pool_wrapper_.connection_pool_.reset();
+      connection_.reset();
     }
 
     expected::Result<bool, std::string> StorageImpl::createDatabaseIfNotExist(
@@ -798,12 +796,12 @@ namespace iroha {
 
       try {
         std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-        if (not pool_wrapper_.connection_pool_) {
+        if (not connection_) {
           log_->info(
               "commitPrepared: connection to database is not initialised");
           return boost::none;
         }
-        soci::session sql(*pool_wrapper_.connection_pool_);
+        soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
             sql, log_manager_->getChild("BlockIndex")->getLogger());
@@ -832,24 +830,24 @@ namespace iroha {
 
     std::shared_ptr<WsvQuery> StorageImpl::getWsvQuery() const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (not pool_wrapper_.connection_pool_) {
+      if (not connection_) {
         log_->info("getWsvQuery: connection to database is not initialised");
         return nullptr;
       }
       return std::make_shared<PostgresWsvQuery>(
-          std::make_unique<soci::session>(*pool_wrapper_.connection_pool_),
+          std::make_unique<soci::session>(*connection_),
           factory_,
           log_manager_->getChild("WsvQuery")->getLogger());
     }
 
     std::shared_ptr<BlockQuery> StorageImpl::getBlockQuery() const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (not pool_wrapper_.connection_pool_) {
+      if (not connection_) {
         log_->info("getBlockQuery: connection to database is not initialised");
         return nullptr;
       }
       return std::make_shared<PostgresBlockQuery>(
-          std::make_unique<soci::session>(*pool_wrapper_.connection_pool_),
+          std::make_unique<soci::session>(*connection_),
           *block_store_,
           converter_,
           log_manager_->getChild("PostgresBlockQuery")->getLogger());

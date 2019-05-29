@@ -174,6 +174,9 @@ namespace iroha {
 
       PoolWrapper pool_wrapper_;
 
+      /// ref for pool_wrapper_::connection_pool_
+      std::shared_ptr<soci::connection_pool> &connection_;
+
       std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
 
       rxcpp::composite_subscription notifier_lifetime_;
