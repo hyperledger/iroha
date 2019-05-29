@@ -25,7 +25,7 @@ message Transaction {
       uint64 created_time = 3;
       uint32 quorum = 4;
     }
-    // transcation fields
+    // transaction fields
     ReducedPayload reduced_payload = 1;
     // batch meta fields if tx belong to any batch
     oneof optional_batch_meta{
