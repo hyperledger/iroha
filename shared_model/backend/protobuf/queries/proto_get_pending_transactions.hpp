@@ -29,8 +29,8 @@ namespace shared_model {
       const interface::TxPaginationMeta &paginationMeta() const override;
 
      private:
-      const TxPaginationMeta pagination_meta_;
       const iroha::protocol::GetPendingTransactions &pending_transactions_;
+      const TxPaginationMeta pagination_meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

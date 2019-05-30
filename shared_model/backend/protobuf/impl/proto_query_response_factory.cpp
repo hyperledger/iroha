@@ -11,6 +11,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
+#include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
 namespace {
   /**
@@ -225,6 +226,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsResponse(
       query_hash);
 }
 
+// TODO igor-egorov 28.05.2019 IR-521 Remove code duplication
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -251,6 +253,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
       query_hash);
 }
 
+// TODO igor-egorov 28.05.2019 IR-521 Remove code duplication
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -269,6 +272,42 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
         }
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);
+      },
+      query_hash);
+}
+
+std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
+    ProtoQueryResponseFactory::createPendingTransactionsPageResponse(
+        std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+            transactions,
+        interface::types::TransactionsNumberType all_transactions_size,
+        boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+            next_batch_info,
+        const crypto::Hash &query_hash) const {
+  return createQueryResponse(
+      [transactions = std::move(transactions),
+       &all_transactions_size,
+       &next_batch_info](
+          iroha::protocol::QueryResponse &protocol_query_response) {
+        iroha::protocol::PendingTransactionsPageResponse
+            *protocol_specific_response =
+                protocol_query_response
+                    .mutable_pending_transactions_page_response();
+        for (const auto &tx : transactions) {
+          *protocol_specific_response->add_transactions() =
+              static_cast<shared_model::proto::Transaction *>(tx.get())
+                  ->getTransport();
+        }
+        protocol_specific_response->set_all_transactions_size(
+            all_transactions_size);
+        if (next_batch_info) {
+          iroha::protocol::PendingTransactionsPageResponse_BatchInfo
+              *next_batch_info_message =
+                  protocol_specific_response->mutable_next_batch_info();
+          next_batch_info_message->set_first_tx_hash(
+              next_batch_info->first_tx_hash.hex());
+          next_batch_info_message->set_batch_size(next_batch_info->batch_size);
+        }
       },
       query_hash);
 }
@@ -332,15 +371,15 @@ shared_model::proto::ProtoQueryResponseFactory::createRolePermissionsResponse(
 std::unique_ptr<shared_model::interface::BlockQueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createBlockQueryResponse(
     std::shared_ptr<const shared_model::interface::Block> block) const {
-  return createQueryResponse([block = std::move(block)](
-                                 iroha::protocol::BlockQueryResponse
-                                     &protocol_query_response) {
-    iroha::protocol::BlockResponse *protocol_specific_response =
-        protocol_query_response.mutable_block_response();
-    *protocol_specific_response->mutable_block()->mutable_block_v1() =
-        static_cast<const shared_model::proto::Block *>(block.get())
-            ->getTransport();
-  });
+  return createQueryResponse(
+      [block = std::move(block)](
+          iroha::protocol::BlockQueryResponse &protocol_query_response) {
+        iroha::protocol::BlockResponse *protocol_specific_response =
+            protocol_query_response.mutable_block_response();
+        *protocol_specific_response->mutable_block()->mutable_block_v1() =
+            static_cast<const shared_model::proto::Block *>(block.get())
+                ->getTransport();
+      });
 }
 
 std::unique_ptr<shared_model::interface::BlockQueryResponse>

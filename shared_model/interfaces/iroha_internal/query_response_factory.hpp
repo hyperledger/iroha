@@ -14,6 +14,7 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
+#include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 
 namespace shared_model {
@@ -174,11 +175,29 @@ namespace shared_model {
           const crypto::Hash &query_hash) const = 0;
 
       /**
+       * Create paged response for pending transaction query
+       * @param transactions - list of transactions on the page
+       * @param all_transactions_size - total number of transactions among all
+       * the bathes in a pending storage for the user
+       * @param next_batch_info - optional struct with hash of the first
+       * transaction for the following batch and its size (if exists)
+       * @param query_hash - hash of the corresponding query
+       */
+      virtual std::unique_ptr<QueryResponse>
+      createPendingTransactionsPageResponse(
+          std::vector<std::unique_ptr<interface::Transaction>> transactions,
+          interface::types::TransactionsNumberType all_transactions_size,
+          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+              next_batch_info,
+          const crypto::Hash &query_hash) const = 0;
+
+      /**
        * Create response for asset query
        * @param asset_id of asset to be inserted into the response
        * @param domain_id of asset to be inserted into the response
        * @param precision of asset to be inserted into the response
-       * @param query_hash - hash of the query, for which response is created
+       * @param query_hash - hash of the query, for which response is
+       * created
        * @return asset response
        */
       virtual std::unique_ptr<QueryResponse> createAssetResponse(
