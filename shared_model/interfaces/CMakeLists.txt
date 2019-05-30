@@ -61,6 +61,7 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/block_query_response.cpp
       query_responses/impl/block_response.cpp
       query_responses/impl/transactions_page_response.cpp
+      query_responses/impl/pending_transactions_page_response.cpp
       transaction_responses/impl/tx_response.cpp
       iroha_internal/transaction_sequence.cpp
       iroha_internal/transaction_batch_impl.cpp

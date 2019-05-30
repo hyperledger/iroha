@@ -18,6 +18,8 @@ namespace boost {
       const shared_model::interface::ErrorQueryResponse &,
       const shared_model::interface::SignatoriesResponse &,
       const shared_model::interface::TransactionsResponse &,
+      const shared_model::interface::TransactionsPageResponse &,
+      const shared_model::interface::PendingTransactionsPageResponse &,
       const shared_model::interface::AssetResponse &,
       const shared_model::interface::RolesResponse &,
       const shared_model::interface::RolePermissionsResponse &>;

@@ -55,6 +55,7 @@ namespace shared_model {
       using PermissionNameType = std::string;
       /// Permission set
       using PermissionSetType = std::set<PermissionNameType>;
+      // TODO igor-egorov 28.05.2019 IR-520 Inconsistent C++/Protobuf type sizes
       /// Type of Quorum used in transaction and set quorum
       using QuorumType = uint16_t;
       /// Type of timestamp
@@ -73,6 +74,7 @@ namespace shared_model {
       using AccountDetailKeyType = std::string;
       /// Type of account detail value
       using AccountDetailValueType = std::string;
+      // TODO igor-egorov 28.05.2019 IR-520 Inconsistent C++/Protobuf type sizes
       /// Type of a number of transactions in block and query response page
       using TransactionsNumberType = uint16_t;
       /// Type of the transfer message
