@@ -96,6 +96,7 @@ namespace iroha {
       /**
        * Remove all information from ledger
        * Tables and the database will be removed too
+       * TODO: 2019-05-22 @muratovv move method to TestStorage IR-493
        */
       virtual void dropStorage() = 0;
 

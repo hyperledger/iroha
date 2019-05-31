@@ -15,6 +15,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "network/impl/block_loader_service.hpp"
 
 using namespace testing;
@@ -39,6 +40,10 @@ namespace fuzzing {
       EXPECT_CALL(*block_query_factory_, createBlockQuery())
           .WillRepeatedly(Return(boost::make_optional(
               std::shared_ptr<iroha::ametsuchi::BlockQuery>(storage_))));
+      EXPECT_CALL(*storage_, getBlock(_)).WillRepeatedly(Invoke([](auto) {
+        return iroha::expected::makeValue(
+            clone<shared_model::interface::Block>(TestBlockBuilder().build()));
+      }));
     }
   };
 

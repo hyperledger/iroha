@@ -80,6 +80,12 @@ namespace shared_model {
             break;
         }
       }
+      if (transaction.payload().has_batch()) {
+        if (not iroha::protocol::Transaction_Payload_BatchMeta::
+                BatchType_IsValid(transaction.payload().batch().type())) {
+          reason.second.emplace_back("Invalid batch type");
+        }
+      }
       if (not reason.second.empty()) {
         answer.addReason(std::move(reason));
       }
