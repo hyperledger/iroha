@@ -6,10 +6,10 @@
 #ifndef IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 #define IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 
+#include <list>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
-#include <unordered_set>
 
 #include <rxcpp/rx.hpp>
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -40,6 +40,12 @@ namespace iroha {
     SharedTxsCollectionType getPendingTransactions(
         const AccountIdType &account_id) const override;
 
+    expected::Result<Response, ErrorCode> getPendingTransactions(
+        const shared_model::interface::types::AccountIdType &account_id,
+        const shared_model::interface::types::TransactionsNumberType &page_size,
+        const boost::optional<shared_model::interface::types::HashType>
+            first_tx_hash) const override;
+
    private:
     void updatedBatchesHandler(const SharedState &updated_batches);
 
@@ -59,24 +65,17 @@ namespace iroha {
      */
     mutable std::shared_timed_mutex mutex_;
 
-    /**
-     * Storage is composed of two maps:
-     * Indices map contains relations of accounts and batch hashes. For each
-     * account there are listed hashes of batches, where the account has created
-     * at least one transaction.
-     *
-     * Batches map is used for storing and fast access to batches via batch
-     * hashes.
-     */
-    struct {
-      std::unordered_map<AccountIdType,
-                         std::unordered_set<HashType, HashType::Hasher>>
-          index;
-      std::unordered_map<HashType,
-                         std::shared_ptr<TransactionBatch>,
-                         HashType::Hasher>
-          batches;
-    } storage_;
+    struct AccountBatches {
+      std::list<std::shared_ptr<TransactionBatch>> batches;
+      std::
+          unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher>
+              index;
+      uint64_t all_transactions_quantity;
+
+      AccountBatches() : all_transactions_quantity(0) {}
+    };
+
+    std::unordered_map<AccountIdType, AccountBatches> storage_;
   };
 
 }  // namespace iroha
