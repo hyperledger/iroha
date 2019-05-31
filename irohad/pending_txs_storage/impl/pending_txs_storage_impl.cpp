@@ -38,21 +38,67 @@ namespace iroha {
   PendingTransactionStorageImpl::getPendingTransactions(
       const AccountIdType &account_id) const {
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-    auto creator_it = storage_.index.find(account_id);
-    if (storage_.index.end() != creator_it) {
-      auto &batch_hashes = creator_it->second;
+    auto account_batches_iterator = storage_.find(account_id);
+    if (storage_.end() != account_batches_iterator) {
       SharedTxsCollectionType result;
-      auto &batches = storage_.batches;
-      for (const auto &batch_hash : batch_hashes) {
-        auto batch_it = batches.find(batch_hash);
-        if (batches.end() != batch_it) {
-          auto &txs = batch_it->second->transactions();
-          result.insert(result.end(), txs.begin(), txs.end());
-        }
+      for (const auto &batch : account_batches_iterator->second.batches) {
+        auto &txs = batch->transactions();
+        result.insert(result.end(), txs.begin(), txs.end());
       }
       return result;
     }
     return {};
+  }
+
+  expected::Result<PendingTransactionStorage::Response,
+                   PendingTransactionStorage::ErrorCode>
+  PendingTransactionStorageImpl::getPendingTransactions(
+      const shared_model::interface::types::AccountIdType &account_id,
+      const shared_model::interface::types::TransactionsNumberType &page_size,
+      const boost::optional<shared_model::interface::types::HashType>
+          first_tx_hash) const {
+    BOOST_ASSERT_MSG(page_size > 0, "Page size has to be positive");
+    std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+    auto account_batches_iterator = storage_.find(account_id);
+    if (storage_.end() == account_batches_iterator) {
+      return iroha::expected::makeError(
+          PendingTransactionStorage::ErrorCode::EMPTY);
+    }
+    auto &account_batches = account_batches_iterator->second;
+    auto batch_iterator = account_batches.batches.begin();
+    if (first_tx_hash) {
+      auto index_iterator = account_batches.index.find(*first_tx_hash);
+      if (account_batches.index.end() == index_iterator) {
+        return iroha::expected::makeError(
+            PendingTransactionStorage::ErrorCode::NOT_FOUND);
+      }
+      batch_iterator = index_iterator->second;
+    }
+    if (account_batches.batches.end() == batch_iterator) {
+      return iroha::expected::makeError(
+          PendingTransactionStorage::ErrorCode::EMPTY);
+    }
+
+    PendingTransactionStorage::Response response;
+    response.all_transactions_size = account_batches.all_transactions_quantity;
+    auto remaining_space = page_size;
+    while (account_batches.batches.end() != batch_iterator
+           and remaining_space
+               >= batch_iterator->get()->transactions().size()) {
+      auto &txs = batch_iterator->get()->transactions();
+      response.transactions.insert(
+          response.transactions.end(), txs.begin(), txs.end());
+      remaining_space -= txs.size();
+      ++batch_iterator;
+    }
+    if (account_batches.batches.end() != batch_iterator) {
+      shared_model::interface::PendingTransactionsPageResponse::BatchInfo
+          next_batch_info;
+      auto &txs = batch_iterator->get()->transactions();
+      next_batch_info.first_tx_hash = txs.front()->hash();
+      next_batch_info.batch_size = txs.size();
+    }
+    return iroha::expected::makeValue(std::move(response));
   }
 
   std::set<PendingTransactionStorageImpl::AccountIdType>
@@ -66,30 +112,63 @@ namespace iroha {
 
   void PendingTransactionStorageImpl::updatedBatchesHandler(
       const SharedState &updated_batches) {
+    // need to test performance somehow - where to put the lock
     std::unique_lock<std::shared_timed_mutex> lock(mutex_);
     updated_batches->iterateBatches([this](const auto &batch) {
-      auto hash = batch->reducedHash();
-      auto it = storage_.batches.find(hash);
-      if (storage_.batches.end() == it) {
-        for (const auto &creator : batchCreators(*batch)) {
-          storage_.index[creator].insert(hash);
+      auto first_tx_hash = batch->transactions().front()->hash();
+      auto batch_creators = batchCreators(*batch);
+      auto batch_size = batch->transactions().size();
+      for (const auto &creator : batch_creators) {
+        auto account_batches_iterator = storage_.find(creator);
+        if (account_batches_iterator == storage_.end()) {
+          auto insertion_result = storage_.emplace(
+              creator, PendingTransactionStorageImpl::AccountBatches{});
+          if (insertion_result.second) {
+            account_batches_iterator = insertion_result.first;
+          }
+        }
+        if (account_batches_iterator != storage_.end()) {
+          auto &account_batches = account_batches_iterator->second;
+          auto index_iterator = account_batches.index.find(first_tx_hash);
+          if (index_iterator == account_batches.index.end()) {
+            // inserting the batch
+            account_batches.all_transactions_quantity += batch_size;
+            account_batches.batches.push_back(batch);
+            auto inserted_batch_iterator =
+                std::prev(account_batches.batches.end());
+            account_batches.index.emplace(first_tx_hash,
+                                          inserted_batch_iterator);
+          } else {
+            // updating batch
+            auto &account_batch = index_iterator->second;
+            *account_batch = batch;
+          }
         }
       }
-      storage_.batches[hash] = batch;
     });
   }
 
   void PendingTransactionStorageImpl::removeBatch(const SharedBatch &batch) {
     auto creators = batchCreators(*batch);
-    auto hash = batch->reducedHash();
+    auto first_tx_hash = batch->transactions().front()->hash();
+    auto batch_size = batch->transactions().size();
     std::unique_lock<std::shared_timed_mutex> lock(mutex_);
-    storage_.batches.erase(hash);
     for (const auto &creator : creators) {
-      auto &index = storage_.index;
-      auto index_it = index.find(creator);
-      if (index.end() != index_it) {
-        auto &creator_set = index_it->second;
-        creator_set.erase(hash);
+      auto account_batches_iterator = storage_.find(creator);
+      if (account_batches_iterator != storage_.end()) {
+        auto &account_batches = account_batches_iterator->second;
+        auto index_iterator = account_batches.index.find(first_tx_hash);
+        if (index_iterator != account_batches.index.end()) {
+          auto &batch_iterator = index_iterator->second;
+          if (batch_iterator != account_batches.batches.end()) {
+            account_batches.batches.erase(batch_iterator);
+          }
+          account_batches.index.erase(index_iterator);
+        }
+        account_batches.all_transactions_quantity -= batch_size;
+        if (0 == account_batches.all_transactions_quantity) {
+          storage_.erase(account_batches_iterator);
+        }
       }
     }
   }
