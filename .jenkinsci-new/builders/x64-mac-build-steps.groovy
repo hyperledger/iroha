@@ -54,6 +54,8 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
 
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
+        // Remove artifacts from the previous build
+        build.removeDirectory(buildDir)
         build.cmakeConfigure(buildDir,
         "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
         -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
