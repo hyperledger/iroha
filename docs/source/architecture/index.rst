@@ -8,7 +8,7 @@ Architecture
 
 HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below. 
 
-.. image:: ../../image_assets/PD.png
+.. image:: ../../image_assets/pipeline-diagram.png
 	:width: 80%
 	:align: center
 	:alt: Iroha Architecture Diagram
@@ -73,20 +73,12 @@ System component that forms a block from a set of transactions that have passed 
 
 Block creator, together with the `Verified Proposal Creator <#verified-proposal-creator>`_ form a component called `Simulator <https://github.com/hyperledger/iroha/tree/master/irohad/simulator>`_.
 
-Consensus
----------
-
-A consensus algorithm is a process in computer science used to achieve agreement on a single data value among distributed processes or systems.
-Consensus algorithms are designed to achieve reliability in a network involving multiple unreliable nodes.
-Solving that issue -- known as the consensus problem -- is important in distributed computing and multi-agent systems.
-
-*Consensus, as an algorithm*
-
-    An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
+Block Consensus (YAC)
+---------------------
 
 *Consensus, as a component*
 
-    Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <#peer>`__ within a peer network.
+    Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <../core_concepts/glossary.html#peer>`__ within a peer network.
     Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC). 
 
     You can check out a video where HL Iroha maintainer thoroughly explains the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__.
@@ -95,6 +87,8 @@ Solving that issue -- known as the consensus problem -- is important in distribu
 
     To ensure consistency in the network, if there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__.
     Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage.
+
+For general definition of the consensus, please check `this link <../core_concepts/glossary.html#consensus>`_.
 
 
 Synchronizer
@@ -106,17 +100,14 @@ Adds missing blocks to `peers' <../core_concepts/glossary.html#peer>`__ chains (
 Ametsuchi Blockstore
 --------------------
 
-Iroha storage component, which stores blocks and a state generated from blocks, called `World State View <../core_concepts/glossary.html#world-state-view>`__.
+Iroha storage component, which stores blocks and a state generated from blocks, called `World State View <#world-state-view>`__.
 There is no way for the `client <../core_concepts/glossary.html#client>`__ to directly interact with Ametsuchi.
 
 
+World State View
+----------------
 
-
-
-
-
-
-
-
-
-
+WSV reflects the current state of the system, can be considered as a snapshot.
+For example, WSV holds information about an amount of `assets <../core_concepts/glossary.html#asset>`__
+that an `account <../core_concepts/glossary.html#account>`__ has at the moment but does not contain any info
+history of `transaction <../core_concepts/glossary.html#transaction>`__ flow.

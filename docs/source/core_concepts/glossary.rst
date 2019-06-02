@@ -51,6 +51,19 @@ Command
 A command is an intention to change the `state <#world-state-view>`__ of the network.
 For example, in order to create a new `role <#role>`__ in Iroha you have to issue `Create role <../api/commands.html#create-role>`__ command.
 
+Consensus
+=========
+
+A consensus algorithm is a process in computer science used to achieve agreement on a single data value among distributed processes or systems.
+Consensus algorithms are designed to achieve reliability in a network involving multiple unreliable nodes.
+Solving that issue -- known as the consensus problem -- is important in distributed computing and multi-agent systems.
+
+*Consensus, as an algorithm*
+
+    An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
+
+For consensus as Iroha's component, please check `this link <../architecture/index.html#block-consensus-yac>`_.
+
 Domain
 ======
 
@@ -91,7 +104,7 @@ A set of transactions that have passed both `stateless <#stateless-validation>`_
 Query
 =====
 
-A request to Iroha that does **not** change the `state <#world-state-view>`__ of the network.
+A request to Iroha that does **not** change the `state <../architecture/index.html#world-state-view>`__ of the network.
 By performing a query, a client can request data from the state, for example a balance of his account, a history of transactions, etc.
 
 Quorum
@@ -223,15 +236,7 @@ Stateful Validation
 -------------------
 
 Performed in `Verified Proposal Creator <#verified-proposal-creator>`__.
-Validates against `World State View <#world-state-view>`__.
+Validates against `World State View <../architecture/index.html#world-state-view>`__.
 
-
-World State View
-================
-
-WSV reflects the current state of the system, can be considered as a snapshot.
-For example, WSV holds information about an amount of `assets <#asset>`__
-that an `account <#account>`__ has at the moment but does not contain any info
-history of `transaction <#transaction>`__ flow.
 
 .. [#f1] https://en.bitcoin.it/wiki/Block

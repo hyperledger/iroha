@@ -506,7 +506,7 @@ can_add_peer
 
 Allows adding `peers <../core_concepts/glossary.html#peer>`__ to the network.
 
-A new peer will be a valid participant in the next consensus round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "addPeer" `command <../core_concepts/glossary.html#command>`__.
+A new peer will be a valid participant in the next `consensus <../core_concepts/glossary.html#consensus>`__ round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "addPeer" `command <../core_concepts/glossary.html#command>`__.
 
 | Related API method: `Add Peer <../api/commands.html#add-peer>`__
 
