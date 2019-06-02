@@ -72,6 +72,8 @@ struct CommandFixture {
     EXPECT_CALL(*mst_processor_, onExpiredBatchesImpl())
         .WillRepeatedly(Return(mst_notifier_.get_observable()));
 
+    cache_ = std::make_shared<iroha::torii::CommandServiceImpl::CacheType>();
+
     auto status_bus = std::make_shared<iroha::torii::StatusBusImpl>();
     auto status_factory =
         std::make_shared<shared_model::proto::ProtoTxStatusFactory>();

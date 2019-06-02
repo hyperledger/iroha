@@ -93,7 +93,8 @@ namespace fuzzing {
               cleanup_strategy_,
               getSupermajorityChecker(
                   iroha::consensus::yac::ConsistencyModel::kBft),
-              getTestLoggerManager()->getChild("YacVoteStorage")),
+              getTestLoggerManager(logger::LogLevel::kCritical)
+                  ->getChild("YacVoteStorage")),
           network_,
           crypto_provider_,
           timer_,
@@ -101,7 +102,9 @@ namespace fuzzing {
           initial_round_,
           rxcpp::observe_on_one_worker(
               rxcpp::schedulers::make_current_thread()),
-          getTestLoggerManager()->getChild("Yac")->getLogger());
+          getTestLoggerManager(logger::LogLevel::kCritical)
+              ->getChild("Yac")
+              ->getLogger());
 
       network_->subscribe(yac_);
     }

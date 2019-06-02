@@ -7,10 +7,11 @@
 
 #include "logger/logger_manager.hpp"
 
-logger::LoggerManagerTreePtr getTestLoggerManager() {
+logger::LoggerManagerTreePtr getTestLoggerManager(
+    const logger::LogLevel &log_level) {
   static logger::LoggerManagerTreePtr log_manager(
-      std::make_shared<logger::LoggerManagerTree>(logger::LoggerConfig{
-          logger::LogLevel::kDebug, logger::getDefaultLogPatterns()}));
+      std::make_shared<logger::LoggerManagerTree>(
+          logger::LoggerConfig{log_level, logger::getDefaultLogPatterns()}));
   return log_manager->getChild("Test");
 }
 
