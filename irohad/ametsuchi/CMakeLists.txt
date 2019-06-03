@@ -23,8 +23,36 @@ target_link_libraries(pool_wrapper
     SOCI::core
     )
 
-add_library(ametsuchi
+add_library(flat_file_storage
     impl/flat_file/flat_file.cpp
+    impl/flat_file_block_storage.cpp
+    impl/flat_file_block_storage_factory.cpp
+    )
+
+target_link_libraries(flat_file_storage
+    libs_files
+    shared_model_proto_backend
+    logger
+    boost
+    )
+
+add_library(postgres_storage
+    impl/postgres_block_storage.cpp
+    impl/postgres_block_storage_factory.cpp
+    )
+
+target_link_libraries(postgres_storage
+    shared_model_proto_backend
+    logger
+    SOCI::core
+    SOCI::postgresql
+    )
+
+target_compile_definitions(postgres_storage
+    PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+
+add_library(ametsuchi
     impl/command_executor.cpp
     impl/tx_executor.cpp
     impl/storage_impl.cpp
@@ -42,12 +70,12 @@ add_library(ametsuchi
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
-    impl/flat_file_block_storage.cpp
-    impl/flat_file_block_storage_factory.cpp
     impl/k_times_reconnection_strategy.cpp
     )
 
 target_link_libraries(ametsuchi
+    flat_file_storage
+    postgres_storage
     logger
     logger_manager
     rxcpp
