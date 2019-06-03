@@ -83,6 +83,12 @@ target_link_libraries(flat_file_block_storage_test
     test_logger
     )
 
+addtest(postgres_block_storage_test postgres_block_storage_test.cpp)
+target_link_libraries(postgres_block_storage_test
+     ametsuchi
+     ametsuchi_fixture
+     )
+
 add_library(ametsuchi_fixture INTERFACE)
 target_link_libraries(ametsuchi_fixture INTERFACE
     integration_framework_config_helper
