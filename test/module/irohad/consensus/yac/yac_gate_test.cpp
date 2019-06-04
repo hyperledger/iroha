@@ -174,7 +174,7 @@ TEST_F(YacGateTest, YacGateSubscriptionTest) {
  * @then block cache is released
  */
 TEST_F(YacGateTest, CacheReleased) {
-  YacHash empty_hash;
+  YacHash empty_hash({}, ProposalHash(""), BlockHash(""));
 
   // yac consensus
   EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);

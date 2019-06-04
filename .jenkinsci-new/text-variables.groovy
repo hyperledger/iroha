@@ -66,7 +66,7 @@ cmd_description = """
          <li>
             <p>Build in parallel. 0 is choose default: 8 for Linux and 4 for Mac</p>
          </li>
-         <li>Ex:&nbsp;cppcheck = flase</li>
+         <li>Ex:&nbsp;parallelism = 2</li>
       </ul>
    </li>
    <li>
@@ -75,7 +75,7 @@ cmd_description = """
          <li>
             <p>Run test for each selected compiler, in jenkins will be several reports</p>
          </li>
-         <li>Ex:&nbsp;cppcheck = flase</li>
+         <li>Ex:&nbsp;testing = false</li>
       </ul>
    </li>
    <li>
@@ -112,13 +112,13 @@ cmd_description = """
       </ul>
    </li>
    <li>
-      <p><span style="color: #ff0000;"><strong>fuzzing</strong></span> = false</p>
+      <p><span style="color: #ff0000;"><strong>fuzzing</strong></span> = true</p>
       <ul>
          <li>
-            <p>builds fuzzing tests, work only with&nbsp;x64linux_compiler_list = ['clang6']</p>
+            <p>builds fuzzing tests</p>
          </li>
          <li>
-            <p>Ex:&nbsp;fuzzing=true; x64linux_compiler_list= ['clang6']; testing = true; testList = "(None)"</p>
+            <p>Ex:&nbsp;fuzzing=true; testing = true; testList = "(None)"</p>
          </li>
       </ul>
    </li>

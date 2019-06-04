@@ -4,6 +4,7 @@
  */
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
+#include "backend/protobuf/proto_proposal_factory.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "ordering_service_fixture.hpp"
@@ -18,7 +19,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   std::shared_ptr<OnDemandOrderingServiceImpl> ordering_service_;
   std::shared_ptr<OnDemandOsServerGrpc> server_;
 
-  auto proposal_factory = std::make_unique<MockUnsafeProposalFactory>();
+  auto proposal_factory =
+      std::make_unique<shared_model::proto::ProtoProposalFactory<
+          shared_model::validation::DefaultProposalValidator>>(
+          iroha::test::kTestsValidatorsConfig);
   auto storage = std::make_shared<NiceMock<iroha::ametsuchi::MockStorage>>();
   auto cache = std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
   ordering_service_ = std::make_shared<OnDemandOrderingServiceImpl>(

@@ -1522,9 +1522,10 @@ namespace iroha {
       checkSuccessfulResult<TransactionsPageResponse>(
           std::move(query_response),
           [this, size](const auto &tx_page_response) {
+            ASSERT_FALSE(tx_page_response.transactions().empty());
             EXPECT_EQ(tx_page_response.transactions().begin()->hash(),
                       this->tx_hashes_.at(0));
-            ASSERT_TRUE(tx_page_response.nextTxHash());
+            EXPECT_TRUE(tx_page_response.nextTxHash());
             this->generalTransactionsPageResponseCheck(tx_page_response, size);
           });
     }

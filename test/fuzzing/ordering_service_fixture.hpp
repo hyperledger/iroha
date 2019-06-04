@@ -13,12 +13,11 @@
 
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
-#include "module/shared_model/interface/mock_transaction_batch_factory.hpp"
-#include "module/shared_model/interface_mocks.hpp"
-#include "module/shared_model/validators/validators.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "validators/default_validator.hpp"
@@ -34,20 +33,21 @@ namespace fuzzing {
         transaction_factory_;
     std::shared_ptr<shared_model::interface::TransactionBatchParser>
         batch_parser_;
-    std::shared_ptr<NiceMock<MockTransactionBatchFactory>>
+    std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory_;
 
     OrderingServiceFixture() {
       std::unique_ptr<shared_model::validation::AbstractValidator<
           shared_model::interface::Transaction>>
           interface_transaction_validator =
-              std::make_unique<NiceMock<shared_model::validation::MockValidator<
-                  shared_model::interface::Transaction>>>();
+              std::make_unique<shared_model::validation::
+                                   DefaultOptionalSignedTransactionValidator>(
+                  iroha::test::kTestsValidatorsConfig);
       std::unique_ptr<shared_model::validation::AbstractValidator<
           iroha::protocol::Transaction>>
-          proto_transaction_validator =
-              std::make_unique<NiceMock<shared_model::validation::MockValidator<
-                  iroha::protocol::Transaction>>>();
+          proto_transaction_validator = std::make_unique<
+              shared_model::validation::ProtoTransactionValidator>();
+
       transaction_factory_ =
           std::make_shared<shared_model::proto::ProtoTransportFactory<
               shared_model::interface::Transaction,
@@ -57,8 +57,14 @@ namespace fuzzing {
 
       batch_parser_ = std::make_shared<
           shared_model::interface::TransactionBatchParserImpl>();
-      transaction_batch_factory_ =
-          std::make_shared<NiceMock<MockTransactionBatchFactory>>();
+      std::shared_ptr<shared_model::validation::AbstractValidator<
+          shared_model::interface::TransactionBatch>>
+          batch_validator =
+              std::make_shared<shared_model::validation::BatchValidator>(
+                  iroha::test::kTestsValidatorsConfig);
+      transaction_batch_factory_ = std::make_shared<
+          shared_model::interface::TransactionBatchFactoryImpl>(
+          batch_validator);
     }
   };
 }  // namespace fuzzing
