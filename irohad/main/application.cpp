@@ -451,7 +451,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       ordering_init.initOrderingGate(max_proposal_size_,
                                      proposal_delay_,
                                      std::move(hashes),
-                                     storage,
                                      transaction_factory,
                                      batch_parser,
                                      transaction_batch_factory_,
