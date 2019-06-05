@@ -130,8 +130,7 @@ namespace iroha {
         std::unique_ptr<FailoverCallbackFactory> failover_callback_factory_;
       };
 
-      StorageImpl(std::string block_store_dir,
-                  PostgresOptions postgres_options,
+      StorageImpl(PostgresOptions postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -145,11 +144,6 @@ namespace iroha {
                   bool enable_prepared_blocks,
                   const std::string &prepared_block_name,
                   logger::LoggerManagerTreePtr log_manager);
-
-      /**
-       * Folder with raw blocks
-       */
-      const std::string block_store_dir_;
 
       // db info
       const PostgresOptions postgres_options_;

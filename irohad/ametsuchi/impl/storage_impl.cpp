@@ -271,7 +271,6 @@ namespace iroha {
         : block_store(std::move(block_store)) {}
 
     StorageImpl::StorageImpl(
-        std::string block_store_dir,
         PostgresOptions postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
@@ -284,8 +283,7 @@ namespace iroha {
         bool enable_prepared_blocks,
         const std::string &prepared_block_name,
         logger::LoggerManagerTreePtr log_manager)
-        : block_store_dir_(std::move(block_store_dir)),
-          postgres_options_(std::move(postgres_options)),
+        : postgres_options_(std::move(postgres_options)),
           block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_.connection_pool_),
@@ -731,7 +729,6 @@ namespace iroha {
 
                         storage = expected::makeValue(
                             std::shared_ptr<StorageImpl>(new StorageImpl(
-                                block_store_dir,
                                 options,
                                 std::move(ctx.value.block_store),
                                 std::move(pool_wrapper),
