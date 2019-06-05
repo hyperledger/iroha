@@ -19,6 +19,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "datetime/time.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -517,7 +518,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetMyAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id)
+                       .getAccountAssets(account_id, kMaxPageSize, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -536,7 +537,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetAllAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id2)
+                       .getAccountAssets(account_id2, kMaxPageSize, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -555,7 +556,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kGetDomainAccAst});
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
-                       .getAccountAssets(account_id2)
+                       .getAccountAssets(account_id2, kMaxPageSize, boost::none)
                        .build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
@@ -572,10 +573,11 @@ namespace iroha {
      */
     TEST_F(GetAccountAssetExecutorTest, InvalidDifferentDomain) {
       addPerms({shared_model::interface::permissions::Role::kGetDomainAccAst});
-      auto query = TestQueryBuilder()
-                       .creatorAccountId(account_id)
-                       .getAccountAssets(another_account_id)
-                       .build();
+      auto query =
+          TestQueryBuilder()
+              .creatorAccountId(account_id)
+              .getAccountAssets(another_account_id, kMaxPageSize, boost::none)
+              .build();
       auto result = executeQuery(query);
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
           std::move(result), kNoPermissions);
@@ -588,10 +590,11 @@ namespace iroha {
      */
     TEST_F(GetAccountAssetExecutorTest, DISABLED_InvalidNoAccount) {
       addPerms({shared_model::interface::permissions::Role::kGetAllAccAst});
-      auto query = TestQueryBuilder()
-                       .creatorAccountId(account_id)
-                       .getAccountAssets("some@domain")
-                       .build();
+      auto query =
+          TestQueryBuilder()
+              .creatorAccountId(account_id)
+              .getAccountAssets("some@domain", kMaxPageSize, boost::none)
+              .build();
       auto result = executeQuery(query);
       checkStatefulError<shared_model::interface::NoAccountAssetsErrorResponse>(
           std::move(result), kNoStatefulError);
