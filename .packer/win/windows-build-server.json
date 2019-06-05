@@ -2,7 +2,7 @@
     "variables": {
         "aws_access_key": "",
         "aws_secret_key": "",
-        "instance_type": "c5.xlarge",
+        "instance_type": "c5.2xlarge",
         "windows_password": ""
     },
     "builders": [
