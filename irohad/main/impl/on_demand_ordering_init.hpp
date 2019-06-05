@@ -8,7 +8,6 @@
 
 #include <random>
 
-#include "ametsuchi/peer_query_factory.hpp"
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
@@ -54,7 +53,6 @@ namespace iroha {
        * parameters
        */
       auto createConnectionManager(
-          std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
@@ -107,8 +105,6 @@ namespace iroha {
        * @param delay timeout for ordering service response on proposal request
        * @param initial_hashes seeds for peer list permutations for first k
        * rounds they are required since hash of block i defines round i + k
-       * @param peer_query_factory factory for getLedgerPeers query required by
-       * connection manager
        * @param transaction_factory transport factory for transactions required
        * by ordering service network endpoint
        * @param batch_parser transaction batch parser required by ordering
@@ -125,8 +121,6 @@ namespace iroha {
           size_t max_number_of_transactions,
           std::chrono::milliseconds delay,
           std::vector<shared_model::interface::types::HashType> initial_hashes,
-          // TODO 30.01.2019 lebdron: IR-263 Remove PeerQueryFactory
-          std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
           std::shared_ptr<
               ordering::transport::OnDemandOsServerGrpc::TransportFactoryType>
               transaction_factory,

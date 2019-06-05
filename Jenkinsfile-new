@@ -138,10 +138,10 @@ node ('master') {
 
   testing = true
   testList = '(module)'
+  fuzzing = true // testing = true
 
   sanitize = false
   cppcheck = false
-  fuzzing = false // x64linux_compiler_list= ['clang6']  testing = true testList = "(None)"
   coredumps = true
   sonar = false
   coverage = false
@@ -271,7 +271,7 @@ node ('master') {
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', specialBranch, false,
-      false , testList, false, false, false, true, false, false, false, false, false, environmentList)}]
+      false, testList, false, false, false, true, false, false, false, false, false, environmentList)}]
     }
     x64LinuxPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
@@ -281,11 +281,11 @@ node ('master') {
   def x64MacBuildPostSteps = new Builder.PostSteps()
   if(!mac_compiler_list.isEmpty()){
     x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, useBTF,  environmentList)}]
+      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, useBTF, environmentList)}]
     //If "master" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-        mac_compiler_list, 'Release', false, false, testList, true, false,  environmentList)}]
+        mac_compiler_list, 'Release', false, false, testList, true, false, false, environmentList)}]
     }
     x64MacBuildPostSteps = new Builder.PostSteps(
       always: [{x64BuildScript.alwaysPostSteps(environmentList)}],

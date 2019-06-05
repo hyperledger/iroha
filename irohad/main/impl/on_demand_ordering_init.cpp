@@ -63,7 +63,6 @@ namespace iroha {
     }
 
     auto OnDemandOrderingInit::createConnectionManager(
-        std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
         std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
             async_call,
         std::shared_ptr<TransportFactoryType> proposal_transport_factory,
@@ -89,25 +88,17 @@ namespace iroha {
       auto latest_hashes =
           all_hashes.zip(all_hashes.skip(1), all_hashes.skip(2));
 
-      auto map_peers = [this, peer_query_factory](auto &&latest_data)
+      auto map_peers = [this](auto &&latest_data)
           -> ordering::OnDemandConnectionManager::CurrentPeers {
         auto &latest_commit = std::get<0>(latest_data);
         auto &current_hashes = std::get<1>(latest_data);
 
         consensus::Round current_round = latest_commit.round;
 
-        auto on_blocks = [this,
-                          peer_query_factory,
-                          current_hashes,
-                          &current_round](const auto & /*commit*/) {
+        auto on_blocks = [this, current_hashes, &current_round](
+                             const auto &commit) {
           current_round = ordering::nextCommitRound(current_round);
-
-          // retrieve peer list from database
-          // TODO lebdron 08.11.2018 IR-1853 Refactor PeerQuery without
-          // database access and optional
-          peer_query_factory->createPeerQuery() | [](auto &&query) {
-            return query->getLedgerPeers();
-          } | [this](auto &&peers) { current_peers_ = std::move(peers); };
+          current_peers_ = commit.ledger_state->ledger_peers;
 
           // generate permutation of peers list from corresponding round
           // hash
@@ -321,7 +312,6 @@ namespace iroha {
         size_t max_number_of_transactions,
         std::chrono::milliseconds delay,
         std::vector<shared_model::interface::types::HashType> initial_hashes,
-        std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
         std::shared_ptr<
             ordering::transport::OnDemandOsServerGrpc::TransportFactoryType>
             transaction_factory,
@@ -350,8 +340,7 @@ namespace iroha {
           ordering_log_manager->getChild("Server")->getLogger());
       return createGate(
           ordering_service,
-          createConnectionManager(std::move(peer_query_factory),
-                                  std::move(async_call),
+          createConnectionManager(std::move(async_call),
                                   std::move(proposal_transport_factory),
                                   delay,
                                   std::move(initial_hashes),
