@@ -17,6 +17,9 @@ namespace shared_model {
           std::vector<std::tuple<interface::types::AccountIdType,
                                  interface::types::AssetIdType,
                                  shared_model::interface::Amount>> assets,
+          size_t total_assets_number,
+          boost::optional<shared_model::interface::types::AssetIdType>
+              next_asset_id,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createAccountDetailResponse(
