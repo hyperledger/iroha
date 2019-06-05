@@ -6,10 +6,12 @@
 #ifndef IROHA_TEST_FRAMEWORK_COMMON_CONSTANTS_HPP_
 #define IROHA_TEST_FRAMEWORK_COMMON_CONSTANTS_HPP_
 
+#include <limits>
 #include <string>
 
 #include "cryptography/keypair.hpp"
 
+static const uint32_t kMaxPageSize = std::numeric_limits<uint32_t>::max();
 using shared_model::crypto::Keypair;
 
 namespace common_constants {

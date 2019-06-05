@@ -11,7 +11,16 @@ namespace shared_model {
     template <typename QueryType>
     GetAccountAssets::GetAccountAssets(QueryType &&query)
         : CopyableProto(std::forward<QueryType>(query)),
-          account_assets_{proto_->payload().get_account_assets()} {}
+          account_assets_{proto_->payload().get_account_assets()},
+          pagination_meta_{
+              [this]() -> boost::optional<const AssetPaginationMeta> {
+                if (this->account_assets_.has_pagination_meta()) {
+                  return AssetPaginationMeta{
+                      this->account_assets_.pagination_meta()};
+                } else {
+                  return boost::none;
+                }
+              }()} {}
 
     template GetAccountAssets::GetAccountAssets(
         GetAccountAssets::TransportType &);
@@ -28,6 +37,14 @@ namespace shared_model {
 
     const interface::types::AccountIdType &GetAccountAssets::accountId() const {
       return account_assets_.account_id();
+    }
+
+    boost::optional<const interface::AssetPaginationMeta &>
+    GetAccountAssets::paginationMeta() const {
+      if (pagination_meta_) {
+        return pagination_meta_.value();
+      }
+      return boost::none;
     }
 
   }  // namespace proto
