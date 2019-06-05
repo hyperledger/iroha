@@ -17,8 +17,10 @@
 #include <boost/range/irange.hpp>
 
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "cryptography/public_key.hpp"
+#include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/get_account.hpp"
 #include "interfaces/queries/get_account_asset_transactions.hpp"
@@ -866,16 +868,47 @@ namespace iroha {
       using QueryTuple =
           QueryType<shared_model::interface::types::AccountIdType,
                     shared_model::interface::types::AssetIdType,
-                    std::string>;
+                    std::string,
+                    size_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(R"(WITH has_perms AS (%s),
-      t AS (
-          SELECT * FROM account_has_asset
-          WHERE account_id = :account_id
+      // get the assets
+      auto cmd = (boost::format(R"(
+      with has_perms as (%s),
+      all_data as (
+          select row_number() over () rn, *
+          from (
+              select *
+              from account_has_asset
+              where account_id = :account_id
+              order by asset_id
+          ) t
+      ),
+      total_number as (
+          select rn total_number
+          from all_data
+          order by rn desc
+          limit 1
+      ),
+      page_start as (
+          select rn
+          from all_data
+          where coalesce(asset_id = :first_asset_id, true)
+          limit 1
+      ),
+      page_data as (
+          select * from all_data, page_start, total_number
+          where
+              all_data.rn >= page_start.rn and
+              coalesce( -- TODO remove after pagination is mandatory IR-516
+                  all_data.rn < page_start.rn + :page_size,
+                  true
+              )
       )
-      SELECT account_id, asset_id, amount, perm FROM t
-      RIGHT OUTER JOIN has_perms ON TRUE
+      select account_id, asset_id, amount, total_number, perm
+          from
+              page_data
+              right join has_perms on true
       )")
                   % hasQueryPermission(creator_id_,
                                        q.accountId(),
@@ -884,26 +917,62 @@ namespace iroha {
                                        Role::kGetDomainAccAst))
                      .str();
 
+      // These must stay alive while soci query is being done.
+      const auto pagination_meta{q.paginationMeta()};
+      const auto req_first_asset_id =
+          pagination_meta | [](const auto &pagination_meta) {
+            return boost::optional<std::string>(pagination_meta.firstAssetId());
+          };
+      const auto req_page_size =  // TODO 2019.05.31 mboldyrev make it
+                                  // non-optional after IR-516
+          pagination_meta | [](const auto &pagination_meta) {
+            return boost::optional<size_t>(pagination_meta.pageSize() + 1);
+          };
+
       return executeQuery<QueryTuple, PermissionTuple>(
-          [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
+          [&] {
+            return (sql_.prepare << cmd,
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(req_first_asset_id, "first_asset_id"),
+                    soci::use(req_page_size, "page_size"));
+          },
           [&](auto range, auto &) {
             std::vector<
                 std::tuple<shared_model::interface::types::AccountIdType,
                            shared_model::interface::types::AssetIdType,
                            shared_model::interface::Amount>>
                 assets;
-            boost::for_each(range, [&assets](auto t) {
-              apply(t,
-                    [&assets](auto &account_id, auto &asset_id, auto &amount) {
+            size_t total_number = 0;
+            for (const auto &row : range) {
+              apply(row,
+                    [&assets, &total_number](auto &account_id,
+                                             auto &asset_id,
+                                             auto &amount,
+                                             auto &total_number_col) {
+                      total_number = total_number_col;
                       assets.push_back(std::make_tuple(
                           std::move(account_id),
                           std::move(asset_id),
                           shared_model::interface::Amount(amount)));
                     });
-            });
-            // TODO mboldyrev 2019.05.17 IR-473 implement pagination
+            }
+            if (assets.empty() and req_first_asset_id) {
+              // nonexistent first_asset_id provided in query request
+              return this->logAndReturnErrorResponse(
+                  QueryErrorType::kStatefulFailed, q.accountId(), 4);
+            }
+            assert(total_number >= assets.size());
+            const bool is_last_page = not q.paginationMeta()
+                or (assets.size() <= q.paginationMeta()->pageSize());
+            boost::optional<shared_model::interface::types::AssetIdType>
+                next_asset_id;
+            if (not is_last_page) {
+              next_asset_id = std::get<1>(assets.back());
+              assets.pop_back();
+              assert(assets.size() == q.paginationMeta()->pageSize());
+            }
             return query_response_factory_->createAccountAssetResponse(
-                assets, assets.size(), boost::none, query_hash_);
+                assets, total_number, next_asset_id, query_hash_);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccAst,
