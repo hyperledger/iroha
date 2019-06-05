@@ -116,6 +116,9 @@ namespace shared_model {
         reason.first = "GetAccountAssets";
 
         validator_.validateAccountId(reason, qry.accountId());
+        if (qry.paginationMeta()) {
+          validator_.validateAssetPaginationMeta(reason, *qry.paginationMeta());
+        }
         return reason;
       }
 

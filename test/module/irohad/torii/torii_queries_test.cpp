@@ -33,6 +33,7 @@
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"
 #include "utils/query_error_response_visitor.hpp"
+#include "framework/common_constants.hpp"
 
 constexpr size_t TimesFind = 1;
 static constexpr shared_model::interface::types::TransactionsNumberType
@@ -350,14 +351,15 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
 
   iroha::protocol::QueryResponse response;
 
-  auto model_query = shared_model::proto::QueryBuilder()
-                         .creatorAccountId(creator)
-                         .queryCounter(1)
-                         .createdTime(iroha::time::now())
-                         .getAccountAssets(accountb_id)
-                         .build()
-                         .signAndAddSignature(pair)
-                         .finish();
+  auto model_query =
+      shared_model::proto::QueryBuilder()
+          .creatorAccountId(creator)
+          .queryCounter(1)
+          .createdTime(iroha::time::now())
+          .getAccountAssets(accountb_id, kMaxPageSize, boost::none)
+          .build()
+          .signAndAddSignature(pair)
+          .finish();
 
   auto *r = query_response_factory
                 ->createErrorQueryResponse(
@@ -396,7 +398,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
                          .creatorAccountId(creator)
                          .queryCounter(1)
                          .createdTime(iroha::time::now())
-                         .getAccountAssets(creator)
+                         .getAccountAssets(creator, kMaxPageSize, boost::none)
                          .build()
                          .signAndAddSignature(pair)
                          .finish();

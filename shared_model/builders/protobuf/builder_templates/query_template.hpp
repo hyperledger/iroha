@@ -165,11 +165,19 @@ namespace shared_model {
         });
       }
 
-      auto getAccountAssets(const interface::types::AccountIdType &account_id)
-          const {
+      auto getAccountAssets(
+          const interface::types::AccountIdType &account_id,
+          size_t page_size,
+          boost::optional<shared_model::interface::types::AssetIdType>
+              first_asset_id) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_assets();
           query->set_account_id(account_id);
+          auto pagination_meta = query->mutable_pagination_meta();
+          pagination_meta->set_page_size(page_size);
+          if (first_asset_id) {
+            pagination_meta->set_first_asset_id(*first_asset_id);
+          }
         });
       }
 
