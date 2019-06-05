@@ -61,8 +61,13 @@ namespace iroha {
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
     auto account_batches_iterator = storage_.find(account_id);
     if (storage_.end() == account_batches_iterator) {
-      return iroha::expected::makeError(
-          PendingTransactionStorage::ErrorCode::EMPTY);
+      if (first_tx_hash) {
+        return iroha::expected::makeError(
+            PendingTransactionStorage::ErrorCode::NOT_FOUND);
+      } else {
+        return iroha::expected::makeValue(
+            PendingTransactionStorage::Response{});
+      }
     }
     auto &account_batches = account_batches_iterator->second;
     auto batch_iterator = account_batches.batches.begin();
@@ -74,10 +79,8 @@ namespace iroha {
       }
       batch_iterator = index_iterator->second;
     }
-    if (account_batches.batches.end() == batch_iterator) {
-      return iroha::expected::makeError(
-          PendingTransactionStorage::ErrorCode::EMPTY);
-    }
+    BOOST_ASSERT_MSG(account_batches.batches.end() != batch_iterator,
+                     "Empty account batches entry was not removed");
 
     PendingTransactionStorage::Response response;
     response.all_transactions_size = account_batches.all_transactions_quantity;
@@ -120,29 +123,26 @@ namespace iroha {
       auto batch_size = batch->transactions().size();
       for (const auto &creator : batch_creators) {
         auto account_batches_iterator = storage_.find(creator);
-        if (account_batches_iterator == storage_.end()) {
+        if (storage_.end() == account_batches_iterator) {
           auto insertion_result = storage_.emplace(
               creator, PendingTransactionStorageImpl::AccountBatches{});
-          if (insertion_result.second) {
-            account_batches_iterator = insertion_result.first;
-          }
+          BOOST_ASSERT(insertion_result.second);
+          account_batches_iterator = insertion_result.first;
         }
-        if (account_batches_iterator != storage_.end()) {
-          auto &account_batches = account_batches_iterator->second;
-          auto index_iterator = account_batches.index.find(first_tx_hash);
-          if (index_iterator == account_batches.index.end()) {
-            // inserting the batch
-            account_batches.all_transactions_quantity += batch_size;
-            account_batches.batches.push_back(batch);
-            auto inserted_batch_iterator =
-                std::prev(account_batches.batches.end());
-            account_batches.index.emplace(first_tx_hash,
-                                          inserted_batch_iterator);
-          } else {
-            // updating batch
-            auto &account_batch = index_iterator->second;
-            *account_batch = batch;
-          }
+
+        auto &account_batches = account_batches_iterator->second;
+        auto index_iterator = account_batches.index.find(first_tx_hash);
+        if (index_iterator == account_batches.index.end()) {
+          // inserting the batch
+          account_batches.all_transactions_quantity += batch_size;
+          account_batches.batches.push_back(batch);
+          auto inserted_batch_iterator =
+              std::prev(account_batches.batches.end());
+          account_batches.index.emplace(first_tx_hash, inserted_batch_iterator);
+        } else {
+          // updating batch
+          auto &account_batch = index_iterator->second;
+          *account_batch = batch;
         }
       }
     });
@@ -160,12 +160,11 @@ namespace iroha {
         auto index_iterator = account_batches.index.find(first_tx_hash);
         if (index_iterator != account_batches.index.end()) {
           auto &batch_iterator = index_iterator->second;
-          if (batch_iterator != account_batches.batches.end()) {
-            account_batches.batches.erase(batch_iterator);
-          }
+          BOOST_ASSERT(batch_iterator != account_batches.batches.end());
+          account_batches.batches.erase(batch_iterator);
           account_batches.index.erase(index_iterator);
+          account_batches.all_transactions_quantity -= batch_size;
         }
-        account_batches.all_transactions_quantity -= batch_size;
         if (0 == account_batches.all_transactions_quantity) {
           storage_.erase(account_batches_iterator);
         }

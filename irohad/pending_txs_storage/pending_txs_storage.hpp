@@ -26,7 +26,6 @@ namespace iroha {
      */
     enum ErrorCode {
       NOT_FOUND,  // there is no batch which first tx has specified hash
-      EMPTY,      // storage has no pending batches or transactions for the user
     };
 
     /**
