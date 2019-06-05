@@ -21,7 +21,7 @@
                 "owners": ["801119661308"],
                 "most_recent": true
             },
-            "ami_name": "packer-jenkins-win-slave-test-bulat-iroha",
+            "ami_name": "packer-jenkins-win-slave-iroha",
             "security_group_id": "sg-0b1d8602d2597ca48",
             "user_data_file": "./scripts/SetUpWinRM.ps1",
             "communicator": "winrm",
