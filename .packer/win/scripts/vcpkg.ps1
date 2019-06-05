@@ -6,6 +6,9 @@ git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
 echo "Run bootstrap-vcpkg.bat"
 C:\vcpkg\bootstrap-vcpkg.bat
 
+echo "Run vcpkg.exe integrate install"
+C:\vcpkg\vcpkg.exe integrate install
+
 echo "Checkout to commit"
 git -C C:\vcpkg checkout  (Get-Content -Path c:\Windows\Temp\vcpkg\VCPKG_COMMIT_SHA)
 
