@@ -14,7 +14,14 @@ namespace shared_model {
         : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
           account_asset_response_{proto_->account_assets_response()},
           account_assets_{account_asset_response_.account_assets().begin(),
-                          account_asset_response_.account_assets().end()} {}
+                          account_asset_response_.account_assets().end()},
+          next_asset_id_{[this]() -> decltype(next_asset_id_) {
+            if (account_asset_response_.opt_next_asset_id_case()
+                == iroha::protocol::AccountAssetResponse::kNextAssetId) {
+              return this->account_asset_response_.next_asset_id();
+            }
+            return boost::none;
+          }()} {}
 
     template AccountAssetResponse::AccountAssetResponse(
         AccountAssetResponse::TransportType &);
@@ -32,6 +39,15 @@ namespace shared_model {
     const interface::types::AccountAssetCollectionType
     AccountAssetResponse::accountAssets() const {
       return account_assets_;
+    }
+
+    boost::optional<interface::types::AssetIdType>
+    AccountAssetResponse::nextAssetId() const {
+      return next_asset_id_;
+    }
+
+    size_t AccountAssetResponse::totalAccountAssetsNumber() const {
+      return account_asset_response_.total_number();
     }
 
   }  // namespace proto
