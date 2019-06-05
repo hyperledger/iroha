@@ -92,8 +92,8 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
                         shared_model::interface::Amount(std::to_string(i))));
   }
 
-  query_responses.push_back(
-      response_factory->createAccountAssetResponse(assets, kQueryHash));
+  query_responses.push_back(response_factory->createAccountAssetResponse(
+      assets, assets.size(), boost::none, kQueryHash));
 
   for (auto &query_response : query_responses) {
     ASSERT_TRUE(query_response);
