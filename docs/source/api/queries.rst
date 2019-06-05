@@ -457,8 +457,16 @@ Request Schema
 
 .. code-block:: proto
 
+    message AssetPaginationMeta {
+        uint32 page_size = 1;
+        oneof opt_first_asset_id {
+            string first_asset_id = 2;
+        }
+    }
+
     message GetAccountAssets {
         string account_id = 1;
+        AssetPaginationMeta pagination_meta = 2;
     }
 
 Request Structure
@@ -469,13 +477,19 @@ Request Structure
     :widths: 15, 30, 20, 15
 
     "Account ID", "account id to request balance from", "<account_name>@<domain_id>", "makoto@soramitsu"
+    AssetPaginationMeta.page_size, "Requested page size. The number of assets in response will not exceed this value. If the response was truncated, the asset id immediately following the returned ones will be provided in next_asset_id.", 0 < page_size < 32 bit unsigned int max (4294967296), 100
+    AssetPaginationMeta.first_asset_id, "Requested page start.  If the field is not set, then the first page is returned.", name#domain, my_asset#my_domain
 
 Response Schema
 ---------------
 .. code-block:: proto
 
     message AccountAssetResponse {
-        repeated AccountAsset acct_assets = 1;
+        repeated AccountAsset account_assets = 1;
+        uint32 total_number = 2;
+        oneof opt_next_asset_id {
+            string next_asset_id = 3;
+        }
     }
 
     message AccountAsset {
@@ -494,6 +508,13 @@ Response Structure
     "Asset ID", "identifier of asset used for checking the balance", "<asset_name>#<domain_id>", "jpy#japan"
     "Account ID", "account which has this balance", "<account_name>@<domain_id>", "makoto@soramitsu"
     "Balance", "balance of the asset", "No less than 0", "200.20"
+    total_number, number of assets matching query without page limits, 0 < total_number < 32 bit unsigned int max (4294967296), 100500
+    next_asset_id, the id of asset immediately following curent page, name#domain, my_asset#my_domain
+
+.. note::
+   If page size is equal or greater than the number of assets matching other requested criteria, the next asset id will be unset in the response.
+   Otherwise, it contains the value that clients should use for the first asset id if they want to fetch the next page.
+
 
 Possible Stateful Validation Errors
 -----------------------------------
@@ -504,6 +525,7 @@ Possible Stateful Validation Errors
     "1", "Could not get account assets", "Internal error happened", "Try again or contact developers"
     "2", "No such permissions", "Query's creator does not have any of the permissions to get account assets", "Grant the necessary permission: individual, global or domain one"
     "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
+    "4", "Invalid pagination metadata", "Wrong page size or nonexistent first asset", "Set a valid page size, and make sure that asset id is valid, or leave first asset id unspecified"
 
 Get Account Detail
 ^^^^^^^^^^^^^^^^^^
