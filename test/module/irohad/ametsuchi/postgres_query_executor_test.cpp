@@ -11,6 +11,7 @@
 #include <sstream>
 #include <type_traits>
 
+#include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/size.hpp>
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
@@ -86,7 +87,7 @@ namespace iroha {
      */
     template <typename ExpectedQueryResponseType,
               typename QueryResultCheckCallable>
-    void checkSuccessfulResult(QueryExecutorResult exec_result,
+    void checkSuccessfulResult(const QueryExecutorResult &exec_result,
                                QueryResultCheckCallable check_callable) {
       ASSERT_NO_THROW({
         const auto &cast_resp =
@@ -104,16 +105,23 @@ namespace iroha {
      */
     template <typename ExpectedQueryErrorType>
     void checkStatefulError(
-        QueryExecutorResult exec_result,
+        const QueryExecutorResult &exec_result,
         shared_model::interface::ErrorQueryResponse::ErrorCodeType
             expected_code) {
-      ASSERT_NO_THROW({
-        const auto &error_qry_rsp =
-            boost::get<const shared_model::interface::ErrorQueryResponse &>(
-                exec_result->get());
-        ASSERT_EQ(error_qry_rsp.errorCode(), expected_code);
-        boost::get<const ExpectedQueryErrorType &>(error_qry_rsp.get());
-      }) << exec_result->toString();
+      const shared_model::interface::ErrorQueryResponse *error_query_response =
+          boost::get<const shared_model::interface::ErrorQueryResponse &>(
+              &exec_result->get());
+      if (not error_query_response) {
+        ADD_FAILURE() << "Result is not an error as it is supposed to be! "
+                         "Actual result is: "
+                      << exec_result->toString();
+        return;
+      }
+      EXPECT_EQ(error_query_response->errorCode(), expected_code);
+      EXPECT_TRUE(boost::get<const ExpectedQueryErrorType &>(
+          &error_query_response->get()))
+          << "Result has wrong error type! Actual result is: "
+          << exec_result->toString();
     }
 
     class QueryExecutorTest : public AmetsuchiTest {
@@ -598,6 +606,203 @@ namespace iroha {
       auto result = executeQuery(query);
       checkStatefulError<shared_model::interface::NoAccountAssetsErrorResponse>(
           std::move(result), kNoStatefulError);
+    }
+
+    class GetAccountAssetPaginationExecutorTest : public QueryExecutorTest {
+     public:
+      void SetUp() override {
+        QueryExecutorTest::SetUp();
+        using shared_model::interface::permissions::Role;
+        addPerms({Role::kGetMyAccAst, Role::kAddAssetQty, Role::kCreateAsset});
+      }
+
+      std::string makeAssetName(size_t i) {
+        return (boost::format("asset_%03d") % i).str();
+      }
+
+      shared_model::interface::types::AssetIdType makeAssetId(size_t i) {
+        return makeAssetName(i) + "#" + domain_id;
+      }
+
+      shared_model::interface::Amount makeAssetQuantity(size_t n) {
+        return shared_model::interface::Amount{
+            (boost::format("%d.0") % n).str()};
+      }
+
+      /**
+       * Create new assets and add some quantity to the default account.
+       * Asset names are `asset_NNN`, where NNN is zero-padded number in the
+       * order of creation. Asset precision is 1. The quantity added equals the
+       * asset number.
+       */
+      void createAccountAssets(size_t n) {
+        for (size_t i = 0; i < n; ++i) {
+          // create the asset
+          execute(*mock_command_factory->constructCreateAsset(
+                      makeAssetName(assets_added_), domain_id, 1),
+                  true);
+
+          // add asset quantity to default account
+          execute(
+              *mock_command_factory->constructAddAssetQuantity(
+                  makeAssetId(assets_added_), makeAssetQuantity(assets_added_)),
+              true);
+
+          ++assets_added_;
+        }
+      }
+
+      /**
+       * Check the page response.
+       * @param response the response of GetAccountAssets query
+       * @param page_start requested first asset (according to the order of
+       *        addition)
+       * @param page_size requested page size
+       */
+      void validatePageResponse(const QueryExecutorResult &response,
+                                boost::optional<size_t> page_start,
+                                size_t page_size) {
+        checkSuccessfulResult<shared_model::interface::AccountAssetResponse>(
+            response,
+            [this, page_start = page_start.value_or(0), page_size](
+                const auto &response) {
+              ASSERT_LE(page_start, assets_added_) << "Bad test.";
+              const bool is_last_page = page_start + page_size >= assets_added_;
+              const size_t expected_page_size =
+                  is_last_page ? assets_added_ - page_start : page_size;
+              EXPECT_EQ(response.accountAssets().size(), expected_page_size);
+              EXPECT_EQ(response.totalAccountAssetsNumber(), assets_added_);
+              if (is_last_page) {
+                EXPECT_FALSE(response.nextAssetId());
+              } else {
+                if (not response.nextAssetId()) {
+                  ADD_FAILURE() << "nextAssetId not set!";
+                } else {
+                  EXPECT_EQ(*response.nextAssetId(),
+                            this->makeAssetId(page_start + page_size));
+                }
+              }
+              for (size_t i = 0; i < response.accountAssets().size(); ++i) {
+                EXPECT_EQ(response.accountAssets()[i].assetId(),
+                          this->makeAssetId(page_start + i));
+                EXPECT_EQ(response.accountAssets()[i].balance(),
+                          this->makeAssetQuantity(page_start + i));
+                EXPECT_EQ(response.accountAssets()[i].accountId(), account_id);
+              }
+            });
+      }
+
+      /**
+       * Query account assets.
+       */
+      QueryExecutorResult queryPage(boost::optional<size_t> page_start,
+                                    size_t page_size) {
+        boost::optional<shared_model::interface::types::AssetIdType>
+            first_asset_id;
+        if (page_start) {
+          first_asset_id = makeAssetId(page_start.value());
+        }
+        auto query =
+            TestQueryBuilder()
+                .creatorAccountId(account_id)
+                .getAccountAssets(account_id, page_size, first_asset_id)
+                .build();
+        return executeQuery(query);
+      }
+
+      /**
+       * Query account assets and validate the response.
+       */
+      QueryExecutorResult queryPageAndValidateResponse(
+          boost::optional<size_t> page_start, size_t page_size) {
+        auto response = queryPage(page_start, page_size);
+        validatePageResponse(response, page_start, page_size);
+        return response;
+      }
+
+      /// The number of assets added to the default account.
+      size_t assets_added_{0};
+    };
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets with page metadata not set
+     * @then all 10 asset values are returned and are valid
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, NoPageMetaData) {
+      createAccountAssets(10);
+
+      shared_model::proto::Query query{[] {
+        iroha::protocol::Query query;
+
+        // set creator account
+        query.mutable_payload()->mutable_meta()->set_creator_account_id(
+            account_id);
+
+        // make a getAccountAssets query
+        query.mutable_payload()->mutable_get_account_assets()->set_account_id(
+            account_id);
+
+        return shared_model::proto::Query{query};
+      }()};
+
+      // send the query
+      QueryExecutorResult response = executeQuery(query);
+
+      // validate result
+      validatePageResponse(response, boost::none, 10);
+      }
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets first page of size 5
+     * @then first 5 asset values are returned and are valid
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, FirstPage) {
+      createAccountAssets(10);
+      queryPageAndValidateResponse(boost::none, 5);
+    }
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets page of size 5 starting from 3rd asset
+     * @then assets' #3 to #7 values are returned and are valid
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, MiddlePage) {
+      createAccountAssets(10);
+      queryPageAndValidateResponse(3, 5);
+    }
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets page of size 5 starting from 5th asset
+     * @then assets' #5 to #9 values are returned and are valid
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, LastPage) {
+      createAccountAssets(10);
+      queryPageAndValidateResponse(5, 5);
+    }
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets page of size 5 starting from 8th asset
+     * @then assets' #8 to #9 values are returned and are valid
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, PastLastPage) {
+      createAccountAssets(10);
+      queryPageAndValidateResponse(8, 5);
+    }
+
+    /**
+     * @given account with all related permissions and 10 assets
+     * @when queried assets page of size 5 starting from unknown asset
+     * @then error response is returned
+     */
+    TEST_F(GetAccountAssetPaginationExecutorTest, NonexistentStartTx) {
+      createAccountAssets(10);
+      auto response = queryPage(10, 5);
+      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
+          response, kInvalidPagination);
     }
 
     class GetAccountDetailExecutorTest : public QueryExecutorTest {
