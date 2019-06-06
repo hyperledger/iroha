@@ -32,6 +32,8 @@
 
 namespace {
 
+  static const std::string kDefaultDatabaseName{"iroha_default"};
+
   /**
    * Verify whether postgres supports prepared transactions
    */
@@ -465,25 +467,16 @@ namespace iroha {
         return;
       }
 
-      if (auto dbname = postgres_options_.dbname()) {
-        auto &db = dbname.value();
-        std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
-        log_->info("Drop database {}", db);
-        freeConnections();
-        soci::session sql(*soci::factory_postgresql(),
-                          postgres_options_.optionsStringWithoutDbName());
-        // perform dropping
-        try {
-          sql << "DROP DATABASE " + db;
-        } catch (std::exception &e) {
-          log_->warn("Drop database was failed. Reason: {}", e.what());
-        }
-      } else {
-        // Clear all the tables first, as it takes much less time because the
-        // foreign key triggers are ignored.
-        soci::session(*connection_) << reset_;
-        // Empty tables can now be dropped very fast.
-        soci::session(*connection_) << drop_;
+      std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
+      log_->info("Drop database {}", postgres_options_.dbname());
+      freeConnections();
+      soci::session sql(*soci::factory_postgresql(),
+                        postgres_options_.optionsStringWithoutDbName());
+      // perform dropping
+      try {
+        sql << "DROP DATABASE " + postgres_options_.dbname();
+      } catch (std::exception &e) {
+        log_->warn("Drop database was failed. Reason: {}", e.what());
       }
 
       // erase blocks
@@ -664,14 +657,16 @@ namespace iroha {
         size_t pool_size) {
       boost::optional<std::string> string_res = boost::none;
 
-      PostgresOptions options(postgres_options);
+      PostgresOptions options(
+          postgres_options,
+          kDefaultDatabaseName,
+          log_manager->getChild("DbOptionsParser")->getLogger());
 
-      // create database if
-      options.dbname() | [&options, &string_res](const std::string &dbname) {
-        createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
-            .match([](auto &&val) {},
-                   [&string_res](auto &&error) { string_res = error.error; });
-      };
+      // create database if it does not exist
+      createDatabaseIfNotExist(options.dbname(),
+                               options.optionsStringWithoutDbName())
+          .match([](auto &&val) {},
+                 [&string_res](auto &&error) { string_res = error.error; });
 
       if (string_res) {
         return expected::makeError(string_res.value());
@@ -691,7 +686,7 @@ namespace iroha {
                           preparedTransactionsAvailable(sql);
                       try {
                         std::string prepared_block_name =
-                            "prepared_block" + options.dbname().value_or("");
+                            "prepared_block" + options.dbname();
 
                         auto try_rollback = [&prepared_block_name,
                                              &enable_prepared_transactions,
@@ -911,27 +906,6 @@ namespace iroha {
                    });
       }
     }
-
-    const std::string &StorageImpl::drop_ = R"(
-DROP TABLE IF EXISTS account_has_signatory;
-DROP TABLE IF EXISTS account_has_asset;
-DROP TABLE IF EXISTS role_has_permissions CASCADE;
-DROP TABLE IF EXISTS account_has_roles;
-DROP TABLE IF EXISTS account_has_grantable_permissions CASCADE;
-DROP TABLE IF EXISTS account;
-DROP TABLE IF EXISTS asset;
-DROP TABLE IF EXISTS domain;
-DROP TABLE IF EXISTS signatory;
-DROP TABLE IF EXISTS peer;
-DROP TABLE IF EXISTS role;
-DROP TABLE IF EXISTS height_by_hash;
-DROP INDEX IF EXISTS tx_status_by_hash_hash_index;
-DROP TABLE IF EXISTS tx_status_by_hash;
-DROP TABLE IF EXISTS height_by_account_set;
-DROP TABLE IF EXISTS index_by_creator_height;
-DROP TABLE IF EXISTS position_by_account_asset;
-DROP TABLE IF EXISTS position_by_hash;
-)";
 
     const std::string &StorageImpl::reset_ = R"(
 TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
