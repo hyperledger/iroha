@@ -21,6 +21,7 @@ namespace shared_model {
     class Amount;
     class BatchMeta;
     class Peer;
+    class AssetPaginationMeta;
     class TxPaginationMeta;
   }  // namespace interface
 
@@ -168,6 +169,10 @@ namespace shared_model {
       void validateTxPaginationMeta(
           ReasonsGroupType &reason,
           const interface::TxPaginationMeta &tx_pagination_meta) const;
+
+      void validateAssetPaginationMeta(
+          ReasonsGroupType &reason,
+          const interface::AssetPaginationMeta &asset_pagination_meta) const;
 
      private:
       const static std::string account_name_pattern_;

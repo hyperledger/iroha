@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include <boost/optional.hpp>
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/asset.hpp"
 #include "interfaces/permissions.hpp"
@@ -38,6 +39,10 @@ namespace shared_model {
       /**
        * Create response for account asset query
        * @param assets to be inserted into the response
+       * @param total_assets_number the number of all assets as opposed to the
+       * page size
+       * @param next_asset_id if there are more assets ofter the provided ones,
+       * this specifies the id of the first following asset; otherwise none
        * @param query_hash - hash of the query, for which response is created
        * @return account asset response
        */
@@ -45,6 +50,9 @@ namespace shared_model {
           std::vector<std::tuple<types::AccountIdType,
                                  types::AssetIdType,
                                  shared_model::interface::Amount>> assets,
+          size_t total_assets_number,
+          boost::optional<shared_model::interface::types::AssetIdType>
+              next_asset_id,
           const crypto::Hash &query_hash) const = 0;
 
       /**

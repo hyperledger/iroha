@@ -11,6 +11,7 @@
 
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
+#include "framework/common_constants.hpp"
 
 /**
  * For each protobuf query type
@@ -50,6 +51,9 @@ TEST(ProtoQueryBuilder, Builder) {
   {
     auto &query = *payload.mutable_get_account_assets();
     query.set_account_id(account_id);
+    auto pagination_meta = query.mutable_pagination_meta();
+    pagination_meta->set_page_size(kMaxPageSize);
+    pagination_meta->set_first_asset_id(asset_id);
   }
 
   auto keypair =
@@ -65,7 +69,7 @@ TEST(ProtoQueryBuilder, Builder) {
   auto query = shared_model::proto::QueryBuilder()
                    .createdTime(created_time)
                    .creatorAccountId(account_id)
-                   .getAccountAssets(account_id)
+                   .getAccountAssets(account_id, kMaxPageSize, asset_id)
                    .queryCounter(query_counter)
                    .build();
 
