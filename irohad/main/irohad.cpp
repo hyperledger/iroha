@@ -181,6 +181,8 @@ int main(int argc, char *argv[]) {
       kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                   // config file and/or command-line arguments?
       config.torii_port,
+      config.torii_tls_port,
+      config.torii_tls_keypair,
       config.internal_port,
       config.max_proposal_size,
       std::chrono::milliseconds(config.proposal_delay),

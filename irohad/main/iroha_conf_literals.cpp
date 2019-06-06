@@ -8,6 +8,8 @@
 namespace config_members {
   const char *BlockStorePath = "block_store_path";
   const char *ToriiPort = "torii_port";
+  const char *ToriiTlsPort = "torii_tls_port";
+  const char *ToriiTlsKeypair = "torii_tls_keypair";
   const char *InternalPort = "internal_port";
   const char *KeyPairPath = "key_pair_path";
   const char *PgOpt = "pg_opt";

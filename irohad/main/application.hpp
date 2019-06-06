@@ -80,6 +80,8 @@ class Irohad {
    * @param pg_conn - initialization string for postgre
    * @param listen_ip - ip address for opening ports (internal & torii)
    * @param torii_port - port for torii binding
+   * @param torii_tls_port - port for torii TLS binding
+   * @param torii_tls_keypair - path to TLS keypair (.crt, .key) for torii
    * @param internal_port - port for internal communication - ordering service,
    * consensus, and block loader
    * @param max_proposal_size - maximum transactions that possible appears in
@@ -103,6 +105,8 @@ class Irohad {
          const std::string &pg_conn,
          const std::string &listen_ip,
          size_t torii_port,
+         size_t torii_tls_port,
+         const std::string &torii_tls_keypair,
          size_t internal_port,
          size_t max_proposal_size,
          std::chrono::milliseconds proposal_delay,
@@ -200,6 +204,8 @@ class Irohad {
   std::string pg_conn_;
   const std::string listen_ip_;
   size_t torii_port_;
+  size_t torii_tls_port_;
+  const std::string torii_tls_keypair_;
   size_t internal_port_;
   size_t max_proposal_size_;
   std::chrono::milliseconds proposal_delay_;
@@ -330,6 +336,7 @@ class Irohad {
   std::shared_ptr<iroha::torii::QueryService> query_service;
 
   std::unique_ptr<ServerRunner> torii_server;
+  std::unique_ptr<ServerRunner> torii_tls_server;
   std::unique_ptr<ServerRunner> internal_server;
 
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager

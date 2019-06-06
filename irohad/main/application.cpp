@@ -79,6 +79,8 @@ Irohad::Irohad(const std::string &block_store_dir,
                const std::string &pg_conn,
                const std::string &listen_ip,
                size_t torii_port,
+               size_t torii_tls_port,
+               const std::string &torii_tls_keypair,
                size_t internal_port,
                size_t max_proposal_size,
                std::chrono::milliseconds proposal_delay,
@@ -96,6 +98,8 @@ Irohad::Irohad(const std::string &block_store_dir,
       pg_conn_(pg_conn),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
+      torii_tls_port_(torii_tls_port),
+      torii_tls_keypair_(torii_tls_keypair),
       internal_port_(internal_port),
       max_proposal_size_(max_proposal_size),
       proposal_delay_(proposal_delay),
@@ -741,6 +745,15 @@ Irohad::RunResult Irohad::run() {
       log_manager_->getChild("ToriiServerRunner")->getLogger(),
       false);
 
+  bool enable_tls = torii_tls_keypair_.length() > 0;
+  if (enable_tls) {
+    torii_tls_server = std::make_unique<ServerRunner>(
+        listen_ip_ + ":" + std::to_string(torii_tls_port_),
+        log_manager_->getChild("ToriiServerRunner")->getLogger(),
+        false,
+        torii_tls_keypair_);
+  }
+
   // Initializing internal server
   internal_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(internal_port_),
@@ -751,6 +764,17 @@ Irohad::RunResult Irohad::run() {
   return (torii_server->append(command_service_transport)
               .append(query_service)
               .run()
+          |
+          [&](auto port) -> iroha::expected::Result<int, std::string> {
+            log_->info("Torii server bound on port {}", port);
+            if (enable_tls) {
+              return torii_tls_server->append(command_service_transport)
+                  .append(query_service)
+                  .run();
+            } else {
+              return iroha::expected::makeValue(port);
+            }
+          }
           |
           [&](const auto &port) {
             log_->info("Torii server bound on port {}", port);

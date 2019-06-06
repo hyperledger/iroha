@@ -47,6 +47,8 @@ namespace integration_framework {
                   const std::string &block_store_path,
                   const std::string &listen_ip,
                   size_t torii_port,
+                  size_t torii_tls_port,
+                  const std::string &torii_tls_keypair,
                   size_t internal_port,
                   logger::LoggerManagerTreePtr irohad_log_manager,
                   logger::LoggerPtr log,
@@ -82,6 +84,8 @@ namespace integration_framework {
     const std::string pg_conn_;
     const std::string listen_ip_;
     const size_t torii_port_;
+    const size_t torii_tls_port_;
+    const std::string torii_tls_keypair_;
     const size_t internal_port_;
     const std::chrono::milliseconds proposal_delay_;
     const std::chrono::milliseconds vote_delay_;

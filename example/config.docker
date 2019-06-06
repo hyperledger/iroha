@@ -1,8 +1,10 @@
 {
   "block_store_path" : "/tmp/block_store/",
   "torii_port" : 50051,
+  "torii_tls_port": 50052,
+  "torii_tls_keypair": "/opt/iroha/example/torii_tls/server",
   "internal_port" : 10001,
-  "pg_opt" : "host=some-postgres port=5432 user=postgres password=mysecretpassword",
+  "pg_opt" : "host=postgres port=5432 user=iroha password=helloworld",
   "max_proposal_size" : 10,
   "proposal_delay" : 5000,
   "vote_delay" : 5000,

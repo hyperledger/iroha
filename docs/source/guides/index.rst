@@ -12,3 +12,4 @@ Guides and how-tos
     dependencies.rst
     k8s-deployment.rst
     sec-install.rst
+    torii-tls.rst

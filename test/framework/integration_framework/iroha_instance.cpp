@@ -24,6 +24,8 @@ namespace integration_framework {
                                const std::string &block_store_path,
                                const std::string &listen_ip,
                                size_t torii_port,
+                               size_t torii_tls_port,
+                               const std::string &torii_tls_keypair,
                                size_t internal_port,
                                logger::LoggerManagerTreePtr irohad_log_manager,
                                logger::LoggerPtr log,
@@ -32,6 +34,8 @@ namespace integration_framework {
         pg_conn_(getPostgreCredsOrDefault(dbname)),
         listen_ip_(listen_ip),
         torii_port_(torii_port),
+        torii_tls_port_(torii_tls_port),
+        torii_tls_keypair_(torii_tls_keypair),
         internal_port_(internal_port),
         // proposal_timeout results in non-deterministic behavior due
         // to thread scheduling and network
@@ -92,6 +96,8 @@ namespace integration_framework {
                                              pg_conn_,
                                              listen_ip_,
                                              torii_port_,
+                                             torii_tls_port_,
+                                             torii_tls_keypair_,
                                              internal_port_,
                                              max_proposal_size,
                                              proposal_delay_,

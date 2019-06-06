@@ -16,6 +16,8 @@
 struct IrohadConfig {
   std::string block_store_path;
   uint16_t torii_port;
+  uint16_t torii_tls_port;
+  std::string torii_tls_keypair;
   uint16_t internal_port;
   std::string pg_opt;
   uint32_t max_proposal_size;

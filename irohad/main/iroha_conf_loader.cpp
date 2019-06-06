@@ -286,7 +286,7 @@ inline void JsonDeserializerImpl::getVal<logger::LogLevel>(
     BOOST_THROW_EXCEPTION(std::runtime_error(
         "Wrong log level at " + path + ": must be one of '"
         + boost::algorithm::join(
-              config_members::LogLevels | boost::adaptors::map_keys, "', '")
+            config_members::LogLevels | boost::adaptors::map_keys, "', '")
         + "'."));
   }
   dest = it->second;
@@ -355,6 +355,9 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   const auto obj = src.GetObject();
   getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
+  getValByKey(path, dest.torii_tls_port, obj, config_members::ToriiTlsPort);
+  getValByKey(
+      path, dest.torii_tls_keypair, obj, config_members::ToriiTlsKeypair);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
   getValByKey(

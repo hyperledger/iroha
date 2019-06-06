@@ -21,12 +21,15 @@ Create an encrypted backup of private keys before deleting them and limit the ac
 
 Network configuration
 ^^^^^^^^^^^^^^^^^^^^^
-Iroha listens on ports 50051 and 10001.
+Iroha listens on ports 50051 and 10001, and optionally 50052, if TLS is enabled.
 Firewall settings must allow incoming/outgoing connections to/from these ports.
 If possible, disable or remove any other network services with listening ports (FTP, DNS, LDAP, SMB, DHCP, NFS, SNMP, etc).
 Ideally, Iroha should be as much isolated as possible in terms of networking.
 
-Currently, there is no traffic encryption in Iroha, we strongly recommend using VPN or Calico for setting up Docker overlay network, i.e. any mechanism that allows encrypting communication between peers.
+You can enable TLS on torii ports if you would like to encrypt client-peer 
+communication.
+
+If you don't use traffic encryption, we strongly recommend using VPN or Calico for setting up Docker overlay network, i.e. any mechanism that allows encrypting communication between peers.
 Docker swarm encrypts communications by default, but remember to open necessary ports in the firewall configuration.
 In case VPN is used, verify that VPN key is unavailable to other users.
 

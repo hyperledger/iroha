@@ -24,7 +24,8 @@ class ServerRunner {
    */
   explicit ServerRunner(const std::string &address,
                         logger::LoggerPtr log,
-                        bool reuse = true);
+                        bool reuse = true,
+                        const std::string &tls_keypair = "");
 
   /**
    * Adds a new grpc service to be run.
@@ -64,6 +65,7 @@ class ServerRunner {
   std::string serverAddress_;
   bool reuse_;
   std::vector<std::shared_ptr<grpc::Service>> services_;
+  std::string tlsKeypair_;
 };
 
 #endif  // MAIN_SERVER_RUNNER_HPP

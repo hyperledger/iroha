@@ -5,6 +5,7 @@ services:
     image: hyperledger/iroha:develop-build
     ports:
       - "${IROHA_PORT}:50051"
+      - "${IROHA_TLS_PORT}:50052"
       - "${DEBUGGER_PORT}:20000"
     environment:
       - IROHA_POSTGRES_HOST=${COMPOSE_PROJECT_NAME}_postgres_1
