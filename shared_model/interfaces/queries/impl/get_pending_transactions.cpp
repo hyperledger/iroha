@@ -11,10 +11,12 @@ namespace shared_model {
   namespace interface {
 
     std::string GetPendingTransactions::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("GetPendingTransactions")
-          .append("pagination_meta", paginationMeta().toString())
-          .finalize();
+      auto builder =
+          detail::PrettyStringBuilder().init("GetPendingTransactions");
+      if (paginationMeta()) {
+        builder.append("pagination_meta", paginationMeta()->toString());
+      }
+      return builder.finalize();
     }
 
     bool GetPendingTransactions::operator==(const ModelType &rhs) const {

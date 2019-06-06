@@ -43,6 +43,7 @@ namespace iroha {
       Response() : all_transactions_size(0) {}
     };
 
+    // TODO igor-egorov 2019-06-06 IR-516 remove deprecated interface
     /**
      * DEPRECATED (Replaced by the following method with an extended interface)
      * Going to be removed with the upcoming major release.

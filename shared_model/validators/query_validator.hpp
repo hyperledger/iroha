@@ -168,6 +168,10 @@ namespace shared_model {
           const interface::GetPendingTransactions &qry) const {
         ReasonsGroupType reason;
         reason.first = "GetPendingTransactions";
+        if (qry.paginationMeta()) {
+          // TODO igor-egorov 2019-06-06 IR-516 Make meta non-optional
+          validator_.validateTxPaginationMeta(reason, *qry.paginationMeta());
+        }
 
         return reason;
       }
