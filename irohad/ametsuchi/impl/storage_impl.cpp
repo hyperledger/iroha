@@ -136,65 +136,62 @@ namespace iroha {
               }
             };
 
-            auto check_for_data =
-                [](auto &sessionBackend_, auto *result_, auto *errMsg) {
-                  std::string msg(errMsg);
+            auto check_for_data = [](auto &conn, auto *result, auto *errMsg) {
+              std::string msg(errMsg);
 
-                  ExecStatusType const status = PQresultStatus(result_);
-                  switch (status) {
-                    case PGRES_EMPTY_QUERY:
-                    case PGRES_COMMAND_OK:
-                      // No data but don't throw neither.
-                      return false;
+              ExecStatusType const status = PQresultStatus(result);
+              switch (status) {
+                case PGRES_EMPTY_QUERY:
+                case PGRES_COMMAND_OK:
+                  // No data but don't throw neither.
+                  return false;
 
-                    case PGRES_TUPLES_OK:
-                      return true;
+                case PGRES_TUPLES_OK:
+                  return true;
 
-                    case PGRES_FATAL_ERROR:
-                      msg += " Fatal error.";
+                case PGRES_FATAL_ERROR:
+                  msg += " Fatal error.";
 
-                      if (PQstatus(sessionBackend_.conn_) == CONNECTION_BAD) {
-                        msg += " Connection failed.";
-                      }
-
-                      break;
-
-                    default:
-                      // Some of the other status codes are not really errors
-                      // but we're not prepared to handle them right now and
-                      // shouldn't ever receive them so throw nevertheless
-
-                      break;
+                  if (PQstatus(conn) == CONNECTION_BAD) {
+                    msg += " Connection failed.";
                   }
 
-                  const char *const pqError = PQresultErrorMessage(result_);
-                  if (pqError && *pqError) {
-                    msg += " ";
-                    msg += pqError;
-                  }
+                  break;
 
-                  const char *sqlstate =
-                      PQresultErrorField(result_, PG_DIAG_SQLSTATE);
-                  const char *const blank_sql_state = "     ";
-                  if (!sqlstate) {
-                    sqlstate = blank_sql_state;
-                  }
+                default:
+                  // Some of the other status codes are not really errors
+                  // but we're not prepared to handle them right now and
+                  // shouldn't ever receive them so throw nevertheless
 
-                  throw std::runtime_error(msg);
-                };
+                  break;
+              }
 
-            auto connect = [check_for_data](auto &session_backend,
-                                            auto &parameters,
-                                            auto &conn_) {
-              PGconn *conn =
+              const char *const pqError = PQresultErrorMessage(result);
+              if (pqError && *pqError) {
+                msg += " ";
+                msg += pqError;
+              }
+
+              const char *sqlstate =
+                  PQresultErrorField(result, PG_DIAG_SQLSTATE);
+              const char *const blank_sql_state = "     ";
+              if (!sqlstate) {
+                sqlstate = blank_sql_state;
+              }
+
+              throw std::runtime_error(msg);
+            };
+
+            auto connect = [check_for_data](auto &conn, auto &parameters) {
+              PGconn *new_conn =
                   PQconnectdb(parameters.get_connect_string().c_str());
-              if (0 == conn || CONNECTION_OK != PQstatus(conn)) {
+              if (0 == new_conn || CONNECTION_OK != PQstatus(new_conn)) {
                 std::string msg =
                     "Cannot establish connection to the database.";
-                if (0 != conn) {
+                if (0 != new_conn) {
                   msg += '\n';
-                  msg += PQerrorMessage(conn);
-                  PQfinish(conn);
+                  msg += PQerrorMessage(new_conn);
+                  PQfinish(new_conn);
                 }
 
                 throw std::runtime_error(msg);
@@ -205,19 +202,19 @@ namespace iroha {
               // which is not the case with the default value of 0. Use the
               // maximal supported value, which was 2 until 9.x and is 3 since
               // it.
-              int const version = PQserverVersion(conn);
+              int const version = PQserverVersion(new_conn);
               check_for_data(
-                  session_backend,
-                  PQexec(conn,
+                  new_conn,
+                  PQexec(new_conn,
                          version >= 90000 ? "SET extra_float_digits = 3"
                                           : "SET extra_float_digits = 2"),
                   "Cannot set extra_float_digits parameter");
 
-              conn_ = conn;
+              conn = new_conn;
             };
 
             clean_up(conn_);
-            connect(*pg_connection, parameters, conn_);
+            connect(conn_, parameters);
 
             init_session_(connection_);
             successful_reconnection = true;
