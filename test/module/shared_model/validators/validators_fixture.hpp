@@ -98,6 +98,10 @@ class ValidatorsTest : public ::testing::Test {
          [&](auto refl, auto msg, auto field) {
            refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
          }},
+        {"iroha.protocol.GetPendingTransactions.pagination_meta",
+         [&](auto refl, auto msg, auto field) {
+           refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
+         }},
         {"iroha.protocol.GetAccountAssetTransactions.pagination_meta",
          [&](auto refl, auto msg, auto field) {
            refl->MutableMessage(msg, field)->CopyFrom(tx_pagination_meta);
