@@ -313,7 +313,6 @@ namespace iroha {
       return expected::makeValue<std::unique_ptr<TemporaryWsv>>(
           std::make_unique<TemporaryWsvImpl>(
               std::move(sql),
-              factory_,
               perm_converter_,
               log_manager_->getChild("TemporaryWorldStateView")));
     }

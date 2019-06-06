@@ -10,7 +10,6 @@
 
 #include <soci/soci.h>
 #include "ametsuchi/command_executor.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 
@@ -45,8 +44,6 @@ namespace iroha {
 
       TemporaryWsvImpl(
           std::unique_ptr<soci::session> sql,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           logger::LoggerManagerTreePtr log_manager);
