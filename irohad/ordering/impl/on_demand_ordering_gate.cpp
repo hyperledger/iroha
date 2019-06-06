@@ -77,6 +77,11 @@ void OnDemandOrderingGate::propagateBatch(
     std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
   cache_->addToBack({batch});
 
+  std::string hashes;
+  for(const auto& tx: batch->transactions())
+    hashes += tx->hash().hex() + " ";
+  log_->debug("Propagate batch: {}", hashes);
+
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
 }

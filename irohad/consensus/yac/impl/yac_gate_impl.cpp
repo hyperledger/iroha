@@ -17,7 +17,7 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "simulator/block_creator.hpp"
-
+#include "interfaces/transaction.hpp"
 namespace iroha {
   namespace consensus {
     namespace yac {
@@ -126,7 +126,13 @@ namespace iroha {
           log_->info("consensus: commit top block: height {}, hash {}",
                      block->height(),
                      block->hash().hex());
-          return rxcpp::observable<>::just<GateObject>(PairValid(
+
+            std::string hashes;
+            for(const auto& tx: block->transactions())
+                hashes += tx.hash().hex() + " ";
+            log_->debug("Commit top block: {}", hashes);
+
+            return rxcpp::observable<>::just<GateObject>(PairValid(
               current_hash_.vote_round, current_ledger_state_, block));
         }
 

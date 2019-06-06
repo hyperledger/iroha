@@ -10,6 +10,7 @@
 #include "network/ordering_gate.hpp"
 #include "simulator/verified_proposal_creator.hpp"
 #include "synchronizer/synchronizer.hpp"
+#include "interfaces/transaction.hpp"
 
 namespace iroha {
   namespace network {
@@ -28,6 +29,11 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::TransactionBatch> batch)
         const {
       log_->info("propagate batch");
+      std::string hashes;
+      for(const auto& tx: batch->transactions())
+          hashes += tx->hash().hex() + " ";
+      log_->debug("Propagate batch: {}", hashes);
+
       ordering_gate_->propagateBatch(batch);
     }
 

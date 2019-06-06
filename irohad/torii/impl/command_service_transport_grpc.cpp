@@ -24,6 +24,7 @@
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "torii/status_bus.hpp"
+#include "backend/protobuf/transaction.hpp"
 
 namespace iroha {
   namespace torii {
@@ -56,6 +57,8 @@ namespace iroha {
         const iroha::protocol::Transaction *request,
         google::protobuf::Empty *response) {
       iroha::protocol::TxList single_tx_list;
+      shared_model::proto::Transaction tx(*request);
+      log_->debug("Received tx {} at endpoint", tx.hash());
       *single_tx_list.add_transactions() = *request;
       return ListTorii(context, &single_tx_list, response);
     }
