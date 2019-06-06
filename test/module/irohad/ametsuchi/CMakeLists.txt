@@ -42,6 +42,7 @@ target_link_libraries(storage_init_test
 addtest(postgres_options_test postgres_options_test.cpp)
 target_link_libraries(postgres_options_test
     ametsuchi
+    test_logger
     )
 
 addtest(postgres_executor_test postgres_executor_test.cpp)
