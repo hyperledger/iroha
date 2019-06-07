@@ -19,13 +19,22 @@ $ openssl genpkey -algorithm <desired algorithm> -out server.key
 $ openssl req -new -key server.key -x509 -out server.crt
 ```
 
+If you need to use plain IP addresses to connect to the node, you need to
+specify subjectAltName in your server certificate, for that you need to add
+a ``subjectAltName`` directive to ``v3_ca`` section of your openssl config 
+before generating the certificate. 
+For example, for the default installation, ``/etc/ssl/openssl.cnf``:
+
+```conf
+[ v3_ca ]
+subjectAltName=IP:12.34.56.78
+...
+```
+
 Fields in the certificate don't really matter except for the Common Name (CN),
 it would be checked against the client's hostname, and TLS handshake will fail
 if they do not match (e.g. if you connect to example.com:50051, then irohad at 
 example.com would need to have example.com in common name of the certificate).
-
-It is worth mentioning that IPs are not yet supported in the CN of
-the certificate.
 
 Configuring irohad
 ~~~~~~~~~~~~~~~~~~
