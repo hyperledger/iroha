@@ -8,8 +8,8 @@
 // Windows Build steps
 //
 
-def buildSteps(int parallelism, List compilerVersions, String build_type, boolean coverage, boolean testing, String testList,
-       boolean packagebuild, boolean useBTF, List environment) {
+def buildSteps(int parallelism, List compilerVersions, String buildType, boolean coverage, boolean testing, String testList,
+       boolean packageBuild, boolean useBTF, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
     for (compiler in compilerVersions) {
