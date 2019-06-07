@@ -20,9 +20,12 @@ $ openssl req -new -key server.key -x509 -out server.crt
 ```
 
 Fields in the certificate don't really matter except for the Common Name (CN),
-it would be checked against the client's address, and TLS handshake will fail
-if they do not match (e.g. if you connect to 12.34.56.78:50051, then irohad
-at 12.34.56.78 would need to have 12.34.56.78 in common name of the certificate)
+it would be checked against the client's hostname, and TLS handshake will fail
+if they do not match (e.g. if you connect to example.com:50051, then irohad at 
+example.com would need to have example.com in common name of the certificate).
+
+It is worth mentioning that IPs are not yet supported in the CN of
+the certificate.
 
 Configuring irohad
 ~~~~~~~~~~~~~~~~~~
