@@ -24,6 +24,9 @@ namespace iroha {
        * @param default_dbname The default name of database to use when one is
        * not provided in pg_opt.
        * @param log Logger for internal messages.
+       *
+       * TODO 2019.06.07 mboldyrev IR-556 make dbname required & remove the
+       * default.
        */
       PostgresOptions(const std::string &pg_opt,
                       std::string default_dbname,
