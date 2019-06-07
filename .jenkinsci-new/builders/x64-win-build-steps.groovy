@@ -27,8 +27,10 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
 def successPostSteps(scmVars, boolean packagePush, List environment) {
   stage('Windows success PostSteps') {
     withEnv(environment) {
-      timeout(time: 600, unit: "SECONDS") {
-         archiveArtifacts artifacts: 'build\\iroha*.exe', allowEmptyArchive: true
+      if (packagePush){
+        timeout(time: 600, unit: "SECONDS") {
+           archiveArtifacts artifacts: 'build\\bin\\Debug\\iroha*.exe', allowEmptyArchive: true
+        }
       }
     }
   }

@@ -211,7 +211,7 @@ node ('master') {
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
         x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
-        win_compiler_list = ['win']
+        win_compiler_list = ['msvc']
         testing = true
         testList = '()'
         coverage = true
