@@ -76,7 +76,7 @@ namespace {
     auto top_height = block_query->getTopBlockHeight();
     for (decltype(top_height) i = 1; i <= top_height; ++i) {
       auto block_result = block_query->getBlock(i);
-      auto result = block_result | [&mutable_storage](auto &&block)
+      auto result = std::move(block_result) | [&mutable_storage](auto &&block)
           -> iroha::expected::Result<void, std::string> {
         if (not mutable_storage->apply(std::move(block))) {
           return iroha::expected::makeError("Cannot apply "
@@ -103,9 +103,8 @@ namespace iroha {
     WsvRestorerImpl::restoreWsv(Storage &storage) {
       BlockStorageStubFactory storage_factory;
 
-      auto mutable_storage_result =
-          storage.createMutableStorage(storage_factory);
-      return mutable_storage_result | [&storage](auto &&mutable_storage)
+      return storage.createMutableStorage(storage_factory) |
+                 [&storage](auto &&mutable_storage)
                  -> iroha::expected::Result<
                      boost::optional<std::unique_ptr<iroha::LedgerState>>,
                      std::string> {

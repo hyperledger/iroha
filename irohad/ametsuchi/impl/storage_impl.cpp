@@ -32,6 +32,8 @@
 
 namespace {
 
+  static const std::string kDefaultDatabaseName{"iroha_default"};
+
   /**
    * Verify whether postgres supports prepared transactions
    */
@@ -136,65 +138,62 @@ namespace iroha {
               }
             };
 
-            auto check_for_data =
-                [](auto &sessionBackend_, auto *result_, auto *errMsg) {
-                  std::string msg(errMsg);
+            auto check_for_data = [](auto &conn, auto *result, auto *errMsg) {
+              std::string msg(errMsg);
 
-                  ExecStatusType const status = PQresultStatus(result_);
-                  switch (status) {
-                    case PGRES_EMPTY_QUERY:
-                    case PGRES_COMMAND_OK:
-                      // No data but don't throw neither.
-                      return false;
+              ExecStatusType const status = PQresultStatus(result);
+              switch (status) {
+                case PGRES_EMPTY_QUERY:
+                case PGRES_COMMAND_OK:
+                  // No data but don't throw neither.
+                  return false;
 
-                    case PGRES_TUPLES_OK:
-                      return true;
+                case PGRES_TUPLES_OK:
+                  return true;
 
-                    case PGRES_FATAL_ERROR:
-                      msg += " Fatal error.";
+                case PGRES_FATAL_ERROR:
+                  msg += " Fatal error.";
 
-                      if (PQstatus(sessionBackend_.conn_) == CONNECTION_BAD) {
-                        msg += " Connection failed.";
-                      }
-
-                      break;
-
-                    default:
-                      // Some of the other status codes are not really errors
-                      // but we're not prepared to handle them right now and
-                      // shouldn't ever receive them so throw nevertheless
-
-                      break;
+                  if (PQstatus(conn) == CONNECTION_BAD) {
+                    msg += " Connection failed.";
                   }
 
-                  const char *const pqError = PQresultErrorMessage(result_);
-                  if (pqError && *pqError) {
-                    msg += " ";
-                    msg += pqError;
-                  }
+                  break;
 
-                  const char *sqlstate =
-                      PQresultErrorField(result_, PG_DIAG_SQLSTATE);
-                  const char *const blank_sql_state = "     ";
-                  if (!sqlstate) {
-                    sqlstate = blank_sql_state;
-                  }
+                default:
+                  // Some of the other status codes are not really errors
+                  // but we're not prepared to handle them right now and
+                  // shouldn't ever receive them so throw nevertheless
 
-                  throw std::runtime_error(msg);
-                };
+                  break;
+              }
 
-            auto connect = [check_for_data](auto &session_backend,
-                                            auto &parameters,
-                                            auto &conn_) {
-              PGconn *conn =
+              const char *const pqError = PQresultErrorMessage(result);
+              if (pqError && *pqError) {
+                msg += " ";
+                msg += pqError;
+              }
+
+              const char *sqlstate =
+                  PQresultErrorField(result, PG_DIAG_SQLSTATE);
+              const char *const blank_sql_state = "     ";
+              if (!sqlstate) {
+                sqlstate = blank_sql_state;
+              }
+
+              throw std::runtime_error(msg);
+            };
+
+            auto connect = [check_for_data](auto &conn, auto &parameters) {
+              PGconn *new_conn =
                   PQconnectdb(parameters.get_connect_string().c_str());
-              if (0 == conn || CONNECTION_OK != PQstatus(conn)) {
+              if (0 == new_conn || CONNECTION_OK != PQstatus(new_conn)) {
                 std::string msg =
                     "Cannot establish connection to the database.";
-                if (0 != conn) {
+                if (0 != new_conn) {
                   msg += '\n';
-                  msg += PQerrorMessage(conn);
-                  PQfinish(conn);
+                  msg += PQerrorMessage(new_conn);
+                  PQfinish(new_conn);
                 }
 
                 throw std::runtime_error(msg);
@@ -205,19 +204,19 @@ namespace iroha {
               // which is not the case with the default value of 0. Use the
               // maximal supported value, which was 2 until 9.x and is 3 since
               // it.
-              int const version = PQserverVersion(conn);
+              int const version = PQserverVersion(new_conn);
               check_for_data(
-                  session_backend,
-                  PQexec(conn,
+                  new_conn,
+                  PQexec(new_conn,
                          version >= 90000 ? "SET extra_float_digits = 3"
                                           : "SET extra_float_digits = 2"),
                   "Cannot set extra_float_digits parameter");
 
-              conn_ = conn;
+              conn = new_conn;
             };
 
             clean_up(conn_);
-            connect(*pg_connection, parameters, conn_);
+            connect(conn_, parameters);
 
             init_session_(connection_);
             successful_reconnection = true;
@@ -464,25 +463,16 @@ namespace iroha {
         return;
       }
 
-      if (auto dbname = postgres_options_.dbname()) {
-        auto &db = dbname.value();
-        std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
-        log_->info("Drop database {}", db);
-        freeConnections();
-        soci::session sql(*soci::factory_postgresql(),
-                          postgres_options_.optionsStringWithoutDbName());
-        // perform dropping
-        try {
-          sql << "DROP DATABASE " + db;
-        } catch (std::exception &e) {
-          log_->warn("Drop database was failed. Reason: {}", e.what());
-        }
-      } else {
-        // Clear all the tables first, as it takes much less time because the
-        // foreign key triggers are ignored.
-        soci::session(*connection_) << reset_;
-        // Empty tables can now be dropped very fast.
-        soci::session(*connection_) << drop_;
+      std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
+      log_->info("Drop database {}", postgres_options_.dbname());
+      freeConnections();
+      soci::session sql(*soci::factory_postgresql(),
+                        postgres_options_.optionsStringWithoutDbName());
+      // perform dropping
+      try {
+        sql << "DROP DATABASE " + postgres_options_.dbname();
+      } catch (std::exception &e) {
+        log_->warn("Drop database was failed. Reason: {}", e.what());
       }
 
       // erase blocks
@@ -663,14 +653,16 @@ namespace iroha {
         size_t pool_size) {
       boost::optional<std::string> string_res = boost::none;
 
-      PostgresOptions options(postgres_options);
+      PostgresOptions options(
+          postgres_options,
+          kDefaultDatabaseName,
+          log_manager->getChild("DbOptionsParser")->getLogger());
 
-      // create database if
-      options.dbname() | [&options, &string_res](const std::string &dbname) {
-        createDatabaseIfNotExist(dbname, options.optionsStringWithoutDbName())
-            .match([](auto &&val) {},
-                   [&string_res](auto &&error) { string_res = error.error; });
-      };
+      // create database if it does not exist
+      createDatabaseIfNotExist(options.dbname(),
+                               options.optionsStringWithoutDbName())
+          .match([](auto &&val) {},
+                 [&string_res](auto &&error) { string_res = error.error; });
 
       if (string_res) {
         return expected::makeError(string_res.value());
@@ -690,7 +682,7 @@ namespace iroha {
                           preparedTransactionsAvailable(sql);
                       try {
                         std::string prepared_block_name =
-                            "prepared_block" + options.dbname().value_or("");
+                            "prepared_block" + options.dbname();
 
                         auto try_rollback = [&prepared_block_name,
                                              &enable_prepared_transactions,
@@ -910,27 +902,6 @@ namespace iroha {
                    });
       }
     }
-
-    const std::string &StorageImpl::drop_ = R"(
-DROP TABLE IF EXISTS account_has_signatory;
-DROP TABLE IF EXISTS account_has_asset;
-DROP TABLE IF EXISTS role_has_permissions CASCADE;
-DROP TABLE IF EXISTS account_has_roles;
-DROP TABLE IF EXISTS account_has_grantable_permissions CASCADE;
-DROP TABLE IF EXISTS account;
-DROP TABLE IF EXISTS asset;
-DROP TABLE IF EXISTS domain;
-DROP TABLE IF EXISTS signatory;
-DROP TABLE IF EXISTS peer;
-DROP TABLE IF EXISTS role;
-DROP TABLE IF EXISTS height_by_hash;
-DROP INDEX IF EXISTS tx_status_by_hash_hash_index;
-DROP TABLE IF EXISTS tx_status_by_hash;
-DROP TABLE IF EXISTS height_by_account_set;
-DROP TABLE IF EXISTS index_by_creator_height;
-DROP TABLE IF EXISTS position_by_account_asset;
-DROP TABLE IF EXISTS position_by_hash;
-)";
 
     const std::string &StorageImpl::reset_ = R"(
 TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
