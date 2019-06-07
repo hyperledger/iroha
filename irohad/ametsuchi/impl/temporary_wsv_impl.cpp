@@ -88,17 +88,11 @@ namespace iroha {
       const auto &tx_creator = transaction.creatorAccountId();
       command_executor_->setCreatorAccountId(tx_creator);
       command_executor_->doValidation(true);
-      auto execute_command =
-          [this](auto &command) -> expected::Result<void, CommandError> {
-        // Validate and execute command
-        return boost::apply_visitor(*command_executor_, command.get());
-      };
-
       auto savepoint_wrapper = createSavepoint("savepoint_temp_wsv");
 
       return validateSignatures(transaction) |
-                 [savepoint = std::move(savepoint_wrapper),
-                  &execute_command,
+                 [this,
+                  savepoint = std::move(savepoint_wrapper),
                   &transaction]()
                  -> expected::Result<void, validation::CommandError> {
         // check transaction's commands validity
@@ -107,7 +101,7 @@ namespace iroha {
         for (size_t i = 0; i < commands.size(); ++i) {
           // in case of failed command, rollback and return
           auto cmd_is_valid =
-              execute_command(commands[i])
+              command_executor_->execute(commands[i])
                   .match([](const auto &) { return true; },
                          [i, &cmd_error](const auto &error) {
                            cmd_error = {error.error.command_name,

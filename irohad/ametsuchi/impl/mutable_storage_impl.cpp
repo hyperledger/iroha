@@ -52,8 +52,7 @@ namespace iroha {
         command_executor_->doValidation(false);
 
         auto execute_command = [this](const auto &command) {
-          auto command_applied =
-              boost::apply_visitor(*command_executor_, command.get());
+          auto command_applied = command_executor_->execute(command);
 
           return command_applied.match([](const auto &) { return true; },
                                        [&](const auto &e) {

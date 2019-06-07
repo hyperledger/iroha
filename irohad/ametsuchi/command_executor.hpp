@@ -15,6 +15,7 @@ namespace shared_model {
     class AddPeer;
     class AddSignatory;
     class AppendRole;
+    class Command;
     class CreateAccount;
     class CreateAsset;
     class CreateDomain;
@@ -58,6 +59,8 @@ namespace iroha {
     class CommandExecutor : public boost::static_visitor<CommandResult> {
      public:
       virtual ~CommandExecutor() = default;
+
+      CommandResult execute(const shared_model::interface::Command &cmd);
 
       virtual void setCreatorAccountId(
           const shared_model::interface::types::AccountIdType
