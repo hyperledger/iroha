@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_CREATE_DOMAIN_HPP
 #define IROHA_SHARED_MODEL_CREATE_DOMAIN_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -14,7 +15,7 @@ namespace shared_model {
     /**
      * Create domain in Iroha
      */
-    class CreateDomain : public ModelPrimitive<CreateDomain> {
+    class CreateDomain : public NonCopyableModelPrimitive<CreateDomain> {
      public:
       /**
        * @return Id of the domain to create

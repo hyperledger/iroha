@@ -6,24 +6,16 @@
 #ifndef IROHA_PROTO_GRANT_PERMISSION_HPP
 #define IROHA_PROTO_GRANT_PERMISSION_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/grant_permission.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
 
-    class GrantPermission final
-        : public CopyableProto<interface::GrantPermission,
-                               iroha::protocol::Command,
-                               GrantPermission> {
+    class GrantPermission final : public interface::GrantPermission {
      public:
-      template <typename CommandType>
-      explicit GrantPermission(CommandType &&command);
-
-      GrantPermission(const GrantPermission &o);
-
-      GrantPermission(GrantPermission &&o) noexcept;
+      explicit GrantPermission(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

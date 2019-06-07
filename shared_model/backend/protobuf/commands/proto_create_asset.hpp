@@ -6,23 +6,16 @@
 #ifndef IROHA_PROTO_CREATE_ASSET_HPP
 #define IROHA_PROTO_CREATE_ASSET_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/create_asset.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
 
-    class CreateAsset final : public CopyableProto<interface::CreateAsset,
-                                                   iroha::protocol::Command,
-                                                   CreateAsset> {
+    class CreateAsset final : public interface::CreateAsset {
      public:
-      template <typename CommandType>
-      explicit CreateAsset(CommandType &&command);
-
-      CreateAsset(const CreateAsset &o);
-
-      CreateAsset(CreateAsset &&o) noexcept;
+      explicit CreateAsset(iroha::protocol::Command &command);
 
       const interface::types::AssetNameType &assetName() const override;
 

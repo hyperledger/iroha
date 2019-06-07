@@ -8,20 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    CreateDomain::CreateDomain(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          create_domain_{proto_->create_domain()} {}
-
-    template CreateDomain::CreateDomain(CreateDomain::TransportType &);
-    template CreateDomain::CreateDomain(const CreateDomain::TransportType &);
-    template CreateDomain::CreateDomain(CreateDomain::TransportType &&);
-
-    CreateDomain::CreateDomain(const CreateDomain &o)
-        : CreateDomain(o.proto_) {}
-
-    CreateDomain::CreateDomain(CreateDomain &&o) noexcept
-        : CreateDomain(std::move(o.proto_)) {}
+    CreateDomain::CreateDomain(iroha::protocol::Command &command)
+        : create_domain_{command.create_domain()} {}
 
     const interface::types::DomainIdType &CreateDomain::domainId() const {
       return create_domain_.domain_id();

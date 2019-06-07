@@ -6,24 +6,17 @@
 #ifndef IROHA_PROTO_TRANSFER_ASSET_HPP
 #define IROHA_PROTO_TRANSFER_ASSET_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/transfer_asset.hpp"
+
+#include "commands.pb.h"
 #include "interfaces/common_objects/amount.hpp"
 
 namespace shared_model {
   namespace proto {
 
-    class TransferAsset final : public CopyableProto<interface::TransferAsset,
-                                                     iroha::protocol::Command,
-                                                     TransferAsset> {
+    class TransferAsset final : public interface::TransferAsset {
      public:
-      template <typename CommandType>
-      explicit TransferAsset(CommandType &&command);
-
-      TransferAsset(const TransferAsset &o);
-
-      TransferAsset(TransferAsset &&o) noexcept;
+      explicit TransferAsset(iroha::protocol::Command &command);
 
       const interface::Amount &amount() const override;
 

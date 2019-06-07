@@ -4,27 +4,14 @@
  */
 
 #include "backend/protobuf/commands/proto_grant_permission.hpp"
+
 #include "backend/protobuf/permissions.hpp"
 
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    GrantPermission::GrantPermission(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          grant_permission_{proto_->grant_permission()} {}
-
-    template GrantPermission::GrantPermission(GrantPermission::TransportType &);
-    template GrantPermission::GrantPermission(
-        const GrantPermission::TransportType &);
-    template GrantPermission::GrantPermission(
-        GrantPermission::TransportType &&);
-
-    GrantPermission::GrantPermission(const GrantPermission &o)
-        : GrantPermission(o.proto_) {}
-
-    GrantPermission::GrantPermission(GrantPermission &&o) noexcept
-        : GrantPermission(std::move(o.proto_)) {}
+    GrantPermission::GrantPermission(iroha::protocol::Command &command)
+        : grant_permission_{command.grant_permission()} {}
 
     const interface::types::AccountIdType &GrantPermission::accountId() const {
       return grant_permission_.account_id();

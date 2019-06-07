@@ -6,23 +6,16 @@
 #ifndef IROHA_PROTO_CREATE_DOMAIN_HPP
 #define IROHA_PROTO_CREATE_DOMAIN_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/create_domain.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
 
-    class CreateDomain final : public CopyableProto<interface::CreateDomain,
-                                                    iroha::protocol::Command,
-                                                    CreateDomain> {
+    class CreateDomain final : public interface::CreateDomain {
      public:
-      template <typename CommandType>
-      explicit CreateDomain(CommandType &&command);
-
-      CreateDomain(const CreateDomain &o);
-
-      CreateDomain(CreateDomain &&o) noexcept;
+      explicit CreateDomain(iroha::protocol::Command &command);
 
       const interface::types::DomainIdType &domainId() const override;
 
