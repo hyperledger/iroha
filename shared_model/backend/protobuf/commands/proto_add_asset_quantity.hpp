@@ -8,23 +8,14 @@
 
 #include "interfaces/commands/add_asset_quantity.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "commands.pb.h"
 #include "interfaces/common_objects/amount.hpp"
 
 namespace shared_model {
   namespace proto {
-    class AddAssetQuantity final
-        : public CopyableProto<interface::AddAssetQuantity,
-                               iroha::protocol::Command,
-                               AddAssetQuantity> {
+    class AddAssetQuantity final : public interface::AddAssetQuantity {
      public:
-      template <typename CommandType>
-      explicit AddAssetQuantity(CommandType &&command);
-
-      AddAssetQuantity(const AddAssetQuantity &o);
-
-      AddAssetQuantity(AddAssetQuantity &&o) noexcept;
+      explicit AddAssetQuantity(iroha::protocol::Command &command);
 
       const interface::types::AssetIdType &assetId() const override;
 

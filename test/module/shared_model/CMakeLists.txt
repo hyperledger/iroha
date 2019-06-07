@@ -32,3 +32,7 @@ target_link_libraries(commands_mocks_factory
     gtest::main
     gmock::main
     )
+# avoid compilation error due to missing operator<< in Command variant types
+target_compile_definitions(commands_mocks_factory
+    PUBLIC BOOST_NO_IOSTREAM
+    )

@@ -6,23 +6,16 @@
 #ifndef IROHA_PROTO_DETACH_ROLE_HPP
 #define IROHA_PROTO_DETACH_ROLE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/detach_role.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
 
-    class DetachRole final : public CopyableProto<interface::DetachRole,
-                                                  iroha::protocol::Command,
-                                                  DetachRole> {
+    class DetachRole final : public interface::DetachRole {
      public:
-      template <typename CommandType>
-      explicit DetachRole(CommandType &&command);
-
-      DetachRole(const DetachRole &o);
-
-      DetachRole(DetachRole &&o) noexcept;
+      explicit DetachRole(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

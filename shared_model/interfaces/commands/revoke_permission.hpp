@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_REVOKE_PERMISSION_HPP
 #define IROHA_SHARED_MODEL_REVOKE_PERMISSION_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -15,7 +16,8 @@ namespace shared_model {
     /**
      * Revoke permission from account
      */
-    class RevokePermission : public ModelPrimitive<RevokePermission> {
+    class RevokePermission
+        : public NonCopyableModelPrimitive<RevokePermission> {
      public:
       /**
        * @return account from which revoke permission
