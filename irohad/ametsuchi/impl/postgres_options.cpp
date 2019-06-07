@@ -9,6 +9,7 @@
 #include <regex>
 
 #include <boost/algorithm/string.hpp>
+#include "logger/logger.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -16,7 +17,9 @@ namespace iroha {
     // regex to fetch dbname from pg_opt string
     const static std::regex e("\\bdbname=([^ ]*)");
 
-    PostgresOptions::PostgresOptions(const std::string &pg_opt)
+    PostgresOptions::PostgresOptions(const std::string &pg_opt,
+                                     std::string default_dbname,
+                                     logger::LoggerPtr log)
         : pg_opt_(pg_opt) {
       std::smatch m;
 
@@ -36,7 +39,11 @@ namespace iroha {
         pg_opt_without_db_name_ =
             std::string(pg_opt_without_db_name_.begin(), end);
       } else {
-        dbname_ = boost::none;
+        log->warn(
+            "Database name not provided. Using default one: \"{}\". This "
+            "behaviour is deprecated!",
+            default_dbname);
+        dbname_ = std::move(default_dbname);
         pg_opt_without_db_name_ = pg_opt_;
       }
     }
@@ -49,7 +56,7 @@ namespace iroha {
       return pg_opt_without_db_name_;
     }
 
-    boost::optional<std::string> PostgresOptions::dbname() const {
+    const std::string &PostgresOptions::dbname() const {
       return dbname_;
     }
 

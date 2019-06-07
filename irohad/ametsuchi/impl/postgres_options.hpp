@@ -6,9 +6,9 @@
 #ifndef IROHA_POSTGRES_OPTIONS_HPP
 #define IROHA_POSTGRES_OPTIONS_HPP
 
-#include <boost/optional.hpp>
 #include <unordered_map>
 #include "common/result.hpp"
+#include "logger/logger_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -19,11 +19,18 @@ namespace iroha {
      */
     class PostgresOptions {
      public:
-
       /**
-       * Prohibit initialization of the PostgresOptions with no params
+       * @param pg_opt The connection options string.
+       * @param default_dbname The default name of database to use when one is
+       * not provided in pg_opt.
+       * @param log Logger for internal messages.
+       *
+       * TODO 2019.06.07 mboldyrev IR-556 make dbname required & remove the
+       * default.
        */
-      PostgresOptions() = delete;
+      PostgresOptions(const std::string &pg_opt,
+                      std::string default_dbname,
+                      logger::LoggerPtr log);
 
       /**
        * @return full pg_opt string with options
@@ -35,14 +42,12 @@ namespace iroha {
        */
       std::string optionsStringWithoutDbName() const;
 
-      boost::optional<std::string> dbname() const;
-
-      explicit PostgresOptions(const std::string &pg_opt);
+      const std::string &dbname() const;
 
      private:
       const std::string pg_opt_;
       std::string pg_opt_without_db_name_;
-      boost::optional<std::string> dbname_;
+      std::string dbname_;
     };
 
   }  // namespace ametsuchi
