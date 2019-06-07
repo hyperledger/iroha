@@ -3,6 +3,7 @@
         "aws_access_key": "",
         "aws_secret_key": "",
         "instance_type": "c5.2xlarge",
+        "security_group_id": "",
         "windows_password": ""
     },
     "builders": [
@@ -22,7 +23,7 @@
                 "most_recent": true
             },
             "ami_name": "packer-jenkins-win-slave-iroha",
-            "security_group_id": "sg-0b1d8602d2597ca48",
+            "security_group_id": "{{user `security_group_id`}}",
             "user_data_file": "./scripts/SetUpWinRM.ps1",
             "communicator": "winrm",
             "winrm_username": "Administrator",
