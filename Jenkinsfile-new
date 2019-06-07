@@ -197,7 +197,7 @@ node ('master') {
         // Just hint, not the main way to Notify about build status.
         gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
         mac_compiler_list = ['appleclang']
-        win_compiler_list = ['win']
+        win_compiler_list = ['msvc']
         testList = '()'
         coverage = true
         cppcheck = true
