@@ -295,8 +295,8 @@ node ('master') {
   def x64WinBuildSteps
   def x64WinBuildPostSteps = new Builder.PostSteps()
   if(!win_compiler_list.isEmpty()){
-    x64WinBuildSteps = [{x64WinBuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-      win_compiler_list, build_type, false, testing, testList, packageBuild, useBTF,  environmentList)}]
+    x64WinBuildSteps = [{x64WinBuildScript.buildSteps(parallelism==0 ?x64WinWorker.cpusAvailable : parallelism,
+      win_compiler_list, build_type, false, testing, testList, packageBuild, useBTF, environmentList)}]
     x64WinBuildPostSteps = new Builder.PostSteps(
       always: [{x64WinBuildScript.alwaysPostSteps(environmentList)}],
       success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
