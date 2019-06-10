@@ -16,8 +16,15 @@ Keys must be presented in PEM format. To generate them you can use ``openssl``:
 
 .. code-block:: sh
 
-    $ openssl genpkey -algorithm <desired algorithm> -out server.key
+    $ openssl genpkey -algorithm rsa -out server.key
     $ openssl req -new -key server.key -x509 -out server.crt
+
+You can use any algorithm you want instead of ``rsa``, as long as your 
+``openssl`` supports it.
+To find out which are supported, you can use
+
+.. code:: sh
+    $ openssl list-public-key-algorithms
 
 If you need to use plain IP addresses to connect to the node, you need to
 specify ``subjectAltName`` in your server certificate, for that you need to add
@@ -29,7 +36,6 @@ For example, for the default installation, ``/etc/ssl/openssl.cnf``:
 
     [ v3_ca ]
     subjectAltName=IP:12.34.56.78
-    ...
 
 Fields in the certificate don't really matter except for the Common Name (CN),
 it would be checked against the client's hostname, and TLS handshake will fail
