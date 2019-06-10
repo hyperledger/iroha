@@ -61,6 +61,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><strong>win_compiler_list</strong> = [ ]&nbsp;</p>
+      <ul>
+         <li>
+            <p>Windows compiler name to build</p>
+         </li>
+         <li>
+            <p>Ex:&nbsp;win_compiler_list = ['msvc']</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><strong>parallelism</strong> = 0</p>
       <ul>
          <li>

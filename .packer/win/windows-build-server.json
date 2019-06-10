@@ -1,0 +1,91 @@
+{
+    "variables": {
+        "aws_access_key": "",
+        "aws_secret_key": "",
+        "instance_type": "c5.2xlarge",
+        "security_group_id": "",
+        "windows_password": ""
+    },
+    "builders": [
+        {
+            "force_deregister": true,
+            "force_delete_snapshot": true,
+            "type": "amazon-ebs",
+            "access_key": "{{user `aws_access_key`}}",
+            "secret_key": "{{user `aws_secret_key`}}",
+            "region": "eu-west-1",
+            "instance_type": "{{user `instance_type`}}",
+            "source_ami_filter": {
+                "filters": {
+                    "name": "Windows_Server-2019-English-Full-Base-*"
+                },
+                "owners": ["801119661308"],
+                "most_recent": true
+            },
+            "ami_name": "packer-jenkins-win-slave-iroha",
+            "security_group_id": "{{user `security_group_id`}}",
+            "user_data_file": "./scripts/SetUpWinRM.ps1",
+            "communicator": "winrm",
+            "winrm_username": "Administrator",
+            "winrm_use_ssl": true,
+            "winrm_insecure": true,
+            "launch_block_device_mappings": [
+                {
+                    "device_name": "/dev/sda1",
+                    "volume_size": 80,
+                    "volume_type": "gp2",
+                    "delete_on_termination": true
+                }
+      ]
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "file",
+            "source": "./files/packages.config",
+            "destination": "C:\\Windows\\Temp\\"
+        },
+        {
+            "type": "file",
+            "source": "../../vcpkg",
+            "destination": "C:\\Windows\\Temp\\"
+        },
+        {
+            "type": "powershell",
+            "scripts": [
+                "./scripts/SetUpDevTools.ps1"
+            ]
+        },
+        {
+            "type": "windows-restart"
+        },
+        {
+            "type": "powershell",
+            "scripts": [
+                "./scripts/vcpkg.ps1"
+            ]
+        },
+        {
+            "type": "powershell",
+            "inline": [
+                "$launchConfig = Get-Content -Path C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Config\\LaunchConfig.json | ConvertFrom-Json",
+                "$launchConfig.adminPasswordType = 'Specify'",
+                "$launchConfig.adminPassword = '{{user `windows_password`}}'",
+                "$launchConfig",
+                "Set-Content -Value ($launchConfig | ConvertTo-Json) -Path C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Config\\LaunchConfig.json"
+            ]
+        },
+        {
+            "type": "powershell",
+            "inline": [
+              "C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Scripts\\InitializeInstance.ps1 -Schedule",
+              "C:\\ProgramData\\Amazon\\EC2-Windows\\Launch\\Scripts\\SysprepInstance.ps1 -NoShutdown"
+            ]
+        }
+    ],    "post-processors": [
+        {
+            "type": "manifest"
+        }
+    ]
+}
+

@@ -6,23 +6,15 @@
 #ifndef IROHA_PROTO_SET_ACCOUNT_DETAIL_HPP
 #define IROHA_PROTO_SET_ACCOUNT_DETAIL_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/set_account_detail.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class SetAccountDetail final
-        : public CopyableProto<interface::SetAccountDetail,
-                               iroha::protocol::Command,
-                               SetAccountDetail> {
+    class SetAccountDetail final : public interface::SetAccountDetail {
      public:
-      template <typename CommandType>
-      explicit SetAccountDetail(CommandType &&command);
-
-      SetAccountDetail(const SetAccountDetail &o);
-
-      SetAccountDetail(SetAccountDetail &&o) noexcept;
+      explicit SetAccountDetail(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

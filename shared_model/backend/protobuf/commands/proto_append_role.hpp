@@ -6,23 +6,16 @@
 #ifndef IROHA_PROTO_APPEND_ROLE_HPP
 #define IROHA_PROTO_APPEND_ROLE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/append_role.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
 
-    class AppendRole final : public CopyableProto<interface::AppendRole,
-                                                  iroha::protocol::Command,
-                                                  AppendRole> {
+    class AppendRole final : public interface::AppendRole {
      public:
-      template <typename CommandType>
-      explicit AppendRole(CommandType &&command);
-
-      AppendRole(const AppendRole &o);
-
-      AppendRole(AppendRole &&o) noexcept;
+      explicit AppendRole(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

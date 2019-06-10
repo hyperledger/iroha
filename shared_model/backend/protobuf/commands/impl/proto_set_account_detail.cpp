@@ -8,23 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    SetAccountDetail::SetAccountDetail(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          set_account_detail_{proto_->set_account_detail()} {}
-
-    template SetAccountDetail::SetAccountDetail(
-        SetAccountDetail::TransportType &);
-    template SetAccountDetail::SetAccountDetail(
-        const SetAccountDetail::TransportType &);
-    template SetAccountDetail::SetAccountDetail(
-        SetAccountDetail::TransportType &&);
-
-    SetAccountDetail::SetAccountDetail(const SetAccountDetail &o)
-        : SetAccountDetail(o.proto_) {}
-
-    SetAccountDetail::SetAccountDetail(SetAccountDetail &&o) noexcept
-        : SetAccountDetail(std::move(o.proto_)) {}
+    SetAccountDetail::SetAccountDetail(iroha::protocol::Command &command)
+        : set_account_detail_{command.set_account_detail()} {}
 
     const interface::types::AccountIdType &SetAccountDetail::accountId() const {
       return set_account_detail_.account_id();

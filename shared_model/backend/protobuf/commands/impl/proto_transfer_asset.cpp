@@ -8,21 +8,9 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    TransferAsset::TransferAsset(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          transfer_asset_{proto_->transfer_asset()},
+    TransferAsset::TransferAsset(iroha::protocol::Command &command)
+        : transfer_asset_{command.transfer_asset()},
           amount_{transfer_asset_.amount()} {}
-
-    template TransferAsset::TransferAsset(TransferAsset::TransportType &);
-    template TransferAsset::TransferAsset(const TransferAsset::TransportType &);
-    template TransferAsset::TransferAsset(TransferAsset::TransportType &&);
-
-    TransferAsset::TransferAsset(const TransferAsset &o)
-        : TransferAsset(o.proto_) {}
-
-    TransferAsset::TransferAsset(TransferAsset &&o) noexcept
-        : TransferAsset(std::move(o.proto_)) {}
 
     const interface::Amount &TransferAsset::amount() const {
       return amount_;
