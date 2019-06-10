@@ -134,6 +134,7 @@ node ('master') {
   //All variable and Default values
   x64linux_compiler_list = ['gcc5']
   mac_compiler_list = []
+  win_compiler_list = []
 
   testing = true
   testList = '(module)'
@@ -196,6 +197,7 @@ node ('master') {
         // Just hint, not the main way to Notify about build status.
         gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
         mac_compiler_list = ['appleclang']
+        win_compiler_list = ['msvc']
         testList = '()'
         coverage = true
         cppcheck = true
@@ -209,6 +211,7 @@ node ('master') {
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
         x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
+        win_compiler_list = ['msvc']
         testing = true
         testList = '()'
         coverage = true
@@ -234,12 +237,14 @@ node ('master') {
         break;
   }
 
-  echo "specialBranch=${specialBranch}, packageBuild=${packageBuild}, pushDockerTag=${pushDockerTag}, packagePush=${packagePush} "
-  echo "testing=${testing}, testList=${testList}, parallelism=${parallelism}, useBTF=${useBTF}"
-  echo "x64linux_compiler_list=${x64linux_compiler_list}"
-  echo "mac_compiler_list=${mac_compiler_list}"
-  echo "sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, coredumps=${coredumps}, sonar=${sonar}, coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
-  echo "forceDockerDevelopBuild=${forceDockerDevelopBuild}, checkTag=${checkTag}"
+  echo """
+       specialBranch=${specialBranch}, packageBuild=${packageBuild}, pushDockerTag=${pushDockerTag}, packagePush=${packagePush}
+       testing=${testing}, testList=${testList}, parallelism=${parallelism}, useBTF=${useBTF}
+       x64linux_compiler_list=${x64linux_compiler_list}
+       mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
+       sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, coredumps=${coredumps}, sonar=${sonar}, coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
+       forceDockerDevelopBuild=${forceDockerDevelopBuild}, checkTag=${checkTag}
+    """
   print scmVars
   print environmentList
 
@@ -247,11 +252,12 @@ node ('master') {
   // Load Scripts
   def x64LinuxBuildScript = load '.jenkinsci-new/builders/x64-linux-build-steps.groovy'
   def x64BuildScript = load '.jenkinsci-new/builders/x64-mac-build-steps.groovy'
-
+  def x64WinBuildScript = load '.jenkinsci-new/builders/x64-win-build-steps.groovy'
 
   // Define Workers
   x64LinuxWorker = new Worker(label: 'docker-build-agent', cpusAvailable: 8)
   x64MacWorker = new Worker(label: 'mac', cpusAvailable: 4)
+  x64WinWorker = new Worker(label: 'windows-iroha-agent', cpusAvailable: 8)
 
 
   // Define all possible steps
@@ -286,9 +292,20 @@ node ('master') {
       success: [{x64BuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
   }
 
+  def x64WinBuildSteps
+  def x64WinBuildPostSteps = new Builder.PostSteps()
+  if(!win_compiler_list.isEmpty()){
+    x64WinBuildSteps = [{x64WinBuildScript.buildSteps(parallelism==0 ?x64WinWorker.cpusAvailable : parallelism,
+      win_compiler_list, build_type, false, testing, testList, packageBuild, useBTF, environmentList)}]
+    x64WinBuildPostSteps = new Builder.PostSteps(
+      always: [{x64WinBuildScript.alwaysPostSteps(environmentList)}],
+      success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
+  }
+
   // Define builders
   x64LinuxBuilder = new Builder(buildSteps: x64LinuxBuildSteps, postSteps: x64LinuxPostSteps)
   x64MacBuilder = new Builder(buildSteps: x64MacBuildSteps, postSteps: x64MacBuildPostSteps )
+  x64WinBuilder = new Builder(buildSteps: x64WinBuildSteps, postSteps: x64WinBuildPostSteps )
 
   // Define Build
   x64LinuxBuild = new Build(name: "x86_64 Linux ${build_type}",
@@ -299,10 +316,17 @@ node ('master') {
                                      type: build_type,
                                      builder: x64MacBuilder,
                                      worker: x64MacWorker)
+  x64WinBuild = new Build(name: "Windows ${build_type}",
+                                     type: build_type,
+                                     builder: x64WinBuilder,
+                                     worker: x64WinWorker)
+
   if(!x64linux_compiler_list.isEmpty())
     tasks[x64LinuxBuild.name] = build(x64LinuxBuild)
   if(!mac_compiler_list.isEmpty())
     tasks[x64MacBuild.name] = build(x64MacBuild)
+  if(!win_compiler_list.isEmpty())
+    tasks[x64WinBuild.name] = build(x64WinBuild)
 
   cleanWs()
   parallel tasks
