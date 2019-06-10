@@ -11,7 +11,7 @@ This documentation will guide you through the installation, deployment, and laun
 
 As Hyperledger Iroha is an open-source project, we will also cover contribution part and explain you a working process.
 
-.. note:: There is a separate website for all external API documentation, which is `Iroha API <https://hyperledger.github.io/iroha-api>`_. We are in the process of migration, so that in future only RTD is maintained and updated.
+.. note:: There is a separate website for all external API documentation, which is `Iroha API <https://neewy.github.io/iroha-api>`_. We are in the process of migration, so that in future only RTD is maintained and updated.
 
 .. toctree::
     :maxdepth: 2
