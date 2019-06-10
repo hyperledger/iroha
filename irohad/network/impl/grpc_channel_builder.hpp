@@ -8,6 +8,9 @@
 
 #include <grpc++/grpc++.h>
 #include <fstream>
+#include <sstream>
+
+#include "common/result.hpp"
 
 const auto kCannotReadCertificateError = "Cannot read root certificate file";
 
@@ -22,7 +25,7 @@ namespace iroha {
      * @return gRPC stub of parametrized type
      */
     template <typename T>
-    auto createCilentWithCredentials(
+    auto createClientWithCredentials(
         const grpc::string &address,
         std::shared_ptr<grpc::ChannelCredentials> credentials) {
       // in order to bypass built-in limitation of gRPC message size
@@ -42,7 +45,7 @@ namespace iroha {
      */
     template <typename T>
     auto createClient(const grpc::string &address) {
-      return createCilentWithCredentials<T>(address,
+      return createClientWithCredentials<T>(address,
                                             grpc::InsecureChannelCredentials());
     }
 
@@ -56,9 +59,8 @@ namespace iroha {
      */
     template <typename T>
     auto createSecureClient(const grpc::string &address,
-                            const std::string &root_certificate_path) {
-      void createClientWithCredentials<T>(const grpc::string &address);
-
+                            const std::string &root_certificate_path)
+        -> iroha::expected::Result<std::unique_ptr<typename T::Stub>, std::string> {
       std::string root_ca_data;
       try {
         std::ifstream root_ca_file(root_certificate_path);
@@ -73,8 +75,8 @@ namespace iroha {
       options.pem_root_certs = root_ca_data;
       auto credentials = grpc::SslCredentials(options);
 
-      auto val = template createClientWithCredentials<T>(address, credentials);
-      return iroha::expected::makeValue(std::move(val));
+      return iroha::expected::makeValue(
+          createClientWithCredentials<T>(address, credentials));
     }
   }  // namespace network
 }  // namespace iroha
