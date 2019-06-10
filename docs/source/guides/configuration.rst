@@ -13,7 +13,7 @@ at ``example/config.sample``
     "block_store_path": "/tmp/block_store/",
     "torii_port": 50051,
     "internal_port": 10001,
-    "pg_opt": "host=localhost port=5432 user=postgres password=mysecretpassword",
+    "pg_opt": "host=localhost port=5432 user=postgres password=mysecretpassword dbname=iroha",
     "max_proposal_size": 10,
     "proposal_delay": 5000,
     "vote_delay": 5000,
@@ -35,9 +35,13 @@ Deployment-specific parameters
 - ``internal_port`` sets the port for internal communications: ordering
   service, consensus and block loader.
 - ``pg_opt`` is used for setting credentials of PostgreSQL: hostname, port,
-  username and password.
+  username, password and database name.
+  All data except the database name are mandatory.
+  If database name is not provided, a default one gets used.
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
+
+.. warning:: Unspecified database name support is deprecated and will be removed!
 
 Environment-specific parameters
 -------------------------------

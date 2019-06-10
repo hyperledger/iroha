@@ -6,25 +6,17 @@
 #ifndef IROHA_PROTO_REMOVE_SIGNATORY_HPP
 #define IROHA_PROTO_REMOVE_SIGNATORY_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "interfaces/commands/remove_signatory.hpp"
+
 #include "commands.pb.h"
 #include "cryptography/public_key.hpp"
-#include "interfaces/commands/remove_signatory.hpp"
 
 namespace shared_model {
   namespace proto {
 
-    class RemoveSignatory final
-        : public CopyableProto<interface::RemoveSignatory,
-                               iroha::protocol::Command,
-                               RemoveSignatory> {
+    class RemoveSignatory final : public interface::RemoveSignatory {
      public:
-      template <typename CommandType>
-      explicit RemoveSignatory(CommandType &&command);
-
-      RemoveSignatory(const RemoveSignatory &o);
-
-      RemoveSignatory(RemoveSignatory &&o) noexcept;
+      explicit RemoveSignatory(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

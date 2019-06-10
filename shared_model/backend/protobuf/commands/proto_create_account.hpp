@@ -8,23 +8,15 @@
 
 #include "interfaces/commands/create_account.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "commands.pb.h"
 #include "cryptography/public_key.hpp"
 
 namespace shared_model {
   namespace proto {
 
-    class CreateAccount final : public CopyableProto<interface::CreateAccount,
-                                                     iroha::protocol::Command,
-                                                     CreateAccount> {
+    class CreateAccount final : public interface::CreateAccount {
      public:
-      template <typename CommandType>
-      explicit CreateAccount(CommandType &&command);
-
-      CreateAccount(const CreateAccount &o);
-
-      CreateAccount(CreateAccount &&o) noexcept;
+      explicit CreateAccount(iroha::protocol::Command &command);
 
       const interface::types::PubkeyType &pubkey() const override;
 

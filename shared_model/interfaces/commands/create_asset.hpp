@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_CREATE_ASSET_HPP
 #define IROHA_SHARED_MODEL_CREATE_ASSET_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -14,7 +15,7 @@ namespace shared_model {
     /**
      * Create asset in Iroha domain
      */
-    class CreateAsset : public ModelPrimitive<CreateAsset> {
+    class CreateAsset : public NonCopyableModelPrimitive<CreateAsset> {
      public:
       /**
        * @return Asset name to create
