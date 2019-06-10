@@ -46,12 +46,11 @@ namespace shared_model {
                                          ErrorQueryResponse,
                                          SignatoriesResponse,
                                          TransactionsResponse,
-                                         TransactionsPageResponse,
-                                         PendingTransactionsPageResponse,
                                          AssetResponse,
                                          RolesResponse,
                                          RolePermissionsResponse,
                                          TransactionsPageResponse,
+                                         PendingTransactionsPageResponse,
                                          BlockResponse>;
 
       /**
