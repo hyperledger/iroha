@@ -198,7 +198,7 @@ namespace iroha {
 
         std::string hashes;
         for(const auto& tx: txs)
-            hashes += tx.hash().hex() + " ";
+            hashes += tx->hash().hex() + " ";
         log_->debug("Process batch: {}", hashes);
 
         bool has_final_status{false};
