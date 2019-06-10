@@ -20,7 +20,7 @@ Keys must be presented in PEM format. To generate them you can use ``openssl``:
     $ openssl req -new -key server.key -x509 -out server.crt
 
 If you need to use plain IP addresses to connect to the node, you need to
-specify subjectAltName in your server certificate, for that you need to add
+specify ``subjectAltName`` in your server certificate, for that you need to add
 a ``subjectAltName`` directive to ``v3_ca`` section of your openssl config 
 before generating the certificate. 
 For example, for the default installation, ``/etc/ssl/openssl.cnf``:
