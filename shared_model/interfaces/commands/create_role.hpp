@@ -6,10 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_CREATE_ROLE_HPP
 #define IROHA_SHARED_MODEL_CREATE_ROLE_HPP
 
-#include <numeric>
-#include <set>
+#include "interfaces/base/noncopyable_model_primitive.hpp"
 
-#include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -18,7 +16,7 @@ namespace shared_model {
     /**
      * Create new role in Iroha
      */
-    class CreateRole : public ModelPrimitive<CreateRole> {
+    class CreateRole : public NonCopyableModelPrimitive<CreateRole> {
      public:
       /**
        * @return Id of the domain to create

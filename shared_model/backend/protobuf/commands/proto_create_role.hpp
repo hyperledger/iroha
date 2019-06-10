@@ -5,23 +5,16 @@
 #ifndef IROHA_PROTO_CREATE_ROLE_HPP
 #define IROHA_PROTO_CREATE_ROLE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/create_role.hpp"
+
+#include "commands.pb.h"
 #include "interfaces/permissions.hpp"
 
 namespace shared_model {
   namespace proto {
-    class CreateRole final : public CopyableProto<interface::CreateRole,
-                                                  iroha::protocol::Command,
-                                                  CreateRole> {
+    class CreateRole final : public interface::CreateRole {
      public:
-      template <typename CommandType>
-      explicit CreateRole(CommandType &&command);
-
-      CreateRole(const CreateRole &o);
-
-      CreateRole(CreateRole &&o) noexcept;
+      explicit CreateRole(iroha::protocol::Command &command);
 
       const interface::types::RoleIdType &roleName() const override;
 

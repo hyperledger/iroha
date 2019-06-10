@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_DETACH_ROLE_HPP
 #define IROHA_SHARED_MODEL_DETACH_ROLE_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -15,7 +16,7 @@ namespace shared_model {
     /**
      * Remove role from account used in Iroha
      */
-    class DetachRole : public ModelPrimitive<DetachRole> {
+    class DetachRole : public NonCopyableModelPrimitive<DetachRole> {
      public:
       /**
        * @return Account to remove the role

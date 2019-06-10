@@ -8,25 +8,10 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    SubtractAssetQuantity::SubtractAssetQuantity(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          subtract_asset_quantity_{proto_->subtract_asset_quantity()},
-          amount_{subtract_asset_quantity_.amount()} {}
-
-    template SubtractAssetQuantity::SubtractAssetQuantity(
-        SubtractAssetQuantity::TransportType &);
-    template SubtractAssetQuantity::SubtractAssetQuantity(
-        const SubtractAssetQuantity::TransportType &);
-    template SubtractAssetQuantity::SubtractAssetQuantity(
-        SubtractAssetQuantity::TransportType &&);
-
-    SubtractAssetQuantity::SubtractAssetQuantity(const SubtractAssetQuantity &o)
-        : SubtractAssetQuantity(o.proto_) {}
-
     SubtractAssetQuantity::SubtractAssetQuantity(
-        SubtractAssetQuantity &&o) noexcept
-        : SubtractAssetQuantity(std::move(o.proto_)) {}
+        iroha::protocol::Command &command)
+        : subtract_asset_quantity_{command.subtract_asset_quantity()},
+          amount_{subtract_asset_quantity_.amount()} {}
 
     const interface::types::AssetIdType &SubtractAssetQuantity::assetId()
         const {
