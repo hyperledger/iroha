@@ -26,7 +26,7 @@ Firewall settings must allow incoming/outgoing connections to/from these ports.
 If possible, disable or remove any other network services with listening ports (FTP, DNS, LDAP, SMB, DHCP, NFS, SNMP, etc).
 Ideally, Iroha should be as much isolated as possible in terms of networking.
 
-You can enable TLS on torii ports if you would like to encrypt client-peer 
+You can enable TLS on torii ports if you would like to encrypt client-peer
 communication.
 
 If you don't use traffic encryption, we strongly recommend using VPN or Calico for setting up Docker overlay network, i.e. any mechanism that allows encrypting communication between peers.
