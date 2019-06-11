@@ -35,9 +35,9 @@ namespace iroha {
         handler_ = handler;
       }
 
-      YacNetworkWithFeedBack::SendStateReturnType NetworkImpl::sendState(
-          const shared_model::interface::Peer &to,
-          const std::vector<VoteMessage> &state) {
+      void NetworkImpl::sendState(const shared_model::interface::Peer &to,
+                                  const std::vector<VoteMessage> &state,
+                                  CallbackType callback) {
         createPeerConnection(to);
 
         proto::State request;
@@ -49,39 +49,35 @@ namespace iroha {
         log_->info(
             "Send votes bundle[size={}] to {}", state.size(), to.address());
 
-        auto log_outcome = [log = log_, destination_peer = to.toString()](
-                               const grpc::Status &status) {
-          log->info("Sent to {} with status details [{}]",
-                    destination_peer,
-                    status.ok() ? "OK" : status.error_details());
-        };
-
-        return async_call_
-            ->Call([&](auto context, auto cq) {
+        async_call_->Call(
+            [&](auto context, auto cq) {
               return peers_.at(to.address())
                   ->AsyncSendState(context, request, cq);
-            })
-            .tap(log_outcome)
-            .map(
-                [](const auto &status) { return makeSendStateStatus(status); });
+            },
+            [callback, log = log_](auto grpc_status) {
+              auto status = makeSendStateStatus(grpc_status);
+              log->info("Sent state with status details: [{}]",
+                        grpc_status.ok() ? "OK" : grpc_status.error_details());
+              callback(std::move(status));
+            });
       }
 
-      YacNetworkWithFeedBack::ValueStateReturnType
-      NetworkImpl::makeSendStateStatus(const grpc::Status &status) {
-        auto is_ok = [](const auto &code) {
+      YacNetworkWithFeedBack::StatusSentType NetworkImpl::makeSendStateStatus(
+          const grpc::Status &status) {
+        static const auto is_ok = [](const auto &code) {
           return code == grpc::StatusCode::OK;
         };
 
-        auto is_troubles_with_recipient = [](const auto &code) {
+        static const auto is_troubles_with_recipient = [](const auto &code) {
           using namespace grpc;
           std::set<StatusCode> codes = {StatusCode::CANCELLED,
-                                    StatusCode::INVALID_ARGUMENT,
-                                    StatusCode::UNAUTHENTICATED,
-                                    StatusCode::RESOURCE_EXHAUSTED,
-                                    StatusCode::ABORTED,
-                                    StatusCode::UNIMPLEMENTED,
-                                    StatusCode::UNAVAILABLE,
-                                    StatusCode::DATA_LOSS};
+                                        StatusCode::INVALID_ARGUMENT,
+                                        StatusCode::UNAUTHENTICATED,
+                                        StatusCode::RESOURCE_EXHAUSTED,
+                                        StatusCode::ABORTED,
+                                        StatusCode::UNIMPLEMENTED,
+                                        StatusCode::UNAVAILABLE,
+                                        StatusCode::DATA_LOSS};
           return codes.find(code) != codes.end();
         };
 

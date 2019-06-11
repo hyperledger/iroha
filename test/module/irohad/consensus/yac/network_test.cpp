@@ -79,7 +79,7 @@ namespace iroha {
         EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
             .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
 
-        network->sendState(*peer, {message});
+        network->sendState(*peer, {message}, [](auto) {});
 
         ASSERT_EQ(request.votes_size(), 1);
       }

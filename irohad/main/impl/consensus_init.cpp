@@ -114,18 +114,20 @@ namespace iroha {
             },
             consensus_log_manager->getChild("Network")->getLogger());
 
-        yac_network = std::make_shared<YacNetworkSender>(proto_yac_network);
+        yac_network_ = std::make_shared<YacNetworkSender>(
+            proto_yac_network,
+            consensus_log_manager->getChild("YacNetworkSender")->getLogger());
 
         auto yac = createYac(*ClusterOrdering::create(peers.value()),
                              initial_round,
                              keypair,
                              createTimer(vote_delay_milliseconds),
-                             yac_network,
+                             yac_network_,
                              std::move(common_objects_factory),
                              consistency_model,
                              rxcpp::observe_on_new_thread(),
                              consensus_log_manager);
-        yac_network->subscribe(yac);
+        yac_network_->subscribe(yac);
 
         auto hash_provider = createHashProvider();
 

@@ -212,8 +212,8 @@ namespace integration_framework {
                       return iroha::network::createClient<
                           iroha::consensus::yac::proto::Yac>(peer.address());
                     },
-                    log_manager_->getChild("ConsensusTransport")
-                        ->getLogger()))),
+                    log_manager_->getChild("ConsensusTransport")->getLogger()),
+                log_manager_->getChild("YacNetworkSender")->getLogger())),
         cleanup_on_exit_(cleanup_on_exit) {}
 
   IntegrationTestFramework::~IntegrationTestFramework() {

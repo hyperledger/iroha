@@ -82,13 +82,11 @@ namespace iroha {
         virtual void subscribe(
             std::shared_ptr<YacNetworkNotifications> handler) = 0;
 
-        using ValueStateReturnType =
+        using StatusSentType =
             boost::variant<sending_statuses::SuccessfulSent,
                            sending_statuses::UnavailableNetwork,
                            sending_statuses::UnavailableReceiver>;
-
-        using SendStateReturnType = rxcpp::observable<ValueStateReturnType>;
-
+        using CallbackType = std::function<void(StatusSentType)>;
         /**
          * Directly share collection of votes.
          * Note: method assumes blocking approach for the propagation
@@ -96,9 +94,9 @@ namespace iroha {
          * @param state - message for sending
          * @return status of sending
          */
-        virtual SendStateReturnType sendState(
-            const shared_model::interface::Peer &to,
-            const std::vector<VoteMessage> &state) = 0;
+        virtual void sendState(const shared_model::interface::Peer &to,
+                               const std::vector<VoteMessage> &state,
+                               CallbackType) = 0;
 
         // TODO: add method virtual void updatePeerList();
 

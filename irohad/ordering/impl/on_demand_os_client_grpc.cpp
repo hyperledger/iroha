@@ -43,9 +43,11 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
 
   log_->debug("Propagating: '{}'", request.DebugString());
 
-  async_call_->Call([&](auto context, auto cq) {
-    return stub_->AsyncSendBatches(context, request, cq);
-  });
+  async_call_->Call(
+      [&](auto context, auto cq) {
+        return stub_->AsyncSendBatches(context, request, cq);
+      },
+      [](auto) {});
 }
 
 boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>

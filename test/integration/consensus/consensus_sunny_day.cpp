@@ -107,7 +107,9 @@ class ConsensusSunnyDayTest : public ::testing::Test {
           return iroha::network::createClient<proto::Yac>(peer.address());
         },
         getTestLogger("YacNetwork"));
-    auto yac_network_wrapper = std::make_shared<YacNetworkSender>(network);
+    auto yac_network_wrapper = std::make_shared<YacNetworkSender>(
+        network,
+        getTestLoggerManager()->getChild("YacNetworkSender")->getLogger());
     crypto = std::make_shared<FixedCryptoProvider>(my_pub_key);
     timer = std::make_shared<TimerImpl>(std::chrono::milliseconds(delay),
                                         rxcpp::observe_on_new_thread());

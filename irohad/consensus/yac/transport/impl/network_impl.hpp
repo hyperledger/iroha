@@ -40,9 +40,9 @@ namespace iroha {
         void subscribe(
             std::shared_ptr<YacNetworkNotifications> handler) override;
 
-        YacNetworkWithFeedBack::SendStateReturnType sendState(
-            const shared_model::interface::Peer &to,
-            const std::vector<VoteMessage> &state) override;
+        void sendState(const shared_model::interface::Peer &to,
+                       const std::vector<VoteMessage> &state,
+                       YacNetworkWithFeedBack::CallbackType) override;
 
         /**
          * Receive votes from another peer;
@@ -62,7 +62,7 @@ namespace iroha {
          */
         void createPeerConnection(const shared_model::interface::Peer &peer);
 
-        static YacNetworkWithFeedBack::ValueStateReturnType makeSendStateStatus(
+        static YacNetworkWithFeedBack::StatusSentType makeSendStateStatus(
             const grpc::Status &);
 
         /**

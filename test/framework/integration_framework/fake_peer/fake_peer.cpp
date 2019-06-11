@@ -46,13 +46,12 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
     const PublicKey &key) {
   std::shared_ptr<shared_model::interface::Peer> peer;
   common_objects_factory->createPeer(address, key)
-      .match(
-          [&peer](auto &&result) { peer = std::move(result.value); },
-          [&address](const auto &error) {
-            BOOST_THROW_EXCEPTION(
-                std::runtime_error("Failed to create peer object for peer "
-                                   + address + ". " + error.error));
-          });
+      .match([&peer](auto &&result) { peer = std::move(result.value); },
+             [&address](const auto &error) {
+               BOOST_THROW_EXCEPTION(
+                   std::runtime_error("Failed to create peer object for peer "
+                                      + address + ". " + error.error));
+             });
   return peer;
 }
 
@@ -309,7 +308,7 @@ namespace integration_framework {
 
     void FakePeer::sendYacState(
         const std::vector<iroha::consensus::yac::VoteMessage> &state) {
-      yac_transport_->sendState(*real_peer_, state);
+      yac_transport_->sendState(*real_peer_, state, [](auto) {});
     }
 
     void FakePeer::voteForTheSame(

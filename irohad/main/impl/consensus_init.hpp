@@ -55,7 +55,7 @@ namespace iroha {
 
         bool initialized_{false};
         std::shared_ptr<NetworkImpl> proto_yac_network;
-        std::shared_ptr<YacNetworkSender> yac_network;
+        std::shared_ptr<YacNetworkSender> yac_network_;
       };
     }  // namespace yac
   }    // namespace consensus

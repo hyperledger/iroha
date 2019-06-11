@@ -37,12 +37,16 @@ namespace iroha {
         auto ok = false;
         while (cq_.Next(&got_tag, &ok)) {
           auto call = static_cast<AsyncClientCall *>(got_tag);
-          call->status_subject_.get_subscriber().on_next(call->status);
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
           }
-          call->status_subject_.get_subscriber().on_completed();
+
+          auto callback = std::move(call->status_callback);
+          auto status = std::move(call->status);
+
           delete call;
+
+          callback(status);
         }
       }
 
@@ -60,6 +64,9 @@ namespace iroha {
        * State and data information of gRPC call
        */
       struct AsyncClientCall {
+        AsyncClientCall(std::function<void(grpc::Status)> callback)
+            : status_callback(std::move(callback)) {}
+
         Response reply;
 
         grpc::ClientContext context;
@@ -69,21 +76,21 @@ namespace iroha {
         std::unique_ptr<grpc::ClientAsyncResponseReaderInterface<Response>>
             response_reader;
 
-        rxcpp::subjects::subject<grpc::Status> status_subject_;
+        std::function<void(grpc::Status)> status_callback = [](auto) {};
       };
 
       /**
        * Universal method to perform all needed sends
        * @tparam lambda which must return unique pointer to
        * ClientAsyncResponseReader<Response> object
+       * @param status_callback - callback which invokes on finish of the call
        * @return observable with connection status
        */
       template <typename F>
-      rxcpp::observable<grpc::Status> Call(F &&lambda) {
-        auto call = new AsyncClientCall;
+      void Call(F &&lambda, std::function<void(grpc::Status)> status_callback) {
+        auto call = new AsyncClientCall(std::move(status_callback));
         call->response_reader = lambda(&call->context, &cq_);
         call->response_reader->Finish(&call->reply, &call->status, call);
-        return call->status_subject_.get_observable();
       }
 
      private:

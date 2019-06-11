@@ -8,6 +8,8 @@
 
 #include "consensus/yac/transport/yac_network_interface.hpp"
 
+#include "logger/logger_fwd.hpp"
+
 #include <memory>
 #include <rxcpp/rx.hpp>
 #include <unordered_map>
@@ -39,7 +41,8 @@ namespace iroha {
          * Creates transport with redelivery property
          * @param transport - instance of effective transport
          */
-        YacNetworkSender(std::shared_ptr<TransportType> transport);
+        YacNetworkSender(std::shared_ptr<TransportType> transport,
+                         logger::LoggerPtr log);
 
         void subscribe(
             std::shared_ptr<YacNetworkNotifications> handler) override;
@@ -51,16 +54,17 @@ namespace iroha {
         using StatesCollection =
             std::unordered_map<PeerType, StateInCollectionType>;
 
-        static void sendStateViaTransport(
+        static void sendStateViaTransportAsync(
             PeerType to,
             StateInCollectionType state,
-            std::shared_ptr<TransportType> transport);
+            std::weak_ptr<TransportType> transport,
+            logger::LoggerPtr logger,
+            uint64_t rest_attempts);
 
         // ------------------------| Global state | ----------------------------
         std::shared_ptr<TransportType> transport_;
 
-        // ------------------------| Current state | ---------------------------
-        StatesCollection undelivered_states_;
+        logger::LoggerPtr log_;
       };
     }  // namespace yac
   }    // namespace consensus

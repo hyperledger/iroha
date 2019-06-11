@@ -179,7 +179,9 @@ void sendStateAsyncImpl(const shared_model::interface::Peer &to,
             ->getTransport();
   });
 
-  async_call.Call([&](auto context, auto cq) {
-    return client->AsyncSendState(context, protoState, cq);
-  });
+  async_call.Call(
+      [&](auto context, auto cq) {
+        return client->AsyncSendState(context, protoState, cq);
+      },
+      [](auto) {});
 }
