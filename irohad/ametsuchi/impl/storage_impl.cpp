@@ -22,6 +22,7 @@
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
+#include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
@@ -415,7 +416,9 @@ namespace iroha {
           std::make_unique<MutableStorageImpl>(
               hash,
               height,
-              std::make_shared<PostgresCommandExecutor>(*sql, perm_converter_),
+              std::make_shared<TransactionExecutor>(
+                  std::make_shared<PostgresCommandExecutor>(*sql,
+                                                            perm_converter_)),
               std::move(sql),
               factory_,
               storage_factory.create(),

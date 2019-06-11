@@ -8,9 +8,9 @@
 #include <boost/variant/apply_visitor.hpp>
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
-#include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -22,7 +22,7 @@ namespace iroha {
     MutableStorageImpl::MutableStorageImpl(
         shared_model::interface::types::HashType top_hash,
         shared_model::interface::types::HeightType top_height,
-        std::shared_ptr<PostgresCommandExecutor> cmd_executor,
+        std::shared_ptr<TransactionExecutor> transaction_executor,
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::unique_ptr<BlockStorage> block_storage,
@@ -37,7 +37,7 @@ namespace iroha {
                   log_manager->getChild("WsvQuery")->getLogger()))),
           block_index_(std::make_unique<PostgresBlockIndex>(
               *sql_, log_manager->getChild("PostgresBlockIndex")->getLogger())),
-          command_executor_(std::move(cmd_executor)),
+          transaction_executor_(std::move(transaction_executor)),
           block_storage_(std::move(block_storage)),
           committed(false),
           log_(log_manager->getLogger()) {
@@ -47,24 +47,9 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
-      auto execute_transaction = [this](auto &transaction) {
-        command_executor_->setCreatorAccountId(transaction.creatorAccountId());
-        command_executor_->doValidation(false);
-
-        auto execute_command = [this](const auto &command) {
-          auto command_applied =
-              boost::apply_visitor(*command_executor_, command.get());
-
-          return command_applied.match([](const auto &) { return true; },
-                                       [&](const auto &e) {
-                                         log_->error(e.error.toString());
-                                         return false;
-                                       });
-        };
-
-        return std::all_of(transaction.commands().begin(),
-                           transaction.commands().end(),
-                           execute_command);
+      auto execute_transaction = [this](auto &transaction) -> bool {
+        return expected::hasValue(
+            transaction_executor_->execute(transaction, false));
       };
 
       log_->info("Applying block: height {}, hash {}",

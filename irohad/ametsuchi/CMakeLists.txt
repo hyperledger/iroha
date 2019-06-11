@@ -5,6 +5,8 @@
 
 add_library(ametsuchi
     impl/flat_file/flat_file.cpp
+    impl/command_executor.cpp
+    impl/tx_executor.cpp
     impl/storage_impl.cpp
     impl/temporary_wsv_impl.cpp
     impl/mutable_storage_impl.cpp

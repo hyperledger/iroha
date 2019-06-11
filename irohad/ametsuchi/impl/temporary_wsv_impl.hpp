@@ -22,6 +22,8 @@ namespace shared_model {
 namespace iroha {
 
   namespace ametsuchi {
+    class TransactionExecutor;
+
     class TemporaryWsvImpl : public TemporaryWsv {
       friend class StorageImpl;
 
@@ -65,7 +67,7 @@ namespace iroha {
           const shared_model::interface::Transaction &transaction);
 
       std::unique_ptr<soci::session> sql_;
-      std::unique_ptr<CommandExecutor> command_executor_;
+      std::unique_ptr<TransactionExecutor> transaction_executor_;
 
       logger::LoggerManagerTreePtr log_manager_;
       logger::LoggerPtr log_;
