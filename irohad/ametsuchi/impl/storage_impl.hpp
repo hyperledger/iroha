@@ -199,7 +199,6 @@ namespace iroha {
       std::string prepared_block_name_;
 
      protected:
-      static const std::string &drop_;
       static const std::string &reset_;
       static const std::string &reset_peers_;
       static const std::string &init_;

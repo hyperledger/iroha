@@ -10,7 +10,7 @@ This is the list of maintainers, including their email address for direct commun
 |------------------------|--------------------------|--------------------------------|---------------------------------|
 | Makoto Takemiya        | @takemiyamakoto          | takemiya@soramitsu.co.jp       | Product vision                  |
 | Ryu Okada              | @ryuo88                  | okada@soramitsu.co.jp          | Product vision                  |
-| Nikolay Yushkevich     | @neewy                   | nikolai@soramitsu.co.jp        | Project state                   |
+| Nikolai Iushkevich     | @neewy                   | n.yushkevich@hotmail.com       | Development                     |
 | Fyodor Muratov         | @muratovv                | fyodor@soramitsu.co.jp         | Architecture, Java library, QA  |
 | Andrei Lebedev         | @lebdron                 | andrei@soramitsu.co.jp         | Research                        |
 | Sergei Solonets        | @Solonets                | ssolonets@gmail.com            | Development                     |

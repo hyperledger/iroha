@@ -6,23 +6,15 @@
 #ifndef IROHA_PROTO_REVOKE_PERMISSION_HPP
 #define IROHA_PROTO_REVOKE_PERMISSION_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/revoke_permission.hpp"
+
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class RevokePermission final
-        : public CopyableProto<interface::RevokePermission,
-                               iroha::protocol::Command,
-                               RevokePermission> {
+    class RevokePermission final : public interface::RevokePermission {
      public:
-      template <typename CommandType>
-      explicit RevokePermission(CommandType &&command);
-
-      RevokePermission(const RevokePermission &o);
-
-      RevokePermission(RevokePermission &&o) noexcept;
+      explicit RevokePermission(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

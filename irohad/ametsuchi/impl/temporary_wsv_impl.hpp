@@ -10,7 +10,6 @@
 
 #include <soci/soci.h>
 #include "ametsuchi/command_executor.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 
@@ -23,6 +22,8 @@ namespace shared_model {
 namespace iroha {
 
   namespace ametsuchi {
+    class TransactionExecutor;
+
     class TemporaryWsvImpl : public TemporaryWsv {
       friend class StorageImpl;
 
@@ -45,8 +46,6 @@ namespace iroha {
 
       TemporaryWsvImpl(
           std::unique_ptr<soci::session> sql,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           logger::LoggerManagerTreePtr log_manager);
@@ -68,7 +67,7 @@ namespace iroha {
           const shared_model::interface::Transaction &transaction);
 
       std::unique_ptr<soci::session> sql_;
-      std::unique_ptr<CommandExecutor> command_executor_;
+      std::unique_ptr<TransactionExecutor> transaction_executor_;
 
       logger::LoggerManagerTreePtr log_manager_;
       logger::LoggerPtr log_;

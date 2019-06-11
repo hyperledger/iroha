@@ -10,7 +10,6 @@
 
 #include <soci/soci.h>
 #include "ametsuchi/block_storage.hpp"
-#include "ametsuchi/command_executor.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
@@ -19,7 +18,7 @@
 namespace iroha {
   namespace ametsuchi {
     class BlockIndex;
-    class PostgresCommandExecutor;
+    class TransactionExecutor;
 
     class MutableStorageImpl : public MutableStorage {
       friend class StorageImpl;
@@ -28,7 +27,7 @@ namespace iroha {
       MutableStorageImpl(
           shared_model::interface::types::HashType top_hash,
           shared_model::interface::types::HeightType top_height,
-          std::shared_ptr<PostgresCommandExecutor> cmd_executor,
+          std::shared_ptr<TransactionExecutor> transaction_executor,
           std::unique_ptr<soci::session> sql,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               factory,
@@ -70,7 +69,7 @@ namespace iroha {
       std::unique_ptr<soci::session> sql_;
       std::unique_ptr<PeerQuery> peer_query_;
       std::unique_ptr<BlockIndex> block_index_;
-      std::shared_ptr<CommandExecutor> command_executor_;
+      std::shared_ptr<TransactionExecutor> transaction_executor_;
       std::unique_ptr<BlockStorage> block_storage_;
 
       bool committed;

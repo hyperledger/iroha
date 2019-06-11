@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_GRANT_PERMISSION_HPP
 #define IROHA_SHARED_MODEL_GRANT_PERMISSION_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -15,7 +16,7 @@ namespace shared_model {
     /**
      * Grant permission to the account
      */
-    class GrantPermission : public ModelPrimitive<GrantPermission> {
+    class GrantPermission : public NonCopyableModelPrimitive<GrantPermission> {
      public:
       /**
        * @return Id of the account to whom grant permission

@@ -6,24 +6,17 @@
 #ifndef IROHA_PROTO_SUBTRACT_ASSET_QUANTITY_HPP
 #define IROHA_PROTO_SUBTRACT_ASSET_QUANTITY_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "commands.pb.h"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
+
+#include "commands.pb.h"
 #include "interfaces/common_objects/amount.hpp"
 
 namespace shared_model {
   namespace proto {
     class SubtractAssetQuantity final
-        : public CopyableProto<interface::SubtractAssetQuantity,
-                               iroha::protocol::Command,
-                               SubtractAssetQuantity> {
+        : public interface::SubtractAssetQuantity {
      public:
-      template <typename CommandType>
-      explicit SubtractAssetQuantity(CommandType &&command);
-
-      SubtractAssetQuantity(const SubtractAssetQuantity &o);
-
-      SubtractAssetQuantity(SubtractAssetQuantity &&o) noexcept;
+      explicit SubtractAssetQuantity(iroha::protocol::Command &command);
 
       const interface::types::AssetIdType &assetId() const override;
 

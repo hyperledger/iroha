@@ -8,19 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename CommandType>
-    AppendRole::AppendRole(CommandType &&command)
-        : CopyableProto(std::forward<CommandType>(command)),
-          append_role_{proto_->append_role()} {}
-
-    template AppendRole::AppendRole(AppendRole::TransportType &);
-    template AppendRole::AppendRole(const AppendRole::TransportType &);
-    template AppendRole::AppendRole(AppendRole::TransportType &&);
-
-    AppendRole::AppendRole(const AppendRole &o) : AppendRole(o.proto_) {}
-
-    AppendRole::AppendRole(AppendRole &&o) noexcept
-        : AppendRole(std::move(o.proto_)) {}
+    AppendRole::AppendRole(iroha::protocol::Command &command)
+        : append_role_{command.append_role()} {}
 
     const interface::types::AccountIdType &AppendRole::accountId() const {
       return append_role_.account_id();
