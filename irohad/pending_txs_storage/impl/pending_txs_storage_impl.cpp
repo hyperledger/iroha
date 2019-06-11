@@ -100,6 +100,7 @@ namespace iroha {
       auto &txs = batch_iterator->get()->transactions();
       next_batch_info.first_tx_hash = txs.front()->hash();
       next_batch_info.batch_size = txs.size();
+      response.next_batch_info = std::move(next_batch_info);
     }
     return iroha::expected::makeValue(std::move(response));
   }
