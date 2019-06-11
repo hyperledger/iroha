@@ -7,6 +7,7 @@
 
 #include <boost/format.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/tx_executor.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -22,8 +23,9 @@ namespace iroha {
             perm_converter,
         logger::LoggerManagerTreePtr log_manager)
         : sql_(std::move(sql)),
-          command_executor_(std::make_unique<PostgresCommandExecutor>(
-              *sql_, std::move(perm_converter))),
+          transaction_executor_(std::make_unique<TransactionExecutor>(
+              std::make_unique<PostgresCommandExecutor>(
+                  *sql_, std::move(perm_converter)))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
       *sql_ << "BEGIN";
@@ -84,41 +86,21 @@ namespace iroha {
 
     expected::Result<void, validation::CommandError> TemporaryWsvImpl::apply(
         const shared_model::interface::Transaction &transaction) {
-      const auto &tx_creator = transaction.creatorAccountId();
-      command_executor_->setCreatorAccountId(tx_creator);
-      command_executor_->doValidation(true);
-      auto execute_command =
-          [this](auto &command) -> expected::Result<void, CommandError> {
-        // Validate and execute command
-        return boost::apply_visitor(*command_executor_, command.get());
-      };
-
       auto savepoint_wrapper = createSavepoint("savepoint_temp_wsv");
 
       return validateSignatures(transaction) |
-                 [savepoint = std::move(savepoint_wrapper),
-                  &execute_command,
+                 [this,
+                  savepoint = std::move(savepoint_wrapper),
                   &transaction]()
                  -> expected::Result<void, validation::CommandError> {
-        // check transaction's commands validity
-        const auto &commands = transaction.commands();
-        validation::CommandError cmd_error;
-        for (size_t i = 0; i < commands.size(); ++i) {
-          // in case of failed command, rollback and return
-          auto cmd_is_valid =
-              execute_command(commands[i])
-                  .match([](const auto &) { return true; },
-                         [i, &cmd_error](const auto &error) {
-                           cmd_error = {error.error.command_name,
-                                        error.error.error_code,
-                                        error.error.error_extra,
-                                        true,
-                                        i};
-                           return false;
-                         });
-          if (not cmd_is_valid) {
-            return expected::makeError(cmd_error);
-          }
+        if (auto error = expected::resultToOptionalError(
+                transaction_executor_->execute(transaction, true))) {
+          return expected::makeError(
+              validation::CommandError{error->command_error.command_name,
+                                       error->command_error.error_code,
+                                       error->command_error.error_extra,
+                                       true,
+                                       error->command_index});
         }
         // success
         savepoint->release();
