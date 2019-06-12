@@ -24,18 +24,16 @@ namespace integration_framework {
                                const std::string &block_store_path,
                                const std::string &listen_ip,
                                size_t torii_port,
-                               size_t torii_tls_port,
-                               const std::string &torii_tls_keypair,
                                size_t internal_port,
                                logger::LoggerManagerTreePtr irohad_log_manager,
                                logger::LoggerPtr log,
-                               const boost::optional<std::string> &dbname)
+                               const boost::optional<std::string> &dbname,
+                               const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
       : block_store_dir_(block_store_path),
         pg_conn_(getPostgreCredsOrDefault(dbname)),
         listen_ip_(listen_ip),
         torii_port_(torii_port),
-        torii_tls_port_(torii_tls_port),
-        torii_tls_keypair_(torii_tls_keypair),
+        torii_tls_params_(torii_tls_params),
         internal_port_(internal_port),
         // proposal_timeout results in non-deterministic behavior due
         // to thread scheduling and network

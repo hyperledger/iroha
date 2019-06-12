@@ -22,10 +22,11 @@ class ServerRunner {
    * @param log to print progress to
    * @param reuse - allow multiple sockets to bind to the same port
    */
-  explicit ServerRunner(const std::string &address,
-                        logger::LoggerPtr log,
-                        bool reuse = true,
-                        const std::string &tls_keypair = "");
+  explicit ServerRunner(
+      const std::string &address,
+      logger::LoggerPtr log,
+      bool reuse = true,
+      const boost::optional<std::string> &tls_keypair = boost::none);
 
   /**
    * Adds a new grpc service to be run.
@@ -46,6 +47,23 @@ class ServerRunner {
   void waitForServersReady();
 
   /**
+   * Construct SSL credentials for a secure connection
+   * @return Result with server credentials or error message
+   */
+  iroha::expected::Result<std::shared_ptr<grpc::ServerCredentials>, std::string>
+  createSecureCredentials();
+
+  /**
+   * Adds a listening port to a ServerBuilder
+   * Optionally constructs SSL credentials
+   * @param builder builder to which to add the listening port
+   * @param selected_port pointer to an int which will contain the selected port
+   * @return boost::optional with an error message
+   */
+  boost::optional<std::string> addListeningPortToBuilder(
+      grpc::ServerBuilder &builder, int *selected_port);
+
+  /**
    * Ask grpc server to terminate.
    */
   void shutdown();
@@ -58,14 +76,14 @@ class ServerRunner {
  private:
   logger::LoggerPtr log_;
 
-  std::unique_ptr<grpc::Server> serverInstance_;
-  std::mutex waitForServer_;
-  std::condition_variable serverInstanceCV_;
+  std::unique_ptr<grpc::Server> server_instance_;
+  std::mutex wait_for_server_;
+  std::condition_variable server_instance_cv_;
 
-  std::string serverAddress_;
+  std::string server_address_;
   bool reuse_;
   std::vector<std::shared_ptr<grpc::Service>> services_;
-  std::string tlsKeypair_;
+  boost::optional<std::string> tls_keypair_;
 };
 
 #endif  // MAIN_SERVER_RUNNER_HPP

@@ -20,8 +20,6 @@ namespace integration_framework {
                const std::string &pg_conn,
                const std::string &listen_ip,
                size_t torii_port,
-               size_t torii_tls_port,
-               const std::string &torii_tls_keypair,
                size_t internal_port,
                size_t max_proposal_size,
                std::chrono::milliseconds proposal_delay,
@@ -35,13 +33,13 @@ namespace integration_framework {
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
                const boost::optional<iroha::GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params = boost::none)
+                   &opt_mst_gossip_params = boost::none,
+               const boost::optional<iroha::torii::TlsParams>
+                   &torii_tls_params = boost::none)
         : Irohad(block_store_dir,
                  pg_conn,
                  listen_ip,
                  torii_port,
-                 torii_tls_port,
-                 torii_tls_keypair,
                  internal_port,
                  max_proposal_size,
                  proposal_delay,
@@ -52,7 +50,8 @@ namespace integration_framework {
                  stale_stream_max_rounds,
                  std::move(opt_alternative_peers),
                  std::move(irohad_log_manager),
-                 opt_mst_gossip_params),
+                 opt_mst_gossip_params,
+                 torii_tls_params),
           log_(std::move(log)) {}
 
     auto &getCommandService() {

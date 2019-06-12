@@ -17,6 +17,7 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
+#include "torii/tls_params.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -31,6 +32,11 @@ namespace shared_model {
 namespace integration_framework {
   class TestIrohad;
 
+  struct ToriiTlsParams {
+    size_t port;
+    std::string key_path;
+  }
+
   class IrohaInstance {
    public:
     /**
@@ -42,17 +48,17 @@ namespace integration_framework {
      * @param irohad_log_manager - the log manager for irohad
      * @param log - the log for internal messages
      * @param dbname is a name of postgres database
+     * @param tls_params - optional tls parameters
      */
     IrohaInstance(bool mst_support,
                   const std::string &block_store_path,
                   const std::string &listen_ip,
                   size_t torii_port,
-                  size_t torii_tls_port,
-                  const std::string &torii_tls_keypair,
                   size_t internal_port,
                   logger::LoggerManagerTreePtr irohad_log_manager,
                   logger::LoggerPtr log,
-                  const boost::optional<std::string> &dbname = boost::none);
+                  const boost::optional<std::string> &dbname = boost::none,
+                  const boost::optional<iroha::torii::TlsParams> &tls_params = boost::none);
 
     /// Initialize Irohad. Throws on error.
     void init();
@@ -84,8 +90,7 @@ namespace integration_framework {
     const std::string pg_conn_;
     const std::string listen_ip_;
     const size_t torii_port_;
-    const size_t torii_tls_port_;
-    const std::string torii_tls_keypair_;
+    boost::optional<iroha::torii::TlsParams> torii_tls_params_;
     const size_t internal_port_;
     const std::chrono::milliseconds proposal_delay_;
     const std::chrono::milliseconds vote_delay_;

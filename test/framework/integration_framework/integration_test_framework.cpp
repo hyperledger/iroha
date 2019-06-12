@@ -156,8 +156,6 @@ namespace integration_framework {
                                             block_store_path,
                                             kLocalHost,
                                             torii_port_,
-                                            0,
-                                            "",
                                             internal_port_,
                                             log_manager_->getChild("Irohad"),
                                             log_,

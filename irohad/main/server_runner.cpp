@@ -6,6 +6,7 @@
 #include "main/server_runner.hpp"
 
 #include <fstream>
+
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
 
@@ -16,11 +17,11 @@ const auto kCertificateError = "Cannot read certificate file";
 ServerRunner::ServerRunner(const std::string &address,
                            logger::LoggerPtr log,
                            bool reuse,
-                           const std::string &tls_keypair)
+                           const boost::optional<std::string> &tls_keypair)
     : log_(std::move(log)),
-      serverAddress_(address),
+      server_address_(address),
       reuse_(reuse),
-      tlsKeypair_(tls_keypair) {}
+      tls_keypair_(tls_keypair) {}
 
 ServerRunner &ServerRunner::append(std::shared_ptr<grpc::Service> service) {
   services_.push_back(service);
@@ -35,36 +36,9 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
     builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
   }
 
-  bool enable_tls = tlsKeypair_.length() > 0;
-  if (enable_tls) {
-    std::string private_key_data, certificate_data;
-    try {
-      std::ifstream private_key_file(tlsKeypair_ + ".key");
-      std::stringstream ss;
-      ss << private_key_file.rdbuf();
-      private_key_data = ss.str();
-    } catch (std::ifstream::failure e) {
-      return iroha::expected::makeError(kPrivateKeyError);
-    }
-    try {
-      std::ifstream certificate_file(tlsKeypair_ + ".crt");
-      std::stringstream ss;
-      ss << certificate_file.rdbuf();
-      certificate_data = ss.str();
-    } catch (std::ifstream::failure e) {
-      return iroha::expected::makeError(kCertificateError);
-    }
-
-    grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
-      private_key_data, certificate_data
-    };
-    auto options = grpc::SslServerCredentialsOptions();
-    options.pem_key_cert_pairs.push_back(keypair);
-    auto credentials = grpc::SslServerCredentials(options);
-    builder.AddListeningPort(serverAddress_, credentials, &selected_port);
-  } else { // if (enable_tls)
-    builder.AddListeningPort(
-        serverAddress_, grpc::InsecureServerCredentials(), &selected_port);
+  auto port_error = addListeningPortToBuilder(builder, &selected_port);
+  if (port_error) {
+    return iroha::expected::makeError(*port_error);
   }
 
   for (auto &service : services_) {
@@ -75,27 +49,77 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
   builder.SetMaxReceiveMessageSize(INT_MAX);
   builder.SetMaxSendMessageSize(INT_MAX);
 
-  serverInstance_ = builder.BuildAndStart();
-  serverInstanceCV_.notify_one();
+  server_instance_ = builder.BuildAndStart();
+  server_instance_cv_.notify_one();
 
   if (selected_port == 0) {
     return iroha::expected::makeError(
-        (boost::format(kPortBindError) % serverAddress_).str());
+        (boost::format(kPortBindError) % server_address_).str());
   }
 
   return iroha::expected::makeValue(selected_port);
 }
 
 void ServerRunner::waitForServersReady() {
-  std::unique_lock<std::mutex> lock(waitForServer_);
-  while (not serverInstance_) {
-    serverInstanceCV_.wait(lock);
+  std::unique_lock<std::mutex> lock(wait_for_server_);
+  while (not server_instance_) {
+    server_instance_cv_.wait(lock);
   }
 }
 
+iroha::expected::Result<std::shared_ptr<grpc::ServerCredentials>, std::string>
+ServerRunner::createSecureCredentials() {
+  std::string private_key_data, certificate_data;
+  try {
+    std::ifstream private_key_file(*tls_keypair_ + ".key");
+    std::stringstream ss;
+    ss << private_key_file.rdbuf();
+    private_key_data = ss.str();
+  } catch (std::ifstream::failure e) {
+    return iroha::expected::makeError(kPrivateKeyError);
+  }
+  try {
+    std::ifstream certificate_file(*tls_keypair_ + ".crt");
+    std::stringstream ss;
+    ss << certificate_file.rdbuf();
+    certificate_data = ss.str();
+  } catch (std::ifstream::failure e) {
+    return iroha::expected::makeError(kCertificateError);
+  }
+
+  grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
+      private_key_data, certificate_data};
+  auto options = grpc::SslServerCredentialsOptions();
+  options.pem_key_cert_pairs.push_back(keypair);
+  return iroha::expected::makeValue(grpc::SslServerCredentials(options));
+}
+
+boost::optional<std::string>
+ServerRunner::addListeningPortToBuilder(grpc::ServerBuilder &builder, int *selected_port) {
+  if (tls_keypair_) {  // if specified, requested to enable TLS
+    std::shared_ptr<grpc::ServerCredentials> credentials;
+    boost::optional<std::string> credentials_error = {};
+    createSecureCredentials().match(
+        [&](const auto &secure_credentials) {
+          credentials = secure_credentials.value;
+        },
+        [&](const auto &error) { credentials_error = error.error; });
+    if (credentials_error) {
+      return credentials_error;
+    }
+
+    builder.AddListeningPort(server_address_, credentials, selected_port);
+  } else {  // tls is disabled
+    builder.AddListeningPort(
+        server_address_, grpc::InsecureServerCredentials(), selected_port);
+  }
+
+  return boost::none;
+}
+
 void ServerRunner::shutdown() {
-  if (serverInstance_) {
-    serverInstance_->Shutdown();
+  if (server_instance_) {
+    server_instance_->Shutdown();
   } else {
     log_->warn("Tried to shutdown without a server instance");
   }
@@ -103,8 +127,8 @@ void ServerRunner::shutdown() {
 
 void ServerRunner::shutdown(
     const std::chrono::system_clock::time_point &deadline) {
-  if (serverInstance_) {
-    serverInstance_->Shutdown(deadline);
+  if (server_instance_) {
+    server_instance_->Shutdown(deadline);
   } else {
     log_->warn("Tried to shutdown without a server instance");
   }

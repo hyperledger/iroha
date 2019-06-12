@@ -174,6 +174,13 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  // Configuring TLS params
+  boost::optional<iroha::torii::TlsParams> tls_params = boost::none;
+  if (config.torii_tls_port && config.torii_tls_keypair.length() > 0) {
+    tls_params = iroha::torii::TlsParams{config.torii_tls_port,
+                                         config.torii_tls_keypair};
+  }
+
   // Configuring iroha daemon
   Irohad irohad(
       config.block_store_path,
@@ -181,8 +188,6 @@ int main(int argc, char *argv[]) {
       kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                   // config file and/or command-line arguments?
       config.torii_port,
-      config.torii_tls_port,
-      config.torii_tls_keypair,
       config.internal_port,
       config.max_proposal_size,
       std::chrono::milliseconds(config.proposal_delay),
@@ -196,7 +201,8 @@ int main(int argc, char *argv[]) {
       std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
-                           iroha::GossipPropagationStrategyParams{}));
+                           iroha::GossipPropagationStrategyParams{}),
+      tls_params);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {

@@ -17,6 +17,7 @@
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
+#include "torii/tls_params.hpp"
 
 namespace iroha {
   class PendingTransactionStorage;
@@ -50,6 +51,8 @@ namespace iroha {
     class CommandService;
     class CommandServiceTransportGrpc;
     class QueryService;
+
+    struct TlsParams;
   }  // namespace torii
   namespace validation {
     class ChainValidator;
@@ -105,8 +108,6 @@ class Irohad {
          const std::string &pg_conn,
          const std::string &listen_ip,
          size_t torii_port,
-         size_t torii_tls_port,
-         const std::string &torii_tls_keypair,
          size_t internal_port,
          size_t max_proposal_size,
          std::chrono::milliseconds proposal_delay,
@@ -119,7 +120,9 @@ class Irohad {
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none);
+             &opt_mst_gossip_params = boost::none,
+         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+             boost::none);
 
   /**
    * Initialization of whole objects in system
@@ -204,8 +207,7 @@ class Irohad {
   std::string pg_conn_;
   const std::string listen_ip_;
   size_t torii_port_;
-  size_t torii_tls_port_;
-  const std::string torii_tls_keypair_;
+  boost::optional<iroha::torii::TlsParams> torii_tls_params_;
   size_t internal_port_;
   size_t max_proposal_size_;
   std::chrono::milliseconds proposal_delay_;
