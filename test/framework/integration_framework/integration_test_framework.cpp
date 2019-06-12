@@ -82,8 +82,6 @@ using FakePeer = integration_framework::fake_peer::FakePeer;
 namespace {
   std::string kLocalHost = "127.0.0.1";
   constexpr size_t kDefaultToriiPort = 11501;
-  // 0 here means TLS is disabled by default
-  constexpr size_t kDefaultToriiTlsPort = 0;
   constexpr size_t kDefaultInternalPort = 50541;
 
   std::string format_address(std::string ip,
