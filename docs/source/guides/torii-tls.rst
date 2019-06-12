@@ -49,7 +49,7 @@ To configure iroha to use your keys, you need to modify ``torii_tls_port`` and
 ``torii_tls_keypair`` config parameters.
 
 ``torii_tls_port`` - set this to any port you would like (but usually you
-would want 50052)
+would want 55552)
 
 ``torii_tls_keypair`` - set this to full path to the key/certificate pair,
 so if you have a key at ``/path/to/server.key`` and a certificate at

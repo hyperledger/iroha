@@ -55,7 +55,7 @@ class IrohadTest : public AcceptanceFixture {
   IrohadTest()
       : kAddress("127.0.0.1"),
         kPort(50051),
-        kSecurePort(50052),
+        kSecurePort(55552),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
         keys_manager_(
             kAdminId,

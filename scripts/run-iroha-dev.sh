@@ -18,7 +18,7 @@ export COMPOSE_PROJECT_NAME=${PROJECT}
 if [ $(docker ps -q -f name=${PROJECT}_node_1 | wc -c) -eq 0 ];
 then
     export IROHA_PORT="$(next_free_port 50051 50101)"
-    export IROHA_TLS_PORT="$(next_free_port 50052 50101)"
+    export IROHA_TLS_PORT="$(next_free_port 55552 55601)"
     export DEBUGGER_PORT="$(next_free_port 20000 20100)"
 
     docker-compose -f ${COMPOSE} up -d
