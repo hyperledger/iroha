@@ -21,6 +21,8 @@ class ServerRunner {
    * @param address - the address the server will be bind to in URI form
    * @param log to print progress to
    * @param reuse - allow multiple sockets to bind to the same port
+   * @param tls_keypair - path to TLS keypair, if TLS is requested.
+   * @see iroha::torii::TlsParams
    */
   explicit ServerRunner(
       const std::string &address,
