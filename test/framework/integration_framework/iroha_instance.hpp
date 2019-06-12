@@ -44,6 +44,7 @@ namespace integration_framework {
      * @param log - the log for internal messages
      * @param dbname is a name of postgres database
      * @param tls_params - optional tls parameters for torii
+     *   @see iroha::torii::TlsParams
      */
     IrohaInstance(bool mst_support,
                   const std::string &block_store_path,
