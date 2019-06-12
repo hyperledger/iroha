@@ -83,8 +83,6 @@ class Irohad {
    * @param pg_conn - initialization string for postgre
    * @param listen_ip - ip address for opening ports (internal & torii)
    * @param torii_port - port for torii binding
-   * @param torii_tls_port - port for torii TLS binding
-   * @param torii_tls_keypair - path to TLS keypair (.crt, .key) for torii
    * @param internal_port - port for internal communication - ordering service,
    * consensus, and block loader
    * @param max_proposal_size - maximum transactions that possible appears in
@@ -103,6 +101,8 @@ class Irohad {
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
+   * @param torii_tls_params - optional TLS params for torii.
+   * @see iroha::torii::TlsParams
    */
   Irohad(const std::string &block_store_dir,
          const std::string &pg_conn,

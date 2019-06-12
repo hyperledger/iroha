@@ -94,8 +94,6 @@ namespace integration_framework {
                                              pg_conn_,
                                              listen_ip_,
                                              torii_port_,
-                                             torii_tls_port_,
-                                             torii_tls_keypair_,
                                              internal_port_,
                                              max_proposal_size,
                                              proposal_delay_,
@@ -107,7 +105,8 @@ namespace integration_framework {
                                              boost::none,
                                              irohad_log_manager_,
                                              log_,
-                                             opt_mst_gossip_params_);
+                                             opt_mst_gossip_params_,
+                                             torii_tls_params_);
   }
 
   void IrohaInstance::run() {

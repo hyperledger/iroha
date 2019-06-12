@@ -32,11 +32,6 @@ namespace shared_model {
 namespace integration_framework {
   class TestIrohad;
 
-  struct ToriiTlsParams {
-    size_t port;
-    std::string key_path;
-  }
-
   class IrohaInstance {
    public:
     /**
@@ -48,7 +43,7 @@ namespace integration_framework {
      * @param irohad_log_manager - the log manager for irohad
      * @param log - the log for internal messages
      * @param dbname is a name of postgres database
-     * @param tls_params - optional tls parameters
+     * @param tls_params - optional tls parameters for torii
      */
     IrohaInstance(bool mst_support,
                   const std::string &block_store_path,
@@ -58,7 +53,8 @@ namespace integration_framework {
                   logger::LoggerManagerTreePtr irohad_log_manager,
                   logger::LoggerPtr log,
                   const boost::optional<std::string> &dbname = boost::none,
-                  const boost::optional<iroha::torii::TlsParams> &tls_params = boost::none);
+                  const boost::optional<iroha::torii::TlsParams> &tls_params =
+                      boost::none);
 
     /// Initialize Irohad. Throws on error.
     void init();
