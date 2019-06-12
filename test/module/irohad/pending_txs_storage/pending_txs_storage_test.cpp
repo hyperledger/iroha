@@ -31,6 +31,34 @@ class PendingTxsStorageFixture : public ::testing::Test {
     }
   }
 
+  auto dummyObservable() {
+    return rxcpp::observable<>::create<std::shared_ptr<Batch>>(
+        [](auto s) { s.on_completed(); });
+  }
+
+  auto updatesObservable(std::vector<std::shared_ptr<iroha::MstState>> states) {
+    return rxcpp::observable<>::create<std::shared_ptr<iroha::MstState>>(
+        [states = std::move(states)](auto s) {
+          for (const auto &state : states) {
+            s.on_next(state);
+          }
+          s.on_completed();
+        });
+  }
+
+  auto emptyState() {
+    return std::make_shared<iroha::MstState>(
+        iroha::MstState::empty(mst_state_log_, completer_));
+  }
+
+  auto twoTransactionsBatch() {
+    return addSignatures(
+        makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
+                      txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
+        0,
+        makeSignature("1", "pub_key_1"));
+  }
+
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
 
@@ -46,15 +74,8 @@ class PendingTxsStorageFixture : public ::testing::Test {
  * @then the transactions can be added to MST state successfully
  */
 TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
-  auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-
-  auto transactions =
-      addSignatures(makeTestBatch(txBuilder(1, getUniqueTime()),
-                                  txBuilder(1, getUniqueTime())),
-                    0,
-                    makeSignature("1", "pub_key_1"));
-
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
   *state += transactions;
   ASSERT_EQ(state->getBatches().size(), 1) << "Failed to prepare MST state";
   ASSERT_EQ((*state->getBatches().begin())->transactions().size(), 2)
@@ -68,36 +89,229 @@ TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
  * @then list of pending transactions can be received for all batch creators
  */
 TEST_F(PendingTxsStorageFixture, InsertionTest) {
-  auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-  auto transactions = addSignatures(
-      makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
-                    txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
-      0,
-      makeSignature("1", "pub_key_1"));
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
   *state += transactions;
 
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
+  const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(updates, dummy, dummy);
+  iroha::PendingTransactionStorageImpl storage(
+      updatesObservable({state}), dummyObservable(), dummyObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
-    auto pending = storage.getPendingTransactions(creator);
-    ASSERT_EQ(pending.size(), 2)
-        << "Wrong amount of pending transactions was retrieved for " << creator
-        << " account";
-
-    // generally it's illegal way to verify the correctness.
-    // here we can do it because the order is preserved by batch meta and there
-    // are no transactions non-related to requested account
-    for (auto i = 0u; i < pending.size(); ++i) {
-      ASSERT_EQ(*pending[i], *(transactions->transactions()[i]));
-    }
+    auto pending =
+        storage.getPendingTransactions(creator, kPageSize, boost::none);
+    pending.match(
+        [&txs = transactions](const auto &response) {
+          auto &pending_txs = response.value.transactions;
+          ASSERT_EQ(response.value.all_transactions_size,
+                    txs->transactions().size());
+          ASSERT_EQ(pending_txs.size(), txs->transactions().size());
+          ASSERT_FALSE(response.value.next_batch_info);
+          // generally it's illegal way to verify the correctness.
+          // here we can do it because the order is preserved by batch meta and
+          // there are no transactions non-related to requested account
+          for (auto i = 0u; i < pending_txs.size(); ++i) {
+            ASSERT_EQ(*pending_txs[i], *(txs->transactions()[i]));
+          }
+        },
+        [](const auto &error) {
+          ASSERT_TRUE(false)
+              << "An error was not expected, the error code is " << error.error;
+        });
   }
+}
+
+/**
+ * All the transactions can be received when exact page size is specified
+ * @given a storage with a batch with two transactions
+ * @when pending transactions are queired with page size equal to the batch size
+ * @then all the transactions are correctly returned
+ */
+TEST_F(PendingTxsStorageFixture, ExactSize) {
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
+  *state += transactions;
+
+  const auto kPageSize = transactions->transactions().size();
+
+  iroha::PendingTransactionStorageImpl storage(
+      updatesObservable({state}), dummyObservable(), dummyObservable());
+  for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
+    auto pending =
+        storage.getPendingTransactions(creator, kPageSize, boost::none);
+    pending.match(
+        [&txs = transactions](const auto &response) {
+          auto &pending_txs = response.value.transactions;
+          ASSERT_EQ(response.value.all_transactions_size,
+                    txs->transactions().size());
+          ASSERT_EQ(pending_txs.size(), txs->transactions().size());
+          ASSERT_FALSE(response.value.next_batch_info);
+          // generally it's illegal way to verify the correctness.
+          // here we can do it because the order is preserved by batch meta and
+          // there are no transactions non-related to requested account
+          for (auto i = 0u; i < pending_txs.size(); ++i) {
+            ASSERT_EQ(*pending_txs[i], *(txs->transactions()[i]));
+          }
+        },
+        [](const auto &error) {
+          ASSERT_TRUE(false)
+              << "An error was not expected, the error code is " << error.error;
+        });
+  }
+}
+
+/**
+ * Correctly formed response is returned when queried page size smaller than the
+ * size of the smallest batch
+ * @given a storage with a batch with two transactions
+ * @when pending transactions are queired with page size equal to 1
+ * @then no transactions are returned, but all the meta is correctly set
+ */
+TEST_F(PendingTxsStorageFixture, InsufficientSize) {
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
+  *state += transactions;
+
+  const auto kPageSize = 1;
+  ASSERT_NE(kPageSize, transactions->transactions().size());
+
+  iroha::PendingTransactionStorageImpl storage(
+      updatesObservable({state}), dummyObservable(), dummyObservable());
+  for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
+    auto pending =
+        storage.getPendingTransactions(creator, kPageSize, boost::none);
+    pending.match(
+        [&txs = transactions](const auto &response) {
+          auto &pending_txs = response.value.transactions;
+          ASSERT_EQ(response.value.all_transactions_size,
+                    txs->transactions().size());
+          ASSERT_EQ(pending_txs.size(), 0);
+          ASSERT_TRUE(response.value.next_batch_info);
+          ASSERT_EQ(response.value.next_batch_info->first_tx_hash,
+                    txs->transactions().front()->hash());
+          ASSERT_EQ(response.value.next_batch_info->batch_size,
+                    txs->transactions().size());
+        },
+        [](const auto &error) {
+          ASSERT_TRUE(false)
+              << "An error was not expected, the error code is " << error.error;
+        });
+  }
+}
+
+/**
+ * Correctly formed response is returned when there are two batches are in the
+ * storage and the page size is bigger than the size of the first batch and
+ * lesser than the sum of the first and the second batches sizes.
+ */
+TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
+  auto state1 = emptyState();
+  auto state2 = emptyState();
+  auto batch1 = twoTransactionsBatch();
+  auto batch2 = twoTransactionsBatch();
+  *state1 += batch1;
+  *state2 += batch2;
+
+  const auto kPageSize =
+      batch1->transactions().size() + batch2->transactions().size() - 1;
+  auto updates = updatesObservable({state1, state2});
+
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+  for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
+    auto pending =
+        storage.getPendingTransactions(creator, kPageSize, boost::none);
+    pending.match(
+        [&](const auto &response) {
+          auto &pending_txs = response.value.transactions;
+          ASSERT_EQ(
+              response.value.all_transactions_size,
+              batch1->transactions().size() + batch2->transactions().size());
+          ASSERT_EQ(pending_txs.size(), batch1->transactions().size());
+          ASSERT_TRUE(response.value.next_batch_info);
+          ASSERT_EQ(response.value.next_batch_info->first_tx_hash,
+                    batch2->transactions().front()->hash());
+          ASSERT_EQ(response.value.next_batch_info->batch_size,
+                    batch2->transactions().size());
+          for (auto i = 0u; i < pending_txs.size(); ++i) {
+            ASSERT_EQ(*pending_txs[i], *(batch1->transactions()[i]));
+          }
+        },
+        [](const auto &error) {
+          ASSERT_TRUE(false)
+              << "An error was not expected, the error code is " << error.error;
+        });
+  }
+}
+
+/**
+ * Correctly formed response is returned when there are two batches are in the
+ * storage and first tx hash in request is equal to the hash of the first
+ * transaction in the second stored batch.
+ */
+TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
+  auto state1 = emptyState();
+  auto state2 = emptyState();
+  auto batch1 = twoTransactionsBatch();
+  auto batch2 = twoTransactionsBatch();
+  *state1 += batch1;
+  *state2 += batch2;
+
+  const auto kPageSize = batch2->transactions().size();
+  auto updates = updatesObservable({state1, state2});
+
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+  for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
+    auto pending = storage.getPendingTransactions(
+        creator, kPageSize, batch2->transactions().front()->hash());
+    pending.match(
+        [&](const auto &response) {
+          auto &pending_txs = response.value.transactions;
+          ASSERT_EQ(
+              response.value.all_transactions_size,
+              batch2->transactions().size() + batch2->transactions().size());
+          ASSERT_EQ(pending_txs.size(), batch2->transactions().size());
+          ASSERT_FALSE(response.value.next_batch_info);
+          for (auto i = 0u; i < pending_txs.size(); ++i) {
+            ASSERT_EQ(*pending_txs[i], *(batch2->transactions()[i]));
+          }
+        },
+        [](const auto &error) {
+          ASSERT_TRUE(false)
+              << "An error was not expected, the error code is " << error.error;
+        });
+  }
+}
+
+/**
+ * @given non empty pending transactions storage
+ * @when a user requests pending transactions (and the storage has nothing for
+ * the user)
+ * @then an empty response is produced for the user
+ */
+TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
+  *state += transactions;
+
+  const auto kThirdAccount = "clark@iroha";
+  const auto kPageSize = 100u;
+
+  iroha::PendingTransactionStorageImpl storage(
+      updatesObservable({state}), dummyObservable(), dummyObservable());
+
+  auto response =
+      storage.getPendingTransactions(kThirdAccount, kPageSize, boost::none);
+  response.match(
+      [](const auto &response) {
+        auto &pending_txs = response.value.transactions;
+        ASSERT_EQ(pending_txs.size(), 0);
+        ASSERT_EQ(response.value.all_transactions_size, 0);
+        auto &next_batch_info = response.value.next_batch_info;
+        ASSERT_FALSE(next_batch_info);
+      },
+      [](const auto &error) { ASSERT_TRUE(false) << error.error; });
 }
 
 /**
@@ -107,10 +321,8 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
  * @then pending transactions response is also updated
  */
 TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
-  auto state1 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-  auto state2 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+  auto state1 = emptyState();
+  auto state2 = emptyState();
   auto transactions = addSignatures(
       makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
       0,
@@ -120,19 +332,23 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
       addSignatures(transactions, 0, makeSignature("2", "pub_key_2"));
   *state2 += transactions;
 
-  auto updates =
-      rxcpp::observable<>::create<decltype(state1)>([&state1, &state2](auto s) {
-        s.on_next(state1);
-        s.on_next(state2);
-        s.on_completed();
-      });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
+  auto updates = updatesObservable({state1, state2});
+  const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(updates, dummy, dummy);
-  auto pending = storage.getPendingTransactions("alice@iroha");
-  ASSERT_EQ(pending.size(), 1);
-  ASSERT_EQ(boost::size(pending.front()->signatures()), 2);
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+  auto pending =
+      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+  pending.match(
+      [&txs = transactions](const auto &response) {
+        const auto &resp = response.value;
+        ASSERT_EQ(resp.transactions.size(), txs->transactions().size());
+        ASSERT_EQ(boost::size(resp.transactions.front()->signatures()), 2);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 }
 
 /**
@@ -142,13 +358,8 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
  * @then users receives correct responses
  */
 TEST_F(PendingTxsStorageFixture, SeveralBatches) {
-  auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-  auto batch1 = addSignatures(
-      makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
-                    txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
-      0,
-      makeSignature("1", "pub_key_1"));
+  auto state = emptyState();
+  auto batch1 = twoTransactionsBatch();
   auto batch2 = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
@@ -162,19 +373,32 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
   *state += batch2;
   *state += batch3;
 
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
+  auto updates = updatesObservable({state});
+  const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(updates, dummy, dummy);
-  auto alice_pending = storage.getPendingTransactions("alice@iroha");
-  ASSERT_EQ(alice_pending.size(), 4);
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+  auto alice_pending =
+      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+  alice_pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 4);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 
-  auto bob_pending = storage.getPendingTransactions("bob@iroha");
-  ASSERT_EQ(bob_pending.size(), 3);
+  auto bob_pending =
+      storage.getPendingTransactions("bob@iroha", kPageSize, boost::none);
+  bob_pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 3);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 }
 
 /**
@@ -184,13 +408,8 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
  * @then updates don't overwrite the whole storage state
  */
 TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
-  auto state1 = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
-  auto batch1 = addSignatures(
-      makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
-                    txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
-      0,
-      makeSignature("1", "pub_key_1"));
+  auto state1 = emptyState();
+  auto batch1 = twoTransactionsBatch();
   *state1 += batch1;
   auto state2 = std::make_shared<iroha::MstState>(
       iroha::MstState::empty(mst_state_log_, completer_));
@@ -201,21 +420,33 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       makeSignature("1", "pub_key_1"));
   *state2 += batch2;
 
-  auto updates =
-      rxcpp::observable<>::create<decltype(state1)>([&state1, &state2](auto s) {
-        s.on_next(state1);
-        s.on_next(state2);
-        s.on_completed();
+  auto updates = updatesObservable({state1, state2});
+  const auto kPageSize = 100u;
+
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+
+  auto alice_pending =
+      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+  alice_pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 4);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
       });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
 
-  iroha::PendingTransactionStorageImpl storage(updates, dummy, dummy);
-  auto alice_pending = storage.getPendingTransactions("alice@iroha");
-  ASSERT_EQ(alice_pending.size(), 4);
-
-  auto bob_pending = storage.getPendingTransactions("bob@iroha");
-  ASSERT_EQ(bob_pending.size(), 2);
+  auto bob_pending =
+      storage.getPendingTransactions("bob@iroha", kPageSize, boost::none);
+  bob_pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 2);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 }
 
 /**
@@ -226,8 +457,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
  * @then storage removes the batch
  */
 TEST_F(PendingTxsStorageFixture, PreparedBatch) {
-  auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+  auto state = emptyState();
   std::shared_ptr<shared_model::interface::TransactionBatch> batch =
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
@@ -236,14 +466,10 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
   *state += batch;
 
   rxcpp::subjects::subject<decltype(batch)> prepared_batches_subject;
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
+  auto updates = updatesObservable({state});
+
   iroha::PendingTransactionStorageImpl storage(
-      updates, prepared_batches_subject.get_observable(), dummy);
+      updates, prepared_batches_subject.get_observable(), dummyObservable());
 
   batch = addSignatures(batch,
                         0,
@@ -251,8 +477,17 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
                         makeSignature("3", "pub_key_3"));
   prepared_batches_subject.get_subscriber().on_next(batch);
   prepared_batches_subject.get_subscriber().on_completed();
-  auto pending = storage.getPendingTransactions("alice@iroha");
-  ASSERT_EQ(pending.size(), 0);
+  const auto kPageSize = 100u;
+  auto pending =
+      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+  pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 0);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 }
 
 /**
@@ -262,8 +497,7 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
  * @then storage removes the batch
  */
 TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
-  auto state = std::make_shared<iroha::MstState>(
-      iroha::MstState::empty(mst_state_log_, completer_));
+  auto state = emptyState();
   std::shared_ptr<shared_model::interface::TransactionBatch> batch =
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
@@ -272,17 +506,22 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
   *state += batch;
 
   rxcpp::subjects::subject<decltype(batch)> expired_batches_subject;
-  auto updates = rxcpp::observable<>::create<decltype(state)>([&state](auto s) {
-    s.on_next(state);
-    s.on_completed();
-  });
-  auto dummy = rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-      [](auto s) { s.on_completed(); });
+  auto updates = updatesObservable({state});
+
   iroha::PendingTransactionStorageImpl storage(
-      updates, dummy, expired_batches_subject.get_observable());
+      updates, dummyObservable(), expired_batches_subject.get_observable());
 
   expired_batches_subject.get_subscriber().on_next(batch);
   expired_batches_subject.get_subscriber().on_completed();
-  auto pending = storage.getPendingTransactions("alice@iroha");
-  ASSERT_EQ(pending.size(), 0);
+  const auto kPageSize = 100u;
+  auto pending =
+      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+  pending.match(
+      [](const auto &response) {
+        ASSERT_EQ(response.value.transactions.size(), 0);
+      },
+      [](const auto &error) {
+        ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                           << error.error;
+      });
 }
