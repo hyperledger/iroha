@@ -6,7 +6,7 @@ Architecture
 .. toctree::
    :maxdepth: 2
 
-HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below. 
+HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below.
 
 .. image:: ../../image_assets/pipeline-diagram.png
 	:width: 80%
@@ -22,8 +22,10 @@ Entry point for `clients <../core_concepts/glossary.html#client>`__.
 Uses gRPC as a transport.
 In order to interact with Iroha anyone can use gRPC endpoints, described in `Commands <../api/commands.html>`__ and `Queries <../api/queries.html>`__ sections, or use `client libraries <../guides/libraries.html>`__.
 
-MstProcessor
-------------
+MST Processor
+-------------
+
+*Multisignature Transactions Processor*
 
 It is an internal gRPC service that sends and receives messages from other peers through `Gossip protocol <https://en.wikipedia.org/wiki/Gossip_protocol>`_.
 Its mission is to send out `multisignature transactions <../core_concepts/glossary.html#multisignature-transactions>`_ that have not received enough signatures to reach the `quorum <../core_concepts/glossary.html#quorum>`_ until it is reached.
@@ -39,12 +41,12 @@ Ordering Gate
 
 It is an internal Iroha component (gRPC client) that relays `transactions <../core_concepts/glossary.html#transaction>`__ from `Peer Communication Service <#peer-communication-service>`__ to `Ordering Service <#ordering-service>`__.
 Ordering Gate recieves `proposals <../core_concepts/glossary.html#proposal>`_ (potential blocks in the chain) from Ordering Service and sends them to `Simulator <#simulator>`__ for `stateful validation <../core_concepts/glossary.html#stateful-validation>`__.
-It also requests proposal from the Ordering Service based on the consensus round. 
+It also requests proposal from the Ordering Service based on the consensus round.
 
 Ordering Service
 ----------------
 
-Internal Iroha component (gRPC server) that receives messages from other `peers <../core_concepts/glossary.html#peer>`__ and combines several `transactions <../core_concepts/glossary.html#transaction>`__ that have been passed `stateless validation <../core_concepts/glossary.html#stateless-validation>`__ into a `proposal <../core_concepts/glossary.html#proposal>`__. 
+Internal Iroha component (gRPC server) that receives messages from other `peers <../core_concepts/glossary.html#peer>`__ and combines several `transactions <../core_concepts/glossary.html#transaction>`__ that have been passed `stateless validation <../core_concepts/glossary.html#stateless-validation>`__ into a `proposal <../core_concepts/glossary.html#proposal>`__.
 Each node has its own ordering service.
 Proposal creation could be triggered by one of the following events:
 
@@ -79,7 +81,7 @@ Block Consensus (YAC)
 *Consensus, as a component*
 
     Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <../core_concepts/glossary.html#peer>`__ within a peer network.
-    Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC). 
+    Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC).
 
     You can check out a video where HL Iroha maintainer thoroughly explains the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__.
 
