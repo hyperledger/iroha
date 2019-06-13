@@ -128,11 +128,10 @@ namespace iroha {
                  proposal.transactions().size());
 
       std::string hashes;
-      for(const auto& tx: proposal.transactions())
-          hashes += tx.hash().hex() + " ";
+      for (const auto &tx : proposal.transactions())
+        hashes += tx.hash().hex() + " ";
 
       log_->trace("Validate proposal: [ {} ]", hashes);
-
 
       auto validation_result = std::make_unique<VerifiedProposalAndErrors>();
       auto valid_txs =
@@ -153,14 +152,14 @@ namespace iroha {
       log_->info("transactions in verified proposal: {}",
                  validation_result->verified_proposal->transactions().size());
 
+      hashes = "";
+      for (const auto &tx :
+           validation_result->verified_proposal->transactions())
+        hashes += tx.hash().hex() + " ";
 
-        hashes = "";
-        for(const auto& tx: validation_result->verified_proposal->transactions())
-            hashes += tx.hash().hex() + " ";
+      log_->trace("Proposal validated: [ {} ]", hashes);
 
-        log_->trace("Proposal validated: [ {} ]", hashes);
-
-        return validation_result;
+      return validation_result;
     }
   }  // namespace validation
 }  // namespace iroha
