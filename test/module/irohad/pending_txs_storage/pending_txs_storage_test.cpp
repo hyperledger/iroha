@@ -525,3 +525,96 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
                            << error.error;
       });
 }
+
+/**
+ * @given a storage
+ * @when the non-existing batch is queried via first tx hash
+ * @then not found error is returned by the storage
+ */
+TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
+  auto state = emptyState();
+  auto transactions = twoTransactionsBatch();
+  *state += transactions;
+
+  const auto kThirdAccount = "clark@iroha";
+  const auto kPageSize = 100u;
+
+  iroha::PendingTransactionStorageImpl storage(
+      updatesObservable({state}), dummyObservable(), dummyObservable());
+
+  auto response = storage.getPendingTransactions(
+      kThirdAccount, kPageSize, transactions->transactions().front()->hash());
+  response.match(
+      [](const auto &response) {
+        ASSERT_TRUE(false)
+            << "NOT_FOUND error was expected instead of a response";
+      },
+      [](const auto &error) {
+        ASSERT_EQ(error.error,
+                  iroha::PendingTransactionStorage::ErrorCode::NOT_FOUND);
+      });
+}
+
+/**
+ * @given a storage with two batches
+ * @when a user requests the first batch only
+ * @then the second using starting tx hash returned by the first response
+ */
+TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
+  auto state1 = emptyState();
+  auto state2 = emptyState();
+  auto batch1 = twoTransactionsBatch();
+  auto batch2 = twoTransactionsBatch();
+  *state1 += batch1;
+  *state2 += batch2;
+
+  auto batchSize = [](const auto &batch) {
+    return batch->transactions().size();
+  };
+  auto firstHash = [](const auto &batch) {
+    return batch->transactions().front()->hash();
+  };
+  auto errorResponseHandler = [](const auto &error) {
+    ASSERT_TRUE(false) << "An error was not expected, the error code is "
+                       << error.error;
+  };
+
+  auto updates = updatesObservable({state1, state2});
+
+  iroha::PendingTransactionStorageImpl storage(
+      updates, dummyObservable(), dummyObservable());
+  for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
+    auto first_page =
+        storage.getPendingTransactions(creator, batchSize(batch1), boost::none);
+    first_page.match(
+        [&](const auto &first_response) {
+          const auto &resp1 = first_response.value;
+          ASSERT_EQ(resp1.all_transactions_size,
+                    batchSize(batch1) + batchSize(batch2));
+          ASSERT_EQ(resp1.transactions.size(), batchSize(batch1));
+          ASSERT_TRUE(resp1.next_batch_info);
+          ASSERT_EQ(resp1.next_batch_info->batch_size, batchSize(batch2));
+          ASSERT_EQ(resp1.next_batch_info->first_tx_hash, firstHash(batch2));
+          for (auto i = 0u; i < resp1.transactions.size(); ++i) {
+            ASSERT_EQ(*resp1.transactions[i], *(batch1->transactions()[i]));
+          }
+
+          auto second_page = storage.getPendingTransactions(
+              creator, batchSize(batch2), firstHash(batch2));
+          second_page.match(
+              [&](const auto &second_response) {
+                const auto &resp2 = second_response.value;
+                ASSERT_EQ(resp2.all_transactions_size,
+                          batchSize(batch1) + batchSize(batch2));
+                ASSERT_EQ(resp2.transactions.size(), batchSize(batch2));
+                ASSERT_FALSE(resp2.next_batch_info);
+                for (auto i = 0u; i < resp2.transactions.size(); ++i) {
+                  ASSERT_EQ(*resp2.transactions[i],
+                            *(batch2->transactions()[i]));
+                }
+              },
+              errorResponseHandler);
+        },
+        errorResponseHandler);
+  }
+}
