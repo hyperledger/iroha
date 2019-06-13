@@ -63,7 +63,7 @@ namespace {
         std::move(timer),
         initial_order,
         initial_round,
-        coordination,
+        std::move(coordination),
         consensus_log_manager->getChild("HashGate")->getLogger());
   }
 }  // namespace

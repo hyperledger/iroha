@@ -13,6 +13,7 @@
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/transport/impl/yac_network_sender.hpp"
 #include "consensus/yac/yac.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
@@ -43,7 +44,8 @@ namespace fuzzing {
     std::shared_ptr<iroha::consensus::yac::YacNetworkNotifications> yac_;
     std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
         async_call_;
-    std::shared_ptr<iroha::consensus::yac::NetworkImpl> network_;
+    std::shared_ptr<iroha::consensus::yac::NetworkImpl> proto_yac_network_;
+    std::shared_ptr<iroha::consensus::yac::YacNetwork> network_;
     iroha::consensus::Round initial_round_;
 
     ConsensusFixture()
@@ -60,8 +62,10 @@ namespace fuzzing {
                       iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
               logger::getDummyLoggerPtr())),
           initial_round_{1, 1} {
-      network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
+      proto_yac_network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
           async_call_, client_creator_, logger::getDummyLoggerPtr());
+      network_ = std::make_shared<iroha::consensus::yac::YacNetworkSender>(
+          proto_yac_network_, logger::getDummyLoggerPtr());
 
       common_objects_factory_ =
           std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
@@ -122,7 +126,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   if (protobuf_mutator::libfuzzer::LoadProtoInput(true, data, size, &request)) {
     grpc::ServerContext context;
     google::protobuf::Empty response;
-    fixture.network_->SendState(&context, &request, &response);
+    fixture.proto_yac_network_->SendState(&context, &request, &response);
   }
 
   return 0;
