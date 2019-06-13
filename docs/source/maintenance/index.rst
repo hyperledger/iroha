@@ -8,5 +8,3 @@ Hardware requirements, deployment process in details, aspects related to securit
     :caption: Table of contents
 
     permissions.rst
-    ansible.rst
-
