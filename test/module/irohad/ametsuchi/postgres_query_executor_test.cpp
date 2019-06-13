@@ -19,6 +19,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
+#include "common/result.hpp"
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
@@ -751,7 +752,7 @@ namespace iroha {
 
       // validate result
       validatePageResponse(response, boost::none, 10);
-      }
+    }
 
     /**
      * @given account with all related permissions and 10 assets
@@ -1982,11 +1983,12 @@ namespace iroha {
     }
 
     /**
+     * TODO 2019-06-13 igor-egorov IR-516 Remove the test
      * @given initialized storage
      * @when get pending transactions
      * @then pending txs storage will be requested for query creator account
      */
-    TEST_F(QueryExecutorTest, TransactionsStorageIsAccessed) {
+    TEST_F(QueryExecutorTest, OldTransactionsStorageIsAccessed) {
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
                        .getPendingTransactions()
@@ -1996,6 +1998,47 @@ namespace iroha {
           .Times(1);
 
       executeQuery(query);
+    }
+
+    /**
+     * @given initialized storage
+     * @when get pending transactions
+     * @then pending txs storage will be requested for query creator account
+     */
+    TEST_F(QueryExecutorTest, TransactionsStorageIsAccessed) {
+      const auto kPageSize = 100u;
+      auto query = TestQueryBuilder()
+                       .creatorAccountId(account_id)
+                       .getPendingTransactions(kPageSize)
+                       .build();
+
+      EXPECT_CALL(*pending_txs_storage,
+                  getPendingTransactions(account_id, kPageSize, ::testing::_))
+          .Times(1);
+
+      executeQuery(query);
+    }
+
+    /**
+     * @given some pending txs storage
+     * @when a query is submitted and the storage responds with NOT_FOUND error
+     * @then query execturor produces correct stateful failed error
+     */
+    TEST_F(QueryExecutorTest, PendingTxsStorageWrongTxHash) {
+      const auto kPageSize = 100u;
+      const auto kFirstTxHash = shared_model::crypto::Hash(zero_string);
+      auto query = TestQueryBuilder()
+                       .creatorAccountId(account_id)
+                       .getPendingTransactions(kPageSize, kFirstTxHash)
+                       .build();
+
+      EXPECT_CALL(*pending_txs_storage,
+                  getPendingTransactions(account_id, kPageSize, ::testing::_))
+          .WillOnce(Return(iroha::expected::makeError(
+              PendingTransactionStorage::ErrorCode::NOT_FOUND)));
+
+      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
+          executeQuery(query), 4);
     }
 
   }  // namespace ametsuchi
