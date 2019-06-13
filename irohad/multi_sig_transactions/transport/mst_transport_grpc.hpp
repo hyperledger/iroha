@@ -36,9 +36,6 @@ namespace iroha {
       MstTransportGrpc(
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
-          std::function<
-              std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-                  const shared_model::interface::Peer &)> client_creator,
           std::shared_ptr<TransportFactoryType> transaction_factory,
           std::shared_ptr<shared_model::interface::TransactionBatchParser>
               batch_parser,
@@ -48,7 +45,10 @@ namespace iroha {
           std::shared_ptr<Completer> mst_completer,
           shared_model::crypto::PublicKey my_key,
           logger::LoggerPtr mst_state_logger,
-          logger::LoggerPtr log);
+          logger::LoggerPtr log,
+          std::function<
+              std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
+                  const shared_model::interface::Peer &)>  = nullptr);
 
       /**
        * Server part of grpc SendState method call
@@ -78,9 +78,6 @@ namespace iroha {
       std::weak_ptr<MstTransportNotification> subscriber_;
       std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
           async_call_;
-      std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-          const shared_model::interface::Peer &)>
-          client_creator_;
       std::shared_ptr<TransportFactoryType> transaction_factory_;
       std::shared_ptr<shared_model::interface::TransactionBatchParser>
           batch_parser_;
@@ -94,6 +91,9 @@ namespace iroha {
       logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                             ///< objects.
       logger::LoggerPtr log_;               ///< Logger for local use.
+      std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
+          const shared_model::interface::Peer &)>
+          client_creator_;
     };
 
     void sendStateAsync(const shared_model::interface::Peer &to,

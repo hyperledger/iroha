@@ -71,10 +71,8 @@ class TransportTest : public ::testing::Test {
           return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
               stub);
         });
-
     transport =
         std::make_shared<MstTransportGrpc>(async_call_,
-                                           client_creator,
                                            tx_factory,
                                            parser_,
                                            batch_factory_,
@@ -82,7 +80,8 @@ class TransportTest : public ::testing::Test {
                                            completer_,
                                            my_key_.publicKey(),
                                            getTestLogger("MstState"),
-                                           getTestLogger("MstTransportGrpc"));
+                                           getTestLogger("MstTransportGrpc"),
+                                           client_creator);
     transport->subscribe(mst_notification_transport_);
 
     shared_model::interface::types::PubkeyType pk(
@@ -148,8 +147,6 @@ TEST_F(TransportTest, SendAndReceive) {
             });
         return result;
       }));
-  std::mutex mtx;
-  std::condition_variable cv;
   auto time = iroha::time::now();
   auto state = iroha::MstState::empty(getTestLogger("MstState"), completer_);
   state += addSignaturesFromKeyPairs(
@@ -165,10 +162,9 @@ TEST_F(TransportTest, SendAndReceive) {
   // with same parameters as on the client side
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
-          [this, &cv, &state](const auto &from_key, auto const &target_state) {
+          [this, &state](const auto &from_key, auto const &target_state) {
             EXPECT_EQ(this->my_key_.publicKey(), from_key);
             EXPECT_TRUE(statesEqual(state, target_state));
-            cv.notify_one();
           }));
 
   ::grpc::ServerContext context;
@@ -178,12 +174,8 @@ TEST_F(TransportTest, SendAndReceive) {
   EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
       .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
   transport->sendState(*peer, state);
-
   auto response = transport->SendState(&context, &request, nullptr);
   ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
-
-  std::unique_lock<std::mutex> lock(mtx);
-  cv.wait_for(lock, std::chrono::milliseconds(5000));
 }
 
 /**
