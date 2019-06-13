@@ -19,7 +19,7 @@ namespace common_constants {
   /// user names
   extern const std::string kAdminName;
   extern const std::string kUser;
-  extern const std::string kSpectator;
+  extern const std::string kAnotherUser;
 
   /// role names
   extern const std::string kAdminRole;
@@ -36,15 +36,15 @@ namespace common_constants {
   /// ids
   extern const std::string kAdminId;
   extern const std::string kUserId;
-  extern const std::string kCloseSpectatorId;
-  extern const std::string kRemoteSpectatorId;
+  extern const std::string kSameDomainUserId;
+  extern const std::string kAnotherDomainUserId;
   extern const std::string kAssetId;
 
   /// keypairs
   extern const Keypair kAdminKeypair;
   extern const Keypair kUserKeypair;
-  extern const Keypair kCloseSpectatorKeypair;
-  extern const Keypair kRemoteSpectatorKeypair;
+  extern const Keypair kSameDomainUserKeypair;
+  extern const Keypair kAnotherDomainUserKeypair;
 }
 
 #endif /* IROHA_TEST_FRAMEWORK_COMMON_CONSTANTS_HPP_ */
