@@ -6,11 +6,11 @@
 #include "network/impl/peer_communication_service_impl.hpp"
 
 #include "interfaces/iroha_internal/transaction_batch.hpp"
+#include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "network/ordering_gate.hpp"
 #include "simulator/verified_proposal_creator.hpp"
 #include "synchronizer/synchronizer.hpp"
-#include "interfaces/transaction.hpp"
 
 namespace iroha {
   namespace network {
@@ -30,9 +30,9 @@ namespace iroha {
         const {
       log_->info("propagate batch");
       std::string hashes;
-      for(const auto& tx: batch->transactions())
-          hashes += tx->hash().hex() + " ";
-      log_->debug("Propagate batch: {}", hashes);
+      for (const auto &tx : batch->transactions())
+        hashes += tx->hash().hex() + " ";
+      log_->trace("Propagate batch: [ {} ]", hashes);
 
       ordering_gate_->propagateBatch(batch);
     }

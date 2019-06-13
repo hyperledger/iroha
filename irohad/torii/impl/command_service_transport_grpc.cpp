@@ -14,6 +14,7 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "common/combine_latest_until_first_completed.hpp"
 #include "common/run_loop_handler.hpp"
@@ -24,7 +25,6 @@
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "torii/status_bus.hpp"
-#include "backend/protobuf/transaction.hpp"
 
 namespace iroha {
   namespace torii {
@@ -58,7 +58,7 @@ namespace iroha {
         google::protobuf::Empty *response) {
       iroha::protocol::TxList single_tx_list;
       shared_model::proto::Transaction tx(*request);
-      log_->debug("Received tx {} at endpoint", tx.hash());
+      log_->trace("Received tx {} at endpoint", tx.hash());
       *single_tx_list.add_transactions() = *request;
       return ListTorii(context, &single_tx_list, response);
     }

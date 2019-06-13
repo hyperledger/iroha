@@ -78,9 +78,8 @@ void OnDemandOrderingGate::propagateBatch(
   cache_->addToBack({batch});
 
   std::string hashes;
-  for(const auto& tx: batch->transactions())
-    hashes += tx->hash().hex() + " ";
-  log_->debug("Propagate batch: {}", hashes);
+  for (const auto &tx : batch->transactions()) hashes += tx->hash().hex() + " ";
+  log_->trace("Propagate batch: [ {} ]", hashes);
 
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});
@@ -171,12 +170,12 @@ OnDemandOrderingGate::removeReplays(
   auto unprocessed_txs =
       proposal->transactions() | boost::adaptors::indexed()
       | boost::adaptors::filtered(
-            [proposal_txs_validation_results =
-                 std::move(proposal_txs_validation_results)](const auto &el) {
-              return proposal_txs_validation_results.at(el.index());
-            })
+          [proposal_txs_validation_results =
+               std::move(proposal_txs_validation_results)](const auto &el) {
+            return proposal_txs_validation_results.at(el.index());
+          })
       | boost::adaptors::transformed(
-            [](const auto &el) -> decltype(auto) { return el.value(); });
+          [](const auto &el) -> decltype(auto) { return el.value(); });
 
   return proposal_factory_->unsafeCreateProposal(
       proposal->height(), proposal->createdTime(), unprocessed_txs);

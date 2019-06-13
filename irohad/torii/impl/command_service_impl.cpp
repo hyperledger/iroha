@@ -45,7 +45,7 @@ namespace iroha {
             if (cached_tx_state
                 and response->comparePriorities(**cached_tx_state)
                     != shared_model::interface::TransactionResponse::
-                           PrioritiesComparisonResult::kGreater) {
+                        PrioritiesComparisonResult::kGreater) {
               return;
             }
             cache->addItem(tx_hash, response);
@@ -196,12 +196,11 @@ namespace iroha {
       const auto status_issuer = "ToriiBatchProcessor";
       const auto &txs = batch->transactions();
 
-        std::string hashes;
-        for(const auto& tx: txs)
-            hashes += tx->hash().hex() + " ";
-        log_->debug("Process batch: {}", hashes);
+      std::string hashes;
+      for (const auto &tx : txs) hashes += tx->hash().hex() + " ";
+      log_->trace("Process batch: [ {} ] ", hashes);
 
-        bool has_final_status{false};
+      bool has_final_status{false};
 
       for (auto tx : txs) {
         const auto &tx_hash = tx->hash();

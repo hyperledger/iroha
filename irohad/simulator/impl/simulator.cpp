@@ -7,10 +7,10 @@
 
 #include <boost/range/adaptor/transformed.hpp>
 #include "common/bind.hpp"
+#include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
-#include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
   namespace simulator {
@@ -86,9 +86,9 @@ namespace iroha {
       log_->info("process proposal");
 
       std::string hashes;
-      for(const auto& tx: proposal.transactions())
-          hashes += tx.hash().hex() + " ";
-      log_->debug("Process proposal: {}", hashes);
+      for (const auto &tx : proposal.transactions())
+        hashes += tx.hash().hex() + " ";
+      log_->trace("Process proposal: [ {} ]", hashes);
 
       auto temporary_wsv_var = ametsuchi_factory_->createTemporaryWsv();
       if (auto e =
@@ -120,12 +120,12 @@ namespace iroha {
       const auto &proposal = verified_proposal_and_errors->verified_proposal;
 
       std::string hashes;
-      for(const auto& tx: proposal->transactions())
-          hashes += tx.hash().hex() + " ";
+      for (const auto &tx : proposal->transactions())
+        hashes += tx.hash().hex() + " ";
 
-      log_->debug("Process verified proposal: {}", hashes);
+      log_->trace("Process verified proposal: [ {} ]", hashes);
 
-        std::vector<shared_model::crypto::Hash> rejected_hashes;
+      std::vector<shared_model::crypto::Hash> rejected_hashes;
       for (const auto &rejected_tx :
            verified_proposal_and_errors->rejected_transactions) {
         rejected_hashes.push_back(rejected_tx.tx_hash);

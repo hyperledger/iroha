@@ -11,9 +11,9 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
+#include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "validation/stateful_validator_common.hpp"
-#include "interfaces/transaction.hpp"
 
 namespace iroha {
   namespace torii {
@@ -80,13 +80,15 @@ namespace iroha {
                  proposal_and_errors->verified_proposal->transactions()) {
               log_->info("VerifiedProposalCreatorEvent StatefulValid: {}",
                          successful_tx.hash().hex());
-                std::string hashes;
-                for(const auto& tx: proposal_and_errors->verified_proposal->transactions())
-                    hashes += tx.reducedHash().hex() + " ";
+              std::string hashes;
+              for (const auto &tx :
+                   proposal_and_errors->verified_proposal->transactions())
+                hashes += tx.hash().hex() + " ";
 
-                log_->debug("VerifiedProposalCreatorEvent StatefulValid: {}", hashes);
+              log_->trace("VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
+                          hashes);
 
-                this->publishStatus(TxStatusType::kStatefulValid,
+              this->publishStatus(TxStatusType::kStatefulValid,
                                   successful_tx.hash());
             }
           });
@@ -130,7 +132,12 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::TransactionBatch>
             transaction_batch) const {
       log_->info("handle batch");
-      log_->debug("Handle batch: {}", transaction_batch->transactions().at(0)->reducedHash());
+
+      std::string hashes;
+      for (const auto &tx : transaction_batch->transactions())
+        hashes += tx.hash().hex() + " ";
+
+      log_->trace("Handle batch: [ {} ]", hashes);
       if (transaction_batch->hasAllSignatures()
           and not mst_processor_->batchInStorage(transaction_batch)) {
         log_->info("propagating batch to PCS");
@@ -149,7 +156,7 @@ namespace iroha {
       auto tx_error = cmd_error.name.empty()
           ? shared_model::interface::TxStatusFactory::TransactionError{}
           : shared_model::interface::TxStatusFactory::TransactionError{
-                cmd_error.name, cmd_error.index, cmd_error.error_code};
+              cmd_error.name, cmd_error.index, cmd_error.error_code};
       switch (tx_status) {
         case TxStatusType::kStatelessFailed: {
           status_bus_->publish(

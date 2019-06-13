@@ -55,16 +55,14 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 // ----------------------------| OdOsNotification |-----------------------------
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
-    log_->debug("On Batches: {}", batches.at(0)->transactions().at(0)->reducedHash());
+  for (const auto &batch : batches) {
+    std::string hashes;
+    for (const auto &tx : batch->transactions())
+      hashes += tx->hash().hex() + " ";
+    log_->trace("On Batches: [ {} ]", hashes);
+  }
 
-    for(const auto &batch: batches) {
-        std::string hashes;
-        for(const auto& tx: batch->transactions())
-            hashes += tx->hash().hex() + " ";
-        log_->debug("On Batches: {}", hashes);
-    }
-
-    auto unprocessed_batches =
+  auto unprocessed_batches =
       boost::adaptors::filter(batches, [this](const auto &batch) {
         log_->debug("check batch {} for already processed transactions",
                     batch->reducedHash().hex());
@@ -195,7 +193,6 @@ void OnDemandOrderingServiceImpl::packNextProposals(
       generate_proposal({round.block_round, round.reject_round + 1}, txs);
       generate_proposal({round.block_round + 1, kFirstRejectRound}, txs);
       log_->debug("Generate proposal: {}", txs.at(0)->reducedHash());
-
     }
   }
 
