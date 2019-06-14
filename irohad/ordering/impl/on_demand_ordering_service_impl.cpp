@@ -192,7 +192,11 @@ void OnDemandOrderingServiceImpl::packNextProposals(
     if (not txs.empty()) {
       generate_proposal({round.block_round, round.reject_round + 1}, txs);
       generate_proposal({round.block_round + 1, kFirstRejectRound}, txs);
-      log_->debug("Generate proposal: {}", txs.at(0)->reducedHash());
+      std::string hashes;
+      for (const auto &tx : txs)
+        hashes += tx->hash().hex() + " ";
+      log_->trace("Generate proposal: [ {} ]", hashes);
+
     }
   }
 

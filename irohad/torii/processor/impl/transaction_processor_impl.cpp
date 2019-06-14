@@ -135,9 +135,9 @@ namespace iroha {
 
       std::string hashes;
       for (const auto &tx : transaction_batch->transactions())
-        hashes += tx.hash().hex() + " ";
-
+        hashes += tx->hash().hex() + " ";
       log_->trace("Handle batch: [ {} ]", hashes);
+
       if (transaction_batch->hasAllSignatures()
           and not mst_processor_->batchInStorage(transaction_batch)) {
         log_->info("propagating batch to PCS");
