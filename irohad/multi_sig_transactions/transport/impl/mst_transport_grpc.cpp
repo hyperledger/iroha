@@ -52,7 +52,7 @@ MstTransportGrpc::MstTransportGrpc(
       my_key_(shared_model::crypto::toBinaryString(my_key)),
       mst_state_logger_(std::move(mst_state_logger)),
       log_(std::move(log)),
-      client_creator_(client_creator){}
+      client_creator_(client_creator) {}
 
 shared_model::interface::types::SharedTxsCollectionType
 MstTransportGrpc::deserializeTransactions(const transport::MstState *request) {
@@ -178,9 +178,9 @@ void sendStateAsyncImpl(
     AsyncGrpcClient<google::protobuf::Empty> &async_call,
     std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
         const shared_model::interface::Peer &)> client_creator) {
-  auto client = (client_creator == nullptr) ?
-      transport::MstTransportGrpc::NewStub(grpc::CreateChannel(to.address(),
-          grpc::InsecureChannelCredentials()))
+  auto client = (client_creator == nullptr)
+      ? transport::MstTransportGrpc::NewStub(
+          grpc::CreateChannel(to.address(), grpc::InsecureChannelCredentials()))
       : client_creator(to);
   transport::MstState protoState;
   protoState.set_source_peer_key(sender_key);
