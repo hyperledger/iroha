@@ -24,6 +24,7 @@
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/field_validator.hpp"
 
@@ -50,13 +51,42 @@ namespace iroha {
             std::make_unique<InMemoryBlockStorageFactory>();
         auto reconnection_strategy_factory = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
+
+        PostgresOptions options(
+            pgopt_, PgConnectionInit::kDefaultDatabaseName, storage_logger_);
+
+        PgConnectionInit connection_init;
+        connection_init
+            .createDatabaseIfNotExist(options.dbname(),
+                                      options.optionsStringWithoutDbName())
+            .match([](auto &&val) {},
+                   [&](auto &&error) {
+                     storage_logger_->error("Database creation error: {}",
+                                            error.error);
+                     std::terminate();
+                   });
+
+        auto pool = connection_init.prepareConnectionPool(
+            *reconnection_strategy_factory,
+            options,
+            getTestLoggerManager()->getChild("Storage"));
+
+        if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
+          storage_logger_->error("Pool initialization error: {}", e->error);
+          std::terminate();
+        }
+
+        pool_wrapper_ =
+            boost::get<expected::Value<std::shared_ptr<PoolWrapper>>>(pool)
+                .value;
+
         StorageImpl::create(block_store_path,
-                            pgopt_,
+                            options,
+                            pool_wrapper_,
                             factory,
                             converter,
                             perm_converter_,
                             std::move(block_storage_factory),
-                            std::move(reconnection_strategy_factory),
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
@@ -105,6 +135,8 @@ namespace iroha {
       static std::string dbname_;
 
       static std::string pgopt_;
+
+      static std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
       static std::string block_store_path;
 
@@ -214,6 +246,9 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
               .substr(0, 8);
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
+
+    std::shared_ptr<iroha::ametsuchi::PoolWrapper>
+        AmetsuchiTest::pool_wrapper_ = nullptr;
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;

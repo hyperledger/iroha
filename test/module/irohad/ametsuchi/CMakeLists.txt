@@ -36,6 +36,7 @@ target_link_libraries(storage_init_test
     ametsuchi
     integration_framework_config_helper
     shared_model_proto_backend
+    pg_connection_init
     test_logger
     )
 
@@ -52,6 +53,7 @@ target_link_libraries(postgres_executor_test
     ametsuchi
     commands_mocks_factory
     framework_sql_query
+    pg_connection_init
     test_logger
     )
 
@@ -88,6 +90,7 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     framework_sql_query
     SOCI::postgresql
     SOCI::core
+    pg_connection_init
     test_logger
     )
 
