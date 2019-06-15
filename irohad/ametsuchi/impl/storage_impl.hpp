@@ -15,6 +15,7 @@
 #include <soci/soci.h>
 #include <boost/optional.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -28,7 +29,6 @@ namespace iroha {
   namespace ametsuchi {
 
     class FlatFile;
-    class FailoverCallbackFactory;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
@@ -38,21 +38,14 @@ namespace iroha {
 
     class StorageImpl : public Storage {
      protected:
-      static expected::Result<bool, std::string> createDatabaseIfNotExist(
-          const std::string &dbname,
-          const std::string &options_str_without_dbname);
-
       static expected::Result<ConnectionContext, std::string> initConnections(
           std::string block_store_dir, logger::LoggerPtr log);
-
-      static expected::Result<std::shared_ptr<soci::connection_pool>,
-                              std::string>
-      initPostgresConnection(std::string &options_str, size_t pool_size);
 
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
-          std::string postgres_connection,
+          const PostgresOptions &options,
+          std::shared_ptr<PoolWrapper> pool_wrapper,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               factory,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -60,8 +53,6 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::unique_ptr<BlockStorageFactory> block_storage_factory,
-          std::unique_ptr<ReconnectionStrategyFactory>
-              reconnection_strategy_factory,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -119,20 +110,9 @@ namespace iroha {
       ~StorageImpl() override;
 
      protected:
-      struct PoolWrapper {
-        PoolWrapper(std::shared_ptr<soci::connection_pool>,
-                    std::unique_ptr<FailoverCallbackFactory>);
-
-        PoolWrapper(PoolWrapper &&) = default;
-        ~PoolWrapper() = default;
-
-        std::shared_ptr<soci::connection_pool> connection_pool_;
-        std::unique_ptr<FailoverCallbackFactory> failover_callback_factory_;
-      };
-
       StorageImpl(PostgresOptions postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
-                  PoolWrapper pool_wrapper,
+                  std::shared_ptr<PoolWrapper> pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
                       factory,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -166,7 +146,7 @@ namespace iroha {
 
       std::unique_ptr<KeyValueStorage> block_store_;
 
-      PoolWrapper pool_wrapper_;
+      std::shared_ptr<PoolWrapper> pool_wrapper_;
 
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;
@@ -201,7 +181,6 @@ namespace iroha {
      protected:
       static const std::string &reset_;
       static const std::string &reset_peers_;
-      static const std::string &init_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

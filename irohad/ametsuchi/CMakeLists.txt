@@ -25,6 +25,9 @@ add_library(ametsuchi
     impl/flat_file_block_storage.cpp
     impl/flat_file_block_storage_factory.cpp
     impl/k_times_reconnection_strategy.cpp
+    impl/pool_wrapper.cpp
+    impl/failover_callback.cpp
+    impl/failover_callback_factory.cpp
     )
 
 target_link_libraries(ametsuchi

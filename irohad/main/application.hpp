@@ -25,6 +25,8 @@ namespace iroha {
     class WsvRestorer;
     class TxPresenceCache;
     class Storage;
+    class ReconnectionStrategyFactory;
+    struct PoolWrapper;
   }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
@@ -152,6 +154,8 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
 
+  //  virtual RunResult initPoolWrapper();
+
   virtual RunResult initStorage();
 
   virtual RunResult initCryptoProvider();
@@ -224,9 +228,14 @@ class Irohad {
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
+  std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
   // common objects factory
   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
       common_objects_factory_;
+
+  std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+      reconnection_strategy_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;

@@ -9,6 +9,7 @@
 
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -27,6 +28,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
@@ -175,6 +177,8 @@ void Irohad::dropStorage() {
   storage->reset();
 }
 
+// Irohad::RunResult Irohad::initPoolWrapper() {}
+
 /**
  * Initializing iroha daemon storage
  */
@@ -182,6 +186,8 @@ Irohad::RunResult Irohad::initStorage() {
   common_objects_factory_ =
       std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
           shared_model::validation::FieldValidator>>(validators_config_);
+  reconnection_strategy_ =
+      std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10);
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
   auto block_converter =
@@ -195,16 +201,44 @@ Irohad::RunResult Irohad::initStorage() {
       block_converter,
       log_manager_);
 
-  return StorageImpl::create(
-             block_store_dir_,
-             pg_conn_,
-             common_objects_factory_,
-             std::move(block_converter),
-             perm_converter,
-             std::move(block_storage_factory),
-             std::make_unique<
-                 iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10),
-             log_manager_->getChild("Storage"))
+  boost::optional<std::string> string_res = boost::none;
+
+  PostgresOptions options(
+      pg_conn_,
+      PgConnectionInit::kDefaultDatabaseName,
+      log_manager_->getChild("DbOptionsParser")->getLogger());
+
+  PgConnectionInit connection_init;
+
+  // create database if it does not exist
+  connection_init
+      .createDatabaseIfNotExist(options.dbname(),
+                                options.optionsStringWithoutDbName())
+      .match([](auto &&val) {},
+             [&string_res](auto &&error) { string_res = error.error; });
+
+  if (string_res) {
+    return expected::makeError(string_res.value());
+  }
+
+  auto pool = connection_init.prepareConnectionPool(
+      *reconnection_strategy_, options, log_manager_);
+
+  if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
+    return expected::makeError(std::move(e->error));
+  }
+
+  pool_wrapper_ =
+      boost::get<expected::Value<std::shared_ptr<PoolWrapper>>>(pool).value;
+
+  return StorageImpl::create(block_store_dir_,
+                             options,
+                             pool_wrapper_,
+                             common_objects_factory_,
+                             std::move(block_converter),
+                             perm_converter,
+                             std::move(block_storage_factory),
+                             log_manager_->getChild("Storage"))
              | [&](auto &&v) -> RunResult {
     storage = std::move(v);
     log_->info("[Init] => storage");

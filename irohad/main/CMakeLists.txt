@@ -21,6 +21,13 @@ target_link_libraries(raw_block_loader
     logger
     )
 
+add_library(pg_connection_init impl/pg_connection_init.cpp)
+target_link_libraries(pg_connection_init
+    SOCI::postgresql
+    SOCI::core
+    fmt
+    )
+
 add_library(application
     application.cpp
     # TODO andrei 08.11.2018 IR-1851 Create separate targets for initialization
@@ -55,6 +62,7 @@ target_link_libraries(application
     torii_service
     pending_txs_storage
     common
+    pg_connection_init
     )
 
 add_executable(irohad irohad.cpp)
