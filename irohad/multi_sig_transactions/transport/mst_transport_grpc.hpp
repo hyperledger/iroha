@@ -48,7 +48,7 @@ namespace iroha {
           logger::LoggerPtr log,
           std::function<
               std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-                  const shared_model::interface::Peer &)>  = nullptr);
+                  const shared_model::interface::Peer &)> = nullptr);
 
       /**
        * Server part of grpc SendState method call
