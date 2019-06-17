@@ -14,6 +14,15 @@ target_link_libraries(failover_callback
     SOCI::core
     )
 
+add_library(pool_wrapper
+    impl/pool_wrapper.cpp
+    )
+
+target_link_libraries(pool_wrapper
+    failover_callback
+    SOCI::core
+    )
+
 add_library(ametsuchi
     impl/flat_file/flat_file.cpp
     impl/command_executor.cpp
@@ -36,7 +45,6 @@ add_library(ametsuchi
     impl/flat_file_block_storage.cpp
     impl/flat_file_block_storage_factory.cpp
     impl/k_times_reconnection_strategy.cpp
-    impl/pool_wrapper.cpp
     )
 
 target_link_libraries(ametsuchi
@@ -48,6 +56,7 @@ target_link_libraries(ametsuchi
     shared_model_interfaces
     shared_model_stateless_validation
     failover_callback
+    pool_wrapper
     SOCI::postgresql
     SOCI::core
     )
