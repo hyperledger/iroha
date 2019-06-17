@@ -65,7 +65,7 @@ StorageImpl::StorageImpl(
       log_manager_(std::move(log_manager)),
       log_(log_manager_->getLogger()),
       pool_size_(pool_size),
-      prepared_blocks_enabled_(pool_wrapper->enable_prepared_transactions_),
+      prepared_blocks_enabled_(pool_wrapper_->enable_prepared_transactions_),
       block_is_prepared_(false),
       prepared_block_name_(prepared_block_name) {}
 
