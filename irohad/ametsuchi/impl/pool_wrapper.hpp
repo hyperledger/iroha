@@ -25,7 +25,7 @@ namespace iroha {
       ~PoolWrapper() = default;
 
       std::shared_ptr<soci::connection_pool> connection_pool_;
-      std::unique_ptr<FailoverCallbackHolder> failover_callback_factory_;
+      std::unique_ptr<FailoverCallbackHolder> failover_callback_holder_;
       bool enable_prepared_transactions_;
     };
 

@@ -13,8 +13,8 @@ using namespace iroha::ametsuchi;
 
 PoolWrapper::PoolWrapper(
     std::shared_ptr<soci::connection_pool> connection_pool,
-    std::unique_ptr<FailoverCallbackHolder> failover_callback_factory,
+    std::unique_ptr<FailoverCallbackHolder> failover_callback_holder,
     bool enable_prepared_transactions)
     : connection_pool_(std::move(connection_pool)),
-      failover_callback_factory_(std::move(failover_callback_factory)),
+      failover_callback_holder_(std::move(failover_callback_holder)),
       enable_prepared_transactions_(enable_prepared_transactions) {}
