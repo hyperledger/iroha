@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_FAILOVER_CALLBACK_FACTORY_HPP
-#define IROHA_FAILOVER_CALLBACK_FACTORY_HPP
+#ifndef IROHA_FAILOVER_CALLBACK_HOLDER_HPP
+#define IROHA_FAILOVER_CALLBACK_HOLDER_HPP
 
 #include "ametsuchi/impl/failover_callback.hpp"
 
 namespace iroha {
   namespace ametsuchi {
-    class FailoverCallbackFactory {
+    class FailoverCallbackHolder {
      public:
       FailoverCallback &makeFailoverCallback(
           soci::session &connection,
@@ -25,4 +25,4 @@ namespace iroha {
   }  // namespace ametsuchi
 }  // namespace iroha
 
-#endif  // IROHA_FAILOVER_CALLBACK_FACTORY_HPP
+#endif  // IROHA_FAILOVER_CALLBACK_HOLDER_HPP

@@ -11,7 +11,7 @@ using namespace iroha::ametsuchi;
 
 FailoverCallback::FailoverCallback(
     soci::session &connection,
-    std::function<void(soci::session &)> init,
+    InitFunctionType init,
     std::string connection_options,
     std::unique_ptr<ReconnectionStrategy> reconnection_strategy,
     logger::LoggerPtr log)

@@ -6,8 +6,20 @@
 #include "main/impl/pg_connection_init.hpp"
 
 #include "logger/logger.hpp"
+#include "logger/logger_manager.hpp"
 
 using namespace iroha::ametsuchi;
+
+std::string PgConnectionInit::formatPostgresMessage(const char *message) {
+  std::string formatted_message(message);
+  boost::replace_if(formatted_message, boost::is_any_of("\r\n"), ' ');
+  return formatted_message;
+}
+
+void PgConnectionInit::processPqNotice(void *arg, const char *message) {
+  auto *log = reinterpret_cast<logger::Logger *>(arg);
+  log->debug("{}", formatPostgresMessage(message));
+}
 
 iroha::expected::Result<std::shared_ptr<soci::connection_pool>, std::string>
 PgConnectionInit::initPostgresConnection(std::string &options_str,
@@ -25,7 +37,7 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
   return expected::makeValue(pool);
 }
 
-iroha::expected::Result<std::shared_ptr<PoolWrapper>, std::string>
+iroha::expected::Result<std::unique_ptr<PoolWrapper>, std::string>
 PgConnectionInit::prepareConnectionPool(
     ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
@@ -59,8 +71,8 @@ PgConnectionInit::prepareConnectionPool(
       }
     };
 
-    std::unique_ptr<FailoverCallbackFactory> failover_callback_factory =
-        std::make_unique<FailoverCallbackFactory>();
+    std::unique_ptr<FailoverCallbackHolder> failover_callback_factory =
+        std::make_unique<FailoverCallbackHolder>();
 
     initializeConnectionPool(*connection,
                              pool_size,
@@ -71,8 +83,8 @@ PgConnectionInit::prepareConnectionPool(
                              options.optionsStringWithoutDbName(),
                              log_manager);
 
-    return expected::makeValue<std::shared_ptr<PoolWrapper>>(
-        std::make_shared<iroha::ametsuchi::PoolWrapper>(
+    return expected::makeValue<std::unique_ptr<PoolWrapper>>(
+        std::make_unique<iroha::ametsuchi::PoolWrapper>(
             std::move(connection),
             std::move(failover_callback_factory),
             enable_prepared_transactions));
@@ -126,6 +138,70 @@ PgConnectionInit::createDatabaseIfNotExist(
     return expected::makeError<std::string>(
         std::string("Connection to PostgreSQL broken: ")
         + formatPostgresMessage(e.what()));
+  }
+}
+
+template <typename RollbackFunction>
+void PgConnectionInit::initializeConnectionPool(
+    soci::connection_pool &connection_pool,
+    size_t pool_size,
+    const std::string &prepare_tables_sql,
+    RollbackFunction try_rollback,
+    FailoverCallbackHolder &callback_factory,
+    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const std::string &pg_reconnection_options,
+    logger::LoggerManagerTreePtr log_manager) {
+  auto log = log_manager->getLogger();
+  auto initialize_session = [&](soci::session &session,
+                                auto on_init_db,
+                                auto on_init_connection) {
+    auto *backend = static_cast<soci::postgresql_session_backend *>(
+        session.get_backend());
+    PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
+    on_init_connection(session);
+
+    // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
+    // IR-464
+    on_init_db(session);
+    PostgresCommandExecutor::prepareStatements(session);
+  };
+
+  /// lambda contains special actions which should be execute once
+  auto init_db = [&](soci::session &session) {
+    // rollback current prepared transaction
+    // if there exists any since last session
+    try_rollback(session);
+    session << prepare_tables_sql;
+  };
+
+  /// lambda contains actions which should be invoked once for each
+  /// session
+  auto init_failover_callback = [&](soci::session &session) {
+    static size_t connection_index = 0;
+    auto restore_session = [initialize_session](soci::session &s) {
+      return initialize_session(s, [](auto &) {}, [](auto &) {});
+    };
+
+    auto &callback = callback_factory.makeFailoverCallback(
+        session,
+        restore_session,
+        pg_reconnection_options,
+        reconnection_strategy_factory.create(),
+        log_manager
+            ->getChild("SOCI connection "
+                       + std::to_string(connection_index++))
+            ->getLogger());
+
+    session.set_failover_callback(callback);
+  };
+
+  assert(pool_size > 0);
+
+  initialize_session(
+      connection_pool.at(0), init_db, init_failover_callback);
+  for (size_t i = 1; i != pool_size; i++) {
+    soci::session &session = connection_pool.at(i);
+    initialize_session(session, [](auto &) {}, init_failover_callback);
   }
 }
 

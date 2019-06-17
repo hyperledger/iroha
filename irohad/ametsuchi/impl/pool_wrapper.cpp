@@ -5,13 +5,15 @@
 
 #include "ametsuchi/impl/pool_wrapper.hpp"
 
-#include "ametsuchi/impl/failover_callback_factory.hpp"
+#include <soci/soci.h>
+
+#include "ametsuchi/impl/failover_callback_holder.hpp"
 
 using namespace iroha::ametsuchi;
 
 PoolWrapper::PoolWrapper(
     std::shared_ptr<soci::connection_pool> connection_pool,
-    std::unique_ptr<FailoverCallbackFactory> failover_callback_factory,
+    std::unique_ptr<FailoverCallbackHolder> failover_callback_factory,
     bool enable_prepared_transactions)
     : connection_pool_(std::move(connection_pool)),
       failover_callback_factory_(std::move(failover_callback_factory)),

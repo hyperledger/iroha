@@ -228,12 +228,12 @@ Irohad::RunResult Irohad::initStorage() {
     return expected::makeError(std::move(e->error));
   }
 
-  pool_wrapper_ =
-      boost::get<expected::Value<std::shared_ptr<PoolWrapper>>>(pool).value;
+  auto pool_wrapper = std::move(
+      boost::get<expected::Value<std::unique_ptr<PoolWrapper>>>(pool).value);
 
   return StorageImpl::create(block_store_dir_,
                              options,
-                             pool_wrapper_,
+                             std::move(pool_wrapper),
                              common_objects_factory_,
                              std::move(block_converter),
                              perm_converter,
