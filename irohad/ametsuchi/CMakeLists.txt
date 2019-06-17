@@ -27,7 +27,7 @@ add_library(ametsuchi
     impl/k_times_reconnection_strategy.cpp
     impl/pool_wrapper.cpp
     impl/failover_callback.cpp
-    impl/failover_callback_factory.cpp
+    impl/failover_callback_holder.cpp
     )
 
 target_link_libraries(ametsuchi

@@ -31,8 +31,8 @@ include/generated/*
 iroha.conf
 peers.list
 cmake-build*
+test/system/irohad_test_data/config.sample.copy
 
-cmake-build*
 .gtm
 /.gtm/
 

@@ -30,7 +30,6 @@
 #include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
-
 #include "main/impl/pg_connection_init.hpp"
 
 using namespace iroha::ametsuchi;
@@ -46,13 +45,12 @@ ConnectionContext::ConnectionContext(
 StorageImpl::StorageImpl(
     PostgresOptions postgres_options,
     std::unique_ptr<KeyValueStorage> block_store,
-    std::shared_ptr<PoolWrapper> pool_wrapper,
+    std::unique_ptr<PoolWrapper> pool_wrapper,
     std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
     std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
     std::unique_ptr<BlockStorageFactory> block_storage_factory,
     size_t pool_size,
-    bool enable_prepared_blocks,
     const std::string &prepared_block_name,
     logger::LoggerManagerTreePtr log_manager)
     : postgres_options_(std::move(postgres_options)),
@@ -67,7 +65,7 @@ StorageImpl::StorageImpl(
       log_manager_(std::move(log_manager)),
       log_(log_manager_->getLogger()),
       pool_size_(pool_size),
-      prepared_blocks_enabled_(enable_prepared_blocks),
+      prepared_blocks_enabled_(pool_wrapper->enable_prepared_transactions_),
       block_is_prepared_(false),
       prepared_block_name_(prepared_block_name) {}
 
@@ -294,7 +292,7 @@ iroha::expected::Result<std::shared_ptr<StorageImpl>, std::string>
 StorageImpl::create(
     std::string block_store_dir,
     const PostgresOptions &options,
-    std::shared_ptr<PoolWrapper> pool_wrapper,
+    std::unique_ptr<PoolWrapper> pool_wrapper,
     std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
     std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
     std::shared_ptr<shared_model::interface::PermissionToString> perm_converter,
@@ -302,9 +300,6 @@ StorageImpl::create(
     logger::LoggerManagerTreePtr log_manager,
     size_t pool_size) {
   std::string prepared_block_name = "prepared_block" + options.dbname();
-  bool enable_prepared_transactions =
-      pool_wrapper->enable_prepared_transactions_;
-
   auto ctx_result = initConnections(block_store_dir, log_manager->getLogger());
   expected::Result<std::shared_ptr<StorageImpl>, std::string> storage;
   std::move(ctx_result)
@@ -319,7 +314,6 @@ StorageImpl::create(
                                 perm_converter,
                                 std::move(block_storage_factory),
                                 pool_size,
-                                enable_prepared_transactions,
                                 prepared_block_name,
                                 std::move(log_manager))));
           },
@@ -477,6 +471,8 @@ bool StorageImpl::storeBlock(
 }
 
 void StorageImpl::tryRollback(soci::session &session) {
+  // TODO 17.06.2019 luckychess IR-568 split connection and schema
+  // initialisation
   if (block_is_prepared_) {
     PgConnectionInit::rollbackPrepared(session, prepared_block_name_)
         .match([this](auto &&v) { block_is_prepared_ = false; },

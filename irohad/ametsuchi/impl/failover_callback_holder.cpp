@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ametsuchi/impl/failover_callback_factory.hpp"
+#include "ametsuchi/impl/failover_callback_holder.hpp"
 
 using namespace iroha::ametsuchi;
 
-FailoverCallback &FailoverCallbackFactory::makeFailoverCallback(
+FailoverCallback &FailoverCallbackHolder::makeFailoverCallback(
     soci::session &connection,
     FailoverCallback::InitFunctionType init,
     std::string connection_options,

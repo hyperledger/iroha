@@ -228,8 +228,6 @@ class Irohad {
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
-  std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
-
   // common objects factory
   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
       common_objects_factory_;
