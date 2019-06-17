@@ -112,14 +112,14 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
     FAIL() << e->error;
   }
 
-  auto pool_wrapper =
-      boost::get<iroha::expected::Value<std::shared_ptr<PoolWrapper>>>(pool)
-          .value;
+  auto pool_wrapper = std::move(
+      boost::get<iroha::expected::Value<std::unique_ptr<PoolWrapper>>>(pool)
+          .value);
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
                       options,
-                      pool_wrapper,
+                      std::move(pool_wrapper),
                       factory,
                       converter,
                       perm_converter_,

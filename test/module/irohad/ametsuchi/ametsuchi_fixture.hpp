@@ -76,13 +76,13 @@ namespace iroha {
           std::terminate();
         }
 
-        pool_wrapper_ =
-            boost::get<expected::Value<std::shared_ptr<PoolWrapper>>>(pool)
-                .value;
+        pool_wrapper_ = std::move(
+            boost::get<expected::Value<std::unique_ptr<PoolWrapper>>>(pool)
+                .value);
 
         StorageImpl::create(block_store_path,
                             options,
-                            pool_wrapper_,
+                            std::move(pool_wrapper_),
                             factory,
                             converter,
                             perm_converter_,
@@ -136,7 +136,7 @@ namespace iroha {
 
       static std::string pgopt_;
 
-      static std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+      static std::unique_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
       static std::string block_store_path;
 
@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
 
-    std::shared_ptr<iroha::ametsuchi::PoolWrapper>
+    std::unique_ptr<iroha::ametsuchi::PoolWrapper>
         AmetsuchiTest::pool_wrapper_ = nullptr;
 
     std::shared_ptr<shared_model::interface::PermissionToString>
