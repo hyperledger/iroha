@@ -164,7 +164,7 @@ OnDemandOrderingGate::removeReplays(
   }
 
   if (not has_replays) {
-    return std::move(proposal);
+    return proposal;
   }
 
   auto unprocessed_txs =

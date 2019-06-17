@@ -133,7 +133,10 @@ auto createMockBatchWithHash(
 
   auto res = std::make_shared<NiceMock<MockTransactionBatch>>();
 
+  auto txs = shared_model::interface::types::SharedTxsCollectionType();
+
   ON_CALL(*res, reducedHash()).WillByDefault(ReturnRefOfCopy(hash));
+  ON_CALL(*res, transactions()).WillByDefault(ReturnRefOfCopy(txs));
 
   return res;
 }
