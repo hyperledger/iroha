@@ -3,6 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+add_library(failover_callback
+    impl/failover_callback.cpp
+    impl/failover_callback_holder.cpp
+    )
+
+target_link_libraries(failover_callback
+    logger
+    SOCI::postgresql
+    SOCI::core
+    )
+
 add_library(ametsuchi
     impl/flat_file/flat_file.cpp
     impl/command_executor.cpp
@@ -26,8 +37,6 @@ add_library(ametsuchi
     impl/flat_file_block_storage_factory.cpp
     impl/k_times_reconnection_strategy.cpp
     impl/pool_wrapper.cpp
-    impl/failover_callback.cpp
-    impl/failover_callback_holder.cpp
     )
 
 target_link_libraries(ametsuchi
@@ -38,6 +47,7 @@ target_link_libraries(ametsuchi
     common
     shared_model_interfaces
     shared_model_stateless_validation
+    failover_callback
     SOCI::postgresql
     SOCI::core
     )
