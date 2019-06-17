@@ -13,6 +13,7 @@
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
+#include "utils/trace_helpers.hpp"
 #include "validation/stateful_validator_common.hpp"
 
 namespace iroha {
@@ -80,13 +81,11 @@ namespace iroha {
                  proposal_and_errors->verified_proposal->transactions()) {
               log_->info("VerifiedProposalCreatorEvent StatefulValid: {}",
                          successful_tx.hash().hex());
-              std::string hashes;
-              for (const auto &tx :
-                   proposal_and_errors->verified_proposal->transactions())
-                hashes += tx.hash().hex() + " ";
 
-              log_->trace("VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
-                          hashes);
+              log_->trace(
+                  "VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
+                  shared_model::interface::TxHashesPrinter{
+                      proposal_and_errors->verified_proposal->transactions()});
 
               this->publishStatus(TxStatusType::kStatefulValid,
                                   successful_tx.hash());
