@@ -64,8 +64,9 @@ class TransportTest : public ::testing::Test {
         shared_model::interface::Transaction,
         shared_model::proto::Transaction>>(std::move(interface_tx_validator),
                                            std::move(proto_tx_validator));
-
-    MstTransportGrpc::SenderFactory client_creator(
+    // TODO 18.06.19 (@alex9430) fix the test so that neither boost::none, nor
+    // nullptr is in use with sender_factory
+    MstTransportGrpc::SenderFactory sender_factory_(
         [this](const shared_model::interface::Peer &peer) {
           return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
               stub);
@@ -80,7 +81,7 @@ class TransportTest : public ::testing::Test {
                                            my_key_.publicKey(),
                                            getTestLogger("MstState"),
                                            getTestLogger("MstTransportGrpc"),
-                                           client_creator);
+                                           sender_factory_);
     transport->subscribe(mst_notification_transport_);
 
     shared_model::interface::types::PubkeyType pk(
