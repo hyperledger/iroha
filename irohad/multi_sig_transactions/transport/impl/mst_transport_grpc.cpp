@@ -20,14 +20,18 @@ using namespace iroha;
 using namespace iroha::network;
 
 using iroha::ConstRefState;
-
+namespace {
+  auto default_sender_factory = [](const shared_model::interface::Peer &to) {
+    return transport::MstTransportGrpc::NewStub(
+        grpc::CreateChannel(to.address(), grpc::InsecureChannelCredentials()));
+  };
+}
 void sendStateAsyncImpl(
     const shared_model::interface::Peer &to,
     ConstRefState state,
     const std::string &sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call,
-    std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-        const shared_model::interface::Peer &)> client_creator = nullptr);
+    MstTransportGrpc::SenderFactory sender_factory = default_sender_factory);
 
 MstTransportGrpc::MstTransportGrpc(
     std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call,
@@ -41,8 +45,7 @@ MstTransportGrpc::MstTransportGrpc(
     shared_model::crypto::PublicKey my_key,
     logger::LoggerPtr mst_state_logger,
     logger::LoggerPtr log,
-    std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-        const shared_model::interface::Peer &)> client_creator)
+    boost::optional<SenderFactory> sender_factory)
     : async_call_(std::move(async_call)),
       transaction_factory_(std::move(transaction_factory)),
       batch_parser_(std::move(batch_parser)),
@@ -52,7 +55,7 @@ MstTransportGrpc::MstTransportGrpc(
       my_key_(shared_model::crypto::toBinaryString(my_key)),
       mst_state_logger_(std::move(mst_state_logger)),
       log_(std::move(log)),
-      client_creator_(client_creator) {}
+      sender_factory_(sender_factory) {}
 
 shared_model::interface::types::SharedTxsCollectionType
 MstTransportGrpc::deserializeTransactions(const transport::MstState *request) {
@@ -155,8 +158,11 @@ void MstTransportGrpc::subscribe(
 void MstTransportGrpc::sendState(const shared_model::interface::Peer &to,
                                  ConstRefState providing_state) {
   log_->info("Propagate MstState to peer {}", to.address());
-  sendStateAsyncImpl(
-      to, providing_state, my_key_, *async_call_, client_creator_);
+  sendStateAsyncImpl(to,
+                     providing_state,
+                     my_key_,
+                     *async_call_,
+                     sender_factory_.value_or(default_sender_factory));
 }
 
 void iroha::network::sendStateAsync(
@@ -164,24 +170,16 @@ void iroha::network::sendStateAsync(
     ConstRefState state,
     const shared_model::crypto::PublicKey &sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call) {
-  sendStateAsyncImpl(to,
-                     state,
-                     shared_model::crypto::toBinaryString(sender_key),
-                     async_call,
-                     nullptr);
+  sendStateAsyncImpl(
+      to, state, shared_model::crypto::toBinaryString(sender_key), async_call);
 }
 
-void sendStateAsyncImpl(
-    const shared_model::interface::Peer &to,
-    ConstRefState state,
-    const std::string &sender_key,
-    AsyncGrpcClient<google::protobuf::Empty> &async_call,
-    std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-        const shared_model::interface::Peer &)> client_creator) {
-  auto client = (client_creator == nullptr)
-      ? transport::MstTransportGrpc::NewStub(
-          grpc::CreateChannel(to.address(), grpc::InsecureChannelCredentials()))
-      : client_creator(to);
+void sendStateAsyncImpl(const shared_model::interface::Peer &to,
+                        ConstRefState state,
+                        const std::string &sender_key,
+                        AsyncGrpcClient<google::protobuf::Empty> &async_call,
+                        MstTransportGrpc::SenderFactory sender_factory) {
+  auto client = sender_factory(to);
   transport::MstState protoState;
   protoState.set_source_peer_key(sender_key);
   state.iterateTransactions([&protoState](const auto &tx) {
