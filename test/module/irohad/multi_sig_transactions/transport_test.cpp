@@ -65,9 +65,8 @@ class TransportTest : public ::testing::Test {
         shared_model::proto::Transaction>>(std::move(interface_tx_validator),
                                            std::move(proto_tx_validator));
 
-    std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-        const shared_model::interface::Peer &)>
-        client_creator([this](const shared_model::interface::Peer &peer) {
+    MstTransportGrpc::SenderFactory client_creator(
+        [this](const shared_model::interface::Peer &peer) {
           return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
               stub);
         });
@@ -133,9 +132,9 @@ static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
  * @then Assume that received state same as sent
  */
 TEST_F(TransportTest, SendAndReceive) {
-  ON_CALL(*tx_presence_cache_,
-          check(A<const shared_model::interface::TransactionBatch &>()))
-      .WillByDefault(Invoke([](const auto &batch) {
+  EXPECT_CALL(*tx_presence_cache_,
+              check(A<const shared_model::interface::TransactionBatch &>()))
+      .WillRepeatedly(Invoke([](const auto &batch) {
         iroha::ametsuchi::TxPresenceCache::BatchStatusCollectionType result;
         std::transform(
             batch.transactions().begin(),

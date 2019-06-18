@@ -28,6 +28,9 @@ namespace iroha {
     class MstTransportGrpc : public MstTransport,
                              public transport::MstTransportGrpc::Service {
      public:
+      using SenderFactory = std::function<
+          std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
+              const shared_model::interface::Peer &)>;
       using TransportFactoryType =
           shared_model::interface::AbstractTransportFactory<
               shared_model::interface::Transaction,
@@ -46,9 +49,7 @@ namespace iroha {
           shared_model::crypto::PublicKey my_key,
           logger::LoggerPtr mst_state_logger,
           logger::LoggerPtr log,
-          std::function<
-              std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-                  const shared_model::interface::Peer &)> = nullptr);
+          boost::optional<SenderFactory> = boost::none);
 
       /**
        * Server part of grpc SendState method call
@@ -91,9 +92,8 @@ namespace iroha {
       logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                             ///< objects.
       logger::LoggerPtr log_;               ///< Logger for local use.
-      std::function<std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-          const shared_model::interface::Peer &)>
-          client_creator_;
+
+      boost::optional<SenderFactory> sender_factory_;
     };
 
     void sendStateAsync(const shared_model::interface::Peer &to,
