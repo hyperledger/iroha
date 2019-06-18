@@ -8,18 +8,20 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 
+namespace {
+  std::string formatPostgresMessage(const char *message) {
+    std::string formatted_message(message);
+    boost::replace_if(formatted_message, boost::is_any_of("\r\n"), ' ');
+    return formatted_message;
+  }
+
+  void processPqNotice(void *arg, const char *message) {
+    auto *log = reinterpret_cast<logger::Logger *>(arg);
+    log->debug("{}", formatPostgresMessage(message));
+  }
+}  // namespace
+
 using namespace iroha::ametsuchi;
-
-std::string PgConnectionInit::formatPostgresMessage(const char *message) {
-  std::string formatted_message(message);
-  boost::replace_if(formatted_message, boost::is_any_of("\r\n"), ' ');
-  return formatted_message;
-}
-
-void PgConnectionInit::processPqNotice(void *arg, const char *message) {
-  auto *log = reinterpret_cast<logger::Logger *>(arg);
-  log->debug("{}", formatPostgresMessage(message));
-}
 
 iroha::expected::Result<std::shared_ptr<soci::connection_pool>, std::string>
 PgConnectionInit::initPostgresConnection(std::string &options_str,
@@ -37,18 +39,17 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
   return expected::makeValue(pool);
 }
 
-iroha::expected::Result<std::unique_ptr<PoolWrapper>, std::string>
+iroha::expected::Result<PoolWrapper, std::string>
 PgConnectionInit::prepareConnectionPool(
     ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
+    const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
-  const int pool_size = 10;
-
   auto options_str = options.optionsString();
 
   auto conn = initPostgresConnection(options_str, pool_size);
   if (auto e = boost::get<expected::Error<std::string>>(&conn)) {
-    return expected::makeError(std::move(e->error));
+    return *e;
   }
 
   auto &connection =
@@ -83,11 +84,10 @@ PgConnectionInit::prepareConnectionPool(
                              options.optionsStringWithoutDbName(),
                              log_manager);
 
-    return expected::makeValue<std::unique_ptr<PoolWrapper>>(
-        std::make_unique<iroha::ametsuchi::PoolWrapper>(
-            std::move(connection),
-            std::move(failover_callback_factory),
-            enable_prepared_transactions));
+    return expected::makeValue<PoolWrapper>(
+        iroha::ametsuchi::PoolWrapper(std::move(connection),
+                                      std::move(failover_callback_factory),
+                                      enable_prepared_transactions));
 
   } catch (const std::exception &e) {
     return expected::makeError(e.what());
@@ -155,8 +155,8 @@ void PgConnectionInit::initializeConnectionPool(
   auto initialize_session = [&](soci::session &session,
                                 auto on_init_db,
                                 auto on_init_connection) {
-    auto *backend = static_cast<soci::postgresql_session_backend *>(
-        session.get_backend());
+    auto *backend =
+        static_cast<soci::postgresql_session_backend *>(session.get_backend());
     PQsetNoticeProcessor(backend->conn_, &processPqNotice, log.get());
     on_init_connection(session);
 
@@ -188,8 +188,7 @@ void PgConnectionInit::initializeConnectionPool(
         pg_reconnection_options,
         reconnection_strategy_factory.create(),
         log_manager
-            ->getChild("SOCI connection "
-                       + std::to_string(connection_index++))
+            ->getChild("SOCI connection " + std::to_string(connection_index++))
             ->getLogger());
 
     session.set_failover_callback(callback);
@@ -197,8 +196,7 @@ void PgConnectionInit::initializeConnectionPool(
 
   assert(pool_size > 0);
 
-  initialize_session(
-      connection_pool.at(0), init_db, init_failover_callback);
+  initialize_session(connection_pool.at(0), init_db, init_failover_callback);
   for (size_t i = 1; i != pool_size; i++) {
     soci::session &session = connection_pool.at(i);
     initialize_session(session, [](auto &) {}, init_failover_callback);

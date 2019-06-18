@@ -49,7 +49,8 @@ namespace iroha {
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
         auto block_storage_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
-        auto reconnection_strategy_factory = std::make_unique<
+
+        reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
 
         PostgresOptions options(
@@ -67,8 +68,9 @@ namespace iroha {
                    });
 
         auto pool = connection_init.prepareConnectionPool(
-            *reconnection_strategy_factory,
+            *reconnection_strategy_factory_,
             options,
+            pool_size_,
             getTestLoggerManager()->getChild("Storage"));
 
         if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
@@ -76,9 +78,8 @@ namespace iroha {
           std::terminate();
         }
 
-        pool_wrapper_ = std::move(
-            boost::get<expected::Value<std::unique_ptr<PoolWrapper>>>(pool)
-                .value);
+        pool_wrapper_ =
+            std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
         StorageImpl::create(block_store_path,
                             options,
@@ -131,12 +132,17 @@ namespace iroha {
       static std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
 
+      static std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+          reconnection_strategy_factory_;
+
+      static const int pool_size_ = 10;
+
       // generate random valid dbname
       static std::string dbname_;
 
       static std::string pgopt_;
 
-      static std::unique_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+      static iroha::ametsuchi::PoolWrapper pool_wrapper_;
 
       static std::string block_store_path;
 
@@ -247,11 +253,14 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
 
-    std::unique_ptr<iroha::ametsuchi::PoolWrapper>
-        AmetsuchiTest::pool_wrapper_ = nullptr;
+    iroha::ametsuchi::PoolWrapper AmetsuchiTest::pool_wrapper_ =
+        iroha::ametsuchi::PoolWrapper(nullptr, nullptr, false);
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;
+
+    std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+        AmetsuchiTest::reconnection_strategy_factory_ = nullptr;
 
     std::shared_ptr<soci::session> AmetsuchiTest::sql = nullptr;
     // hold the storage static logger while the static storage is alive

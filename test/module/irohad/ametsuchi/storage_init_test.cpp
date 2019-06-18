@@ -47,8 +47,6 @@ class StorageInitTest : public ::testing::Test {
   std::string pg_opt_without_dbname_;
   std::string pgopt_;
 
-  // std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
-
   std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
       shared_model::validation::FieldValidator>>
       factory = std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
@@ -66,6 +64,8 @@ class StorageInitTest : public ::testing::Test {
 
   std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
       reconnection_strategy_factory_;
+
+  const int pool_size_ = 10;
 
   void SetUp() override {
     ASSERT_FALSE(boost::filesystem::exists(block_store_path))
@@ -106,15 +106,15 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
   auto pool = connection_init_.prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,
+      pool_size_,
       getTestLoggerManager()->getChild("Storage"));
 
   if (auto e = boost::get<iroha::expected::Error<std::string>>(&pool)) {
     FAIL() << e->error;
   }
 
-  auto pool_wrapper = std::move(
-      boost::get<iroha::expected::Value<std::unique_ptr<PoolWrapper>>>(pool)
-          .value);
+  auto pool_wrapper =
+      std::move(boost::get<iroha::expected::Value<PoolWrapper>>(pool).value);
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
@@ -165,6 +165,7 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   auto pool = connection_init_.prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,
+      pool_size_,
       getTestLoggerManager()->getChild("Storage"));
 
   pool.match([](const auto &) { FAIL() << "storage created, but should not"; },

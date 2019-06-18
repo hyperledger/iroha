@@ -6,7 +6,6 @@
 #include "ametsuchi/impl/pool_wrapper.hpp"
 
 #include <soci/soci.h>
-
 #include "ametsuchi/impl/failover_callback_holder.hpp"
 
 using namespace iroha::ametsuchi;

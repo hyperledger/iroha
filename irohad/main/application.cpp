@@ -177,8 +177,6 @@ void Irohad::dropStorage() {
   storage->reset();
 }
 
-// Irohad::RunResult Irohad::initPoolWrapper() {}
-
 /**
  * Initializing iroha daemon storage
  */
@@ -221,15 +219,16 @@ Irohad::RunResult Irohad::initStorage() {
     return expected::makeError(string_res.value());
   }
 
+  const int pool_size = 10;
   auto pool = connection_init.prepareConnectionPool(
-      *reconnection_strategy_, options, log_manager_);
+      *reconnection_strategy_, options, pool_size, log_manager_);
 
   if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
     return expected::makeError(std::move(e->error));
   }
 
-  auto pool_wrapper = std::move(
-      boost::get<expected::Value<std::unique_ptr<PoolWrapper>>>(pool).value);
+  auto pool_wrapper =
+      std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
   return StorageImpl::create(block_store_dir_,
                              options,

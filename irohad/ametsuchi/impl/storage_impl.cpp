@@ -46,7 +46,7 @@ namespace iroha {
     StorageImpl::StorageImpl(
         PostgresOptions postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
-        std::unique_ptr<PoolWrapper> pool_wrapper,
+        PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
@@ -58,7 +58,7 @@ namespace iroha {
         : postgres_options_(std::move(postgres_options)),
           block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
-          connection_(pool_wrapper_->connection_pool_),
+          connection_(pool_wrapper_.connection_pool_),
           factory_(std::move(factory)),
           notifier_(notifier_lifetime_),
           converter_(std::move(converter)),
@@ -67,8 +67,7 @@ namespace iroha {
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()),
           pool_size_(pool_size),
-          prepared_blocks_enabled_(
-              pool_wrapper_->enable_prepared_transactions_),
+          prepared_blocks_enabled_(pool_wrapper_.enable_prepared_transactions_),
           block_is_prepared_(false),
           prepared_block_name_(prepared_block_name) {}
 
@@ -296,7 +295,7 @@ namespace iroha {
     StorageImpl::create(
         std::string block_store_dir,
         const PostgresOptions &options,
-        std::unique_ptr<PoolWrapper> pool_wrapper,
+        PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
