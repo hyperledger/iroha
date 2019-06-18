@@ -26,7 +26,6 @@ namespace iroha {
     class TxPresenceCache;
     class Storage;
     class ReconnectionStrategyFactory;
-    struct PoolWrapper;
   }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
@@ -153,9 +152,6 @@ class Irohad {
 
  protected:
   // -----------------------| component initialization |------------------------
-
-  //  virtual RunResult initPoolWrapper();
-
   virtual RunResult initStorage();
 
   virtual RunResult initCryptoProvider();

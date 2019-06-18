@@ -45,7 +45,7 @@ namespace iroha {
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
           const PostgresOptions &options,
-          std::unique_ptr<PoolWrapper> pool_wrapper,
+          PoolWrapper pool_wrapper,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               factory,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -112,7 +112,7 @@ namespace iroha {
      protected:
       StorageImpl(PostgresOptions postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
-                  std::unique_ptr<PoolWrapper> pool_wrapper,
+                  PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
                       factory,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -145,7 +145,7 @@ namespace iroha {
 
       std::unique_ptr<KeyValueStorage> block_store_;
 
-      std::unique_ptr<PoolWrapper> pool_wrapper_;
+      PoolWrapper pool_wrapper_;
 
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;

@@ -11,10 +11,8 @@
 #include <soci/soci.h>
 
 #include <soci/callbacks.h>
-#include <soci/postgresql/soci-postgresql.h>
 
 #include "ametsuchi/reconnection_strategy.hpp"
-#include "failover_callback.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

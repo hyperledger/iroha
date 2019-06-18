@@ -27,16 +27,13 @@ namespace iroha {
   namespace ametsuchi {
     class PgConnectionInit {
      public:
-      static std::string formatPostgresMessage(const char *message);
-      static void processPqNotice(void *arg, const char *message);
-
       expected::Result<std::shared_ptr<soci::connection_pool>, std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
-      expected::Result<std::unique_ptr<PoolWrapper>, std::string>
-      prepareConnectionPool(
+      expected::Result<PoolWrapper, std::string> prepareConnectionPool(
           ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
+          const int pool_size,
           logger::LoggerManagerTreePtr log_manager);
 
       /**
