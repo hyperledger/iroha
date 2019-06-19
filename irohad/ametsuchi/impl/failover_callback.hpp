@@ -22,7 +22,7 @@ namespace iroha {
      * Note: the class is a workaround for SOCI 4.0, support in future versions
      * is not guaranteed
      */
-    class FailoverCallback : public soci::failover_callback {
+    class FailoverCallback final : public soci::failover_callback {
      public:
       using InitFunctionType = std::function<void(soci::session &)>;
       FailoverCallback(
