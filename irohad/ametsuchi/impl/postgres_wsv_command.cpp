@@ -146,7 +146,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &account_id,
         shared_model::interface::permissions::Grantable permission) {
       const auto perm_str = shared_model::interface::GrantablePermissionSet()
-                                .set()
+                                .setAll()
                                 .unset(permission)
                                 .toBitstring();
       soci::statement st = sql_.prepare

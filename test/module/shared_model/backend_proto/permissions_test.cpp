@@ -128,14 +128,14 @@ TEST(ProtoPermission, PermissionSet) {
   using Role = shared_model::interface::permissions::Role;
   using PermSet = shared_model::interface::PermissionSet<Role>;
   PermSet set({Role::kAppendRole, Role::kAddAssetQty, Role::kAddPeer});
-  ASSERT_TRUE(set.test(Role::kAppendRole));
-  ASSERT_TRUE(set.test(Role::kAddAssetQty));
-  ASSERT_TRUE(set.test(Role::kAddPeer));
-  ASSERT_FALSE(set.test(Role::kTransfer));
+  ASSERT_TRUE(set.isSet(Role::kAppendRole));
+  ASSERT_TRUE(set.isSet(Role::kAddAssetQty));
+  ASSERT_TRUE(set.isSet(Role::kAddPeer));
+  ASSERT_FALSE(set.isSet(Role::kTransfer));
   set.set(Role::kTransfer);
-  ASSERT_TRUE(set.test(Role::kTransfer));
+  ASSERT_TRUE(set.isSet(Role::kTransfer));
   set.unset(Role::kAddAssetQty);
-  ASSERT_FALSE(set.test(Role::kAddAssetQty));
+  ASSERT_FALSE(set.isSet(Role::kAddAssetQty));
 }
 
 TEST(ProtoPermission, PermissionSubset) {
@@ -163,7 +163,7 @@ TEST(ProtoPermission, PermissionSubset) {
                Role::kSetDetail,
                Role::kCreateAsset});
   auto nonsub = sub;
-  ASSERT_FALSE(big.test(Role::kGetDomainAccounts));
+  ASSERT_FALSE(big.isSet(Role::kGetDomainAccounts));
   nonsub.set(Role::kGetDomainAccounts);
 
   ASSERT_TRUE(sub.isSubsetOf(big));
