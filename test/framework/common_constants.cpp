@@ -14,7 +14,7 @@ namespace common_constants {
   // user names
   const std::string kAdminName = "admin";
   const std::string kUser = "user";
-  const std::string kSpectator = "spectator";
+  const std::string kAnotherUser = "user2";
 
   // role names
   const std::string kAdminRole = "admin_role";
@@ -31,13 +31,15 @@ namespace common_constants {
   // ids
   const std::string kAdminId = kAdminName + "@" + kDomain;
   const std::string kUserId = kUser + "@" + kDomain;
-  const std::string kCloseSpectatorId = kSpectator + "@" + kDomain;
-  const std::string kRemoteSpectatorId = kSpectator + "@" + kSecondDomain;
+  const std::string kSameDomainUserId = kAnotherUser + "@" + kDomain;
+  const std::string kAnotherDomainUserId = kAnotherUser + "@" + kSecondDomain;
   const std::string kAssetId = kAssetName + "#" + kDomain;
 
   // keypairs
   const Keypair kAdminKeypair = DefaultCryptoAlgorithmType::generateKeypair();
   const Keypair kUserKeypair = DefaultCryptoAlgorithmType::generateKeypair();
-  const Keypair kCloseSpectatorKeypair = DefaultCryptoAlgorithmType::generateKeypair();
-  const Keypair kRemoteSpectatorKeypair = DefaultCryptoAlgorithmType::generateKeypair();
+  const Keypair kSameDomainUserKeypair =
+      DefaultCryptoAlgorithmType::generateKeypair();
+  const Keypair kAnotherDomainUserKeypair =
+      DefaultCryptoAlgorithmType::generateKeypair();
 }

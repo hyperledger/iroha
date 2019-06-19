@@ -51,7 +51,7 @@ struct HexKeys : public AcceptanceFixture {
 
   auto createAccount(std::string key, interface::types::TimestampType time) {
     return AcceptanceFixture::baseTx().createdTime(time).createAccountRaw(
-        common_constants::kSpectator, common_constants::kDomain, key);
+        common_constants::kAnotherUser, common_constants::kDomain, key);
   }
 
   auto addPeer(std::string key, interface::types::TimestampType time) {
@@ -168,20 +168,20 @@ TEST_F(HexKeys, RemoveSignatorylU) {
  * command
  */
 TEST_F(HexKeys, CreateAccountUl) {
-  auto user = common_constants::kCloseSpectatorId;
+  auto user = common_constants::kSameDomainUserId;
   auto keypair = composeKeypairFromHex(kLowercasedKey, kPrivateKey);
 
-  // kUserId creates kCloseSpectatorId and appends the role with test
+  // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
   auto tx1 = complete(createAccount(kUppercasedKey, kNow)
                           .appendRole(user, common_constants::kRole));
 
-  // kCloseSpectatorId adds one more key to own account
+  // kSameDomainUserId adds one more key to own account
   auto tx2 =
       complete(addSignatory(kPrivateKey, kNow + 1, user).creatorAccountId(user),
                keypair);
 
-  // kCloseSpectatorId removes the initial key specifing it in other font case
+  // kSameDomainUserId removes the initial key specifing it in other font case
   auto tx3 = complete(
       removeSignatory(kLowercasedKey, kNow + 2, user).creatorAccountId(user),
       keypair);
@@ -202,20 +202,20 @@ TEST_F(HexKeys, CreateAccountUl) {
  * command
  */
 TEST_F(HexKeys, CreateAccountlU) {
-  auto user = common_constants::kCloseSpectatorId;
+  auto user = common_constants::kSameDomainUserId;
   auto keypair = composeKeypairFromHex(kUppercasedKey, kPrivateKey);
 
-  // kUserId creates kCloseSpectatorId and appends the role with test
+  // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
   auto tx1 = complete(createAccount(kLowercasedKey, kNow)
                           .appendRole(user, common_constants::kRole));
 
-  // kCloseSpectatorId adds one more key to own account
+  // kSameDomainUserId adds one more key to own account
   auto tx2 =
       complete(addSignatory(kPrivateKey, kNow + 1, user).creatorAccountId(user),
                keypair);
 
-  // kCloseSpectatorId removes the initial key specifing it in other font
+  // kSameDomainUserId removes the initial key specifing it in other font
   // case
   auto tx3 = complete(
       removeSignatory(kUppercasedKey, kNow + 2, user).creatorAccountId(user),
