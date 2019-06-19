@@ -89,11 +89,7 @@ namespace shared_model {
     }  // namespace permissions
 
     template <typename Perm>
-    class PermissionSet
-        : private std::bitset<static_cast<size_t>(Perm::COUNT)> {
-     private:
-      using Parent = std::bitset<static_cast<size_t>(Perm::COUNT)>;
-
+    class PermissionSet {
      public:
       PermissionSet();
       PermissionSet(std::initializer_list<Perm> list);
@@ -103,14 +99,15 @@ namespace shared_model {
       std::string toBitstring() const;
 
       static size_t size();
-      PermissionSet &reset();
-      PermissionSet &set();
+      PermissionSet &unsetAll();
+      PermissionSet &setAll();
       PermissionSet &set(Perm p);
       PermissionSet &unset(Perm p);
 
-      bool test(Perm p) const;
-      bool none() const;
+      bool isSet(Perm p) const;
+      bool isEmpty() const;
 
+      /// @return true if this PermissionSet is subset of given one.
       bool isSubsetOf(const PermissionSet<Perm> &r) const;
 
       bool operator==(const PermissionSet<Perm> &r) const;
@@ -120,6 +117,9 @@ namespace shared_model {
       PermissionSet<Perm> &operator^=(const PermissionSet<Perm> &r);
 
       void iterate(std::function<void(Perm)> f) const;
+
+     private:
+      std::bitset<static_cast<size_t>(Perm::COUNT)> perms_bitset_;
     };
 
     using RolePermissionSet = PermissionSet<permissions::Role>;

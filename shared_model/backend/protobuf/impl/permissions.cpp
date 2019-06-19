@@ -42,7 +42,7 @@ namespace shared_model {
         std::vector<std::string> v;
         for (size_t i = 0; i < set.size(); ++i) {
           auto perm = static_cast<interface::permissions::Role>(i);
-          if (set.test(perm)) {
+          if (set.isSet(perm)) {
             v.push_back(toString(perm));
           }
         }
@@ -55,7 +55,7 @@ namespace shared_model {
         std::vector<std::string> v;
         for (size_t i = 0; i < set.size(); ++i) {
           auto perm = static_cast<interface::permissions::Grantable>(i);
-          if (set.test(perm)) {
+          if (set.isSet(perm)) {
             v.push_back(toString(perm));
           }
         }

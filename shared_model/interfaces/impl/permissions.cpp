@@ -45,97 +45,97 @@ template <typename Perm>
 constexpr auto bit(Perm p) {
   return static_cast<size_t>(p);
 }
-
 template <typename Perm>
-PermissionSet<Perm>::PermissionSet() : Parent() {}
+PermissionSet<Perm>::PermissionSet() = default;
 
 template <typename Perm>
 PermissionSet<Perm>::PermissionSet(std::initializer_list<Perm> list) {
   for (auto l : list) {
-    set(l);
+    perms_bitset_.set(bit(l));
   }
 }
 
 template <typename Perm>
-PermissionSet<Perm>::PermissionSet(const std::string &bitstring) : Parent(bitstring) {}
+PermissionSet<Perm>::PermissionSet(const std::string &bitstring)
+    : perms_bitset_(bitstring) {}
 
 template <typename Perm>
 std::string PermissionSet<Perm>::toBitstring() const {
-  return Parent::to_string();
+  return perms_bitset_.to_string();
 }
 
 template <typename Perm>
 size_t PermissionSet<Perm>::size() {
-  return bit(Perm::COUNT);
+  return static_cast<size_t>(Perm::COUNT);
 }
 
 template <typename Perm>
-PermissionSet<Perm> &PermissionSet<Perm>::reset() {
-  Parent::reset();
+PermissionSet<Perm> &PermissionSet<Perm>::unsetAll() {
+  perms_bitset_.reset();
   return *this;
 }
 
 template <typename Perm>
-PermissionSet<Perm> &PermissionSet<Perm>::set() {
-  Parent::set();
+PermissionSet<Perm> &PermissionSet<Perm>::setAll() {
+  perms_bitset_.set();
   return *this;
 }
 
 template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::set(Perm p) {
-  Parent::set(bit(p), true);
+  perms_bitset_.set(bit(p), true);
   return *this;
 }
 
 template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::unset(Perm p) {
-  Parent::set(bit(p), false);
+  perms_bitset_.set(bit(p), false);
   return *this;
 }
 
 template <typename Perm>
-bool PermissionSet<Perm>::test(Perm p) const {
-  return PermissionSet<Perm>::Parent::test(bit(p));
+bool PermissionSet<Perm>::isSet(Perm p) const {
+  return PermissionSet<Perm>::perms_bitset_.test(bit(p));
 }
 
 template <typename Perm>
-bool PermissionSet<Perm>::none() const {
-  return Parent::none();
+bool PermissionSet<Perm>::isEmpty() const {
+  return perms_bitset_.none();
 }
 
 template <typename Perm>
 bool PermissionSet<Perm>::isSubsetOf(const PermissionSet<Perm> &r) const {
-  return (*this & r) == *this;
+  return (perms_bitset_ & r.perms_bitset_) == perms_bitset_;
 }
 
 template <typename Perm>
 bool PermissionSet<Perm>::operator==(const PermissionSet<Perm> &r) const {
-  return Parent::operator==(r);
+  return perms_bitset_.operator==(r.perms_bitset_);
 }
 
 template <typename Perm>
 bool PermissionSet<Perm>::operator!=(const PermissionSet<Perm> &r) const {
-  return Parent::operator!=(r);
+  return perms_bitset_.operator!=(r.perms_bitset_);
 }
 
 template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::operator&=(
     const PermissionSet<Perm> &r) {
-  Parent::operator&=(r);
+  perms_bitset_.operator&=(r.perms_bitset_);
   return *this;
 }
 
 template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::operator|=(
     const PermissionSet<Perm> &r) {
-  Parent::operator|=(r);
+  perms_bitset_.operator|=(r.perms_bitset_);
   return *this;
 }
 
 template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::operator^=(
     const PermissionSet<Perm> &r) {
-  Parent::operator^=(r);
+  perms_bitset_.operator^=(r.perms_bitset_);
   return *this;
 }
 
@@ -143,7 +143,7 @@ template <typename Perm>
 void PermissionSet<Perm>::iterate(std::function<void(Perm)> f) const {
   for (size_t i = 0; i < size(); ++i) {
     auto perm = static_cast<Perm>(i);
-    if (test(perm)) {
+    if (isSet(perm)) {
       f(perm);
     }
   }
