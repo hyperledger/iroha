@@ -11,6 +11,7 @@
 #include <grpc++/grpc++.h>
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
+#include "common/bind.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
@@ -281,9 +282,8 @@ int main(int argc, char *argv[]) {
     log->error("Cannot create BlockQuery");
     return EXIT_FAILURE;
   }
-  auto blocks_exist = block_query->getBlock(block_query->getTopBlockHeight())
-                          .match([](const auto &) { return true; },
-                                 [](const auto &) { return false; });
+  const bool blocks_exist{iroha::expected::hasValue(
+      block_query->getBlock(block_query->getTopBlockHeight()))};
   block_query.reset();
 
   if (not blocks_exist) {

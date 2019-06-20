@@ -16,9 +16,11 @@
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "common/result.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/field_validator.hpp"
 
@@ -63,6 +65,8 @@ class StorageInitTest : public ::testing::Test {
   std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
       reconnection_strategy_factory_;
 
+  const int pool_size_ = 10;
+
   void SetUp() override {
     ASSERT_FALSE(boost::filesystem::exists(block_store_path))
         << "Temporary block store " << block_store_path
@@ -80,6 +84,7 @@ class StorageInitTest : public ::testing::Test {
     boost::filesystem::remove_all(block_store_path);
   }
 
+  PgConnectionInit connection_init_;
   logger::LoggerManagerTreePtr storage_log_manager_{
       getTestLoggerManager()->getChild("Storage")};
 };
@@ -90,14 +95,35 @@ class StorageInitTest : public ::testing::Test {
  * @then Database is created
  */
 TEST_F(StorageInitTest, CreateStorageWithDatabase) {
+  PostgresOptions options(pgopt_,
+                          PgConnectionInit::kDefaultDatabaseName,
+                          storage_log_manager_->getLogger());
+
+  connection_init_
+      .createDatabaseIfNotExist(options.dbname(),
+                                options.optionsStringWithoutDbName())
+      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  auto pool = connection_init_.prepareConnectionPool(
+      *reconnection_strategy_factory_,
+      options,
+      pool_size_,
+      getTestLoggerManager()->getChild("Storage"));
+
+  if (auto e = boost::get<iroha::expected::Error<std::string>>(&pool)) {
+    FAIL() << e->error;
+  }
+
+  auto pool_wrapper =
+      std::move(boost::get<iroha::expected::Value<PoolWrapper>>(pool).value);
+
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
-                      pgopt_,
+                      options,
+                      std::move(pool_wrapper),
                       factory,
                       converter,
                       perm_converter_,
                       std::move(block_storage_factory_),
-                      std::move(reconnection_strategy_factory_),
                       storage_log_manager_)
       .match(
           [&storage](const auto &value) {
@@ -105,6 +131,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
             SUCCEED();
           },
           [](const auto &error) { FAIL() << error.error; });
+
   soci::session sql(*soci::factory_postgresql(), pg_opt_without_dbname_);
   int size;
   sql << "SELECT COUNT(datname) FROM pg_catalog.pg_database WHERE datname = "
@@ -122,14 +149,25 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
 TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   std::string pg_opt =
       "host=localhost port=5432 users=nonexistinguser dbname=test";
-  StorageImpl::create(block_store_path,
-                      pg_opt,
-                      factory,
-                      converter,
-                      perm_converter_,
-                      std::move(block_storage_factory_),
-                      std::move(reconnection_strategy_factory_),
-                      storage_log_manager_)
-      .match([](const auto &) { FAIL() << "storage created, but should not"; },
+
+  PostgresOptions options(pg_opt,
+                          PgConnectionInit::kDefaultDatabaseName,
+                          storage_log_manager_->getLogger());
+
+  connection_init_
+      .createDatabaseIfNotExist(options.dbname(),
+                                options.optionsStringWithoutDbName())
+      .match([](auto &&val) {},
+             [&](auto &&error) {
+               storage_log_manager_->getLogger()->error(
+                   "Database creation error: {}", error.error);
+             });
+  auto pool = connection_init_.prepareConnectionPool(
+      *reconnection_strategy_factory_,
+      options,
+      pool_size_,
+      getTestLoggerManager()->getChild("Storage"));
+
+  pool.match([](const auto &) { FAIL() << "storage created, but should not"; },
              [](const auto &) { SUCCEED(); });
 }

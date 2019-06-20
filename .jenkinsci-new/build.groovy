@@ -8,6 +8,10 @@
 // functions we use when build iroha
 //
 
+def removeDirectory(String buildDir) {
+  sh "rm -rf ${buildDir}"
+}
+
 def cmakeConfigure(String buildDir, String cmakeOptions, String sourceTreeDir=".") {
   sh "cmake -H${sourceTreeDir} -B${buildDir} ${cmakeOptions}"
 }

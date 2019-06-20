@@ -110,7 +110,7 @@ namespace iroha {
               "id@domain",
           const shared_model::interface::types::RoleIdType &role_id = "all") {
         shared_model::interface::RolePermissionSet permissions;
-        permissions.set();
+        permissions.setAll();
 
         CHECK_SUCCESSFUL_RESULT(execute(
             *mock_command_factory->constructCreateRole(role_id, permissions),
@@ -932,7 +932,7 @@ namespace iroha {
           another_role, role_permissions2));
       auto rl = sql_query->getRolePermissions(another_role);
       ASSERT_TRUE(rl);
-      ASSERT_TRUE(rl->none());
+      ASSERT_TRUE(rl->isEmpty());
 
       std::vector<std::string> query_args{another_role,
                                           role_permissions2.toBitstring()};

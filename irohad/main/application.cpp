@@ -9,6 +9,7 @@
 
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
@@ -27,6 +28,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
@@ -182,6 +184,8 @@ Irohad::RunResult Irohad::initStorage() {
   common_objects_factory_ =
       std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
           shared_model::validation::FieldValidator>>(validators_config_);
+  reconnection_strategy_ =
+      std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10);
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
   auto block_converter =
@@ -195,41 +199,67 @@ Irohad::RunResult Irohad::initStorage() {
       block_converter,
       log_manager_);
 
-  return StorageImpl::create(
-             block_store_dir_,
-             pg_conn_,
-             common_objects_factory_,
-             std::move(block_converter),
-             perm_converter,
-             std::move(block_storage_factory),
-             std::make_unique<
-                 iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10),
-             log_manager_->getChild("Storage"))
-      .match(
-          [&](auto &&v) -> RunResult {
-            storage = std::move(v.value);
-            log_->info("[Init] => storage");
-            return {};
-          },
-          [&](auto &&error) -> RunResult { return std::move(error); });
+  boost::optional<std::string> string_res = boost::none;
+
+  PostgresOptions options(
+      pg_conn_,
+      PgConnectionInit::kDefaultDatabaseName,
+      log_manager_->getChild("DbOptionsParser")->getLogger());
+
+  PgConnectionInit connection_init;
+
+  // create database if it does not exist
+  connection_init
+      .createDatabaseIfNotExist(options.dbname(),
+                                options.optionsStringWithoutDbName())
+      .match([](auto &&val) {},
+             [&string_res](auto &&error) { string_res = error.error; });
+
+  if (string_res) {
+    return expected::makeError(string_res.value());
+  }
+
+  const int pool_size = 10;
+  auto pool = connection_init.prepareConnectionPool(
+      *reconnection_strategy_, options, pool_size, log_manager_);
+
+  if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
+    return expected::makeError(std::move(e->error));
+  }
+
+  auto pool_wrapper =
+      std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
+
+  return StorageImpl::create(block_store_dir_,
+                             options,
+                             std::move(pool_wrapper),
+                             common_objects_factory_,
+                             std::move(block_converter),
+                             perm_converter,
+                             std::move(block_storage_factory),
+                             log_manager_->getChild("Storage"))
+             | [&](auto &&v) -> RunResult {
+    storage = std::move(v);
+    log_->info("[Init] => storage");
+    return {};
+  };
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
-  return wsv_restorer_->restoreWsv(*storage).match(
-      [](const auto &value) -> RunResult {
-        if (not value.value) {
-          return iroha::expected::makeError<std::string>(
-              "Did not get ledger state after WSV restoration!");
-        }
-        auto &ledger_state = value.value.value();  // value
-        assert(ledger_state);
-        if (ledger_state->ledger_peers.empty()) {
-          return iroha::expected::makeError<std::string>(
-              "Have no peers in WSV after restoration!");
-        }
-        return {};
-      },
-      [](auto &&error) -> RunResult { return std::move(error); });
+  return wsv_restorer_->restoreWsv(*storage) |
+             [](const auto &value) -> RunResult {
+    if (not value) {
+      return iroha::expected::makeError<std::string>(
+          "Did not get ledger state after WSV restoration!");
+    }
+    auto &ledger_state = value.value();
+    assert(ledger_state);
+    if (ledger_state->ledger_peers.empty()) {
+      return iroha::expected::makeError<std::string>(
+          "Have no peers in WSV after restoration!");
+    }
+    return {};
+  };
 }
 
 Irohad::RunResult Irohad::resetPeers(
@@ -451,7 +481,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       ordering_init.initOrderingGate(max_proposal_size_,
                                      proposal_delay_,
                                      std::move(hashes),
-                                     storage,
                                      transaction_factory,
                                      batch_parser,
                                      transaction_batch_factory_,
@@ -767,51 +796,46 @@ Irohad::RunResult Irohad::run() {
                 .append(yac_init->getConsensusNetwork())
                 .append(loader_init.service)
                 .run();
-          })
-      .match(
-          [&](const auto &port) -> RunResult {
-            log_->info("Internal server bound on port {}", port.value);
-            log_->info("===> iroha initialized");
-            // initiate first round
-            auto block_query = storage->createBlockQuery();
-            if (not block_query) {
-              return expected::makeError("Failed to create block query");
-            }
-            auto block_var =
-                (*block_query)->getBlock((*block_query)->getTopBlockHeight());
-            if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
-              return expected::makeError("Failed to get the top block: "
-                                         + e->error);
-            }
+          }) |
+             [&](const auto &port) -> RunResult {
+    log_->info("Internal server bound on port {}", port);
+    log_->info("===> iroha initialized");
+    // initiate first round
+    auto block_query = storage->createBlockQuery();
+    if (not block_query) {
+      return expected::makeError("Failed to create block query");
+    }
+    auto block_var =
+        (*block_query)->getBlock((*block_query)->getTopBlockHeight());
+    if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
+      return expected::makeError("Failed to get the top block: " + e->error);
+    }
 
-            auto &block = boost::get<expected::Value<
-                std::unique_ptr<shared_model::interface::Block>>>(&block_var)
-                              ->value;
-            auto block_height = block->height();
+    auto &block =
+        boost::get<
+            expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
+            &block_var)
+            ->value;
+    auto block_height = block->height();
 
-            auto peers = storage->createPeerQuery() |
-                [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+    auto peers = storage->createPeerQuery() |
+        [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
-            auto initial_ledger_state = std::make_shared<LedgerState>(
-                peers.value(), block->height(), block->hash());
+    auto initial_ledger_state = std::make_shared<LedgerState>(
+        peers.value(), block->height(), block->hash());
 
-            pcs->onSynchronization().subscribe(
-                ordering_init.sync_event_notifier.get_subscriber());
-            storage->on_commit().subscribe(
-                ordering_init.commit_notifier.get_subscriber());
+    pcs->onSynchronization().subscribe(
+        ordering_init.sync_event_notifier.get_subscriber());
+    storage->on_commit().subscribe(
+        ordering_init.commit_notifier.get_subscriber());
 
-            ordering_init.commit_notifier.get_subscriber().on_next(
-                std::move(block));
+    ordering_init.commit_notifier.get_subscriber().on_next(std::move(block));
 
-            ordering_init.sync_event_notifier.get_subscriber().on_next(
-                synchronizer::SynchronizationEvent{
-                    SynchronizationOutcomeType::kCommit,
-                    {block_height, ordering::kFirstRejectRound},
-                    initial_ledger_state});
-            return {};
-          },
-          [&](const auto &e) -> RunResult {
-            log_->error("{}", e.error);
-            return e;
-          });
+    ordering_init.sync_event_notifier.get_subscriber().on_next(
+        synchronizer::SynchronizationEvent{
+            SynchronizationOutcomeType::kCommit,
+            {block_height, ordering::kFirstRejectRound},
+            initial_ledger_state});
+    return {};
+  };
 }

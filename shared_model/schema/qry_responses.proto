@@ -37,6 +37,10 @@ message AccountAsset {
 // *** Responses *** //
 message AccountAssetResponse {
   repeated AccountAsset account_assets = 1;
+  uint32 total_number = 2;
+  oneof opt_next_asset_id {
+    string next_asset_id = 3;
+  }
 }
 
 message AccountDetailResponse {

@@ -157,7 +157,7 @@ TEST_P(CftAndBftSupermajorityCheckerTest, OneLargeAndManySingleVoteGroups) {
     size_t A; // All peers
   };
 
-  for (const auto &c : std::initializer_list<Case>({{6, 7}, {8, 12}})) {
+  for (const auto &c : std::vector<Case>{{6, 7}, {8, 12}}) {
     log_->info("--------| ProofOfReject(x, {0}, {1}), x in [1..{0}] |---------",
                c.V,
                c.A);

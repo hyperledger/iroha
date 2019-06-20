@@ -52,10 +52,10 @@ TEST_F(JsonCommandTest, ClassHandlerTest) {
       std::make_shared<AddPeer>(),
       std::make_shared<AddSignatory>(),
       std::make_shared<CreateAccount>(),
-      std::make_shared<CreateAsset>(),
+      std::make_shared<CreateAsset>("", "", 0),
       std::make_shared<CreateDomain>(),
       std::make_shared<RemoveSignatory>(),
-      std::make_shared<SetQuorum>(),
+      std::make_shared<SetQuorum>("", 0),
       std::make_shared<TransferAsset>(),
       std::make_shared<DetachRole>()};
   for (const auto &command : commands) {

@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_ADD_SIGNATORY_HPP
 #define IROHA_SHARED_MODEL_ADD_SIGNATORY_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -15,7 +16,7 @@ namespace shared_model {
     /**
      * Add new signatory to account
      */
-    class AddSignatory : public ModelPrimitive<AddSignatory> {
+    class AddSignatory : public NonCopyableModelPrimitive<AddSignatory> {
      public:
       /**
        * @return New signatory is identified with public key

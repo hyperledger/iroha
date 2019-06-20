@@ -24,6 +24,7 @@
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/field_validator.hpp"
 
@@ -48,19 +49,52 @@ namespace iroha {
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
         auto block_storage_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
-        auto reconnection_strategy_factory = std::make_unique<
+
+        reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
+
+        PostgresOptions options(
+            pgopt_, PgConnectionInit::kDefaultDatabaseName, storage_logger_);
+
+        PgConnectionInit connection_init;
+        connection_init
+            .createDatabaseIfNotExist(options.dbname(),
+                                      options.optionsStringWithoutDbName())
+            .match([](auto &&val) {},
+                   [&](auto &&error) {
+                     storage_logger_->error("Database creation error: {}",
+                                            error.error);
+                     std::terminate();
+                   });
+
+        auto pool = connection_init.prepareConnectionPool(
+            *reconnection_strategy_factory_,
+            options,
+            pool_size_,
+            getTestLoggerManager()->getChild("Storage"));
+
+        if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
+          storage_logger_->error("Pool initialization error: {}", e->error);
+          std::terminate();
+        }
+
+        pool_wrapper_ =
+            std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
+
         StorageImpl::create(block_store_path,
-                            pgopt_,
+                            options,
+                            std::move(pool_wrapper_),
                             factory,
                             converter,
                             perm_converter_,
                             std::move(block_storage_factory),
-                            std::move(reconnection_strategy_factory),
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
-                     FAIL() << "StorageImpl: " << error.error;
+                     storage_logger_->error(
+                         "Storage initialization has failed: {}", error.error);
+                     // TODO: 2019-05-29 @muratovv find assert workaround IR-522
+                     std::terminate();
                    });
         sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
@@ -98,10 +132,17 @@ namespace iroha {
       static std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
 
+      static std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+          reconnection_strategy_factory_;
+
+      static const int pool_size_ = 10;
+
       // generate random valid dbname
       static std::string dbname_;
 
       static std::string pgopt_;
+
+      static iroha::ametsuchi::PoolWrapper pool_wrapper_;
 
       static std::string block_store_path;
 
@@ -212,8 +253,14 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
 
+    iroha::ametsuchi::PoolWrapper AmetsuchiTest::pool_wrapper_ =
+        iroha::ametsuchi::PoolWrapper(nullptr, nullptr, false);
+
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;
+
+    std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
+        AmetsuchiTest::reconnection_strategy_factory_ = nullptr;
 
     std::shared_ptr<soci::session> AmetsuchiTest::sql = nullptr;
     // hold the storage static logger while the static storage is alive

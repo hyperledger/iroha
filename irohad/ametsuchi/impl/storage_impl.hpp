@@ -15,6 +15,7 @@
 #include <soci/soci.h>
 #include <boost/optional.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -28,7 +29,6 @@ namespace iroha {
   namespace ametsuchi {
 
     class FlatFile;
-    class FailoverCallbackFactory;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
@@ -38,21 +38,14 @@ namespace iroha {
 
     class StorageImpl : public Storage {
      protected:
-      static expected::Result<bool, std::string> createDatabaseIfNotExist(
-          const std::string &dbname,
-          const std::string &options_str_without_dbname);
-
       static expected::Result<ConnectionContext, std::string> initConnections(
           std::string block_store_dir, logger::LoggerPtr log);
-
-      static expected::Result<std::shared_ptr<soci::connection_pool>,
-                              std::string>
-      initPostgresConnection(std::string &options_str, size_t pool_size);
 
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
-          std::string postgres_connection,
+          const PostgresOptions &options,
+          PoolWrapper pool_wrapper,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               factory,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -60,8 +53,6 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::unique_ptr<BlockStorageFactory> block_storage_factory,
-          std::unique_ptr<ReconnectionStrategyFactory>
-              reconnection_strategy_factory,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -119,10 +110,9 @@ namespace iroha {
       ~StorageImpl() override;
 
      protected:
-      StorageImpl(std::string block_store_dir,
-                  PostgresOptions postgres_options,
+      StorageImpl(PostgresOptions postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
-                  std::shared_ptr<soci::connection_pool> connection,
+                  PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
                       factory,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -130,16 +120,9 @@ namespace iroha {
                   std::shared_ptr<shared_model::interface::PermissionToString>
                       perm_converter,
                   std::unique_ptr<BlockStorageFactory> block_storage_factory,
-                  std::unique_ptr<ReconnectionStrategyFactory>
-                      reconnection_strategy_factory,
                   size_t pool_size,
-                  bool enable_prepared_blocks,
+                  const std::string &prepared_block_name,
                   logger::LoggerManagerTreePtr log_manager);
-
-      /**
-       * Folder with raw blocks
-       */
-      const std::string block_store_dir_;
 
       // db info
       const PostgresOptions postgres_options_;
@@ -148,7 +131,6 @@ namespace iroha {
       /**
        * revert prepared transaction
        */
-      void rollbackPrepared(soci::session &sql);
 
       /**
        * add block to block storage
@@ -156,9 +138,17 @@ namespace iroha {
       bool storeBlock(
           std::shared_ptr<const shared_model::interface::Block> block);
 
+      /**
+       * Method tries to perform rollback on passed session
+       */
+      void tryRollback(soci::session &session);
+
       std::unique_ptr<KeyValueStorage> block_store_;
 
-      std::shared_ptr<soci::connection_pool> connection_;
+      PoolWrapper pool_wrapper_;
+
+      /// ref for pool_wrapper_::connection_pool_
+      std::shared_ptr<soci::connection_pool> &connection_;
 
       std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
 
@@ -177,26 +167,19 @@ namespace iroha {
       logger::LoggerManagerTreePtr log_manager_;
       logger::LoggerPtr log_;
 
-      mutable std::shared_timed_mutex drop_mutex;
-
-      std::unique_ptr<ReconnectionStrategyFactory>
-          reconnection_strategy_factory_;
-
-      std::unique_ptr<FailoverCallbackFactory> callback_factory_;
+      mutable std::shared_timed_mutex drop_mutex_;
 
       const size_t pool_size_;
 
       bool prepared_blocks_enabled_;
 
-      std::atomic<bool> block_is_prepared;
+      std::atomic<bool> block_is_prepared_;
 
       std::string prepared_block_name_;
 
      protected:
-      static const std::string &drop_;
       static const std::string &reset_;
       static const std::string &reset_peers_;
-      static const std::string &init_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

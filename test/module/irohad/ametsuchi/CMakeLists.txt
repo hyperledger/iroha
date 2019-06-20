@@ -36,12 +36,14 @@ target_link_libraries(storage_init_test
     ametsuchi
     integration_framework_config_helper
     shared_model_proto_backend
+    pg_connection_init
     test_logger
     )
 
 addtest(postgres_options_test postgres_options_test.cpp)
 target_link_libraries(postgres_options_test
     ametsuchi
+    test_logger
     )
 
 addtest(postgres_executor_test postgres_executor_test.cpp)
@@ -51,6 +53,7 @@ target_link_libraries(postgres_executor_test
     ametsuchi
     commands_mocks_factory
     framework_sql_query
+    pg_connection_init
     test_logger
     )
 
@@ -80,6 +83,12 @@ target_link_libraries(flat_file_block_storage_test
     test_logger
     )
 
+addtest(postgres_block_storage_test postgres_block_storage_test.cpp)
+target_link_libraries(postgres_block_storage_test
+     ametsuchi
+     ametsuchi_fixture
+     )
+
 add_library(ametsuchi_fixture INTERFACE)
 target_link_libraries(ametsuchi_fixture INTERFACE
     integration_framework_config_helper
@@ -87,6 +96,7 @@ target_link_libraries(ametsuchi_fixture INTERFACE
     framework_sql_query
     SOCI::postgresql
     SOCI::core
+    pg_connection_init
     test_logger
     )
 

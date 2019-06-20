@@ -59,9 +59,13 @@ shared_model::proto::ProtoQueryResponseFactory::createAccountAssetResponse(
     std::vector<std::tuple<interface::types::AccountIdType,
                            interface::types::AssetIdType,
                            shared_model::interface::Amount>> assets,
+    size_t total_assets_number,
+    boost::optional<shared_model::interface::types::AssetIdType> next_asset_id,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
-      [assets = std::move(assets)](
+      [assets = std::move(assets),
+       total_assets_number,
+       next_asset_id = std::move(next_asset_id)](
           iroha::protocol::QueryResponse &protocol_query_response) {
         iroha::protocol::AccountAssetResponse *protocol_specific_response =
             protocol_query_response.mutable_account_assets_response();
@@ -70,6 +74,10 @@ shared_model::proto::ProtoQueryResponseFactory::createAccountAssetResponse(
           asset->set_account_id(std::move(std::get<0>(assets.at(i))));
           asset->set_asset_id(std::move(std::get<1>(assets.at(i))));
           asset->set_balance(std::get<2>(assets.at(i)).toStringRepr());
+        }
+        protocol_specific_response->set_total_number(total_assets_number);
+        if (next_asset_id) {
+          protocol_specific_response->set_next_asset_id(*next_asset_id);
         }
       },
       query_hash);
@@ -312,7 +320,7 @@ shared_model::proto::ProtoQueryResponseFactory::createRolePermissionsResponse(
             protocol_query_response.mutable_role_permissions_response();
         for (size_t i = 0; i < role_permissions.size(); ++i) {
           auto perm = static_cast<interface::permissions::Role>(i);
-          if (role_permissions.test(perm)) {
+          if (role_permissions.isSet(perm)) {
             protocol_specific_response->add_permissions(
                 shared_model::proto::permissions::toTransport(perm));
           }

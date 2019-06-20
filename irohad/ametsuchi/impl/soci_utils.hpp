@@ -130,16 +130,18 @@ namespace iroha {
     }
 
     template <typename C, typename T, typename F>
-    auto flatMapValues(T &t, F &&f) {
-      return t | [&](auto &st) -> boost::optional<C> {
-        return boost::copy_range<C>(
-            st | boost::adaptors::transformed([&](auto &t) {
-              return apply(t, std::forward<F>(f));
-            })
-            | boost::adaptors::filtered(
-                  [](auto &r) { return static_cast<bool>(r); })
-            | boost::adaptors::transformed([](auto &&r) { return *r; }));
-      };
+    boost::optional<C> flatMapValues(T &t, F &&f) {
+      if (t) {
+        C map_result;
+        for (auto &inp_el : *t) {
+          apply(inp_el, std::forward<F>(f)) |
+              [&map_result](auto &&transformed_el) {
+                map_result.emplace_back(std::move(transformed_el));
+              };
+        }
+        return map_result;
+      }
+      return boost::none;
     }
 
     template <typename R, typename T, typename F>

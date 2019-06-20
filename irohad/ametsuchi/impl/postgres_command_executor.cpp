@@ -625,14 +625,14 @@ namespace iroha {
                   ELSE 1 END AS result)";
 
     const std::string PostgresCommandExecutor::setAccountDetailBase = R"(
-          PREPARE %s (text, text, text[], text[], text, text) AS
+          PREPARE %s (text, text, text, text) AS
           WITH %s
               inserted AS
               (
                   UPDATE account SET data = jsonb_set(
                   CASE WHEN data ?$1 THEN data ELSE
-                  jsonb_set(data, $3, $6::jsonb) END,
-                  $4, $5::jsonb) WHERE account_id=$2 %s
+                  jsonb_set(data, array[$1], '{}') END,
+                  array[$1, $3], $4::jsonb) WHERE account_id=$2 %s
                   RETURNING (1)
               )
               SELECT CASE WHEN EXISTS (SELECT * FROM inserted) THEN 0
@@ -1063,7 +1063,7 @@ namespace iroha {
       auto permission = command.permissionName();
       const auto without_perm_str =
           shared_model::interface::GrantablePermissionSet()
-              .set()
+              .setAll()
               .unset(permission)
               .toBitstring();
       const auto perms = shared_model::interface::GrantablePermissionSet()
@@ -1100,18 +1100,13 @@ namespace iroha {
         // When creator is not known, it is genesis block
         creator_account_id_ = "genesis";
       }
-      std::string json = "{" + creator_account_id_ + "}";
-      std::string empty_json = "{}";
-      std::string filled_json = "{" + creator_account_id_ + ", " + key + "}";
       std::string val = "\"" + value + "\"";
 
-      auto cmd = boost::format(
-          "EXECUTE %1% ('%2%', '%3%', '%4%', '%5%', '%6%', '%7%')");
+      auto cmd = boost::format("EXECUTE %1% ('%2%', '%3%', '%4%', '%5%')");
 
       appendCommandName("setAccountDetail", cmd, do_validation_);
 
-      cmd = (cmd % creator_account_id_ % account_id % json % filled_json % val
-             % empty_json);
+      cmd = (cmd % creator_account_id_ % account_id % key % val);
 
       auto str_args = [&account_id, &key, &value] {
         return getQueryArgsStringBuilder()

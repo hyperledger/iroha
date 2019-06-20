@@ -6,23 +6,16 @@
 #ifndef IROHA_PROTO_ADD_SIGNATORY_HPP
 #define IROHA_PROTO_ADD_SIGNATORY_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "interfaces/commands/add_signatory.hpp"
+
 #include "commands.pb.h"
 #include "cryptography/public_key.hpp"
-#include "interfaces/commands/add_signatory.hpp"
 
 namespace shared_model {
   namespace proto {
-    class AddSignatory final : public CopyableProto<interface::AddSignatory,
-                                                    iroha::protocol::Command,
-                                                    AddSignatory> {
+    class AddSignatory final : public interface::AddSignatory {
      public:
-      template <typename CommandType>
-      explicit AddSignatory(CommandType &&command);
-
-      AddSignatory(const AddSignatory &o);
-
-      AddSignatory(AddSignatory &&o) noexcept;
+      explicit AddSignatory(iroha::protocol::Command &command);
 
       const interface::types::AccountIdType &accountId() const override;
 

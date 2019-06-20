@@ -5,6 +5,7 @@
 
 #include "integration/acceptance/query_permission_test_ast.hpp"
 
+#include "framework/common_constants.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
 
 using shared_model::interface::Amount;
@@ -79,6 +80,7 @@ shared_model::proto::Query QueryPermissionAssets::makeQuery(
     const interface::types::AccountIdType &target,
     const interface::types::AccountIdType &spectator,
     const crypto::Keypair &spectator_keypair) {
-  return fixture.complete(fixture.baseQry(spectator).getAccountAssets(target),
+  return fixture.complete(fixture.baseQry(spectator).getAccountAssets(
+                              target, kMaxPageSize, boost::none),
                           spectator_keypair);
 }
