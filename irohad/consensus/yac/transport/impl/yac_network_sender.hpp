@@ -50,17 +50,6 @@ namespace iroha {
         void sendState(PeerType to, StateType state) override;
 
        private:
-        using StateInCollectionType = std::shared_ptr<StateType>;
-        using StatesCollection =
-            std::unordered_map<PeerType, StateInCollectionType>;
-
-        static void sendStateViaTransportAsync(
-            PeerType to,
-            StateInCollectionType state,
-            std::weak_ptr<TransportType> transport,
-            logger::LoggerPtr logger,
-            uint64_t rest_attempts);
-
         // ------------------------| Global state | ----------------------------
         std::shared_ptr<TransportType> transport_;
 

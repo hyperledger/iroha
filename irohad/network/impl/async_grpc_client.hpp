@@ -12,7 +12,6 @@
 #include <google/protobuf/empty.pb.h>
 #include <grpc++/grpc++.h>
 #include <grpcpp/impl/codegen/async_unary_call.h>
-#include <rxcpp/rx.hpp>
 #include "logger/logger.hpp"
 
 namespace iroha {

@@ -92,11 +92,12 @@ namespace iroha {
          * Note: method assumes blocking approach for the propagation
          * @param to - peer recipient
          * @param state - message for sending
+         * @param status_callback - a callable to pass sending status to
          * @return status of sending
          */
         virtual void sendState(const shared_model::interface::Peer &to,
                                const std::vector<VoteMessage> &state,
-                               CallbackType) = 0;
+                               CallbackType status_callback) = 0;
 
         // TODO: add method virtual void updatePeerList();
 

@@ -11,6 +11,48 @@
 
 using namespace iroha::consensus::yac;
 
+namespace {
+  const uint64_t kMaxResendingAttempts = 1;
+
+  void sendStateViaTransportAsync(
+      YacNetworkSender::PeerType to,
+      std::shared_ptr<YacNetworkSender::StateType> state,
+      std::weak_ptr<YacNetworkSender::TransportType> transport,
+      logger::LoggerPtr log,
+      uint64_t remaining_attempts) {
+    auto reconnect =
+        [to, state, transport, log = std::move(log), remaining_attempts](
+            auto status) {
+          static const auto is_problem_with_our_network =
+              [](const auto &result) -> bool {
+            return boost::strict_get<sending_statuses::UnavailableNetwork &>(
+                &result);
+          };
+          if (is_problem_with_our_network(status)) {
+            if (remaining_attempts > 0) {
+              log->debug("Retrying to send the message to {}.", *to);
+              sendStateViaTransportAsync(std::move(to),
+                                         std::move(state),
+                                         std::move(transport),
+                                         std::move(log),
+                                         remaining_attempts - 1);
+            } else {
+              log->info(
+                  "The number of resending attempts exceeded {}. "
+                  "Dropping message to {}.",
+                  kMaxResendingAttempts,
+                  *to);
+            }
+          } else {
+            log->debug("Message to {} sent successfully.", *to);
+          }
+        };
+    if (auto t = transport.lock()) {
+      t->sendState(*to, *state, reconnect);
+    }
+  }
+}  // namespace
+
 YacNetworkSender::YacNetworkSender(std::shared_ptr<TransportType> transport,
                                    logger::LoggerPtr log)
     : transport_(std::move(transport)), log_(std::move(log)) {}
@@ -21,42 +63,9 @@ void YacNetworkSender::subscribe(
 }
 
 void YacNetworkSender::sendState(PeerType to, StateType state) {
-  sendStateViaTransportAsync(
-      to, std::make_shared<StateType>(state), transport_, log_, 1);
-}
-
-void YacNetworkSender::sendStateViaTransportAsync(
-    PeerType to,
-    StateInCollectionType state,
-    std::weak_ptr<TransportType> transport,
-    logger::LoggerPtr log,
-    uint64_t rest_attempts) {
-  auto reconnect =
-      [to, state, transport, log = std::move(log), rest_attempts](auto status) {
-        iroha::visit_in_place(
-            status,
-            [=](const sending_statuses::UnavailableNetwork &) {
-              // assume the message is undelivered if troubles
-              // occur with our connection then it will resend the
-              // message
-              if (rest_attempts > 0) {
-                log->info("Retry to send a message");
-                sendStateViaTransportAsync(std::move(to),
-                                           std::move(state),
-                                           std::move(transport),
-                                           std::move(log),
-                                           rest_attempts - 1);
-              } else {
-                log->info("exceeded number of reconnection attempts");
-              }
-            },
-            [log = std::move(log)](const auto &) {
-              // if message delivers or recipient peer goes down
-              // then it will stop resending the message
-              log->info("On transport call - done");
-            });
-      };
-  if (auto t = transport.lock()) {
-    t->sendState(*to, *state, reconnect);
-  }
+  sendStateViaTransportAsync(to,
+                             std::make_shared<StateType>(state),
+                             transport_,
+                             log_,
+                             kMaxResendingAttempts);
 }

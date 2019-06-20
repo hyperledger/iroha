@@ -70,14 +70,15 @@ namespace iroha {
 
         static const auto is_troubles_with_recipient = [](const auto &code) {
           using namespace grpc;
-          std::set<StatusCode> codes = {StatusCode::CANCELLED,
-                                        StatusCode::INVALID_ARGUMENT,
-                                        StatusCode::UNAUTHENTICATED,
-                                        StatusCode::RESOURCE_EXHAUSTED,
-                                        StatusCode::ABORTED,
-                                        StatusCode::UNIMPLEMENTED,
-                                        StatusCode::UNAVAILABLE,
-                                        StatusCode::DATA_LOSS};
+          static const std::set<StatusCode> codes = {
+              StatusCode::CANCELLED,
+              StatusCode::INVALID_ARGUMENT,
+              StatusCode::UNAUTHENTICATED,
+              StatusCode::RESOURCE_EXHAUSTED,
+              StatusCode::ABORTED,
+              StatusCode::UNIMPLEMENTED,
+              StatusCode::UNAVAILABLE,
+              StatusCode::DATA_LOSS};
           return codes.find(code) != codes.end();
         };
 
