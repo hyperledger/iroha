@@ -338,6 +338,12 @@ namespace iroha {
           [](auto &&e) { return return_type(makeError(std::move(e.error))); });
     }
 
+    /// operator |= is a shortcut for `Result = Result | function'
+    template <typename R, typename F>
+    constexpr auto operator|=(R &r, F &&f) -> decltype(r = r | f) {
+      return r = r | std::forward<F>(f);
+    }
+
     /**
      * Polymorphic Result is simple alias for result type, which can be used to
      * work with polymorphic objects. It is achieved by wrapping V and E in a
