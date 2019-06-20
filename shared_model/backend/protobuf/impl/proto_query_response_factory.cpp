@@ -359,7 +359,7 @@ shared_model::proto::ProtoQueryResponseFactory::createRolePermissionsResponse(
             protocol_query_response.mutable_role_permissions_response();
         for (size_t i = 0; i < role_permissions.size(); ++i) {
           auto perm = static_cast<interface::permissions::Role>(i);
-          if (role_permissions.test(perm)) {
+          if (role_permissions.isSet(perm)) {
             protocol_specific_response->add_permissions(
                 shared_model::proto::permissions::toTransport(perm));
           }

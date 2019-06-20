@@ -212,7 +212,7 @@ namespace iroha {
               "id@domain",
           const shared_model::interface::types::RoleIdType role_id = "all") {
         shared_model::interface::RolePermissionSet permissions;
-        permissions.set();
+        permissions.setAll();
         execute(
             *mock_command_factory->constructCreateRole(role_id, permissions),
             true);
@@ -1144,7 +1144,7 @@ namespace iroha {
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::RolePermissionsResponse>(
           std::move(result), [](const auto &cast_resp) {
-            ASSERT_TRUE(cast_resp.rolePermissions().test(
+            ASSERT_TRUE(cast_resp.rolePermissions().isSet(
                 shared_model::interface::permissions::Role::kGetRoles));
           });
     }

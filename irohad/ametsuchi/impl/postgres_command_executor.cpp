@@ -1063,7 +1063,7 @@ namespace iroha {
       auto permission = command.permissionName();
       const auto without_perm_str =
           shared_model::interface::GrantablePermissionSet()
-              .set()
+              .setAll()
               .unset(permission)
               .toBitstring();
       const auto perms = shared_model::interface::GrantablePermissionSet()
