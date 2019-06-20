@@ -207,11 +207,12 @@ namespace iroha {
     }
 
     template <typename T>
-    constexpr bool isResult = std::is_base_of<ResultBase, T>::value;
+    constexpr bool isResult =
+        std::is_base_of<ResultBase, std::decay_t<T>>::value;
     template <typename T>
-    constexpr bool isValue = std::is_base_of<ValueBase, T>::value;
+    constexpr bool isValue = std::is_base_of<ValueBase, std::decay_t<T>>::value;
     template <typename T>
-    constexpr bool isError = std::is_base_of<ErrorBase, T>::value;
+    constexpr bool isError = std::is_base_of<ErrorBase, std::decay_t<T>>::value;
 
     /**
      * A struct that provides the result type conversion for bind operator.
@@ -300,8 +301,7 @@ namespace iroha {
               typename TypeHelper = BindReturnTypeHelper<Transform, V, E>,
               typename ReturnType = typename TypeHelper::ReturnType>
     constexpr auto operator|(Result<V, E> &&r, Transform &&f) -> ReturnType {
-      static_assert(std::is_base_of<ResultBase, ReturnType>::value,
-                    "wrong return_type");
+      static_assert(isResult<ReturnType>, "wrong return_type");
       return std::move(r).match(
           [&f](auto &&v) {
             return TypeHelper::makeVaule(f(std::move(v.value)));
@@ -362,15 +362,13 @@ namespace iroha {
      */
 
     template <typename ResultType,
-              typename = std::enable_if_t<
-                  std::is_base_of<ResultBase, ResultType>::value>>
-    bool hasValue(const ResultType& result) {
+              typename = std::enable_if_t<isResult<ResultType>>>
+    bool hasValue(const ResultType &result) {
       return boost::get<ValueOf<ResultType>>(&result);
     }
 
     template <typename ResultType,
-              typename = std::enable_if_t<
-                  std::is_base_of<ResultBase, ResultType>::value>>
+              typename = std::enable_if_t<isResult<ResultType>>>
     bool hasError(const ResultType &result) {
       return boost::get<ErrorOf<ResultType>>(&result);
     }
@@ -383,10 +381,9 @@ namespace iroha {
 
     /// @return optional with value if present, otherwise none
     template <typename ResultType,
-              typename = std::enable_if_t<
-                  std::is_base_of<ResultBase, ResultType>::value>>
-    boost::optional<typename ResultType::ValueInnerType> resultToOptionalValue(
-        ResultType &&res) noexcept {
+              typename = std::enable_if_t<isResult<ResultType>>>
+    boost::optional<typename std::decay_t<ResultType>::ValueInnerType>
+    resultToOptionalValue(ResultType &&res) noexcept {
       if (hasValue(res)) {
         return boost::get<ValueOf<ResultType>>(std::forward<ResultType>(res))
             .value;
@@ -396,10 +393,9 @@ namespace iroha {
 
     /// @return optional with error if present, otherwise none
     template <typename ResultType,
-              typename = std::enable_if_t<
-                  std::is_base_of<ResultBase, ResultType>::value>>
-    boost::optional<typename ResultType::ErrorInnerType> resultToOptionalError(
-        ResultType &&res) noexcept {
+              typename = std::enable_if_t<isResult<ResultType>>>
+    boost::optional<typename std::decay_t<ResultType>::ErrorInnerType>
+    resultToOptionalError(ResultType &&res) noexcept {
       if (hasError(res)) {
         return boost::get<ErrorOf<ResultType>>(std::forward<ResultType>(res))
             .error;
