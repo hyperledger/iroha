@@ -1397,7 +1397,7 @@ namespace iroha {
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
       executor.use("pubkey", peer.pubkey().hex());
-      executor.use("tls_certificate", peer.tlsCertificate());
+      executor.use("tlsCertificate", peer.tlsCertificate());
 
       return executor.execute();
     }
