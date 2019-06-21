@@ -83,7 +83,7 @@ namespace iroha {
     void updatedBatchesNotify(ConstRefState state) const;
 
     /**
-     * Notify subscribers when some of the bathes get expired
+     * Notify subscribers when some of the batches get expired
      * @param state with those batches
      */
     void expiredBatchesNotify(ConstRefState state) const;

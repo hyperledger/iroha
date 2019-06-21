@@ -11,7 +11,6 @@
 #include "backend/protobuf/transaction.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
-#include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
 namespace {
   /**
@@ -289,10 +288,9 @@ std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
        &all_transactions_size,
        &next_batch_info](
           iroha::protocol::QueryResponse &protocol_query_response) {
-        iroha::protocol::PendingTransactionsPageResponse
-            *protocol_specific_response =
-                protocol_query_response
-                    .mutable_pending_transactions_page_response();
+        auto *protocol_specific_response =
+            protocol_query_response
+                .mutable_pending_transactions_page_response();
         for (const auto &tx : transactions) {
           *protocol_specific_response->add_transactions() =
               static_cast<shared_model::proto::Transaction *>(tx.get())
@@ -301,9 +299,8 @@ std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);
         if (next_batch_info) {
-          iroha::protocol::PendingTransactionsPageResponse_BatchInfo
-              *next_batch_info_message =
-                  protocol_specific_response->mutable_next_batch_info();
+          auto *next_batch_info_message =
+              protocol_specific_response->mutable_next_batch_info();
           next_batch_info_message->set_first_tx_hash(
               next_batch_info->first_tx_hash.hex());
           next_batch_info_message->set_batch_size(next_batch_info->batch_size);

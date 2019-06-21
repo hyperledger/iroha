@@ -25,7 +25,7 @@ namespace iroha {
      * transactions list
      */
     enum ErrorCode {
-      NOT_FOUND,  // there is no batch which first tx has specified hash
+      kNotFound,  // there is no batch which first tx has specified hash
     };
 
     /**
@@ -69,9 +69,9 @@ namespace iroha {
      */
     virtual expected::Result<Response, ErrorCode> getPendingTransactions(
         const shared_model::interface::types::AccountIdType &account_id,
-        const shared_model::interface::types::TransactionsNumberType &page_size,
+        const shared_model::interface::types::TransactionsNumberType page_size,
         const boost::optional<shared_model::interface::types::HashType>
-            first_tx_hash) const = 0;
+            &first_tx_hash) const = 0;
 
     virtual ~PendingTransactionStorage() = default;
   };

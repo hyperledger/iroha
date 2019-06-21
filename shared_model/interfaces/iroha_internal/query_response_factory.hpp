@@ -178,7 +178,7 @@ namespace shared_model {
        * Create paged response for pending transaction query
        * @param transactions - list of transactions on the page
        * @param all_transactions_size - total number of transactions among all
-       * the bathes in a pending storage for the user
+       * the batches in a pending storage for the user
        * @param next_batch_info - optional struct with hash of the first
        * transaction for the following batch and its size (if exists)
        * @param query_hash - hash of the corresponding query

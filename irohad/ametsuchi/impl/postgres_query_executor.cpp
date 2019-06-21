@@ -1165,7 +1165,7 @@ namespace iroha {
                                      q.paginationMeta()->pageSize(),
                                      q.paginationMeta()->firstTxHash())
             .match(
-                [this, &response_txs](const auto &response) {
+                [this, &response_txs](auto &&response) {
                   auto &interface_txs = response.value.transactions;
                   response_txs.reserve(interface_txs.size());
                   // TODO igor-egorov 2019-06-06 IR-555 avoid use of clone()
@@ -1176,21 +1176,20 @@ namespace iroha {
                   return query_response_factory_
                       ->createPendingTransactionsPageResponse(
                           std::move(response_txs),
-                          std::move(response.value.all_transactions_size),
+                          response.value.all_transactions_size,
                           std::move(response.value.next_batch_info),
                           query_hash_);
                 },
-                [this, &q](const auto &error) {
+                [this, &q](auto &&error) {
                   switch (error.error) {
-                    case iroha::PendingTransactionStorage::ErrorCode::NOT_FOUND:
+                    case iroha::PendingTransactionStorage::ErrorCode::kNotFound:
                       return query_response_factory_->createErrorQueryResponse(
                           shared_model::interface::QueryResponseFactory::
                               ErrorQueryType::kStatefulFailed,
                           std::string("The batch with specified first "
                                       "transaction hash not found, the hash: ")
                               + q.paginationMeta()->firstTxHash()->toString(),
-                          4,  // The newly introduced code for missing first tx
-                              // hash error
+                          4,  // missing first tx hash error
                           query_hash_);
                     default:
                       BOOST_ASSERT_MSG(false,
@@ -1201,7 +1200,7 @@ namespace iroha {
                               ErrorQueryType::kStatefulFailed,
                           std::string("Unknown type of error happened: ")
                               + std::to_string(error.error),
-                          1,  // The code for unknown internal error
+                          1,  // unknown internal error
                           query_hash_);
                   }
                 });

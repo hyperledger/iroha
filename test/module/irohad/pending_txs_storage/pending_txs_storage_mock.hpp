@@ -24,7 +24,7 @@ namespace iroha {
             const shared_model::interface::types::TransactionsNumberType
                 &page_size,
             const boost::optional<shared_model::interface::types::HashType>
-                first_tx_hash));
+                &first_tx_hash));
   };
 
 }  // namespace iroha

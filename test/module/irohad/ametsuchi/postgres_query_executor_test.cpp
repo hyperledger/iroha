@@ -2035,7 +2035,7 @@ namespace iroha {
       EXPECT_CALL(*pending_txs_storage,
                   getPendingTransactions(account_id, kPageSize, ::testing::_))
           .WillOnce(Return(iroha::expected::makeError(
-              PendingTransactionStorage::ErrorCode::NOT_FOUND)));
+              PendingTransactionStorage::ErrorCode::kNotFound)));
 
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
           executeQuery(query), 4);

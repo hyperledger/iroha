@@ -32,18 +32,11 @@ class PendingTxsStorageFixture : public ::testing::Test {
   }
 
   auto dummyObservable() {
-    return rxcpp::observable<>::create<std::shared_ptr<Batch>>(
-        [](auto s) { s.on_completed(); });
+    return rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
   }
 
   auto updatesObservable(std::vector<std::shared_ptr<iroha::MstState>> states) {
-    return rxcpp::observable<>::create<std::shared_ptr<iroha::MstState>>(
-        [states = std::move(states)](auto s) {
-          for (const auto &state : states) {
-            s.on_next(state);
-          }
-          s.on_completed();
-        });
+    return rxcpp::observable<>::iterate(states);
   }
 
   auto emptyState() {
@@ -73,7 +66,7 @@ class PendingTxsStorageFixture : public ::testing::Test {
  * @when two mst transactions generated as batch
  * @then the transactions can be added to MST state successfully
  */
-TEST_F(PendingTxsStorageFixture, FixutureSelfCheck) {
+TEST_F(PendingTxsStorageFixture, FixtureSelfCheck) {
   auto state = emptyState();
   auto transactions = twoTransactionsBatch();
   *state += transactions;
@@ -551,7 +544,7 @@ TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
       },
       [](const auto &error) {
         ASSERT_EQ(error.error,
-                  iroha::PendingTransactionStorage::ErrorCode::NOT_FOUND);
+                  iroha::PendingTransactionStorage::ErrorCode::kNotFound);
       });
 }
 
