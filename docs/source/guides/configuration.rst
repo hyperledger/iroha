@@ -41,6 +41,28 @@ Deployment-specific parameters
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
 
+There is also an optional ``torii_tls_params`` parameter, which could be included
+in the config to enable TLS support for external communication. For example,
+
+.. codeblock:: javascript
+  :linenos:
+
+  {
+    "torii_tls_params": {
+      "port": "55552",
+      "key_pair_path": "/path/to/the/keypair"
+    }
+  }
+
+Here, ``port`` is the TCP port where the TLS server will be bound, and
+``key_pair_path`` is the path to the keypair in a format such that appending
+``.crt`` to it would be the path to the PEM-encoded certificate, and appending
+``.key`` would be the path to the PEM-encoded private key for this certificate
+(e.g. if ``key_pair_path`` is ``"/path/to/the/keypair"`` iroha would look for
+certificate located at ``"/path/to/the/keypair.crt"`` and key located at
+``"/path/to/the/keypair.key"``)
+
+
 .. warning:: Unspecified database name support is deprecated and will be removed!
 
 Environment-specific parameters
