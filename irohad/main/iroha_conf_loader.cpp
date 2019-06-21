@@ -17,6 +17,7 @@
 #include <boost/range/adaptor/map.hpp>
 #include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
+#include "torii/tls_params.hpp"
 
 /// The length of the string around the error place to print in case of JSON
 /// syntax error.
@@ -348,6 +349,17 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<iroha::torii::TlsParams>(
+    const std::string &path,
+    iroha::torii::TlsParams &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.port, obj, config_members::Port);
+  getValByKey(path, dest.key_path, obj, config_members::KeyPairPath);
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -355,9 +367,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   const auto obj = src.GetObject();
   getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
-  getValByKey(path, dest.torii_tls_port, obj, config_members::ToriiTlsPort);
-  getValByKey(
-      path, dest.torii_tls_keypair, obj, config_members::ToriiTlsKeypair);
+  getValByKey(path, dest.torii_tls_params, obj, config_members::ToriiTlsParams);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
   getValByKey(

@@ -759,33 +759,34 @@ Irohad::RunResult Irohad::run() {
       false);
 
   // Run torii server
-  return (
-             torii_server->append(command_service_transport)
-                     .append(query_service)
-                     .run()
-                 | [&](auto port) -> iroha::expected::Result<int, std::string> {
-               log_->info("Torii server bound on port {}", port);
-               if (torii_tls_params_) {
-                 return torii_tls_server->append(command_service_transport)
-                     .append(query_service)
-                     .run();
-               } else {
-                 return iroha::expected::makeValue(port);
-               }
-             } |
-                 [&](const auto &port) {
-                   log_->info("Torii TLS server bound on port {}", port);
-                   if (is_mst_supported_) {
-                     internal_server->append(
-                         std::static_pointer_cast<MstTransportGrpc>(
-                             mst_transport));
-                   }
-                   // Run internal server
-                   return internal_server->append(ordering_init.service)
-                       .append(yac_init->getConsensusNetwork())
-                       .append(loader_init.service)
-                       .run();
-                 })
+  return (torii_server->append(command_service_transport)
+                  .append(query_service)
+                  .run()
+              | [&](auto port) -> iroha::expected::Result<int, std::string> {
+           log_->info("Torii server bound on port {}", port);
+           if (torii_tls_params_) {
+             return torii_tls_server->append(command_service_transport)
+                 .append(query_service)
+                 .run();
+           } else {
+             return iroha::expected::makeValue(port);
+           }
+         } |
+              [&](const auto &port) {
+                if (torii_tls_params_) {
+                  log_->info("Torii TLS server bound on port {}", port);
+                }
+                if (is_mst_supported_) {
+                  internal_server->append(
+                      std::static_pointer_cast<MstTransportGrpc>(
+                          mst_transport));
+                }
+                // Run internal server
+                return internal_server->append(ordering_init.service)
+                    .append(yac_init->getConsensusNetwork())
+                    .append(loader_init.service)
+                    .run();
+              })
              | [&](const auto &port) -> RunResult {
     log_->info("Internal server bound on port {}", port);
     log_->info("===> iroha initialized");

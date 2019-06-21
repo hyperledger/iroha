@@ -12,12 +12,12 @@
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_manager.hpp"
+#include "torii/tls_params.hpp"
 
 struct IrohadConfig {
   std::string block_store_path;
   uint16_t torii_port;
-  uint16_t torii_tls_port;
-  std::string torii_tls_keypair;
+  boost::optional<iroha::torii::TlsParams> torii_tls_params;
   uint16_t internal_port;
   std::string pg_opt;
   uint32_t max_proposal_size;
