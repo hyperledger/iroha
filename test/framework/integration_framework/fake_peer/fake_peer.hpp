@@ -249,6 +249,8 @@ namespace integration_framework {
 
       std::shared_ptr<iroha::consensus::yac::YacCryptoProvider> yac_crypto_;
 
+      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+
       std::shared_ptr<Behaviour> behaviour_;
       std::shared_ptr<BlockStorage> block_storage_;
       ProposalStorage proposal_storage_;

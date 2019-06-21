@@ -562,9 +562,9 @@ namespace iroha {
           R"(
           WITH %s
             inserted AS (
-                INSERT INTO peer(public_key, address)
+                INSERT INTO peer(public_key, address, tls_certificate)
                 (
-                    SELECT :pubkey, :address
+                    SELECT :pubkey, :address, :tls_certificate
                     %s
                 ) RETURNING (1)
             )
@@ -1397,6 +1397,7 @@ namespace iroha {
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
       executor.use("pubkey", peer.pubkey().hex());
+      executor.use("tlsCertificate", peer.tlsCertificate());
 
       return executor.execute();
     }

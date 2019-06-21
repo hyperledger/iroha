@@ -98,7 +98,8 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
                logger::LoggerManagerTreePtr logger_manager,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params,
-               const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
+               const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
+               const boost::optional<std::string> &p2p_tls_keypair_path)
     : block_store_dir_(block_store_dir),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
@@ -120,7 +121,8 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
       log_manager_(std::move(logger_manager)),
-      log_(log_manager_->getLogger()) {
+      log_(log_manager_->getLogger()),
+      p2p_tls_keypair_path_(p2p_tls_keypair_path) {
   log_->info("created");
   validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
@@ -141,6 +143,8 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
+
+  initClientFactory();
 }
 
 Irohad::~Irohad() {
@@ -526,7 +530,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      persistent_cache,
                                      proposal_strategy,
                                      delay,
-                                     log_manager_->getChild("Ordering"));
+                                     log_manager_->getChild("Ordering"),
+                                     client_factory);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::logBool(ordering_gate));
   return {};
@@ -584,7 +589,8 @@ Irohad::RunResult Irohad::initBlockLoader() {
                                   storage,
                                   consensus_result_cache_,
                                   block_validators_config_,
-                                  log_manager_->getChild("BlockLoader"));
+                                  log_manager_->getChild("BlockLoader"),
+                                  client_factory);
 
   log_->info("[Init] => block loader");
   return {};
@@ -618,7 +624,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       vote_delay_,
       async_call_,
       kConsensusConsistencyModel,
-      log_manager_->getChild("Consensus"));
+      log_manager_->getChild("Consensus"),
+      client_factory);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
       consensus_gate_objects.get_subscriber());
@@ -803,6 +810,17 @@ Irohad::RunResult Irohad::initQueryService() {
   return {};
 }
 
+Irohad::RunResult Irohad::initClientFactory() {
+  if (p2p_tls_keypair_path_) {
+    auto peer_query = storage->createPeerQuery();
+    client_factory = std::make_shared<iroha::network::ClientFactory>(
+        *peer_query, *p2p_tls_keypair_path_);
+  } else {
+    client_factory = std::make_shared<iroha::network::ClientFactory>();
+  }
+  return {};
+}
+
 Irohad::RunResult Irohad::initWsvRestorer() {
   wsv_restorer_ = std::make_shared<iroha::ametsuchi::WsvRestorerImpl>();
   return {};
@@ -815,6 +833,8 @@ Irohad::RunResult Irohad::run() {
   using iroha::expected::operator|;
   using iroha::operator|;
 
+  auto peer_query = storage->createPeerQuery();
+
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(torii_port_),
@@ -825,7 +845,9 @@ Irohad::RunResult Irohad::run() {
   internal_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(internal_port_),
       log_manager_->getChild("InternalServerRunner")->getLogger(),
-      false);
+      false,
+      p2p_tls_keypair_path_,
+      peer_query);
 
   auto make_port_logger = [this](std::string server_name) {
     return [this, server_name](auto port) -> RunResult {

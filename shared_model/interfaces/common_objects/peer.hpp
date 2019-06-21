@@ -23,6 +23,12 @@ namespace shared_model {
       virtual const interface::types::AddressType &address() const = 0;
 
       /**
+       * @return Peer TLS certficate
+       */
+      virtual const interface::types::TLSCertificateType &tlsCertificate()
+          const = 0;
+
+      /**
        * @return Public key, for fetching data
        */
       virtual const interface::types::PubkeyType &pubkey() const = 0;

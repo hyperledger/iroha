@@ -8,6 +8,7 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 add_library(server_runner
     server_runner.cpp
     tls_keypair.cpp
+    server_runner_auth.cpp
     )
 target_link_libraries(server_runner
     logger
@@ -88,6 +89,7 @@ target_link_libraries(irohad
     logger_manager
     irohad_version
     pg_connection_init
+    grpc_client_factory
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)

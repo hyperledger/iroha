@@ -14,6 +14,7 @@
 #include "backend/protobuf/proto_block_factory.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger_fwd.hpp"
+#include "network/impl/client_factory.hpp"
 
 namespace iroha {
   namespace network {
@@ -23,7 +24,8 @@ namespace iroha {
       BlockLoaderImpl(
           std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
           shared_model::proto::ProtoBlockFactory factory,
-          logger::LoggerPtr log);
+          logger::LoggerPtr log,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlocks(
@@ -57,6 +59,8 @@ namespace iroha {
           peer_connections_;
       std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory_;
       shared_model::proto::ProtoBlockFactory block_factory_;
+
+      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 
       logger::LoggerPtr log_;
     };

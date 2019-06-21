@@ -40,7 +40,8 @@ namespace iroha_cli {
         logger::LoggerManagerTreePtr response_handler_log_manager,
         logger::LoggerPtr pb_qry_factory_log,
         logger::LoggerPtr json_qry_factory_log,
-        logger::LoggerManagerTreePtr log_manager)
+        logger::LoggerManagerTreePtr log_manager,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory)
         : creator_(account_name),
           tx_cli_(creator_,
                   default_peer_ip,
@@ -48,7 +49,8 @@ namespace iroha_cli {
                   provider,
                   response_handler_log_manager,
                   pb_qry_factory_log,
-                  log_manager->getChild("Transaction")->getLogger()),
+                  log_manager->getChild("Transaction")->getLogger(),
+                  client_factory),
           query_cli_(creator_,
                      default_peer_ip,
                      default_port,
@@ -57,9 +59,12 @@ namespace iroha_cli {
                      std::move(response_handler_log_manager),
                      pb_qry_factory_log,
                      std::move(json_qry_factory_log),
-                     log_manager->getChild("Query")->getLogger()),
-          statusCli_(
-              default_peer_ip, default_port, std::move(pb_qry_factory_log)) {
+                     log_manager->getChild("Query")->getLogger(),
+                     client_factory),
+          statusCli_(default_peer_ip,
+                     default_port,
+                     std::move(pb_qry_factory_log),
+                     client_factory) {
       assign_main_handlers();
     }
 

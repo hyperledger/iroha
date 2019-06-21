@@ -510,6 +510,8 @@ namespace integration_framework {
     boost::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
+    std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+
    private:
     bool cleanup_on_exit_;
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;

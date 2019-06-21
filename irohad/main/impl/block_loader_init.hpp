@@ -45,7 +45,8 @@ namespace iroha {
           std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
           std::shared_ptr<shared_model::validation::ValidatorsConfig>
               validators_config,
-          logger::LoggerPtr loader_log);
+          logger::LoggerPtr loader_log,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
      public:
       /**
@@ -64,7 +65,8 @@ namespace iroha {
           std::shared_ptr<consensus::ConsensusResultCache> block_cache,
           std::shared_ptr<shared_model::validation::ValidatorsConfig>
               validators_config,
-          const logger::LoggerManagerTreePtr &loader_log_manager);
+          const logger::LoggerManagerTreePtr &loader_log_manager,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       std::shared_ptr<BlockLoaderImpl> loader;
       std::shared_ptr<BlockLoaderService> service;

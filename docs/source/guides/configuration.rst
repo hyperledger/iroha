@@ -54,6 +54,8 @@ Deployment-specific parameters
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
 
+.. warning:: Unspecified database name support is deprecated and will be removed!
+
 There is also an optional ``torii_tls_params`` parameter, which could be included
 in the config to enable TLS support for client communication.
 
@@ -81,6 +83,21 @@ The ``database`` section fields:
 - ``working database`` is the name of database that will be used to store the world state view and optionally blocks.
 - ``maintenance database`` is the name of databse that will be used to maintain the working database.
   For example, when iroha needs to create or drop its working database, it must use another database to connect to PostgreSQL.
+
+To enable TLS for communications between peers, you need to generate a keypair
+between all peers (:ref:`more on that <inter-peer-tls>`), and then specify
+the path to it (in the same way as Torii's TLS keypair, which is described above)
+in the ``p2p_tls_key_pair_path`` config key. For example,
+
+.. codeblock:: javascript
+  :linenos:
+
+  {
+    "p2p_tls_key_pair_path": "/path/to/node/keypair"
+  }
+
+This would mean that this node now requires TLS authentication when connecting
+to other nodes, and would encrypt all inter-node traffic with this keypair.
 
 Environment-specific parameters
 -------------------------------

@@ -12,6 +12,12 @@
 #include "logger/logger_fwd.hpp"
 #include "main/tls_keypair.hpp"
 
+namespace iroha {
+  namespace ametsuchi {
+    class PeerQuery;
+  }  // namespace ametsuchi
+}  // namespace iroha
+
 /**
  * Class runs Torii server for handling queries and commands.
  */
@@ -23,12 +29,16 @@ class ServerRunner {
    * @param log to print progress to
    * @param reuse - allow multiple sockets to bind to the same port
    * @param tls_keypair - TLS keypair, if TLS is requested
+   * @see iroha::torii::TlsParams
+   * @param peer_query - peer query, will be used to verify client connections
    */
   explicit ServerRunner(
       const std::string &address,
       logger::LoggerPtr log,
       bool reuse = true,
-      const boost::optional<TlsKeypair> &tls_keypair = boost::none);
+      const boost::optional<TlsKeypair> &tls_keypair = boost::none,
+      const boost::optional<std::shared_ptr<iroha::ametsuchi::PeerQuery>>
+              &peer_query = boost::none);
 
   ~ServerRunner();
 
@@ -87,6 +97,8 @@ class ServerRunner {
   bool reuse_;
   std::vector<std::shared_ptr<grpc::Service>> services_;
   boost::optional<TlsKeypair> tls_keypair_;
+  boost::optional<
+      std::shared_ptr<iroha::ametsuchi::PeerQuery>> peer_query_;
 };
 
 #endif  // MAIN_SERVER_RUNNER_HPP

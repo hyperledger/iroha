@@ -10,17 +10,22 @@
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
+#include "main/server_runner_auth.hpp"
 
 const auto kPortBindError = "Cannot bind server to address %s";
 
-ServerRunner::ServerRunner(const std::string &address,
-                           logger::LoggerPtr log,
-                           bool reuse,
-                           const boost::optional<TlsKeypair> &tls_keypair)
+ServerRunner::ServerRunner(
+    const std::string &address,
+    logger::LoggerPtr log,
+    bool reuse,
+    const boost::optional<TlsKeypair> &tls_keypair,
+    const boost::optional<std::shared_ptr<iroha::ametsuchi::PeerQuery>>
+        &peer_query)
     : log_(std::move(log)),
       server_address_(address),
       reuse_(reuse),
-      tls_keypair_(tls_keypair) {}
+      tls_keypair_(tls_keypair),
+      peer_query_(peer_query) {}
 
 ServerRunner::~ServerRunner() {
   shutdown(std::chrono::system_clock::now());
@@ -76,7 +81,17 @@ ServerRunner::createSecureCredentials() {
       tls_keypair_->pem_private_key, tls_keypair_->pem_certificate};
   auto options = grpc::SslServerCredentialsOptions();
   options.pem_key_cert_pairs.push_back(keypair);
-  return grpc::SslServerCredentials(options);
+  if (peer_query_) {  // client verification is only enabled if using peer_query
+    options.pem_root_certs = tls_keypair_->pem_certificate;  // dummy value
+    options.client_certificate_request =
+        GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY;
+  }
+  auto credentials = grpc::SslServerCredentials(options);
+  if (peer_query_) {
+    credentials->SetAuthMetadataProcessor(
+        std::make_shared<PeerCertificateAuthMetadataProcessor>(*peer_query_));
+  }
+  return credentials;
 }
 
 void ServerRunner::addListeningPortToBuilder(grpc::ServerBuilder &builder,

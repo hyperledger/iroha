@@ -15,9 +15,13 @@
 namespace integration_framework {
   namespace fake_peer {
 
-    LoaderGrpc::LoaderGrpc(const std::shared_ptr<FakePeer> &fake_peer,
-                           logger::LoggerPtr log)
-        : fake_peer_wptr_(fake_peer), log_(std::move(log)) {}
+    LoaderGrpc::LoaderGrpc(
+        const std::shared_ptr<FakePeer> &fake_peer,
+        logger::LoggerPtr log,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory)
+        : fake_peer_wptr_(fake_peer),
+          log_(std::move(log)),
+          client_factory_(client_factory) {}
 
     bool LoaderGrpc::sendBlockRequest(const std::string &dest_address,
                                       const LoaderBlockRequest &height) {
@@ -25,7 +29,7 @@ namespace integration_framework {
       request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
-      auto client = iroha::network::createClient<iroha::network::proto::Loader>(
+      auto client = client_factory_->createClient<iroha::network::proto::Loader>(
           dest_address);
 
       const auto status = client->retrieveBlock(&context, request, &block);
@@ -42,8 +46,9 @@ namespace integration_framework {
       request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
-      auto client = iroha::network::createClient<iroha::network::proto::Loader>(
-          dest_address);
+      auto client =
+          client_factory_->createClient<iroha::network::proto::Loader>(
+              dest_address);
 
       auto reader = client->retrieveBlocks(&context, request);
       size_t num_read_blocks = 0;

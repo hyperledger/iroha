@@ -29,6 +29,7 @@ struct IrohadConfig {
   boost::optional<std::string> block_store_path;
   uint16_t torii_port;
   boost::optional<iroha::torii::TlsParams> torii_tls_params;
+  boost::optional<std::string> p2p_tls_keypair_path;
   uint16_t internal_port;
   boost::optional<std::string>
       pg_opt;  // TODO 2019.06.26 mboldyrev IR-556 remove

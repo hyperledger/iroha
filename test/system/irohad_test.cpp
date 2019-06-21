@@ -37,6 +37,7 @@
 #include "main/iroha_conf_loader.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/client_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -67,6 +68,7 @@ class IrohadTest : public AcceptanceFixture {
       : kAddress("127.0.0.1"),
         kPort(50051),
         kSecurePort(55552),
+        client_factory(std::make_shared<iroha::network::ClientFactory>()),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
         keys_manager_node_(
             "node0",
@@ -197,15 +199,15 @@ class IrohadTest : public AcceptanceFixture {
       const boost::optional<uint16_t> override_port = {}) {
     uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
 
-    std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
     if (enable_tls) {
-      stub = iroha::network::createSecureClient<
-          iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port), root_ca_);
+      client_factory = std::make_shared<iroha::network::ClientFactory>(
+          (test_data_path_ / "tls" / "correct.crt").string());
     } else {
-      stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port));
+      client_factory = std::make_shared<iroha::network::ClientFactory>();
     }
+    auto stub =
+        client_factory->createClient<iroha::protocol::CommandService_v1>(
+            kAddress + ":" + std::to_string(port));
 
     return torii::CommandSyncClient(
         std::move(stub),
@@ -391,6 +393,7 @@ class IrohadTest : public AcceptanceFixture {
   const std::string kAddress;
   const uint16_t kPort;
   const uint16_t kSecurePort;
+  std::shared_ptr<iroha::network::ClientFactory> client_factory;
 
   boost::optional<child> iroha_process_;
 

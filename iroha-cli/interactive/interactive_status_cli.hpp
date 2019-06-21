@@ -11,6 +11,7 @@
 
 #include "interactive/interactive_common_cli.hpp"
 #include "logger/logger_fwd.hpp"
+#include "network/impl/client_factory.hpp"
 
 namespace iroha_cli {
   namespace interactive {
@@ -21,9 +22,11 @@ namespace iroha_cli {
      */
     class InteractiveStatusCli {
      public:
-      InteractiveStatusCli(const std::string &default_peer_ip,
-                           int default_port,
-                           logger::LoggerPtr pb_qry_factory_log);
+      InteractiveStatusCli(
+          const std::string &default_peer_ip,
+          int default_port,
+          logger::LoggerPtr pb_qry_factory_log,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
       void run();
 
      private:
@@ -61,6 +64,8 @@ namespace iroha_cli {
       std::string txHash_;
 
       logger::LoggerPtr pb_qry_factory_log_;
+
+      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
     };
   }  // namespace interactive
 }  // namespace iroha_cli

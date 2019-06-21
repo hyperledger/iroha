@@ -18,6 +18,7 @@ namespace iroha {
     using shared_model::interface::types::AccountIdType;
     using shared_model::interface::types::AddressType;
     using shared_model::interface::types::PubkeyType;
+    using shared_model::interface::types::TLSCertificateType;
 
     PostgresWsvQuery::PostgresWsvQuery(soci::session &sql,
                                        logger::LoggerPtr log)
@@ -55,20 +56,21 @@ namespace iroha {
 
     boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
     PostgresWsvQuery::getPeers() {
-      using T = boost::tuple<std::string, AddressType>;
+      using T = boost::tuple<std::string, AddressType, TLSCertificateType>;
       auto result = execute<T>([&] {
-        return (sql_.prepare << "SELECT public_key, address FROM peer");
+        return (sql_.prepare
+                << "SELECT public_key, address, tls_certificate FROM peer");
       });
 
       return flatMapValues<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
-          result, [&](auto &public_key, auto &address) {
+          result, [&](auto &public_key, auto &address, auto &tls_certificate) {
             return boost::make_optional(
                 std::make_shared<shared_model::plain::Peer>(
                     address,
                     shared_model::crypto::PublicKey{
-                        shared_model::crypto::Blob::fromHexString(
-                            public_key)}));
+                        shared_model::crypto::Blob::fromHexString(public_key)},
+                    tls_certificate));
           });
     }
   }  // namespace ametsuchi

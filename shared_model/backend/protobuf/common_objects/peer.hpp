@@ -28,6 +28,10 @@ namespace shared_model {
         return proto_->address();
       }
 
+      const interface::types::TLSCertificateType &tlsCertificate() const override {
+        return proto_->tls_certificate();
+      }
+
       const interface::types::PubkeyType &pubkey() const override {
         return public_key_;
       }
