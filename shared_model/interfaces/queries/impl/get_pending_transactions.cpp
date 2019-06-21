@@ -20,7 +20,7 @@ namespace shared_model {
     }
 
     bool GetPendingTransactions::operator==(const ModelType &rhs) const {
-      return true;
+      return paginationMeta() == rhs.paginationMeta();
     }
 
   }  // namespace interface

@@ -6,10 +6,10 @@
 #ifndef IROHA_PROTO_GET_PENDING_TRANSACTIONS_HPP
 #define IROHA_PROTO_GET_PENDING_TRANSACTIONS_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
 
+#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {

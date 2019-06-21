@@ -4,6 +4,7 @@
  */
 
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
+
 #include "interfaces/transaction.hpp"
 
 namespace shared_model {
@@ -19,7 +20,7 @@ namespace shared_model {
                                  std::to_string(allTransactionsSize()));
       if (auto next_batch_info = nextBatchInfo()) {
         builder
-            .append("next batch fist tx hash",
+            .append("next batch first tx hash",
                     next_batch_info->first_tx_hash.hex())
             .append("next batch size",
                     std::to_string(next_batch_info->batch_size));

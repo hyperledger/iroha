@@ -54,16 +54,16 @@ namespace iroha {
                    PendingTransactionStorage::ErrorCode>
   PendingTransactionStorageImpl::getPendingTransactions(
       const shared_model::interface::types::AccountIdType &account_id,
-      const shared_model::interface::types::TransactionsNumberType &page_size,
+      const shared_model::interface::types::TransactionsNumberType page_size,
       const boost::optional<shared_model::interface::types::HashType>
-          first_tx_hash) const {
+          &first_tx_hash) const {
     BOOST_ASSERT_MSG(page_size > 0, "Page size has to be positive");
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
     auto account_batches_iterator = storage_.find(account_id);
     if (storage_.end() == account_batches_iterator) {
       if (first_tx_hash) {
         return iroha::expected::makeError(
-            PendingTransactionStorage::ErrorCode::NOT_FOUND);
+            PendingTransactionStorage::ErrorCode::kNotFound);
       } else {
         return iroha::expected::makeValue(
             PendingTransactionStorage::Response{});
@@ -75,7 +75,7 @@ namespace iroha {
       auto index_iterator = account_batches.index.find(*first_tx_hash);
       if (account_batches.index.end() == index_iterator) {
         return iroha::expected::makeError(
-            PendingTransactionStorage::ErrorCode::NOT_FOUND);
+            PendingTransactionStorage::ErrorCode::kNotFound);
       }
       batch_iterator = index_iterator->second;
     }

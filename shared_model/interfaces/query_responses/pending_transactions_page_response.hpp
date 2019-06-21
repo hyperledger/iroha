@@ -7,7 +7,6 @@
 #define IROHA_SHARED_MODEL_PENDING_TRANSACTIONS_PAGE_RESPONSE_HPP
 
 #include <boost/optional/optional_fwd.hpp>
-
 #include "cryptography/hash.hpp"
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/range_types.hpp"
@@ -22,6 +21,8 @@ namespace shared_model {
     class PendingTransactionsPageResponse
         : public ModelPrimitive<PendingTransactionsPageResponse> {
      public:
+      // TODO igor-egorov 2019-06-29 IR-570 Convert BatchInfo to a shared model
+      // object
       struct BatchInfo {
         interface::types::HashType first_tx_hash;
         interface::types::TransactionsNumberType batch_size;

@@ -21,7 +21,6 @@ namespace shared_model {
     class ErrorQueryResponse;
     class SignatoriesResponse;
     class TransactionsResponse;
-    class TransactionsPageResponse;
     class PendingTransactionsPageResponse;
     class AssetResponse;
     class RolesResponse;
