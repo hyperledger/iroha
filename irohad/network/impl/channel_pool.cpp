@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "backend/protobuf/common_objects/peer.hpp"
+#include "shared_model/backend/protobuf/common_objects/peer.hpp"
 
 namespace iroha {
   namespace network {
@@ -39,7 +39,6 @@ namespace iroha {
 
     std::shared_ptr<grpc::Channel> ChannelPool::getChannel(
         const std::string &address) {
-      std::lock_guard<std::mutex> lock(channels_lock_);
       if (channels_.find(address) == channels_.end()) {
         channels_[address] = createChannel(address);
       }
@@ -95,5 +94,5 @@ namespace iroha {
         certificate_ = readFile(*path + ".crt");
       }
     }
-  }  // namespace network
-}  // namespace iroha
+  };  // namespace network
+};    // namespace iroha

@@ -59,7 +59,6 @@ namespace iroha {
           const std::string &address);
 
       std::unordered_map<std::string, std::shared_ptr<grpc::Channel>> channels_;
-      std::mutex channels_lock_;
 
       bool tls_enabled_ = false;
       boost::optional<std::shared_ptr<ametsuchi::PeerQuery>> peer_query_ =
@@ -71,7 +70,7 @@ namespace iroha {
       static std::string readFile(const std::string &path);
       void readKeypair(const boost::optional<std::string> &path);
     };
-  }  // namespace network
-}  // namespace iroha
+  };  // namespace network
+};    // namespace iroha
 
 #endif

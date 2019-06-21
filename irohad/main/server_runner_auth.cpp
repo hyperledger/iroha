@@ -7,7 +7,7 @@
 
 #include <boost/algorithm/string/replace.hpp>
 
-#include "interfaces/common_objects/peer.hpp"
+#include "shared_model/interfaces/common_objects/peer.hpp"
 
 /**
  * Removes all space-symbols from PEM-encoded certificate

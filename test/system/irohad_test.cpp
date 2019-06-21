@@ -38,6 +38,7 @@
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "network/impl/client_factory.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/client_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -229,7 +230,7 @@ class IrohadTest : public AcceptanceFixture {
 
     if (enable_tls) {
       client_factory = std::make_shared<iroha::network::ClientFactory>(
-          path_root_certificate_.string());
+          (test_data_path_ / "tls" / "correct.crt").string());
     } else {
       client_factory = std::make_shared<iroha::network::ClientFactory>();
     }
