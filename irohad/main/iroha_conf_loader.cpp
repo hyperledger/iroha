@@ -336,11 +336,14 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   getValByKey(path, address, obj, config_members::Address);
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
+  auto tls_certificate_str =
+      getOptValByKey<std::string>(path, obj, config_members::TlsCertificate);
   common_objects_factory_
       ->createPeer(
           address,
           shared_model::crypto::PublicKey(
-              shared_model::crypto::Blob::fromHexString(public_key_str)))
+              shared_model::crypto::Blob::fromHexString(public_key_str)),
+          *tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {
                throw std::runtime_error("Failed to create a peer at '" + path
@@ -368,6 +371,8 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
   getValByKey(path, dest.torii_tls_params, obj, config_members::ToriiTlsParams);
+  getValByKey(
+      path, dest.p2p_tls_keypair_path, obj, config_members::P2PTlsKeyPairPath);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
   getValByKey(

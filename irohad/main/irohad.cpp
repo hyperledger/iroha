@@ -195,7 +195,8 @@ int main(int argc, char *argv[]) {
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
-      config.torii_tls_params);
+      config.torii_tls_params,
+      config.p2p_tls_keypair_path);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {

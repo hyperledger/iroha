@@ -38,10 +38,12 @@ namespace iroha_cli {
     InteractiveStatusCli::InteractiveStatusCli(
         const std::string &default_peer_ip,
         int default_port,
-        logger::LoggerPtr pb_qry_factory_log)
+        logger::LoggerPtr pb_qry_factory_log,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory)
         : default_peer_ip_(default_peer_ip),
           default_port_(default_port),
-          pb_qry_factory_log_(std::move(pb_qry_factory_log)) {
+          pb_qry_factory_log_(std::move(pb_qry_factory_log)),
+          client_factory_(client_factory) {
       createActionsMenu();
       createResultMenu();
     }
@@ -144,7 +146,8 @@ namespace iroha_cli {
       if (iroha::hexstringToBytestring(txHash_)) {
         answer = CliClient(address.value().first,
                            address.value().second,
-                           pb_qry_factory_log_)
+                           pb_qry_factory_log_,
+                           client_factory_)
                      .getTxStatus(txHash_)
                      .answer;
         status = answer.tx_status();

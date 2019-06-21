@@ -95,4 +95,5 @@ message Signature {
 message Peer {
   string address = 1;
   string peer_key = 2; // hex string
+  string tls_certificate = 3; // pem-encoded string
 }

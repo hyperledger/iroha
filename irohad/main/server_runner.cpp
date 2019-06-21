@@ -9,19 +9,24 @@
 
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
+#include "main/server_runner_auth.hpp"
 
 const auto kPortBindError = "Cannot bind server to address %s";
 const auto kPrivateKeyError = "Cannot read private key file";
 const auto kCertificateError = "Cannot read certificate file";
 
-ServerRunner::ServerRunner(const std::string &address,
-                           logger::LoggerPtr log,
-                           bool reuse,
-                           const boost::optional<std::string> &tls_keypair)
+ServerRunner::ServerRunner(
+    const std::string &address,
+    logger::LoggerPtr log,
+    bool reuse,
+    const boost::optional<std::string> &tls_keypair,
+    const boost::optional<std::shared_ptr<iroha::ametsuchi::PeerQuery>>
+        &peer_query)
     : log_(std::move(log)),
       server_address_(address),
       reuse_(reuse),
-      tls_keypair_(tls_keypair) {}
+      tls_keypair_(tls_keypair),
+      peer_query_(peer_query) {}
 
 ServerRunner &ServerRunner::append(std::shared_ptr<grpc::Service> service) {
   services_.push_back(service);
@@ -83,7 +88,7 @@ ServerRunner::createSecureCredentials() {
     std::stringstream ss;
     ss << certificate_file.rdbuf();
     certificate_data = ss.str();
-  } catch (std::ifstream::failure e) {
+  } catch (const std::ifstream::failure &e) {
     return iroha::expected::makeError(kCertificateError);
   }
 
@@ -91,11 +96,21 @@ ServerRunner::createSecureCredentials() {
       private_key_data, certificate_data};
   auto options = grpc::SslServerCredentialsOptions();
   options.pem_key_cert_pairs.push_back(keypair);
-  return iroha::expected::makeValue(grpc::SslServerCredentials(options));
+  if (peer_query_) {  // client verification is only enabled if using peer_query
+    options.pem_root_certs = certificate_data;  // dummy value
+    options.client_certificate_request =
+        GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY;
+  }
+  auto credentials = grpc::SslServerCredentials(options);
+  if (peer_query_) {
+    credentials->SetAuthMetadataProcessor(
+        std::make_shared<PeerCertificateAuthMetadataProcessor>(*peer_query_));
+  }
+  return iroha::expected::makeValue(credentials);
 }
 
-boost::optional<std::string>
-ServerRunner::addListeningPortToBuilder(grpc::ServerBuilder &builder, int *selected_port) {
+boost::optional<std::string> ServerRunner::addListeningPortToBuilder(
+    grpc::ServerBuilder &builder, int *selected_port) {
   if (tls_keypair_) {  // if specified, requested to enable TLS
     std::shared_ptr<grpc::ServerCredentials> credentials;
     boost::optional<std::string> credentials_error = {};

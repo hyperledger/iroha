@@ -29,8 +29,17 @@ namespace iroha {
 
       using KeyType = decltype(pubkey);
 
+      /**
+       * TLS certificate
+       */
+
+      std::string tls_certificate{};
+
+      using TlsCertificateType = decltype(tls_certificate);
+
       bool operator==(const Peer &obj) const {
-        if (address == obj.address && pubkey == obj.pubkey) {
+        if (address == obj.address && pubkey == obj.pubkey
+            && tls_certificate == obj.tls_certificate) {
           return true;
         } else {
           return false;
@@ -39,8 +48,8 @@ namespace iroha {
 
       Peer() = default;
 
-      Peer(const AddressType &address, const KeyType &pubkey)
-          : address(address), pubkey(pubkey) {}
+      Peer(const AddressType &address, const KeyType &pubkey, const TlsCertificateType &tls_certificate)
+          : address(address), pubkey(pubkey), tls_certificate(tls_certificate) {}
     };
   }  // namespace model
 }  // namespace iroha

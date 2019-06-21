@@ -46,13 +46,12 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
     const PublicKey &key) {
   std::shared_ptr<shared_model::interface::Peer> peer;
   common_objects_factory->createPeer(address, key)
-      .match(
-          [&peer](auto &&result) { peer = std::move(result.value); },
-          [&address](const auto &error) {
-            BOOST_THROW_EXCEPTION(
-                std::runtime_error("Failed to create peer object for peer "
-                                   + address + ". " + error.error));
-          });
+      .match([&peer](auto &&result) { peer = std::move(result.value); },
+             [&address](const auto &error) {
+               BOOST_THROW_EXCEPTION(
+                   std::runtime_error("Failed to create peer object for peer "
+                                      + address + ". " + error.error));
+             });
   return peer;
 }
 
@@ -106,10 +105,11 @@ namespace integration_framework {
               keypair_->publicKey(),
               mst_log_manager_->getChild("State")->getLogger(),
               mst_log_manager_->getChild("Transport")->getLogger())),
+          client_factory(std::make_shared<iroha::network::ClientFactory>()),
           yac_transport_(std::make_shared<YacTransport>(
               async_call_,
               [](const shared_model::interface::Peer &peer) {
-                return iroha::network::createClient<
+                return client_factory_->createClient<
                     iroha::consensus::yac::proto::Yac>(peer.address());
               },
               consensus_log_manager_->getChild("Transport")->getLogger())),
@@ -372,7 +372,7 @@ namespace integration_framework {
                 ->getTransport();
       }
 
-      auto client = iroha::network::createClient<
+      auto client = client_factory_->createClient<
           iroha::ordering::proto::OnDemandOrdering>(real_peer_->address());
       grpc::ClientContext context;
       google::protobuf::Empty result;

@@ -19,6 +19,7 @@ target_link_libraries(irohad_test
         iroha_conf_literals
         logger
         logger_manager
+        grpc_client_factory
         )
 add_dependencies(irohad_test irohad)
 add_definitions(-DPATHIROHAD="${PROJECT_BINARY_DIR}/bin")

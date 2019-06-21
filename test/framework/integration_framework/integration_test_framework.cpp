@@ -158,8 +158,9 @@ namespace integration_framework {
                                             log_manager_->getChild("Irohad"),
                                             log_,
                                             dbname)),
+        client_factory_(std::make_shared<iroha::network::ClientFactory()),
         command_client_(
-            iroha::network::createClient<iroha::protocol::CommandService_v1>(
+            client_factory_->createClient<iroha::protocol::CommandService_v1>(
                 format_address(kLocalHost, torii_port_)),
             log_manager_->getChild("CommandClient")->getLogger()),
         query_client_(kLocalHost, torii_port_),
@@ -206,7 +207,7 @@ namespace integration_framework {
         yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
             async_call_,
             [](const shared_model::interface::Peer &peer) {
-              return iroha::network::createClient<
+              return client_factory_->createClient<
                   iroha::consensus::yac::proto::Yac>(peer.address());
             },
             log_manager_->getChild("ConsensusTransport")->getLogger())),

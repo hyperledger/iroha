@@ -15,6 +15,7 @@ namespace shared_model {
           .init("AddPeer")
           .append("peer_address", peer().address())
           .append("pubkey", peer().pubkey().toString())
+          .append("tls_certificate", peer().tlsCertificate())
           .finalize();
     }
 

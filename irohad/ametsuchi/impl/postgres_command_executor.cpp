@@ -382,13 +382,13 @@ namespace iroha {
           END AS result;)";
 
     const std::string PostgresCommandExecutor::addPeerBase = R"(
-          PREPARE %s (text, text, text) AS
+          PREPARE %s (text, text, text, text) AS
           WITH
           %s
           inserted AS (
-              INSERT INTO peer(public_key, address)
+              INSERT INTO peer(public_key, address, tls_certificate)
               (
-                  SELECT $2, $3
+                  SELECT $2, $3, $4
                   %s
               ) RETURNING (1)
           )
@@ -838,11 +838,12 @@ namespace iroha {
         const shared_model::interface::AddPeer &command) {
       auto &peer = command.peer();
 
-      auto cmd = boost::format("EXECUTE %1% ('%2%', '%3%', '%4%')");
+      auto cmd = boost::format("EXECUTE %1% ('%2%', '%3%', '%4%', '%5%')");
 
       appendCommandName("addPeer", cmd, do_validation_);
 
-      cmd = (cmd % creator_account_id_ % peer.pubkey().hex() % peer.address());
+      cmd = (cmd % creator_account_id_ % peer.pubkey().hex() % peer.address()
+             % peer.tlsCertificate());
 
       auto str_args = [&peer] {
         return getQueryArgsStringBuilder()
@@ -1205,11 +1206,10 @@ namespace iroha {
            addAssetQuantityBase,
            {(boost::format(R"(has_perm AS (%s),)")
              % checkAccountDomainRoleOrGlobalRolePermission(
-                   shared_model::interface::permissions::Role::kAddAssetQty,
-                   shared_model::interface::permissions::Role::
-                       kAddDomainAssetQty,
-                   "$1",
-                   "$2"))
+                 shared_model::interface::permissions::Role::kAddAssetQty,
+                 shared_model::interface::permissions::Role::kAddDomainAssetQty,
+                 "$1",
+                 "$2"))
                 .str(),
             "AND (SELECT * from has_perm)",
             "WHEN NOT (SELECT * from has_perm) THEN 2"}});
@@ -1219,7 +1219,7 @@ namespace iroha {
            addPeerBase,
            {(boost::format(R"(has_perm AS (%s),)")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kAddPeer, "$1"))
+                 shared_model::interface::permissions::Role::kAddPeer, "$1"))
                 .str(),
             "WHERE (SELECT * FROM has_perm)",
             "WHEN NOT (SELECT * from has_perm) THEN 2"}});
@@ -1230,11 +1230,11 @@ namespace iroha {
            {(boost::format(R"(
                 has_perm AS (%s),)")
              % checkAccountHasRoleOrGrantablePerm(
-                   shared_model::interface::permissions::Role::kAddSignatory,
-                   shared_model::interface::permissions::Grantable::
-                       kAddMySignatory,
-                   "$1",
-                   "$2"))
+                 shared_model::interface::permissions::Role::kAddSignatory,
+                 shared_model::interface::permissions::Grantable::
+                     kAddMySignatory,
+                 "$1",
+                 "$2"))
                 .str(),
             " WHERE (SELECT * FROM has_perm)",
             " AND (SELECT * FROM has_perm)",
@@ -1265,8 +1265,7 @@ namespace iroha {
                 WHERE ar.account_id = $1
             ),)")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kAppendRole,
-                   "$1")
+                 shared_model::interface::permissions::Role::kAppendRole, "$1")
              % bits)
                 .str(),
             R"( WHERE
@@ -1299,8 +1298,8 @@ namespace iroha {
            has_perm AS (%2%),
           )") % bits
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kCreateAccount,
-                   "$1"))
+                 shared_model::interface::permissions::Role::kCreateAccount,
+                 "$1"))
                 .str(),
             R"(AND (SELECT * FROM has_perm)
                AND (SELECT * FROM creator_has_enough_permissions))",
@@ -1313,8 +1312,8 @@ namespace iroha {
            {(boost::format(R"(
               has_perm AS (%s),)")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kCreateAsset,
-                   "$1"))
+                 shared_model::interface::permissions::Role::kCreateAsset,
+                 "$1"))
                 .str(),
             R"(WHERE (SELECT * FROM has_perm))",
             R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"}});
@@ -1325,8 +1324,8 @@ namespace iroha {
            {(boost::format(R"(
               has_perm AS (%s),)")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kCreateDomain,
-                   "$1"))
+                 shared_model::interface::permissions::Role::kCreateDomain,
+                 "$1"))
                 .str(),
             R"(WHERE (SELECT * FROM has_perm))",
             R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"}});
@@ -1344,8 +1343,7 @@ namespace iroha {
           has_perm AS (%s),)")
              % bits
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kCreateRole,
-                   "$1"))
+                 shared_model::interface::permissions::Role::kCreateRole, "$1"))
                 .str(),
             R"(WHERE (SELECT * FROM account_has_role_permissions)
                           AND (SELECT * FROM has_perm))",
@@ -1359,8 +1357,7 @@ namespace iroha {
            {(boost::format(R"(
             has_perm AS (%s),)")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kDetachRole,
-                   "$1"))
+                 shared_model::interface::permissions::Role::kDetachRole, "$1"))
                 .str(),
             R"(AND (SELECT * FROM has_perm))",
             R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"}});
@@ -1399,11 +1396,11 @@ namespace iroha {
           ),
           )")
              % checkAccountHasRoleOrGrantablePerm(
-                   shared_model::interface::permissions::Role::kRemoveSignatory,
-                   shared_model::interface::permissions::Grantable::
-                       kRemoveMySignatory,
-                   "$1",
-                   "$2"))
+                 shared_model::interface::permissions::Role::kRemoveSignatory,
+                 shared_model::interface::permissions::Grantable::
+                     kRemoveMySignatory,
+                 "$1",
+                 "$2"))
                 .str(),
             R"(
               AND (SELECT * FROM has_perm)
@@ -1444,12 +1441,12 @@ namespace iroha {
               ),
               )")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kSetDetail, "$1")
+                 shared_model::interface::permissions::Role::kSetDetail, "$1")
              % checkAccountGrantablePermission(
-                   shared_model::interface::permissions::Grantable::
-                       kSetMyAccountDetail,
-                   "$1",
-                   "$2"))
+                 shared_model::interface::permissions::Grantable::
+                     kSetMyAccountDetail,
+                 "$1",
+                 "$2"))
                 .str(),
             R"( AND (SELECT * FROM has_perm))",
             R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"}});
@@ -1469,11 +1466,10 @@ namespace iroha {
             (boost::format(R"(
           has_perm AS (%s),)")
              % checkAccountHasRoleOrGrantablePerm(
-                   shared_model::interface::permissions::Role::kSetQuorum,
-                   shared_model::interface::permissions::Grantable::
-                       kSetMyQuorum,
-                   "$1",
-                   "$2"))
+                 shared_model::interface::permissions::Role::kSetQuorum,
+                 shared_model::interface::permissions::Grantable::kSetMyQuorum,
+                 "$1",
+                 "$2"))
                 .str(),
             R"(AND EXISTS
               (SELECT * FROM get_signatories)
@@ -1485,20 +1481,20 @@ namespace iroha {
               WHEN NOT EXISTS (SELECT * FROM check_account_signatories) THEN 5
               )"}});
 
-      statements.push_back({"subtractAssetQuantity",
-                            subtractAssetQuantityBase,
-                            {(boost::format(R"(
+      statements.push_back(
+          {"subtractAssetQuantity",
+           subtractAssetQuantityBase,
+           {(boost::format(R"(
                has_perm AS (%s),)")
-                              % checkAccountDomainRoleOrGlobalRolePermission(
-                                    shared_model::interface::permissions::Role::
-                                        kSubtractAssetQty,
-                                    shared_model::interface::permissions::Role::
-                                        kSubtractDomainAssetQty,
-                                    "$1",
-                                    "$2"))
-                                 .str(),
-                             R"( AND (SELECT * FROM has_perm))",
-                             R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"}});
+             % checkAccountDomainRoleOrGlobalRolePermission(
+                 shared_model::interface::permissions::Role::kSubtractAssetQty,
+                 shared_model::interface::permissions::Role::
+                     kSubtractDomainAssetQty,
+                 "$1",
+                 "$2"))
+                .str(),
+            R"( AND (SELECT * FROM has_perm))",
+            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"}});
 
       statements.push_back(
           {"transferAsset",
@@ -1522,14 +1518,14 @@ namespace iroha {
               ),
               )")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kTransfer, "$1")
+                 shared_model::interface::permissions::Role::kTransfer, "$1")
              % checkAccountGrantablePermission(
-                   shared_model::interface::permissions::Grantable::
-                       kTransferMyAssets,
-                   "$1",
-                   "$2")
+                 shared_model::interface::permissions::Grantable::
+                     kTransferMyAssets,
+                 "$1",
+                 "$2")
              % checkAccountRolePermission(
-                   shared_model::interface::permissions::Role::kReceive, "$3"))
+                 shared_model::interface::permissions::Role::kReceive, "$3"))
                 .str(),
             R"( AND (SELECT * FROM has_perm))",
             R"( AND (SELECT * FROM has_perm))",

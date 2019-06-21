@@ -10,6 +10,7 @@
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger_fwd.hpp"
+#include "network/impl/client_factory.hpp"
 
 namespace integration_framework {
   namespace fake_peer {
@@ -61,6 +62,7 @@ namespace integration_framework {
 
      private:
       std::weak_ptr<FakePeer> fake_peer_wptr_;
+      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 
       rxcpp::subjects::subject<LoaderBlockRequest> block_requests_subject_;
       rxcpp::subjects::subject<LoaderBlocksRequest> blocks_requests_subject_;

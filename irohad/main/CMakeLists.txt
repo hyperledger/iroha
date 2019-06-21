@@ -5,7 +5,7 @@
 
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
-add_library(server_runner server_runner.cpp)
+add_library(server_runner server_runner.cpp server_runner_auth.cpp)
 target_link_libraries(server_runner
     logger
     grpc++
@@ -69,6 +69,7 @@ target_link_libraries(irohad
     logger
     logger_manager
     irohad_version
+    grpc_client_factory
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)

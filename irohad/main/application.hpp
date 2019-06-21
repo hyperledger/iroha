@@ -38,6 +38,7 @@ namespace iroha {
     class PeerCommunicationService;
     class MstTransport;
     class OrderingGate;
+    class ClientFactory;
   }  // namespace network
   namespace simulator {
     class Simulator;
@@ -103,26 +104,29 @@ class Irohad {
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    * @param torii_tls_params - optional TLS params for torii.
    * @see iroha::torii::TlsParams
+   * @param enable_p2p_tls - enable TLS in peer-to-peer communication
    */
-  Irohad(const std::string &block_store_dir,
-         const std::string &pg_conn,
-         const std::string &listen_ip,
-         size_t torii_port,
-         size_t internal_port,
-         size_t max_proposal_size,
-         std::chrono::milliseconds proposal_delay,
-         std::chrono::milliseconds vote_delay,
-         std::chrono::minutes mst_expiration_time,
-         const shared_model::crypto::Keypair &keypair,
-         std::chrono::milliseconds max_rounds_delay,
-         size_t stale_stream_max_rounds,
-         boost::optional<shared_model::interface::types::PeerList>
-             opt_alternative_peers,
-         logger::LoggerManagerTreePtr logger_manager,
-         const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none,
-         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
-             boost::none);
+  Irohad(
+      const std::string &block_store_dir,
+      const std::string &pg_conn,
+      const std::string &listen_ip,
+      size_t torii_port,
+      size_t internal_port,
+      size_t max_proposal_size,
+      std::chrono::milliseconds proposal_delay,
+      std::chrono::milliseconds vote_delay,
+      std::chrono::minutes mst_expiration_time,
+      const shared_model::crypto::Keypair &keypair,
+      std::chrono::milliseconds max_rounds_delay,
+      size_t stale_stream_max_rounds,
+      boost::optional<shared_model::interface::types::PeerList>
+          opt_alternative_peers,
+      logger::LoggerManagerTreePtr logger_manager,
+      const boost::optional<iroha::GossipPropagationStrategyParams>
+          &opt_mst_gossip_params = boost::none,
+      const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+          boost::none,
+      const boost::optional<std::string> &p2p_tls_keypair_path = boost::none);
 
   /**
    * Initialization of whole objects in system
@@ -197,6 +201,8 @@ class Irohad {
 
   virtual RunResult initQueryService();
 
+  virtual RunResult initClientFactory();
+
   /**
    * Initialize WSV restorer
    */
@@ -220,6 +226,7 @@ class Irohad {
       opt_alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
+  boost::optional<std::string> p2p_tls_keypair_path_;
 
   // ------------------------| internal dependencies |-------------------------
  public:
@@ -344,6 +351,8 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
+
+  std::shared_ptr<iroha::network::ClientFactory> client_factory;
 };
 
 #endif  // IROHA_APPLICATION_HPP

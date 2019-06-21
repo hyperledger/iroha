@@ -21,7 +21,7 @@
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/shared_model/interface_mocks.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/client_factory.hpp"
 
 using ::testing::_;
 using ::testing::An;
@@ -100,10 +100,11 @@ class ConsensusSunnyDayTest : public ::testing::Test {
     auto async_call = std::make_shared<
         iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
         getTestLogger("AsyncCall"));
+    iroha::network::ClientFactory client_factory;
     network = std::make_shared<NetworkImpl>(
         async_call,
         [](const shared_model::interface::Peer &peer) {
-          return iroha::network::createClient<proto::Yac>(peer.address());
+          return client_factory->createClient<proto::Yac>(peer.address());
         },
         getTestLogger("YacNetwork"));
     crypto = std::make_shared<FixedCryptoProvider>(my_pub_key);

@@ -22,6 +22,7 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "network/block_loader.hpp"
 #include "network/impl/async_grpc_client.hpp"
+#include "network/impl/client_factory.hpp"
 #include "simulator/block_creator.hpp"
 
 namespace iroha {
@@ -45,7 +46,9 @@ namespace iroha {
             std::shared_ptr<shared_model::interface::CommonObjectsFactory>
                 common_objects_factory,
             ConsistencyModel consistency_model,
-            const logger::LoggerManagerTreePtr &consensus_log_manager);
+            const logger::LoggerManagerTreePtr &consensus_log_manager,
+            const std::shared_ptr<iroha::network::ClientFactory>
+                &client_factory);
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 

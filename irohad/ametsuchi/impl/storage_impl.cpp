@@ -959,6 +959,7 @@ CREATE TABLE IF NOT EXISTS account_has_signatory (
 CREATE TABLE IF NOT EXISTS peer (
     public_key varchar NOT NULL,
     address character varying(261) NOT NULL UNIQUE,
+    tls_certificate varchar,
     PRIMARY KEY (public_key)
 );
 CREATE TABLE IF NOT EXISTS asset (

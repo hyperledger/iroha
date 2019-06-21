@@ -19,6 +19,7 @@ namespace iroha {
         protocol::Peer res;
         res.set_address(iroha_peer.address);
         res.set_peer_key(iroha_peer.pubkey.to_hexstring());
+        res.set_tls_certificate(iroha_peer.tls_certificate);
         return res;
       }
 
@@ -32,6 +33,7 @@ namespace iroha {
         std::copy(blob->begin(),
                   blob->end(),
                   res.pubkey.begin());
+        res.tls_certificate = pb_peer.tlsCertificate();
         return res;
       }
 

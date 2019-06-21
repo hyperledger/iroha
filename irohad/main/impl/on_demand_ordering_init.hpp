@@ -16,6 +16,7 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "network/ordering_gate.hpp"
 #include "network/peer_communication_service.hpp"
+#include "network/impl/client_factory.hpp"
 #include "ordering.grpc.pb.h"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
@@ -45,7 +46,8 @@ namespace iroha {
               async_call,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::chrono::milliseconds delay,
-          const logger::LoggerManagerTreePtr &ordering_log_manager);
+          const logger::LoggerManagerTreePtr &ordering_log_manager,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       /**
        * Creates connection manager which redirects requests to appropriate
@@ -58,7 +60,8 @@ namespace iroha {
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::chrono::milliseconds delay,
           std::vector<shared_model::interface::types::HashType> initial_hashes,
-          const logger::LoggerManagerTreePtr &ordering_log_manager);
+          const logger::LoggerManagerTreePtr &ordering_log_manager,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       /**
        * Creates on-demand ordering gate. \see initOrderingGate for parameters
@@ -136,7 +139,8 @@ namespace iroha {
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
           std::function<std::chrono::milliseconds(
               const synchronizer::SynchronizationEvent &)> delay_func,
-          logger::LoggerManagerTreePtr ordering_log_manager);
+          logger::LoggerManagerTreePtr ordering_log_manager,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       /// gRPC service for ordering service
       std::shared_ptr<ordering::proto::OnDemandOrdering::Service> service;

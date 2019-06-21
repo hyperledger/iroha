@@ -53,13 +53,15 @@ namespace iroha {
             async_call,
         std::shared_ptr<TransportFactoryType> proposal_transport_factory,
         std::chrono::milliseconds delay,
-        const logger::LoggerManagerTreePtr &ordering_log_manager) {
+        const logger::LoggerManagerTreePtr &ordering_log_manager,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory) {
       return std::make_shared<ordering::transport::OnDemandOsClientGrpcFactory>(
           std::move(async_call),
           std::move(proposal_transport_factory),
           [] { return std::chrono::system_clock::now(); },
           delay,
-          ordering_log_manager->getChild("NetworkClient")->getLogger());
+          ordering_log_manager->getChild("NetworkClient")->getLogger(),
+          std::move(client_factory));
     }
 
     auto OnDemandOrderingInit::createConnectionManager(
@@ -68,7 +70,8 @@ namespace iroha {
         std::shared_ptr<TransportFactoryType> proposal_transport_factory,
         std::chrono::milliseconds delay,
         std::vector<shared_model::interface::types::HashType> initial_hashes,
-        const logger::LoggerManagerTreePtr &ordering_log_manager) {
+        const logger::LoggerManagerTreePtr &ordering_log_manager,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory) {
       // since top block will be the first in commit_notifier observable,
       // hashes of two previous blocks are prepended
       const size_t kBeforePreviousTop = 0, kPreviousTop = 1;
@@ -95,31 +98,31 @@ namespace iroha {
 
         consensus::Round current_round = latest_commit.round;
 
-        auto on_blocks = [this, current_hashes, &current_round](
-                             const auto &commit) {
-          current_round = ordering::nextCommitRound(current_round);
-          current_peers_ = commit.ledger_state->ledger_peers;
+        auto on_blocks =
+            [this, current_hashes, &current_round](const auto &commit) {
+              current_round = ordering::nextCommitRound(current_round);
+              current_peers_ = commit.ledger_state->ledger_peers;
 
-          // generate permutation of peers list from corresponding round
-          // hash
-          auto generate_permutation = [&](auto round) {
-            auto &hash = std::get<round()>(current_hashes);
-            log_->debug("Using hash: {}", hash.toString());
-            auto &permutation = permutations_[round()];
+              // generate permutation of peers list from corresponding round
+              // hash
+              auto generate_permutation = [&](auto round) {
+                auto &hash = std::get<round()>(current_hashes);
+                log_->debug("Using hash: {}", hash.toString());
+                auto &permutation = permutations_[round()];
 
-            std::seed_seq seed(hash.blob().begin(), hash.blob().end());
-            gen_.seed(seed);
+                std::seed_seq seed(hash.blob().begin(), hash.blob().end());
+                gen_.seed(seed);
 
-            permutation.resize(current_peers_.size());
-            std::iota(permutation.begin(), permutation.end(), 0);
+                permutation.resize(current_peers_.size());
+                std::iota(permutation.begin(), permutation.end(), 0);
 
-            std::shuffle(permutation.begin(), permutation.end(), gen_);
-          };
+                std::shuffle(permutation.begin(), permutation.end(), gen_);
+              };
 
-          generate_permutation(RoundTypeConstant<kCurrentRound>{});
-          generate_permutation(RoundTypeConstant<kNextRound>{});
-          generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
-        };
+              generate_permutation(RoundTypeConstant<kCurrentRound>{});
+              generate_permutation(RoundTypeConstant<kNextRound>{});
+              generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
+            };
         auto on_nothing = [&current_round](const auto &) {
           current_round = ordering::nextRejectRound(current_round);
         };
@@ -184,7 +187,8 @@ namespace iroha {
           createNotificationFactory(std::move(async_call),
                                     std::move(proposal_transport_factory),
                                     delay,
-                                    ordering_log_manager),
+                                    ordering_log_manager,
+                                    std::move(client_factory)),
           peers,
           ordering_log_manager->getChild("ConnectionManager")->getLogger());
     }
@@ -327,7 +331,8 @@ namespace iroha {
         std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
         std::function<std::chrono::milliseconds(
             const synchronizer::SynchronizationEvent &)> delay_func,
-        logger::LoggerManagerTreePtr ordering_log_manager) {
+        logger::LoggerManagerTreePtr ordering_log_manager,
+        std::shared_ptr<iroha::network::ClientFactory> client_factory) {
       auto ordering_service = createService(max_number_of_transactions,
                                             proposal_factory,
                                             tx_cache,
@@ -344,7 +349,8 @@ namespace iroha {
                                   std::move(proposal_transport_factory),
                                   delay,
                                   std::move(initial_hashes),
-                                  ordering_log_manager),
+                                  ordering_log_manager,
+                                  std::move(client_factory)),
           std::make_shared<ordering::cache::OnDemandCache>(),
           std::move(proposal_factory),
           std::move(tx_cache),

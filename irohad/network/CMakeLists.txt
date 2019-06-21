@@ -40,3 +40,15 @@ add_library(ordering_gate_common
 target_link_libraries(ordering_gate_common
     boost
     )
+
+add_library(grpc_client_factory
+    impl/client_factory.cpp
+    impl/channel_pool.cpp
+    )
+
+target_link_libraries(grpc_client_factory
+    ametsuchi
+    loader_grpc
+    ordering_grpc
+    yac_grpc
+    )

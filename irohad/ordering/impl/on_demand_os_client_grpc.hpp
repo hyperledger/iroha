@@ -11,6 +11,7 @@
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/impl/async_grpc_client.hpp"
+#include "network/impl/client_factory.hpp"
 #include "ordering.grpc.pb.h"
 
 namespace iroha {
@@ -66,7 +67,8 @@ namespace iroha {
             std::shared_ptr<TransportFactoryType> proposal_factory,
             std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
             OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
-            logger::LoggerPtr client_log);
+            logger::LoggerPtr client_log,
+            std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
         /**
          * Create connection with insecure gRPC channel defined by
@@ -84,6 +86,7 @@ namespace iroha {
         std::function<OnDemandOsClientGrpc::TimepointType()> time_provider_;
         std::chrono::milliseconds proposal_request_timeout_;
         logger::LoggerPtr client_log_;
+        std::shared_ptr<network::ClientFactory> client_factory_;
       };
 
     }  // namespace transport

@@ -13,7 +13,7 @@
 #include "common/bind.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/client_factory.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace iroha::network;
@@ -30,10 +30,12 @@ namespace {
 BlockLoaderImpl::BlockLoaderImpl(
     std::shared_ptr<PeerQueryFactory> peer_query_factory,
     shared_model::proto::ProtoBlockFactory factory,
-    logger::LoggerPtr log)
+    logger::LoggerPtr log,
+    std::shared_ptr<iroha::network::ClientFactory> client_factory)
     : peer_query_factory_(std::move(peer_query_factory)),
       block_factory_(std::move(factory)),
-      log_(std::move(log)) {}
+      log_(std::move(log)),
+      client_factory_(client_factory) {}
 
 rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
@@ -137,7 +139,7 @@ proto::Loader::Stub &BlockLoaderImpl::getPeerStub(
     it = peer_connections_
              .insert(std::make_pair(
                  peer.address(),
-                 network::createClient<proto::Loader>(peer.address())))
+                 client_factory_->createClient<proto::Loader>(peer.address())))
              .first;
   }
   return *it->second;

@@ -18,6 +18,7 @@ struct IrohadConfig {
   std::string block_store_path;
   uint16_t torii_port;
   boost::optional<iroha::torii::TlsParams> torii_tls_params;
+  boost::optional<std::string> p2p_tls_keypair_path;
   uint16_t internal_port;
   std::string pg_opt;
   uint32_t max_proposal_size;
