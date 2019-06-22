@@ -93,9 +93,12 @@ auto initObservers(std::shared_ptr<FairMstProcessor> mst_processor,
  */
 template <typename T>
 void check(T &t) {
-  ASSERT_TRUE(std::get<0>(t).validate());
-  ASSERT_TRUE(std::get<1>(t).validate());
-  ASSERT_TRUE(std::get<2>(t).validate());
+  ASSERT_TRUE(std::get<0>(t).validate())
+      << "onStateUpdate" << std::get<0>(t).reason();
+  ASSERT_TRUE(std::get<1>(t).validate())
+      << "onPreparedBatches" << std::get<1>(t).reason();
+  ASSERT_TRUE(std::get<2>(t).validate())
+      << "onExpiredBatches" << std::get<2>(t).reason();
 }
 
 /**
@@ -344,5 +347,30 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
 
   // ---------------------------------| then |----------------------------------
   EXPECT_FALSE(storage->batchInStorage(expired_batch));
+  check(observers);
+}
+
+/**
+ * @given initialized mst processor with two incomplete transactions in the
+ * state
+ *
+ * @when one of them is received from another peer
+ *
+ * @then no observables are triggered
+ */
+TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
+  const auto batch = addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_now, 2)), 0, makeKey());
+  mst_processor->propagateBatch(batch);
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(2, time_now, 2)), 0, makeKey()));
+
+  auto received_state = MstState::empty(getTestLogger("MstState"),
+                                        std::make_shared<TestCompleter>());
+  received_state += batch;
+  auto observers = initObservers(mst_processor, 0, 0, 0);
+  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
+  mst_processor->onNewState(another_peer_key, received_state);
+
   check(observers);
 }
