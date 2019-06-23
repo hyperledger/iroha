@@ -68,10 +68,10 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/boost
 
-# install protobuf v3.5.1
+# install protobuf v3.8.0
 RUN set -e; \
     git clone https://github.com/google/protobuf /tmp/protobuf; \
-    (cd /tmp/protobuf ; git checkout 106ffc04be1abf3ff3399f54ccf149815b287dd9); \
+    (cd /tmp/protobuf ; git checkout 09745575a923640154bcf307fba8aedff47f240a); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -Dprotobuf_BUILD_TESTS=OFF \
@@ -106,10 +106,10 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/c-ares
 
-# install grpc 1.11.0
+# install grpc 1.21.1
 RUN set -e; \
     git clone https://github.com/grpc/grpc /tmp/grpc; \
-    (cd /tmp/grpc ; git checkout bd44e485f69d70ca4095cea92decd98de3892aa6); \
+    (cd /tmp/grpc ; git checkout 75475f090875e737ad6909a6057c59577f0c79b1); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -DgRPC_BENCHMARK_PROVIDER="" \
