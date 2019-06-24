@@ -138,6 +138,10 @@ namespace framework {
         subscription_.unsubscribe();
       }
 
+      auto reason() {
+        return strategy_->invalidate_reason_;
+      }
+
      private:
       Observable unwrapped_;
       std::unique_ptr<VerificationStrategy<T>> strategy_;
