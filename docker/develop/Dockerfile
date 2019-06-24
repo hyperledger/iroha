@@ -33,7 +33,7 @@ RUN set -e; \
         # Pythons
         python-pip python3-pip python3-setuptools python-dev \
         # other
-        curl file gdb gdbserver ccache \
+        curl file gdb gdbserver ccache clang-format \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip; \
     apt-get -y clean
 
@@ -223,7 +223,7 @@ RUN set -e; \
     rm -rf /tmp/tbb
 
 # install sonar cli
-ENV SONAR_CLI_VERSION=3.0.3.778
+ENV SONAR_CLI_VERSION=3.3.0.1492
 RUN set -e; \
     mkdir -p /opt/sonar; \
     curl -L -o /tmp/sonar.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_CLI_VERSION}-linux.zip; \

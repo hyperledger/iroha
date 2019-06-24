@@ -13,9 +13,9 @@ param_descriptions = """
 <p>
   <strong>Default</strong> - will automatically chose the correct one based on branch name and build number<br />
   <strong>Branch commit</strong> - Linux/gcc v5; Test: Smoke, Unit;<br />
-  <strong>On open PR -</strong> Linux/gcc v5, MacOS/appleclang; Test: All; Coverage; Analysis: cppcheck, sonar;<br />
+  <strong>On open PR -</strong> Linux/gcc v5, MacOS/appleclang, Windows/msvc; Test: All; Coverage; Analysis: cppcheck, sonar, codestyle;<br />
   <strong>Commit in Open PR</strong> - Same as Branch commit<br />
-  <strong>Before merge to trunk</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang; Test: ALL; Coverage; Analysis: cppcheck, sonar; Build type: Debug when Release; useBTF=true<br />
+  <strong>Before merge to trunk</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; Build type: Debug when Release; useBTF=true<br />
   <strong>Custom command</strong> - enter command below, Ex: build_type='Release'; testing=false;<br />
 </p>
 """
@@ -119,6 +119,17 @@ cmd_description = """
          </li>
          <li>
             <p>Ex:&nbsp;cppcheck = true</p>
+         </li>
+      </ul>
+   </li>
+   <li>
+      <p><strong>codestyle</strong> = false</p>
+      <ul>
+         <li>
+            <p>Runs&nbsp;clang-format against changed file in PR&nbsp;</p>
+         </li>
+         <li>
+            <p>Ex:&nbsp;codestyle = true</p>
          </li>
       </ul>
    </li>
