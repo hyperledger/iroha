@@ -21,7 +21,7 @@ namespace iroha {
 
       bool SupermajorityCheckerCft::isTolerated(PeersNumberType voted,
                                                 PeersNumberType all) const {
-        return checkKfPlus1Majority(
+        return checkKfPlus1Tolerance(
             voted, all, detail::kSupermajorityCheckerKfPlus1Cft);
       }
 
