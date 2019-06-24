@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
+#include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -17,6 +18,7 @@
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
+#include "mst_mock.grpc.pb.h"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
@@ -27,26 +29,66 @@ using namespace shared_model::interface;
 
 using ::testing::_;
 using ::testing::A;
+using ::testing::DoAll;
 using ::testing::Invoke;
+using ::testing::Return;
+using ::testing::SaveArg;
 
 class TransportTest : public ::testing::Test {
  public:
   TransportTest()
-      : async_call_(std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
-            getTestLogger("AsyncClient"))),
-        parser_(std::make_shared<TransactionBatchParserImpl>()),
-        batch_validator_(
-            std::make_shared<shared_model::validation::BatchValidator>(
-                iroha::test::kTestsValidatorsConfig)),
-        batch_factory_(
-            std::make_shared<TransactionBatchFactoryImpl>(batch_validator_)),
-        tx_presence_cache_(
-            std::make_shared<iroha::ametsuchi::MockTxPresenceCache>()),
-        my_key_(makeKey()),
-        completer_(
-            std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0))),
-        mst_notification_transport_(
-            std::make_shared<iroha::MockMstTransportNotification>()) {}
+      : my_key_(makeKey()),
+        stub(new iroha::network::transport::MockMstTransportGrpcStub()) {}
+  void SetUp() override {
+    async_call_ = std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
+        getTestLogger("AsyncClient"));
+    parser_ = std::make_shared<TransactionBatchParserImpl>();
+    batch_validator_ =
+        std::make_shared<shared_model::validation::BatchValidator>(
+            iroha::test::kTestsValidatorsConfig);
+    batch_factory_ =
+        std::make_shared<TransactionBatchFactoryImpl>(batch_validator_);
+    tx_presence_cache_ =
+        std::make_shared<iroha::ametsuchi::MockTxPresenceCache>();
+    completer_ =
+        std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
+    mst_notification_transport_ =
+        std::make_shared<iroha::MockMstTransportNotification>();
+    interface_tx_validator =
+        std::make_unique<shared_model::validation::MockValidator<
+            shared_model::interface::Transaction>>();
+    proto_tx_validator =
+        std::make_unique<shared_model::validation::MockValidator<
+            iroha::protocol::Transaction>>();
+    tx_factory = std::make_shared<shared_model::proto::ProtoTransportFactory<
+        shared_model::interface::Transaction,
+        shared_model::proto::Transaction>>(std::move(interface_tx_validator),
+                                           std::move(proto_tx_validator));
+    // TODO 18.06.19 (@alex9430) fix the test so that neither boost::none, nor
+    // nullptr is in use with sender_factory
+    MstTransportGrpc::SenderFactory sender_factory_(
+        [this](const shared_model::interface::Peer &peer) {
+          return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
+              stub);
+        });
+    transport =
+        std::make_shared<MstTransportGrpc>(async_call_,
+                                           tx_factory,
+                                           parser_,
+                                           batch_factory_,
+                                           tx_presence_cache_,
+                                           completer_,
+                                           my_key_.publicKey(),
+                                           getTestLogger("MstState"),
+                                           getTestLogger("MstTransportGrpc"),
+                                           sender_factory_);
+    transport->subscribe(mst_notification_transport_);
+
+    shared_model::interface::types::PubkeyType pk(
+        shared_model::crypto::Hash::fromHexString(
+            "abcdabcdabcdabcdabcdabcdabcdabcd"));
+    peer = makePeer("localhost:0", pk);
+  }
 
   std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call_;
   std::shared_ptr<TransactionBatchParserImpl> parser_;
@@ -59,6 +101,20 @@ class TransportTest : public ::testing::Test {
   std::shared_ptr<iroha::DefaultCompleter> completer_;
   std::shared_ptr<iroha::MockMstTransportNotification>
       mst_notification_transport_;
+  std::unique_ptr<shared_model::validation::MockValidator<
+      shared_model::interface::Transaction>>
+      interface_tx_validator;
+  std::unique_ptr<
+      shared_model::validation::MockValidator<iroha::protocol::Transaction>>
+      proto_tx_validator;
+  std::shared_ptr<shared_model::proto::ProtoTransportFactory<
+      shared_model::interface::Transaction,
+      shared_model::proto::Transaction>>
+      tx_factory;
+  std::shared_ptr<MstTransportGrpc> transport;
+  std::shared_ptr<shared_model::interface::Peer> peer;
+  // stub will be deleted by unique_ptr created in client_creator
+  iroha::network::transport::MockMstTransportGrpcStub *stub;
 };
 
 static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
@@ -77,19 +133,9 @@ static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
  * @then Assume that received state same as sent
  */
 TEST_F(TransportTest, SendAndReceive) {
-  auto interface_tx_validator =
-      std::make_unique<shared_model::validation::MockValidator<
-          shared_model::interface::Transaction>>();
-  auto proto_tx_validator = std::make_unique<
-      shared_model::validation::MockValidator<iroha::protocol::Transaction>>();
-  auto tx_factory = std::make_shared<shared_model::proto::ProtoTransportFactory<
-      shared_model::interface::Transaction,
-      shared_model::proto::Transaction>>(std::move(interface_tx_validator),
-                                         std::move(proto_tx_validator));
-
-  ON_CALL(*tx_presence_cache_,
-          check(A<const shared_model::interface::TransactionBatch &>()))
-      .WillByDefault(Invoke([](const auto &batch) {
+  EXPECT_CALL(*tx_presence_cache_,
+              check(A<const shared_model::interface::TransactionBatch &>()))
+      .WillRepeatedly(Invoke([](const auto &batch) {
         iroha::ametsuchi::TxPresenceCache::BatchStatusCollectionType result;
         std::transform(
             batch.transactions().begin(),
@@ -101,22 +147,6 @@ TEST_F(TransportTest, SendAndReceive) {
             });
         return result;
       }));
-
-  auto transport =
-      std::make_shared<MstTransportGrpc>(std::move(async_call_),
-                                         std::move(tx_factory),
-                                         std::move(parser_),
-                                         std::move(batch_factory_),
-                                         std::move(tx_presence_cache_),
-                                         completer_,
-                                         my_key_.publicKey(),
-                                         getTestLogger("MstState"),
-                                         getTestLogger("MstTransportGrpc"));
-  transport->subscribe(mst_notification_transport_);
-
-  std::mutex mtx;
-  std::condition_variable cv;
-
   auto time = iroha::time::now();
   auto state = iroha::MstState::empty(getTestLogger("MstState"), completer_);
   state += addSignaturesFromKeyPairs(
@@ -127,42 +157,25 @@ TEST_F(TransportTest, SendAndReceive) {
       makeTestBatch(txBuilder(3, time)), 0, makeKey());
   state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(3, time)), 0, makeKey());
-
   ASSERT_EQ(3, state.getBatches().size());
-
-  std::unique_ptr<grpc::Server> server;
-
-  grpc::ServerBuilder builder;
-  int port = 0;
-  std::string addr = "localhost:";
-  builder.AddListeningPort(
-      addr + "0", grpc::InsecureServerCredentials(), &port);
-  builder.RegisterService(transport.get());
-  server = builder.BuildAndStart();
-  ASSERT_TRUE(server);
-  ASSERT_NE(port, 0);
-
-  std::string address = addr + std::to_string(port);
-  shared_model::interface::types::PubkeyType pk(
-      shared_model::crypto::Hash::fromHexString(
-          "abcdabcdabcdabcdabcdabcdabcdabcd"));
-  std::shared_ptr<shared_model::interface::Peer> peer = makePeer(address, pk);
   // we want to ensure that server side will call onNewState()
   // with same parameters as on the client side
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
-          [this, &cv, &state](const auto &from_key, auto const &target_state) {
+          [this, &state](const auto &from_key, auto const &target_state) {
             EXPECT_EQ(this->my_key_.publicKey(), from_key);
-
             EXPECT_TRUE(statesEqual(state, target_state));
-            cv.notify_one();
           }));
 
+  ::grpc::ServerContext context;
+  ::iroha::network::transport::MstState request;
+  auto r = std::make_unique<
+      grpc::testing::MockClientAsyncResponseReader<google::protobuf::Empty>>();
+  EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
+      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
   transport->sendState(*peer, state);
-  std::unique_lock<std::mutex> lock(mtx);
-  cv.wait_for(lock, std::chrono::milliseconds(5000));
-
-  server->Shutdown();
+  auto response = transport->SendState(&context, &request, nullptr);
+  ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
 }
 
 /**
@@ -180,29 +193,6 @@ TEST_F(TransportTest, SendAndReceive) {
  * test batch.
  */
 TEST_F(TransportTest, ReplayAttack) {
-  auto interface_tx_validator =
-      std::make_unique<shared_model::validation::MockValidator<
-          shared_model::interface::Transaction>>();
-  auto proto_tx_validator = std::make_unique<
-      shared_model::validation::MockValidator<iroha::protocol::Transaction>>();
-  auto tx_factory = std::make_shared<shared_model::proto::ProtoTransportFactory<
-      shared_model::interface::Transaction,
-      shared_model::proto::Transaction>>(std::move(interface_tx_validator),
-                                         std::move(proto_tx_validator));
-
-  auto transport =
-      std::make_shared<MstTransportGrpc>(std::move(async_call_),
-                                         std::move(tx_factory),
-                                         std::move(parser_),
-                                         std::move(batch_factory_),
-                                         tx_presence_cache_,
-                                         completer_,
-                                         my_key_.publicKey(),
-                                         getTestLogger("MstState"),
-                                         getTestLogger("MstTransportGrpc"));
-
-  transport->subscribe(mst_notification_transport_);
-
   auto batch = makeTestBatch(txBuilder(1), txBuilder(2));
   auto state = iroha::MstState::empty(getTestLogger("MstState"), completer_);
   state += addSignaturesFromKeyPairs(
