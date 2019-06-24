@@ -27,10 +27,11 @@ namespace iroha {
   namespace ametsuchi {
     class PgConnectionInit {
      public:
-      expected::Result<std::shared_ptr<soci::connection_pool>, std::string>
+      static expected::Result<std::shared_ptr<soci::connection_pool>,
+                              std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
-      expected::Result<PoolWrapper, std::string> prepareConnectionPool(
+      static expected::Result<PoolWrapper, std::string> prepareConnectionPool(
           ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
           const int pool_size,
@@ -39,12 +40,12 @@ namespace iroha {
       /**
        * Verify whether postgres supports prepared transactions
        */
-      bool preparedTransactionsAvailable(soci::session &sql);
+      static bool preparedTransactionsAvailable(soci::session &sql);
 
       static iroha::expected::Result<void, std::string> rollbackPrepared(
           soci::session &sql, const std::string &prepared_block_name);
 
-      expected::Result<bool, std::string> createDatabaseIfNotExist(
+      static expected::Result<bool, std::string> createDatabaseIfNotExist(
           const std::string &dbname,
           const std::string &options_str_without_dbname);
 
@@ -65,7 +66,7 @@ namespace iroha {
        * @tparam RollbackFunction - type of rollback function
        */
       template <typename RollbackFunction>
-      void initializeConnectionPool(
+      static void initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
           const std::string &prepare_tables_sql,
