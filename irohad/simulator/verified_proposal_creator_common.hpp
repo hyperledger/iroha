@@ -22,7 +22,7 @@ namespace iroha {
       boost::optional<std::shared_ptr<validation::VerifiedProposalAndErrors>>
           verified_proposal_result;
       consensus::Round round;
-      std::shared_ptr<LedgerState> ledger_state;
+      std::shared_ptr<const LedgerState> ledger_state;
     };
 
     std::shared_ptr<validation::VerifiedProposalAndErrors>
