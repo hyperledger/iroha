@@ -22,7 +22,7 @@ namespace iroha {
         expected::Result<Response, ErrorCode>(
             const shared_model::interface::types::AccountIdType &account_id,
             const shared_model::interface::types::TransactionsNumberType
-                &page_size,
+                page_size,
             const boost::optional<shared_model::interface::types::HashType>
                 &first_tx_hash));
   };
