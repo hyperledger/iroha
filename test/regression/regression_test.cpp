@@ -45,15 +45,11 @@ TEST(RegressionTest, SequentialInitialization) {
     ASSERT_EQ(proposal->transactions().size(), 1);
   };
 
-  auto path = (boost::filesystem::temp_directory_path()
-               / boost::filesystem::unique_path())
-                  .string();
   const std::string dbname = "d"
       + boost::uuids::to_string(boost::uuids::random_generator()())
             .substr(0, 8);
   {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, false, false, path)
+    integration_framework::IntegrationTestFramework(1, dbname, false, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx, check_stateless_valid_status)
         .skipProposal()
@@ -64,8 +60,7 @@ TEST(RegressionTest, SequentialInitialization) {
             [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
   }
   {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, true, false, path)
+    integration_framework::IntegrationTestFramework(1, dbname, true, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx, check_stateless_valid_status)
         .checkProposal(checkProposal)
@@ -118,22 +113,12 @@ TEST(RegressionTest, StateRecovery) {
       ASSERT_EQ(resp.transactions().front(), tx);
     });
   };
-  auto path = (boost::filesystem::temp_directory_path()
-               / boost::filesystem::unique_path())
-                  .string();
   const std::string dbname = "d"
       + boost::uuids::to_string(boost::uuids::random_generator()())
             .substr(0, 8);
 
-  // Cleanup blockstore directory, because it may contain blocks from previous
-  // test launch if ITF was failed for some reason. If there are some blocks,
-  // then checkProposal will fail with "missed proposal" error, because of
-  // incorrect calculation of chain height.
-  iroha::remove_dir_contents(path, log_);
-
   {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, false, false, path)
+    integration_framework::IntegrationTestFramework(1, dbname, false, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx)
         .checkProposal(checkOne)
@@ -142,8 +127,7 @@ TEST(RegressionTest, StateRecovery) {
         .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
   }
   {
-    integration_framework::IntegrationTestFramework(
-        1, dbname, true, false, path)
+    integration_framework::IntegrationTestFramework(1, dbname, true, false)
         .recoverState(kAdminKeypair)
         .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
   }

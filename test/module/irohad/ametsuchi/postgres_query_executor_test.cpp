@@ -275,7 +275,7 @@ namespace iroha {
       std::unique_ptr<CommandExecutor> executor;
       std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
 
-      std::unique_ptr<KeyValueStorage> block_store;
+      std::unique_ptr<BlockStorage> block_store;
 
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           query_response_factory;
@@ -1725,17 +1725,11 @@ namespace iroha {
      public:
       void SetUp() override {
         QueryExecutorTest::SetUp();
-        std::string block_store_dir = "/tmp/block_store";
-        auto block_converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-        auto factory =
-            std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-                shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
-        auto block_store =
-            FlatFile::create(block_store_dir, getTestLogger("FlatFile"));
+        auto block_storage_persistent_factory =
+            std::make_unique<InMemoryBlockStorageFactory>();
+        auto block_store = block_storage_persistent_factory->create();
         ASSERT_TRUE(block_store);
-        this->block_store = std::move(block_store.get());
+        this->block_store = std::move(block_store);
         createDefaultAccount();
         createDefaultAsset();
       }

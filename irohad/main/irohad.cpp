@@ -198,6 +198,7 @@ int main(int argc, char *argv[]) {
   // Configuring iroha daemon
   Irohad irohad(
       config.block_store_path,
+      config.block_store_path,
       std::move(pg_opt),
       kListenIp,  // TODO(mboldyrev) 17/10/2018: add a parameter in
                   // config file and/or command-line arguments?

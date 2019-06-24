@@ -11,19 +11,22 @@
 using namespace iroha::ametsuchi;
 
 PostgresBlockStorage::PostgresBlockStorage(
-    soci::session &sql,
+    std::shared_ptr<PoolWrapper> pool_wrapper,
     std::shared_ptr<BlockTransportFactory> block_factory,
+    std::string table,
     logger::LoggerPtr log)
-    : sql_(sql),
+    : pool_wrapper_(std::move(pool_wrapper)),
       block_factory_(std::move(block_factory)),
+      table_(std::move(table)),
       log_(std::move(log)) {}
 
 bool PostgresBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
   shared_model::interface::types::HeightType last_block = 0;
   using T = boost::tuple<shared_model::interface::types::HeightType>;
+  soci::session sql(*pool_wrapper_->connection_pool_);
   auto result_last_block = execute<T>(
-      [&] { return (sql_.prepare << "SELECT MAX(height) FROM blocks"); });
+      [&] { return (sql.prepare << "SELECT MAX(height) FROM " << table_); });
   try {
     last_block =
         flatMapValue<
@@ -35,27 +38,31 @@ bool PostgresBlockStorage::insert(
     log_->warn("Problem with a query result parsing: {}", e.what());
   }
 
-  if (block->height() != last_block + 1) {
-    log_->warn(
-        "Only blocks with sequential heights could be inserted. Last block "
-        "height: {}, inserting: {}",
-        last_block,
-        block->height());
-    return false;
+  if (last_block != 0) {
+    if (block->height() != last_block + 1) {
+      log_->warn(
+          "Only blocks with sequential heights could be inserted. Last block "
+          "height: {}, inserting: {}",
+          last_block,
+          block->height());
+      return false;
+    }
   }
 
-  soci::statement st =
-      (sql_.prepare << "INSERT INTO blocks(height, block_data) VALUES(:height, "
-                       ":block_data)",
-       soci::use(block->height()),
-       soci::use(block->blob().hex()));
-  log_->debug("insert: {}", block->blob().hex());
+  auto h = block->height();
+  auto b = block->blob().hex();
+
+  soci::statement st = (sql.prepare << "INSERT INTO " << table_
+                                    << " (height, block_data) VALUES(:height, "
+                                       ":block_data)",
+                        soci::use(h),
+                        soci::use(b));
+  log_->debug("insert block {}: {}", h, b);
   try {
     st.execute(true);
     return true;
   } catch (const std::exception &e) {
-    log_->warn(
-        "Failed to insert block {}, reason {}", block->height(), e.what());
+    log_->warn("Failed to insert block {}, reason {}", h, e.what());
     return false;
   }
 }
@@ -64,10 +71,11 @@ boost::optional<std::shared_ptr<const shared_model::interface::Block>>
 PostgresBlockStorage::fetch(
     shared_model::interface::types::HeightType height) const {
   using T = boost::tuple<std::string>;
+  soci::session sql(*pool_wrapper_->connection_pool_);
   auto result = execute<T>([&] {
-    return (
-        sql_.prepare << "SELECT block_data FROM blocks WHERE height = :height",
-        soci::use(height));
+    return (sql.prepare << "SELECT block_data FROM " << table_
+                        << " WHERE height = :height",
+            soci::use(height));
   });
   return flatMapValue<
       boost::optional<std::shared_ptr<const shared_model::interface::Block>>>(
@@ -80,9 +88,11 @@ PostgresBlockStorage::fetch(
               boost::none);
         }
 
-        iroha::protocol::Block_v1 block;
-        block.ParseFromString(*byte_block);
-        return block_factory_->build(std::move(block))
+        iroha::protocol::Block_v1 b1;
+        b1.ParseFromString(*byte_block);
+        iroha::protocol::Block block;
+        *block.mutable_block_v1() = b1;
+        return block_factory_->createBlock(std::move(block))
             .match(
                 [&](auto &&v) {
                   return boost::make_optional(
@@ -94,7 +104,7 @@ PostgresBlockStorage::fetch(
                         std::shared_ptr<const shared_model::interface::Block>> {
                   log_->error("Could not build block at height {}: {}",
                               height,
-                              e.error.error);
+                              e.error);
                   return boost::none;
                 });
       });
@@ -102,8 +112,9 @@ PostgresBlockStorage::fetch(
 
 size_t PostgresBlockStorage::size() const {
   using T = boost::tuple<shared_model::interface::types::HeightType>;
+  soci::session sql(*pool_wrapper_->connection_pool_);
   auto result = execute<T>(
-      [&] { return (sql_.prepare << "SELECT COUNT(*) FROM blocks"); });
+      [&] { return (sql.prepare << "SELECT COUNT(*) FROM " << table_); });
   return flatMapValue<
              boost::optional<shared_model::interface::types::HeightType>>(
              result, [](auto &count) { return boost::make_optional(count); })
@@ -111,25 +122,29 @@ size_t PostgresBlockStorage::size() const {
 }
 
 void PostgresBlockStorage::clear() {
-  soci::statement st = sql_.prepare << "TRUNCATE blocks";
+  soci::session sql(*pool_wrapper_->connection_pool_);
+  soci::statement st = (sql.prepare << "TRUNCATE " << table_);
   try {
     st.execute(true);
   } catch (const std::exception &e) {
-    log_->warn("Failed to clear blocks table, reason {}", e.what());
+    log_->warn("Failed to clear {} table, reason {}", table_, e.what());
   }
 }
 
 void PostgresBlockStorage::forEach(
     iroha::ametsuchi::BlockStorage::FunctionType function) const {
   using T = boost::tuple<shared_model::interface::types::HeightType>;
+  soci::session sql(*pool_wrapper_->connection_pool_);
+  // TODO: IR-577 Add caching if it will gain a performance boost
+  // luckychess 29.06.2019
   auto result_min = execute<T>(
-      [&] { return (sql_.prepare << "SELECT MIN(height) FROM blocks"); });
+      [&] { return (sql.prepare << "SELECT MIN(height) FROM " << table_); });
   auto min =
       flatMapValue<boost::optional<shared_model::interface::types::HeightType>>(
           result_min, [](auto &min) { return boost::make_optional(min); })
           .value_or(0);
   auto result_max = execute<T>(
-      [&] { return (sql_.prepare << "SELECT MAX(height) FROM blocks"); });
+      [&] { return (sql.prepare << "SELECT MAX(height) FROM " << table_); });
   auto max =
       flatMapValue<boost::optional<shared_model::interface::types::HeightType>>(
           result_max, [](auto &max) { return boost::make_optional(max); })
@@ -147,5 +162,25 @@ boost::optional<soci::rowset<T>> PostgresBlockStorage::execute(F &&f) const {
   } catch (const std::exception &e) {
     log_->error("Failed to execute query: {}", e.what());
     return boost::none;
+  }
+}
+
+PostgresTemporaryBlockStorage::PostgresTemporaryBlockStorage(
+    std::shared_ptr<PoolWrapper> pool_wrapper,
+    std::shared_ptr<BlockTransportFactory> block_factory,
+    std::string table,
+    logger::LoggerPtr log)
+    : PostgresBlockStorage(std::move(pool_wrapper),
+                           std::move(block_factory),
+                           std::move(table),
+                           std::move(log)) {}
+
+PostgresTemporaryBlockStorage::~PostgresTemporaryBlockStorage() {
+  soci::session sql(*pool_wrapper_->connection_pool_);
+  soci::statement st = (sql.prepare << "DROP TABLE IF EXISTS " << table_);
+  try {
+    st.execute(true);
+  } catch (const std::exception &e) {
+    log_->warn("Failed to drop {} table, reason {}", table_, e.what());
   }
 }
