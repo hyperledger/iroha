@@ -31,7 +31,7 @@ KTimesReconnectionStrategyFactory::KTimesReconnectionStrategyFactory(
     : max_number_of_reconnections_(number_of_reconnections) {}
 
 std::unique_ptr<ReconnectionStrategy>
-KTimesReconnectionStrategyFactory::create() {
+KTimesReconnectionStrategyFactory::create() const {
   return std::make_unique<KTimesReconnectionStrategy>(
       max_number_of_reconnections_);
 }

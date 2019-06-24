@@ -184,8 +184,6 @@ Irohad::RunResult Irohad::initStorage() {
   common_objects_factory_ =
       std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
           shared_model::validation::FieldValidator>>(validators_config_);
-  reconnection_strategy_ =
-      std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(10);
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
   auto block_converter =
@@ -218,7 +216,10 @@ Irohad::RunResult Irohad::initStorage() {
 
   const int pool_size = 10;
   auto pool = PgConnectionInit::prepareConnectionPool(
-      *reconnection_strategy_, options, pool_size, log_manager_);
+      iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+      options,
+      pool_size,
+      log_manager_);
 
   if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
     return expected::makeError(std::move(e->error));
