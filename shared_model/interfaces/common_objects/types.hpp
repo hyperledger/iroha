@@ -23,9 +23,10 @@ namespace shared_model {
 
   namespace interface {
 
+    class AccountAsset;
+    class Block;
     class Signature;
     class Transaction;
-    class AccountAsset;
     class Peer;
 
     namespace types {

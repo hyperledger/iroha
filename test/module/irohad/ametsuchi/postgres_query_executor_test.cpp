@@ -1020,7 +1020,7 @@ namespace iroha {
             FAIL() << "could not apply block to the storage";
           }
         }
-        storage->commit(std::move(ms));
+        ASSERT_TRUE(val(storage->commit(std::move(ms))));
       }
 
       static constexpr shared_model::interface::types::HeightType
@@ -1281,7 +1281,7 @@ namespace iroha {
               FAIL() << "MutableStorage: " << error.error;
             });
         ms->apply(block);
-        storage->commit(std::move(ms));
+        ASSERT_TRUE(val(storage->commit(std::move(ms))));
       }
 
       void commitBlocks() {

@@ -38,7 +38,6 @@ using testing::ByMove;
 using testing::Return;
 
 using wPeer = std::shared_ptr<shared_model::interface::Peer>;
-using wBlock = std::shared_ptr<shared_model::interface::Block>;
 
 class BlockLoaderTest : public testing::Test {
  public:
