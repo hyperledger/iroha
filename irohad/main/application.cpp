@@ -206,12 +206,9 @@ Irohad::RunResult Irohad::initStorage() {
       PgConnectionInit::kDefaultDatabaseName,
       log_manager_->getChild("DbOptionsParser")->getLogger());
 
-  PgConnectionInit connection_init;
-
   // create database if it does not exist
-  connection_init
-      .createDatabaseIfNotExist(options.dbname(),
-                                options.optionsStringWithoutDbName())
+  PgConnectionInit::createDatabaseIfNotExist(
+      options.dbname(), options.optionsStringWithoutDbName())
       .match([](auto &&val) {},
              [&string_res](auto &&error) { string_res = error.error; });
 
@@ -220,7 +217,7 @@ Irohad::RunResult Irohad::initStorage() {
   }
 
   const int pool_size = 10;
-  auto pool = connection_init.prepareConnectionPool(
+  auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_, options, pool_size, log_manager_);
 
   if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
