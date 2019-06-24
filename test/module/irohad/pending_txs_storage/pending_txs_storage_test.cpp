@@ -11,6 +11,7 @@
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 
+// TODO igor-egorov 2019-06-24 IR-573 Refactor pending txs storage tests
 class PendingTxsStorageFixture : public ::testing::Test {
  public:
   using Batch = shared_model::interface::TransactionBatch;
@@ -60,7 +61,7 @@ class PendingTxsStorageFixture : public ::testing::Test {
 };
 
 /**
- * Test that check that fixture common preparation procedures can be done
+ * Test that checks that fixture common preparation procedures can be done
  * successfully.
  * @given empty MST state
  * @when two mst transactions generated as batch
@@ -96,10 +97,10 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
-          ASSERT_EQ(response.value.all_transactions_size,
+          EXPECT_EQ(response.value.all_transactions_size,
                     txs->transactions().size());
-          ASSERT_EQ(pending_txs.size(), txs->transactions().size());
-          ASSERT_FALSE(response.value.next_batch_info);
+          EXPECT_EQ(pending_txs.size(), txs->transactions().size());
+          EXPECT_FALSE(response.value.next_batch_info);
           // generally it's illegal way to verify the correctness.
           // here we can do it because the order is preserved by batch meta and
           // there are no transactions non-related to requested account
@@ -108,8 +109,8 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
           }
         },
         [](const auto &error) {
-          ASSERT_TRUE(false)
-              << "An error was not expected, the error code is " << error.error;
+          FAIL() << "An error was not expected, the error code is "
+                 << error.error;
         });
   }
 }
@@ -135,10 +136,10 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
-          ASSERT_EQ(response.value.all_transactions_size,
+          EXPECT_EQ(response.value.all_transactions_size,
                     txs->transactions().size());
-          ASSERT_EQ(pending_txs.size(), txs->transactions().size());
-          ASSERT_FALSE(response.value.next_batch_info);
+          EXPECT_EQ(pending_txs.size(), txs->transactions().size());
+          EXPECT_FALSE(response.value.next_batch_info);
           // generally it's illegal way to verify the correctness.
           // here we can do it because the order is preserved by batch meta and
           // there are no transactions non-related to requested account
@@ -147,8 +148,8 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
           }
         },
         [](const auto &error) {
-          ASSERT_TRUE(false)
-              << "An error was not expected, the error code is " << error.error;
+          FAIL() << "An error was not expected, the error code is "
+                 << error.error;
         });
   }
 }
@@ -176,18 +177,18 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
-          ASSERT_EQ(response.value.all_transactions_size,
+          EXPECT_EQ(response.value.all_transactions_size,
                     txs->transactions().size());
-          ASSERT_EQ(pending_txs.size(), 0);
-          ASSERT_TRUE(response.value.next_batch_info);
-          ASSERT_EQ(response.value.next_batch_info->first_tx_hash,
+          EXPECT_EQ(pending_txs.size(), 0);
+          EXPECT_TRUE(response.value.next_batch_info);
+          EXPECT_EQ(response.value.next_batch_info->first_tx_hash,
                     txs->transactions().front()->hash());
-          ASSERT_EQ(response.value.next_batch_info->batch_size,
+          EXPECT_EQ(response.value.next_batch_info->batch_size,
                     txs->transactions().size());
         },
         [](const auto &error) {
-          ASSERT_TRUE(false)
-              << "An error was not expected, the error code is " << error.error;
+          FAIL() << "An error was not expected, the error code is "
+                 << error.error;
         });
   }
 }
@@ -195,7 +196,7 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
 /**
  * Correctly formed response is returned when there are two batches are in the
  * storage and the page size is bigger than the size of the first batch and
- * lesser than the sum of the first and the second batches sizes.
+ * smaller than the sum of the first and the second batches sizes.
  */
 TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
   auto state1 = emptyState();
@@ -217,22 +218,22 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
     pending.match(
         [&](const auto &response) {
           auto &pending_txs = response.value.transactions;
-          ASSERT_EQ(
+          EXPECT_EQ(
               response.value.all_transactions_size,
               batch1->transactions().size() + batch2->transactions().size());
-          ASSERT_EQ(pending_txs.size(), batch1->transactions().size());
-          ASSERT_TRUE(response.value.next_batch_info);
-          ASSERT_EQ(response.value.next_batch_info->first_tx_hash,
+          EXPECT_EQ(pending_txs.size(), batch1->transactions().size());
+          EXPECT_TRUE(response.value.next_batch_info);
+          EXPECT_EQ(response.value.next_batch_info->first_tx_hash,
                     batch2->transactions().front()->hash());
-          ASSERT_EQ(response.value.next_batch_info->batch_size,
+          EXPECT_EQ(response.value.next_batch_info->batch_size,
                     batch2->transactions().size());
           for (auto i = 0u; i < pending_txs.size(); ++i) {
             ASSERT_EQ(*pending_txs[i], *(batch1->transactions()[i]));
           }
         },
         [](const auto &error) {
-          ASSERT_TRUE(false)
-              << "An error was not expected, the error code is " << error.error;
+          FAIL() << "An error was not expected, the error code is "
+                 << error.error;
         });
   }
 }
@@ -261,18 +262,18 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
     pending.match(
         [&](const auto &response) {
           auto &pending_txs = response.value.transactions;
-          ASSERT_EQ(
+          EXPECT_EQ(
               response.value.all_transactions_size,
-              batch2->transactions().size() + batch2->transactions().size());
-          ASSERT_EQ(pending_txs.size(), batch2->transactions().size());
-          ASSERT_FALSE(response.value.next_batch_info);
+              batch1->transactions().size() + batch2->transactions().size());
+          EXPECT_EQ(pending_txs.size(), batch2->transactions().size());
+          EXPECT_FALSE(response.value.next_batch_info);
           for (auto i = 0u; i < pending_txs.size(); ++i) {
             ASSERT_EQ(*pending_txs[i], *(batch2->transactions()[i]));
           }
         },
         [](const auto &error) {
-          ASSERT_TRUE(false)
-              << "An error was not expected, the error code is " << error.error;
+          FAIL() << "An error was not expected, the error code is "
+                 << error.error;
         });
   }
 }
@@ -299,12 +300,12 @@ TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
   response.match(
       [](const auto &response) {
         auto &pending_txs = response.value.transactions;
-        ASSERT_EQ(pending_txs.size(), 0);
-        ASSERT_EQ(response.value.all_transactions_size, 0);
+        EXPECT_EQ(pending_txs.size(), 0);
+        EXPECT_EQ(response.value.all_transactions_size, 0);
         auto &next_batch_info = response.value.next_batch_info;
         ASSERT_FALSE(next_batch_info);
       },
-      [](const auto &error) { ASSERT_TRUE(false) << error.error; });
+      [](const auto &error) { FAIL() << error.error; });
 }
 
 /**
@@ -335,12 +336,12 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
   pending.match(
       [&txs = transactions](const auto &response) {
         const auto &resp = response.value;
-        ASSERT_EQ(resp.transactions.size(), txs->transactions().size());
-        ASSERT_EQ(boost::size(resp.transactions.front()->signatures()), 2);
+        EXPECT_EQ(resp.transactions.size(), txs->transactions().size());
+        EXPECT_EQ(boost::size(resp.transactions.front()->signatures()), 2);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 }
 
@@ -378,8 +379,8 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
         ASSERT_EQ(response.value.transactions.size(), 4);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 
   auto bob_pending =
@@ -389,8 +390,8 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
         ASSERT_EQ(response.value.transactions.size(), 3);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 }
 
@@ -426,8 +427,8 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
         ASSERT_EQ(response.value.transactions.size(), 4);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 
   auto bob_pending =
@@ -437,8 +438,8 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
         ASSERT_EQ(response.value.transactions.size(), 2);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 }
 
@@ -478,8 +479,8 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
         ASSERT_EQ(response.value.transactions.size(), 0);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 }
 
@@ -514,8 +515,8 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
         ASSERT_EQ(response.value.transactions.size(), 0);
       },
       [](const auto &error) {
-        ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                           << error.error;
+        FAIL() << "An error was not expected, the error code is "
+               << error.error;
       });
 }
 
@@ -539,8 +540,7 @@ TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
       kThirdAccount, kPageSize, transactions->transactions().front()->hash());
   response.match(
       [](const auto &response) {
-        ASSERT_TRUE(false)
-            << "NOT_FOUND error was expected instead of a response";
+        FAIL() << "NOT_FOUND error was expected instead of a response";
       },
       [](const auto &error) {
         ASSERT_EQ(error.error,
@@ -568,8 +568,7 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
     return batch->transactions().front()->hash();
   };
   auto errorResponseHandler = [](const auto &error) {
-    ASSERT_TRUE(false) << "An error was not expected, the error code is "
-                       << error.error;
+    FAIL() << "An error was not expected, the error code is " << error.error;
   };
 
   auto updates = updatesObservable({state1, state2});
@@ -582,12 +581,12 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
     first_page.match(
         [&](const auto &first_response) {
           const auto &resp1 = first_response.value;
-          ASSERT_EQ(resp1.all_transactions_size,
+          EXPECT_EQ(resp1.all_transactions_size,
                     batchSize(batch1) + batchSize(batch2));
-          ASSERT_EQ(resp1.transactions.size(), batchSize(batch1));
-          ASSERT_TRUE(resp1.next_batch_info);
-          ASSERT_EQ(resp1.next_batch_info->batch_size, batchSize(batch2));
-          ASSERT_EQ(resp1.next_batch_info->first_tx_hash, firstHash(batch2));
+          EXPECT_EQ(resp1.transactions.size(), batchSize(batch1));
+          EXPECT_TRUE(resp1.next_batch_info);
+          EXPECT_EQ(resp1.next_batch_info->batch_size, batchSize(batch2));
+          EXPECT_EQ(resp1.next_batch_info->first_tx_hash, firstHash(batch2));
           for (auto i = 0u; i < resp1.transactions.size(); ++i) {
             ASSERT_EQ(*resp1.transactions[i], *(batch1->transactions()[i]));
           }
@@ -597,10 +596,10 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
           second_page.match(
               [&](const auto &second_response) {
                 const auto &resp2 = second_response.value;
-                ASSERT_EQ(resp2.all_transactions_size,
+                EXPECT_EQ(resp2.all_transactions_size,
                           batchSize(batch1) + batchSize(batch2));
-                ASSERT_EQ(resp2.transactions.size(), batchSize(batch2));
-                ASSERT_FALSE(resp2.next_batch_info);
+                EXPECT_EQ(resp2.transactions.size(), batchSize(batch2));
+                EXPECT_FALSE(resp2.next_batch_info);
                 for (auto i = 0u; i < resp2.transactions.size(); ++i) {
                   ASSERT_EQ(*resp2.transactions[i],
                             *(batch2->transactions()[i]));

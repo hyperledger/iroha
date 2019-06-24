@@ -39,7 +39,7 @@ class OldPendingTxsStorageFixture : public ::testing::Test {
 };
 
 /**
- * Test that check that fixture common preparation procedures can be done
+ * Test that checks that fixture common preparation procedures can be done
  * successfully.
  * @given empty MST state
  * @when two mst transactions generated as batch

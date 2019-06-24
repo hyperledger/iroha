@@ -15,23 +15,26 @@ namespace shared_model {
         : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
           pending_transactions_page_response_{
               proto_->pending_transactions_page_response()},
-          transactions_{
-              pending_transactions_page_response_.transactions().begin(),
-              pending_transactions_page_response_.transactions().end()},
+          transactions_{proto_->mutable_pending_transactions_page_response()
+                            ->mutable_transactions()
+                            ->begin(),
+                        proto_->mutable_pending_transactions_page_response()
+                            ->mutable_transactions()
+                            ->end()},
           next_batch_info_{
               [this]()
                   -> boost::optional<
                       interface::PendingTransactionsPageResponse::BatchInfo> {
-                // switch (
-                //     pending_transactions_page_response_.next_page_tag_case())
-                //     {
-                //   case
-                //   iroha::protocol::TransactionsPageResponse::kNextTxHash:
-                //     return crypto::Hash::fromHexString(
-                //         pending_transactions_page_response_.next_tx_hash());
-                //   default:
-                //     return boost::none;
-                // }
+                if (pending_transactions_page_response_.has_next_batch_info()) {
+                  auto &next =
+                      pending_transactions_page_response_.next_batch_info();
+                  interface::PendingTransactionsPageResponse::BatchInfo
+                      next_batch;
+                  next_batch.first_tx_hash =
+                      crypto::Hash::fromHexString(next.first_tx_hash());
+                  next_batch.batch_size = next.batch_size();
+                  return next_batch;
+                }
                 return boost::none;
               }()} {}
 

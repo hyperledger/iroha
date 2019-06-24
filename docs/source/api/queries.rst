@@ -297,12 +297,12 @@ This will result in stateful failed query response due to a missing hash of the 
 Example
 -------
 
-If there are two pending batches with tree transactions each and a user queries pending transactions
+If there are two pending batches with three transactions each and a user queries pending transactions
 with page size 5, then the transactions of the first batch will be in the response and a reference
 (first transaction hash and batch size, even if it is a single transaction in fact) to the second batch
 will be specified too.
-Transactions of the second batch are not included to the first response because the batch cannot be devided
-on several parts and only complete batches can be contained in a response.
+Transactions of the second batch are not included in the first response because the batch cannot be devided
+into several parts and only complete batches can be contained in a response.
 
 Response Schema
 ---------------
@@ -324,17 +324,17 @@ Response Structure
 
 The response contains a list of `pending transactions <../core_concepts/glossary.html#pending-transactions>`_,
 the amount of all stored pending transactions for the user
-and the information requeired to query the subsequent page (if exists).
+and the information required to query the subsequent page (if exists).
 
 .. csv-table::
     :header: "Field", "Description", "Constraint", "Example"
     :widths: 15, 30, 20, 15
 
         "Transactions", "an array of pending transactions", "Pending transactions", "{tx1, tx2…}"
-        "All transactions size", "a number of stored transactions", "greater >= 0", "0"
+        "All transactions size", "the number of stored transactions", "all_transactions_size >= 0", "0"
         "Next batch info", "A reference to the next page - the message might be not set in a response", "", ""
         "First tx hash", "hash of the first transaction in the next batch",  "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
-        "Batch size", "Minimum page size required to fetch the next batch", "greater > 0", "3"
+        "Batch size", "Minimum page size required to fetch the next batch", "batch_size > 0", "3"
 
 Get Pending Transactions (deprecated)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

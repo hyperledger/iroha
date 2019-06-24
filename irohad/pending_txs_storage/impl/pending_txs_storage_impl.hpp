@@ -65,16 +65,31 @@ namespace iroha {
      */
     mutable std::shared_timed_mutex mutex_;
 
+    /**
+     * The struct represents an indexed storage of pending transactions or
+     * batches for a SINGLE account.
+     *
+     * "batches" field contains pointers to all pending batches associated with
+     * an account. Use of std::list allows us to automatically preserve their
+     * mutual order.
+     *
+     * "index" map allows performing random access to "batches" list. Thus, we
+     * can access any batch within the list in the most optimal way.
+     *
+     * "all transactions quantity" stores the sum of all transactions within
+     * stored batches. Used for query response and memory management.
+     */
     struct AccountBatches {
       std::list<std::shared_ptr<TransactionBatch>> batches;
       std::
           unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher>
               index;
-      uint64_t all_transactions_quantity;
-
-      AccountBatches() : all_transactions_quantity(0) {}
+      uint64_t all_transactions_quantity{0};
     };
 
+    /**
+     * Maps account names with its storages of pending transactions or batches.
+     */
     std::unordered_map<AccountIdType, AccountBatches> storage_;
   };
 

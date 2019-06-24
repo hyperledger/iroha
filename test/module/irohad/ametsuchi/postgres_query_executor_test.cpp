@@ -1988,7 +1988,7 @@ namespace iroha {
      * @when get pending transactions
      * @then pending txs storage will be requested for query creator account
      */
-    TEST_F(QueryExecutorTest, OldTransactionsStorageIsAccessed) {
+    TEST_F(QueryExecutorTest, OldTransactionsStorageIsAccessedOnGetPendingTxs) {
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
                        .getPendingTransactions()
@@ -2005,7 +2005,7 @@ namespace iroha {
      * @when get pending transactions
      * @then pending txs storage will be requested for query creator account
      */
-    TEST_F(QueryExecutorTest, TransactionsStorageIsAccessed) {
+    TEST_F(QueryExecutorTest, TransactionsStorageIsAccessedOnGetPendingTxs) {
       const auto kPageSize = 100u;
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
