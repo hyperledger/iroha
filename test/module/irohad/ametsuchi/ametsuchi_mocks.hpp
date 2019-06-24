@@ -14,7 +14,6 @@
 #include "interfaces/common_objects/peer.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
-#include "module/irohad/ametsuchi/mock_key_value_storage.hpp"
 #include "module/irohad/ametsuchi/mock_mutable_factory.hpp"
 #include "module/irohad/ametsuchi/mock_mutable_storage.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"

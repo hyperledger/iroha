@@ -19,10 +19,12 @@
 #include "common/bind.hpp"
 #include "common/files.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
@@ -71,16 +73,13 @@ class IrohadTest : public AcceptanceFixture {
     doc.ParseStream(isw);
     ASSERT_FALSE(doc.HasParseError())
         << "Failed to parse irohad config at " << path_config_.string();
-    blockstore_path_ = (boost::filesystem::temp_directory_path()
-                        / boost::filesystem::unique_path())
-                           .string();
-    pgopts_ = integration_framework::getPostgresCredsFromEnv().value_or(
-        doc[config_members::PgOpt].GetString());
+    db_name_ = integration_framework::getRandomDbName();
+    pgopts_ = "dbname=" + db_name_ + " "
+        + integration_framework::getPostgresCredsFromEnv().value_or(
+              doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
-    doc[config_members::BlockStorePath].SetString(blockstore_path_.data(),
-                                                  blockstore_path_.size());
     doc[config_members::PgOpt].SetString(pgopts_.data(), pgopts_.size());
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
@@ -119,14 +118,9 @@ class IrohadTest : public AcceptanceFixture {
 
   int getBlockCount() {
     int block_count = 0;
-
-    for (directory_iterator itr(blockstore_path_); itr != directory_iterator();
-         ++itr) {
-      if (is_regular_file(itr->path())) {
-        ++block_count;
-      }
-    }
-
+    auto sql =
+        std::make_unique<soci::session>(*soci::factory_postgresql(), pgopts_);
+    *sql << "SELECT COUNT(*) FROM blocks;", soci::into(block_count);
     return block_count;
   }
 
@@ -135,8 +129,9 @@ class IrohadTest : public AcceptanceFixture {
       iroha_process_->terminate();
     }
 
-    boost::filesystem::remove_all(blockstore_path_);
-    dropPostgres();
+    framework::expected::assertResultValue(
+        iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(
+            iroha::ametsuchi::PostgresOptions{pgopts_, db_name_, log_}));
     boost::filesystem::remove(config_copy_);
   }
 
@@ -213,28 +208,6 @@ class IrohadTest : public AcceptanceFixture {
     config_copy_ = path_config_.string() + std::string(".copy");
   }
 
-  void dropPostgres() {
-    const auto drop = R"(
-DROP TABLE IF EXISTS account_has_signatory;
-DROP TABLE IF EXISTS account_has_asset;
-DROP TABLE IF EXISTS role_has_permissions;
-DROP TABLE IF EXISTS account_has_roles;
-DROP TABLE IF EXISTS account_has_grantable_permissions;
-DROP TABLE IF EXISTS account;
-DROP TABLE IF EXISTS asset;
-DROP TABLE IF EXISTS domain;
-DROP TABLE IF EXISTS signatory;
-DROP TABLE IF EXISTS peer;
-DROP TABLE IF EXISTS role;
-DROP TABLE IF EXISTS position_by_hash;
-DROP TABLE IF EXISTS tx_position_by_creator;
-DROP TABLE IF EXISTS position_by_account_asset;
-)";
-
-    soci::session sql(*soci::factory_postgresql(), pgopts_);
-    sql << drop;
-  }
-
  public:
   boost::filesystem::path irohad_executable;
   const std::chrono::milliseconds kTimeout = 30s;
@@ -262,8 +235,8 @@ DROP TABLE IF EXISTS position_by_account_asset;
   boost::filesystem::path path_config_;
   boost::filesystem::path path_genesis_;
   boost::filesystem::path path_keypair_;
+  std::string db_name_;
   std::string pgopts_;
-  std::string blockstore_path_;
   std::string config_copy_;
   iroha::KeysManagerImpl keys_manager_;
 

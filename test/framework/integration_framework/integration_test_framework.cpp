@@ -131,7 +131,7 @@ namespace integration_framework {
       const boost::optional<std::string> &dbname,
       bool cleanup_on_exit,
       bool mst_support,
-      const std::string &block_store_path,
+      const boost::optional<std::string> block_store_path,
       milliseconds proposal_waiting,
       milliseconds block_waiting,
       milliseconds tx_response_waiting,
@@ -774,7 +774,9 @@ namespace integration_framework {
     if (iroha_instance_->getIrohaInstance()
         and iroha_instance_->getIrohaInstance()->storage) {
       iroha_instance_->getIrohaInstance()->storage->dropStorage();
-      boost::filesystem::remove_all(iroha_instance_->block_store_dir_);
+      if (iroha_instance_->block_store_dir_) {
+        boost::filesystem::remove_all(*iroha_instance_->block_store_dir_);
+      }
     }
   }
 

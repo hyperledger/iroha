@@ -31,7 +31,8 @@ namespace iroha {
                               std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
-      static expected::Result<PoolWrapper, std::string> prepareConnectionPool(
+      static expected::Result<std::shared_ptr<PoolWrapper>, std::string>
+      prepareConnectionPool(
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
           const int pool_size,

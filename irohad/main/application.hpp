@@ -27,6 +27,7 @@ namespace iroha {
     class Storage;
     class ReconnectionStrategyFactory;
     class PostgresOptions;
+    struct PoolWrapper;
   }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
@@ -64,7 +65,6 @@ namespace shared_model {
     class Keypair;
   }
   namespace interface {
-    class CommonObjectsFactory;
     class QueryResponseFactory;
     class TransactionBatchFactory;
   }  // namespace interface
@@ -101,7 +101,7 @@ class Irohad {
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
-  Irohad(const std::string &block_store_dir,
+  Irohad(const boost::optional<std::string> &block_store_dir,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
          size_t torii_port,
@@ -198,7 +198,7 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  std::string block_store_dir_;
+  const boost::optional<std::string> block_store_dir_;
   const std::string listen_ip_;
   size_t torii_port_;
   size_t internal_port_;
@@ -224,6 +224,8 @@ class Irohad {
   iroha::network::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
+
+  std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;

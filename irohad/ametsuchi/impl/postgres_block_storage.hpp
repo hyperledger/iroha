@@ -8,8 +8,10 @@
 
 #include "ametsuchi/block_storage.hpp"
 
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/protobuf/block.hpp"
+#include "backend/protobuf/proto_block_factory.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -17,13 +19,11 @@ namespace iroha {
   namespace ametsuchi {
     class PostgresBlockStorage : public BlockStorage {
      public:
-      using BlockTransportFactory =
-          shared_model::interface::AbstractTransportFactory<
-              shared_model::interface::Block,
-              shared_model::proto::Block::TransportType>;
+      using BlockTransportFactory = shared_model::proto::ProtoBlockFactory;
 
-      PostgresBlockStorage(soci::session &sql,
+      PostgresBlockStorage(std::shared_ptr<PoolWrapper> pool_wrapper,
                            std::shared_ptr<BlockTransportFactory> block_factory,
+                           std::string table,
                            logger::LoggerPtr log);
 
       bool insert(
@@ -46,9 +46,21 @@ namespace iroha {
       template <typename T, typename F>
       boost::optional<soci::rowset<T>> execute(F &&f) const;
 
-      soci::session &sql_;
+     protected:
+      std::shared_ptr<PoolWrapper> pool_wrapper_;
       std::shared_ptr<BlockTransportFactory> block_factory_;
+      std::string table_;
       logger::LoggerPtr log_;
+    };
+
+    class PostgresTemporaryBlockStorage : public PostgresBlockStorage {
+     public:
+      PostgresTemporaryBlockStorage(
+          std::shared_ptr<PoolWrapper> pool_wrapper,
+          std::shared_ptr<BlockTransportFactory> block_factory,
+          std::string table,
+          logger::LoggerPtr log);
+      ~PostgresTemporaryBlockStorage() override;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

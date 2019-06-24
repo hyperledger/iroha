@@ -10,8 +10,7 @@
 
 #include <soci/soci.h>
 #include <boost/optional.hpp>
-#include "ametsuchi/key_value_storage.hpp"
-#include "interfaces/iroha_internal/block_json_deserializer.hpp"
+#include "ametsuchi/block_storage.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -22,19 +21,13 @@ namespace iroha {
      */
     class PostgresBlockQuery : public BlockQuery {
      public:
-      PostgresBlockQuery(
-          soci::session &sql,
-          KeyValueStorage &file_store,
-          std::shared_ptr<shared_model::interface::BlockJsonDeserializer>
-              converter,
-          logger::LoggerPtr log);
+      PostgresBlockQuery(soci::session &sql,
+                         BlockStorage &block_storage,
+                         logger::LoggerPtr log);
 
-      PostgresBlockQuery(
-          std::unique_ptr<soci::session> sql,
-          KeyValueStorage &file_store,
-          std::shared_ptr<shared_model::interface::BlockJsonDeserializer>
-              converter,
-          logger::LoggerPtr log);
+      PostgresBlockQuery(std::unique_ptr<soci::session> sql,
+                         BlockStorage &block_storage,
+                         logger::LoggerPtr log);
 
       BlockResult getBlock(
           shared_model::interface::types::HeightType height) override;
@@ -47,11 +40,7 @@ namespace iroha {
      private:
       std::unique_ptr<soci::session> psql_;
       soci::session &sql_;
-
-      KeyValueStorage &block_store_;
-      std::shared_ptr<shared_model::interface::BlockJsonDeserializer>
-          converter_;
-
+      BlockStorage &block_storage_;
       logger::LoggerPtr log_;
     };
   }  // namespace ametsuchi

@@ -16,7 +16,8 @@ namespace integration_framework {
    */
   class TestIrohad : public Irohad {
    public:
-    TestIrohad(const std::string &block_store_dir,
+    TestIrohad(const boost::optional<std::string> &block_store_dir,
+               const std::string &block_store_dir,
                std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
