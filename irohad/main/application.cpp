@@ -247,12 +247,7 @@ Irohad::RunResult Irohad::initStorage() {
 
 Irohad::RunResult Irohad::restoreWsv() {
   return wsv_restorer_->restoreWsv(*storage) |
-             [](const auto &value) -> RunResult {
-    if (not value) {
-      return iroha::expected::makeError<std::string>(
-          "Did not get ledger state after WSV restoration!");
-    }
-    auto &ledger_state = value.value();
+             [](const auto &ledger_state) -> RunResult {
     assert(ledger_state);
     if (ledger_state->ledger_peers.empty()) {
       return iroha::expected::makeError<std::string>(
@@ -557,16 +552,13 @@ Irohad::RunResult Irohad::initConsensusGate() {
   }
   auto block_var =
       (*block_query)->getBlock((*block_query)->getTopBlockHeight());
-  if (auto e = boost::get<expected::Error<std::string>>(&block_var)) {
+  if (auto e = boost::get<expected::ErrorOf<decltype(block_var)>>(&block_var)) {
     return iroha::expected::makeError<std::string>(
         "Failed to get the top block: " + e->error);
   }
 
   auto &block =
-      boost::get<
-          expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
-          &block_var)
-          ->value;
+      boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
@@ -812,17 +804,17 @@ Irohad::RunResult Irohad::run() {
     }
 
     auto &block =
-        boost::get<
-            expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
-            &block_var)
-            ->value;
+        boost::get<expected::ValueOf<decltype(block_var)>>(&block_var)->value;
     auto block_height = block->height();
 
     auto peers = storage->createPeerQuery() |
         [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
+    if (not peers) {
+      return expected::makeError("Failed to fetch ledger peers!");
+    }
 
     auto initial_ledger_state = std::make_shared<LedgerState>(
-        peers.value(), block->height(), block->hash());
+        std::move(peers.value()), block->height(), block->hash());
 
     pcs->onSynchronization().subscribe(
         ordering_init.sync_event_notifier.get_subscriber());

@@ -65,10 +65,9 @@ namespace {
    * @param storage - current storage
    * @param mutable_storage - mutable storage without blocks
    * @param block_query - current block storage
+   * @return commit status after applying the blocks
    */
-  iroha::expected::Result<boost::optional<std::unique_ptr<iroha::LedgerState>>,
-                          std::string>
-  reindexBlocks(
+  iroha::ametsuchi::CommitResult reindexBlocks(
       iroha::ametsuchi::Storage &storage,
       std::unique_ptr<iroha::ametsuchi::MutableStorage> &mutable_storage,
       std::shared_ptr<iroha::ametsuchi::BlockQuery> &block_query) {
@@ -90,24 +89,17 @@ namespace {
       }
     }
 
-    return iroha::expected::makeValue(
-        storage.commit(std::move(mutable_storage)));
+    return storage.commit(std::move(mutable_storage));
   }
 }  // namespace
 
 namespace iroha {
   namespace ametsuchi {
-    iroha::expected::Result<
-        boost::optional<std::unique_ptr<iroha::LedgerState>>,
-        std::string>
-    WsvRestorerImpl::restoreWsv(Storage &storage) {
+    CommitResult WsvRestorerImpl::restoreWsv(Storage &storage) {
       BlockStorageStubFactory storage_factory;
 
       return storage.createMutableStorage(storage_factory) |
-                 [&storage](auto &&mutable_storage)
-                 -> iroha::expected::Result<
-                     boost::optional<std::unique_ptr<iroha::LedgerState>>,
-                     std::string> {
+                 [&storage](auto &&mutable_storage) -> CommitResult {
         auto block_query = storage.getBlockQuery();
         if (not block_query) {
           return expected::makeError("Cannot create BlockQuery");

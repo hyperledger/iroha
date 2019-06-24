@@ -8,6 +8,7 @@
 
 #include "synchronizer/synchronizer.hpp"
 
+#include "ametsuchi/commit_result.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"
 #include "logger/logger_fwd.hpp"
@@ -49,8 +50,9 @@ namespace iroha {
        * @param start_height - the block from which to start synchronization
        * @param target_height - the block height that must be reached
        * @param public_keys - public keys of peers from which to ask the blocks
+       * @return Result of committing the downloaded blocks.
        */
-      boost::optional<std::unique_ptr<LedgerState>> downloadMissingBlocks(
+      ametsuchi::CommitResult downloadAndCommitMissingBlocks(
           const shared_model::interface::types::HeightType start_height,
           const shared_model::interface::types::HeightType target_height,
           const PublicKeysRange &public_keys);

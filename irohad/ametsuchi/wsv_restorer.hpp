@@ -5,7 +5,7 @@
 #ifndef IROHA_WSVRESTORER_HPP
 #define IROHA_WSVRESTORER_HPP
 
-#include "common/result.hpp"
+#include "ametsuchi/commit_result.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -25,9 +25,7 @@ namespace iroha {
        * @return ledger state after restoration on success, otherwise error
        * string
        */
-      virtual iroha::expected::
-          Result<boost::optional<std::unique_ptr<LedgerState>>, std::string>
-          restoreWsv(Storage &storage) = 0;
+      virtual CommitResult restoreWsv(Storage &storage) = 0;
     };
 
   }  // namespace ametsuchi

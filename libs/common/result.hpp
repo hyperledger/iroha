@@ -321,7 +321,7 @@ namespace iroha {
     constexpr auto operator|(const Result<T, E> &r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 decltype(f())>::type {
-      using return_type = decltype(f());
+      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
       return r.match(
           [&f](const Value<T> &v) { return f(); },
           [](const Error<E> &e) { return return_type(makeError(e.error)); });
@@ -332,7 +332,7 @@ namespace iroha {
     constexpr auto operator|(Result<T, E> &&r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 decltype(f())>::type {
-      using return_type = decltype(f());
+      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
       return std::move(r).match(
           [&f](const auto &) { return f(); },
           [](auto &&e) { return return_type(makeError(std::move(e.error))); });
