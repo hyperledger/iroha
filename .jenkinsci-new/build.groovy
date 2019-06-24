@@ -66,7 +66,7 @@ def clangFormat (scmVars, environment) {
   withEnv(environment) {
     if (env.CHANGE_TARGET){
       sh"""
-        git diff origin/{env.CHANGE_TARGET} --name-only | grep -E '\\.cc|\\.cpp|\\.cxx|\\.C|\\.c++|\\.c\$|\\.CPP|\\.h|\\.hpp|\\.hh|\\.icc' | xargs clang-format -style=file -i || true
+        git diff origin/${env.CHANGE_TARGET} --name-only | grep -E '\\.cc|\\.cpp|\\.cxx|\\.C|\\.c++|\\.c\$|\\.CPP|\\.h|\\.hpp|\\.hh|\\.icc' | xargs clang-format -style=file -i || true
         git diff | tee  clang-format-report.txt
         git reset HEAD --hard
       """
