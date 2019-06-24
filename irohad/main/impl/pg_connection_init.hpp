@@ -32,7 +32,7 @@ namespace iroha {
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
       static expected::Result<PoolWrapper, std::string> prepareConnectionPool(
-          ReconnectionStrategyFactory &reconnection_strategy_factory,
+          const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
           const int pool_size,
           logger::LoggerManagerTreePtr log_manager);
@@ -72,7 +72,7 @@ namespace iroha {
           const std::string &prepare_tables_sql,
           RollbackFunction try_rollback,
           FailoverCallbackHolder &callback_factory,
-          ReconnectionStrategyFactory &reconnection_strategy_factory,
+          const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const std::string &pg_reconnection_options,
           logger::LoggerManagerTreePtr log_manager);
 
