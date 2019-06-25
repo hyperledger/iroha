@@ -649,6 +649,16 @@ Request Schema
 
 .. code-block:: proto
 
+    message AccountDetailRecordId {
+      string writer = 1;
+      string key = 2;
+    }
+
+    message AccountDetailPaginationMeta {
+      uint32 page_size = 1;
+      AccountDetailRecordId first_record_id = 2;
+    }
+
     message GetAccountDetail {
       oneof opt_account_id {
         string account_id = 1;
@@ -659,10 +669,15 @@ Request Schema
       oneof opt_writer {
         string writer = 3;
       }
+      AccountDetailPaginationMeta pagination_meta = 4;
     }
 
 .. note::
-    Pay attention, that all fields are optional. Reasons will be described later.
+    Pay attention, that all fields except pagination meta are optional.
+    The reasons for that are described below.
+
+.. warning::
+    Pagination metadata can be missing in the request for compatibility reasons, but this behaviour is deprecated and should be avoided.
 
 Request Structure
 -----------------
@@ -674,6 +689,12 @@ Request Structure
         "Account ID", "account id to get details from", "<account_name>@<domain_id>", "account@domain"
         "Key", "key, under which to get details", "string", "age"
         "Writer", "account id of writer", "<account_name>@<domain_id>", "account@domain"
+        AccountDetailPaginationMeta.page_size, "Requested page size. The number of records in response will not exceed this value. If the response was truncated, the record id immediately following the returned ones will be provided in next_record_id.", 0 < page_size < 32 bit unsigned int max (4294967296), 100
+        AccountDetailPaginationMeta.first_record_id.writer, requested page start by writer, name#domain, my_asset#my_domain
+        AccountDetailPaginationMeta.first_record_id.key, requested page start by key, string, age
+
+.. note::
+    When specifying first record id, it is enough to provide the attributes (writer, key) that are unset in the main query.
 
 Response Schema
 ---------------
@@ -682,6 +703,8 @@ Response Schema
 
     message AccountDetailResponse {
       string detail = 1;
+      uint64 total_number = 2;
+      AccountDetailRecordId next_record_id = 3;
     }
 
 Response Structure
@@ -692,6 +715,9 @@ Response Structure
     :widths: 15, 30, 20, 15
 
         "Detail", "key-value pairs with account details", "JSON", "see below"
+        total_number, number of records matching query without page limits, 0 < total_number < 32 bit unsigned int max (4294967296), 100
+        next_record_id.writer, the writer account of the record immediately following curent page, <account_name>@<domain_id>, pushkin@lyceum.tsar
+        next_record_id.key, the key of the record immediately following curent page, string, "cold and sun"
 
 Possible Stateful Validation Errors
 -----------------------------------
@@ -702,6 +728,7 @@ Possible Stateful Validation Errors
     "1", "Could not get account detail", "Internal error happened", "Try again or contact developers"
     "2", "No such permissions", "Query's creator does not have any of the permissions to get account detail", "Grant the necessary permission: individual, global or domain one"
     "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
+    "4", "Invalid pagination metadata", "Wrong page size or nonexistent first record", "Set valid page size, and make sure that the first record id is valid, or leave the first record id unspecified"
 
 Usage Examples
 --------------
