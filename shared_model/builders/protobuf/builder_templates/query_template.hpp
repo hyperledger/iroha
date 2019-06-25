@@ -252,6 +252,17 @@ namespace shared_model {
         });
       }
 
+      auto getPendingTransactions(
+          interface::types::TransactionsNumberType page_size,
+          const boost::optional<interface::types::HashType> &first_hash =
+              boost::none) const {
+        return queryField([&](auto proto_query) {
+          auto query = proto_query->mutable_get_pending_transactions();
+          setTxPaginationMeta(
+              query->mutable_pagination_meta(), page_size, first_hash);
+        });
+      }
+
       auto build() const {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         if (not query_.has_payload()) {

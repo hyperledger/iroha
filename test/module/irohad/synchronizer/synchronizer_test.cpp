@@ -89,21 +89,24 @@ class SynchronizerTest : public ::testing::Test {
     ON_CALL(*block_query, getTopBlockHeight())
         .WillByDefault(Return(kHeight - 1));
     ON_CALL(*mutable_factory, commit_(_))
-        .WillByDefault(Return(ByMove(std::make_unique<LedgerState>(
-            ledger_peers, commit_message->height(), commit_message->hash()))));
-    ON_CALL(*mutable_factory, commitPrepared(_))
-        .WillByDefault(Return(ByMove(boost::none)));
+        .WillByDefault(Return(ByMove(expected::makeValue(
+            std::make_shared<LedgerState>(ledger_peers,
+                                          commit_message->height(),
+                                          commit_message->hash())))));
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
-    synchronizer =
-        std::make_shared<SynchronizerImpl>(consensus_gate,
-                                           chain_validator,
-                                           mutable_factory,
-                                           block_query_factory,
-                                           block_loader,
-                                           getTestLogger("Synchronizer"));
+  synchronizer =
+      std::make_shared<SynchronizerImpl>(consensus_gate,
+                                         chain_validator,
+                                         mutable_factory,
+                                         block_query_factory,
+                                         block_loader,
+                                         getTestLogger("Synchronizer"));
 
-    ledger_state = std::make_shared<LedgerState>(
-        ledger_peers, commit_message->height() - 1, commit_message->prevHash());
+  ledger_state = std::make_shared<LedgerState>(
+      ledger_peers, commit_message->height() - 1, commit_message->prevHash());
   }
 
   std::shared_ptr<shared_model::interface::Block> makeCommit(
@@ -220,8 +223,9 @@ void mutableStorageExpectChain(
  * @then Successful commit
  */
 TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
-  EXPECT_CALL(*mutable_factory, commitPrepared(_))
-      .WillOnce(Return(ByMove(boost::none)));
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
   mutableStorageExpectChain(*mutable_factory, {commit_message});
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
@@ -306,8 +310,8 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   const auto target_height = kHeight + 1;
   auto target_commit = makeCommit(target_height);
   EXPECT_CALL(*mutable_factory, commit_(_))
-      .WillOnce(Return(ByMove(std::make_unique<LedgerState>(
-          ledger_peers, target_height, target_commit->hash()))));
+      .WillOnce(Return(ByMove(expected::makeValue(std::make_shared<LedgerState>(
+          ledger_peers, target_height, target_commit->hash())))));
   std::vector<std::shared_ptr<shared_model::interface::Block>> commits{
       commit_message, target_commit};
   EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(commits), _))
@@ -472,9 +476,12 @@ TEST_F(SynchronizerTest, NoneOutcome) {
  * @then commitPrepared is called @and commit is not called
  */
 TEST_F(SynchronizerTest, VotedForBlockCommitPrepared) {
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+      .WillRepeatedly(Return(true));
   EXPECT_CALL(*mutable_factory, commitPrepared(_))
-      .WillOnce(Return(ByMove(std::make_unique<LedgerState>(
-          ledger_peers, kHeight, commit_message->hash()))));
+      .WillOnce(Return(
+          ByMove(CommitResult{expected::makeValue(std::make_shared<LedgerState>(
+              ledger_peers, kHeight, commit_message->hash()))})));
 
   EXPECT_CALL(*mutable_factory, commit_(_)).Times(0);
 
@@ -500,6 +507,7 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
 
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled()).Times(0);
   EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
   EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(1);
@@ -526,12 +534,15 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
  * @then commit is called and synchronizer works as expected
  */
 TEST_F(SynchronizerTest, VotedForThisCommitPreparedFailure) {
-  EXPECT_CALL(*mutable_factory, commitPrepared(_))
-      .WillOnce(Return(ByMove(boost::none)));
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
   mutableStorageExpectChain(*mutable_factory, {commit_message});
 
-  EXPECT_CALL(*mutable_factory, commit_(_)).Times(1);
+  EXPECT_CALL(*mutable_factory, commit_(_))
+      .WillOnce(Return(ByMove(expected::makeValue(
+          std::make_shared<LedgerState>(ledger_peers, kHeight, hash)))));
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
@@ -549,11 +560,12 @@ TEST_F(SynchronizerTest, VotedForThisCommitPreparedFailure) {
  * @then no commit event is emitted
  */
 TEST_F(SynchronizerTest, CommitFailureVoteSameBlock) {
-  EXPECT_CALL(*mutable_factory, commitPrepared(_))
-      .WillOnce(Return(ByMove(boost::none)));
+  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+      .WillRepeatedly(Return(false));
+  EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
   mutableStorageExpectChain(*mutable_factory, {commit_message});
   EXPECT_CALL(*mutable_factory, commit_(_))
-      .WillOnce(Return(ByMove(boost::none)));
+      .WillOnce(Return(ByMove(expected::makeError(""))));
   EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
 

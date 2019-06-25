@@ -10,6 +10,7 @@
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
@@ -20,15 +21,13 @@
 namespace iroha {
   namespace ametsuchi {
     MutableStorageImpl::MutableStorageImpl(
-        shared_model::interface::types::HashType top_hash,
-        shared_model::interface::types::HeightType top_height,
+        boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         std::shared_ptr<TransactionExecutor> transaction_executor,
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::unique_ptr<BlockStorage> block_storage,
         logger::LoggerManagerTreePtr log_manager)
-        : top_hash_(std::move(top_hash)),
-          top_height_(top_height),
+        : ledger_state_(std::move(ledger_state)),
           sql_(std::move(sql)),
           peer_query_(
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
@@ -56,8 +55,8 @@ namespace iroha {
                  block->height(),
                  block->hash().hex());
 
-      // TODO 09.04.2019 mboldyrev IR-440 add height check to predicate
-      auto block_applied = predicate(block, *peer_query_, top_hash_)
+      auto block_applied =
+          (not ledger_state_ or predicate(block, *ledger_state_.value()))
           and std::all_of(block->transactions().begin(),
                           block->transactions().end(),
                           execute_transaction);
@@ -65,8 +64,14 @@ namespace iroha {
         block_storage_->insert(block);
         block_index_->index(*block);
 
-        top_hash_ = block->hash();
-        top_height_ = block->height();
+        auto opt_ledger_peers = peer_query_->getLedgerPeers();
+        if (not opt_ledger_peers) {
+          log_->error("Failed to get ledger peers!");
+          return false;
+        }
+
+        ledger_state_ = std::make_shared<const LedgerState>(
+            std::move(*opt_ledger_peers), block->height(), block->hash());
       }
 
       return block_applied;
@@ -94,8 +99,7 @@ namespace iroha {
     bool MutableStorageImpl::apply(
         std::shared_ptr<const shared_model::interface::Block> block) {
       return withSavepoint([&] {
-        return this->apply(
-            block, [](const auto &, auto &, const auto &) { return true; });
+        return this->apply(block, [](const auto &, auto &) { return true; });
       });
     }
 
@@ -111,14 +115,9 @@ namespace iroha {
       });
     }
 
-    shared_model::interface::types::HeightType
-    MutableStorageImpl::getTopBlockHeight() const {
-      return top_height_;
-    }
-
-    shared_model::interface::types::HashType
-    MutableStorageImpl::getTopBlockHash() const {
-      return top_hash_;
+    boost::optional<std::shared_ptr<const iroha::LedgerState>>
+    MutableStorageImpl::getLedgerState() const {
+      return ledger_state_;
     }
 
     MutableStorageImpl::~MutableStorageImpl() {

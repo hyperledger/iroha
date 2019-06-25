@@ -82,6 +82,37 @@ namespace shared_model {
       }
 
       /**
+       * Appends a new named collection to string
+       * @param c - iterable collection to append using toString method
+       */
+      template <typename Collection>
+      std::enable_if_t<
+          std::is_same<
+              typename std::decay<decltype(
+                  std::declval<Collection>().begin()->toString())>::type,
+              std::string>::value,
+          PrettyStringBuilder &>
+      appendAll(Collection &&c) {
+        appendAll(c, [](const auto &o) { return o.toString(); });
+        return *this;
+      }
+
+      /**
+       * Appends a new named collection to string
+       * @param c - iterable collection of pointers
+       */
+      template <typename Collection>
+      std::enable_if_t<std::is_same<typename std::decay<decltype(
+                                        (*std::declval<Collection>().begin())
+                                            ->toString())>::type,
+                                    std::string>::value,
+                       PrettyStringBuilder &>
+      appendAll(Collection &&c) {
+        appendAll(c, [](const auto &o) { return o->toString(); });
+        return *this;
+      }
+
+      /**
        * Finalizes appending and returns constructed string.
        * @return resulted string
        */

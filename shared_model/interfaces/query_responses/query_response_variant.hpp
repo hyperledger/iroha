@@ -20,7 +20,10 @@ namespace boost {
       const shared_model::interface::TransactionsResponse &,
       const shared_model::interface::AssetResponse &,
       const shared_model::interface::RolesResponse &,
-      const shared_model::interface::RolePermissionsResponse &>;
+      const shared_model::interface::RolePermissionsResponse &,
+      const shared_model::interface::TransactionsPageResponse &,
+      const shared_model::interface::PendingTransactionsPageResponse &,
+      const shared_model::interface::BlockResponse &>;
 }
 
 #endif  // IROHA_SHARED_MODEL_QUERY_RESPONSE_VARIANT_HPP

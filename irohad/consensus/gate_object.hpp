@@ -24,10 +24,10 @@ namespace iroha {
 
     struct BaseGateObject {
       consensus::Round round;
-      std::shared_ptr<LedgerState> ledger_state;
+      std::shared_ptr<const LedgerState> ledger_state;
 
       BaseGateObject(consensus::Round round,
-                     std::shared_ptr<LedgerState> ledger_state)
+                     std::shared_ptr<const LedgerState> ledger_state)
           : round(std::move(round)), ledger_state(std::move(ledger_state)) {}
     };
 
@@ -36,7 +36,7 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::Block> block;
 
       PairValid(consensus::Round round,
-                std::shared_ptr<LedgerState> ledger_state,
+                std::shared_ptr<const LedgerState> ledger_state,
                 std::shared_ptr<shared_model::interface::Block> block)
           : BaseGateObject(std::move(round), std::move(ledger_state)),
             block(std::move(block)) {}
@@ -47,7 +47,7 @@ namespace iroha {
 
       Synchronizable(
           consensus::Round round,
-          std::shared_ptr<LedgerState> ledger_state,
+          std::shared_ptr<const LedgerState> ledger_state,
           shared_model::interface::types::PublicKeyCollectionType public_keys)
           : BaseGateObject(std::move(round), std::move(ledger_state)),
             public_keys(std::move(public_keys)) {}
@@ -59,7 +59,7 @@ namespace iroha {
 
       VoteOther(
           consensus::Round round,
-          std::shared_ptr<LedgerState> ledger_state,
+          std::shared_ptr<const LedgerState> ledger_state,
           shared_model::interface::types::PublicKeyCollectionType public_keys,
           shared_model::interface::types::HashType hash)
           : Synchronizable(std::move(round),

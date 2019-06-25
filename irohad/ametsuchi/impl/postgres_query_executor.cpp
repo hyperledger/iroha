@@ -1159,16 +1159,64 @@ namespace iroha {
         const shared_model::interface::GetPendingTransactions &q) {
       std::vector<std::unique_ptr<shared_model::interface::Transaction>>
           response_txs;
-      auto interface_txs =
-          pending_txs_storage_->getPendingTransactions(creator_id_);
-      response_txs.reserve(interface_txs.size());
+      if (q.paginationMeta()) {
+        return pending_txs_storage_
+            ->getPendingTransactions(creator_id_,
+                                     q.paginationMeta()->pageSize(),
+                                     q.paginationMeta()->firstTxHash())
+            .match(
+                [this, &response_txs](auto &&response) {
+                  auto &interface_txs = response.value.transactions;
+                  response_txs.reserve(interface_txs.size());
+                  // TODO igor-egorov 2019-06-06 IR-555 avoid use of clone()
+                  std::transform(interface_txs.begin(),
+                                 interface_txs.end(),
+                                 std::back_inserter(response_txs),
+                                 [](auto &tx) { return clone(*tx); });
+                  return query_response_factory_
+                      ->createPendingTransactionsPageResponse(
+                          std::move(response_txs),
+                          response.value.all_transactions_size,
+                          std::move(response.value.next_batch_info),
+                          query_hash_);
+                },
+                [this, &q](auto &&error) {
+                  switch (error.error) {
+                    case iroha::PendingTransactionStorage::ErrorCode::kNotFound:
+                      return query_response_factory_->createErrorQueryResponse(
+                          shared_model::interface::QueryResponseFactory::
+                              ErrorQueryType::kStatefulFailed,
+                          std::string("The batch with specified first "
+                                      "transaction hash not found, the hash: ")
+                              + q.paginationMeta()->firstTxHash()->toString(),
+                          4,  // missing first tx hash error
+                          query_hash_);
+                    default:
+                      BOOST_ASSERT_MSG(false,
+                                       "Unknown and unhandled type of error "
+                                       "happend in pending txs storage");
+                      return query_response_factory_->createErrorQueryResponse(
+                          shared_model::interface::QueryResponseFactory::
+                              ErrorQueryType::kStatefulFailed,
+                          std::string("Unknown type of error happened: ")
+                              + std::to_string(error.error),
+                          1,  // unknown internal error
+                          query_hash_);
+                  }
+                });
+      } else {  // TODO 2019-06-06 igor-egorov IR-516 remove deprecated
+                // interface
+        auto interface_txs =
+            pending_txs_storage_->getPendingTransactions(creator_id_);
+        response_txs.reserve(interface_txs.size());
 
-      std::transform(interface_txs.begin(),
-                     interface_txs.end(),
-                     std::back_inserter(response_txs),
-                     [](auto &tx) { return clone(*tx); });
-      return query_response_factory_->createTransactionsResponse(
-          std::move(response_txs), query_hash_);
+        std::transform(interface_txs.begin(),
+                       interface_txs.end(),
+                       std::back_inserter(response_txs),
+                       [](auto &tx) { return clone(*tx); });
+        return query_response_factory_->createTransactionsResponse(
+            std::move(response_txs), query_hash_);
+      }
     }
 
     template <typename ReturnValueType>

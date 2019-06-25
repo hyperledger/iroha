@@ -79,7 +79,7 @@ message GetRolePermissions{
 }
 
 message GetPendingTransactions {
-
+  TxPaginationMeta pagination_meta = 1;
 }
 
 message QueryPayloadMeta {

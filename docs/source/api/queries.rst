@@ -255,6 +255,100 @@ Purpose
 GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../core_concepts/glossary.html#multisignature-transactions>`_
 or `batches of transactions <../core_concepts/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
+.. note:: This query uses pagination for quicker and more convenient query responses.
+
+Request Schema
+--------------
+
+.. code-block:: proto
+
+    message TxPaginationMeta {
+        uint32 page_size = 1;
+        oneof opt_first_tx_hash {
+            string first_tx_hash = 2;
+        }
+    }
+
+    message GetPendingTransactions {
+        TxPaginationMeta pagination_meta = 1;
+    }
+
+Request Structure
+-----------------
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Page size", "maximum amount of transactions returned in the response", "page_size > 0", "5"
+    "First tx hash", "optional - hash of the first transaction in the starting batch", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+
+All the user's semi-signed multisignature (pending) transactions can be queried.
+Maximum amount of transactions contained in a response can be limited by **page_size** field.
+All the pending transactions are stored till they have collected enough signatures or get expired.
+The mutual order of pending transactions or batches of transactions is preserved for a user.
+That allows a user to query all transactions sequentially - page by page.
+Each response may contain a reference to the next batch or transaction that can be queried.
+A page size can be greater than the size of the following batch (in transactions).
+In that case, several batches or transactions will be returned.
+During navigating over pages, the following batch can collect the missing signatures before it gets queried.
+This will result in stateful failed query response due to a missing hash of the batch.
+
+Example
+-------
+
+If there are two pending batches with three transactions each and a user queries pending transactions
+with page size 5, then the transactions of the first batch will be in the response and a reference
+(first transaction hash and batch size, even if it is a single transaction in fact) to the second batch
+will be specified too.
+Transactions of the second batch are not included in the first response because the batch cannot be devided
+into several parts and only complete batches can be contained in a response.
+
+Response Schema
+---------------
+
+.. code-block:: proto
+
+    message PendingTransactionsPageResponse {
+        message BatchInfo {
+            string first_tx_hash = 1;
+            uint32 batch_size = 2;
+        }
+        repeated Transaction transactions = 1;
+        uint32 all_transactions_size = 2;
+        BatchInfo next_batch_info = 3;
+    }
+
+Response Structure
+------------------
+
+The response contains a list of `pending transactions <../core_concepts/glossary.html#pending-transactions>`_,
+the amount of all stored pending transactions for the user
+and the information required to query the subsequent page (if exists).
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+        "Transactions", "an array of pending transactions", "Pending transactions", "{tx1, tx2…}"
+        "All transactions size", "the number of stored transactions", "all_transactions_size >= 0", "0"
+        "Next batch info", "A reference to the next page - the message might be not set in a response", "", ""
+        "First tx hash", "hash of the first transaction in the next batch",  "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+        "Batch size", "Minimum page size required to fetch the next batch", "batch_size > 0", "3"
+
+Get Pending Transactions (deprecated)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. warning::
+  The query without parameters is deprecated now and will be removed in the following major Iroha release (2.0).
+  Please use the new query version instead: `Get Pending Transactions <#get-pending-transactions>`__.
+
+Purpose
+-------
+
+GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../core_concepts/glossary.html#multisignature-transactions>`_
+or `batches of transactions <../core_concepts/glossary.html#batch-of-transactions>`__ issued by account of query creator.
+
 Request Schema
 --------------
 

@@ -18,6 +18,7 @@
 namespace iroha {
   namespace ametsuchi {
     class BlockIndex;
+    class PeerQuery;
     class TransactionExecutor;
 
     class MutableStorageImpl : public MutableStorage {
@@ -25,8 +26,8 @@ namespace iroha {
 
      public:
       MutableStorageImpl(
-          shared_model::interface::types::HashType top_hash,
-          shared_model::interface::types::HeightType top_height,
+          boost::optional<std::shared_ptr<const iroha::LedgerState>>
+              ledger_state,
           std::shared_ptr<TransactionExecutor> transaction_executor,
           std::unique_ptr<soci::session> sql,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -41,9 +42,8 @@ namespace iroha {
                      std::shared_ptr<shared_model::interface::Block>> blocks,
                  MutableStoragePredicate predicate) override;
 
-      shared_model::interface::types::HeightType getTopBlockHeight() const;
-
-      shared_model::interface::types::HashType getTopBlockHash() const;
+      boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      getLedgerState() const;
 
       ~MutableStorageImpl() override;
 
@@ -63,8 +63,7 @@ namespace iroha {
       bool apply(std::shared_ptr<const shared_model::interface::Block> block,
                  MutableStoragePredicate predicate);
 
-      shared_model::interface::types::HashType top_hash_;
-      shared_model::interface::types::HeightType top_height_;
+      boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 
       std::unique_ptr<soci::session> sql_;
       std::unique_ptr<PeerQuery> peer_query_;
