@@ -96,3 +96,8 @@ message Peer {
   string address = 1;
   string peer_key = 2; // hex string
 }
+
+message AccountDetailRecordId {
+  string writer = 1;
+  string key = 2;
+}

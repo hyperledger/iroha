@@ -11,7 +11,16 @@ namespace shared_model {
     template <typename QueryType>
     GetAccountDetail::GetAccountDetail(QueryType &&query)
         : CopyableProto(std::forward<QueryType>(query)),
-          account_detail_{proto_->payload().get_account_detail()} {}
+          account_detail_{proto_->payload().get_account_detail()},
+          pagination_meta_{[this]() -> decltype(pagination_meta_) {
+            if (this->account_detail_.has_pagination_meta()) {
+              return AccountDetailPaginationMeta{
+                  *this->proto_->mutable_payload()
+                       ->mutable_get_account_detail()
+                       ->mutable_pagination_meta()};
+            }
+            return boost::none;
+          }()} {}
 
     template GetAccountDetail::GetAccountDetail(
         GetAccountDetail::TransportType &);
@@ -44,6 +53,14 @@ namespace shared_model {
       return account_detail_.opt_writer_case()
           ? boost::make_optional(account_detail_.writer())
           : boost::none;
+    }
+
+    boost::optional<const interface::AccountDetailPaginationMeta &>
+    GetAccountDetail::paginationMeta() const {
+      if (pagination_meta_) {
+        return *pagination_meta_;
+      }
+      return boost::none;
     }
 
   }  // namespace proto

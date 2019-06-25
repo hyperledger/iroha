@@ -21,6 +21,7 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
+#include "common/bind.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/abstract_validator.hpp"
 #include "validators/answer.hpp"
@@ -127,13 +128,19 @@ namespace shared_model {
         ReasonsGroupType reason;
         reason.first = "GetAccountDetail";
 
+        using iroha::operator|;
+
         validator_.validateAccountId(reason, qry.accountId());
-        if (qry.key()) {
-          validator_.validateAccountDetailKey(reason, *qry.key());
-        }
-        if (qry.writer()) {
-          validator_.validateAccountId(reason, *qry.writer());
-        }
+        qry.key() | [&reason, this](const auto &key) {
+          this->validator_.validateAccountDetailKey(reason, key);
+        };
+        qry.writer() | [&reason, this](const auto &writer) {
+          this->validator_.validateAccountId(reason, writer);
+        };
+        qry.paginationMeta() | [&reason, this](const auto &pagination_meta) {
+          this->validator_.validateAccountDetailPaginationMeta(reason,
+                                                               pagination_meta);
+        };
 
         return reason;
       }
