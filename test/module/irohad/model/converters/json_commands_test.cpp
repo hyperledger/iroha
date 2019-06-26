@@ -24,8 +24,8 @@
 #include "model/commands/subtract_asset_quantity.hpp"
 #include "model/commands/transfer_asset.hpp"
 #include "model/converters/json_command_factory.hpp"
+#include "model/permissions.hpp"
 #include "model/sha3_hash.hpp"
-#include "validators/permissions.hpp"
 
 using namespace rapidjson;
 using namespace iroha;

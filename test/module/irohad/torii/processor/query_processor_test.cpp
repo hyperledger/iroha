@@ -24,7 +24,6 @@
 #include "network/ordering_gate.hpp"
 #include "torii/processor/query_processor_impl.hpp"
 #include "utils/query_error_response_visitor.hpp"
-#include "validators/permissions.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;
