@@ -48,6 +48,13 @@ PostgresOptions::PostgresOptions(const std::string &pg_creds,
     working_dbname_ = std::move(working_dbname);
   }
 
+  if (working_dbname_ == maintenance_dbname_) {
+    log->warn(
+        "Working database has the same name with maintenance database: '{}'. "
+        "This may cause failures.",
+        working_dbname_);
+  }
+
   removeConsequtiveSimilarSpaces(pg_creds_);
 }
 
