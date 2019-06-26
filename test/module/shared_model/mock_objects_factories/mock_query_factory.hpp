@@ -33,7 +33,9 @@ namespace shared_model {
       FactoryResult<MockGetAccountDetail> constructGetAccountDetail(
           const types::AccountIdType &account_id,
           boost::optional<types::AccountDetailKeyType> key,
-          boost::optional<types::AccountIdType> writer) const;
+          boost::optional<types::AccountIdType> writer,
+          boost::optional<const AccountDetailPaginationMeta &> pagination_meta)
+          const;
 
       FactoryResult<MockGetAccount> constructGetAccount(
           const types::AccountIdType &account_id) const;

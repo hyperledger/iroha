@@ -77,6 +77,9 @@ namespace shared_model {
       MOCK_CONST_METHOD0(key, boost::optional<types::AccountDetailKeyType>());
       MOCK_CONST_METHOD0(writer, boost::optional<types::AccountIdType>());
       MOCK_CONST_METHOD0(clone, GetAccountDetail *());
+      MOCK_CONST_METHOD0(
+          paginationMeta,
+          boost::optional<const AccountDetailPaginationMeta &>());
     };
 
     struct MockGetAccount : public SpecificMockQuery<GetAccount> {
