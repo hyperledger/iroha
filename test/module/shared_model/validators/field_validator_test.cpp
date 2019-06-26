@@ -25,7 +25,6 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/field_validator.hpp"
-#include "validators/permissions.hpp"
 
 using namespace shared_model;
 

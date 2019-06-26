@@ -26,7 +26,7 @@
 #include "model/commands/set_quorum.hpp"
 #include "model/commands/subtract_asset_quantity.hpp"
 #include "model/commands/transfer_asset.hpp"
-#include "validators/permissions.hpp"
+#include "model/permissions.hpp"
 
 namespace iroha {
   namespace model {
