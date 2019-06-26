@@ -9,16 +9,20 @@
 
 #include <boost/algorithm/string_regex.hpp>
 #include <boost/format.hpp>
+#include "common/bind.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/peer.hpp"
+#include "interfaces/queries/account_detail_pagination_meta.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/field_validator.hpp"
 
 // TODO: 15.02.18 nickaleks Change structure to compositional IR-978
+
+using iroha::operator|;
 
 namespace shared_model {
   namespace validation {
@@ -415,6 +419,17 @@ namespace shared_model {
       if (first_asset_id) {
         validateAssetId(reason, *first_asset_id);
       }
+    }
+
+    void FieldValidator::validateAccountDetailPaginationMeta(
+        ReasonsGroupType &reason,
+        const interface::AccountDetailPaginationMeta &pagination_meta) const {
+      validatePaginationMetaPageSize(reason, pagination_meta.pageSize());
+      pagination_meta.firstRecordId() |
+          [&reason, this](const auto &first_record_id) {
+            this->validateAccountId(reason, first_record_id.writer());
+            this->validateAccountDetailKey(reason, first_record_id.key());
+          };
     }
 
   }  // namespace validation

@@ -12,7 +12,15 @@ namespace shared_model {
     AccountDetailResponse::AccountDetailResponse(
         QueryResponseType &&queryResponse)
         : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          account_detail_response_{proto_->account_detail_response()} {}
+          account_detail_response_{proto_->account_detail_response()},
+          next_record_id_{[this]() -> decltype(next_record_id_) {
+            if (this->account_detail_response_.has_next_record_id()) {
+              return AccountDetailRecordId{
+                  *this->proto_->mutable_account_detail_response()
+                       ->mutable_next_record_id()};
+            }
+            return boost::none;
+          }()} {}
 
     template AccountDetailResponse::AccountDetailResponse(
         AccountDetailResponse::TransportType &);
@@ -29,6 +37,18 @@ namespace shared_model {
 
     const interface::types::DetailType &AccountDetailResponse::detail() const {
       return account_detail_response_.detail();
+    }
+
+    size_t AccountDetailResponse::totalNumber() const {
+      return account_detail_response_.total_number();
+    }
+
+    boost::optional<const shared_model::interface::AccountDetailRecordId &>
+    AccountDetailResponse::nextRecordId() const {
+      if (next_record_id_) {
+        return next_record_id_.value();
+      }
+      return boost::none;
     }
 
   }  // namespace proto

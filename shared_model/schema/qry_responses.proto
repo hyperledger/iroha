@@ -45,6 +45,8 @@ message AccountAssetResponse {
 
 message AccountDetailResponse {
   string detail = 1;
+  uint64 total_number = 2;
+  AccountDetailRecordId next_record_id = 3;
 }
 
 message AccountResponse {

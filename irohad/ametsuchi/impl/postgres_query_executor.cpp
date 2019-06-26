@@ -150,6 +150,8 @@ namespace {
     };
   }
 
+  static const std::string kEmptyDetailsResponse{"{}"};
+
 }  // namespace
 
 namespace iroha {
@@ -224,12 +226,8 @@ namespace iroha {
               }
               auto query_range = range
                   | boost::adaptors::transformed([](auto &t) {
-                                   return rebind(viewQuery<QueryTuple>(t));
-                                 })
-                  | boost::adaptors::filtered([](const auto &t) {
-                                   return static_cast<bool>(t);
-                                 })
-                  | boost::adaptors::transformed([](auto t) { return *t; });
+                                   return viewQuery<QueryTuple>(t);
+                                 });
               return std::forward<ResponseCreator>(response_creator)(
                   query_range, perms...);
             });
@@ -237,6 +235,15 @@ namespace iroha {
         return this->logAndReturnErrorResponse(
             QueryErrorType::kStatefulFailed, e.what(), 1);
       }
+    }
+
+    template<typename T>
+    auto resultWithoutNulls(T range) {
+      return range
+          | boost::adaptors::transformed([](auto &&t) { return rebind(t); })
+          | boost::adaptors::filtered(
+                 [](const auto &t) { return static_cast<bool>(t); })
+          | boost::adaptors::transformed([](auto t) { return *t; });
     }
 
     template <class Q>
@@ -468,14 +475,15 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
           [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
             uint64_t total_size = 0;
-            if (not boost::empty(range)) {
-              total_size = boost::get<2>(*range.begin());
+            if (not boost::empty(range_without_nulls)) {
+              total_size = boost::get<2>(*range_without_nulls.begin());
             }
             std::map<uint64_t, std::vector<uint64_t>> index;
             // unpack results to get map from block height to index of tx in
             // a block
-            boost::for_each(range, [&index](auto t) {
+            boost::for_each(range_without_nulls, [&index](auto t) {
               apply(t, [&index](auto &height, auto &idx, auto &) {
                 index[height].push_back(idx);
               });
@@ -581,12 +589,13 @@ namespace iroha {
                     soci::use(q.accountId(), "target_account_id"));
           },
           [this, &q, &query_apply](auto range, auto &) {
-            if (range.empty()) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoAccount, q.accountId(), 0);
             }
 
-            return apply(range.front(), query_apply);
+            return apply(range_without_nulls.front(), query_apply);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccount,
@@ -667,14 +676,15 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
           [this, &q](auto range, auto &) {
-            if (range.empty()) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoSignatories, q.accountId(), 0);
             }
 
             auto pubkeys = boost::copy_range<
                 std::vector<shared_model::interface::types::PubkeyType>>(
-                range | boost::adaptors::transformed([](auto t) {
+                range_without_nulls | boost::adaptors::transformed([](auto t) {
                   return apply(t, [&](auto &public_key) {
                     return shared_model::interface::types::PubkeyType{
                         shared_model::crypto::Blob::fromHexString(public_key)};
@@ -767,7 +777,9 @@ namespace iroha {
             return (sql_.prepare << cmd, soci::use(creator_id_, "account_id"));
           },
           [&](auto range, auto &my_perm, auto &all_perm) {
-            if (boost::size(range) != q.transactionHashes().size()) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            if (boost::size(range_without_nulls)
+                != q.transactionHashes().size()) {
               // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
               // with a named constant
               // at least one of the hashes in the query was invalid -
@@ -778,7 +790,7 @@ namespace iroha {
                   4);
             }
             std::map<uint64_t, std::unordered_set<std::string>> index;
-            boost::for_each(range, [&index](auto t) {
+            boost::for_each(range_without_nulls, [&index](auto t) {
               apply(t, [&index](auto &height, auto &hash) {
                 index[height].insert(hash);
               });
@@ -937,13 +949,14 @@ namespace iroha {
                     soci::use(req_page_size, "page_size"));
           },
           [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
             std::vector<
                 std::tuple<shared_model::interface::types::AccountIdType,
                            shared_model::interface::types::AssetIdType,
                            shared_model::interface::Amount>>
                 assets;
             size_t total_number = 0;
-            for (const auto &row : range) {
+            for (const auto &row : range_without_nulls) {
               apply(row,
                     [&assets, &total_number](auto &account_id,
                                              auto &asset_id,
@@ -982,67 +995,193 @@ namespace iroha {
 
     QueryExecutorResult PostgresQueryExecutorVisitor::operator()(
         const shared_model::interface::GetAccountDetail &q) {
-      using QueryTuple = QueryType<shared_model::interface::types::DetailType>;
+      using QueryTuple =
+          QueryType<shared_model::interface::types::DetailType,
+                    uint32_t,
+                    shared_model::interface::types::AccountIdType,
+                    shared_model::interface::types::AccountDetailKeyType,
+                    uint32_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      std::string query_detail;
-      if (q.key() and q.writer()) {
-        auto filled_json = (boost::format("{\"%s\", \"%s\"}") % q.writer().get()
-                            % q.key().get());
-        query_detail = (boost::format(R"(SELECT json_build_object('%s'::text,
-            json_build_object('%s'::text, (SELECT data #>> '%s'
-            FROM account WHERE account_id = :account_id))) AS json)")
-                        % q.writer().get() % q.key().get() % filled_json)
-                           .str();
-      } else if (q.key() and not q.writer()) {
-        query_detail =
-            (boost::format(
-                 R"(SELECT json_object_agg(key, value) AS json FROM (SELECT
-            json_build_object(kv.key, json_build_object('%1%'::text,
-            kv.value -> '%1%')) FROM jsonb_each((SELECT data FROM account
-            WHERE account_id = :account_id)) kv WHERE kv.value ? '%1%') AS
-            jsons, json_each(json_build_object))")
-             % q.key().get())
-                .str();
-      } else if (not q.key() and q.writer()) {
-        query_detail = (boost::format(R"(SELECT json_build_object('%1%'::text,
-          (SELECT data -> '%1%' FROM account WHERE account_id =
-           :account_id)) AS json)")
-                        % q.writer().get())
-                           .str();
-      } else {
-        query_detail = (boost::format(R"(SELECT data#>>'{}' AS json FROM account
-            WHERE account_id = :account_id)"))
-                           .str();
-      }
-      auto cmd = (boost::format(R"(WITH has_perms AS (%s),
-      detail AS (%s)
-      SELECT json, perm FROM detail
-      RIGHT OUTER JOIN has_perms ON TRUE
+      auto cmd = (boost::format(R"(
+      with has_perms as (%s),
+      detail AS (
+          with filtered_plain_data as (
+              select row_number() over () rn, *
+              from (
+                  select
+                      data_by_writer.key writer,
+                      plain_data.key as key,
+                      plain_data.value as value
+                  from
+                      jsonb_each((
+                          select data
+                          from account
+                          where account_id = :account_id
+                      )) data_by_writer,
+                  jsonb_each(data_by_writer.value) plain_data
+                  where
+                      coalesce(data_by_writer.key = :writer, true) and
+                      coalesce(plain_data.key = :key, true)
+                  order by data_by_writer.key asc, plain_data.key asc
+              ) t
+          ),
+          page_limits as (
+              select start.rn as start, start.rn + :page_size as end
+                  from (
+                      select rn
+                      from filtered_plain_data
+                      where
+                          coalesce(writer = :first_record_writer, true) and
+                          coalesce(key = :first_record_key, true)
+                      limit 1
+                  ) start
+          ),
+          total_number as (select count(1) total_number from filtered_plain_data),
+          next_record as (
+              select writer, key
+              from
+                  filtered_plain_data,
+                  page_limits
+              where rn = page_limits.end
+          ),
+          page as (
+              select json_object_agg(writer, data_by_writer) json
+              from (
+                  select writer, json_object_agg(key, value) data_by_writer
+                  from
+                      filtered_plain_data,
+                      page_limits
+                  where
+                      rn >= page_limits.start and
+                      coalesce(rn < page_limits.end, true)
+                  group by writer
+              ) t
+          ),
+          target_account_exists as (
+            select count(1) val
+            from account
+            where account_id = :account_id
+          )
+          select
+              page.json json,
+              total_number,
+              next_record.writer next_writer,
+              next_record.key next_key,
+              target_account_exists.val target_account_exists
+          from
+              page
+              left join total_number on true
+              left join next_record on true
+              right join target_account_exists on true
+      )
+      select detail.*, perm from detail
+      right join has_perms on true
       )")
                   % hasQueryPermission(creator_id_,
                                        q.accountId(),
                                        Role::kGetMyAccDetail,
                                        Role::kGetAllAccDetail,
-                                       Role::kGetDomainAccDetail)
-                  % query_detail)
+                                       Role::kGetDomainAccDetail))
                      .str();
+
+      const auto writer = q.writer();
+      const auto key = q.key();
+      boost::optional<std::string> first_record_writer;
+      boost::optional<std::string> first_record_key;
+      boost::optional<size_t> page_size;
+      // TODO 2019.05.29 mboldyrev IR-516 remove when pagination is made
+      // mandatory
+      q.paginationMeta() | [&](const auto &pagination_meta) {
+        page_size = pagination_meta.pageSize();
+        pagination_meta.firstRecordId() | [&](const auto &first_record_id) {
+          first_record_writer = first_record_id.writer();
+          first_record_key = first_record_id.key();
+        };
+      };
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(q.accountId(), "account_id"));
+                    soci::use(q.accountId(), "account_id"),
+                    soci::use(writer, "writer"),
+                    soci::use(key, "key"),
+                    soci::use(first_record_writer, "first_record_writer"),
+                    soci::use(first_record_key, "first_record_key"),
+                    soci::use(page_size, "page_size"));
           },
-          [this, &q](auto range, auto &) {
+          [&, this](auto range, auto &) {
             if (range.empty()) {
+              assert(not range.empty());
+              log_->error("Empty response range in {}.", q);
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoAccountDetail, q.accountId(), 0);
             }
 
-            return apply(range.front(), [this](auto &json) {
-              return query_response_factory_->createAccountDetailResponse(
-                  json, query_hash_);
-            });
+            return apply(
+                range.front(),
+                [&, this](auto &json,
+                          auto &total_number,
+                          auto &next_writer,
+                          auto &next_key,
+                          auto &target_account_exists) {
+                  if (target_account_exists.value_or(0) == 0) {
+                    // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
+                    // handling
+                    return this->logAndReturnErrorResponse(
+                        QueryErrorType::kNoAccountDetail, q.accountId(), 0);
+                  }
+                  assert(target_account_exists.value() == 1);
+                  if (json) {
+                    BOOST_ASSERT_MSG(total_number, "Mandatory value missing!");
+                    if (not total_number) {
+                      this->log_->error(
+                          "Mandatory total_number value is missing in "
+                          "getAccountDetail query result {}.",
+                          q);
+                    }
+                    boost::optional<
+                        shared_model::interface::types::AccountDetailRecordId>
+                        next_record_id{[this, &next_writer, &next_key]()
+                                           -> decltype(next_record_id) {
+                          if (next_key or next_writer) {
+                            if (not next_writer) {
+                              log_->error(
+                                  "next_writer not set for next_record_id!");
+                              assert(next_writer);
+                              return boost::none;
+                            }
+                            if (not next_key) {
+                              log_->error(
+                                  "next_key not set for next_record_id!");
+                              assert(next_key);
+                              return boost::none;
+                            }
+                            return shared_model::interface::types::
+                                AccountDetailRecordId{next_writer.value(),
+                                                      next_key.value()};
+                          }
+                          return boost::none;
+                        }()};
+                    return query_response_factory_->createAccountDetailResponse(
+                        json.value(),
+                        total_number.value_or(0),
+                        next_record_id,
+                        query_hash_);
+                  }
+                  if (total_number.value_or(0) > 0) {
+                    // the only reason for it is nonexistent first record
+                    assert(first_record_writer or first_record_key);
+                    return this->logAndReturnErrorResponse(
+                        QueryErrorType::kStatefulFailed, q.accountId(), 4);
+                  } else {
+                    // no account details matching query
+                    // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
+                    // handling
+                    return query_response_factory_->createAccountDetailResponse(
+                        kEmptyDetailsResponse, 0, boost::none, query_hash_);
+                  }
+                });
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccDetail,
@@ -1068,9 +1207,10 @@ namespace iroha {
                     soci::use(creator_id_, "role_account_id"));
           },
           [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
             auto roles = boost::copy_range<
                 std::vector<shared_model::interface::types::RoleIdType>>(
-                range | boost::adaptors::transformed([](auto t) {
+                range_without_nulls | boost::adaptors::transformed([](auto t) {
                   return apply(t, [](auto &role_id) { return role_id; });
                 }));
 
@@ -1101,14 +1241,15 @@ namespace iroha {
                     soci::use(q.roleId(), "role_name"));
           },
           [this, &q](auto range, auto &) {
-            if (range.empty()) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoRoles,
                   "{" + q.roleId() + ", " + creator_id_ + "}",
                   0);
             }
 
-            return apply(range.front(), [this](auto &permission) {
+            return apply(range_without_nulls.front(), [this](auto &permission) {
               return query_response_factory_->createRolePermissionsResponse(
                   shared_model::interface::RolePermissionSet(permission),
                   query_hash_);
@@ -1139,14 +1280,15 @@ namespace iroha {
                     soci::use(q.assetId(), "asset_id"));
           },
           [this, &q](auto range, auto &) {
-            if (range.empty()) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoAsset,
                   "{" + q.assetId() + ", " + creator_id_ + "}",
                   0);
             }
 
-            return apply(range.front(),
+            return apply(range_without_nulls.front(),
                          [this, &q](auto &domain_id, auto &precision) {
                            return query_response_factory_->createAssetResponse(
                                q.assetId(), domain_id, precision, query_hash_);
