@@ -64,12 +64,17 @@ MockQueryFactory::FactoryResult<MockGetAccountDetail>
 MockQueryFactory::constructGetAccountDetail(
     const types::AccountIdType &account_id,
     boost::optional<types::AccountDetailKeyType> key,
-    boost::optional<types::AccountIdType> writer) const {
+    boost::optional<types::AccountIdType> writer,
+    boost::optional<const AccountDetailPaginationMeta &> pagination_meta)
+    const {
   return createFactoryResult<MockGetAccountDetail>(
-      [&account_id, &key, &writer](MockGetAccountDetail &mock) {
+      [&account_id, &key, &writer, &pagination_meta](
+          MockGetAccountDetail &mock) {
         EXPECT_CALL(mock, accountId()).WillRepeatedly(ReturnRef(account_id));
         EXPECT_CALL(mock, key()).WillRepeatedly(Return(key));
         EXPECT_CALL(mock, writer()).WillRepeatedly(Return(writer));
+        EXPECT_CALL(mock, paginationMeta())
+            .WillRepeatedly(Return(pagination_meta));
       });
 }
 
