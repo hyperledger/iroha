@@ -225,10 +225,10 @@ namespace iroha {
                     std::forward<PermissionsErrResponse>(perms_err_response)(),
                     2);
               }
-              auto query_range = range
-                  | boost::adaptors::transformed([](auto &t) {
-                                   return viewQuery<QueryTuple>(t);
-                                 });
+              auto query_range =
+                  range | boost::adaptors::transformed([](auto &t) {
+                    return viewQuery<QueryTuple>(t);
+                  });
               return std::forward<ResponseCreator>(response_creator)(
                   query_range, perms...);
             });
@@ -238,7 +238,7 @@ namespace iroha {
       }
     }
 
-    template<typename T>
+    template <typename T>
     auto resultWithoutNulls(T range) {
       return range
           | boost::adaptors::transformed([](auto &&t) { return rebind(t); })
@@ -1385,8 +1385,9 @@ namespace iroha {
                     soci::use(creator_id_, "role_account_id"));
           },
           [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
             shared_model::interface::types::PeerList peers;
-            for (const auto &row : range) {
+            for (const auto &row : range_without_nulls) {
               apply(row, [&peers](auto &peer_key, auto &address) {
                 peers.push_back(std::make_shared<shared_model::plain::Peer>(
                     address,
