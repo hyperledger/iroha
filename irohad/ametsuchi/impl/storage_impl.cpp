@@ -324,15 +324,22 @@ namespace iroha {
               };
 
               return expected::resultToOptionalValue(
-                  get_top_block_info() | [&](const auto &top_block_info) {
-                    return get_ledger_peers() |
-                        [&top_block_info](auto ledger_peers) {
+                  get_top_block_info() | [&](auto &&top_block_info) {
+                    return get_ledger_peers().match(
+                        [&top_block_info](auto &&ledger_peers_value)
+                            -> expected::Result<
+                                std::shared_ptr<const iroha::LedgerState>,
+                                std::string> {
                           return expected::makeValue(
                               std::make_shared<const iroha::LedgerState>(
-                                  std::move(ledger_peers),
+                                  std::move(ledger_peers_value).value,
                                   top_block_info.height,
                                   top_block_info.top_hash));
-                        };
+                        },
+                        [](auto &&e)
+                            -> expected::Result<
+                                std::shared_ptr<const iroha::LedgerState>,
+                                std::string> { return e; });
                   });
             }();
 

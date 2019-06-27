@@ -13,6 +13,7 @@ externalproject_add(google_protobuf-mutator
                     -DLIB_PROTO_MUTATOR_TESTING=OFF
                     -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
                     -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+                    -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
     BUILD_BYPRODUCTS ${EP_PREFIX}/src/google_protobuf-mutator-build/src/${protomutator_LIB}
                      ${EP_PREFIX}/src/google_protobuf-mutator-build/src/libfuzzer/${libfuzzer_LIB}
     INSTALL_COMMAND ""

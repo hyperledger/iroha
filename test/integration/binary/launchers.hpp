@@ -5,9 +5,10 @@
 #ifndef IROHA_LAUNCHERS_HPP
 #define IROHA_LAUNCHERS_HPP
 
-#include <boost/process.hpp>
 #include <chrono>
 #include <string>
+
+#include <boost/process.hpp>
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "cryptography/keypair.hpp"
@@ -57,13 +58,13 @@ namespace binary_test {
     /**
      * Parses binaries generator output and initalizes class fields.
      *
-     * @param stream - standard output of external binaries generator.
+     * @param data - standard output of external binaries generator.
      *     It is expected that entities are divided by newline separator.
      *     The first entity is expected to be a binary of admin's keypair.
      *     The next lines are transactions' or queries' binaries.
      *     The first read transaction will be considered as genesis transaction.
      */
-    void readBinaries(boost::process::ipstream &stream);
+    void readBinaries(const std::string &data);
     void checkAsserts(const unsigned &transactions_expected,
                       const unsigned &queries_expected);
   };

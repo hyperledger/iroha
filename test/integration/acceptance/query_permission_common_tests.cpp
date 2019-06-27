@@ -17,7 +17,7 @@ using QueryPermissionTestingTypes =
                      QueryPermissionAccDetails,
                      QueryPermissionTxs,
                      QueryPermissionSignatories>;
-TYPED_TEST_CASE(QueryPermissionFixture, QueryPermissionTestingTypes);
+TYPED_TEST_CASE(QueryPermissionFixture, QueryPermissionTestingTypes, );
 
 /**
  * TODO mboldyrev 18.01.2019 IR-219 remove, covered by field validator test

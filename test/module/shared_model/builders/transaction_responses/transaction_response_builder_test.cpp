@@ -44,7 +44,7 @@ using TransactionResponsTypes =
                      TransactionResponseBuilderTestCase<
                          shared_model::interface::NotReceivedTxResponse,
                          &BuilderType::notReceived> >;
-TYPED_TEST_CASE(TransactionResponseBuilderTest, TransactionResponsTypes);
+TYPED_TEST_CASE(TransactionResponseBuilderTest, TransactionResponsTypes, );
 
 /**
  * @given expected transaction status and hash

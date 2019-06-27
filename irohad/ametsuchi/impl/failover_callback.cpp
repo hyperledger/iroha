@@ -5,6 +5,8 @@
 
 #include "ametsuchi/impl/failover_callback.hpp"
 
+#include <ciso646>
+
 #include <soci/postgresql/soci-postgresql.h>
 
 #include "logger/logger.hpp"
