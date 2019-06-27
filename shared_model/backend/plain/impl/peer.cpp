@@ -5,6 +5,7 @@
 
 #include "backend/plain/peer.hpp"
 
+using namespace shared_model;
 using namespace shared_model::plain;
 
 Peer::Peer(const interface::types::AddressType &address,

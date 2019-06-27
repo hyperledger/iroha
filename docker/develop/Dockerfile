@@ -56,11 +56,12 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/cmake
 
-# install boost 1.65.1
+# install boost 1.70.0
 RUN set -e; \
     git clone https://github.com/boostorg/boost /tmp/boost; \
-    (cd /tmp/boost ; git checkout 436ad1dfcfc7e0246141beddd11c8a4e9c10b146); \
+    (cd /tmp/boost ; git checkout 8f9a1cf1d15d262e09c16a305034d8bc1e39aca2); \
     (cd /tmp/boost ; git submodule update --init --recursive); \
+    (cd /tmp/boost/libs/variant ; curl https://patch-diff.githubusercontent.com/raw/boostorg/variant/pull/68.patch | git apply); \
     (cd /tmp/boost ; /tmp/boost/bootstrap.sh --with-libraries=system,filesystem,thread); \
     (cd /tmp/boost ; /tmp/boost/b2 headers); \
     (cd /tmp/boost ; /tmp/boost/b2 cxxflags="-std=c++14" -j ${PARALLELISM} install); \
@@ -124,10 +125,10 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/grpc
 
-# install gtest
+# install gtest 2019-01-04
 RUN set -e; \
     git clone https://github.com/google/googletest /tmp/googletest; \
-    (cd /tmp/googletest ; git checkout ec44c6c1675c25b9827aacd08c02433cccde7780); \
+    (cd /tmp/googletest ; git checkout b6cd405286ed8635ece71c72f118e659f4ade3fb); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -H/tmp/googletest \

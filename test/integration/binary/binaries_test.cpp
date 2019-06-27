@@ -10,7 +10,7 @@ using namespace shared_model::interface;
 using BinaryTestTypes = ::testing::Types<
     binary_test::PythonLauncher>;  //, binary_test::JavaLauncher>;
 
-TYPED_TEST_CASE(BinaryTestFixture, BinaryTestTypes);
+TYPED_TEST_CASE(BinaryTestFixture, BinaryTestTypes, );
 
 // -------------------------- Transactions --------------------------
 
