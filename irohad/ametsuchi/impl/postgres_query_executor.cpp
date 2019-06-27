@@ -224,10 +224,10 @@ namespace iroha {
                     std::forward<PermissionsErrResponse>(perms_err_response)(),
                     2);
               }
-              auto query_range = range
-                  | boost::adaptors::transformed([](auto &t) {
-                                   return viewQuery<QueryTuple>(t);
-                                 });
+              auto query_range =
+                  range | boost::adaptors::transformed([](auto &t) {
+                    return viewQuery<QueryTuple>(t);
+                  });
               return std::forward<ResponseCreator>(response_creator)(
                   query_range, perms...);
             });
@@ -237,7 +237,7 @@ namespace iroha {
       }
     }
 
-    template<typename T>
+    template <typename T>
     auto resultWithoutNulls(T range) {
       return range
           | boost::adaptors::transformed([](auto &&t) { return rebind(t); })
@@ -533,11 +533,11 @@ namespace iroha {
               auto next_hash = response_txs.back()->hash();
               response_txs.pop_back();
               return query_response_factory_->createTransactionsPageResponse(
-                  std::move(response_txs), next_hash, total_size, query_hash_);
+                  std::move(response_txs), total_size, query_hash_, next_hash);
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), total_size, query_hash_);
+                std::move(response_txs), total_size, query_hash_, boost::none);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }

@@ -236,14 +236,13 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsResponse(
       query_hash);
 }
 
-// TODO igor-egorov 28.05.2019 IR-521 Remove code duplication
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
         transactions,
-    const crypto::Hash &next_tx_hash,
     interface::types::TransactionsNumberType all_transactions_size,
-    const crypto::Hash &query_hash) const {
+    const crypto::Hash &query_hash,
+    boost::optional<const crypto::Hash &> next_tx_hash) const {
   return createQueryResponse(
       [transactions = std::move(transactions),
        &next_tx_hash,
@@ -256,29 +255,9 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
               static_cast<shared_model::proto::Transaction *>(tx.get())
                   ->getTransport();
         }
-        protocol_specific_response->set_next_tx_hash(next_tx_hash.hex());
-        protocol_specific_response->set_all_transactions_size(
-            all_transactions_size);
-      },
-      query_hash);
-}
-
-// TODO igor-egorov 28.05.2019 IR-521 Remove code duplication
-std::unique_ptr<shared_model::interface::QueryResponse>
-shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
-    std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-        transactions,
-    interface::types::TransactionsNumberType all_transactions_size,
-    const crypto::Hash &query_hash) const {
-  return createQueryResponse(
-      [transactions = std::move(transactions), &all_transactions_size](
-          iroha::protocol::QueryResponse &protocol_query_response) {
-        iroha::protocol::TransactionsPageResponse *protocol_specific_response =
-            protocol_query_response.mutable_transactions_page_response();
-        for (const auto &tx : transactions) {
-          *protocol_specific_response->add_transactions() =
-              static_cast<shared_model::proto::Transaction *>(tx.get())
-                  ->getTransport();
+        if (next_tx_hash) {
+          protocol_specific_response->set_next_tx_hash(
+              next_tx_hash.value().hex());
         }
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);

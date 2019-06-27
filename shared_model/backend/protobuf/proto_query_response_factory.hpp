@@ -6,6 +6,8 @@
 #ifndef IROHA_PROTO_QUERY_RESPONSE_FACTORY_HPP
 #define IROHA_PROTO_QUERY_RESPONSE_FACTORY_HPP
 
+#include "boost/none.hpp"
+#include "boost/optional.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 
 namespace shared_model {
@@ -59,15 +61,9 @@ namespace shared_model {
       std::unique_ptr<interface::QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
-          const crypto::Hash &next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const override;
-
-      std::unique_ptr<interface::QueryResponse> createTransactionsPageResponse(
-          std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-              transactions,
-          interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const override;
+          const crypto::Hash &query_hash,
+          boost::optional<const crypto::Hash &> next_tx_hash) const override;
 
       std::unique_ptr<interface::QueryResponse>
       createPendingTransactionsPageResponse(
