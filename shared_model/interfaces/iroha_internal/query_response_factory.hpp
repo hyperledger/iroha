@@ -137,33 +137,20 @@ namespace shared_model {
       /**
        * Create response for transactions pagination query
        * @param transactions - list of transactions in this page
+       * @param all_transactions_size - total number of transactions
+       * for this query
+       * @param query_hash - hash of the query, for which response is created
        * @param next_tx_hash - hash of the transaction after
        * the last in the page
-       * @param all_transactions_size - total number of transactions
-       * for this query
-       * @param query_hash - hash of the query, for which response is created
-       * @return transactions response
-       */
-      virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
-          std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-              transactions,
-          const crypto::Hash &next_tx_hash,
-          interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const = 0;
-
-      /**
-       * Create response for transactions pagination query without next hash
-       * @param transactions - list of transactions in this page
-       * @param all_transactions_size - total number of transactions
-       * for this query
-       * @param query_hash - hash of the query, for which response is created
        * @return transactions response
        */
       virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
           interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const = 0;
+          const crypto::Hash &query_hash,
+          boost::optional<const crypto::Hash &> next_tx_hash =
+              boost::none) const = 0;
 
       /**
        * Create response for asset query

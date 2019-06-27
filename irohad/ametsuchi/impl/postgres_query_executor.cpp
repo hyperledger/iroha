@@ -523,7 +523,7 @@ namespace iroha {
               auto next_hash = response_txs.back()->hash();
               response_txs.pop_back();
               return query_response_factory_->createTransactionsPageResponse(
-                  std::move(response_txs), next_hash, total_size, query_hash_);
+                  std::move(response_txs), total_size, query_hash_, next_hash);
             }
 
             return query_response_factory_->createTransactionsPageResponse(

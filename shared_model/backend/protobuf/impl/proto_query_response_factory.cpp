@@ -221,9 +221,9 @@ std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
         transactions,
-    const crypto::Hash &next_tx_hash,
     interface::types::TransactionsNumberType all_transactions_size,
-    const crypto::Hash &query_hash) const {
+    const crypto::Hash &query_hash,
+    boost::optional<const crypto::Hash &> next_tx_hash) const {
   return createQueryResponse(
       [transactions = std::move(transactions),
        &next_tx_hash,
@@ -236,28 +236,9 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
               static_cast<shared_model::proto::Transaction *>(tx.get())
                   ->getTransport();
         }
-        protocol_specific_response->set_next_tx_hash(next_tx_hash.hex());
-        protocol_specific_response->set_all_transactions_size(
-            all_transactions_size);
-      },
-      query_hash);
-}
-
-std::unique_ptr<shared_model::interface::QueryResponse>
-shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
-    std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-        transactions,
-    interface::types::TransactionsNumberType all_transactions_size,
-    const crypto::Hash &query_hash) const {
-  return createQueryResponse(
-      [transactions = std::move(transactions), &all_transactions_size](
-          iroha::protocol::QueryResponse &protocol_query_response) {
-        iroha::protocol::TransactionsPageResponse *protocol_specific_response =
-            protocol_query_response.mutable_transactions_page_response();
-        for (const auto &tx : transactions) {
-          *protocol_specific_response->add_transactions() =
-              static_cast<shared_model::proto::Transaction *>(tx.get())
-                  ->getTransport();
+        if (next_tx_hash) {
+          protocol_specific_response->set_next_tx_hash(
+              next_tx_hash.value().hex());
         }
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);
@@ -324,15 +305,15 @@ shared_model::proto::ProtoQueryResponseFactory::createRolePermissionsResponse(
 std::unique_ptr<shared_model::interface::BlockQueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createBlockQueryResponse(
     std::shared_ptr<const shared_model::interface::Block> block) const {
-  return createQueryResponse([block = std::move(block)](
-                                 iroha::protocol::BlockQueryResponse
-                                     &protocol_query_response) {
-    iroha::protocol::BlockResponse *protocol_specific_response =
-        protocol_query_response.mutable_block_response();
-    *protocol_specific_response->mutable_block()->mutable_block_v1() =
-        static_cast<const shared_model::proto::Block *>(block.get())
-            ->getTransport();
-  });
+  return createQueryResponse(
+      [block = std::move(block)](
+          iroha::protocol::BlockQueryResponse &protocol_query_response) {
+        iroha::protocol::BlockResponse *protocol_specific_response =
+            protocol_query_response.mutable_block_response();
+        *protocol_specific_response->mutable_block()->mutable_block_v1() =
+            static_cast<const shared_model::proto::Block *>(block.get())
+                ->getTransport();
+      });
 }
 
 std::unique_ptr<shared_model::interface::BlockQueryResponse>
