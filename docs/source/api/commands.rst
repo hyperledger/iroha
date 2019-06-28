@@ -54,7 +54,7 @@ Possible Stateful Validation Errors
     "1", "Could not add asset quantity", "Internal error happened", "Try again or contact developers"
     "2", "No such permissions", "Command's creator does not have permission to add asset quantity", "Grant the necessary permission"
     "3", "No such asset", "Cannot find asset with such name or such precision", "Make sure asset id and precision are correct"
-    "4", "Summation overflow", "Resulting amount of asset is greater than the system can support", "Make sure that resulting amount is less than 2^256"
+    "4", "Summation overflow", "Resulting amount of asset is greater than the system can support", "Make sure that resulting amount is less than 2^(256 - precision)"
 
 Add peer
 --------
@@ -272,6 +272,11 @@ Schema
     Please note that due to a known issue you would not get any exception if you pass invalid precision value.
     Valid range is: 0 <= precision <= 255
 
+.. note::
+    Asset quantity is stored as unsigned 256 bit fixed point number.
+    Asset precision specifies how many bits are used for the fractional part.
+    Therefore, asset quantity must be less than 2^(256 - precision).
+
 Structure
 ^^^^^^^^^
 
@@ -281,7 +286,7 @@ Structure
 
     "Asset name", "domain-unique name for asset", "`[a-z_0-9]{1,32}`", "soracoin"
     "Domain ID", "target domain to make relation with", "RFC1035 [#f1]_, RFC1123 [#f2]_", "japan"
-    "Precision", "number of digits after comma/dot", "0 <= precision <= 255", "2"
+    "Precision", "number of bits for fractional part", "0 <= precision <= 255", "2"
 
 Validation
 ^^^^^^^^^^
@@ -785,7 +790,7 @@ Possible Stateful Validation Errors
     "4", "No such destination account", "Cannot find account with such id to transfer money to", "Make sure destination account id is correct"
     "5", "No such asset found", "Cannot find such asset", "Make sure asset name and precision are correct"
     "6", "Not enough balance", "Source account's balance is too low to perform the operation", "Add asset to account or choose lower value to subtract"
-    "7", "Too much asset to transfer", "Resulting value of asset amount overflows destination account's amount", "Make sure final value is less than 2^256"
+    "7", "Too much asset to transfer", "Resulting value of asset amount overflows destination account's amount", "Make sure final value is less than 2^(256 - precision)"
 
 .. [#f1] https://www.ietf.org/rfc/rfc1035.txt
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
