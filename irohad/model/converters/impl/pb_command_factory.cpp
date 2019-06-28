@@ -136,7 +136,9 @@ namespace iroha {
              can_grant + can_set_my_account_detail)
 
             // Can get blocks
-            (protocol::RolePermission::can_get_blocks, can_get_blocks);
+            (protocol::RolePermission::can_get_blocks, can_get_blocks)
+            // Can get peers
+            (protocol::RolePermission::can_get_peers, can_get_peers);
 
         boost::assign::insert(pb_grant_map_)
             // Can add my signatory

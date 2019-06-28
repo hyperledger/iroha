@@ -109,6 +109,10 @@ message PendingTransactionsPageResponse {
   BatchInfo next_batch_info = 3;
 }
 
+message PeersResponse {
+  repeated Peer peers = 1;
+}
+
 message QueryResponse {
   oneof response {
     AccountAssetResponse account_assets_response = 1;
@@ -123,6 +127,7 @@ message QueryResponse {
     TransactionsPageResponse transactions_page_response = 11;
     PendingTransactionsPageResponse pending_transactions_page_response = 13;
     BlockResponse block_response = 12;
+    PeersResponse peers_response = 14;
   }
   string query_hash = 10;
 }

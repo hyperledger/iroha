@@ -60,6 +60,7 @@ namespace shared_model {
         kGetBlocks,
         kAddDomainAssetQty,
         kSubtractDomainAssetQty,
+        kGetPeers,
         COUNT
       };
 

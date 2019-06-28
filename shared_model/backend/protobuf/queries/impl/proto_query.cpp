@@ -13,6 +13,7 @@
 #include "backend/protobuf/queries/proto_get_account_transactions.hpp"
 #include "backend/protobuf/queries/proto_get_asset_info.hpp"
 #include "backend/protobuf/queries/proto_get_block.hpp"
+#include "backend/protobuf/queries/proto_get_peers.hpp"
 #include "backend/protobuf/queries/proto_get_pending_transactions.hpp"
 #include "backend/protobuf/queries/proto_get_role_permissions.hpp"
 #include "backend/protobuf/queries/proto_get_roles.hpp"
@@ -35,7 +36,8 @@ namespace {
                      shared_model::proto::GetRolePermissions,
                      shared_model::proto::GetAssetInfo,
                      shared_model::proto::GetPendingTransactions,
-                     shared_model::proto::GetBlock>;
+                     shared_model::proto::GetBlock,
+                     shared_model::proto::GetPeers>;
 
   /// list of types in proto variant
   using ProtoQueryListType = ProtoQueryVariantType::types;
