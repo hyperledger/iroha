@@ -133,7 +133,7 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "1", "Could not get block", "Internal error happened", "Try again or contact developers"
-    "2", "No such permissions", "Query's creator does not have a permission to get block", "Grant the necessary permission"
+    "2", "No such permissions", "Query's creator does not have a permission to get block", "Grant `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission"
     "3", "Invalid height", "Supplied height is not uint_64 or greater than the ledger's height", "Check the height and try again"
 
 Get Signatories
@@ -1056,6 +1056,10 @@ Response Schema
       }
     }
 
+    message BlockErrorResponse {
+      string message = 1;
+    }
+
 Please note that it returns a stream of `BlockQueryResponse`.
 
 Response Structure
@@ -1074,8 +1078,14 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "1", "Could not get block streaming", "Internal error happened", "Try again or contact developers"
-    "2", "No such permissions", "Query's creator does not have any of the permissions to get blocks", "Grant the necessary permission: individual, global or domain one"
+    "2", "No such permissions", "Query's creator does not have any of the permissions to get blocks", "Grant `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission"
     "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
+
+.. note::
+    `BlockErrorResponse` contains only `message` field.
+    In case of stateful validation error it will be `"stateful invalid"`.
+    `GetBlock <#get-block>`__ requires same `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission.
+    Therefore, it can be used with `height = 1` (first block is always present) to get verbose error.
 
 Example
 -------

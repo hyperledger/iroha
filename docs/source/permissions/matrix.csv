@@ -60,7 +60,9 @@ Query,Account Transaction,can_get_all_acc_txs,FALSE,,Allows getting all transact
 Query,Account Transaction,can_get_domain_acc_txs,FALSE,,Allows getting all transactions issued by any account from the same domain as query creator.,,Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.,http://iroha.readthedocs.io/en/latest/api/queries.html#get-account-transactions,Admin creates Alice account in the same domain that has only can_get_domain_acc_txs permission. Alice can request all the transactions issued by Admin.
 Query,Account Transaction,can_get_my_acc_txs,FALSE,,Allows getting all transactions issued by an account of query creator.,,Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.,http://iroha.readthedocs.io/en/latest/api/queries.html#get-account-transactions,Admin creates Alice account in a domain that has only can_get_my_acc_txs permission. Alice can get all transactions issued by own account.
 Query,Asset,can_read_assets,FALSE,,Allows getting information about asset precision.,,,http://iroha.readthedocs.io/en/latest/api/queries.html#get-asset-info,Admin creates Alice account in a domain that has can_read_assets permissions. Alice can query information about any asset.
-Query,Block Stream,can_get_blocks,FALSE,,Allows subscription to the stream of accepted blocks.,,,,
+Query,Block Stream,can_get_blocks,FALSE,,"Allows reading blocks.
+Allows subscription to the stream of accepted blocks.",,,"https://iroha.readthedocs.io/en/latest/api/queries.html#get-block
+https://iroha.readthedocs.io/en/latest/api/queries.html#fetchcommits",
 Query,Role,can_get_roles,FALSE,,"Allows getting a list of roles within the system.
 Allows getting a list of permissions associated with a role.",,,"http://iroha.readthedocs.io/en/latest/api/queries.html#get-roles
 

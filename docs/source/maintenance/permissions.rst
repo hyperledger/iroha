@@ -1053,7 +1053,10 @@ Block Stream
 can_get_blocks
 ^^^^^^^^^^^^^^
 
-Allows subscription to the stream of accepted `blocks <../core_concepts/glossary.html#block>`__.
+Allows reading `blocks <../core_concepts/glossary.html#block>`__.
+Allows subscription to the stream of accepted blocks.
+
+| Related API methods: `Get Block <../api/queries.html#get-block>`__, `Fetchcommits <../api/queries.html#fetchcommits>`__
 
 Role
 ----
