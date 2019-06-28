@@ -49,6 +49,7 @@ add_library(shared_model_proto_backend
     queries/impl/proto_asset_pagination_meta.cpp
     queries/impl/proto_account_detail_pagination_meta.cpp
     queries/impl/proto_account_detail_record_id.cpp
+    queries/impl/proto_get_peers.cpp
     )
 
 if (IROHA_ROOT_PROJECT)
@@ -69,6 +70,7 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/proto_block_response.cpp
       query_responses/impl/proto_block_error_response.cpp
       query_responses/impl/proto_get_block_response.cpp
+      query_responses/impl/proto_peers_response.cpp
       transaction_responses/impl/proto_tx_response.cpp
       )
 endif ()
@@ -77,5 +79,6 @@ target_link_libraries(shared_model_proto_backend
     schema
     common
     shared_model_interfaces
+    shared_model_proto_backend_plain
     logger
     )

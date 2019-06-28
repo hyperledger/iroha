@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PEER_HPP
 #define IROHA_SHARED_MODEL_PEER_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -15,7 +15,7 @@ namespace shared_model {
     /**
      * Representation of a network participant.
      */
-    class Peer : public ModelPrimitive<Peer> {
+    class Peer : public NonCopyableModelPrimitive<Peer> {
      public:
       /**
        * @return Peer address, for fetching data

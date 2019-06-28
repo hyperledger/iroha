@@ -70,6 +70,7 @@ enum RolePermission {
   can_get_my_txs = 35;
   can_get_all_txs = 36;
   can_get_blocks = 42;
+  can_get_peers = 45;
 
   // Grant permissions
   can_grant_can_set_my_quorum = 37;

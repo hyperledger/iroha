@@ -25,6 +25,7 @@ namespace shared_model {
     class GetRolePermissions;
     class GetAssetInfo;
     class GetPendingTransactions;
+    class GetPeers;
 
     /**
      * Class Query provides container with one of concrete query available in
@@ -50,7 +51,8 @@ namespace shared_model {
                                     GetRolePermissions,
                                     GetAssetInfo,
                                     GetPendingTransactions,
-                                    GetBlock>;
+                                    GetBlock,
+                                    GetPeers>;
 
       /**
        * @return reference to const variant with concrete command
