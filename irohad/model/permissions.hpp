@@ -106,9 +106,6 @@ namespace shared_model {
     /*                           Blocks                           */
     const std::string can_get_blocks = "can_get_blocks";
 
-    /*                            Peers                           */
-    const std::string can_get_peers = "can_get_peers";
-
     /* ~~~~~~~~                 Groups                ~~~~~~~~   */
     const std::set<std::string> read_self_group = {can_get_my_account,
                                                    can_get_my_signatories,
@@ -127,8 +124,7 @@ namespace shared_model {
                                                   can_get_all_txs,
                                                   can_get_roles,
                                                   can_read_assets,
-                                                  can_get_blocks,
-                                                  can_get_peers};
+                                                  can_get_blocks};
 
     const std::set<std::string> read_domain_group = {
         can_get_domain_accounts,
@@ -141,12 +137,11 @@ namespace shared_model {
 
     /*                   Grantable permissions                   */
     const std::string can_grant = "can_grant_";
-    const std::set<std::string> grant_group = {
-        can_grant + can_set_my_quorum,
-        can_grant + can_add_my_signatory,
-        can_grant + can_remove_my_signatory,
-        can_grant + can_transfer_my_assets,
-        can_grant + can_set_my_account_detail};
+    const std::set<std::string> grant_group = {can_grant + can_set_my_quorum,
+                                               can_grant + can_add_my_signatory,
+                                               can_grant + can_remove_my_signatory,
+                                               can_grant + can_transfer_my_assets,
+                                               can_grant + can_set_my_account_detail};
 
     const std::set<std::string> edit_self_group = {
         can_set_quorum, can_add_signatory, can_remove_signatory};
@@ -196,9 +191,7 @@ namespace shared_model {
         can_grant + can_add_my_signatory,
         can_grant + can_remove_my_signatory,
         can_grant + can_transfer_my_assets,
-        can_grant + can_set_my_account_detail,
-        can_get_blocks,
-        can_get_peers};
+        can_grant + can_set_my_account_detail};
 
     /*                    All permissions                        */
     const std::set<std::string> all_perm_group = {
@@ -244,17 +237,15 @@ namespace shared_model {
         can_grant + can_remove_my_signatory,
         can_grant + can_transfer_my_assets,
         can_grant + can_set_my_account_detail,
-        // TODO: IR 1190 kamilsa 30.03.2018 move permissions below to separated
-        // group
+        // TODO: IR 1190 kamilsa 30.03.2018 move permissions below to separated group
         can_add_my_signatory,
         can_remove_my_signatory,
         can_set_my_quorum,
         can_set_my_account_detail,
         can_transfer_my_assets,
-        can_get_blocks,
-        can_get_peers};
+        can_get_blocks};
 
-  }  // namespace permissions
-}  // namespace shared_model
+  }  // namespace shared_model
+}  // namespace permissions
 
 #endif  // SHARED_MODEL_PERMISSIONS_HPP
