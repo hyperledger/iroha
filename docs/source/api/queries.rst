@@ -134,7 +134,13 @@ Possible Stateful Validation Errors
 
     "1", "Could not get block", "Internal error happened", "Try again or contact developers"
     "2", "No such permissions", "Query's creator does not have a permission to get block", "Grant `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission"
+    "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
     "3", "Invalid height", "Supplied height is not uint_64 or greater than the ledger's height", "Check the height and try again"
+
+.. note::
+    Error code 3 is ambiguos for this method.
+    It indicates either invalid signatories or invalid height.
+    Use this method with `height = 1` (first block is always present) to check for invalid signatories.
 
 Get Signatories
 ^^^^^^^^^^^^^^^
