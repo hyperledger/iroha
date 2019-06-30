@@ -1368,10 +1368,15 @@ namespace iroha {
       statements.push_back({"grantPermission",
                             grantPermissionBase,
                             {(boost::format(R"(
-            has_perm AS (SELECT COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-          & $4 = $4 FROM role_has_permissions AS rp
-              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = $1),)")
+            has_perm AS (
+                SELECT
+                    (
+                        COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+                        & $4
+                    ) = $4
+                FROM role_has_permissions AS rp
+                JOIN account_has_roles AS ar ON ar.role_id = rp.role_id
+                WHERE ar.account_id = $1),)")
                               % bits)
                                  .str(),
                              R"( WHERE (SELECT * FROM has_perm))",
