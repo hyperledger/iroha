@@ -260,7 +260,11 @@ class FieldValidatorTest : public ValidatorsTest {
       {"zero_amount",
        [&] { amount = "0"; },
        false,
-       "Amount must be greater than 0, passed value: 0"}};
+       "Amount must be greater than 0, passed value: 0"},
+      {"negative_amount",
+       [&] { amount = "-100"; },
+       false,
+       "Amount must be greater than 0, passed value: -100"}};
 
   /**
    * Make test case for invalid peer address.

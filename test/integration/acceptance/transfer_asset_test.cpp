@@ -182,23 +182,6 @@ TEST_F(TransferAsset, NonexistentAsset) {
 }
 
 /**
- * TODO mboldyrev 18.01.2019 IR-226 convert to a field validator unit test
- *
- * @given pair of users with all required permissions
- * @when execute tx with TransferAsset command with negative amount
- * @then the tx hasn't passed stateless validation
- *       (aka skipProposal throws)
- */
-TEST_F(TransferAsset, NegativeAmount) {
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
-      .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(makeTransfer("-1.0"), CHECK_STATELESS_INVALID);
-}
-
-/**
  * TODO mboldyrev 18.01.2019 IR-226 remove, covered by field validator test
  *
  * @given pair of users with all required permissions
