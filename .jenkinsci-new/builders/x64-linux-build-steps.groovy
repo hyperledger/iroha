@@ -41,7 +41,7 @@ def testSteps(String buildDir, List environment, String testList) {
 }
 
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean specialBranch, boolean coverage,
-      boolean testing, String testList, boolean cppcheck, boolean sonar, boolean docs, boolean packagebuild,
+      boolean testing, String testList, boolean cppcheck, boolean sonar, boolean codestyle, boolean docs, boolean packagebuild,
       boolean sanitize, boolean fuzzing, boolean coredumps, boolean useBTF, boolean forceDockerDevelopBuild, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
@@ -124,6 +124,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
       stage("Analysis") {
             cppcheck ? build.cppCheck(buildDir, parallelism) : echo('Skipping Cppcheck...')
             sonar ? build.sonarScanner(scmVars, environment) : echo('Skipping Sonar Scanner...')
+            codestyle ? build.clangFormat(scmVars, environment) : echo('Skipping Code Style...')
       }
       stage('Build docs'){
         docs ? doxygen.doDoxygen(specialBranch, scmVars.GIT_LOCAL_BRANCH) : echo("Skipping Doxygen...")

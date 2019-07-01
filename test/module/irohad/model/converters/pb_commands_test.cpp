@@ -22,7 +22,7 @@
 #include "model/commands/transfer_asset.hpp"
 
 #include "model/converters/pb_command_factory.hpp"
-#include "validators/permissions.hpp"
+#include "model/permissions.hpp"
 
 using namespace iroha::model;
 using namespace shared_model::permissions;

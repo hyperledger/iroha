@@ -34,7 +34,7 @@ namespace iroha {
     struct BlockCreatorEvent {
       boost::optional<RoundData> round_data;
       consensus::Round round;
-      std::shared_ptr<LedgerState> ledger_state;
+      std::shared_ptr<const LedgerState> ledger_state;
     };
 
     std::shared_ptr<shared_model::interface::Block> getBlockUnsafe(

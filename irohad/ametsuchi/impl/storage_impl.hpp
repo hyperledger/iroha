@@ -18,7 +18,9 @@
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -92,10 +94,12 @@ namespace iroha {
 
       void freeConnections() override;
 
-      boost::optional<std::unique_ptr<LedgerState>> commit(
+      CommitResult commit(
           std::unique_ptr<MutableStorage> mutable_storage) override;
 
-      boost::optional<std::unique_ptr<LedgerState>> commitPrepared(
+      bool preparedCommitEnabled() const override;
+
+      CommitResult commitPrepared(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       std::shared_ptr<WsvQuery> getWsvQuery() const override;
@@ -110,7 +114,9 @@ namespace iroha {
       ~StorageImpl() override;
 
      protected:
-      StorageImpl(PostgresOptions postgres_options,
+      StorageImpl(boost::optional<std::shared_ptr<const iroha::LedgerState>>
+                      ledger_state,
+                  PostgresOptions postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -128,6 +134,8 @@ namespace iroha {
       const PostgresOptions postgres_options_;
 
      private:
+      using StoreBlockResult = iroha::expected::Result<void, std::string>;
+
       /**
        * revert prepared transaction
        */
@@ -135,7 +143,7 @@ namespace iroha {
       /**
        * add block to block storage
        */
-      bool storeBlock(
+      StoreBlockResult storeBlock(
           std::shared_ptr<const shared_model::interface::Block> block);
 
       /**
@@ -176,6 +184,8 @@ namespace iroha {
       std::atomic<bool> block_is_prepared_;
 
       std::string prepared_block_name_;
+
+      boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 
      protected:
       static const std::string &reset_;

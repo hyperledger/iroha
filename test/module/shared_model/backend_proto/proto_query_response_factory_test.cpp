@@ -122,8 +122,15 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
   const HashType kQueryHash{"my_super_hash"};
 
   const DetailType account_details = "{ fav_meme : doge }";
+  const size_t total_number = 999;
+  const AccountIdType next_writer("pepe@uganda");
+  const AccountDetailKeyType next_key("fav_chan");
   auto query_response = response_factory->createAccountDetailResponse(
-      account_details, kQueryHash);
+      account_details,
+      total_number,
+      shared_model::interface::types::AccountDetailRecordId{next_writer,
+                                                            next_key},
+      kQueryHash);
 
   ASSERT_TRUE(query_response);
   ASSERT_EQ(query_response->queryHash(), kQueryHash);
@@ -131,7 +138,11 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
     const auto &response =
         boost::get<const shared_model::interface::AccountDetailResponse &>(
             query_response->get());
-    ASSERT_EQ(response.detail(), account_details);
+    EXPECT_EQ(response.detail(), account_details);
+    EXPECT_EQ(response.totalNumber(), total_number);
+    ASSERT_TRUE(response.nextRecordId());
+    EXPECT_EQ(response.nextRecordId()->writer(), next_writer);
+    EXPECT_EQ(response.nextRecordId()->key(), next_key);
   });
 }
 

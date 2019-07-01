@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_TYPES_HPP
 #define IROHA_SHARED_MODEL_TYPES_HPP
 
+#include <ciso646>
 #include <cstdint>
 #include <memory>
 #include <set>
@@ -23,9 +24,10 @@ namespace shared_model {
 
   namespace interface {
 
+    class AccountAsset;
+    class Block;
     class Signature;
     class Transaction;
-    class AccountAsset;
     class Peer;
 
     namespace types {
@@ -55,6 +57,7 @@ namespace shared_model {
       using PermissionNameType = std::string;
       /// Permission set
       using PermissionSetType = std::set<PermissionNameType>;
+      // TODO igor-egorov 28.05.2019 IR-520 Inconsistent C++/Protobuf type sizes
       /// Type of Quorum used in transaction and set quorum
       using QuorumType = uint16_t;
       /// Type of timestamp
@@ -73,6 +76,16 @@ namespace shared_model {
       using AccountDetailKeyType = std::string;
       /// Type of account detail value
       using AccountDetailValueType = std::string;
+      /// Type of account detail record unique ID
+      struct AccountDetailRecordId {
+        AccountIdType writer;
+        AccountDetailKeyType key;
+
+        bool operator ==(const AccountDetailRecordId &rhs) const {
+          return writer == rhs.writer and key == rhs.key;
+        }
+      };
+      // TODO igor-egorov 28.05.2019 IR-520 Inconsistent C++/Protobuf type sizes
       /// Type of a number of transactions in block and query response page
       using TransactionsNumberType = uint16_t;
       /// Type of the transfer message

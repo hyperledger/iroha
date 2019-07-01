@@ -58,7 +58,7 @@ namespace iroha {
         boost::optional<std::shared_ptr<shared_model::interface::Block>>
             current_block_;
         YacHash current_hash_;
-        std::shared_ptr<LedgerState> current_ledger_state_;
+        std::shared_ptr<const LedgerState> current_ledger_state_;
 
         rxcpp::observable<GateObject> published_events_;
         std::shared_ptr<YacPeerOrderer> orderer_;

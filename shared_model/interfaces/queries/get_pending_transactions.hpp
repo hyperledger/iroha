@@ -6,11 +6,13 @@
 #ifndef IROHA_SHARED_MODEL_GET_PENDING_TRANSACTIONS_HPP
 #define IROHA_SHARED_MODEL_GET_PENDING_TRANSACTIONS_HPP
 
+#include <boost/optional.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace interface {
+    class TxPaginationMeta;
 
     /**
      * Get all pending (not fully signed) multisignature transactions or batches
@@ -19,6 +21,13 @@ namespace shared_model {
     class GetPendingTransactions
         : public ModelPrimitive<GetPendingTransactions> {
      public:
+      // TODO igor-egorov 2019-06-06 IR-516 make page meta non-optional
+      /**
+       *  Get the query pagination metadata.
+       */
+      virtual boost::optional<const TxPaginationMeta &> paginationMeta()
+          const = 0;
+
       std::string toString() const override;
 
       bool operator==(const ModelType &rhs) const override;

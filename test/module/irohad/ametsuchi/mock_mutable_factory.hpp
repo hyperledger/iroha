@@ -19,18 +19,17 @@ namespace iroha {
           createMutableStorage,
           expected::Result<std::unique_ptr<MutableStorage>, std::string>(void));
 
-      boost::optional<std::unique_ptr<LedgerState>> commit(
+      CommitResult commit(
           std::unique_ptr<MutableStorage> mutableStorage) override {
         // gmock workaround for non-copyable parameters
         return commit_(mutableStorage);
       }
 
-      MOCK_METHOD1(commitPrepared,
-                   boost::optional<std::unique_ptr<LedgerState>>(
-                       std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(commit_,
-                   boost::optional<std::unique_ptr<LedgerState>>(
-                       std::unique_ptr<MutableStorage> &));
+      MOCK_CONST_METHOD0(preparedCommitEnabled, bool());
+      MOCK_METHOD1(
+          commitPrepared,
+          CommitResult(std::shared_ptr<const shared_model::interface::Block>));
+      MOCK_METHOD1(commit_, CommitResult(std::unique_ptr<MutableStorage> &));
     };
 
   }  // namespace ametsuchi

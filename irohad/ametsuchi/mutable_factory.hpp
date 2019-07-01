@@ -9,8 +9,8 @@
 #include <memory>
 
 #include <boost/optional.hpp>
+#include "ametsuchi/commit_result.hpp"
 #include "common/result.hpp"
-#include "ametsuchi/ledger_state.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -38,17 +38,20 @@ namespace iroha {
        * This transforms Ametsuchi to the new state consistent with
        * MutableStorage.
        * @param mutableStorage
-       * @return new state of the ledger, boost::none if commit failed
+       * @return the status of commit
        */
-      virtual boost::optional<std::unique_ptr<LedgerState>> commit(
+      virtual CommitResult commit(
           std::unique_ptr<MutableStorage> mutableStorage) = 0;
+
+      /// Check if prepared commits are enabled.
+      virtual bool preparedCommitEnabled() const = 0;
 
       /**
        * Try to apply prepared block to Ametsuchi.
-       * @return state of the ledger if commit is succesful, boost::none if
-       * prepared block failed to apply. WSV is not changed in this case.
+       * @param block The previously prepared block that will be committed now.
+       * @return Result of committing the prepared block.
        */
-      virtual boost::optional<std::unique_ptr<LedgerState>> commitPrepared(
+      virtual CommitResult commitPrepared(
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
 
       virtual ~MutableFactory() = default;

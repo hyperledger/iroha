@@ -23,9 +23,9 @@
 #include "model/converters/pb_common.hpp"
 #include "model/converters/pb_transaction_factory.hpp"
 #include "model/model_crypto_provider.hpp"  // for ModelCryptoProvider
+#include "model/permissions.hpp"
 #include "model/sha3_hash.hpp"
 #include "parser/parser.hpp"  // for parser::ParseValue
-#include "validators/permissions.hpp"
 
 using namespace iroha::model;
 using namespace shared_model::permissions;

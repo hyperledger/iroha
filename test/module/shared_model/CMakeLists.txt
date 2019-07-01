@@ -36,3 +36,16 @@ target_link_libraries(commands_mocks_factory
 target_compile_definitions(commands_mocks_factory
     PUBLIC BOOST_NO_IOSTREAM
     )
+
+add_library(query_mocks_factory
+    mock_objects_factories/mock_query_factory.cpp
+    )
+target_link_libraries(query_mocks_factory
+    shared_model_interfaces
+    gtest::main
+    gmock::main
+    )
+# avoid compilation error due to missing operator<< in Query variant types
+target_compile_definitions(query_mocks_factory
+    PUBLIC BOOST_NO_IOSTREAM
+    )

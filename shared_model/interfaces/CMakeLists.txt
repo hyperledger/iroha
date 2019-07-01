@@ -40,6 +40,8 @@ add_library(shared_model_interfaces
     queries/impl/query_payload_meta.cpp
     queries/impl/tx_pagination_meta.cpp
     queries/impl/asset_pagination_meta.cpp
+    queries/impl/account_detail_pagination_meta.cpp
+    queries/impl/account_detail_record_id.cpp
     common_objects/impl/amount.cpp
     common_objects/impl/signature.cpp
     common_objects/impl/peer.cpp
@@ -61,6 +63,7 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/block_query_response.cpp
       query_responses/impl/block_response.cpp
       query_responses/impl/transactions_page_response.cpp
+      query_responses/impl/pending_transactions_page_response.cpp
       transaction_responses/impl/tx_response.cpp
       iroha_internal/transaction_sequence.cpp
       iroha_internal/transaction_batch_impl.cpp

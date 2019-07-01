@@ -182,9 +182,12 @@ namespace shared_model {
       }
 
       auto getAccountDetail(
+          size_t page_size,
           const interface::types::AccountIdType &account_id = "",
           const interface::types::AccountDetailKeyType &key = "",
-          const interface::types::AccountIdType &writer = "") {
+          const interface::types::AccountIdType &writer = "",
+          const boost::optional<interface::types::AccountDetailRecordId>
+              &first_record_id = boost::none) {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_detail();
           if (not account_id.empty()) {
@@ -195,6 +198,14 @@ namespace shared_model {
           }
           if (not writer.empty()) {
             query->set_writer(writer);
+          }
+          auto pagination_meta = query->mutable_pagination_meta();
+          pagination_meta->set_page_size(page_size);
+          if (first_record_id) {
+            auto proto_first_record_id =
+                pagination_meta->mutable_first_record_id();
+            proto_first_record_id->set_writer(first_record_id->writer);
+            proto_first_record_id->set_key(first_record_id->key);
           }
         });
       }
@@ -249,6 +260,17 @@ namespace shared_model {
       auto getPendingTransactions() const {
         return queryField([&](auto proto_query) {
           proto_query->mutable_get_pending_transactions();
+        });
+      }
+
+      auto getPendingTransactions(
+          interface::types::TransactionsNumberType page_size,
+          const boost::optional<interface::types::HashType> &first_hash =
+              boost::none) const {
+        return queryField([&](auto proto_query) {
+          auto query = proto_query->mutable_get_pending_transactions();
+          setTxPaginationMeta(
+              query->mutable_pagination_meta(), page_size, first_hash);
         });
       }
 

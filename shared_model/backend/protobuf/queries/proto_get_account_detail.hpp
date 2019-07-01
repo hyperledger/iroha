@@ -7,6 +7,7 @@
 #define IROHA_PROTO_GET_ACCOUNT_DETAIL_HPP
 
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
 #include "interfaces/queries/get_account_detail.hpp"
 #include "queries.pb.h"
 
@@ -30,10 +31,14 @@ namespace shared_model {
 
       boost::optional<interface::types::AccountIdType> writer() const override;
 
+      boost::optional<const interface::AccountDetailPaginationMeta &>
+      paginationMeta() const override;
+
      private:
       // ------------------------------| fields |-------------------------------
 
       const iroha::protocol::GetAccountDetail &account_detail_;
+      const boost::optional<const AccountDetailPaginationMeta> pagination_meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

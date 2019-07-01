@@ -10,6 +10,7 @@
 
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/queries/account_detail_pagination_meta.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -41,6 +42,10 @@ namespace shared_model {
        * @return account identifier of writer
        */
       virtual boost::optional<types::AccountIdType> writer() const = 0;
+
+      /// Get the query pagination metadata.
+      virtual boost::optional<const AccountDetailPaginationMeta &>
+      paginationMeta() const = 0;
 
       std::string toString() const override;
 
