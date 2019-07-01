@@ -4,6 +4,7 @@
  */
 
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
+
 #include "backend/protobuf/permissions.hpp"
 #include "utils/string_builder.hpp"
 
