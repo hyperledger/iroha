@@ -13,9 +13,7 @@ namespace shared_model {
     std::string PeersResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("PeersResponse")
-          .appendAll(
-              peers(),
-              [](std::shared_ptr<Peer> peer) { return peer->toString(); })
+          .appendAll(peers(), [](auto &peer) { return peer.toString(); })
           .finalize();
     }
 

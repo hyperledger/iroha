@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_PEERS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_PEERS_RESPONSE_HPP
 
+#include "backend/protobuf/common_objects/peer.hpp"
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/peers_response.hpp"
 #include "qry_responses.pb.h"
@@ -24,12 +25,12 @@ namespace shared_model {
 
       PeersResponse(PeersResponse &&o);
 
-      const interface::types::PeerList &peers() const override;
+      interface::PeersForwardCollectionType peers() const override;
 
      private:
       const iroha::protocol::PeersResponse &peers_response_;
 
-      const interface::types::PeerList peers_;
+      const std::vector<Peer> peers_;
     };
   }  // namespace proto
 }  // namespace shared_model
