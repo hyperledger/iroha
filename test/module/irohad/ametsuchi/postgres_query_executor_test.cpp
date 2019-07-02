@@ -2523,8 +2523,7 @@ namespace iroha {
      * @then return peers
      */
     TEST_F(GetPeersExecutorTest, Valid) {
-      // TODO igor-egorov replace kGetBlocks with kGetPeers IR-574
-      addPerms({shared_model::interface::permissions::Role::kGetBlocks});
+      addPerms({shared_model::interface::permissions::Role::kGetPeers});
       auto query =
           TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
       auto result = executeQuery(query);

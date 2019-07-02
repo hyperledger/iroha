@@ -1372,11 +1372,7 @@ namespace iroha {
                       R"(WITH has_perms AS (%s)
       SELECT public_key, address, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
-      )")
-                  % getAccountRolePermissionCheckSql(
-                        Role::kGetBlocks))  // TODO igor-egorov replace
-                                            // kGetBlocks with kGetPeers
-                                            // IR-574
+      )") % getAccountRolePermissionCheckSql(Role::kGetPeers))
                      .str();
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -1398,7 +1394,7 @@ namespace iroha {
             return query_response_factory_->createPeersResponse(peers,
                                                                 query_hash_);
           },
-          notEnoughPermissionsResponse(perm_converter_, Role::kGetBlocks));
+          notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
     }
 
     template <typename ReturnValueType>
