@@ -338,7 +338,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
     transactions_test_copy.push_back(std::move(tx_copy));
   }
   auto query_response = response_factory->createTransactionsPageResponse(
-      std::move(transactions), kTransactionsNumber, kQueryHash, kNextTxHash);
+      std::move(transactions), kNextTxHash, kTransactionsNumber, kQueryHash);
 
   ASSERT_TRUE(query_response);
   EXPECT_EQ(query_response->queryHash(), kQueryHash);
@@ -380,7 +380,7 @@ TEST_F(ProtoQueryResponseFactoryTest,
     transactions_test_copy.push_back(std::move(tx_copy));
   }
   auto query_response = response_factory->createTransactionsPageResponse(
-      std::move(transactions), kTransactionsNumber, kQueryHash, boost::none);
+      std::move(transactions), boost::none, kTransactionsNumber, kQueryHash);
 
   ASSERT_TRUE(query_response);
   EXPECT_EQ(query_response->queryHash(), kQueryHash);
