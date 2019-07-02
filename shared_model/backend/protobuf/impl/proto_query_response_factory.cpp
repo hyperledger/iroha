@@ -241,9 +241,9 @@ std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
         transactions,
+    boost::optional<const crypto::Hash &> next_tx_hash,
     interface::types::TransactionsNumberType all_transactions_size,
-    const crypto::Hash &query_hash,
-    boost::optional<const crypto::Hash &> next_tx_hash) const {
+    const crypto::Hash &query_hash) const {
   return createQueryResponse(
       [transactions = std::move(transactions),
        &next_tx_hash,

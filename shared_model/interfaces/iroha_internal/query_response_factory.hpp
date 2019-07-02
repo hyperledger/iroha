@@ -164,9 +164,9 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
+          boost::optional<const crypto::Hash &> next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash,
-          boost::optional<const crypto::Hash &> next_tx_hash) const = 0;
+          const crypto::Hash &query_hash) const = 0;
 
       /**
        * Create paged response for pending transaction query
