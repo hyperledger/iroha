@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_PROTO_GET_PEERS_H
-#define IROHA_PROTO_GET_PEERS_H
+#ifndef IROHA_PROTO_GET_PEERS_HPP
+#define IROHA_PROTO_GET_PEERS_HPP
 
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_peers.hpp"
@@ -27,4 +27,4 @@ namespace shared_model {
   }  // namespace proto
 }  // namespace shared_model
 
-#endif  // IROHA_PROTO_GET_PEERS_H
+#endif  // IROHA_PROTO_GET_PEERS_HPP

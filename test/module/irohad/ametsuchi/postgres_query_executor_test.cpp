@@ -133,7 +133,13 @@ namespace iroha {
 
     class QueryExecutorTest : public AmetsuchiTest {
      public:
-      QueryExecutorTest() {
+      QueryExecutorTest()
+          : peer{"127.0.0.1",
+                 shared_model::interface::types::PubkeyType{
+                     shared_model::crypto::Blob::fromHexString(
+                         "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f"
+                         "21800"
+                         "0a5533")}} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
@@ -165,12 +171,6 @@ namespace iroha {
         execute(
             *mock_command_factory->constructCreateRole(role, role_permissions),
             true);
-        shared_model::plain::Peer peer(
-            "127.0.0.1",
-            shared_model::interface::types::PubkeyType{
-                shared_model::crypto::Blob::fromHexString(
-                    "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f21800"
-                    "0a5533")});
         execute(*mock_command_factory->constructAddPeer(peer), true);
         execute(*mock_command_factory->constructCreateDomain(domain_id, role),
                 true);
@@ -287,6 +287,8 @@ namespace iroha {
       std::unique_ptr<shared_model::interface::MockCommandFactory>
           mock_command_factory =
               std::make_unique<shared_model::interface::MockCommandFactory>();
+
+      shared_model::plain::Peer peer;
     };
 
     class BlocksQueryExecutorTest : public QueryExecutorTest {};
@@ -2527,13 +2529,11 @@ namespace iroha {
           TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
       auto result = executeQuery(query);
       checkSuccessfulResult<shared_model::interface::PeersResponse>(
-          std::move(result), [](const auto &cast_resp) {
-            ASSERT_EQ(cast_resp.peers().size(), 1);
+          std::move(result), [&expected_peer = peer](const auto &cast_resp) {
+            ASSERT_EQ(boost::size(cast_resp.peers()), 1);
             auto &peer = cast_resp.peers().front();
-            ASSERT_EQ(peer->address(), "127.0.0.1");
-            ASSERT_EQ(peer->pubkey().hex(),
-                      "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f218"
-                      "000a5533");
+            ASSERT_EQ(peer.address(), expected_peer.address());
+            ASSERT_EQ(peer.pubkey(), expected_peer.pubkey());
           });
     }
 

@@ -15,13 +15,8 @@ namespace shared_model {
     PeersResponse::PeersResponse(QueryResponseType &&query_response)
         : CopyableProto(std::forward<QueryResponseType>(query_response)),
           peers_response_{proto_->peers_response()},
-          peers_{boost::accumulate(peers_response_.peers(),
-                                   interface::types::PeerList{},
-                                   [](auto &&peers, const auto &peer) {
-                                     peers.push_back(
-                                         std::make_shared<Peer>(peer));
-                                     return std::move(peers);
-                                   })} {}
+          peers_{proto_->mutable_peers_response()->mutable_peers()->begin(),
+                 proto_->mutable_peers_response()->mutable_peers()->end()} {}
 
     template PeersResponse::PeersResponse(PeersResponse::TransportType &);
     template PeersResponse::PeersResponse(const PeersResponse::TransportType &);
@@ -33,7 +28,7 @@ namespace shared_model {
     PeersResponse::PeersResponse(PeersResponse &&o)
         : PeersResponse(std::move(o.proto_)) {}
 
-    const interface::types::PeerList &PeersResponse::peers() const {
+    interface::PeersForwardCollectionType PeersResponse::peers() const {
       return peers_;
     }
 

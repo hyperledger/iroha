@@ -6,11 +6,16 @@
 #ifndef IROHA_SHARED_MODEL_PEERS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PEERS_RESPONSE_HPP
 
+#include <boost/range/any_range.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace interface {
+
+    using PeersForwardCollectionType =
+        boost::any_range<Peer, boost::forward_traversal_tag, const Peer &>;
+
     /**
      * Provide response with peers in the network
      */
@@ -19,7 +24,7 @@ namespace shared_model {
       /**
        * @return a list of peers
        */
-      virtual const types::PeerList &peers() const = 0;
+      virtual PeersForwardCollectionType peers() const = 0;
 
       std::string toString() const override;
 
