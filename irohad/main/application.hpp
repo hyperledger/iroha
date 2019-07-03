@@ -302,14 +302,14 @@ class Irohad {
   // block loader
   std::shared_ptr<iroha::network::BlockLoader> block_loader;
 
+  // synchronizer
+  std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
+
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
   rxcpp::composite_subscription consensus_gate_objects_lifetime;
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
-
-  // synchronizer
-  std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
 
   // pcs
   std::shared_ptr<iroha::network::PeerCommunicationService> pcs;
