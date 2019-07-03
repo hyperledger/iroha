@@ -5,6 +5,8 @@
 
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
 
+#include "framework/common_constants.hpp"
+
 using namespace shared_model::interface::permissions;
 using namespace common_constants;
 
@@ -162,6 +164,7 @@ shared_model::proto::Query GrantablePermissionsFixture::queryAccountDetail(
     const shared_model::interface::types::AccountNameType &account_name,
     const shared_model::crypto::Keypair &account_key) {
   const auto account_id = account_name + "@" + kDomain;
-  return complete(baseQry(account_id).getAccountDetail(account_id),
-                  account_key);
+  return complete(
+      baseQry(account_id).getAccountDetail(kMaxPageSize, account_id),
+      account_key);
 }

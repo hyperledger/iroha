@@ -11,9 +11,12 @@
 #include <boost/optional.hpp>
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/asset.hpp"
+#include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
+#include "interfaces/queries/account_detail_record_id.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
+#include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 
 namespace shared_model {
@@ -58,11 +61,17 @@ namespace shared_model {
       /**
        * Create response for account detail query
        * @param account_detail to be inserted into the response
+       * @param total_number the total number of detail records matching the
+       * query, regardless of pagination metadata
+       * @param next_record_id the next record id, if any
        * @param query_hash - hash of the query, for which response is created
        * @return account detail response
        */
       virtual std::unique_ptr<QueryResponse> createAccountDetailResponse(
           types::DetailType account_detail,
+          size_t total_number,
+          boost::optional<shared_model::interface::types::AccountDetailRecordId>
+              next_record_id,
           const crypto::Hash &query_hash) const = 0;
 
       /**
@@ -174,11 +183,29 @@ namespace shared_model {
           const crypto::Hash &query_hash) const = 0;
 
       /**
+       * Create paged response for pending transaction query
+       * @param transactions - list of transactions on the page
+       * @param all_transactions_size - total number of transactions among all
+       * the batches in a pending storage for the user
+       * @param next_batch_info - optional struct with hash of the first
+       * transaction for the following batch and its size (if exists)
+       * @param query_hash - hash of the corresponding query
+       */
+      virtual std::unique_ptr<QueryResponse>
+      createPendingTransactionsPageResponse(
+          std::vector<std::unique_ptr<interface::Transaction>> transactions,
+          interface::types::TransactionsNumberType all_transactions_size,
+          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+              next_batch_info,
+          const crypto::Hash &query_hash) const = 0;
+
+      /**
        * Create response for asset query
        * @param asset_id of asset to be inserted into the response
        * @param domain_id of asset to be inserted into the response
        * @param precision of asset to be inserted into the response
-       * @param query_hash - hash of the query, for which response is created
+       * @param query_hash - hash of the query, for which response is
+       * created
        * @return asset response
        */
       virtual std::unique_ptr<QueryResponse> createAssetResponse(

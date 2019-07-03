@@ -13,9 +13,18 @@ namespace iroha {
 
   class MockPendingTransactionStorage : public PendingTransactionStorage {
    public:
-    MOCK_CONST_METHOD1(getPendingTransactions,
-                 shared_model::interface::types::SharedTxsCollectionType(
-                     const shared_model::interface::types::AccountIdType &accountId));
+    MOCK_CONST_METHOD1(
+        getPendingTransactions,
+        shared_model::interface::types::SharedTxsCollectionType(
+            const shared_model::interface::types::AccountIdType &account_id));
+    MOCK_CONST_METHOD3(
+        getPendingTransactions,
+        expected::Result<Response, ErrorCode>(
+            const shared_model::interface::types::AccountIdType &account_id,
+            const shared_model::interface::types::TransactionsNumberType
+                page_size,
+            const boost::optional<shared_model::interface::types::HashType>
+                &first_tx_hash));
   };
 
 }  // namespace iroha

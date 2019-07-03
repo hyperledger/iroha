@@ -7,6 +7,7 @@ ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
+ENV PATH "/home/iroha-ci/.cargo/bin:${PATH}"
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
@@ -33,8 +34,8 @@ RUN set -e; \
         # Pythons
         python-pip python3-pip python3-setuptools python-dev \
         # other
-        curl file gdb gdbserver ccache \
-        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip; \
+        curl file gdb gdbserver ccache clang-format \
+        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean
 
 # compiler clang-7 and libc++ only on x86_64, for debug purpose
@@ -223,7 +224,7 @@ RUN set -e; \
     rm -rf /tmp/tbb
 
 # install sonar cli
-ENV SONAR_CLI_VERSION=3.0.3.778
+ENV SONAR_CLI_VERSION=3.3.0.1492
 RUN set -e; \
     mkdir -p /opt/sonar; \
     curl -L -o /tmp/sonar.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SONAR_CLI_VERSION}-linux.zip; \
@@ -287,4 +288,9 @@ RUN set -e; \
 
 
 USER iroha-ci
+
+# install rust for hyperledger ursa
+RUN set -e; \
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+
 CMD ["/bin/bash"]

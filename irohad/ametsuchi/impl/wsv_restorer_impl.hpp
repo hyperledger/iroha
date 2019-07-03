@@ -27,10 +27,7 @@ namespace iroha {
        * @return ledger state after restoration on success, otherwise error
        * string
        */
-      iroha::expected::Result<
-          boost::optional<std::unique_ptr<iroha::LedgerState>>,
-          std::string>
-      restoreWsv(Storage &storage) override;
+      CommitResult restoreWsv(Storage &storage) override;
     };
 
   }  // namespace ametsuchi

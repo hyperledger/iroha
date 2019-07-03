@@ -158,12 +158,10 @@ TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
     auto block_result = block_query->getBlock(i);
 
     std::shared_ptr<shared_model::interface::Block> block =
-        boost::get<iroha::expected::Value<
-            std::unique_ptr<shared_model::interface::Block>>>(
-            std::move(block_result))
+        boost::get<decltype(block_result)::ValueType>(std::move(block_result))
             .value;
     valid_block_storage->storeBlock(
-        std::static_pointer_cast<shared_model::proto::Block>(block));
+        std::static_pointer_cast<const shared_model::proto::Block>(block));
   }
 
   // From now the itf peer is considered unreachable from the rest network. //

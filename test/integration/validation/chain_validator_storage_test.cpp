@@ -12,6 +12,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/keypair.hpp"
+#include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 
@@ -99,7 +100,9 @@ namespace iroha {
       auto ms = createMutableStorage();
 
       ms->apply(block);
-      storage->commit(std::move(ms));
+      auto commit_result = storage->commit(std::move(ms));
+      EXPECT_TRUE(boost::get<expected::ValueOf<decltype(commit_result)>>(
+          (&commit_result)));
 
       return block;
     }

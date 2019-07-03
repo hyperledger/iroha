@@ -21,8 +21,7 @@ namespace iroha {
                    std::shared_ptr<shared_model::interface::Block>>,
                std::function<
                    bool(std::shared_ptr<const shared_model::interface::Block>,
-                        PeerQuery &,
-                        const shared_model::interface::types::HashType &)>));
+                        const iroha::LedgerState &)>));
       MOCK_METHOD1(apply,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(applyPrepared,

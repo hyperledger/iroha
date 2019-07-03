@@ -144,6 +144,7 @@ node ('master') {
   cppcheck = false
   coredumps = true
   sonar = false
+  codestyle = false
   coverage = false
   coverage_mac = false
   doxygen = false
@@ -202,6 +203,7 @@ node ('master') {
         coverage = true
         cppcheck = true
         sonar = true
+        codestyle = true
         break;
      case 'Commit in Open PR':
         gitNotify ("Jenkins: Merge to trunk", "Please, run: 'Before merge to trunk'", 'PENDING', env.JOB_URL + "/build")
@@ -217,6 +219,7 @@ node ('master') {
         coverage = true
         cppcheck = true
         sonar = true
+        codestyle = true
         useBTF = true
         break;
      case 'Custom command':
@@ -240,9 +243,9 @@ node ('master') {
   echo """
        specialBranch=${specialBranch}, packageBuild=${packageBuild}, pushDockerTag=${pushDockerTag}, packagePush=${packagePush}
        testing=${testing}, testList=${testList}, parallelism=${parallelism}, useBTF=${useBTF}
-       x64linux_compiler_list=${x64linux_compiler_list}
-       mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
-       sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, coredumps=${coredumps}, sonar=${sonar}, coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
+       x64linux_compiler_list=${x64linux_compiler_list}, mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
+       sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, coredumps=${coredumps}, sonar=${sonar},
+       codestyle=${codestyle},coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
        forceDockerDevelopBuild=${forceDockerDevelopBuild}, checkTag=${checkTag}
     """
   print scmVars
@@ -266,12 +269,12 @@ node ('master') {
   if(!x64linux_compiler_list.isEmpty()){
     x64LinuxBuildSteps = [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, specialBranch, coverage,
-      testing, testList, cppcheck, sonar, doxygen, packageBuild, sanitize, fuzzing, coredumps, useBTF, forceDockerDevelopBuild, environmentList)}]
+      testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, coredumps, useBTF, forceDockerDevelopBuild, environmentList)}]
     //If "master" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', specialBranch, false,
-      false, testList, false, false, false, true, false, false, false, false, false, environmentList)}]
+      false, testList, false, false, false, false, true, false, false, false, false, false, environmentList)}]
     }
     x64LinuxPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
@@ -331,6 +334,14 @@ node ('master') {
   cleanWs()
   parallel tasks
 
+  if(codestyle){
+    report_file = "${BUILD_URL}artifact/clang-format-report.txt"
+    line = sh(script: "curl -s ${report_file} | wc -l", returnStdout: true).trim().toInteger()
+    if ( line == 0 )
+      gitNotify ("Jenkins: ClangFormat", "SUCCESS", 'SUCCESS', report_file )
+    else
+      gitNotify ("Jenkins: ClangFormat", "You need to format ~ ${line/2} lines", 'PENDING', report_file )
+  }
   if (build_scenario == 'Before merge to trunk')
     if (currentBuild.currentResult == 'SUCCESS')
       gitNotify ("Jenkins: Merge to trunk", "Finish", 'SUCCESS')

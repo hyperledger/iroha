@@ -30,7 +30,7 @@ namespace iroha {
     struct SynchronizationEvent {
       SynchronizationOutcomeType sync_outcome;
       consensus::Round round;
-      std::shared_ptr<iroha::LedgerState> ledger_state;
+      std::shared_ptr<const iroha::LedgerState> ledger_state;
     };
 
   }  // namespace synchronizer

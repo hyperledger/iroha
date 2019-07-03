@@ -35,12 +35,11 @@ namespace iroha {
           boost::optional<std::shared_ptr<QueryExecutor>>(
               std::shared_ptr<PendingTransactionStorage>,
               std::shared_ptr<shared_model::interface::QueryResponseFactory>));
-      MOCK_METHOD1(doCommit,
-                   boost::optional<std::unique_ptr<LedgerState>>(
-                       MutableStorage *storage));
-      MOCK_METHOD1(commitPrepared,
-                   boost::optional<std::unique_ptr<LedgerState>>(
-                       std::shared_ptr<const shared_model::interface::Block>));
+      MOCK_METHOD1(doCommit, CommitResult(MutableStorage *storage));
+      MOCK_CONST_METHOD0(preparedCommitEnabled, bool());
+      MOCK_METHOD1(
+          commitPrepared,
+          CommitResult(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(createMutableStorage,
@@ -66,8 +65,7 @@ namespace iroha {
       on_commit() override {
         return notifier.get_observable();
       }
-      boost::optional<std::unique_ptr<LedgerState>> commit(
-          std::unique_ptr<MutableStorage> storage) override {
+      CommitResult commit(std::unique_ptr<MutableStorage> storage) override {
         return doCommit(storage.get());
       }
       rxcpp::subjects::subject<
