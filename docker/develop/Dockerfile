@@ -34,7 +34,7 @@ RUN set -e; \
         # Pythons
         python-pip python3-pip python3-setuptools python-dev \
         # other
-        curl file gdb gdbserver ccache clang-format \
+        curl file gdb gdbserver ccache \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean
 
@@ -42,7 +42,7 @@ RUN set -e; \
 RUN set -e; \
     if [ `uname -m` = "x86_64" ]; then \
       apt-get -y --no-install-recommends install \
-        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev; \
+        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev clang-format-7; \
       apt-get -y clean; \
     fi
 
