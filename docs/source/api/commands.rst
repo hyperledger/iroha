@@ -286,7 +286,7 @@ Structure
 
     "Asset name", "domain-unique name for asset", "`[a-z_0-9]{1,32}`", "soracoin"
     "Domain ID", "target domain to make relation with", "RFC1035 [#f1]_, RFC1123 [#f2]_", "japan"
-    "Precision", "number of bits for fractional part", "0 <= precision <= 255", "2"
+    "Precision", "number of digits after comma/dot", "0 <= precision <= 255", "2"
 
 Validation
 ^^^^^^^^^^
