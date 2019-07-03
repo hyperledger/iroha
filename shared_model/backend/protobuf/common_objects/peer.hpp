@@ -6,21 +6,19 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_PEER_HPP
 #define IROHA_SHARED_MODEL_PROTO_PEER_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "backend/protobuf/util.hpp"
 #include "cryptography/hash.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "primitive.pb.h"
+#include "utils/reference_holder.hpp"
 
 namespace shared_model {
   namespace proto {
-    class Peer final
-        : public CopyableProto<interface::Peer, iroha::protocol::Peer, Peer> {
+    class Peer final : public interface::Peer {
      public:
       template <typename PeerType>
-      explicit Peer(PeerType &&peer)
-          : CopyableProto(std::forward<PeerType>(peer)) {}
+      explicit Peer(PeerType &&peer) : proto_(std::forward<PeerType>(peer)) {}
 
       Peer(const Peer &o) : Peer(o.proto_) {}
 
@@ -35,6 +33,7 @@ namespace shared_model {
       }
 
      private:
+      detail::ReferenceHolder<iroha::protocol::Peer> proto_;
       const interface::types::PubkeyType public_key_{
           crypto::Hash::fromHexString(proto_->peer_key())};
     };

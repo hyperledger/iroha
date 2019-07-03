@@ -183,6 +183,13 @@ namespace shared_model {
         return reason;
       }
 
+      ReasonsGroupType operator()(const interface::GetPeers &qry) const {
+        ReasonsGroupType reason;
+        reason.first = "GetPeers";
+
+        return reason;
+      }
+
      private:
       FieldValidator validator_;
     };
