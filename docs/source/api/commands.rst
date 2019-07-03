@@ -274,7 +274,7 @@ Schema
 
 .. note::
     Asset quantity is stored as unsigned 256 bit fixed point number.
-    Asset precision specifies how many bits are used for the fractional part.
+    Asset precision specifies how many digits are used for the fractional part.
     Therefore, asset quantity must be less than 2^(256 - precision).
 
 Structure

@@ -138,7 +138,7 @@ Possible Stateful Validation Errors
     "3", "Invalid height", "Supplied height is not uint_64 or greater than the ledger's height", "Check the height and try again"
 
 .. note::
-    Error code 3 is ambiguos for this method.
+    Error code 3 is ambiguous for this query.
     It indicates either invalid signatories or invalid height.
     Use this method with `height = 1` (first block is always present) to check for invalid signatories.
 
@@ -1033,7 +1033,7 @@ Possible Stateful Validation Errors
 
 .. note::
     `BlockErrorResponse` contains only `message` field.
-    In case of stateful validation error it will be `"stateful invalid"`.
+    In case of stateful validation error it will be "stateful invalid".
     `GetBlock <#get-block>`__ requires same `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission.
     Therefore, it can be used with `height = 1` (first block is always present) to get verbose error.
 
