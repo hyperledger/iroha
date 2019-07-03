@@ -7,6 +7,7 @@ ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
+ENV PATH "/home/iroha-dpnds-test/.cargo/bin:${PATH}"
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
@@ -33,7 +34,7 @@ RUN set -e; \
         python-pip python3-pip python3-setuptools python-dev \
         # other
         curl file gdb gdbserver ccache \
-        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip; \
+        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean
 
 # install cmake 3.11.4
@@ -291,4 +292,9 @@ RUN set -e; \
     ccache --clear
 
 USER iroha-dpnds-test
+
+# install rust for hyperledger ursa
+RUN set -e; \
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+
 CMD ["/bin/bash"]
