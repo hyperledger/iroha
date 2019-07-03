@@ -980,8 +980,64 @@ Possible Stateful Validation Errors
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
 
 
-FetchCommits
-^^^^^^^^^^^^^^^^^^^^
+Get Peers
+^^^^^^^^^
+
+Purpose
+-------
+
+A query that returns a list of peers in Iroha network.
+
+Request Schema
+--------------
+
+.. code-block:: proto
+
+    message GetPeers {
+    }
+
+Response Schema
+---------------
+
+.. code-block:: proto
+
+    message Peer {
+      string address = 1;
+      string peer_key = 2; // hex string
+    }
+
+    message PeersResponse {
+      repeated Peer peers = 1;
+    }
+
+Response Structure
+------------------
+
+A list of peers with their addresses and public keys is returned.
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Peers", "array of peers from the network", "non-empty list of peers", "{Peer{""peer.domain.com"", ""292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2""}, …}"
+
+Possible Stateful Validation Errors
+-----------------------------------
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "1", "Could not get peers", "Internal error happened", "Try again or contact developers"
+    "2", "No such permissions", "Query creator does not have enough permissions to get peers", "Append a role with can_get_blocks or can_get_peers permission"
+    "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
+
+.. warning::
+
+    Currently Get Peers query uses "can_get_blocks" permission for compatibility purposes.
+    Later that will be changed to "can_get_peers" with the next major Iroha release.
+
+Fetch Commits
+^^^^^^^^^^^^^
 
 Purpose
 -------

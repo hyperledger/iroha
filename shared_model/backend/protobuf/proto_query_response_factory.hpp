@@ -92,6 +92,10 @@ namespace shared_model {
           interface::RolePermissionSet role_permissions,
           const crypto::Hash &query_hash) const override;
 
+      std::unique_ptr<interface::QueryResponse> createPeersResponse(
+          interface::types::PeerList peers,
+          const crypto::Hash &query_hash) const override;
+
       std::unique_ptr<interface::BlockQueryResponse> createBlockQueryResponse(
           std::shared_ptr<const interface::Block> block) const override;
 

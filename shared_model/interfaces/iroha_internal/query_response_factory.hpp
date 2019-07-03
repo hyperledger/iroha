@@ -235,6 +235,15 @@ namespace shared_model {
           const crypto::Hash &query_hash) const = 0;
 
       /**
+       * Create response for get peers query
+       * @param peers - list of peers
+       * @param query_hash - hash of the query, for which response is created
+       * @return get peers response
+       */
+      virtual std::unique_ptr<QueryResponse> createPeersResponse(
+          types::PeerList peers, const crypto::Hash &query_hash) const = 0;
+
+      /**
        * Create response for block query with block
        * @param block to be inserted into the response
        * @return block query response with block

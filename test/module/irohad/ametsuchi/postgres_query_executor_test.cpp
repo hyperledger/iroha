@@ -22,6 +22,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/mutable_storage.hpp"
+#include "backend/plain/peer.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "common/result.hpp"
 #include "datetime/time.hpp"
@@ -35,6 +36,7 @@
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/asset_response.hpp"
 #include "interfaces/query_responses/block_response.hpp"
+#include "interfaces/query_responses/peers_response.hpp"
 #include "interfaces/query_responses/role_permissions.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
@@ -131,7 +133,13 @@ namespace iroha {
 
     class QueryExecutorTest : public AmetsuchiTest {
      public:
-      QueryExecutorTest() {
+      QueryExecutorTest()
+          : peer{"127.0.0.1",
+                 shared_model::interface::types::PubkeyType{
+                     shared_model::crypto::Blob::fromHexString(
+                         "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f"
+                         "21800"
+                         "0a5533")}} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
@@ -163,6 +171,7 @@ namespace iroha {
         execute(
             *mock_command_factory->constructCreateRole(role, role_permissions),
             true);
+        execute(*mock_command_factory->constructAddPeer(peer), true);
         execute(*mock_command_factory->constructCreateDomain(domain_id, role),
                 true);
         execute(*mock_command_factory->constructCreateAccount(
@@ -278,6 +287,8 @@ namespace iroha {
       std::unique_ptr<shared_model::interface::MockCommandFactory>
           mock_command_factory =
               std::make_unique<shared_model::interface::MockCommandFactory>();
+
+      shared_model::plain::Peer peer;
     };
 
     class BlocksQueryExecutorTest : public QueryExecutorTest {};
@@ -1440,7 +1451,7 @@ namespace iroha {
       addDetails(3, 3);
       queryPageAndValidateResponse(
           makeFirstRecordId(makeAccountId(2), makeKey(2)), 2);
-        }
+    }
 
     INSTANTIATE_TEST_CASE_P(
         AllVariants,
@@ -2502,6 +2513,40 @@ namespace iroha {
 
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
           executeQuery(query), 4);
+    }
+
+    class GetPeersExecutorTest : public QueryExecutorTest {};
+
+    /**
+     * @given initialized storage, permission to get peers
+     * @when get peers query issued
+     * @then return peers
+     */
+    TEST_F(GetPeersExecutorTest, Valid) {
+      addPerms({shared_model::interface::permissions::Role::kGetPeers});
+      auto query =
+          TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
+      auto result = executeQuery(query);
+      checkSuccessfulResult<shared_model::interface::PeersResponse>(
+          std::move(result), [&expected_peer = peer](const auto &cast_resp) {
+            ASSERT_EQ(boost::size(cast_resp.peers()), 1);
+            auto &peer = cast_resp.peers().front();
+            ASSERT_EQ(peer.address(), expected_peer.address());
+            ASSERT_EQ(peer.pubkey(), expected_peer.pubkey());
+          });
+    }
+
+    /**
+     * @given initialized storage, no permission to get peers
+     * @when get peers query issued
+     * @then return missing permission error
+     */
+    TEST_F(GetPeersExecutorTest, Invalid) {
+      auto query =
+          TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
+      auto result = executeQuery(query);
+      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
+          std::move(result), kNoPermissions);
     }
 
   }  // namespace ametsuchi
