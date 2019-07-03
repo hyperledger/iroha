@@ -405,33 +405,36 @@ namespace iroha {
     // parsing vs nested queries
     const std::string PostgresCommandExecutor::addAssetQuantityBase = R"(
           PREPARE %s (text, text, int, text) AS
-          WITH has_account AS (SELECT account_id FROM account
-                               WHERE account_id = $1 LIMIT 1),
-               has_asset AS (SELECT asset_id FROM asset
-                             WHERE asset_id = $2 AND
-                             precision >= $3 LIMIT 1),
-               %s
-               amount AS (SELECT amount FROM account_has_asset
-                          WHERE asset_id = $2 AND
-                          account_id = $1 LIMIT 1),
-               new_value AS (SELECT $4::decimal +
-                              (SELECT
-                                  CASE WHEN EXISTS
-                                      (SELECT amount FROM amount LIMIT 1) THEN
-                                      (SELECT amount FROM amount LIMIT 1)
-                                  ELSE 0::decimal
-                              END) AS value
-                          ),
+          WITH %s
+               new_quantity AS (
+                   SELECT $4::decimal + coalesce(sum(amount), 0) as value
+                   FROM account_has_asset
+                   WHERE asset_id = $2
+                       AND account_id = $1
+               ),
+               checks AS (
+                   -- error code and check result
+                   SELECT 1 code, count(1) = 1 result
+                   FROM account
+                   WHERE account_id = $1
+
+                   UNION
+                   SELECT 3, count(1) = 1
+                   FROM asset
+                   WHERE asset_id = $2
+                      AND precision >= $3
+
+                   UNION
+                   SELECT 4, value < (2::decimal ^ 256) / 10::decimal^$3
+                   FROM new_quantity
+               ),
                inserted AS
                (
                   INSERT INTO account_has_asset(account_id, asset_id, amount)
                   (
-                      SELECT $1, $2, value FROM new_value
-                      WHERE EXISTS (SELECT * FROM has_account LIMIT 1) AND
-                        EXISTS (SELECT * FROM has_asset LIMIT 1) AND
-                        EXISTS (SELECT value FROM new_value
-                                WHERE value < 2::decimal ^ (256 - $3)
-                                LIMIT 1)
+                      SELECT $1, $2, value FROM new_quantity
+                      WHERE
+                        (SELECT bool_and(checks.result) FROM checks)
                         %s
                   )
                   ON CONFLICT (account_id, asset_id) DO UPDATE
@@ -439,13 +442,9 @@ namespace iroha {
                   RETURNING (1)
                )
           SELECT CASE
-              WHEN EXISTS (SELECT * FROM inserted LIMIT 1) THEN 0
               %s
-              WHEN NOT EXISTS (SELECT * FROM has_asset LIMIT 1) THEN 3
-              WHEN NOT EXISTS (SELECT value FROM new_value
-                               WHERE value < 2::decimal ^ (256 - $3)
-                               LIMIT 1) THEN 4
-              ELSE 1
+              WHEN EXISTS (SELECT * FROM inserted LIMIT 1) THEN 0
+              ELSE (SELECT code FROM checks WHERE not result LIMIT 1)
           END AS result;)";
 
     const std::string PostgresCommandExecutor::addPeerBase = R"(
