@@ -147,7 +147,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
  */
 TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   std::string pg_opt =
-      "host=localhost port=5432 users=nonexistinguser dbname=test";
+      "host=localhost port=5432 user=nonexistinguser password=wrong dbname=test";
 
   PostgresOptions options(pg_opt,
                           integration_framework::kDefaultWorkingDatabaseName,
