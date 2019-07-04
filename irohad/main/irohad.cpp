@@ -186,10 +186,13 @@ int main(int argc, char *argv[]) {
         config.database_config->working_dbname,
         config.database_config->maintenance_dbname,
         log);
-  } else {
+  } else if (config.pg_opt) {
     log->warn("Using deprecated database connection string!");
     pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
-        config.pg_opt, kDefaultWorkingDatabaseName, log);
+        config.pg_opt.value(), kDefaultWorkingDatabaseName, log);
+  } else {
+    log->critical("Missing database configuration!");
+    return EXIT_FAILURE;
   }
 
   // Configuring iroha daemon
