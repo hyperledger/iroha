@@ -43,9 +43,6 @@ namespace shared_model {
 
       const TransportType &getTransport() const;
 
-     protected:
-      TransactionResponse *clone() const override;
-
      private:
       struct Impl;
       std::unique_ptr<Impl> impl_;

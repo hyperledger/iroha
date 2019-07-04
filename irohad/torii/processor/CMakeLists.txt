@@ -11,7 +11,6 @@ target_link_libraries(processors PUBLIC
     logger
     endpoint
     mst_processor
-    shared_model_proto_builders
     status_bus
     common
     verified_proposal_creator_common

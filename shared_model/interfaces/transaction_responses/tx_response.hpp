@@ -6,9 +6,9 @@
 #ifndef IROHA_TX_RESPONSE_HPP
 #define IROHA_TX_RESPONSE_HPP
 
-#include <boost/variant/variant_fwd.hpp>
+#include "interfaces/base/noncopyable_model_primitive.hpp"
 
-#include "interfaces/base/model_primitive.hpp"
+#include <boost/variant/variant_fwd.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -28,7 +28,8 @@ namespace shared_model {
     /**
      * TransactionResponse is a status of transaction in system
      */
-    class TransactionResponse : public ModelPrimitive<TransactionResponse> {
+    class TransactionResponse
+        : public NonCopyableModelPrimitive<TransactionResponse> {
      private:
       /// const reference shortcut type
       template <typename... Value>
