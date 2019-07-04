@@ -228,9 +228,6 @@ class Irohad {
   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
       common_objects_factory_;
 
-  std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
-      reconnection_strategy_;
-
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
 
@@ -302,14 +299,14 @@ class Irohad {
   // block loader
   std::shared_ptr<iroha::network::BlockLoader> block_loader;
 
+  // synchronizer
+  std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
+
   // consensus gate
   std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
   rxcpp::composite_subscription consensus_gate_objects_lifetime;
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
-
-  // synchronizer
-  std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
 
   // pcs
   std::shared_ptr<iroha::network::PeerCommunicationService> pcs;

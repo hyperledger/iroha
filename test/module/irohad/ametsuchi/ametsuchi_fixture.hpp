@@ -56,10 +56,8 @@ namespace iroha {
         PostgresOptions options(
             pgopt_, PgConnectionInit::kDefaultDatabaseName, storage_logger_);
 
-        PgConnectionInit connection_init;
-        connection_init
-            .createDatabaseIfNotExist(options.dbname(),
-                                      options.optionsStringWithoutDbName())
+        PgConnectionInit::createDatabaseIfNotExist(
+            options.dbname(), options.optionsStringWithoutDbName())
             .match([](auto &&val) {},
                    [&](auto &&error) {
                      storage_logger_->error("Database creation error: {}",
@@ -67,7 +65,7 @@ namespace iroha {
                      std::terminate();
                    });
 
-        auto pool = connection_init.prepareConnectionPool(
+        auto pool = PgConnectionInit::prepareConnectionPool(
             *reconnection_strategy_factory_,
             options,
             pool_size_,

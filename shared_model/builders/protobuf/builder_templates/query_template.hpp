@@ -274,6 +274,11 @@ namespace shared_model {
         });
       }
 
+      auto getPeers() const {
+        return queryField(
+            [&](auto proto_query) { proto_query->mutable_get_peers(); });
+      }
+
       auto build() const {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         if (not query_.has_payload()) {
