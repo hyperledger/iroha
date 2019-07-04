@@ -123,7 +123,9 @@ Irohad::Irohad(const std::string &block_store_dir,
           max_proposal_size_, true);
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
-  initStorage();
+  if (auto e = expected::resultToOptionalError(initStorage())) {
+    log_->error("Storage initialization failed: {}", e.value());
+  }
 }
 
 Irohad::~Irohad() {
