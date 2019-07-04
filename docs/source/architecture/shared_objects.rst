@@ -8,7 +8,16 @@ Document Structure
 
 Each component in this document has its own diagram describing all members, and whether or not access to them is synchronized or not:
 
-* **Synchronized**
+.. role:: clr
+
+.. raw:: html
+
+   <style>
+      .clr {background-color:#C5E1F8;} 
+   </style>
+
+
+* :clr:`Synchronized`
 * Not Synchronized
 
 Query Service
@@ -17,7 +26,7 @@ Query Service
 +---------------------------------+
 | Query Service                   | 
 +=================================+
-| **Cache**                       | 
+| :clr:`Cache`                    | 
 +---------------------------------+
 | Query Processor                 | 
 +---------------------------------+
@@ -34,9 +43,9 @@ Query Processor
 +---------------------------------+
 | Query Processor                 | 
 +=================================+
-| **Query Response Observable**   | 
+| :clr:`Query Response Observable`| 
 +---------------------------------+
-| **Block Query Observable**      | 
+| :clr:`Block Query Observable`   | 
 +---------------------------------+
 | Storage                         |
 +---------------------------------+
@@ -47,9 +56,9 @@ Transaction Service
 +---------------------------------+
 | Transaction Service             | 
 +=================================+
-| **Response Cache**              | 
+| :clr:`Response Cache`           | 
 +---------------------------------+
-| **Transaction Processor**       | 
+| :clr:`Transaction Processor`    | 
 +---------------------------------+
 | Storage                         |
 +---------------------------------+
@@ -60,17 +69,17 @@ Also, transaction processor is synchronized in status streaming.
 Transaction Processor
 ---------------------
 
-+---------------------------------+
-| Transaction Processor           | 
-+=================================+
-| Peer Communication Service      | 
-+---------------------------------+
-| **Transaction Status Notifier** |
-+---------------------------------+
-| Proposal Set                    |
-+---------------------------------+
-| Candidate Set                   |
-+---------------------------------+
++------------------------------------+
+| Transaction Processor              | 
++====================================+
+| Peer Communication Service         | 
++------------------------------------+
+| :clr:`Transaction Status Notifier` |
++------------------------------------+
+| Proposal Set                       |
++------------------------------------+
+| Candidate Set                      |
++------------------------------------+
 
 Simulator
 ---------
@@ -125,9 +134,9 @@ Yac
 +---------------------------------+
 | Yac                             | 
 +=================================+
-| **Yac Vote Storage**            | 
+| :clr:`Yac Vote Storage`         | 
 +---------------------------------+
-| **Yac Network**                 |
+| :clr:`Yac Network`              |
 +---------------------------------+
 
 
