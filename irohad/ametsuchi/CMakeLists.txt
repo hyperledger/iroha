@@ -82,6 +82,7 @@ target_link_libraries(ametsuchi
     libs_files
     common
     shared_model_interfaces
+    shared_model_proto_backend_plain
     shared_model_stateless_validation
     failover_callback
     SOCI::postgresql

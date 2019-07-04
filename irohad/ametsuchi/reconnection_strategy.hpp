@@ -34,7 +34,7 @@ namespace iroha {
      */
     class ReconnectionStrategyFactory {
      public:
-      virtual std::unique_ptr<ReconnectionStrategy> create() = 0;
+      virtual std::unique_ptr<ReconnectionStrategy> create() const = 0;
 
       virtual ~ReconnectionStrategyFactory() = default;
     };

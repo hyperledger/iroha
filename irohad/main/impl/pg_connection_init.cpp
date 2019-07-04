@@ -41,7 +41,7 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
 
 iroha::expected::Result<PoolWrapper, std::string>
 PgConnectionInit::prepareConnectionPool(
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
     const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
@@ -148,7 +148,7 @@ void PgConnectionInit::initializeConnectionPool(
     const std::string &prepare_tables_sql,
     RollbackFunction try_rollback,
     FailoverCallbackHolder &callback_factory,
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const std::string &pg_reconnection_options,
     logger::LoggerManagerTreePtr log_manager) {
   auto log = log_manager->getLogger();
