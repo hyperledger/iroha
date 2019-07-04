@@ -64,6 +64,7 @@ target_link_libraries(postgres_query_executor_test
     ametsuchi
     commands_mocks_factory
     test_logger
+    rapidjson
     )
 
 addtest(tx_presence_cache_test tx_presence_cache_test.cpp)

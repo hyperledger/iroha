@@ -84,7 +84,6 @@ class StorageInitTest : public ::testing::Test {
     boost::filesystem::remove_all(block_store_path);
   }
 
-  PgConnectionInit connection_init_;
   logger::LoggerManagerTreePtr storage_log_manager_{
       getTestLoggerManager()->getChild("Storage")};
 };
@@ -99,11 +98,10 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
                           PgConnectionInit::kDefaultDatabaseName,
                           storage_log_manager_->getLogger());
 
-  connection_init_
-      .createDatabaseIfNotExist(options.dbname(),
-                                options.optionsStringWithoutDbName())
+  PgConnectionInit::createDatabaseIfNotExist(
+      options.dbname(), options.optionsStringWithoutDbName())
       .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
-  auto pool = connection_init_.prepareConnectionPool(
+  auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,
       pool_size_,
@@ -154,15 +152,14 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                           PgConnectionInit::kDefaultDatabaseName,
                           storage_log_manager_->getLogger());
 
-  connection_init_
-      .createDatabaseIfNotExist(options.dbname(),
-                                options.optionsStringWithoutDbName())
+  PgConnectionInit::createDatabaseIfNotExist(
+      options.dbname(), options.optionsStringWithoutDbName())
       .match([](auto &&val) {},
              [&](auto &&error) {
                storage_log_manager_->getLogger()->error(
                    "Database creation error: {}", error.error);
              });
-  auto pool = connection_init_.prepareConnectionPool(
+  auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,
       pool_size_,
