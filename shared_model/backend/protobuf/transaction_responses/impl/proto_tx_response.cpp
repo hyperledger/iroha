@@ -126,8 +126,5 @@ namespace shared_model {
       return impl_->proto_;
     }
 
-    TransactionResponse *TransactionResponse::clone() const {
-      return new TransactionResponse(impl_->proto_);
-    }
   };  // namespace proto
 }  // namespace shared_model
