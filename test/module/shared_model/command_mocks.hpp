@@ -39,9 +39,7 @@ namespace shared_model {
     struct SpecificMockCommandBase {};
 
     template <typename T>
-    struct SpecificMockCommand : public T, public SpecificMockCommandBase {
-      using SpecificCommand = T;
-    };
+    struct SpecificMockCommand : public T, public SpecificMockCommandBase {};
 
     struct MockAddAssetQuantity : public SpecificMockCommand<AddAssetQuantity> {
       MOCK_CONST_METHOD0(assetId, const types::AssetIdType &());
