@@ -20,10 +20,6 @@ namespace shared_model {
     class Amount final : public ModelPrimitive<Amount> {
      public:
       explicit Amount(const std::string &amount);
-      explicit Amount(std::string &&amount);
-
-      Amount(const Amount &o);
-      Amount(Amount &&o) noexcept;
 
       /**
        * Gets integer representation value, which ignores precision
@@ -59,10 +55,11 @@ namespace shared_model {
       Amount *clone() const override;
 
      private:
-      const std::string amount_;
+      struct Impl;
 
-      interface::types::PrecisionType precision_;
-      const boost::multiprecision::uint256_t multiprecision_repr_;
+      Amount(std::shared_ptr<const Impl> impl);
+
+      const std::shared_ptr<const Impl> impl_;
     };
   }  // namespace interface
 }  // namespace shared_model
