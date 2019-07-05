@@ -186,10 +186,6 @@ namespace iroha {
       std::string prepared_block_name_;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
-
-     protected:
-      static const std::string &reset_;
-      static const std::string &reset_peers_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

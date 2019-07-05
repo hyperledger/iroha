@@ -49,6 +49,18 @@ namespace iroha {
           const std::string &dbname,
           const std::string &options_str_without_dbname);
 
+      /*
+       * Remove all records from the tables
+       * @return error message if reset has failed
+       */
+      static expected::Result<void, std::string> resetWsv(soci::session &sql);
+
+      /**
+       * Removes all peers from WSV
+       * @return error message if reset has failed
+       */
+      static expected::Result<void, std::string> resetPeers(soci::session &sql);
+
      private:
       /**
        * Function initializes existing connection pool
