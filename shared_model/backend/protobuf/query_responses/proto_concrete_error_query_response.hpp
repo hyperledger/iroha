@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_CONCRETE_ERROR_QUERY_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_CONCRETE_ERROR_QUERY_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "backend/protobuf/common_objects/proto_ref.hpp"
 #include "interfaces/query_responses/error_responses/no_account_assets_error_response.hpp"
 #include "interfaces/query_responses/error_responses/no_account_detail_error_response.hpp"
 #include "interfaces/query_responses/error_responses/no_account_error_response.hpp"
@@ -21,30 +21,29 @@
 namespace shared_model {
   namespace proto {
     using StatelessFailedErrorResponse =
-        TrivialProto<interface::StatelessFailedErrorResponse,
-                     iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::StatelessFailedErrorResponse,
+                 iroha::protocol::ErrorResponse>;
     using StatefulFailedErrorResponse =
-        TrivialProto<interface::StatefulFailedErrorResponse,
-                     iroha::protocol::ErrorResponse>;
-    using NoAccountErrorResponse =
-        TrivialProto<interface::NoAccountErrorResponse,
-                     iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::StatefulFailedErrorResponse,
+                 iroha::protocol::ErrorResponse>;
+    using NoAccountErrorResponse = ProtoRef<interface::NoAccountErrorResponse,
+                                            iroha::protocol::ErrorResponse>;
     using NoAccountAssetsErrorResponse =
-        TrivialProto<interface::NoAccountAssetsErrorResponse,
-                     iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::NoAccountAssetsErrorResponse,
+                 iroha::protocol::ErrorResponse>;
     using NoAccountDetailErrorResponse =
-        TrivialProto<interface::NoAccountDetailErrorResponse,
-                     iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::NoAccountDetailErrorResponse,
+                 iroha::protocol::ErrorResponse>;
     using NoSignatoriesErrorResponse =
-        TrivialProto<interface::NoSignatoriesErrorResponse,
-                     iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::NoSignatoriesErrorResponse,
+                 iroha::protocol::ErrorResponse>;
     using NotSupportedErrorResponse =
-        TrivialProto<interface::NotSupportedErrorResponse,
-                     iroha::protocol::ErrorResponse>;
-    using NoAssetErrorResponse = TrivialProto<interface::NoAssetErrorResponse,
-                                              iroha::protocol::ErrorResponse>;
-    using NoRolesErrorResponse = TrivialProto<interface::NoRolesErrorResponse,
-                                              iroha::protocol::ErrorResponse>;
+        ProtoRef<interface::NotSupportedErrorResponse,
+                 iroha::protocol::ErrorResponse>;
+    using NoAssetErrorResponse = ProtoRef<interface::NoAssetErrorResponse,
+                                          iroha::protocol::ErrorResponse>;
+    using NoRolesErrorResponse = ProtoRef<interface::NoRolesErrorResponse,
+                                          iroha::protocol::ErrorResponse>;
   }  // namespace proto
 }  // namespace shared_model
 

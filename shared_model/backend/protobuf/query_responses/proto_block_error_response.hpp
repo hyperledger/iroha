@@ -6,23 +6,16 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_BLOCK_ERROR_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_BLOCK_ERROR_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/block_error_response.hpp"
+
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class BlockErrorResponse final
-        : public CopyableProto<interface::BlockErrorResponse,
-                               iroha::protocol::BlockQueryResponse,
-                               BlockErrorResponse> {
+    class BlockErrorResponse final : public interface::BlockErrorResponse {
      public:
-      template <typename QueryResponseType>
-      explicit BlockErrorResponse(QueryResponseType &&queryResponse);
-
-      BlockErrorResponse(const BlockErrorResponse &o);
-
-      BlockErrorResponse(BlockErrorResponse &&o);
+      explicit BlockErrorResponse(
+          iroha::protocol::BlockQueryResponse &block_query_response);
 
       const interface::types::DescriptionType &message() const override;
 

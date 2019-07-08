@@ -8,24 +8,10 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    BlockErrorResponse::BlockErrorResponse(QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          block_error_response{proto_->block_error_response()},
+    BlockErrorResponse::BlockErrorResponse(
+        iroha::protocol::BlockQueryResponse &block_query_response)
+        : block_error_response{block_query_response.block_error_response()},
           message_{block_error_response.message()} {}
-
-    template BlockErrorResponse::BlockErrorResponse(
-        BlockErrorResponse::TransportType &);
-    template BlockErrorResponse::BlockErrorResponse(
-        const BlockErrorResponse::TransportType &);
-    template BlockErrorResponse::BlockErrorResponse(
-        BlockErrorResponse::TransportType &&);
-
-    BlockErrorResponse::BlockErrorResponse(const BlockErrorResponse &o)
-        : BlockErrorResponse(o.proto_) {}
-
-    BlockErrorResponse::BlockErrorResponse(BlockErrorResponse &&o)
-        : BlockErrorResponse(std::move(o.proto_)) {}
 
     const interface::types::DescriptionType &BlockErrorResponse::message()
         const {

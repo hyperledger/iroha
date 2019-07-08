@@ -6,9 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_QUERY_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_QUERY_RESPONSE_HPP
 
-#include <boost/variant/variant_fwd.hpp>
+#include "interfaces/base/noncopyable_model_primitive.hpp"
 
-#include "interfaces/base/model_primitive.hpp"
+#include <boost/variant/variant_fwd.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -32,7 +32,7 @@ namespace shared_model {
      * available in the system.
      * General note: this class is container for QRs but not a base class.
      */
-    class QueryResponse : public ModelPrimitive<QueryResponse> {
+    class QueryResponse : public NonCopyableModelPrimitive<QueryResponse> {
      private:
       /// Shortcut type for const reference
       template <typename... Value>

@@ -28,12 +28,12 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 
+#include "framework/common_constants.hpp"
 #include "main/server_runner.hpp"
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"
 #include "utils/query_error_response_visitor.hpp"
-#include "framework/common_constants.hpp"
 
 constexpr size_t TimesFind = 1;
 static constexpr shared_model::interface::types::TransactionsNumberType
@@ -188,7 +188,8 @@ TEST_F(ToriiQueriesTest, FindWhenResponseInvalid) {
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(query.getTransport(),
                                                           response);
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_TRUE(stat.ok());
   // Must return Error Response
   ASSERT_TRUE(boost::apply_visitor(
@@ -233,7 +234,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenNoGrantPermissions) {
       model_query.getTransport(), response);
 
   ASSERT_TRUE(stat.ok());
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   // Must be invalid due to failed stateful validation caused by no permission
   // to read account
   ASSERT_TRUE(boost::apply_visitor(
@@ -276,7 +278,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasReadPermissions) {
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
 
   ASSERT_TRUE(stat.ok());
   // Should not return Error Response because tx is stateless and stateful valid
@@ -322,7 +325,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasRolePermission) {
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_TRUE(stat.ok());
   // Should not return Error Response because tx is stateless and stateful valid
   ASSERT_FALSE(response.has_error_response());
@@ -371,7 +375,8 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_TRUE(stat.ok());
   // Must be invalid due to failed stateful validation caused by no permission
   // to read account asset
@@ -425,7 +430,8 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
   // Should not return Error Response because tx is stateless and stateful valid
   ASSERT_FALSE(response.has_error_response());
 
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_NO_THROW({
     const auto &asset_resp =
         boost::get<const shared_model::interface::AccountAssetResponse &>(
@@ -477,7 +483,8 @@ TEST_F(ToriiQueriesTest, FindSignatoriesWhenNoGrantPermissions) {
   ASSERT_TRUE(stat.ok());
   // Must be invalid due to failed stateful validation caused by no permission
   // to read account
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_TRUE(boost::apply_visitor(
       shared_model::interface::QueryErrorResponseChecker<
           shared_model::interface::StatefulFailedErrorResponse>(),
@@ -517,7 +524,8 @@ TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
-  auto shared_response = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse shared_response{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_NO_THROW({
     auto resp_pubkey =
         *boost::get<const shared_model::interface::SignatoriesResponse &>(
@@ -586,7 +594,8 @@ TEST_F(ToriiQueriesTest, FindTransactionsWhenValid) {
   ASSERT_TRUE(stat.ok());
   // Should not return Error Response because tx is stateless and stateful valid
   ASSERT_FALSE(response.has_error_response());
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{
+      iroha::protocol::QueryResponse{response}};
   ASSERT_NO_THROW({
     const auto &tx_resp =
         boost::get<const shared_model::interface::TransactionsResponse &>(
@@ -616,7 +625,8 @@ TEST_F(ToriiQueriesTest, FindManyTimesWhereQueryServiceSync) {
 
     auto stat = client.Find(model_query.getTransport(), response);
     ASSERT_TRUE(stat.ok());
-    auto resp = shared_model::proto::QueryResponse(response);
+    shared_model::proto::QueryResponse resp{
+        iroha::protocol::QueryResponse{response}};
     // Must return Error Response
     ASSERT_TRUE(boost::apply_visitor(
         shared_model::interface::QueryErrorResponseChecker<
