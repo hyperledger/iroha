@@ -46,18 +46,16 @@ namespace shared_model {
   namespace proto {
 
     struct QueryResponse::Impl {
-      explicit Impl(const TransportType &ref) : proto_{ref} {}
       explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
 
       TransportType proto_;
 
       const ProtoQueryResponseVariantType variant_{[this] {
-        const auto &ar = proto_;
+        auto &ar = proto_;
         int which =
             ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
         return shared_model::detail::variant_impl<ProtoQueryResponseListType>::
-            template load<ProtoQueryResponseVariantType>(
-                std::forward<decltype(ar)>(ar), which);
+            template load<ProtoQueryResponseVariantType>(ar, which);
       }()};
 
       const QueryResponseVariantType ivariant_{variant_};
@@ -66,13 +64,6 @@ namespace shared_model {
           iroha::hexstringToBytestring(proto_.query_hash()).get()};
     };
 
-    QueryResponse::QueryResponse(const QueryResponse &o)
-        : QueryResponse(o.impl_->proto_) {}
-    QueryResponse::QueryResponse(QueryResponse &&o) noexcept = default;
-
-    QueryResponse::QueryResponse(const TransportType &ref) {
-      impl_ = std::make_unique<Impl>(ref);
-    }
     QueryResponse::QueryResponse(TransportType &&ref) {
       impl_ = std::make_unique<Impl>(std::move(ref));
     }
@@ -89,10 +80,6 @@ namespace shared_model {
 
     const QueryResponse::TransportType &QueryResponse::getTransport() const {
       return impl_->proto_;
-    }
-
-    QueryResponse *QueryResponse::clone() const {
-      return new QueryResponse(impl_->proto_);
     }
 
   }  // namespace proto

@@ -10,37 +10,27 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    BlockQueryResponse::BlockQueryResponse(QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
+    BlockQueryResponse::BlockQueryResponse(TransportType &&block_query_response)
+        : proto_(std::move(block_query_response)),
           variant_{[this] {
-            auto &&ar = *proto_;
+            auto &ar = proto_;
             int which = ar.GetDescriptor()
                             ->FindFieldByNumber(ar.response_case())
                             ->index();
             return shared_model::detail::variant_impl<
                 ProtoQueryResponseVariantType::types>::
-                template load<ProtoQueryResponseVariantType>(
-                    std::forward<decltype(ar)>(ar), which);
+                template load<ProtoQueryResponseVariantType>(ar, which);
           }()},
           ivariant_{variant_} {}
-
-    template BlockQueryResponse::BlockQueryResponse(
-        BlockQueryResponse::TransportType &);
-    template BlockQueryResponse::BlockQueryResponse(
-        const BlockQueryResponse::TransportType &);
-    template BlockQueryResponse::BlockQueryResponse(
-        BlockQueryResponse::TransportType &&);
-
-    BlockQueryResponse::BlockQueryResponse(const BlockQueryResponse &o)
-        : BlockQueryResponse(o.proto_) {}
-
-    BlockQueryResponse::BlockQueryResponse(BlockQueryResponse &&o) noexcept
-        : BlockQueryResponse(std::move(o.proto_)) {}
 
     const BlockQueryResponse::QueryResponseVariantType &
     BlockQueryResponse::get() const {
       return ivariant_;
+    }
+
+    const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
+        const {
+      return proto_;
     }
 
   }  // namespace proto

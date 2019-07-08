@@ -9,18 +9,17 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
     PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          pending_transactions_page_response_{
-              proto_->pending_transactions_page_response()},
-          transactions_{proto_->mutable_pending_transactions_page_response()
-                            ->mutable_transactions()
-                            ->begin(),
-                        proto_->mutable_pending_transactions_page_response()
-                            ->mutable_transactions()
-                            ->end()},
+        iroha::protocol::QueryResponse &query_response)
+        : pending_transactions_page_response_{query_response
+                                                  .pending_transactions_page_response()},
+          transactions_{
+              query_response.mutable_pending_transactions_page_response()
+                  ->mutable_transactions()
+                  ->begin(),
+              query_response.mutable_pending_transactions_page_response()
+                  ->mutable_transactions()
+                  ->end()},
           next_batch_info_{
               [this]()
                   -> boost::optional<
@@ -37,21 +36,6 @@ namespace shared_model {
                 }
                 return boost::none;
               }()} {}
-
-    template PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        PendingTransactionsPageResponse::TransportType &);
-    template PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        const PendingTransactionsPageResponse::TransportType &);
-    template PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        PendingTransactionsPageResponse::TransportType &&);
-
-    PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        const PendingTransactionsPageResponse &o)
-        : PendingTransactionsPageResponse(o.proto_) {}
-
-    PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        PendingTransactionsPageResponse &&o)
-        : PendingTransactionsPageResponse(std::move(o.proto_)) {}
 
     interface::types::TransactionsCollectionType
     PendingTransactionsPageResponse::transactions() const {

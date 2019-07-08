@@ -6,9 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_QUERY_ERROR_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_QUERY_ERROR_RESPONSE_HPP
 
-#include <boost/variant.hpp>
+#include "interfaces/base/noncopyable_model_primitive.hpp"
 
-#include "interfaces/base/model_primitive.hpp"
+#include <boost/variant.hpp>
 #include "interfaces/query_responses/error_responses/no_account_assets_error_response.hpp"
 #include "interfaces/query_responses/error_responses/no_account_detail_error_response.hpp"
 #include "interfaces/query_responses/error_responses/no_account_error_response.hpp"
@@ -26,7 +26,8 @@ namespace shared_model {
      * QueryErrorResponse interface container for all concrete error responses
      * possible achieved in the system.
      */
-    class ErrorQueryResponse : public ModelPrimitive<ErrorQueryResponse> {
+    class ErrorQueryResponse
+        : public NonCopyableModelPrimitive<ErrorQueryResponse> {
      private:
       /// Shortcut type for const reference
       template <typename... Value>
