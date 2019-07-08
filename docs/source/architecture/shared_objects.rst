@@ -13,7 +13,15 @@ Each component in this document has its own diagram describing all members, and 
 .. raw:: html
 
    <style>
-      .clr {background-color:#C5E1F8;} 
+      span.clr { background:#C5E1F8 !important ;
+      padding: 4px;
+      }
+      tr td span.clr  {background:#C5E1F8 !important ;
+      display: block;
+      margin: -10px -16px -10px -16px;
+      padding: 10px;
+      padding-left: 16px;
+      } 
    </style>
 
 
@@ -104,7 +112,7 @@ Synchronizer
 +---------------------------------+
 | Synchronizer                    | 
 +=================================+
-| Chain Validator.                | 
+| Chain Validator                 | 
 +---------------------------------+
 | Mutable Factory                 |
 +---------------------------------+
