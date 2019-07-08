@@ -155,10 +155,10 @@ namespace shared_model {
        * Create response for transactions pagination query
        * @param transactions - list of transactions in this page
        * the last in the page
+       * @param next_tx_hash - hash of the transaction after
        * @param all_transactions_size - total number of transactions
        * for this query
        * @param query_hash - hash of the query, for which response is created
-       * @param next_tx_hash - hash of the transaction after
        * @return transactions response
        */
       virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
