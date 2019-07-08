@@ -5,6 +5,7 @@
 
 #include "main/server_runner.hpp"
 
+#include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
 
@@ -38,6 +39,9 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
   // in order to bypass built-it limitation of gRPC message size
   builder.SetMaxReceiveMessageSize(INT_MAX);
   builder.SetMaxSendMessageSize(INT_MAX);
+
+  // enable retry policy
+  builder.AddChannelArgument(GRPC_ARG_ENABLE_RETRIES, 1);
 
   serverInstance_ = builder.BuildAndStart();
   serverInstanceCV_.notify_one();
