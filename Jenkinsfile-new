@@ -15,19 +15,19 @@ class Worker {
 class Builder {
   // can't get to work without 'static'
   static class PostSteps {
-    List success
-    List failure
-    List unstable
-    List always
-    List aborted
+    List success = []
+    List failure = []
+    List unstable = []
+    List always = []
+    List aborted = []
   }
-  List buildSteps
+  List buildSteps = []
   PostSteps postSteps
 }
 
 class Build {
-  String name
-  String type
+  String name = ''
+  String type = ''
   Builder builder
   Worker worker
 }
@@ -66,9 +66,9 @@ def build(Build build) {
       // ALWAYS
       finally {
         if (currentBuild.currentResult == 'SUCCESS')
-           gitNotify ("Jenkins: " + build.name, "Finish", 'SUCCESS')
+          gitNotify ("Jenkins: " + build.name, "Finish", 'SUCCESS')
         else
-           gitNotify ("Jenkins: " + build.name, currentBuild.currentResult, 'FAILURE')
+          gitNotify ("Jenkins: " + build.name, currentBuild.currentResult, 'FAILURE')
 
         build.builder.postSteps.always.each {
           it()
@@ -95,7 +95,9 @@ def cmd_sanitize(String cmd){
 }
 
 def gitNotify (context, description, status, targetUrl='' ){
-  githubNotify context: context, credentialsId: 'SORABOT_TOKEN_AND_LOGIN', description: description, status: status, targetUrl: targetUrl
+  if (build_scenario != 'Nightly build') {
+    githubNotify context: context, credentialsId: 'SORABOT_TOKEN_AND_LOGIN', description: description, status: status, targetUrl: targetUrl
+  }
 }
 
 stage('Prepare environment'){
@@ -221,6 +223,21 @@ node ('master') {
         sonar = true
         codestyle = true
         useBTF = true
+        break;
+     case 'Nightly build':
+        x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
+        mac_compiler_list = ['appleclang']
+        win_compiler_list = ['msvc']
+        testing = true
+        testList = '()'
+        coverage = true
+        cppcheck = true
+        sonar = true
+        codestyle = true
+        useBTF = true
+        sanitize = true
+        packagePush=false
+        doxygen=false
         break;
      case 'Custom command':
         if (cmd_sanitize(params.custom_cmd)){
