@@ -272,11 +272,6 @@ Schema
     Please note that due to a known issue you would not get any exception if you pass invalid precision value.
     Valid range is: 0 <= precision <= 255
 
-.. note::
-    Asset quantity is stored as unsigned 256 bit fixed point number.
-    Asset precision specifies how many digits are used for the fractional part.
-    Therefore, asset quantity must be less than 2^(256 - precision).
-
 Structure
 ^^^^^^^^^
 
