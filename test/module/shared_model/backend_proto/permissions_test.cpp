@@ -58,7 +58,7 @@ class ProtoPermission : public ::testing::Test {
 };
 
 typedef ::testing::Types<RolePermType, GrantablePermType> PermTypes;
-TYPED_TEST_CASE(ProtoPermission, PermTypes);
+TYPED_TEST_CASE(ProtoPermission, PermTypes, );
 
 /**
  * For each protobuf RolePermission

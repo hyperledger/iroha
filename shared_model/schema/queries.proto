@@ -88,6 +88,10 @@ message GetPendingTransactions {
   TxPaginationMeta pagination_meta = 1;
 }
 
+message GetPeers {
+
+}
+
 message QueryPayloadMeta {
   uint64 created_time = 1;
   string creator_account_id = 2;
@@ -112,6 +116,7 @@ message Query {
        GetAssetInfo get_asset_info = 12;
        GetPendingTransactions get_pending_transactions = 13;
        GetBlock get_block = 14;
+       GetPeers get_peers = 15;
      }
   }
 

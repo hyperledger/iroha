@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_BLOCK_ERROR_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_BLOCK_ERROR_RESPONSE_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -14,7 +15,8 @@ namespace shared_model {
     /**
      * Provide response with error
      */
-    class BlockErrorResponse : public ModelPrimitive<BlockErrorResponse> {
+    class BlockErrorResponse
+        : public NonCopyableModelPrimitive<BlockErrorResponse> {
      public:
       /**
        * @return Attached error message

@@ -6,23 +6,15 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ROLES_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ROLES_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
+
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class RolesResponse final
-        : public CopyableProto<interface::RolesResponse,
-                               iroha::protocol::QueryResponse,
-                               RolesResponse> {
+    class RolesResponse final : public interface::RolesResponse {
      public:
-      template <typename QueryResponseType>
-      explicit RolesResponse(QueryResponseType &&queryResponse);
-
-      RolesResponse(const RolesResponse &o);
-
-      RolesResponse(RolesResponse &&o);
+      explicit RolesResponse(iroha::protocol::QueryResponse &query_response);
 
       const RolesIdType &roles() const override;
 

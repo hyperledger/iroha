@@ -8,7 +8,6 @@
 
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "qry_responses.pb.h"
@@ -16,17 +15,10 @@
 namespace shared_model {
   namespace proto {
     class PendingTransactionsPageResponse final
-        : public CopyableProto<interface::PendingTransactionsPageResponse,
-                               iroha::protocol::QueryResponse,
-                               PendingTransactionsPageResponse> {
+        : public interface::PendingTransactionsPageResponse {
      public:
-      template <typename QueryResponseType>
       explicit PendingTransactionsPageResponse(
-          QueryResponseType &&queryResponse);
-
-      PendingTransactionsPageResponse(const PendingTransactionsPageResponse &o);
-
-      PendingTransactionsPageResponse(PendingTransactionsPageResponse &&o);
+          iroha::protocol::QueryResponse &query_response);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
@@ -40,7 +32,7 @@ namespace shared_model {
      private:
       const iroha::protocol::PendingTransactionsPageResponse
           &pending_transactions_page_response_;
-      const std::vector<proto::Transaction> transactions_;
+      const std::vector<Transaction> transactions_;
       boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
           next_batch_info_;
     };

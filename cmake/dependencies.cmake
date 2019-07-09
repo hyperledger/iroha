@@ -15,7 +15,7 @@ find_package(Threads REQUIRED)
 ##########################
 # testing is an option. Look at the main CMakeLists.txt for details.
 if (TESTING)
-  if (MSVC)
+  if (MSVC OR VCPKG_TOOLCHAIN)
     set(CMAKE_MODULE_PATH "")
     find_package(GTest REQUIRED CONFIG)
     add_library(gtest::gtest INTERFACE IMPORTED)
@@ -49,7 +49,7 @@ find_package(spdlog 1.3.1 REQUIRED)
 #           protobuf           #
 ################################
 option(FIND_PROTOBUF "Try to find protobuf in system" ON)
-if (MSVC)
+if (MSVC OR VCPKG_TOOLCHAIN)
   find_package(Protobuf REQUIRED CONFIG)
   add_library(protobuf INTERFACE IMPORTED)
   target_link_libraries(protobuf INTERFACE
@@ -82,7 +82,7 @@ endif()
 #         gRPC          #
 #########################
 option(FIND_GRPC "Try to find gRPC in system" ON)
-if (MSVC)
+if (MSVC OR VCPKG_TOOLCHAIN)
   find_package(gRPC REQUIRED CONFIG)
 
   add_library(grpc INTERFACE IMPORTED)
@@ -168,21 +168,13 @@ find_package(Boost 1.65.0 REQUIRED
     system
     thread
     )
-if (MSVC)
-  add_library(boost INTERFACE IMPORTED)
-  target_link_libraries(boost INTERFACE
-      Boost::boost
-      Boost::filesystem
-      Boost::system
-      Boost::thread
-      )
-else ()
-  add_library(boost INTERFACE IMPORTED)
-  set_target_properties(boost PROPERTIES
-      INTERFACE_INCLUDE_DIRECTORIES ${Boost_INCLUDE_DIRS}
-      INTERFACE_LINK_LIBRARIES "${Boost_LIBRARIES}"
-      )
-endif()
+add_library(boost INTERFACE IMPORTED)
+target_link_libraries(boost INTERFACE
+    Boost::boost
+    Boost::filesystem
+    Boost::system
+    Boost::thread
+    )
 
 if(ENABLE_LIBS_PACKAGING)
   foreach (library ${Boost_LIBRARIES})
@@ -201,6 +193,13 @@ endif()
 #          ed25519/sha3           #
 ###################################
 find_package(ed25519)
+
+###################################
+#               ursa              #
+###################################
+if(USE_LIBURSA)
+  find_package(ursa)
+endif()
 
 ###################################
 #              fmt                #

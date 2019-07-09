@@ -8,7 +8,6 @@
 
 #include "interfaces/query_responses/transactions_page_response.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "qry_responses.pb.h"
@@ -16,16 +15,10 @@
 namespace shared_model {
   namespace proto {
     class TransactionsPageResponse final
-        : public CopyableProto<interface::TransactionsPageResponse,
-                               iroha::protocol::QueryResponse,
-                               TransactionsPageResponse> {
+        : public interface::TransactionsPageResponse {
      public:
-      template <typename QueryResponseType>
-      explicit TransactionsPageResponse(QueryResponseType &&queryResponse);
-
-      TransactionsPageResponse(const TransactionsPageResponse &o);
-
-      TransactionsPageResponse(TransactionsPageResponse &&o);
+      explicit TransactionsPageResponse(
+          iroha::protocol::QueryResponse &query_response);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
@@ -37,7 +30,7 @@ namespace shared_model {
 
      private:
       const iroha::protocol::TransactionsPageResponse &transactionPageResponse_;
-      const std::vector<proto::Transaction> transactions_;
+      std::vector<proto::Transaction> transactions_;
       boost::optional<interface::types::HashType> next_hash_;
     };
   }  // namespace proto

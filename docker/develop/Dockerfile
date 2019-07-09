@@ -7,6 +7,7 @@ ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
+ENV PATH "/home/iroha-ci/.cargo/bin:${PATH}"
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
@@ -33,15 +34,15 @@ RUN set -e; \
         # Pythons
         python-pip python3-pip python3-setuptools python-dev \
         # other
-        curl file gdb gdbserver ccache clang-format \
-        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip; \
+        curl file gdb gdbserver ccache \
+        gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean
 
 # compiler clang-7 and libc++ only on x86_64, for debug purpose
 RUN set -e; \
     if [ `uname -m` = "x86_64" ]; then \
       apt-get -y --no-install-recommends install \
-        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev; \
+        clang-7 lldb-7 lld-7 libc++-7-dev libc++abi-7-dev clang-format-7; \
       apt-get -y clean; \
     fi
 
@@ -55,11 +56,12 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/cmake
 
-# install boost 1.65.1
+# install boost 1.70.0
 RUN set -e; \
     git clone https://github.com/boostorg/boost /tmp/boost; \
-    (cd /tmp/boost ; git checkout 436ad1dfcfc7e0246141beddd11c8a4e9c10b146); \
+    (cd /tmp/boost ; git checkout 8f9a1cf1d15d262e09c16a305034d8bc1e39aca2); \
     (cd /tmp/boost ; git submodule update --init --recursive); \
+    (cd /tmp/boost/libs/variant ; curl https://patch-diff.githubusercontent.com/raw/boostorg/variant/pull/68.patch | git apply); \
     (cd /tmp/boost ; /tmp/boost/bootstrap.sh --with-libraries=system,filesystem,thread); \
     (cd /tmp/boost ; /tmp/boost/b2 headers); \
     (cd /tmp/boost ; /tmp/boost/b2 cxxflags="-std=c++14" -j ${PARALLELISM} install); \
@@ -123,10 +125,10 @@ RUN set -e; \
     ldconfig; \
     rm -rf /tmp/grpc
 
-# install gtest
+# install gtest 2019-01-04
 RUN set -e; \
     git clone https://github.com/google/googletest /tmp/googletest; \
-    (cd /tmp/googletest ; git checkout ec44c6c1675c25b9827aacd08c02433cccde7780); \
+    (cd /tmp/googletest ; git checkout b6cd405286ed8635ece71c72f118e659f4ade3fb); \
     cmake \
         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
         -H/tmp/googletest \
@@ -287,4 +289,9 @@ RUN set -e; \
 
 
 USER iroha-ci
+
+# install rust for hyperledger ursa
+RUN set -e; \
+    curl https://sh.rustup.rs -sSf | sh -s -- -y
+
 CMD ["/bin/bash"]

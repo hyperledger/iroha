@@ -6,24 +6,16 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ACCOUNT_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ACCOUNT_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/account.hpp"
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/account_response.hpp"
+
+#include "backend/protobuf/common_objects/account.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class AccountResponse final
-        : public CopyableProto<interface::AccountResponse,
-                               iroha::protocol::QueryResponse,
-                               AccountResponse> {
+    class AccountResponse final : public interface::AccountResponse {
      public:
-      template <typename QueryResponseType>
-      explicit AccountResponse(QueryResponseType &&queryResponse);
-
-      AccountResponse(const AccountResponse &o);
-
-      AccountResponse(AccountResponse &&o);
+      explicit AccountResponse(iroha::protocol::QueryResponse &query_response);
 
       const interface::Account &account() const override;
 
@@ -34,7 +26,7 @@ namespace shared_model {
 
       const AccountRolesIdType account_roles_;
 
-      const shared_model::proto::Account account_;
+      Account account_;
     };
   }  // namespace proto
 }  // namespace shared_model

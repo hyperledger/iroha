@@ -47,7 +47,7 @@ using TransactionResponsTypes =
                          shared_model::interface::NotReceivedTxResponse,
                          &TransactionStatusBuilder::notReceived,
                          iroha::protocol::NOT_RECEIVED> >;
-TYPED_TEST_CASE(ProtoTransactionStatusBuilderTest, TransactionResponsTypes);
+TYPED_TEST_CASE(ProtoTransactionStatusBuilderTest, TransactionResponsTypes, );
 
 /**
  * @given expected transaction status and hash
@@ -65,8 +65,7 @@ TYPED_TEST(ProtoTransactionStatusBuilderTest, TestStatusType) {
           .txHash(shared_model::crypto::Hash::fromHexString(expected_hash))
           .build();
 
-  ASSERT_NO_THROW(boost::get<const StatusType&>(
-      response.get()));
+  ASSERT_NO_THROW(boost::get<const StatusType &>(response.get()));
 
   auto proto_status = response.getTransport();
   ASSERT_EQ(proto_status.tx_status(), expected_status);

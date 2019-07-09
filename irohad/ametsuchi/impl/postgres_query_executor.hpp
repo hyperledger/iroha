@@ -112,6 +112,9 @@ namespace iroha {
       QueryExecutorResult operator()(
           const shared_model::interface::GetPendingTransactions &q);
 
+      QueryExecutorResult operator()(
+          const shared_model::interface::GetPeers &q);
+
      private:
       /**
        * Get transactions from block using range from range_gen and filtered by

@@ -6,31 +6,23 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ASSET_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ASSET_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/asset.hpp"
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/asset_response.hpp"
+
+#include "backend/protobuf/common_objects/asset.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class AssetResponse final
-        : public CopyableProto<interface::AssetResponse,
-                               iroha::protocol::QueryResponse,
-                               AssetResponse> {
+    class AssetResponse final : public interface::AssetResponse {
      public:
-      template <typename QueryResponseType>
-      explicit AssetResponse(QueryResponseType &&queryResponse);
-
-      AssetResponse(const AssetResponse &o);
-
-      AssetResponse(AssetResponse &&o);
+      explicit AssetResponse(iroha::protocol::QueryResponse &query_response);
 
       const Asset &asset() const override;
 
      private:
       const iroha::protocol::AssetResponse &asset_response_;
 
-      const Asset asset_;
+      Asset asset_;
     };
   }  // namespace proto
 }  // namespace shared_model

@@ -8,23 +8,17 @@
 
 #include "interfaces/query_responses/account_detail_response.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "backend/protobuf/common_objects/account_asset.hpp"
 #include "backend/protobuf/queries/proto_account_detail_record_id.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
     class AccountDetailResponse final
-        : public CopyableProto<interface::AccountDetailResponse,
-                               iroha::protocol::QueryResponse,
-                               AccountDetailResponse> {
+        : public interface::AccountDetailResponse {
      public:
-      template <typename QueryResponseType>
-      explicit AccountDetailResponse(QueryResponseType &&queryResponse);
-
-      AccountDetailResponse(const AccountDetailResponse &o);
-
-      AccountDetailResponse(AccountDetailResponse &&o);
+      explicit AccountDetailResponse(
+          iroha::protocol::QueryResponse &query_response);
 
       const interface::types::DetailType &detail() const override;
 

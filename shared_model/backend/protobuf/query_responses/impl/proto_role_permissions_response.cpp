@@ -12,11 +12,10 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
     RolePermissionsResponse::RolePermissionsResponse(
-        QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          role_permissions_response_{proto_->role_permissions_response()},
+        iroha::protocol::QueryResponse &query_response)
+        : role_permissions_response_{query_response
+                                         .role_permissions_response()},
           role_permissions_{boost::accumulate(
               role_permissions_response_.permissions(),
               interface::RolePermissionSet{},
@@ -25,21 +24,6 @@ namespace shared_model {
                     static_cast<iroha::protocol::RolePermission>(permission)));
                 return std::forward<decltype(permissions)>(permissions);
               })} {}
-
-    template RolePermissionsResponse::RolePermissionsResponse(
-        RolePermissionsResponse::TransportType &);
-    template RolePermissionsResponse::RolePermissionsResponse(
-        const RolePermissionsResponse::TransportType &);
-    template RolePermissionsResponse::RolePermissionsResponse(
-        RolePermissionsResponse::TransportType &&);
-
-    RolePermissionsResponse::RolePermissionsResponse(
-        const RolePermissionsResponse &o)
-        : RolePermissionsResponse(o.proto_) {}
-
-    RolePermissionsResponse::RolePermissionsResponse(
-        RolePermissionsResponse &&o)
-        : RolePermissionsResponse(std::move(o.proto_)) {}
 
     const interface::RolePermissionSet &
     RolePermissionsResponse::rolePermissions() const {

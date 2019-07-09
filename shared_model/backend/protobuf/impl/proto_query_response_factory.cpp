@@ -11,6 +11,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
+#include "interfaces/common_objects/peer.hpp"
 
 namespace {
   /**
@@ -350,6 +351,22 @@ shared_model::proto::ProtoQueryResponseFactory::createRolePermissionsResponse(
             protocol_specific_response->add_permissions(
                 shared_model::proto::permissions::toTransport(perm));
           }
+        }
+      },
+      query_hash);
+}
+
+std::unique_ptr<shared_model::interface::QueryResponse>
+shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
+    interface::types::PeerList peers, const crypto::Hash &query_hash) const {
+  return createQueryResponse(
+      [peers](iroha::protocol::QueryResponse &protocol_query_response) {
+        auto *protocol_specific_response =
+            protocol_query_response.mutable_peers_response();
+        for (const auto &peer : peers) {
+          auto *proto_peer = protocol_specific_response->add_peers();
+          proto_peer->set_address(peer->address());
+          proto_peer->set_peer_key(peer->pubkey().hex());
         }
       },
       query_hash);

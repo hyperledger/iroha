@@ -27,10 +27,10 @@ namespace shared_model {
       return createFactoryResult<MockAddAssetQuantity>(
           [&asset_id, &asset_amount](
               FactoryResult<MockAddAssetQuantity> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, assetId())
-                .WillByDefault(ReturnRefOfCopy(asset_id));
-            ON_CALL(*specific_cmd_mock, amount())
-                .WillByDefault(ReturnRefOfCopy(asset_amount));
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(asset_amount));
             return specific_cmd_mock;
           });
     }
@@ -39,7 +39,7 @@ namespace shared_model {
     MockCommandFactory::constructAddPeer(const Peer &peer) const {
       return createFactoryResult<MockAddPeer>(
           [&peer](FactoryResult<MockAddPeer> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, peer()).WillByDefault(ReturnRef(peer));
+            EXPECT_CALL(*specific_cmd_mock, peer()).WillRepeatedly(ReturnRef(peer));
             return specific_cmd_mock;
           });
     }
@@ -51,10 +51,10 @@ namespace shared_model {
       return createFactoryResult<MockAddSignatory>(
           [&pubkey,
            &account_id](FactoryResult<MockAddSignatory> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey));
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, pubkey())
+                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
             return specific_cmd_mock;
           });
     }
@@ -66,10 +66,10 @@ namespace shared_model {
       return createFactoryResult<MockAppendRole>(
           [&account_id,
            &role_name](FactoryResult<MockAppendRole> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, roleName())
-                .WillByDefault(ReturnRefOfCopy(role_name));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, roleName())
+                .WillRepeatedly(ReturnRefOfCopy(role_name));
             return specific_cmd_mock;
           });
     }
@@ -82,12 +82,12 @@ namespace shared_model {
       return createFactoryResult<MockCreateAccount>(
           [&account_name, &domain_id, &pubkey](
               FactoryResult<MockCreateAccount> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountName())
-                .WillByDefault(ReturnRefOfCopy(account_name));
-            ON_CALL(*specific_cmd_mock, domainId())
-                .WillByDefault(ReturnRefOfCopy(domain_id));
-            ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey));
+            EXPECT_CALL(*specific_cmd_mock, accountName())
+                .WillRepeatedly(ReturnRefOfCopy(account_name));
+            EXPECT_CALL(*specific_cmd_mock, domainId())
+                .WillRepeatedly(ReturnRefOfCopy(domain_id));
+            EXPECT_CALL(*specific_cmd_mock, pubkey())
+                .WillRepeatedly(ReturnRefOfCopy(pubkey));
             return specific_cmd_mock;
           });
     }
@@ -100,12 +100,12 @@ namespace shared_model {
       return createFactoryResult<MockCreateAsset>(
           [&asset_name, &domain_id, &precision](
               FactoryResult<MockCreateAsset> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, assetName())
-                .WillByDefault(ReturnRefOfCopy(asset_name));
-            ON_CALL(*specific_cmd_mock, domainId())
-                .WillByDefault(ReturnRefOfCopy(domain_id));
-            ON_CALL(*specific_cmd_mock, precision())
-                .WillByDefault(ReturnRefOfCopy(precision));
+            EXPECT_CALL(*specific_cmd_mock, assetName())
+                .WillRepeatedly(ReturnRefOfCopy(asset_name));
+            EXPECT_CALL(*specific_cmd_mock, domainId())
+                .WillRepeatedly(ReturnRefOfCopy(domain_id));
+            EXPECT_CALL(*specific_cmd_mock, precision())
+                .WillRepeatedly(ReturnRefOfCopy(precision));
             return specific_cmd_mock;
           });
     }
@@ -117,10 +117,10 @@ namespace shared_model {
       return createFactoryResult<MockCreateDomain>(
           [&domain_id,
            &role_id](FactoryResult<MockCreateDomain> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, domainId())
-                .WillByDefault(ReturnRefOfCopy(domain_id));
-            ON_CALL(*specific_cmd_mock, userDefaultRole())
-                .WillByDefault(ReturnRefOfCopy(role_id));
+            EXPECT_CALL(*specific_cmd_mock, domainId())
+                .WillRepeatedly(ReturnRefOfCopy(domain_id));
+            EXPECT_CALL(*specific_cmd_mock, userDefaultRole())
+                .WillRepeatedly(ReturnRefOfCopy(role_id));
             return specific_cmd_mock;
           });
     }
@@ -132,12 +132,12 @@ namespace shared_model {
       return createFactoryResult<MockCreateRole>(
           [&role_id,
            &role_permissions](FactoryResult<MockCreateRole> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, roleName())
-                .WillByDefault(ReturnRefOfCopy(role_id));
-            ON_CALL(*specific_cmd_mock, rolePermissions())
-                .WillByDefault(ReturnRefOfCopy(role_permissions));
-            ON_CALL(*specific_cmd_mock, toString())
-                .WillByDefault(Return(
+            EXPECT_CALL(*specific_cmd_mock, roleName())
+                .WillRepeatedly(ReturnRefOfCopy(role_id));
+            EXPECT_CALL(*specific_cmd_mock, rolePermissions())
+                .WillRepeatedly(ReturnRefOfCopy(role_permissions));
+            EXPECT_CALL(*specific_cmd_mock, toString())
+                .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("CreateRole")
                         .append("role_name", role_id)
@@ -156,10 +156,10 @@ namespace shared_model {
       return createFactoryResult<MockDetachRole>(
           [&account_id,
            &role_id](FactoryResult<MockDetachRole> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, roleName())
-                .WillByDefault(ReturnRefOfCopy(role_id));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, roleName())
+                .WillRepeatedly(ReturnRefOfCopy(role_id));
             return specific_cmd_mock;
           });
     }
@@ -171,12 +171,12 @@ namespace shared_model {
       return createFactoryResult<MockGrantPermission>(
           [&account_id,
            permission](FactoryResult<MockGrantPermission> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, permissionName())
-                .WillByDefault(Return(permission));
-            ON_CALL(*specific_cmd_mock, toString())
-                .WillByDefault(Return(
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, permissionName())
+                .WillRepeatedly(Return(permission));
+            EXPECT_CALL(*specific_cmd_mock, toString())
+                .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("GrantPermission")
                         .append("account_id", account_id)
@@ -195,10 +195,10 @@ namespace shared_model {
       return createFactoryResult<MockRemoveSignatory>(
           [&account_id,
            &pubkey](FactoryResult<MockRemoveSignatory> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, pubkey())
+                .WillRepeatedly(ReturnRefOfCopy(pubkey));
             return specific_cmd_mock;
           });
     }
@@ -210,12 +210,12 @@ namespace shared_model {
       return createFactoryResult<MockRevokePermission>(
           [&account_id,
            permission](FactoryResult<MockRevokePermission> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, permissionName())
-                .WillByDefault(Return(permission));
-            ON_CALL(*specific_cmd_mock, toString())
-                .WillByDefault(Return(
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, permissionName())
+                .WillRepeatedly(Return(permission));
+            EXPECT_CALL(*specific_cmd_mock, toString())
+                .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("RevokePermission")
                         .append("account_id", account_id)
@@ -235,12 +235,12 @@ namespace shared_model {
       return createFactoryResult<MockSetAccountDetail>(
           [&account_id, &cmd_key, &cmd_value](
               FactoryResult<MockSetAccountDetail> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, key())
-                .WillByDefault(ReturnRefOfCopy(cmd_key));
-            ON_CALL(*specific_cmd_mock, value())
-                .WillByDefault(ReturnRefOfCopy(cmd_value));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, key())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_key));
+            EXPECT_CALL(*specific_cmd_mock, value())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_value));
             return specific_cmd_mock;
           });
     }
@@ -252,10 +252,10 @@ namespace shared_model {
       return createFactoryResult<MockSetQuorum>(
           [&account_id,
            quorum](FactoryResult<MockSetQuorum> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, accountId())
-                .WillByDefault(ReturnRefOfCopy(account_id));
-            ON_CALL(*specific_cmd_mock, newQuorum())
-                .WillByDefault(Return(quorum));
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, newQuorum())
+                .WillRepeatedly(Return(quorum));
             return specific_cmd_mock;
           });
     }
@@ -266,10 +266,10 @@ namespace shared_model {
       return createFactoryResult<MockSubtractAssetQuantity>(
           [&asset_id, &cmd_amount](
               FactoryResult<MockSubtractAssetQuantity> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, assetId())
-                .WillByDefault(ReturnRefOfCopy(asset_id));
-            ON_CALL(*specific_cmd_mock, amount())
-                .WillByDefault(ReturnRefOfCopy(cmd_amount));
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_amount));
             return specific_cmd_mock;
           });
     }
@@ -287,16 +287,16 @@ namespace shared_model {
            &asset_id,
            &cmd_description,
            &cmd_amount](FactoryResult<MockTransferAsset> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, srcAccountId())
-                .WillByDefault(ReturnRefOfCopy(src_account_id));
-            ON_CALL(*specific_cmd_mock, destAccountId())
-                .WillByDefault(ReturnRefOfCopy(dest_account_id));
-            ON_CALL(*specific_cmd_mock, assetId())
-                .WillByDefault(ReturnRefOfCopy(asset_id));
-            ON_CALL(*specific_cmd_mock, description())
-                .WillByDefault(ReturnRefOfCopy(cmd_description));
-            ON_CALL(*specific_cmd_mock, amount())
-                .WillByDefault(ReturnRefOfCopy(cmd_amount));
+            EXPECT_CALL(*specific_cmd_mock, srcAccountId())
+                .WillRepeatedly(ReturnRefOfCopy(src_account_id));
+            EXPECT_CALL(*specific_cmd_mock, destAccountId())
+                .WillRepeatedly(ReturnRefOfCopy(dest_account_id));
+            EXPECT_CALL(*specific_cmd_mock, assetId())
+                .WillRepeatedly(ReturnRefOfCopy(asset_id));
+            EXPECT_CALL(*specific_cmd_mock, description())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_description));
+            EXPECT_CALL(*specific_cmd_mock, amount())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_amount));
             return specific_cmd_mock;
           });
     }

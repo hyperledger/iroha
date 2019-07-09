@@ -168,7 +168,8 @@ namespace iroha_cli {
 
   void QueryResponseHandler::handleTransactionsResponse(
       const iroha::protocol::QueryResponse &response) {
-    auto resp = shared_model::proto::TransactionsResponse(response);
+    iroha::protocol::QueryResponse response_copy{response};
+    shared_model::proto::TransactionsResponse resp{response_copy};
     auto txs = resp.transactions();
     std::for_each(txs.begin(), txs.end(), [this](auto &tx) {
       log_->info("[Transaction]");

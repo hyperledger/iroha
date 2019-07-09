@@ -60,6 +60,8 @@ namespace shared_model {
           const GetTransactions::TransactionHashesType &transaction_hashes)
           const;
 
+      FactoryResult<MockGetPeers> constructGetPeers() const;
+
       FactoryResult<MockTxPaginationMeta> constructTxPaginationMeta(
           types::TransactionsNumberType page_size,
           boost::optional<types::HashType> first_tx_hash) const;

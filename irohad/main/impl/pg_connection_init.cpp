@@ -41,7 +41,7 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
 
 iroha::expected::Result<PoolWrapper, std::string>
 PgConnectionInit::prepareConnectionPool(
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
     const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
@@ -148,7 +148,7 @@ void PgConnectionInit::initializeConnectionPool(
     const std::string &prepare_tables_sql,
     RollbackFunction try_rollback,
     FailoverCallbackHolder &callback_factory,
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const std::string &pg_reconnection_options,
     logger::LoggerManagerTreePtr log_manager) {
   auto log = log_manager->getLogger();
@@ -298,3 +298,46 @@ CREATE TABLE IF NOT EXISTS position_by_account_asset (
     index bigint
 );
 )";
+
+iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
+    soci::session &sql) {
+  try {
+    static const std::string reset = R"(
+      TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_asset RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE role_has_permissions RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_roles RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_grantable_permissions RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE asset RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE domain RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE signatory RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE role RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+    )";
+    sql << reset;
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(std::string{"Failed to reset WSV: "}
+                                      + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}
+
+iroha::expected::Result<void, std::string> PgConnectionInit::resetPeers(
+    soci::session &sql) {
+  try {
+    static const std::string reset_peers = R"(
+      TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
+    )";
+    sql << reset_peers;
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(std::string{"Failed to reset peers: "}
+                                      + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}

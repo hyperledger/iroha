@@ -8,21 +8,9 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    AssetResponse::AssetResponse(QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          asset_response_{proto_->asset_response()},
-          asset_{asset_response_.asset()} {}
-
-    template AssetResponse::AssetResponse(AssetResponse::TransportType &);
-    template AssetResponse::AssetResponse(const AssetResponse::TransportType &);
-    template AssetResponse::AssetResponse(AssetResponse::TransportType &&);
-
-    AssetResponse::AssetResponse(const AssetResponse &o)
-        : AssetResponse(o.proto_) {}
-
-    AssetResponse::AssetResponse(AssetResponse &&o)
-        : AssetResponse(std::move(o.proto_)) {}
+    AssetResponse::AssetResponse(iroha::protocol::QueryResponse &query_response)
+        : asset_response_{query_response.asset_response()},
+          asset_{*query_response.mutable_asset_response()->mutable_asset()} {}
 
     const Asset &AssetResponse::asset() const {
       return asset_;
