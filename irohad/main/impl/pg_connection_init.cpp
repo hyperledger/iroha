@@ -59,11 +59,9 @@ PgConnectionInit::prepareConnectionPool(
   soci::session sql(*connection);
   bool enable_prepared_transactions = preparedTransactionsAvailable(sql);
   try {
-    std::string prepared_block_name = "prepared_block";
-
     auto try_rollback = [&](soci::session &session) {
       if (enable_prepared_transactions) {
-        rollbackPrepared(session, prepared_block_name)
+        rollbackPrepared(session, options.preparedBlockName())
             .match([](auto &&v) {},
                    [&](auto &&e) {
                      log_manager->getLogger()->warn(

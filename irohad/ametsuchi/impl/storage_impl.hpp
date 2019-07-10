@@ -127,7 +127,6 @@ namespace iroha {
                       perm_converter,
                   std::unique_ptr<BlockStorageFactory> block_storage_factory,
                   size_t pool_size,
-                  const std::string &prepared_block_name,
                   logger::LoggerManagerTreePtr log_manager);
 
       // db info
