@@ -21,7 +21,7 @@ Each component in this document has its own diagram describing all members, and 
       margin: -10px -16px -10px -16px;
       padding: 10px;
       padding-left: 16px;
-      } 
+      }
    </style>
 
 
@@ -32,28 +32,28 @@ Query Service
 -------------
 
 +---------------------------------+
-| Query Service                   | 
+| Query Service                   |
 +=================================+
-| :clr:`Cache`                    | 
+| :clr:`Cache`                    |
 +---------------------------------+
-| Query Processor                 | 
+| Query Processor                 |
 +---------------------------------+
 
-Query service is a grpc endpoint for queries from clients. 
-It has cache, from which it receives responses. 
-Access to the cache is protected by an internal mutex. 
-Query processor actually fetches data from the storage. 
+Query service is a grpc endpoint for queries from clients.
+It has cache, from which it receives responses.
+Access to the cache is protected by an internal mutex.
+Query processor actually fetches data from the storage.
 It is not synchronized here since all synchronization is internal.
 
 Query Processor
 ---------------
 
 +---------------------------------+
-| Query Processor                 | 
+| Query Processor                 |
 +=================================+
-| :clr:`Query Response Observable`| 
+| :clr:`Query Response Observable`|
 +---------------------------------+
-| :clr:`Block Query Observable`   | 
+| :clr:`Block Query Observable`   |
 +---------------------------------+
 | Storage                         |
 +---------------------------------+
@@ -62,25 +62,25 @@ Transaction Service
 -------------------
 
 +---------------------------------+
-| Transaction Service             | 
+| Transaction Service             |
 +=================================+
-| :clr:`Response Cache`           | 
+| :clr:`Response Cache`           |
 +---------------------------------+
-| :clr:`Transaction Processor`    | 
+| :clr:`Transaction Processor`    |
 +---------------------------------+
 | Storage                         |
 +---------------------------------+
 
-Transaction Service uses response cache to send transaction statuses. 
+Transaction Service uses response cache to send transaction statuses.
 Also, transaction processor is synchronized in status streaming.
 
 Transaction Processor
 ---------------------
 
 +------------------------------------+
-| Transaction Processor              | 
+| Transaction Processor              |
 +====================================+
-| Peer Communication Service         | 
+| Peer Communication Service         |
 +------------------------------------+
 | :clr:`Transaction Status Notifier` |
 +------------------------------------+
@@ -93,9 +93,9 @@ Simulator
 ---------
 
 +---------------------------------+
-| Simulator                       | 
+| Simulator                       |
 +=================================+
-| Proposal Notifier               | 
+| Proposal Notifier               |
 +---------------------------------+
 | Block Notifier                  |
 +---------------------------------+
@@ -110,9 +110,9 @@ Synchronizer
 ------------
 
 +---------------------------------+
-| Synchronizer                    | 
+| Synchronizer                    |
 +=================================+
-| Chain Validator                 | 
+| Chain Validator                 |
 +---------------------------------+
 | Mutable Factory                 |
 +---------------------------------+
@@ -123,9 +123,9 @@ Yac Gate
 --------
 
 +---------------------------------+
-| Yac Gate                        | 
+| Yac Gate                        |
 +=================================+
-| Hash Gate                       | 
+| Hash Gate                       |
 +---------------------------------+
 | Peer Orderer                    |
 +---------------------------------+
@@ -140,9 +140,9 @@ Yac
 ---
 
 +---------------------------------+
-| Yac                             | 
+| Yac                             |
 +=================================+
-| :clr:`Yac Vote Storage`         | 
+| :clr:`Yac Vote Storage`         |
 +---------------------------------+
 | :clr:`Yac Network`              |
 +---------------------------------+
