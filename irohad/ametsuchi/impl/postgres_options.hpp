@@ -64,6 +64,9 @@ namespace iroha {
       /// @return maintenance database name
       std::string maintenanceDbName() const;
 
+      /// @return prepared block name
+      const std::string &preparedBlockName() const;
+
      private:
       std::string getConnectionStringWithDbName(
           const std::string &dbname) const;
@@ -74,6 +77,7 @@ namespace iroha {
       const std::string password_;
       const std::string working_dbname_;
       const std::string maintenance_dbname_;
+      const std::string prepared_block_name_;
     };
 
   }  // namespace ametsuchi

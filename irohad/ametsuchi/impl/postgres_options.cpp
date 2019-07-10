@@ -16,6 +16,8 @@
 using namespace iroha::ametsuchi;
 
 namespace {
+  const std::string kPreparedBlockPrefix{"prepared_block_"};
+
   boost::optional<std::string> extractOptionalField(
       const std::string &connection_string, const std::string &field_name) {
     const std::regex field_regex(
@@ -73,7 +75,8 @@ PostgresOptions::PostgresOptions(const std::string &host,
       user_(user),
       password_(password),
       working_dbname_(working_dbname),
-      maintenance_dbname_(maintenance_dbname) {
+      maintenance_dbname_(maintenance_dbname),
+      prepared_block_name_(kPreparedBlockPrefix + working_dbname_) {
   if (working_dbname_ == maintenance_dbname_) {
     log->warn(
         "Working database has the same name with maintenance database: '{}'. "
@@ -107,4 +110,8 @@ std::string PostgresOptions::workingDbName() const {
 
 std::string PostgresOptions::maintenanceDbName() const {
   return maintenance_dbname_;
+}
+
+const std::string &PostgresOptions::preparedBlockName() const {
+  return prepared_block_name_;
 }

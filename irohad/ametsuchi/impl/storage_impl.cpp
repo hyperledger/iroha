@@ -54,7 +54,6 @@ namespace iroha {
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
         size_t pool_size,
-        const std::string &prepared_block_name,
         logger::LoggerManagerTreePtr log_manager)
         : postgres_options_(std::move(postgres_options)),
           block_store_(std::move(block_store)),
@@ -70,7 +69,7 @@ namespace iroha {
           pool_size_(pool_size),
           prepared_blocks_enabled_(pool_wrapper_.enable_prepared_transactions_),
           block_is_prepared_(false),
-          prepared_block_name_(prepared_block_name),
+          prepared_block_name_(postgres_options_->preparedBlockName()),
           ledger_state_(std::move(ledger_state)) {}
 
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
@@ -285,8 +284,6 @@ namespace iroha {
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
-      std::string prepared_block_name = "prepared_block";
-
       return initConnections(block_store_dir, log_manager->getLogger()) |
           [&](auto &&ctx) {
             auto opt_ledger_state = [&] {
@@ -353,7 +350,6 @@ namespace iroha {
                                 perm_converter,
                                 std::move(block_storage_factory),
                                 pool_size,
-                                prepared_block_name,
                                 std::move(log_manager))));
           };
     }
