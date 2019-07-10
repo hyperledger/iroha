@@ -8,32 +8,17 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
     AccountDetailResponse::AccountDetailResponse(
-        QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          account_detail_response_{proto_->account_detail_response()},
-          next_record_id_{[this]() -> decltype(next_record_id_) {
-            if (this->account_detail_response_.has_next_record_id()) {
-              return AccountDetailRecordId{
-                  *this->proto_->mutable_account_detail_response()
-                       ->mutable_next_record_id()};
-            }
-            return boost::none;
-          }()} {}
-
-    template AccountDetailResponse::AccountDetailResponse(
-        AccountDetailResponse::TransportType &);
-    template AccountDetailResponse::AccountDetailResponse(
-        const AccountDetailResponse::TransportType &);
-    template AccountDetailResponse::AccountDetailResponse(
-        AccountDetailResponse::TransportType &&);
-
-    AccountDetailResponse::AccountDetailResponse(const AccountDetailResponse &o)
-        : AccountDetailResponse(o.proto_) {}
-
-    AccountDetailResponse::AccountDetailResponse(AccountDetailResponse &&o)
-        : AccountDetailResponse(std::move(o.proto_)) {}
+        iroha::protocol::QueryResponse &query_response)
+        : account_detail_response_{query_response.account_detail_response()},
+          next_record_id_{
+              [](auto &query_response) -> decltype(next_record_id_) {
+                if (query_response.has_next_record_id()) {
+                  return AccountDetailRecordId{
+                      *query_response.mutable_next_record_id()};
+                }
+                return boost::none;
+              }(*query_response.mutable_account_detail_response())} {}
 
     const interface::types::DetailType &AccountDetailResponse::detail() const {
       return account_detail_response_.detail();

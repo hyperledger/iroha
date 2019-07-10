@@ -16,10 +16,6 @@ namespace shared_model {
      public:
       using TransportType = iroha::protocol::QueryResponse;
 
-      QueryResponse(const QueryResponse &o);
-      QueryResponse(QueryResponse &&o) noexcept;
-
-      explicit QueryResponse(const TransportType &queryResponse);
       explicit QueryResponse(TransportType &&queryResponse);
 
       ~QueryResponse() override;
@@ -29,9 +25,6 @@ namespace shared_model {
       const interface::types::HashType &queryHash() const override;
 
       const TransportType &getTransport() const;
-
-     protected:
-      QueryResponse *clone() const override;
 
      private:
       struct Impl;

@@ -319,7 +319,7 @@ namespace grantables {
                                                      SetMyQuorum,
                                                      TransferMyAssets>;
 
-  TYPED_TEST_CASE(GrantRevokeFixture, GrantablePermissionsTypes);
+  TYPED_TEST_CASE(GrantRevokeFixture, GrantablePermissionsTypes, );
 
   /**
    * TODO mboldyrev 18.01.2019 IR-222 convert to a SFV integration test

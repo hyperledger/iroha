@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_BLOCK_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_BLOCK_RESPONSE_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -17,7 +18,7 @@ namespace shared_model {
     /**
      * Provide response with block
      */
-    class BlockResponse : public ModelPrimitive<BlockResponse> {
+    class BlockResponse : public NonCopyableModelPrimitive<BlockResponse> {
      public:
       /**
        * @return Attached block

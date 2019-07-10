@@ -6,17 +6,14 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ERROR_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ERROR_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "backend/protobuf/query_responses/proto_concrete_error_query_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
+
+#include "backend/protobuf/query_responses/proto_concrete_error_query_response.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class ErrorQueryResponse final
-        : public CopyableProto<interface::ErrorQueryResponse,
-                               iroha::protocol::QueryResponse,
-                               ErrorQueryResponse> {
+    class ErrorQueryResponse final : public interface::ErrorQueryResponse {
      public:
       /// type of proto variant
       using ProtoQueryErrorResponseVariantType =
@@ -34,12 +31,8 @@ namespace shared_model {
       using ProtoQueryErrorResponseListType =
           ProtoQueryErrorResponseVariantType::types;
 
-      template <typename QueryResponseType>
-      explicit ErrorQueryResponse(QueryResponseType &&response);
-
-      ErrorQueryResponse(const ErrorQueryResponse &o);
-
-      ErrorQueryResponse(ErrorQueryResponse &&o) noexcept;
+      explicit ErrorQueryResponse(
+          iroha::protocol::QueryResponse &query_response);
 
       const QueryErrorResponseVariantType &get() const override;
 
@@ -48,9 +41,11 @@ namespace shared_model {
       ErrorCodeType errorCode() const override;
 
      private:
-      const ProtoQueryErrorResponseVariantType variant_;
+      iroha::protocol::ErrorResponse &error_response_;
 
-      const QueryErrorResponseVariantType ivariant_;
+      ProtoQueryErrorResponseVariantType variant_;
+
+      QueryErrorResponseVariantType ivariant_;
     };
   }  // namespace proto
 }  // namespace shared_model

@@ -83,48 +83,38 @@ namespace iroha {
                 (boost::format("Peer: '%s'") % context->peer()).str();
             query_processor_->blocksQueryHandle(*query.value)
                 .observe_on(current_thread)
-                .take_while([this, context, request, writer](
+                .take_while([this, context, request, writer, client_id](
                                 const std::shared_ptr<
                                     shared_model::interface::BlockQueryResponse>
                                     response) {
                   if (context->IsCancelled()) {
                     log_->debug("Unsubscribed from block stream");
                     return false;
-                  } else {
-                    auto result = iroha::visit_in_place(
-                        response->get(),
-                        [this, writer, request](
-                            const shared_model::interface::BlockResponse
-                                &block_response) {
-                          log_->debug("{} receives committed block",
-                                      request->meta().creator_account_id());
-                          auto proto_block_response = static_cast<
-                              const shared_model::proto::BlockResponse &>(
-                              block_response);
-                          bool written = writer->Write(
-                              proto_block_response.getTransport());
-                          if (not written) {
-                            log_->debug("Block stream appears to be closed");
-                            return false;
-                          }
-                          return true;
-                        },
-                        [this, writer, request](
-                            const shared_model::interface::BlockErrorResponse
-                                &block_error_response) {
-                          log_->debug("{} received error with message: {}",
-                                      request->meta().creator_account_id(),
-                                      block_error_response.message());
-                          auto proto_block_error_response = static_cast<
-                              const shared_model::proto::BlockErrorResponse &>(
-                              block_error_response);
-                          writer->WriteLast(
-                              proto_block_error_response.getTransport(),
-                              grpc::WriteOptions());
-                          return false;
-                        });
-                    return result;
                   }
+
+                  log_->debug("{} receives {}",
+                              request->meta().creator_account_id(),
+                              *response);
+
+                  const auto &proto_response =
+                      std::static_pointer_cast<
+                          shared_model::proto::BlockQueryResponse>(response)
+                          ->getTransport();
+
+                  if (not writer->Write(proto_response)) {
+                    log_->error("write to stream has failed to client {}",
+                                client_id);
+                    return false;
+                  }
+
+                  return iroha::visit_in_place(
+                      response->get(),
+                      [](const shared_model::interface::BlockResponse &) {
+                        return true;
+                      },
+                      [](const shared_model::interface::BlockErrorResponse &) {
+                        return false;
+                      });
                 })
                 .subscribe(
                     subscription,

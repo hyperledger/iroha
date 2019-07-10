@@ -8,24 +8,12 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    GetBlockResponse::GetBlockResponse(QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          block_response_{proto_->block_response()},
-          block_{block_response_.block().block_v1()} {}
-
-    template GetBlockResponse::GetBlockResponse(
-        GetBlockResponse::TransportType &);
-    template GetBlockResponse::GetBlockResponse(
-        const GetBlockResponse::TransportType &);
-    template GetBlockResponse::GetBlockResponse(
-        GetBlockResponse::TransportType &&);
-
-    GetBlockResponse::GetBlockResponse(const GetBlockResponse &o)
-        : GetBlockResponse(o.proto_) {}
-
-    GetBlockResponse::GetBlockResponse(GetBlockResponse &&o)
-        : GetBlockResponse(std::move(o.proto_)) {}
+    GetBlockResponse::GetBlockResponse(
+        iroha::protocol::QueryResponse &query_response)
+        : block_response_{query_response.block_response()},
+          block_{*query_response.mutable_block_response()
+                      ->mutable_block()
+                      ->mutable_block_v1()} {}
 
     const interface::Block &GetBlockResponse::block() const {
       return block_;

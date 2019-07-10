@@ -143,6 +143,11 @@ MockQueryFactory::constructGetTransactions(
       });
 }
 
+MockQueryFactory::FactoryResult<MockGetPeers>
+MockQueryFactory::constructGetPeers() const {
+  return createFactoryResult<MockGetPeers>([](MockGetPeers &) {});
+};
+
 MockQueryFactory::FactoryResult<MockTxPaginationMeta>
 MockQueryFactory::constructTxPaginationMeta(
     types::TransactionsNumberType page_size,

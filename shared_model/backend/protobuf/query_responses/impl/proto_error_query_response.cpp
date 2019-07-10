@@ -9,11 +9,11 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    ErrorQueryResponse::ErrorQueryResponse(QueryResponseType &&response)
-        : CopyableProto(std::forward<QueryResponseType>(response)),
+    ErrorQueryResponse::ErrorQueryResponse(
+        iroha::protocol::QueryResponse &query_response)
+        : error_response_(*query_response.mutable_error_response()),
           variant_{[this] {
-            auto &&ar = proto_->error_response();
+            auto &ar = error_response_;
 
             unsigned which = ar.GetDescriptor()
                                  ->FindFieldByName("reason")
@@ -22,23 +22,9 @@ namespace shared_model {
                                  ->index();
             return shared_model::detail::
                 variant_impl<ProtoQueryErrorResponseListType>::template load<
-                    ProtoQueryErrorResponseVariantType>(
-                    std::forward<decltype(ar)>(ar), which);
+                    ProtoQueryErrorResponseVariantType>(ar, which);
           }()},
           ivariant_{QueryErrorResponseVariantType{variant_}} {}
-
-    template ErrorQueryResponse::ErrorQueryResponse(
-        ErrorQueryResponse::TransportType &);
-    template ErrorQueryResponse::ErrorQueryResponse(
-        const ErrorQueryResponse::TransportType &);
-    template ErrorQueryResponse::ErrorQueryResponse(
-        ErrorQueryResponse::TransportType &&);
-
-    ErrorQueryResponse::ErrorQueryResponse(const ErrorQueryResponse &o)
-        : ErrorQueryResponse(o.proto_) {}
-
-    ErrorQueryResponse::ErrorQueryResponse(ErrorQueryResponse &&o) noexcept
-        : ErrorQueryResponse(std::move(o.proto_)) {}
 
     const ErrorQueryResponse::QueryErrorResponseVariantType &
     ErrorQueryResponse::get() const {
@@ -47,11 +33,11 @@ namespace shared_model {
 
     const ErrorQueryResponse::ErrorMessageType &
     ErrorQueryResponse::errorMessage() const {
-      return proto_->error_response().message();
+      return error_response_.message();
     }
 
     ErrorQueryResponse::ErrorCodeType ErrorQueryResponse::errorCode() const {
-      return proto_->error_response().error_code();
+      return error_response_.error_code();
     }
 
   }  // namespace proto
