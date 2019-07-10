@@ -24,6 +24,11 @@ Blocks are organized into a linear sequence over time (also known as the block c
 Blocks are signed with the cryptographic signatures of Iroha `peers <#peer>`__, voting for this block during `consensus <#consensus>`__.
 Signable content is called payload, so the structure of a block looks like this:
 
+.. image:: ../../image_assets/block.png
+    :width: 80%
+    :align: center
+    :alt: Iroha Block Structure
+
 *Outside payload*
 
     - signatures — signatures of peers, which voted for the block during consensus round
