@@ -6,35 +6,32 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_BLOCK_QUERY_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_BLOCK_QUERY_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "interfaces/query_responses/block_query_response.hpp"
+
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "interfaces/queries/query.hpp"
-#include "interfaces/query_responses/block_query_response.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class BlockQueryResponse final
-        : public CopyableProto<interface::BlockQueryResponse,
-                               iroha::protocol::BlockQueryResponse,
-                               BlockQueryResponse> {
+    class BlockQueryResponse final : public interface::BlockQueryResponse {
      private:
       /// type of proto variant
       using ProtoQueryResponseVariantType =
           boost::variant<BlockResponse, BlockErrorResponse>;
 
      public:
-      template <typename QueryResponseType>
-      explicit BlockQueryResponse(QueryResponseType &&queryResponse);
+      using TransportType = iroha::protocol::BlockQueryResponse;
 
-      BlockQueryResponse(const BlockQueryResponse &o);
-
-      BlockQueryResponse(BlockQueryResponse &&o) noexcept;
+      explicit BlockQueryResponse(TransportType &&block_query_response);
 
       const QueryResponseVariantType &get() const override;
 
+      const TransportType &getTransport() const;
+
      private:
+      iroha::protocol::BlockQueryResponse proto_;
       const ProtoQueryResponseVariantType variant_;
       const QueryResponseVariantType ivariant_;
     };

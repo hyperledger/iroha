@@ -6,8 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_BLOCK_QUERY_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_BLOCK_QUERY_RESPONSE_HPP
 
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include <boost/variant.hpp>
-#include "interfaces/base/model_primitive.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -20,7 +21,8 @@ namespace shared_model {
      * responses available in the system. General note: this class is container
      * for QRs but not a base class.
      */
-    class BlockQueryResponse : public ModelPrimitive<BlockQueryResponse> {
+    class BlockQueryResponse
+        : public NonCopyableModelPrimitive<BlockQueryResponse> {
      private:
       /// Shortcut type for polymorphic wrapper
       template <typename... Value>

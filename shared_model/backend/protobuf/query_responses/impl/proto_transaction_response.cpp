@@ -8,26 +8,11 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
     TransactionsResponse::TransactionsResponse(
-        QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          transaction_response_{proto_->transactions_response()},
+        iroha::protocol::QueryResponse &query_response)
+        : transaction_response_{query_response.transactions_response()},
           transactions_{transaction_response_.transactions().begin(),
                         transaction_response_.transactions().end()} {}
-
-    template TransactionsResponse::TransactionsResponse(
-        TransactionsResponse::TransportType &);
-    template TransactionsResponse::TransactionsResponse(
-        const TransactionsResponse::TransportType &);
-    template TransactionsResponse::TransactionsResponse(
-        TransactionsResponse::TransportType &&);
-
-    TransactionsResponse::TransactionsResponse(const TransactionsResponse &o)
-        : TransactionsResponse(o.proto_) {}
-
-    TransactionsResponse::TransactionsResponse(TransactionsResponse &&o)
-        : TransactionsResponse(std::move(o.proto_)) {}
 
     interface::types::TransactionsCollectionType
     TransactionsResponse::transactions() const {

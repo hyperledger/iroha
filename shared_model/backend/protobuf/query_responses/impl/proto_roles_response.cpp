@@ -10,26 +10,14 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryResponseType>
-    RolesResponse::RolesResponse(QueryResponseType &&queryResponse)
-        : CopyableProto(std::forward<QueryResponseType>(queryResponse)),
-          roles_response_{proto_->roles_response()},
+    RolesResponse::RolesResponse(iroha::protocol::QueryResponse &query_response)
+        : roles_response_{query_response.roles_response()},
           roles_{boost::accumulate(roles_response_.roles(),
                                    RolesIdType{},
                                    [](auto &&roles, const auto &role) {
                                      roles.emplace_back(role);
                                      return std::move(roles);
                                    })} {}
-
-    template RolesResponse::RolesResponse(RolesResponse::TransportType &);
-    template RolesResponse::RolesResponse(const RolesResponse::TransportType &);
-    template RolesResponse::RolesResponse(RolesResponse::TransportType &&);
-
-    RolesResponse::RolesResponse(const RolesResponse &o)
-        : RolesResponse(o.proto_) {}
-
-    RolesResponse::RolesResponse(RolesResponse &&o)
-        : RolesResponse(std::move(o.proto_)) {}
 
     const RolesResponse::RolesIdType &RolesResponse::roles() const {
       return roles_;

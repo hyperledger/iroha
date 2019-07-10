@@ -59,13 +59,7 @@ namespace shared_model {
       std::unique_ptr<interface::QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
-          const crypto::Hash &next_tx_hash,
-          interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const override;
-
-      std::unique_ptr<interface::QueryResponse> createTransactionsPageResponse(
-          std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-              transactions,
+          boost::optional<const crypto::Hash &> next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
           const crypto::Hash &query_hash) const override;
 
@@ -90,6 +84,10 @@ namespace shared_model {
 
       std::unique_ptr<interface::QueryResponse> createRolePermissionsResponse(
           interface::RolePermissionSet role_permissions,
+          const crypto::Hash &query_hash) const override;
+
+      std::unique_ptr<interface::QueryResponse> createPeersResponse(
+          interface::types::PeerList peers,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::BlockQueryResponse> createBlockQueryResponse(

@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 
+#include <grpcpp/impl/grpc_library.h>
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
@@ -37,6 +38,9 @@ using ::testing::StrEq;
 
 using namespace iroha::torii;
 using namespace std::chrono_literals;
+
+// required for g_core_codegen_interface intialization
+static grpc::internal::GrpcLibraryInitializer g_gli_initializer;
 
 class CommandServiceTransportGrpcTest : public testing::Test {
  private:

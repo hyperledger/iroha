@@ -52,7 +52,7 @@ parts:
     prepare: ./bootstrap --enable-ccache
   boost:
     source: https://github.com/boostorg/boost.git
-    source-commit: 436ad1dfcfc7e0246141beddd11c8a4e9c10b146
+    source-commit: 8f9a1cf1d15d262e09c16a305034d8bc1e39aca2
     plugin: nil
     build: |
       ./bootstrap.sh --with-libraries=thread,system,filesystem

@@ -31,7 +31,8 @@ TEST(QueryResponse, QueryResponseLoad) {
     auto field = desc->field(i);
     refl->SetAllocatedMessage(
         &response, refl->GetMessage(response, field).New(), field);
-    auto shared_response = shared_model::proto::QueryResponse(response);
+    shared_model::proto::QueryResponse shared_response{
+        iroha::protocol::QueryResponse{response}};
     ASSERT_EQ(i, shared_response.get().which());
     ASSERT_EQ(shared_response.queryHash(), shared_model::crypto::Hash(hash));
   });
@@ -58,7 +59,8 @@ TEST(QueryResponse, ErrorResponseLoad) {
       boost::irange(0, resp_reason_enum->value_count()), [&](auto i) {
         refl->SetEnumValue(
             error_resp, resp_reason, resp_reason_enum->value(i)->number());
-        auto shared_response = shared_model::proto::QueryResponse(response);
+        shared_model::proto::QueryResponse shared_response{
+            iroha::protocol::QueryResponse{response}};
         ASSERT_NO_THROW({
           ASSERT_EQ(
               i,

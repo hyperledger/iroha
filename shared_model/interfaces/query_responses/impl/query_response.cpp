@@ -11,6 +11,7 @@
 #include "interfaces/query_responses/asset_response.hpp"
 #include "interfaces/query_responses/block_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
+#include "interfaces/query_responses/peers_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/role_permissions.hpp"
 #include "interfaces/query_responses/roles_response.hpp"

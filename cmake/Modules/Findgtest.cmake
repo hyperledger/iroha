@@ -31,7 +31,7 @@ find_package_handle_standard_args(gtest DEFAULT_MSG
     )
 
 set(URL https://github.com/google/googletest)
-set(VERSION ec44c6c1675c25b9827aacd08c02433cccde7780)
+set(VERSION b6cd405286ed8635ece71c72f118e659f4ade3fb) # 2019-01-04
 set_target_description(gtest::gtest "Unit testing library" ${URL} ${VERSION})
 set_target_description(gmock::gmock "Mocking library" ${URL} ${VERSION})
 

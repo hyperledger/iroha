@@ -200,21 +200,17 @@ namespace iroha {
         soci::session sql(*connection_);
         // rollback possible prepared transaction
         tryRollback(sql);
-        sql << reset_;
+        return PgConnectionInit::resetWsv(sql);
       } catch (std::exception &e) {
         return expected::makeError(e.what());
       }
-      return expected::Value<void>();
     }
 
     void StorageImpl::resetPeers() {
       log_->info("Remove everything from peers table");
-      try {
-        soci::session sql(*connection_);
-        sql << reset_peers_;
-      } catch (std::exception &e) {
-        log_->error("Failed to reset peers list, reason: {}", e.what());
-      }
+      soci::session sql(*connection_);
+      expected::resultToOptionalError(PgConnectionInit::resetPeers(sql)) |
+          [this](const auto &e) { this->log_->error("{}", e); };
     }
 
     void StorageImpl::dropStorage() {
@@ -328,15 +324,22 @@ namespace iroha {
               };
 
               return expected::resultToOptionalValue(
-                  get_top_block_info() | [&](const auto &top_block_info) {
-                    return get_ledger_peers() |
-                        [&top_block_info](auto ledger_peers) {
+                  get_top_block_info() | [&](auto &&top_block_info) {
+                    return get_ledger_peers().match(
+                        [&top_block_info](auto &&ledger_peers_value)
+                            -> expected::Result<
+                                std::shared_ptr<const iroha::LedgerState>,
+                                std::string> {
                           return expected::makeValue(
                               std::make_shared<const iroha::LedgerState>(
-                                  std::move(ledger_peers),
+                                  std::move(ledger_peers_value).value,
                                   top_block_info.height,
                                   top_block_info.top_hash));
-                        };
+                        },
+                        [](auto &&e)
+                            -> expected::Result<
+                                std::shared_ptr<const iroha::LedgerState>,
+                                std::string> { return e; });
                   });
             }();
 
@@ -531,27 +534,5 @@ namespace iroha {
       }
     }
 
-    const std::string &StorageImpl::reset_ = R"(
-TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
-TRUNCATE TABLE account_has_asset RESTART IDENTITY CASCADE;
-TRUNCATE TABLE role_has_permissions RESTART IDENTITY CASCADE;
-TRUNCATE TABLE account_has_roles RESTART IDENTITY CASCADE;
-TRUNCATE TABLE account_has_grantable_permissions RESTART IDENTITY CASCADE;
-TRUNCATE TABLE account RESTART IDENTITY CASCADE;
-TRUNCATE TABLE asset RESTART IDENTITY CASCADE;
-TRUNCATE TABLE domain RESTART IDENTITY CASCADE;
-TRUNCATE TABLE signatory RESTART IDENTITY CASCADE;
-TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
-TRUNCATE TABLE role RESTART IDENTITY CASCADE;
-TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
-TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
-TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
-TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
-TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
-)";
-
-    const std::string &StorageImpl::reset_peers_ = R"(
-TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
-)";
   }  // namespace ametsuchi
 }  // namespace iroha

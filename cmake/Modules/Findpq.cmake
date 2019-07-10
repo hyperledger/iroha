@@ -19,17 +19,10 @@ if (MSVC)
   mark_as_advanced(pqd_LIBRARY)
 endif ()
 
-if (NOT MSVC)
-  find_program(pg_config_EXECUTABLE pg_config)
-  mark_as_advanced(pg_config_EXECUTABLE)
-  set(pg_config_REQUIRED pg_config_EXECUTABLE)
-endif ()
-
 find_package_handle_standard_args(pq DEFAULT_MSG
     pq_INCLUDE_DIR
     postgres_INCLUDE_DIR
     pq_LIBRARY
-    ${pg_config_REQUIRED}
     )
 
 set(URL https://git.postgresql.org/git/postgresql.git)
@@ -80,12 +73,10 @@ set_target_properties(pq PROPERTIES
     IMPORTED_LOCATION ${pq_LIBRARY}
     )
 
-if (NOT MSVC)
-  get_filename_component(pg_config_EXECUTABLE_DIR ${pg_config_EXECUTABLE} DIRECTORY)
-  mark_as_advanced(pg_config_EXECUTABLE_DIR)
-
-  set_target_properties(pg_config PROPERTIES
-      IMPORTED_LOCATION ${pg_config_EXECUTABLE}
+if (VCPKG_TOOLCHAIN)
+  find_package(OpenSSL REQUIRED)
+  set_target_properties(pq PROPERTIES
+      INTERFACE_LINK_LIBRARIES OpenSSL::SSL
       )
 endif ()
 

@@ -15,8 +15,8 @@
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
-
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "cryptography/public_key.hpp"
@@ -29,6 +29,7 @@
 #include "interfaces/queries/get_account_transactions.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
 #include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_peers.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
 #include "interfaces/queries/get_role_permissions.hpp"
 #include "interfaces/queries/get_roles.hpp"
@@ -224,10 +225,10 @@ namespace iroha {
                     std::forward<PermissionsErrResponse>(perms_err_response)(),
                     2);
               }
-              auto query_range = range
-                  | boost::adaptors::transformed([](auto &t) {
-                                   return viewQuery<QueryTuple>(t);
-                                 });
+              auto query_range =
+                  range | boost::adaptors::transformed([](auto &t) {
+                    return viewQuery<QueryTuple>(t);
+                  });
               return std::forward<ResponseCreator>(response_creator)(
                   query_range, perms...);
             });
@@ -237,7 +238,7 @@ namespace iroha {
       }
     }
 
-    template<typename T>
+    template <typename T>
     auto resultWithoutNulls(T range) {
       return range
           | boost::adaptors::transformed([](auto &&t) { return rebind(t); })
@@ -537,7 +538,7 @@ namespace iroha {
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), total_size, query_hash_);
+                std::move(response_txs), boost::none, total_size, query_hash_);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }
@@ -1359,6 +1360,41 @@ namespace iroha {
         return query_response_factory_->createTransactionsResponse(
             std::move(response_txs), query_hash_);
       }
+    }
+
+    QueryExecutorResult PostgresQueryExecutorVisitor::operator()(
+        const shared_model::interface::GetPeers &q) {
+      using QueryTuple =
+          QueryType<std::string, shared_model::interface::types::AddressType>;
+      using PermissionTuple = boost::tuple<int>;
+
+      auto cmd = (boost::format(
+                      R"(WITH has_perms AS (%s)
+      SELECT public_key, address, perm FROM peer
+      RIGHT OUTER JOIN has_perms ON TRUE
+      )") % getAccountRolePermissionCheckSql(Role::kGetPeers))
+                     .str();
+
+      return executeQuery<QueryTuple, PermissionTuple>(
+          [&] {
+            return (sql_.prepare << cmd,
+                    soci::use(creator_id_, "role_account_id"));
+          },
+          [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            shared_model::interface::types::PeerList peers;
+            for (const auto &row : range_without_nulls) {
+              apply(row, [&peers](auto &peer_key, auto &address) {
+                peers.push_back(std::make_shared<shared_model::plain::Peer>(
+                    address,
+                    shared_model::interface::types::PubkeyType{
+                        shared_model::crypto::Blob::fromHexString(peer_key)}));
+              });
+            }
+            return query_response_factory_->createPeersResponse(peers,
+                                                                query_hash_);
+          },
+          notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
     }
 
     template <typename ReturnValueType>

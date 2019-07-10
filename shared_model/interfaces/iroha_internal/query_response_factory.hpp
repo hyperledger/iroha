@@ -154,8 +154,8 @@ namespace shared_model {
       /**
        * Create response for transactions pagination query
        * @param transactions - list of transactions in this page
-       * @param next_tx_hash - hash of the transaction after
        * the last in the page
+       * @param next_tx_hash - hash of the transaction after
        * @param all_transactions_size - total number of transactions
        * for this query
        * @param query_hash - hash of the query, for which response is created
@@ -164,21 +164,7 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
-          const crypto::Hash &next_tx_hash,
-          interface::types::TransactionsNumberType all_transactions_size,
-          const crypto::Hash &query_hash) const = 0;
-
-      /**
-       * Create response for transactions pagination query without next hash
-       * @param transactions - list of transactions in this page
-       * @param all_transactions_size - total number of transactions
-       * for this query
-       * @param query_hash - hash of the query, for which response is created
-       * @return transactions response
-       */
-      virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
-          std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-              transactions,
+          boost::optional<const crypto::Hash &> next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
           const crypto::Hash &query_hash) const = 0;
 
@@ -233,6 +219,15 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createRolePermissionsResponse(
           RolePermissionSet role_permissions,
           const crypto::Hash &query_hash) const = 0;
+
+      /**
+       * Create response for get peers query
+       * @param peers - list of peers
+       * @param query_hash - hash of the query, for which response is created
+       * @return get peers response
+       */
+      virtual std::unique_ptr<QueryResponse> createPeersResponse(
+          types::PeerList peers, const crypto::Hash &query_hash) const = 0;
 
       /**
        * Create response for block query with block
