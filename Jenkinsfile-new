@@ -106,7 +106,7 @@ timestamps(){
 
 node ('master') {
   scmVars = checkout scm
-  def textVariables = load '.jenkinsci-new/text-variables.groovy'
+  def textVariables = load '.jenkinsci/text-variables.groovy'
   properties([
       parameters([
           choice(choices: textVariables.param_chose_opt, description: textVariables.param_descriptions, name: 'build_scenario'),
@@ -271,9 +271,9 @@ node ('master') {
 
 
   // Load Scripts
-  def x64LinuxBuildScript = load '.jenkinsci-new/builders/x64-linux-build-steps.groovy'
-  def x64BuildScript = load '.jenkinsci-new/builders/x64-mac-build-steps.groovy'
-  def x64WinBuildScript = load '.jenkinsci-new/builders/x64-win-build-steps.groovy'
+  def x64LinuxBuildScript = load '.jenkinsci/builders/x64-linux-build-steps.groovy'
+  def x64BuildScript = load '.jenkinsci/builders/x64-mac-build-steps.groovy'
+  def x64WinBuildScript = load '.jenkinsci/builders/x64-win-build-steps.groovy'
 
   // Define Workers
   x64LinuxWorker = new Worker(label: 'docker-build-agent', cpusAvailable: 8)
