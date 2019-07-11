@@ -202,10 +202,9 @@ Irohad::RunResult Irohad::initStorage(
   boost::optional<std::string> string_res = boost::none;
 
   // create database if it does not exist
-  PgConnectionInit::createDatabaseIfNotExist(
-      pg_opt->workingDbName(), pg_opt->maintenanceConnectionString())
-      .match([](auto &&val) {},
-             [&string_res](auto &&error) { string_res = error.error; });
+  PgConnectionInit::createDatabaseIfNotExist(*pg_opt).match(
+      [](auto &&val) {},
+      [&string_res](auto &&error) { string_res = error.error; });
 
   if (string_res) {
     return expected::makeError(string_res.value());
