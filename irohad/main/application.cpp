@@ -78,7 +78,7 @@ static constexpr iroha::consensus::yac::ConsistencyModel
  * Configuring iroha daemon
  */
 Irohad::Irohad(const std::string &block_store_dir,
-               std::shared_ptr<ametsuchi::PostgresOptions> pg_opt,
+               std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,
@@ -95,7 +95,6 @@ Irohad::Irohad(const std::string &block_store_dir,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
-      pg_opt_(std::move(pg_opt)),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
       internal_port_(internal_port),
@@ -123,7 +122,7 @@ Irohad::Irohad(const std::string &block_store_dir,
           max_proposal_size_, true);
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
-  if (auto e = expected::resultToOptionalError(initStorage())) {
+  if (auto e = expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
     log_->error("Storage initialization failed: {}", e.value());
   }
 }
@@ -182,7 +181,8 @@ void Irohad::dropStorage() {
 /**
  * Initializing iroha daemon storage
  */
-Irohad::RunResult Irohad::initStorage() {
+Irohad::RunResult Irohad::initStorage(
+    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
   common_objects_factory_ =
       std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
           shared_model::validation::FieldValidator>>(validators_config_);
@@ -203,7 +203,7 @@ Irohad::RunResult Irohad::initStorage() {
 
   // create database if it does not exist
   PgConnectionInit::createDatabaseIfNotExist(
-      pg_opt_->workingDbName(), pg_opt_->maintenanceConnectionString())
+      pg_opt->workingDbName(), pg_opt->maintenanceConnectionString())
       .match([](auto &&val) {},
              [&string_res](auto &&error) { string_res = error.error; });
 
@@ -214,7 +214,7 @@ Irohad::RunResult Irohad::initStorage() {
   const int pool_size = 10;
   auto pool = PgConnectionInit::prepareConnectionPool(
       iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      *pg_opt_,
+      *pg_opt,
       pool_size,
       log_manager_);
 
@@ -226,7 +226,7 @@ Irohad::RunResult Irohad::initStorage() {
       std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
   return StorageImpl::create(block_store_dir_,
-                             pg_opt_,
+                             std::move(pg_opt),
                              std::move(pool_wrapper),
                              common_objects_factory_,
                              std::move(block_converter),
