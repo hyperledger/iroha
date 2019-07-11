@@ -197,7 +197,7 @@ class TransportBuilderTest : public ::testing::Test {
 
   std::string invalid_account_id;
   shared_model::crypto::Keypair keypair =
-      shared_model::crypto::CryptoProviderEd25519Sha3::generateKeypair();
+      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 };
 
 //-------------------------------------TRANSACTION-------------------------------------
