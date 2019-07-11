@@ -99,9 +99,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
       integration_framework::kDefaultWorkingDatabaseName,
       storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options->workingDbName(), options->maintenanceConnectionString())
-      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  PgConnectionInit::createDatabaseIfNotExist(*options).match(
+      [](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       *options,
@@ -153,13 +152,12 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                           integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.workingDbName(), options.maintenanceConnectionString())
-      .match([](auto &&val) {},
-             [&](auto &&error) {
-               storage_log_manager_->getLogger()->error(
-                   "Database creation error: {}", error.error);
-             });
+  PgConnectionInit::createDatabaseIfNotExist(options).match(
+      [](auto &&val) {},
+      [&](auto &&error) {
+        storage_log_manager_->getLogger()->error("Database creation error: {}",
+                                                 error.error);
+      });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,

@@ -113,21 +113,21 @@ iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
 }
 
 iroha::expected::Result<bool, std::string>
-PgConnectionInit::createDatabaseIfNotExist(
-    const std::string &dbname, const std::string &options_str_without_dbname) {
+PgConnectionInit::createDatabaseIfNotExist(const PostgresOptions &pg_opt) {
   try {
-    soci::session sql(*soci::factory_postgresql(), options_str_without_dbname);
+    soci::session sql(*soci::factory_postgresql(),
+                      pg_opt.maintenanceConnectionString());
 
     int size;
-    std::string name = dbname;
+    std::string working_dbname = pg_opt.workingDbName();
 
     sql << "SELECT count(datname) FROM pg_catalog.pg_database WHERE "
            "datname = :dbname",
-        soci::into(size), soci::use(name);
+        soci::into(size), soci::use(working_dbname);
 
     if (size == 0) {
       std::string query = "CREATE DATABASE ";
-      query += dbname;
+      query += working_dbname;
       sql << query;
       return expected::makeValue(true);
     }

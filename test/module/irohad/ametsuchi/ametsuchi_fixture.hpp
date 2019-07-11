@@ -58,14 +58,13 @@ namespace iroha {
             integration_framework::kDefaultWorkingDatabaseName,
             storage_logger_);
 
-        PgConnectionInit::createDatabaseIfNotExist(
-            options->workingDbName(), options->maintenanceConnectionString())
-            .match([](auto &&val) {},
-                   [&](auto &&error) {
-                     storage_logger_->error("Database creation error: {}",
-                                            error.error);
-                     std::terminate();
-                   });
+        PgConnectionInit::createDatabaseIfNotExist(*options).match(
+            [](auto &&val) {},
+            [&](auto &&error) {
+              storage_logger_->error("Database creation error: {}",
+                                     error.error);
+              std::terminate();
+            });
 
         auto pool = PgConnectionInit::prepareConnectionPool(
             *reconnection_strategy_factory_,
