@@ -525,7 +525,7 @@ namespace iroha {
                           postgres_options_.optionsStringWithoutDbName());
         // perform dropping
         try {
-          sql << "DROP DATABASE " + db;
+          sql << "DROP DATABASE \"" + db + "\"";
         } catch (std::exception &e) {
           log_->warn("Drop database was failed. Reason: {}", e.what());
         }
