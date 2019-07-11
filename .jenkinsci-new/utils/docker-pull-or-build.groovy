@@ -26,15 +26,14 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, s
     randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
     currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
     referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
-    contextDir = "/tmp/${randDir}"
     if (utils.filesDiffer(currentDockerfile, referenceDockerfile) || forceBuild) {
       // Dockerfile has been changed compared to reference file
       // We cannot rely on the local cache
       // because Dockerfile may contain apt-get entries that would try to update
       // from invalid (stale) addresses
-      iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --no-cache -f ${currentDockerfile} ${contextDir}")
+      iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --no-cache -f ${currentDockerfile} .")
     }
-    iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions}  -f ${currentDockerfile} ${contextDir}")
+    iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions}  -f ${currentDockerfile} .")
   }
   return iC
 }
