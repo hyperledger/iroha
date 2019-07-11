@@ -1,4 +1,12 @@
 #!/usr/bin/env groovy
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+//
+// Upload Artifacts to nexus
+//
 
 def uploadArtifacts(filePaths, uploadPath, artifactServers=['nexus.iroha.tech']) {
   def filePathsConverted = []
@@ -25,7 +33,6 @@ def uploadArtifacts(filePaths, uploadPath, artifactServers=['nexus.iroha.tech'])
       sh "echo ${it} >> \$(pwd)/batch.txt;"
       sh "$shaSumBinary ${it} | cut -d' ' -f1 > \$(pwd)/\$(basename ${it}).sha256"
       sh "$md5SumBinary ${it} | cut -d' ' -f1 > \$(pwd)/\$(basename ${it}).md5"
-      // TODO @bakhtin 30.05.18 IR-1384. Make gpg command options and paths compatible with Windows OS.
       if (!agentType.contains('MSYS_NT')) {
         sh "echo \"${CI_GPG_MASTERKEY}\" | $gpgKeyBinary -o \$(pwd)/\$(basename ${it}).ascfile ${it}"
         sh "echo \$(pwd)/\$(basename ${it}).ascfile >> \$(pwd)/batch.txt;"
