@@ -18,12 +18,6 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 
-namespace iroha {
-  namespace ametsuchi {
-    class PostgresOptions;
-  }
-}  // namespace iroha
-
 namespace shared_model {
   namespace interface {
     class Block;
@@ -82,7 +76,7 @@ namespace integration_framework {
 
     // config area
     const std::string block_store_dir_;
-    const std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
+    const std::string working_dbname_;
     const std::string listen_ip_;
     const size_t torii_port_;
     const size_t internal_port_;

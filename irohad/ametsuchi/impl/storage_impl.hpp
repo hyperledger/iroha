@@ -46,7 +46,7 @@ namespace iroha {
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
-          std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
+          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
           PoolWrapper pool_wrapper,
           std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               factory,
@@ -116,7 +116,7 @@ namespace iroha {
      protected:
       StorageImpl(boost::optional<std::shared_ptr<const iroha::LedgerState>>
                       ledger_state,
-                  std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
+                  std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -130,7 +130,7 @@ namespace iroha {
                   logger::LoggerManagerTreePtr log_manager);
 
       // db info
-      const std::shared_ptr<ametsuchi::PostgresOptions> postgres_options_;
+      const std::unique_ptr<ametsuchi::PostgresOptions> postgres_options_;
 
      private:
       using StoreBlockResult = iroha::expected::Result<void, std::string>;

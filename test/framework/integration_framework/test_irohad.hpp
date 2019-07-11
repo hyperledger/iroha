@@ -17,7 +17,7 @@ namespace integration_framework {
   class TestIrohad : public Irohad {
    public:
     TestIrohad(const std::string &block_store_dir,
-               std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+               std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,

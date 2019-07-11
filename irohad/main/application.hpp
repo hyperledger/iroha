@@ -102,7 +102,7 @@ class Irohad {
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
   Irohad(const std::string &block_store_dir,
-         std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+         std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
          size_t torii_port,
          size_t internal_port,
@@ -153,7 +153,8 @@ class Irohad {
 
  protected:
   // -----------------------| component initialization |------------------------
-  virtual RunResult initStorage();
+  virtual RunResult initStorage(
+      std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
 
   virtual RunResult initCryptoProvider();
 
@@ -198,7 +199,6 @@ class Irohad {
 
   // constructor dependencies
   std::string block_store_dir_;
-  std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   const std::string listen_ip_;
   size_t torii_port_;
   size_t internal_port_;

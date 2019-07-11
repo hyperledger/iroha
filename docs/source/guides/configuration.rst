@@ -46,7 +46,7 @@ Deployment-specific parameters
 - ``pg_opt`` (optional) is a deprecated way of setting credentials of PostgreSQL:
   hostname, port, username, password and database name.
   All data except the database name are mandatory.
-  If database name is not provided, a default one gets used.
+  If database name is not provided, the default one gets used, which is ``iroha_default``.
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
 

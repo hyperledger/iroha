@@ -45,7 +45,7 @@ namespace iroha {
 
     StorageImpl::StorageImpl(
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
@@ -275,7 +275,7 @@ namespace iroha {
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
         std::string block_store_dir,
-        std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
