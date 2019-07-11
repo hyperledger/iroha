@@ -21,7 +21,7 @@ def buildOptionsString(options) {
 def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, scmVars, environment, forceBuild=false, buildOptions=null) {
   buildOptions = buildOptionsString(buildOptions)
   withEnv(environment) {
-    def utils = load '.jenkinsci-new/utils/utils.groovy'
+    def utils = load '.jenkinsci/utils/utils.groovy'
     sh("docker pull ${env.DOCKER_REGISTRY_BASENAME}:${imageName} || true")
     randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
     currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
