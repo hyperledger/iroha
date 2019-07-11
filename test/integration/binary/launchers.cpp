@@ -20,17 +20,20 @@ using namespace boost::process;
 
 namespace {
   shared_model::crypto::Keypair fromPrivateKey(const std::string &private_key) {
-    if (private_key.size()
-        != shared_model::crypto::DefaultCryptoAlgorithmType::
-               kPrivateKeyLength) {
-      throw std::invalid_argument("input string has incorrect length "
-                                  + std::to_string(private_key.length()));
-    }
     auto byte_string = iroha::hexstringToBytestring(private_key);
     if (not byte_string) {
       throw std::invalid_argument("invalid seed");
     }
-    return shared_model::crypto::CryptoProviderEd25519Sha3::generateKeypair(
+    if (byte_string->size()
+        != shared_model::crypto::DefaultCryptoAlgorithmType::
+               kPrivateKeyLength) {
+      throw std::invalid_argument(
+          "input bytestring has incorrect length "
+          + std::to_string(byte_string->size()) + ", expected "
+          + std::to_string(shared_model::crypto::DefaultCryptoAlgorithmType::
+                               kPrivateKeyLength));
+    }
+    return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair(
         shared_model::crypto::Seed(*byte_string));
   }
 }  // namespace
