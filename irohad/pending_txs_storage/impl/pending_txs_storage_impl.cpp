@@ -13,7 +13,8 @@ namespace iroha {
   PendingTransactionStorageImpl::PendingTransactionStorageImpl(
       StateObservable updated_batches,
       BatchObservable prepared_batch,
-      BatchObservable expired_batch) {
+      BatchObservable expired_batch,
+      PreparedTransactionsObservable prepared_txs) {
     updated_batches_subscription_ =
         updated_batches.subscribe([this](const SharedState &batches) {
           this->updatedBatchesHandler(batches);
@@ -26,12 +27,17 @@ namespace iroha {
         expired_batch.subscribe([this](const SharedBatch &expiredBatch) {
           this->removeBatch(expiredBatch);
         });
+    prepared_transactions_subscription_ = prepared_txs.subscribe(
+        [this](const PreparedTransactionDescriptor &prepared_transaction) {
+          this->removeBatch(prepared_transaction);
+        });
   }
 
   PendingTransactionStorageImpl::~PendingTransactionStorageImpl() {
     updated_batches_subscription_.unsubscribe();
     prepared_batch_subscription_.unsubscribe();
     expired_batch_subscription_.unsubscribe();
+    prepared_transactions_subscription_.unsubscribe();
   }
 
   PendingTransactionStorageImpl::SharedTxsCollectionType
@@ -149,12 +155,12 @@ namespace iroha {
     });
   }
 
-  void PendingTransactionStorageImpl::removeBatch(const SharedBatch &batch) {
-    auto creators = batchCreators(*batch);
-    auto first_tx_hash = batch->transactions().front()->hash();
-    auto batch_size = batch->transactions().size();
-    std::unique_lock<std::shared_timed_mutex> lock(mutex_);
-    for (const auto &creator : creators) {
+  inline void PendingTransactionStorageImpl::removeFromStorage(
+      const HashType &first_tx_hash,
+      const std::set<AccountIdType> &batch_creators,
+      uint64_t batch_size) {
+    // outer scope has to acquire unique lock over mutex_
+    for (const auto &creator : batch_creators) {
       auto account_batches_iterator = storage_.find(creator);
       if (account_batches_iterator != storage_.end()) {
         auto &account_batches = account_batches_iterator->second;
@@ -170,6 +176,41 @@ namespace iroha {
           storage_.erase(account_batches_iterator);
         }
       }
+    }
+  }
+
+  void PendingTransactionStorageImpl::removeBatch(const SharedBatch &batch) {
+    auto creators = batchCreators(*batch);
+    auto first_tx_hash = batch->transactions().front()->hash();
+    auto batch_size = batch->transactions().size();
+    std::unique_lock<std::shared_timed_mutex> lock(mutex_);
+    removeFromStorage(first_tx_hash, creators, batch_size);
+  }
+
+  void PendingTransactionStorageImpl::removeBatch(
+      const PreparedTransactionDescriptor &prepared_transaction) {
+    boost::optional<std::set<AccountIdType>> creators = boost::none;
+    boost::optional<uint64_t> batch_size = boost::none;
+    auto &creator_id = prepared_transaction.first;
+    auto &first_transaction_hash = prepared_transaction.second;
+    {
+      std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+      auto account_batches_iterator = storage_.find(creator_id);
+      if (account_batches_iterator != storage_.end()) {
+        auto &account_batches = account_batches_iterator->second;
+        auto index_iterator =
+            account_batches.index.find(first_transaction_hash);
+        if (index_iterator != account_batches.index.end()) {
+          auto &batch_iterator = index_iterator->second;
+          BOOST_ASSERT(batch_iterator != account_batches.batches.end());
+          creators = batchCreators(**batch_iterator);
+          batch_size = boost::size((*batch_iterator)->transactions());
+        }
+      }
+    }
+    if (creators and batch_size) {
+      std::unique_lock<std::shared_timed_mutex> lock(mutex_);
+      removeFromStorage(first_transaction_hash, *creators, *batch_size);
     }
   }
 

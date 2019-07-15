@@ -36,6 +36,12 @@ class PendingTxsStorageFixture : public ::testing::Test {
     return rxcpp::observable<>::empty<std::shared_ptr<Batch>>();
   }
 
+  auto dummyPreparedTxsObservable() {
+    return rxcpp::observable<>::empty<
+        std::pair<shared_model::interface::types::AccountIdType,
+                  shared_model::interface::types::HashType>>();
+  }
+
   auto updatesObservable(std::vector<std::shared_ptr<iroha::MstState>> states) {
     return rxcpp::observable<>::iterate(states);
   }
@@ -89,8 +95,10 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
 
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updatesObservable({state}), dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, boost::none);
@@ -128,8 +136,10 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
 
   const auto kPageSize = transactions->transactions().size();
 
-  iroha::PendingTransactionStorageImpl storage(
-      updatesObservable({state}), dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, boost::none);
@@ -169,8 +179,10 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
   const auto kPageSize = 1;
   ASSERT_NE(kPageSize, transactions->transactions().size());
 
-  iroha::PendingTransactionStorageImpl storage(
-      updatesObservable({state}), dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, boost::none);
@@ -210,8 +222,10 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
       batch1->transactions().size() + batch2->transactions().size() - 1;
   auto updates = updatesObservable({state1, state2});
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, boost::none);
@@ -254,8 +268,10 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
   const auto kPageSize = batch2->transactions().size();
   auto updates = updatesObservable({state1, state2});
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending = storage.getPendingTransactions(
         creator, kPageSize, batch2->transactions().front()->hash());
@@ -292,8 +308,10 @@ TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
   const auto kThirdAccount = "clark@iroha";
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updatesObservable({state}), dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
 
   auto response =
       storage.getPendingTransactions(kThirdAccount, kPageSize, boost::none);
@@ -329,8 +347,10 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
   auto updates = updatesObservable({state1, state2});
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   auto pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
   pending.match(
@@ -370,8 +390,10 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
   auto updates = updatesObservable({state});
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   auto alice_pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
   alice_pending.match(
@@ -417,8 +439,10 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
   auto updates = updatesObservable({state1, state2});
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
 
   auto alice_pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
@@ -463,7 +487,10 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
   auto updates = updatesObservable({state});
 
   iroha::PendingTransactionStorageImpl storage(
-      updates, prepared_batches_subject.get_observable(), dummyObservable());
+      updates,
+      prepared_batches_subject.get_observable(),
+      dummyObservable(),
+      dummyPreparedTxsObservable());
 
   batch = addSignatures(batch,
                         0,
@@ -503,7 +530,10 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
   auto updates = updatesObservable({state});
 
   iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), expired_batches_subject.get_observable());
+      updates,
+      dummyObservable(),
+      expired_batches_subject.get_observable(),
+      dummyPreparedTxsObservable());
 
   expired_batches_subject.get_subscriber().on_next(batch);
   expired_batches_subject.get_subscriber().on_completed();
@@ -533,8 +563,10 @@ TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
   const auto kThirdAccount = "clark@iroha";
   const auto kPageSize = 100u;
 
-  iroha::PendingTransactionStorageImpl storage(
-      updatesObservable({state}), dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
 
   auto response = storage.getPendingTransactions(
       kThirdAccount, kPageSize, transactions->transactions().front()->hash());
@@ -573,8 +605,10 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
 
   auto updates = updatesObservable({state1, state2});
 
-  iroha::PendingTransactionStorageImpl storage(
-      updates, dummyObservable(), dummyObservable());
+  iroha::PendingTransactionStorageImpl storage(updates,
+                                               dummyObservable(),
+                                               dummyObservable(),
+                                               dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto first_page =
         storage.getPendingTransactions(creator, batchSize(batch1), boost::none);
