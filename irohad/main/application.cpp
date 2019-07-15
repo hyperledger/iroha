@@ -669,10 +669,27 @@ Irohad::RunResult Irohad::initMstProcessor() {
 }
 
 Irohad::RunResult Irohad::initPendingTxsStorage() {
+  using PreparedTransactionType =
+      std::pair<shared_model::interface::types::AccountIdType,
+                shared_model::interface::types::HashType>;
   pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>(
       mst_processor->onStateUpdate(),
       mst_processor->onPreparedBatches(),
-      mst_processor->onExpiredBatches());
+      mst_processor->onExpiredBatches(),
+      pcs->onProposal().flat_map(
+          [](const OrderingEvent &event)
+              -> rxcpp::observable<PreparedTransactionType> {
+            if (not event.proposal) {
+              return rxcpp::observable<>::empty<PreparedTransactionType>();
+            }
+            auto prepared_transactions =
+                event.proposal.get()->transactions()
+                | boost::adaptors::transformed(
+                      [](const auto &tx) -> PreparedTransactionType {
+                        return std::make_pair(tx.creatorAccountId(), tx.hash());
+                      });
+            return rxcpp::observable<>::iterate(prepared_transactions);
+          }));
   log_->info("[Init] => pending transactions storage");
   return {};
 }
