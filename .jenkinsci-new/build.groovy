@@ -39,7 +39,9 @@ def sonarScanner(scmVars, environment) {
     withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN'), string(credentialsId: 'SORABOT_TOKEN', variable: 'SORABOT_TOKEN')]) {
       sonar_option = ""
       if (scmVars.CHANGE_ID != null)
-        sonar_option = "-Dsonar.github.pullRequest=${scmVars.CHANGE_ID}"
+        print "debug env"
+        print env
+        sonar_option = "-Dsonar.github.pullRequest=${env.CHANGE_ID}"
       else
         print "************** Warning No 'CHANGE_ID' Present run sonar without org.sonar.plugins.github.PullRequest *****************"
       // do analysis by sorabot

@@ -236,6 +236,7 @@ node ('master') {
         codestyle = true
         useBTF = true
         sanitize = true
+        specialBranch=false
         packagePush=false
         doxygen=false
         break;
