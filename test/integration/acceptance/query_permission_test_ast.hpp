@@ -48,7 +48,7 @@ class QueryPermissionAssets final : public QueryPermissionTestBase {
   getGeneralResponseChecker() override;
 
   std::vector<std::pair<shared_model::interface::types::AssetIdType,
-                       shared_model::interface::Amount>>
+                        shared_model::interface::Amount>>
       account_assets_;
 };
 

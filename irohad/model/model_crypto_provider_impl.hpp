@@ -18,44 +18,44 @@ namespace iroha {
     class ModelCryptoProviderImpl : public ModelCryptoProvider {
      public:
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       explicit ModelCryptoProviderImpl(const keypair_t &keypair);
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       bool verify(const Transaction &tx) const override;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       bool verify(const Query &query) const override;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       bool verify(const Block &block) const override;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       void sign(Block &block) const override;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       void sign(Transaction &transaction) const override;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli.
        */
       void sign(Query &query) const override;
 

@@ -6,8 +6,8 @@
 #ifndef IROHA_COMMON_HPP
 #define IROHA_COMMON_HPP
 
-#include <memory>
 #include <boost/optional.hpp>
+#include <memory>
 
 namespace iroha {
   namespace model {

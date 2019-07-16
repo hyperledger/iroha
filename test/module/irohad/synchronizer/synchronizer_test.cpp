@@ -93,20 +93,20 @@ class SynchronizerTest : public ::testing::Test {
             std::make_shared<LedgerState>(ledger_peers,
                                           commit_message->height(),
                                           commit_message->hash())))));
-  EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
-      .WillRepeatedly(Return(false));
-  EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
+    EXPECT_CALL(*mutable_factory, preparedCommitEnabled())
+        .WillRepeatedly(Return(false));
+    EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
-  synchronizer =
-      std::make_shared<SynchronizerImpl>(consensus_gate,
-                                         chain_validator,
-                                         mutable_factory,
-                                         block_query_factory,
-                                         block_loader,
-                                         getTestLogger("Synchronizer"));
+    synchronizer =
+        std::make_shared<SynchronizerImpl>(consensus_gate,
+                                           chain_validator,
+                                           mutable_factory,
+                                           block_query_factory,
+                                           block_loader,
+                                           getTestLogger("Synchronizer"));
 
-  ledger_state = std::make_shared<LedgerState>(
-      ledger_peers, commit_message->height() - 1, commit_message->prevHash());
+    ledger_state = std::make_shared<LedgerState>(
+        ledger_peers, commit_message->height() - 1, commit_message->prevHash());
   }
 
   std::shared_ptr<shared_model::interface::Block> makeCommit(

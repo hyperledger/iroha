@@ -38,7 +38,8 @@ static auto &getQueryStatelesslyInvalidChecker =
  * @return a functor that checks that a block contains exactly the specified
  * amount of transactions
  */
-std::function<void(const BlockType &)> getBlockTransactionsAmountChecker(int amount);
+std::function<void(const BlockType &)> getBlockTransactionsAmountChecker(
+    int amount);
 
 class QueryPermissionTestBase {
  public:

@@ -42,4 +42,4 @@ namespace common_constants {
       DefaultCryptoAlgorithmType::generateKeypair();
   const Keypair kAnotherDomainUserKeypair =
       DefaultCryptoAlgorithmType::generateKeypair();
-}
+}  // namespace common_constants

@@ -137,11 +137,12 @@ namespace shared_model {
 
     /*                   Grantable permissions                   */
     const std::string can_grant = "can_grant_";
-    const std::set<std::string> grant_group = {can_grant + can_set_my_quorum,
-                                               can_grant + can_add_my_signatory,
-                                               can_grant + can_remove_my_signatory,
-                                               can_grant + can_transfer_my_assets,
-                                               can_grant + can_set_my_account_detail};
+    const std::set<std::string> grant_group = {
+        can_grant + can_set_my_quorum,
+        can_grant + can_add_my_signatory,
+        can_grant + can_remove_my_signatory,
+        can_grant + can_transfer_my_assets,
+        can_grant + can_set_my_account_detail};
 
     const std::set<std::string> edit_self_group = {
         can_set_quorum, can_add_signatory, can_remove_signatory};
@@ -237,7 +238,8 @@ namespace shared_model {
         can_grant + can_remove_my_signatory,
         can_grant + can_transfer_my_assets,
         can_grant + can_set_my_account_detail,
-        // TODO: IR 1190 kamilsa 30.03.2018 move permissions below to separated group
+        // TODO: IR 1190 kamilsa 30.03.2018 move permissions below to separated
+        // group
         can_add_my_signatory,
         can_remove_my_signatory,
         can_set_my_quorum,
@@ -245,7 +247,7 @@ namespace shared_model {
         can_transfer_my_assets,
         can_get_blocks};
 
-  }  // namespace shared_model
-}  // namespace permissions
+  }  // namespace permissions
+}  // namespace shared_model
 
 #endif  // SHARED_MODEL_PERMISSIONS_HPP

@@ -29,9 +29,7 @@ namespace iroha {
         if (not blob) {
           return res;
         }
-        std::copy(blob->begin(),
-                  blob->end(),
-                  res.pubkey.begin());
+        std::copy(blob->begin(), blob->end(), res.pubkey.begin());
         return res;
       }
 

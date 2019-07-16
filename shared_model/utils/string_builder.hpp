@@ -71,8 +71,9 @@ namespace shared_model {
        * @param t - transformation function
        */
       template <typename Collection, typename Transform>
-      PrettyStringBuilder &appendAll(
-          const std::string &name, Collection &&c, Transform &&t) {
+      PrettyStringBuilder &appendAll(const std::string &name,
+                                     Collection &&c,
+                                     Transform &&t) {
         result_.append(name);
         result_.append(keyValueSeparator);
         appendAll(c, t);

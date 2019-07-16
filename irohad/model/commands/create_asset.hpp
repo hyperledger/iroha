@@ -6,8 +6,8 @@
 #ifndef IROHA_CREATE_ASSET_HPP
 #define IROHA_CREATE_ASSET_HPP
 
-#include "model/command.hpp"
 #include <string>
+#include "model/command.hpp"
 
 namespace iroha {
   namespace model {

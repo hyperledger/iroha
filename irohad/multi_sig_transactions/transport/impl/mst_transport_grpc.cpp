@@ -63,7 +63,7 @@ MstTransportGrpc::deserializeTransactions(const transport::MstState *request) {
       shared_model::interface::types::SharedTxsCollectionType>(
       request->transactions()
       | boost::adaptors::transformed(
-          [&](const auto &tx) { return transaction_factory_->build(tx); })
+            [&](const auto &tx) { return transaction_factory_->build(tx); })
       | boost::adaptors::filtered([&](const auto &result) {
           return result.match(
               [](const auto &) { return true; },

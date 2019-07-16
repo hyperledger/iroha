@@ -7,8 +7,8 @@
 #define IROHA_INTEGRATION_FRAMEWORK_PORT_GUARD_HPP
 
 #include <bitset>
-#include <mutex>
 #include <cstdint>
+#include <mutex>
 
 #include <boost/noncopyable.hpp>
 #include <boost/optional/optional.hpp>
@@ -51,6 +51,6 @@ namespace integration_framework {
     UsedPorts instance_used_ports_;
   };
 
-}
+}  // namespace integration_framework
 
 #endif /* IROHA_INTEGRATION_FRAMEWORK_PORT_GUARD_HPP */

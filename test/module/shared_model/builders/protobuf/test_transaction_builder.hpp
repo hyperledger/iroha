@@ -44,7 +44,7 @@ inline auto makePolyTxFromBuilder(Builder &&builder) {
 }
 
 template <typename Builder>
-inline auto completeUnsignedTxBuilder(Builder &&builder){
+inline auto completeUnsignedTxBuilder(Builder &&builder) {
   return std::make_shared<ProtoTxType>(
       builder.build()
           .signAndAddSignature(
