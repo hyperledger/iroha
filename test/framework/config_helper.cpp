@@ -8,9 +8,24 @@
 #include <ciso646>
 #include <sstream>
 
-namespace integration_framework {
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
-  std::string getPostgresCredsOrDefault(const std::string &default_conn) {
+namespace integration_framework {
+  const std::string kDefaultPostgresCreds =
+      "host=localhost "
+      "port=5432 "
+      "user=postgres "
+      "password=mysecretpassword";
+
+  const std::string kDefaultWorkingDatabaseName{"iroha_default"};
+
+  std::string getPostgresCredsOrDefault() {
+    return getPostgresCredsFromEnv().value_or(kDefaultPostgresCreds);
+  }
+
+  boost::optional<std::string> getPostgresCredsFromEnv() {
     auto pg_host = std::getenv("IROHA_POSTGRES_HOST");
     auto pg_port = std::getenv("IROHA_POSTGRES_PORT");
     auto pg_user = std::getenv("IROHA_POSTGRES_USER");
@@ -22,6 +37,11 @@ namespace integration_framework {
          << " password=" << pg_pass;
       return ss.str();
     }
-    return default_conn;
+    return {};
+  }
+
+  std::string getRandomDbName() {
+    return std::string{"test_db_"}  // must begin with a letter or underscore
+    + boost::uuids::to_string(boost::uuids::random_generator()()).substr(0, 8);
   }
 }  // namespace integration_framework

@@ -94,16 +94,16 @@ class StorageInitTest : public ::testing::Test {
  * @then Database is created
  */
 TEST_F(StorageInitTest, CreateStorageWithDatabase) {
-  PostgresOptions options(pgopt_,
-                          PgConnectionInit::kDefaultDatabaseName,
-                          storage_log_manager_->getLogger());
+  auto options = std::make_unique<PostgresOptions>(
+      pgopt_,
+      integration_framework::kDefaultWorkingDatabaseName,
+      storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
-      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  PgConnectionInit::createDatabaseIfNotExist(*options).match(
+      [](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
-      options,
+      *options,
       pool_size_,
       getTestLoggerManager()->getChild("Storage"));
 
@@ -116,7 +116,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
-                      options,
+                      std::move(options),
                       std::move(pool_wrapper),
                       factory,
                       converter,
@@ -146,19 +146,18 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
  */
 TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   std::string pg_opt =
-      "host=localhost port=5432 users=nonexistinguser dbname=test";
+      "host=localhost port=5432 user=nonexistinguser password=wrong dbname=test";
 
   PostgresOptions options(pg_opt,
-                          PgConnectionInit::kDefaultDatabaseName,
+                          integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
-      .match([](auto &&val) {},
-             [&](auto &&error) {
-               storage_log_manager_->getLogger()->error(
-                   "Database creation error: {}", error.error);
-             });
+  PgConnectionInit::createDatabaseIfNotExist(options).match(
+      [](auto &&val) {},
+      [&](auto &&error) {
+        storage_log_manager_->getLogger()->error("Database creation error: {}",
+                                                 error.error);
+      });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,

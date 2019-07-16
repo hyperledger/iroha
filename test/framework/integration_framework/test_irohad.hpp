@@ -17,7 +17,7 @@ namespace integration_framework {
   class TestIrohad : public Irohad {
    public:
     TestIrohad(const std::string &block_store_dir,
-               const std::string &pg_conn,
+               std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,
@@ -35,7 +35,7 @@ namespace integration_framework {
                const boost::optional<iroha::GossipPropagationStrategyParams>
                    &opt_mst_gossip_params = boost::none)
         : Irohad(block_store_dir,
-                 pg_conn,
+                 std::move(pg_opt),
                  listen_ip,
                  torii_port,
                  internal_port,

@@ -17,6 +17,13 @@ namespace config_members {
   extern const char *InternalPort;
   extern const char *KeyPairPath;
   extern const char *PgOpt;
+  extern const char *DbConfig;
+  extern const char *Host;
+  extern const char *Port;
+  extern const char *User;
+  extern const char *Password;
+  extern const char *WorkingDbName;
+  extern const char *MaintenanceDbName;
   extern const char *MaxProposalSize;
   extern const char *ProposalDelay;
   extern const char *VoteDelay;
