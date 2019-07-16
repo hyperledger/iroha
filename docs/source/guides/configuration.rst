@@ -14,6 +14,8 @@ at ``example/config.sample``
     "torii_port": 50051,
     "internal_port": 10001,
     "pg_opt": "host=localhost port=5432 user=postgres password=mysecretpassword dbname=iroha",
+    "working database": "iroha_working",
+    "maintenance database": "iroha",
     "max_proposal_size": 10,
     "proposal_delay": 5000,
     "vote_delay": 5000,
@@ -38,6 +40,11 @@ Deployment-specific parameters
   username, password and database name.
   All data except the database name are mandatory.
   If database name is not provided, a default one gets used.
+- ``working database`` is the name of working database - the one that will be used to store the world state view and optionally blocks.
+    .. warning:: Deprecated behaviour: is overrided by ``dbname`` parameter in ``pg_opt`` value.
+    .. warning:: Deprecated: optional.
+- ``maintenance database`` is the name of databse that will not be used to store any data, but only to maintain the working database.
+   .. warning:: Deprecated: optional.
 - ``log`` is an optional parameter controlling log output verbosity and format
   (see below).
 

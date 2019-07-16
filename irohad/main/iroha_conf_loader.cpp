@@ -348,6 +348,23 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::DbConfig>(
+    const std::string &path,
+    IrohadConfig::DbConfig &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(),
+               path + " database config top element must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.host, obj, config_members::Host);
+  getValByKey(path, dest.port, obj, config_members::Port);
+  getValByKey(path, dest.user, obj, config_members::User);
+  getValByKey(path, dest.password, obj, config_members::Password);
+  getValByKey(path, dest.working_dbname, obj, config_members::WorkingDbName);
+  getValByKey(
+      path, dest.maintenance_dbname, obj, config_members::MaintenanceDbName);
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -357,6 +374,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
+  getValByKey(path, dest.database_config, obj, config_members::DbConfig);
   getValByKey(
       path, dest.max_proposal_size, obj, config_members::MaxProposalSize);
   getValByKey(path, dest.proposal_delay, obj, config_members::ProposalDelay);

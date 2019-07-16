@@ -14,10 +14,21 @@
 #include "logger/logger_manager.hpp"
 
 struct IrohadConfig {
+  struct DbConfig {
+    std::string host;
+    uint16_t port;
+    std::string user;
+    std::string password;
+    std::string working_dbname;
+    std::string maintenance_dbname;
+  };
+
   std::string block_store_path;
   uint16_t torii_port;
   uint16_t internal_port;
-  std::string pg_opt;
+  std::string pg_opt; // TODO 2019.06.26 mboldyrev IR-556 remove
+  boost::optional<DbConfig>
+      database_config;  // TODO 2019.06.26 mboldyrev IR-556 make required
   uint32_t max_proposal_size;
   uint32_t proposal_delay;
   uint32_t vote_delay;

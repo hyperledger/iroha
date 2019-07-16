@@ -78,7 +78,7 @@ static constexpr iroha::consensus::yac::ConsistencyModel
  * Configuring iroha daemon
  */
 Irohad::Irohad(const std::string &block_store_dir,
-               const std::string &pg_conn,
+               std::shared_ptr<ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,
@@ -95,7 +95,7 @@ Irohad::Irohad(const std::string &block_store_dir,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
-      pg_conn_(pg_conn),
+      pg_opt_(std::move(pg_opt)),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
       internal_port_(internal_port),
@@ -199,15 +199,9 @@ Irohad::RunResult Irohad::initStorage() {
 
   boost::optional<std::string> string_res = boost::none;
 
-  PostgresOptions options(
-      pg_conn_,
-      PgConnectionInit::kDefaultWorkingDatabaseName,
-      PgConnectionInit::kDefaultMaintenanceDatabaseName,
-      log_manager_->getChild("DbOptionsParser")->getLogger());
-
   // create database if it does not exist
   PgConnectionInit::createDatabaseIfNotExist(
-      options.workingDbName(), options.maintenanceConnectionString())
+      pg_opt_->workingDbName(), pg_opt_->maintenanceConnectionString())
       .match([](auto &&val) {},
              [&string_res](auto &&error) { string_res = error.error; });
 
@@ -218,7 +212,7 @@ Irohad::RunResult Irohad::initStorage() {
   const int pool_size = 10;
   auto pool = PgConnectionInit::prepareConnectionPool(
       iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      options,
+      *pg_opt_,
       pool_size,
       log_manager_);
 
@@ -230,7 +224,7 @@ Irohad::RunResult Irohad::initStorage() {
       std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
   return StorageImpl::create(block_store_dir_,
-                             options,
+                             pg_opt_,
                              std::move(pool_wrapper),
                              common_objects_factory_,
                              std::move(block_converter),

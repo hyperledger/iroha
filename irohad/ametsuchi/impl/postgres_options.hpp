@@ -19,19 +19,34 @@ namespace iroha {
     class PostgresOptions {
      public:
       /**
-       * @param pg_creds The connection credentials string.
-       * @param working_dbname The name of working database. Gets overriden by
-       * pg_creds (this override is deprecated).
+       * @param pg_opt The connection options string.
+       * @param default_dbname The default name of database to use when one is
+       * not provided in pg_opt.
+       * @param log Logger for internal messages.
+       *
+       * TODO 2019.06.07 mboldyrev IR-556 remove this constructor
+       */
+      PostgresOptions(const std::string &pg_opt,
+                      std::string default_dbname,
+                      logger::LoggerPtr log);
+
+      /**
+       * @param host PostgreSQL host.
+       * @param port PostgreSQL port.
+       * @param user PostgreSQL username.
+       * @param password PostgreSQL password.
+       * @param working_dbname The name of working database.
        * @param maintenance_dbname The name of database for maintenance
        * purposes. It will not be altered in any way and is used to manage
        * working database.
        * @param log Logger for internal messages.
-       *
-       * TODO 2019.06.07 mboldyrev IR-556 remove the override info above.
        */
-      PostgresOptions(const std::string &pg_creds,
-                      std::string working_dbname,
-                      std::string maintenance_dbname,
+      PostgresOptions(const std::string &host,
+                      uint16_t port,
+                      const std::string &user,
+                      const std::string &password,
+                      const std::string &working_dbname,
+                      const std::string &maintenance_dbname,
                       logger::LoggerPtr log);
 
       /// @return connection string without dbname param
@@ -53,10 +68,11 @@ namespace iroha {
       std::string getConnectionStringWithDbName(
           const std::string &dbname) const;
 
-      // TODO 2019.06.26 mboldyrev IR-556 make pg_creds_ and working_dbname_
-      // const
-      std::string pg_creds_;
-      std::string working_dbname_;
+      const std::string host_;
+      const uint16_t port_;
+      const std::string user_;
+      const std::string password_;
+      const std::string working_dbname_;
       const std::string maintenance_dbname_;
     };
 

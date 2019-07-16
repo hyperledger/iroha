@@ -45,7 +45,7 @@ namespace iroha {
 
     StorageImpl::StorageImpl(
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        PostgresOptions postgres_options,
+        std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
@@ -221,13 +221,13 @@ namespace iroha {
       }
 
       std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      log_->info("Drop database {}", postgres_options_.workingDbName());
+      log_->info("Drop database {}", postgres_options_->workingDbName());
       freeConnections();
       soci::session sql(*soci::factory_postgresql(),
-                        postgres_options_.maintenanceConnectionString());
+                        postgres_options_->maintenanceConnectionString());
       // perform dropping
       try {
-        sql << "DROP DATABASE " + postgres_options_.workingDbName();
+        sql << "DROP DATABASE " + postgres_options_->workingDbName();
       } catch (std::exception &e) {
         log_->warn("Drop database was failed. Reason: {}", e.what());
       }
@@ -276,7 +276,7 @@ namespace iroha {
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
         std::string block_store_dir,
-        const PostgresOptions &options,
+        std::shared_ptr<ametsuchi::PostgresOptions> postgres_options,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
@@ -345,7 +345,7 @@ namespace iroha {
 
             return expected::makeValue(std::shared_ptr<StorageImpl>(
                 new StorageImpl(std::move(opt_ledger_state),
-                                options,
+                                std::move(postgres_options),
                                 std::move(ctx.block_store),
                                 std::move(pool_wrapper),
                                 factory,
