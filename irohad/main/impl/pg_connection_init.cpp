@@ -45,7 +45,7 @@ PgConnectionInit::prepareConnectionPool(
     const PostgresOptions &options,
     const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
-  auto options_str = options.optionsString();
+  auto options_str = options.workingConnectionString();
 
   auto conn = initPostgresConnection(options_str, pool_size);
   if (auto e = boost::get<expected::Error<std::string>>(&conn)) {
@@ -59,7 +59,7 @@ PgConnectionInit::prepareConnectionPool(
   soci::session sql(*connection);
   bool enable_prepared_transactions = preparedTransactionsAvailable(sql);
   try {
-    std::string prepared_block_name = "prepared_block" + options.dbname();
+    std::string prepared_block_name = "prepared_block";
 
     auto try_rollback = [&](soci::session &session) {
       if (enable_prepared_transactions) {
@@ -81,7 +81,7 @@ PgConnectionInit::prepareConnectionPool(
                              try_rollback,
                              *failover_callback_factory,
                              reconnection_strategy_factory,
-                             options.optionsStringWithoutDbName(),
+                             options.maintenanceConnectionString(),
                              log_manager);
 
     return expected::makeValue<PoolWrapper>(
@@ -203,7 +203,10 @@ void PgConnectionInit::initializeConnectionPool(
   }
 }
 
-const std::string PgConnectionInit::kDefaultDatabaseName{"iroha_default"};
+const std::string PgConnectionInit::kDefaultMaintenanceDatabaseName{"iroha"};
+
+const std::string PgConnectionInit::kDefaultWorkingDatabaseName{
+    "iroha_default"};
 
 const std::string PgConnectionInit::init_ = R"(
 CREATE TABLE IF NOT EXISTS role (

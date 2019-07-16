@@ -11,54 +11,67 @@
 #include <boost/algorithm/string.hpp>
 #include "logger/logger.hpp"
 
-namespace iroha {
-  namespace ametsuchi {
+using namespace iroha::ametsuchi;
 
-    // regex to fetch dbname from pg_opt string
-    const static std::regex e("\\bdbname=([^ ]*)");
+namespace {
+  void removeConsequtiveSimilarSpaces(std::string &s) {
+    auto end = std::unique(s.begin(), s.end(), [](char l, char r) {
+      return std::isspace(l) && std::isspace(r) && l == r;
+    });
+    s.erase(end, s.end());
+  }
+}  // namespace
 
-    PostgresOptions::PostgresOptions(const std::string &pg_opt,
-                                     std::string default_dbname,
-                                     logger::LoggerPtr log)
-        : pg_opt_(pg_opt) {
-      std::smatch m;
+PostgresOptions::PostgresOptions(const std::string &pg_creds,
+                                 std::string working_dbname,
+                                 std::string maintenance_dbname,
+                                 logger::LoggerPtr log)
+    : pg_creds_(pg_creds),
+      working_dbname_(working_dbname),
+      maintenance_dbname_(maintenance_dbname) {
+  // regex to extract dbname from pg_creds string
+  const static std::regex e("\\bdbname=([^ ]+)");
+  std::smatch m;
+  if (std::regex_search(pg_creds, m, e)) {
+    // TODO 2019.06.26 mboldyrev IR-556 remove assignment and add warning to
+    // the log.
+    working_dbname_ = m[1];
 
-      if (std::regex_search(pg_opt_, m, e)) {
-        dbname_ = *(m.end() - 1);
+    // TODO 2019.06.26 mboldyrev IR-556 remove assignment
+    pg_creds_ = m.prefix().str() + m.suffix().str();
+  } else {
+    // TODO 2019.06.26 mboldyrev IR-556 remove this entire `else' block
+    log->warn(
+        "Database name not provided. Using default one: \"{}\". This "
+        "behaviour is deprecated!",
+        working_dbname);
+    working_dbname_ = std::move(working_dbname);
+  }
 
-        // get pg_opt_without_db_name_
-        pg_opt_without_db_name_ = m.prefix().str() + m.suffix().str();
+  removeConsequtiveSimilarSpaces(pg_creds_);
+}
 
-        // remove consecutive spaces
-        auto end =
-            std::unique(pg_opt_without_db_name_.begin(),
-                        pg_opt_without_db_name_.end(),
-                        [](char l, char r) {
-                          return std::isspace(l) && std::isspace(r) && l == r;
-                        });
-        pg_opt_without_db_name_ =
-            std::string(pg_opt_without_db_name_.begin(), end);
-      } else {
-        log->warn(
-            "Database name not provided. Using default one: \"{}\". This "
-            "behaviour is deprecated!",
-            default_dbname);
-        dbname_ = std::move(default_dbname);
-        pg_opt_without_db_name_ = pg_opt_;
-      }
-    }
+std::string PostgresOptions::connectionStringWithoutDbName() const {
+  return pg_creds_;
+}
 
-    std::string PostgresOptions::optionsString() const {
-      return pg_opt_;
-    }
+std::string PostgresOptions::workingConnectionString() const {
+  return getConnectionStringWithDbName(working_dbname_);
+}
 
-    std::string PostgresOptions::optionsStringWithoutDbName() const {
-      return pg_opt_without_db_name_;
-    }
+std::string PostgresOptions::maintenanceConnectionString() const {
+  return getConnectionStringWithDbName(maintenance_dbname_);
+}
 
-    const std::string &PostgresOptions::dbname() const {
-      return dbname_;
-    }
+std::string PostgresOptions::getConnectionStringWithDbName(
+    const std::string &dbname) const {
+  return pg_creds_ + " dbname=" + dbname;
+}
 
-  }  // namespace ametsuchi
-}  // namespace iroha
+std::string PostgresOptions::workingDbName() const {
+  return working_dbname_;
+}
+
+std::string PostgresOptions::maintenanceDbName() const {
+  return maintenance_dbname_;
+}

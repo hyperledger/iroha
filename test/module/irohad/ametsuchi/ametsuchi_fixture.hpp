@@ -54,10 +54,13 @@ namespace iroha {
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
 
         PostgresOptions options(
-            pgopt_, PgConnectionInit::kDefaultDatabaseName, storage_logger_);
+            pgopt_,
+            PgConnectionInit::kDefaultWorkingDatabaseName,
+            PgConnectionInit::kDefaultMaintenanceDatabaseName,
+            storage_logger_);
 
         PgConnectionInit::createDatabaseIfNotExist(
-            options.dbname(), options.optionsStringWithoutDbName())
+            options.workingDbName(), options.maintenanceConnectionString())
             .match([](auto &&val) {},
                    [&](auto &&error) {
                      storage_logger_->error("Database creation error: {}",

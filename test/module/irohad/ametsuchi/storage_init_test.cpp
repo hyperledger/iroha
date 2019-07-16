@@ -95,11 +95,12 @@ class StorageInitTest : public ::testing::Test {
  */
 TEST_F(StorageInitTest, CreateStorageWithDatabase) {
   PostgresOptions options(pgopt_,
-                          PgConnectionInit::kDefaultDatabaseName,
+                          PgConnectionInit::kDefaultWorkingDatabaseName,
+                          PgConnectionInit::kDefaultMaintenanceDatabaseName,
                           storage_log_manager_->getLogger());
 
   PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
+      options.workingDbName(), options.maintenanceConnectionString())
       .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
@@ -149,11 +150,12 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
       "host=localhost port=5432 users=nonexistinguser dbname=test";
 
   PostgresOptions options(pg_opt,
-                          PgConnectionInit::kDefaultDatabaseName,
+                          PgConnectionInit::kDefaultWorkingDatabaseName,
+                          PgConnectionInit::kDefaultMaintenanceDatabaseName,
                           storage_log_manager_->getLogger());
 
   PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
+      options.workingDbName(), options.maintenanceConnectionString())
       .match([](auto &&val) {},
              [&](auto &&error) {
                storage_log_manager_->getLogger()->error(
