@@ -31,12 +31,10 @@ namespace integration_framework {
                                logger::LoggerPtr log,
                                const boost::optional<std::string> &dbname)
       : block_store_dir_(block_store_path),
-        pg_conn_(iroha::ametsuchi::PostgresOptions{
+        pg_opt_(std::make_shared<iroha::ametsuchi::PostgresOptions>(
             getPostgresCredsOrDefault(),
             dbname.value_or(getRandomDbName()),
-            iroha::ametsuchi::PgConnectionInit::kDefaultMaintenanceDatabaseName,
-            log}
-                     .workingConnectionString()),
+            log)),
         listen_ip_(listen_ip),
         torii_port_(torii_port),
         internal_port_(internal_port),
@@ -96,7 +94,7 @@ namespace integration_framework {
   void IrohaInstance::initPipeline(
       const shared_model::crypto::Keypair &key_pair, size_t max_proposal_size) {
     instance_ = std::make_shared<TestIrohad>(block_store_dir_,
-                                             pg_conn_,
+                                             pg_opt_,
                                              listen_ip_,
                                              torii_port_,
                                              internal_port_,

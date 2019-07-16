@@ -19,6 +19,8 @@ namespace integration_framework {
       "user=postgres "
       "password=mysecretpassword";
 
+  const std::string kDefaultWorkingDatabaseName{"iroha_default"};
+
   std::string getPostgresCredsOrDefault() {
     return getPostgresCredsFromEnv().value_or(kDefaultPostgresCreds);
   }

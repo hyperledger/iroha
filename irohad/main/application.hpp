@@ -26,6 +26,7 @@ namespace iroha {
     class TxPresenceCache;
     class Storage;
     class ReconnectionStrategyFactory;
+    class PostgresOptions;
   }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
@@ -78,7 +79,7 @@ class Irohad {
   /**
    * Constructor that initializes common iroha pipeline
    * @param block_store_dir - folder where blocks will be stored
-   * @param pg_conn - initialization string for postgre
+   * @param pg_opt - connection options for PostgresSQL
    * @param listen_ip - ip address for opening ports (internal & torii)
    * @param torii_port - port for torii binding
    * @param internal_port - port for internal communication - ordering service,
@@ -101,7 +102,7 @@ class Irohad {
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
   Irohad(const std::string &block_store_dir,
-         const std::string &pg_conn,
+         std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
          size_t torii_port,
          size_t internal_port,
@@ -197,7 +198,7 @@ class Irohad {
 
   // constructor dependencies
   std::string block_store_dir_;
-  std::string pg_conn_;
+  std::shared_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   const std::string listen_ip_;
   size_t torii_port_;
   size_t internal_port_;

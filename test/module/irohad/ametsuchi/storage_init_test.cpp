@@ -94,17 +94,17 @@ class StorageInitTest : public ::testing::Test {
  * @then Database is created
  */
 TEST_F(StorageInitTest, CreateStorageWithDatabase) {
-  PostgresOptions options(pgopt_,
-                          PgConnectionInit::kDefaultWorkingDatabaseName,
-                          PgConnectionInit::kDefaultMaintenanceDatabaseName,
-                          storage_log_manager_->getLogger());
+  auto options = std::make_unique<PostgresOptions>(
+      pgopt_,
+      integration_framework::kDefaultWorkingDatabaseName,
+      storage_log_manager_->getLogger());
 
   PgConnectionInit::createDatabaseIfNotExist(
-      options.workingDbName(), options.maintenanceConnectionString())
+      options->workingDbName(), options->maintenanceConnectionString())
       .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
-      options,
+      *options,
       pool_size_,
       getTestLoggerManager()->getChild("Storage"));
 
@@ -117,7 +117,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
-                      options,
+                      std::move(options),
                       std::move(pool_wrapper),
                       factory,
                       converter,
@@ -150,8 +150,7 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
       "host=localhost port=5432 users=nonexistinguser dbname=test";
 
   PostgresOptions options(pg_opt,
-                          PgConnectionInit::kDefaultWorkingDatabaseName,
-                          PgConnectionInit::kDefaultMaintenanceDatabaseName,
+                          integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
   PgConnectionInit::createDatabaseIfNotExist(

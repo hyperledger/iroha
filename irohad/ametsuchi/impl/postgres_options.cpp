@@ -6,60 +6,86 @@
 #include "ametsuchi/impl/postgres_options.hpp"
 
 #include <cctype>
+#include <limits>
 #include <regex>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
 
 namespace {
-  void removeConsequtiveSimilarSpaces(std::string &s) {
-    auto end = std::unique(s.begin(), s.end(), [](char l, char r) {
-      return std::isspace(l) && std::isspace(r) && l == r;
-    });
-    s.erase(end, s.end());
+  boost::optional<std::string> extractOptionalField(
+      const std::string &connection_string, const std::string &field_name) {
+    const std::regex field_regex(
+        (boost::format(R"(\b%1%=([^ ]+)\b)") % field_name).str());
+    std::smatch m;
+    if (not std::regex_search(connection_string, m, field_regex)) {
+      return boost::none;
+    }
+    return std::string{m[1]};
+  }
+
+  std::string extractField(const std::string &connection_string,
+                           const std::string &field_name) {
+    auto opt_value = extractOptionalField(connection_string, field_name);
+    if (not opt_value) {
+      throw(std::runtime_error(
+          (boost::format("missing %1% field in PostgresSQL connection string")
+           % field_name)
+              .str()));
+    }
+    return std::move(opt_value).value();
+  }
+
+  static uint16_t getPort(const std::string &s) {
+    auto number = std::stol(s);
+    if (number <= 0 or number > std::numeric_limits<uint16_t>::max()) {
+      throw(std::runtime_error(
+          (boost::format("port number %1% is out of range") % s).str()));
+    }
+    return static_cast<uint16_t>(number);
   }
 }  // namespace
 
-PostgresOptions::PostgresOptions(const std::string &pg_creds,
-                                 std::string working_dbname,
-                                 std::string maintenance_dbname,
+PostgresOptions::PostgresOptions(const std::string &pg_opt,
+                                 std::string default_dbname,
                                  logger::LoggerPtr log)
-    : pg_creds_(pg_creds),
+    : PostgresOptions(
+          extractField(pg_opt, "host"),
+          getPort(extractField(pg_opt, "port")),
+          extractField(pg_opt, "user"),
+          extractField(pg_opt, "password"),
+          extractOptionalField(pg_opt, "dbname").value_or(default_dbname),
+          extractField(pg_opt, "user"),
+          std::move(log)) {}
+
+PostgresOptions::PostgresOptions(const std::string &host,
+                                 uint16_t port,
+                                 const std::string &user,
+                                 const std::string &password,
+                                 const std::string &working_dbname,
+                                 const std::string &maintenance_dbname,
+                                 logger::LoggerPtr log)
+    : host_(host),
+      port_(port),
+      user_(user),
+      password_(password),
       working_dbname_(working_dbname),
       maintenance_dbname_(maintenance_dbname) {
-  // regex to extract dbname from pg_creds string
-  const static std::regex e("\\bdbname=([^ ]+)");
-  std::smatch m;
-  if (std::regex_search(pg_creds, m, e)) {
-    // TODO 2019.06.26 mboldyrev IR-556 remove assignment and add warning to
-    // the log.
-    working_dbname_ = m[1];
-
-    // TODO 2019.06.26 mboldyrev IR-556 remove assignment
-    pg_creds_ = m.prefix().str() + m.suffix().str();
-  } else {
-    // TODO 2019.06.26 mboldyrev IR-556 remove this entire `else' block
-    log->warn(
-        "Database name not provided. Using default one: \"{}\". This "
-        "behaviour is deprecated!",
-        working_dbname);
-    working_dbname_ = std::move(working_dbname);
-  }
-
   if (working_dbname_ == maintenance_dbname_) {
     log->warn(
         "Working database has the same name with maintenance database: '{}'. "
         "This may cause failures.",
         working_dbname_);
   }
-
-  removeConsequtiveSimilarSpaces(pg_creds_);
 }
 
 std::string PostgresOptions::connectionStringWithoutDbName() const {
-  return pg_creds_;
+  return (boost::format("host=%1% port=%2% user=%3% password=%4%") % host_
+          % port_ % user_ % password_)
+      .str();
 }
 
 std::string PostgresOptions::workingConnectionString() const {
@@ -72,7 +98,7 @@ std::string PostgresOptions::maintenanceConnectionString() const {
 
 std::string PostgresOptions::getConnectionStringWithDbName(
     const std::string &dbname) const {
-  return pg_creds_ + " dbname=" + dbname;
+  return connectionStringWithoutDbName() + " dbname=" + dbname;
 }
 
 std::string PostgresOptions::workingDbName() const {

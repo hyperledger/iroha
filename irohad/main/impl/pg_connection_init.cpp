@@ -203,11 +203,6 @@ void PgConnectionInit::initializeConnectionPool(
   }
 }
 
-const std::string PgConnectionInit::kDefaultMaintenanceDatabaseName{"iroha"};
-
-const std::string PgConnectionInit::kDefaultWorkingDatabaseName{
-    "iroha_default"};
-
 const std::string PgConnectionInit::init_ = R"(
 CREATE TABLE IF NOT EXISTS role (
     role_id character varying(32),
