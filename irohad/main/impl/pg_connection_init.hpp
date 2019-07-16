@@ -89,7 +89,8 @@ namespace iroha {
           logger::LoggerManagerTreePtr log_manager);
 
      public:
-      static const std::string kDefaultDatabaseName;
+      static const std::string kDefaultMaintenanceDatabaseName;
+      static const std::string kDefaultWorkingDatabaseName;
       static const std::string init_;
     };
   }  // namespace ametsuchi

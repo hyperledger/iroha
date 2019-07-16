@@ -74,9 +74,6 @@ namespace integration_framework {
     //      IR-1885              refactoring requested.
     std::shared_ptr<TestIrohad> &getIrohaInstance();
 
-    static std::string getPostgreCredsOrDefault(
-        const boost::optional<std::string> &dbname);
-
     // config area
     const std::string block_store_dir_;
     const std::string pg_conn_;

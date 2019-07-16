@@ -201,12 +201,13 @@ Irohad::RunResult Irohad::initStorage() {
 
   PostgresOptions options(
       pg_conn_,
-      PgConnectionInit::kDefaultDatabaseName,
+      PgConnectionInit::kDefaultWorkingDatabaseName,
+      PgConnectionInit::kDefaultMaintenanceDatabaseName,
       log_manager_->getChild("DbOptionsParser")->getLogger());
 
   // create database if it does not exist
   PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
+      options.workingDbName(), options.maintenanceConnectionString())
       .match([](auto &&val) {},
              [&string_res](auto &&error) { string_res = error.error; });
 

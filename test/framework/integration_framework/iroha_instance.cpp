@@ -8,11 +8,13 @@
 #include <cstdlib>
 #include <sstream>
 
+#include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/storage.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "logger/logger.hpp"
+#include "main/impl/pg_connection_init.hpp"
 
 using namespace std::chrono_literals;
 
@@ -29,7 +31,12 @@ namespace integration_framework {
                                logger::LoggerPtr log,
                                const boost::optional<std::string> &dbname)
       : block_store_dir_(block_store_path),
-        pg_conn_(getPostgreCredsOrDefault(dbname)),
+        pg_conn_(iroha::ametsuchi::PostgresOptions{
+            getPostgresCredsOrDefault(),
+            dbname.value_or(getRandomDbName()),
+            iroha::ametsuchi::PgConnectionInit::kDefaultMaintenanceDatabaseName,
+            log}
+                     .workingConnectionString()),
         listen_ip_(listen_ip),
         torii_port_(torii_port),
         internal_port_(internal_port),
@@ -116,20 +123,6 @@ namespace integration_framework {
 
   std::shared_ptr<TestIrohad> &IrohaInstance::getIrohaInstance() {
     return instance_;
-  }
-
-  std::string IrohaInstance::getPostgreCredsOrDefault(
-      const boost::optional<std::string> &dbname) {
-    std::string db = " dbname=";
-    if (dbname) {
-      db += dbname.value();
-    } else {
-      db += "db"
-          + boost::uuids::to_string(boost::uuids::random_generator()())
-                .substr(0, 8);
-    }
-
-    return integration_framework::getPostgresCredsOrDefault() + db;
   }
 
 }  // namespace integration_framework
