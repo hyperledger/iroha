@@ -101,13 +101,14 @@ namespace iroha {
 
     void SynchronizerImpl::processNext(const consensus::PairValid &msg) {
       log_->info("at handleNext");
-      const auto notify = [this, &msg](std::shared_ptr<const iroha::LedgerState>
-                                           &&ledger_state) {
-        this->notifier_.get_subscriber().on_next(
-            SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                 msg.round,
-                                 std::move(ledger_state)});
-      };
+      const auto notify =
+          [this,
+           &msg](std::shared_ptr<const iroha::LedgerState> &&ledger_state) {
+            this->notifier_.get_subscriber().on_next(
+                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                     msg.round,
+                                     std::move(ledger_state)});
+          };
       const bool committed_prepared = mutable_factory_->preparedCommitEnabled()
           and mutable_factory_->commitPrepared(msg.block).match(
                   [&notify](auto &&value) {
@@ -128,12 +129,12 @@ namespace iroha {
             std::move(opt_storage.value());
         if (storage->apply(msg.block)) {
           mutable_factory_->commit(std::move(storage))
-              .match([&notify](
-                         auto &&value) { notify(std::move(value.value)); },
-                     [this](const auto &error) {
-                       this->log_->error("Failed to commit mutable storage: {}",
-                                         error.error);
-                     });
+              .match(
+                  [&notify](auto &&value) { notify(std::move(value.value)); },
+                  [this](const auto &error) {
+                    this->log_->error("Failed to commit mutable storage: {}",
+                                      error.error);
+                  });
         } else {
           log_->warn("Block was not committed due to fail in mutable storage");
         }

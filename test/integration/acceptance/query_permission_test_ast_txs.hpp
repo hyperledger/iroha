@@ -14,7 +14,6 @@ using namespace shared_model::interface::permissions;
 
 class QueryPermissionAssetTxs final : public QueryPermissionTestBase {
  public:
-
   QueryPermissionAssetTxs();
 
   /**

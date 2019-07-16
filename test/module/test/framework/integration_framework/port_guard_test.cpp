@@ -6,8 +6,8 @@
 #include <thread>
 
 #include <gtest/gtest.h>
-#include <boost/thread/barrier.hpp>
 #include <boost/noncopyable.hpp>
+#include <boost/thread/barrier.hpp>
 #include "framework/integration_framework/port_guard.hpp"
 
 using PortGuard = integration_framework::PortGuard;
@@ -93,9 +93,9 @@ TEST(PortGuardTest, AllPortsGetUsedAndNoOverlaps) {
  * overlaps
  */
 TEST(PortGuardTest, AllPortsGetUsedAndNoOverlapsAfterRestart) {
-  constexpr size_t kNumClients = 10; // first-run clients
-  constexpr size_t kNumClientsKilled = 3; // then these die
-  constexpr size_t kNumClientsResurrected = 5; // then these are added
+  constexpr size_t kNumClients = 10;            // first-run clients
+  constexpr size_t kNumClientsKilled = 3;       // then these die
+  constexpr size_t kNumClientsResurrected = 5;  // then these are added
   constexpr PortRange kRange = {123, 456};
 
   std::vector<Client> clients;

@@ -23,4 +23,4 @@
 #include "subtract_asset_quantity.hpp"
 #include "transfer_asset.hpp"
 
-#endif //  IROHA_ALL_HPP_
+#endif  //  IROHA_ALL_HPP_

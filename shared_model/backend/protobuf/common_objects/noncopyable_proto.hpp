@@ -21,7 +21,7 @@ class NonCopyableProto : public Iface {
    * Construct object from transport. Transport can be moved or copied.
    */
   template <typename Transport>
-  NonCopyableProto(Transport &&ref) : proto_(std::forward<Transport>(ref)){}
+  NonCopyableProto(Transport &&ref) : proto_(std::forward<Transport>(ref)) {}
 
   NonCopyableProto(const NonCopyableProto &o) = delete;
   NonCopyableProto &operator=(const NonCopyableProto &o) = delete;

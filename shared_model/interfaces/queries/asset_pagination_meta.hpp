@@ -16,7 +16,6 @@ namespace shared_model {
     /// Provides query metadata for asset list pagination.
     class AssetPaginationMeta : public ModelPrimitive<AssetPaginationMeta> {
      public:
-
       /// Get the requested page size.
       virtual types::TransactionsNumberType pageSize() const = 0;
 

@@ -95,31 +95,31 @@ namespace iroha {
 
         consensus::Round current_round = latest_commit.round;
 
-        auto on_blocks = [this, current_hashes, &current_round](
-                             const auto &commit) {
-          current_round = ordering::nextCommitRound(current_round);
-          current_peers_ = commit.ledger_state->ledger_peers;
+        auto on_blocks =
+            [this, current_hashes, &current_round](const auto &commit) {
+              current_round = ordering::nextCommitRound(current_round);
+              current_peers_ = commit.ledger_state->ledger_peers;
 
-          // generate permutation of peers list from corresponding round
-          // hash
-          auto generate_permutation = [&](auto round) {
-            auto &hash = std::get<round()>(current_hashes);
-            log_->debug("Using hash: {}", hash.toString());
-            auto &permutation = permutations_[round()];
+              // generate permutation of peers list from corresponding round
+              // hash
+              auto generate_permutation = [&](auto round) {
+                auto &hash = std::get<round()>(current_hashes);
+                log_->debug("Using hash: {}", hash.toString());
+                auto &permutation = permutations_[round()];
 
-            std::seed_seq seed(hash.blob().begin(), hash.blob().end());
-            gen_.seed(seed);
+                std::seed_seq seed(hash.blob().begin(), hash.blob().end());
+                gen_.seed(seed);
 
-            permutation.resize(current_peers_.size());
-            std::iota(permutation.begin(), permutation.end(), 0);
+                permutation.resize(current_peers_.size());
+                std::iota(permutation.begin(), permutation.end(), 0);
 
-            std::shuffle(permutation.begin(), permutation.end(), gen_);
-          };
+                std::shuffle(permutation.begin(), permutation.end(), gen_);
+              };
 
-          generate_permutation(RoundTypeConstant<kCurrentRound>{});
-          generate_permutation(RoundTypeConstant<kNextRound>{});
-          generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
-        };
+              generate_permutation(RoundTypeConstant<kCurrentRound>{});
+              generate_permutation(RoundTypeConstant<kNextRound>{});
+              generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
+            };
         auto on_nothing = [&current_round](const auto &) {
           current_round = ordering::nextRejectRound(current_round);
         };

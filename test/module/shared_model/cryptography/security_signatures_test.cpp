@@ -21,10 +21,14 @@ TEST(SecuritySignature, SignatureOperatorEqual) {
   auto first_signature = std::make_unique<MockSignature>();
   auto second_signature = std::make_unique<MockSignature>();
 
-  EXPECT_CALL(*first_signature, publicKey()).WillRepeatedly(testing::ReturnRef(pk1));
-  EXPECT_CALL(*second_signature, publicKey()).WillRepeatedly(testing::ReturnRef(pk2));
-  EXPECT_CALL(*first_signature, signedData()).WillRepeatedly(testing::ReturnRef(data1));
-  EXPECT_CALL(*second_signature, signedData()).WillRepeatedly(testing::ReturnRef(data2));
+  EXPECT_CALL(*first_signature, publicKey())
+      .WillRepeatedly(testing::ReturnRef(pk1));
+  EXPECT_CALL(*second_signature, publicKey())
+      .WillRepeatedly(testing::ReturnRef(pk2));
+  EXPECT_CALL(*first_signature, signedData())
+      .WillRepeatedly(testing::ReturnRef(data1));
+  EXPECT_CALL(*second_signature, signedData())
+      .WillRepeatedly(testing::ReturnRef(data2));
 
   ASSERT_TRUE(*first_signature == *second_signature);
 }

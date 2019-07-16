@@ -81,7 +81,7 @@ namespace shared_model {
         AccountIdType writer;
         AccountDetailKeyType key;
 
-        bool operator ==(const AccountDetailRecordId &rhs) const {
+        bool operator==(const AccountDetailRecordId &rhs) const {
           return writer == rhs.writer and key == rhs.key;
         }
       };

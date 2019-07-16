@@ -32,10 +32,8 @@ namespace shared_model {
                            boost::random_access_traversal_tag,
                            const AccountAsset &>;
       /// Type of hash collection
-      using HashCollectionType =
-          boost::any_range<HashType,
-                           boost::forward_traversal_tag,
-                           const HashType &>;
+      using HashCollectionType = boost::
+          any_range<HashType, boost::forward_traversal_tag, const HashType &>;
 
     }  // namespace types
   }    // namespace interface

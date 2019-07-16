@@ -16,7 +16,6 @@ namespace shared_model {
     /// Provides query metadata for any transaction list pagination.
     class TxPaginationMeta : public ModelPrimitive<TxPaginationMeta> {
      public:
-
       /// Get the requested page size.
       virtual types::TransactionsNumberType pageSize() const = 0;
 

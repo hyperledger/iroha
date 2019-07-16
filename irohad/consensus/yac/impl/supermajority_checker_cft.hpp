@@ -15,7 +15,7 @@ namespace iroha {
       namespace detail {
         /// The free parameter of Kf+1 consistency model for CFT.
         constexpr unsigned int kSupermajorityCheckerKfPlus1Cft = 2;
-      }
+      }  // namespace detail
 
       /// An implementation of CFT supermajority checker.
       class SupermajorityCheckerCft : public SupermajorityChecker {
