@@ -9,6 +9,7 @@
 
 #include <gflags/gflags.h>
 #include <grpc++/grpc++.h>
+#include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
@@ -276,14 +277,29 @@ int main(int argc, char *argv[]) {
       // clear previous storage if any
       irohad.dropStorage();
 
-      irohad.storage->insertBlock(block.value());
-      log->info("Genesis block inserted, number of transactions: {}",
-                block.value()->transactions().size());
+      {
+        auto mutable_storage_result = irohad.storage->createMutableStorage();
+        if (auto e = iroha::expected::resultToOptionalError(
+                mutable_storage_result)) {
+          log->critical(
+              "Could not create MutableStorage to apply genesis block! {}",
+              e.value());
+          return EXIT_FAILURE;
+        }
+        auto mutable_storage = iroha::expected::resultToOptionalValue(
+                                   std::move(mutable_storage_result))
+                                   .value();
+        mutable_storage->apply(block.value());
+        irohad.storage->commit(std::move(mutable_storage));
+
+        log->info("Genesis block inserted, number of transactions: {}",
+                  block.value()->transactions().size());
+      }
     }
   } else {  // genesis block file is not specified
     if (not blockstore) {
       log->error(
-          "Cannot restore nor create new state. Blockstore is empty. No "
+          "Can neither restore nor create new state. Blockstore is empty. No "
           "genesis block is provided. Please pecify new genesis block using "
           "--genesis_block parameter.");
       return EXIT_FAILURE;

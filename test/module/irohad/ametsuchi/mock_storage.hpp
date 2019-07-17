@@ -40,8 +40,6 @@ namespace iroha {
       MOCK_METHOD1(
           commitPrepared,
           CommitResult(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(insertBlock,
-                   bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(createMutableStorage,
                    expected::Result<std::unique_ptr<MutableStorage>,
                                     std::string>(BlockStorageFactory &));

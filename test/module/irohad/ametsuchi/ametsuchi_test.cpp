@@ -359,32 +359,6 @@ std::shared_ptr<const shared_model::interface::Block> getBlock() {
   return block;
 }
 
-TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
-  auto log = getTestLogger("TestStorage");
-  log->info(
-      "Test case: create storage "
-      "=> insert block "
-      "=> assert that inserted");
-  ASSERT_TRUE(storage);
-  static auto wrapper =
-      make_test_subscriber<CallExact>(storage->on_commit(), 1);
-  wrapper.subscribe();
-  auto wsv = storage->getWsvQuery();
-  ASSERT_EQ(0, wsv->getPeers().value().size());
-
-  log->info("Try insert block");
-
-  auto inserted = storage->insertBlock(getBlock());
-  ASSERT_TRUE(inserted);
-
-  log->info("Request ledger information");
-
-  ASSERT_NE(0, wsv->getPeers().value().size());
-
-  ASSERT_TRUE(wrapper.validate());
-  wrapper.unsubscribe();
-}
-
 /**
  * @given created storage
  * @when commit block

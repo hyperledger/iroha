@@ -45,14 +45,6 @@ namespace iroha {
       virtual std::shared_ptr<BlockQuery> getBlockQuery() const = 0;
 
       /**
-       * Raw insertion of blocks without validation
-       * @param block - block for insertion
-       * @return true if inserted
-       */
-      virtual bool insertBlock(
-          std::shared_ptr<const shared_model::interface::Block> block) = 0;
-
-      /**
        * Insert a peer into WSV
        * @param peer - peer to insert
        * @return error reason if not inserted

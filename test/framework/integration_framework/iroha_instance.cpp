@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "ametsuchi/impl/postgres_options.hpp"
+#include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/storage.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/config_helper.hpp"
@@ -73,7 +74,19 @@ namespace integration_framework {
 
   void IrohaInstance::rawInsertBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    instance_->storage->insertBlock(block);
+    auto mutable_storage_result = instance_->storage->createMutableStorage();
+    if (auto e =
+            iroha::expected::resultToOptionalError(mutable_storage_result)) {
+      log_->critical(
+          "Could not create MutableStorage to apply genesis block! {}",
+          e.value());
+      return;
+    }
+    auto mutable_storage = iroha::expected::resultToOptionalValue(
+                               std::move(mutable_storage_result))
+                               .value();
+    mutable_storage->apply(block);
+    instance_->storage->commit(std::move(mutable_storage));
   }
 
   void IrohaInstance::setMstGossipParams(

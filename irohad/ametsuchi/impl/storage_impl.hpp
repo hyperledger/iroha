@@ -75,9 +75,6 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory) const override;
 
-      bool insertBlock(
-          std::shared_ptr<const shared_model::interface::Block> block) override;
-
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 

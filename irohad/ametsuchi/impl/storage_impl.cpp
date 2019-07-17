@@ -136,20 +136,6 @@ namespace iroha {
               log_manager_->getChild("QueryExecutor")));
     }
 
-    bool StorageImpl::insertBlock(
-        std::shared_ptr<const shared_model::interface::Block> block) {
-      log_->info("create mutable storage");
-      bool inserted = false;
-      createMutableStorage().match(
-          [&, this](auto &&storage) {
-            inserted = storage.value->apply(block);
-            log_->info("block inserted: {}", inserted);
-            this->commit(std::move(storage.value));
-          },
-          [&](const auto &error) { log_->error("{}", error.error); });
-      return inserted;
-    }
-
     expected::Result<void, std::string> StorageImpl::insertPeer(
         const shared_model::interface::Peer &peer) {
       log_->info("Insert peer {}", peer.pubkey().hex());
