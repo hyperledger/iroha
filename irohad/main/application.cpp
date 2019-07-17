@@ -13,7 +13,6 @@
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
-#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -114,15 +113,11 @@ Irohad::Irohad(const std::string &block_store_dir,
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
-  validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_);
-  block_validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, true);
+
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
-  if (auto e = expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
+  if (auto e =
+          expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
     log_->error("Storage initialization failed: {}", e.value());
   }
 }
@@ -143,6 +138,14 @@ Irohad::RunResult Irohad::init() {
       return {};
     }
   };
+
+  validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_);
+  block_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, true);
+
   // clang-format off
   return initWsvRestorer() // Recover WSV from the existing ledger
                            // to be sure it is consistent
@@ -183,9 +186,6 @@ void Irohad::dropStorage() {
  */
 Irohad::RunResult Irohad::initStorage(
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
-  common_objects_factory_ =
-      std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-          shared_model::validation::FieldValidator>>(validators_config_);
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
   auto block_converter =
@@ -227,7 +227,6 @@ Irohad::RunResult Irohad::initStorage(
   return StorageImpl::create(block_store_dir_,
                              std::move(pg_opt),
                              std::move(pool_wrapper),
-                             common_objects_factory_,
                              std::move(block_converter),
                              perm_converter,
                              std::move(block_storage_factory),
@@ -562,7 +561,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
       consensus_result_cache_,
       vote_delay_,
       async_call_,
-      common_objects_factory_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"));
   consensus_gate->onOutcome().subscribe(

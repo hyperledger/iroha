@@ -83,7 +83,6 @@ namespace iroha {
         StorageImpl::create(block_store_path,
                             std::move(options),
                             std::move(pool_wrapper_),
-                            factory,
                             converter,
                             perm_converter_,
                             std::move(block_storage_factory),

@@ -48,7 +48,6 @@ namespace iroha {
         std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
@@ -59,7 +58,6 @@ namespace iroha {
           block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_.connection_pool_),
-          factory_(std::move(factory)),
           notifier_(notifier_lifetime_),
           converter_(std::move(converter)),
           perm_converter_(std::move(perm_converter)),
@@ -177,7 +175,6 @@ namespace iroha {
                   std::make_shared<PostgresCommandExecutor>(*sql,
                                                             perm_converter_)),
               std::move(sql),
-              factory_,
               storage_factory.create(),
               log_manager_->getChild("MutableStorageImpl")));
     }
@@ -277,7 +274,6 @@ namespace iroha {
         std::string block_store_dir,
         std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         PoolWrapper pool_wrapper,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
@@ -309,9 +305,7 @@ namespace iroha {
                                                 shared_model::interface::Peer>>,
                                             std::string> {
                 PostgresWsvQuery peer_query(
-                    sql,
-                    factory,
-                    log_manager->getChild("WsvQuery")->getLogger());
+                    sql, log_manager->getChild("WsvQuery")->getLogger());
                 auto peers = peer_query.getPeers();
                 if (peers) {
                   return expected::makeValue(std::move(peers.value()));
@@ -345,7 +339,6 @@ namespace iroha {
                                 std::move(postgres_options),
                                 std::move(ctx.block_store),
                                 std::move(pool_wrapper),
-                                factory,
                                 converter,
                                 perm_converter,
                                 std::move(block_storage_factory),
@@ -415,9 +408,7 @@ namespace iroha {
               std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
           {
             auto peer_query = PostgresWsvQuery(
-                sql,
-                this->factory_,
-                this->log_manager_->getChild("WsvQuery")->getLogger());
+                sql, this->log_manager_->getChild("WsvQuery")->getLogger());
             if (not(opt_ledger_peers = peer_query.getPeers())) {
               return expected::makeError(
                   std::string{"Failed to get ledger peers! Will retry."});
@@ -445,7 +436,6 @@ namespace iroha {
       }
       return std::make_shared<PostgresWsvQuery>(
           std::make_unique<soci::session>(*connection_),
-          factory_,
           log_manager_->getChild("WsvQuery")->getLogger());
     }
 

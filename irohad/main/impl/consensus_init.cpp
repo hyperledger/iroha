@@ -27,12 +27,8 @@ namespace {
     return std::make_shared<PeerOrdererImpl>(peer_query_factory);
   }
 
-  auto createCryptoProvider(
-      const shared_model::crypto::Keypair &keypair,
-      std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-          common_objects_factory) {
-    auto crypto = std::make_shared<CryptoProviderImpl>(
-        keypair, std::move(common_objects_factory));
+  auto createCryptoProvider(const shared_model::crypto::Keypair &keypair) {
+    auto crypto = std::make_shared<CryptoProviderImpl>(keypair);
 
     return crypto;
   }
@@ -47,8 +43,6 @@ namespace {
       const shared_model::crypto::Keypair &keypair,
       std::shared_ptr<Timer> timer,
       std::shared_ptr<YacNetwork> network,
-      std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-          common_objects_factory,
       ConsistencyModel consistency_model,
       rxcpp::observe_on_one_worker coordination,
       const logger::LoggerManagerTreePtr &consensus_log_manager) {
@@ -59,7 +53,7 @@ namespace {
                        getSupermajorityChecker(consistency_model),
                        consensus_log_manager->getChild("VoteStorage")),
         std::move(network),
-        createCryptoProvider(keypair, std::move(common_objects_factory)),
+        createCryptoProvider(keypair),
         std::move(timer),
         initial_order,
         initial_round,
@@ -99,8 +93,6 @@ namespace iroha {
           std::shared_ptr<
               iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              common_objects_factory,
           ConsistencyModel consistency_model,
           const logger::LoggerManagerTreePtr &consensus_log_manager) {
         auto peer_orderer = createPeerOrderer(peer_query_factory);
@@ -119,7 +111,6 @@ namespace iroha {
                              keypair,
                              createTimer(vote_delay_milliseconds),
                              consensus_network_,
-                             std::move(common_objects_factory),
                              consistency_model,
                              rxcpp::observe_on_new_thread(),
                              consensus_log_manager);

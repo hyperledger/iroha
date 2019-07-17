@@ -7,6 +7,7 @@
 
 #include <soci/boost-tuple.h>
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "backend/plain/peer.hpp"
 #include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
@@ -18,34 +19,13 @@ namespace iroha {
     using shared_model::interface::types::AddressType;
     using shared_model::interface::types::PubkeyType;
 
-    PostgresWsvQuery::PostgresWsvQuery(
-        soci::session &sql,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
-        logger::LoggerPtr log)
-        : sql_(sql), factory_(std::move(factory)), log_(std::move(log)) {}
+    PostgresWsvQuery::PostgresWsvQuery(soci::session &sql,
+                                       logger::LoggerPtr log)
+        : sql_(sql), log_(std::move(log)) {}
 
-    PostgresWsvQuery::PostgresWsvQuery(
-        std::unique_ptr<soci::session> sql,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
-        logger::LoggerPtr log)
-        : psql_(std::move(sql)),
-          sql_(*psql_),
-          factory_(std::move(factory)),
-          log_(std::move(log)) {}
-
-    template <typename T>
-    boost::optional<std::shared_ptr<T>> PostgresWsvQuery::fromResult(
-        shared_model::interface::CommonObjectsFactory::FactoryResult<
-            std::unique_ptr<T>> &&result) {
-      return std::move(result).match(
-          [](auto &&v) {
-            return boost::make_optional(std::shared_ptr<T>(std::move(v.value)));
-          },
-          [&](const auto &e) -> boost::optional<std::shared_ptr<T>> {
-            log_->error("{}", e.error);
-            return boost::none;
-          });
-    }
+    PostgresWsvQuery::PostgresWsvQuery(std::unique_ptr<soci::session> sql,
+                                       logger::LoggerPtr log)
+        : psql_(std::move(sql)), sql_(*psql_), log_(std::move(log)) {}
 
     template <typename T, typename F>
     auto PostgresWsvQuery::execute(F &&f) -> boost::optional<soci::rowset<T>> {
@@ -83,10 +63,12 @@ namespace iroha {
       return flatMapValues<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
           result, [&](auto &public_key, auto &address) {
-            return this->fromResult(factory_->createPeer(
-                address,
-                shared_model::crypto::PublicKey{
-                    shared_model::crypto::Blob::fromHexString(public_key)}));
+            return boost::make_optional(
+                std::make_shared<shared_model::plain::Peer>(
+                    address,
+                    shared_model::crypto::PublicKey{
+                        shared_model::crypto::Blob::fromHexString(
+                            public_key)}));
           });
     }
   }  // namespace ametsuchi

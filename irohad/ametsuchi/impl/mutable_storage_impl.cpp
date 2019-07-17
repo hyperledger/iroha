@@ -13,7 +13,6 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "interfaces/commands/command.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -24,16 +23,13 @@ namespace iroha {
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         std::shared_ptr<TransactionExecutor> transaction_executor,
         std::unique_ptr<soci::session> sql,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::unique_ptr<BlockStorage> block_storage,
         logger::LoggerManagerTreePtr log_manager)
         : ledger_state_(std::move(ledger_state)),
           sql_(std::move(sql)),
           peer_query_(
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
-                  *sql_,
-                  std::move(factory),
-                  log_manager->getChild("WsvQuery")->getLogger()))),
+                  *sql_, log_manager->getChild("WsvQuery")->getLogger()))),
           block_index_(std::make_unique<PostgresBlockIndex>(
               *sql_, log_manager->getChild("PostgresBlockIndex")->getLogger())),
           transaction_executor_(std::move(transaction_executor)),
