@@ -30,8 +30,7 @@ namespace iroha {
                           generateKeypair()) {}
 
         void SetUp() override {
-          crypto_provider =
-              std::make_shared<CryptoProviderImpl>(keypair, factory);
+          crypto_provider = std::make_shared<CryptoProviderImpl>(keypair);
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature(
@@ -51,18 +50,11 @@ namespace iroha {
         }
 
         const shared_model::crypto::Keypair keypair;
-        std::shared_ptr<MockCommonObjectsFactory> factory =
-            std::make_shared<MockCommonObjectsFactory>();
         std::shared_ptr<CryptoProviderImpl> crypto_provider;
       };
 
       TEST_F(YacCryptoProviderTest, ValidWhenSameMessage) {
         YacHash hash(Round{1, 1}, "1", "1");
-
-        EXPECT_CALL(*factory, createSignature(keypair.publicKey(), _))
-            .WillOnce(Invoke([this](auto &pubkey, auto &sig) {
-              return expected::makeValue(this->makeSignature(pubkey, sig));
-            }));
 
         hash.block_signature = makeSignature();
 
@@ -73,11 +65,6 @@ namespace iroha {
 
       TEST_F(YacCryptoProviderTest, InvalidWhenMessageChanged) {
         YacHash hash(Round{1, 1}, "1", "1");
-
-        EXPECT_CALL(*factory, createSignature(keypair.publicKey(), _))
-            .WillOnce(Invoke([this](auto &pubkey, auto &sig) {
-              return expected::makeValue(this->makeSignature(pubkey, sig));
-            }));
 
         hash.block_signature = makeSignature();
 

@@ -225,10 +225,6 @@ class Irohad {
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
-  // common objects factory
-  std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-      common_objects_factory_;
-
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
 
