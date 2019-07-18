@@ -317,25 +317,33 @@ namespace iroha {
      */
 
     /// constref version
-    template <typename T, typename E, typename Procedure>
+    template <typename T,
+              typename E,
+              typename Procedure,
+              typename TypeHelper =
+                  BindReturnType<decltype(std::declval<Procedure>()()), E>,
+              typename ReturnType = typename TypeHelper::ReturnType>
     constexpr auto operator|(const Result<T, E> &r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
-                                decltype(f())>::type {
-      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
+                                ReturnType>::type {
       return r.match(
-          [&f](const Value<T> &v) { return f(); },
-          [](const Error<E> &e) { return return_type(makeError(e.error)); });
+          [&f](const Value<T> &v) { return TypeHelper::makeVaule(f()); },
+          [](const Error<E> &e) { return ReturnType(makeError(e.error)); });
     }
 
     /// rvalue ref version
-    template <typename T, typename E, typename Procedure>
-    constexpr auto operator|(Result<T, E> &&r, Procedure f) ->
+    template <typename V,
+              typename E,
+              typename Procedure,
+              typename TypeHelper =
+                  BindReturnType<decltype(std::declval<Procedure>()()), E>,
+              typename ReturnType = typename TypeHelper::ReturnType>
+    constexpr auto operator|(Result<V, E> &&r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
-                                decltype(f())>::type {
-      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
+                                ReturnType>::type {
       return std::move(r).match(
-          [&f](const auto &) { return f(); },
-          [](auto &&e) { return return_type(makeError(std::move(e.error))); });
+          [&f](const auto &) { return TypeHelper::makeVaule(f()); },
+          [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
     }
 
     /// operator |= is a shortcut for `Result = Result | function'
