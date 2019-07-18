@@ -79,6 +79,7 @@ target_link_libraries(irohad
     logger
     logger_manager
     irohad_version
+    pg_connection_init
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)

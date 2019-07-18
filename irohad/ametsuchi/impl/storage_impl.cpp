@@ -45,22 +45,19 @@ namespace iroha {
 
     StorageImpl::StorageImpl(
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        PostgresOptions postgres_options,
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
         size_t pool_size,
-        const std::string &prepared_block_name,
         logger::LoggerManagerTreePtr log_manager)
         : postgres_options_(std::move(postgres_options)),
           block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_.connection_pool_),
-          factory_(std::move(factory)),
           notifier_(notifier_lifetime_),
           converter_(std::move(converter)),
           perm_converter_(std::move(perm_converter)),
@@ -70,7 +67,7 @@ namespace iroha {
           pool_size_(pool_size),
           prepared_blocks_enabled_(pool_wrapper_.enable_prepared_transactions_),
           block_is_prepared_(false),
-          prepared_block_name_(prepared_block_name),
+          prepared_block_name_(postgres_options_->preparedBlockName()),
           ledger_state_(std::move(ledger_state)) {}
 
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
@@ -178,7 +175,6 @@ namespace iroha {
                   std::make_shared<PostgresCommandExecutor>(*sql,
                                                             perm_converter_)),
               std::move(sql),
-              factory_,
               storage_factory.create(),
               log_manager_->getChild("MutableStorageImpl")));
     }
@@ -221,13 +217,13 @@ namespace iroha {
       }
 
       std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      log_->info("Drop database {}", postgres_options_.dbname());
+      log_->info("Drop database {}", postgres_options_->workingDbName());
       freeConnections();
       soci::session sql(*soci::factory_postgresql(),
-                        postgres_options_.optionsStringWithoutDbName());
+                        postgres_options_->maintenanceConnectionString());
       // perform dropping
       try {
-        sql << "DROP DATABASE " + postgres_options_.dbname();
+        sql << "DROP DATABASE " + postgres_options_->workingDbName();
       } catch (std::exception &e) {
         log_->warn("Drop database was failed. Reason: {}", e.what());
       }
@@ -276,17 +272,14 @@ namespace iroha {
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
         std::string block_store_dir,
-        const PostgresOptions &options,
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
         PoolWrapper pool_wrapper,
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
-      std::string prepared_block_name = "prepared_block" + options.dbname();
-
       return initConnections(block_store_dir, log_manager->getLogger()) |
           [&](auto &&ctx) {
             auto opt_ledger_state = [&] {
@@ -312,9 +305,7 @@ namespace iroha {
                                                 shared_model::interface::Peer>>,
                                             std::string> {
                 PostgresWsvQuery peer_query(
-                    sql,
-                    factory,
-                    log_manager->getChild("WsvQuery")->getLogger());
+                    sql, log_manager->getChild("WsvQuery")->getLogger());
                 auto peers = peer_query.getPeers();
                 if (peers) {
                   return expected::makeValue(std::move(peers.value()));
@@ -345,15 +336,13 @@ namespace iroha {
 
             return expected::makeValue(std::shared_ptr<StorageImpl>(
                 new StorageImpl(std::move(opt_ledger_state),
-                                options,
+                                std::move(postgres_options),
                                 std::move(ctx.block_store),
                                 std::move(pool_wrapper),
-                                factory,
                                 converter,
                                 perm_converter,
                                 std::move(block_storage_factory),
                                 pool_size,
-                                prepared_block_name,
                                 std::move(log_manager))));
           };
     }
@@ -419,9 +408,7 @@ namespace iroha {
               std::declval<PostgresWsvQuery>().getPeers()) opt_ledger_peers;
           {
             auto peer_query = PostgresWsvQuery(
-                sql,
-                this->factory_,
-                this->log_manager_->getChild("WsvQuery")->getLogger());
+                sql, this->log_manager_->getChild("WsvQuery")->getLogger());
             if (not(opt_ledger_peers = peer_query.getPeers())) {
               return expected::makeError(
                   std::string{"Failed to get ledger peers! Will retry."});
@@ -449,7 +436,6 @@ namespace iroha {
       }
       return std::make_shared<PostgresWsvQuery>(
           std::make_unique<soci::session>(*connection_),
-          factory_,
           log_manager_->getChild("WsvQuery")->getLogger());
     }
 

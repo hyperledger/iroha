@@ -43,12 +43,8 @@ namespace iroha {
         sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
 
-        auto factory =
-            std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-                shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
-        wsv_query = std::make_unique<PostgresWsvQuery>(
-            *sql, factory, getTestLogger("WcvQuery"));
+        wsv_query =
+            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WcvQuery"));
         PostgresCommandExecutor::prepareStatements(*sql);
         executor =
             std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);

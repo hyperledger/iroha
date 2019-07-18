@@ -74,7 +74,7 @@ class IrohadTest : public AcceptanceFixture {
     blockstore_path_ = (boost::filesystem::temp_directory_path()
                         / boost::filesystem::unique_path())
                            .string();
-    pgopts_ = integration_framework::getPostgresCredsOrDefault(
+    pgopts_ = integration_framework::getPostgresCredsFromEnv().value_or(
         doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set

@@ -45,7 +45,7 @@ PgConnectionInit::prepareConnectionPool(
     const PostgresOptions &options,
     const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
-  auto options_str = options.optionsString();
+  auto options_str = options.workingConnectionString();
 
   auto conn = initPostgresConnection(options_str, pool_size);
   if (auto e = boost::get<expected::Error<std::string>>(&conn)) {
@@ -59,11 +59,9 @@ PgConnectionInit::prepareConnectionPool(
   soci::session sql(*connection);
   bool enable_prepared_transactions = preparedTransactionsAvailable(sql);
   try {
-    std::string prepared_block_name = "prepared_block" + options.dbname();
-
     auto try_rollback = [&](soci::session &session) {
       if (enable_prepared_transactions) {
-        rollbackPrepared(session, prepared_block_name)
+        rollbackPrepared(session, options.preparedBlockName())
             .match([](auto &&v) {},
                    [&](auto &&e) {
                      log_manager->getLogger()->warn(
@@ -81,7 +79,7 @@ PgConnectionInit::prepareConnectionPool(
                              try_rollback,
                              *failover_callback_factory,
                              reconnection_strategy_factory,
-                             options.optionsStringWithoutDbName(),
+                             options.maintenanceConnectionString(),
                              log_manager);
 
     return expected::makeValue<PoolWrapper>(
@@ -115,21 +113,21 @@ iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
 }
 
 iroha::expected::Result<bool, std::string>
-PgConnectionInit::createDatabaseIfNotExist(
-    const std::string &dbname, const std::string &options_str_without_dbname) {
+PgConnectionInit::createDatabaseIfNotExist(const PostgresOptions &pg_opt) {
   try {
-    soci::session sql(*soci::factory_postgresql(), options_str_without_dbname);
+    soci::session sql(*soci::factory_postgresql(),
+                      pg_opt.maintenanceConnectionString());
 
     int size;
-    std::string name = dbname;
+    std::string working_dbname = pg_opt.workingDbName();
 
     sql << "SELECT count(datname) FROM pg_catalog.pg_database WHERE "
            "datname = :dbname",
-        soci::into(size), soci::use(name);
+        soci::into(size), soci::use(working_dbname);
 
     if (size == 0) {
       std::string query = "CREATE DATABASE ";
-      query += dbname;
+      query += working_dbname;
       sql << query;
       return expected::makeValue(true);
     }
@@ -202,8 +200,6 @@ void PgConnectionInit::initializeConnectionPool(
     initialize_session(session, [](auto &) {}, init_failover_callback);
   }
 }
-
-const std::string PgConnectionInit::kDefaultDatabaseName{"iroha_default"};
 
 const std::string PgConnectionInit::init_ = R"(
 CREATE TABLE IF NOT EXISTS role (

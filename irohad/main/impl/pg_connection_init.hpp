@@ -46,8 +46,7 @@ namespace iroha {
           soci::session &sql, const std::string &prepared_block_name);
 
       static expected::Result<bool, std::string> createDatabaseIfNotExist(
-          const std::string &dbname,
-          const std::string &options_str_without_dbname);
+          const PostgresOptions &pg_opt);
 
       /*
        * Remove all records from the tables
@@ -89,7 +88,6 @@ namespace iroha {
           logger::LoggerManagerTreePtr log_manager);
 
      public:
-      static const std::string kDefaultDatabaseName;
       static const std::string init_;
     };
   }  // namespace ametsuchi

@@ -13,7 +13,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
-#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/result.hpp"
@@ -46,12 +45,6 @@ class StorageInitTest : public ::testing::Test {
 
   std::string pg_opt_without_dbname_;
   std::string pgopt_;
-
-  std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
-      shared_model::validation::FieldValidator>>
-      factory = std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-          shared_model::validation::FieldValidator>>(
-          iroha::test::kTestsValidatorsConfig);
 
   std::shared_ptr<shared_model::proto::ProtoBlockJsonConverter> converter =
       std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
@@ -94,16 +87,16 @@ class StorageInitTest : public ::testing::Test {
  * @then Database is created
  */
 TEST_F(StorageInitTest, CreateStorageWithDatabase) {
-  PostgresOptions options(pgopt_,
-                          PgConnectionInit::kDefaultDatabaseName,
-                          storage_log_manager_->getLogger());
+  auto options = std::make_unique<PostgresOptions>(
+      pgopt_,
+      integration_framework::kDefaultWorkingDatabaseName,
+      storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
-      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  PgConnectionInit::createDatabaseIfNotExist(*options).match(
+      [](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
-      options,
+      *options,
       pool_size_,
       getTestLoggerManager()->getChild("Storage"));
 
@@ -116,9 +109,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
-                      options,
+                      std::move(options),
                       std::move(pool_wrapper),
-                      factory,
                       converter,
                       perm_converter_,
                       std::move(block_storage_factory_),
@@ -146,19 +138,19 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
  */
 TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   std::string pg_opt =
-      "host=localhost port=5432 users=nonexistinguser dbname=test";
+      "host=localhost port=5432 user=nonexistinguser password=wrong "
+      "dbname=test";
 
   PostgresOptions options(pg_opt,
-                          PgConnectionInit::kDefaultDatabaseName,
+                          integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
-      .match([](auto &&val) {},
-             [&](auto &&error) {
-               storage_log_manager_->getLogger()->error(
-                   "Database creation error: {}", error.error);
-             });
+  PgConnectionInit::createDatabaseIfNotExist(options).match(
+      [](auto &&val) {},
+      [&](auto &&error) {
+        storage_log_manager_->getLogger()->error("Database creation error: {}",
+                                                 error.error);
+      });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,

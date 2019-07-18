@@ -13,7 +13,6 @@
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
-#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -78,7 +77,7 @@ static constexpr iroha::consensus::yac::ConsistencyModel
  * Configuring iroha daemon
  */
 Irohad::Irohad(const std::string &block_store_dir,
-               const std::string &pg_conn,
+               std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
                const std::string &listen_ip,
                size_t torii_port,
                size_t internal_port,
@@ -95,7 +94,6 @@ Irohad::Irohad(const std::string &block_store_dir,
                const boost::optional<GossipPropagationStrategyParams>
                    &opt_mst_gossip_params)
     : block_store_dir_(block_store_dir),
-      pg_conn_(pg_conn),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
       internal_port_(internal_port),
@@ -115,15 +113,13 @@ Irohad::Irohad(const std::string &block_store_dir,
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
-  validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_);
-  block_validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, true);
+
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
-  initStorage();
+  if (auto e =
+          expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
+    log_->error("Storage initialization failed: {}", e.value());
+  }
 }
 
 Irohad::~Irohad() {
@@ -142,6 +138,14 @@ Irohad::RunResult Irohad::init() {
       return {};
     }
   };
+
+  validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_);
+  block_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, true);
+
   // clang-format off
   return initWsvRestorer() // Recover WSV from the existing ledger
                            // to be sure it is consistent
@@ -180,10 +184,8 @@ void Irohad::dropStorage() {
 /**
  * Initializing iroha daemon storage
  */
-Irohad::RunResult Irohad::initStorage() {
-  common_objects_factory_ =
-      std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-          shared_model::validation::FieldValidator>>(validators_config_);
+Irohad::RunResult Irohad::initStorage(
+    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
   auto block_converter =
@@ -199,16 +201,10 @@ Irohad::RunResult Irohad::initStorage() {
 
   boost::optional<std::string> string_res = boost::none;
 
-  PostgresOptions options(
-      pg_conn_,
-      PgConnectionInit::kDefaultDatabaseName,
-      log_manager_->getChild("DbOptionsParser")->getLogger());
-
   // create database if it does not exist
-  PgConnectionInit::createDatabaseIfNotExist(
-      options.dbname(), options.optionsStringWithoutDbName())
-      .match([](auto &&val) {},
-             [&string_res](auto &&error) { string_res = error.error; });
+  PgConnectionInit::createDatabaseIfNotExist(*pg_opt).match(
+      [](auto &&val) {},
+      [&string_res](auto &&error) { string_res = error.error; });
 
   if (string_res) {
     return expected::makeError(string_res.value());
@@ -217,7 +213,7 @@ Irohad::RunResult Irohad::initStorage() {
   const int pool_size = 10;
   auto pool = PgConnectionInit::prepareConnectionPool(
       iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      options,
+      *pg_opt,
       pool_size,
       log_manager_);
 
@@ -229,9 +225,8 @@ Irohad::RunResult Irohad::initStorage() {
       std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
   return StorageImpl::create(block_store_dir_,
-                             options,
+                             std::move(pg_opt),
                              std::move(pool_wrapper),
-                             common_objects_factory_,
                              std::move(block_converter),
                              perm_converter,
                              std::move(block_storage_factory),
@@ -566,7 +561,6 @@ Irohad::RunResult Irohad::initConsensusGate() {
       consensus_result_cache_,
       vote_delay_,
       async_call_,
-      common_objects_factory_,
       kConsensusConsistencyModel,
       log_manager_->getChild("Consensus"));
   consensus_gate->onOutcome().subscribe(
