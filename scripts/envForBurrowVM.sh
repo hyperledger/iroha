@@ -19,4 +19,4 @@ rm -rf go1*
 
 # set folder which will contain all go sources that Burrow needs
 export GOPATH="/opt/iroha/goSrc"
-export PATH=/usr/local/go/bin:$PATH
+export PATH=/opt/iroha/goSrc/bin:/usr/local/go/bin:$PATH

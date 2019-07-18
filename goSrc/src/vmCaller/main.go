@@ -1,152 +1,31 @@
 package main
 
+// #cgo CFLAGS: -I ../../../irohad
+// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #include "ametsuchi/impl/proto_command_executor.h"
 import "C"
+import "unsafe"
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"github.com/hyperledger/burrow/execution/evm"
-
+	"github.com/go-kit/kit/log"
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/binary"
-	. "github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
+	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/logging"
 	"github.com/tmthrgd/go-hex"
 	"golang.org/x/crypto/ripemd160"
+	"os"
+	"strconv"
 )
-
-type BalanceType = uint64
-
-type IrohaAppState struct {
-	accounts map[crypto.Address]*acm.Account
-	storage  map[string][]byte
-	code     map[crypto.Address]*acm.Bytecode
-	balance  map[crypto.Address]BalanceType
-}
-
-func (state *IrohaAppState) CreateAccount(addr crypto.Address) (*acm.Account, error) {
-	account := new(acm.Account)
-	if _, exist := state.accounts[addr]; exist {
-		return account, errors.New("account already exists")
-	}
-	state.accounts[addr] = account
-	return account, nil
-}
-
-func (state *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) {
-	account, exist := state.accounts[addr]
-	if !exist {
-		return account, errors.New("account does not exist")
-	}
-	return account, nil
-}
-
-func (state *IrohaAppState) UpdateAccount(account *acm.Account) error {
-	state.accounts[account.GetAddress()] = account
-	return nil
-}
-
-func (state *IrohaAppState) RemoveAccount(address crypto.Address) error {
-	_, ok := state.accounts[address]
-	if !ok {
-		return errors.New("tried to delete non-existing account")
-	} else {
-		// Remove account
-		delete(state.accounts, address)
-		delete(state.code, address)
-		delete(state.balance, address)
-	}
-	return nil
-}
-
-func (state *IrohaAppState) GetStorage(addr crypto.Address, key Word256) ([]byte, error) {
-	_, ok := state.accounts[addr]
-	if !ok {
-		return []byte{}, errors.New("no such account to get key")
-	}
-
-	value, ok := state.storage[addr.String()+key.String()]
-	if ok {
-		return value, nil
-	} else {
-		return []byte{}, nil
-	}
-}
-
-func (state *IrohaAppState) SetStorage(addr crypto.Address, key Word256, value []byte) error {
-	_, ok := state.accounts[addr]
-	if !ok {
-		return errors.New("no such account to set key with word")
-	}
-
-	state.storage[addr.String()+key.String()] = value
-	return nil
-}
-
-func (state *IrohaAppState) Exists(address crypto.Address) bool {
-	_, ok := state.accounts[address];
-	return ok
-}
-
-func (state *IrohaAppState) GetCode(address crypto.Address) acm.Bytecode {
-	if code, ok := state.code[address]; ok {
-		return *code
-	}
-	return nil
-}
-
-func (state *IrohaAppState) InitCode(address crypto.Address, code []byte) {
-	if _, ok := state.accounts[address]; ok {
-		_, codeExist := state.code[address]
-		if !codeExist {
-			newCode := acm.Bytecode(code)
-			state.code[address] = &newCode
-		} else {
-			panic("Code on this address already exit")
-		}
-	} else {
-		panic("No addr for code to init")
-	}
-}
-
-func (state *IrohaAppState) AddToBalance(address crypto.Address, amount uint64) {
-	if _, exist := state.accounts[address]; exist{
-		state.balance[address] += amount
-	} else {
-		panic("Cannot add to account balance")
-	}
-}
-
-func (state *IrohaAppState) SubtractFromBalance(address crypto.Address, amount uint64) {
-	if _, exist := state.accounts[address]; exist{
-		state.balance[address] -= amount
-	} else {
-		panic("Cannot subtract from account balance")
-	}
-}
-
-func (state *IrohaAppState) accountsDump() string {
-	buf := new(bytes.Buffer)
-	_,_ = fmt.Fprint(buf, "Dumping accounts...", "\n")
-	for _, acc := range state.accounts {
-		_, _ = fmt.Fprint(buf, acc.GetAddress().String(), "\n")
-	}
-	return buf.String()
-}
+// import "github.com/golang/protobuf/proto"
+// import pb "iroha_protocol"
 
 func newAppState() *IrohaAppState {
-	state := &IrohaAppState{
-		make(map[crypto.Address]*acm.Account),
-		make(map[string][]byte),
-		make(map[crypto.Address]*acm.Bytecode),
-		make(map[crypto.Address]BalanceType),
+	return &IrohaAppState{
+		accounts: make(map[crypto.Address]*acm.Account),
+		storage:  make(map[string][]byte),
 	}
-	// For default permissions
-	//fas.accounts[acm.GlobalPermissionsAddress] = &acm.Account{
-	//	Permissions: permission.DefaultAccountPermissions,
-	//}
-	return state
 }
 
 func newParams() evm.Params {
@@ -157,7 +36,8 @@ func newParams() evm.Params {
 	}
 }
 
-func newAddress(name string) crypto.Address {
+// toEVMaddress converts any string to EVM address
+func toEVMaddress(name string) crypto.Address {
 	hasher := ripemd160.New()
 	hasher.Write([]byte(name))
 	return crypto.MustAddressFromBytes(hasher.Sum(nil))
@@ -167,35 +47,76 @@ func blockHashGetter(height uint64) []byte {
 	return binary.LeftPadWord256([]byte(fmt.Sprintf("block_hash_%d", height))).Bytes()
 }
 
+func newLogger() *logging.Logger {
+	return &logging.Logger{
+		Info:   log.NewLogfmtLogger(os.Stdout),
+		Trace:  log.NewLogfmtLogger(os.Stdout),
+		Output: new(log.SwapLogger),
+	}
+}
 
-var logger = logging.NewNoopLogger()
+var appState = newAppState()
+var logger = newLogger()
 var ourVm = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logger)
-var cache = evm.NewState(newAppState(), blockHashGetter)
-
+var evmState = evm.NewState(appState, blockHashGetter)
 
 //export VmCall
-func VmCall(code, input, caller, callee *C.char) (*C.char, bool) {
+func VmCall(code, input, caller, callee *C.char, executor unsafe.Pointer) (*C.char, bool) {
+	// command := &pb.Command{Command: &pb.Command_CreateAccount{CreateAccount: &pb.CreateAccount{AccountName: "admin", DomainId: "test"}}}
+	// fmt.Println(proto.MarshalTextString(command))
+	// out, err := proto.Marshal(command)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// cOut := C.CBytes(out)
+	// result := C.Iroha_ProtoCommandExecutorExecute(executor, cOut, C.int(len(out)))
+	// fmt.Println(result)
 
-	// Create accounts
-	account1 := newAddress(C.GoString(caller))
-	account2 := newAddress(C.GoString(callee))
+	// Convert string into EVM address
+	account1 := toEVMaddress(C.GoString(caller))
+
+	// if callee is empty -> new contract creation
+	goCallee := C.GoString(callee)
+	account2 := crypto.Address{}
+
+	if goCallee != "" {
+		// take this assignment from
+		// https://github.com/hyperledger/sawtooth-seth/blob/master/processor/src/seth_tp/handler/handler.go#L159
+		account2 = account1
+	}
 
 	var gas uint64 = 1000000
-	goByteCode := C.GoString(code)
-	goInput := []byte(C.GoString(input))
-	fmt.Printf("%d\n\n\n%s\n\n\n", len(goByteCode), goByteCode)
-	decodedCode := hex.MustDecodeString(goByteCode)
-	output, err := ourVm.Call(cache, evm.NewNoopEventSink(), account1, account2,
-		decodedCode, goInput, 0, &gas)
+	goByteCode := hex.MustDecodeString(C.GoString(code))
+	goInput := hex.MustDecodeString(C.GoString(input))
+	output, err := ourVm.Call(evmState, evm.NewNoopEventSink(), account1, account2,
+		goByteCode, goInput, 0, &gas)
 
-	fmt.Println("\n\n\nCODE WAS EXECUTED\n\n\n")
+	if err := evmState.Sync(); err != nil {
+		panic("Sync error")
+	}
+	// Transform output data to a string value.
+	// It is a problem to convert []byte, which contains 0 byte inside, to C string.
+	// Conversion to C.CString will cut all data after the 0 byte.
+	res := ""
+	for _, dataAsInt := range output {
+
+		// change base to hex
+		tmp := strconv.FormatInt(int64(dataAsInt), 16)
+
+		// save bytecode structure, where hex value f should be 0f, and so on
+		if len(tmp) < 2 {
+			// len 1 at least after conversion from variable output
+			tmp = "0" + tmp
+		}
+		res += tmp
+	}
+
 	if err == nil {
-		fmt.Println("\n\n\nALL RIGHT\n\n\n")
-		return C.CString(string(output)), true
+		return C.CString(res), true
 	} else {
 		fmt.Println(err)
-		fmt.Println("\n\n\nNOT NIL\n\n\n")
-		return C.CString(string(output)), false
+		fmt.Println("NOT NIL")
+		return C.CString(res), false
 	}
 }
 
