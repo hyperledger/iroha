@@ -96,7 +96,6 @@ namespace iroha {
               return storage->insert(state) |
                          [this, &round](
                              auto &&insert_outcome) -> boost::optional<Answer> {
-
                 last_round_ = std::max(last_round_.value_or(round), round);
                 this->strategy_->finalize(round, insert_outcome) |
                     [this](auto &&remove) {

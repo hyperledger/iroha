@@ -17,8 +17,7 @@ namespace shared_model {
     }
 
     bool SetQuorum::operator==(const ModelType &rhs) const {
-      return accountId() == rhs.accountId()
-          and newQuorum() == rhs.newQuorum();
+      return accountId() == rhs.accountId() and newQuorum() == rhs.newQuorum();
     }
 
   }  // namespace interface

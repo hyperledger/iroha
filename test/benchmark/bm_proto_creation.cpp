@@ -11,8 +11,8 @@
  *
  * The purpose of this benchmark is to keep track of performance costs related
  * to blocks and proposals copying/moving.
- * 
- * Each benchmark runs transaction() and commands() call to 
+ *
+ * Each benchmark runs transaction() and commands() call to
  * initialize possibly lazy fields.
  */
 
@@ -104,11 +104,10 @@ template <typename Func>
 void runBenchmark(benchmark::State &st, Func &&f) {
   auto start = std::chrono::high_resolution_clock::now();
   f();
-  auto end   = std::chrono::high_resolution_clock::now();
+  auto end = std::chrono::high_resolution_clock::now();
 
   auto elapsed_seconds =
-      std::chrono::duration_cast<std::chrono::duration<double>>(
-          end - start);
+      std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
 
   st.SetIterationTime(elapsed_seconds.count());
 }

@@ -23,7 +23,7 @@ using namespace framework::test_subscriber;
  * @then commit does not happen, instead send_reject is triggered on transport
  */
 TEST_F(YacTest, InvalidCaseWhenNotReceiveSupermajority) {
-  const size_t N = 4; // number of peers
+  const size_t N = 4;  // number of peers
   auto my_peers = decltype(default_peers)(
       {default_peers.begin(), default_peers.begin() + N});
   ASSERT_EQ(N, my_peers.size());

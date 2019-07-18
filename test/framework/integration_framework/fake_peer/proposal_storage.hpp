@@ -85,7 +85,8 @@ namespace integration_framework {
 
       std::unordered_set<std::shared_ptr<shared_model::interface::Transaction>,
                          detail::PointerTxHasher,
-                         detail::PointerTxHashEquality> pending_txs_;
+                         detail::PointerTxHashEquality>
+          pending_txs_;
       mutable std::mutex pending_txs_mutex_;
     };
 

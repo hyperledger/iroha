@@ -21,7 +21,6 @@ namespace shared_model {
       std::string reason() const override {
         return "StatelessFailedErrorResponse";
       }
-
     };
   }  // namespace interface
 }  // namespace shared_model

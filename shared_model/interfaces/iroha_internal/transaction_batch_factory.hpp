@@ -33,8 +33,8 @@ namespace shared_model {
        * batch
        * @return valid batch of transactions or string error
        */
-      FactoryResult<std::unique_ptr<TransactionBatch>>
-      virtual createTransactionBatch(
+      virtual FactoryResult<std::unique_ptr<TransactionBatch>>
+      createTransactionBatch(
           const types::SharedTxsCollectionType &transactions) const = 0;
 
       /**
@@ -44,8 +44,8 @@ namespace shared_model {
        * @return batch with single transaction or string error
        * @note transactions in such batches may not have batch meta information
        */
-      FactoryResult<std::unique_ptr<TransactionBatch>>
-      virtual createTransactionBatch(
+      virtual FactoryResult<std::unique_ptr<TransactionBatch>>
+      createTransactionBatch(
           std::shared_ptr<Transaction> transaction) const = 0;
     };
 

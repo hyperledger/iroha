@@ -23,4 +23,4 @@ namespace logger {
 
 }  // namespace logger
 
-#endif // IROHA_LOGGER_LOGGER_FWD_HPP
+#endif  // IROHA_LOGGER_LOGGER_FWD_HPP

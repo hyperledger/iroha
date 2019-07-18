@@ -13,15 +13,14 @@
 #include <boost/uuid/uuid_io.hpp>
 
 namespace integration_framework {
-  const std::string kDefaultPostgresCreds =
-      "host=localhost "
-      "port=5432 "
-      "user=postgres "
-      "password=mysecretpassword";
-
   const std::string kDefaultWorkingDatabaseName{"iroha_default"};
 
   std::string getPostgresCredsOrDefault() {
+    static const std::string kDefaultPostgresCreds =
+        "host=localhost "
+        "port=5432 "
+        "user=postgres "
+        "password=mysecretpassword";
     return getPostgresCredsFromEnv().value_or(kDefaultPostgresCreds);
   }
 

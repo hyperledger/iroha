@@ -66,8 +66,8 @@ TEST_F(CreateAssetFixture, Basic) {
 }
 
 /**
- * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has more
- * test cases than its duplicate field validator test)
+ * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has
+ * more test cases than its duplicate field validator test)
  *
  * C235 Create asset with an empty name
  * C236 Create asset with boundary values per name validation
@@ -202,8 +202,8 @@ TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
 }
 
 /**
- * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has more
- * test cases than its duplicate field validator test)
+ * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has
+ * more test cases than its duplicate field validator test)
  *
  * @given a user with can_create_asset permission
  * @when the user tries to create an asset in a domain with illegal characters

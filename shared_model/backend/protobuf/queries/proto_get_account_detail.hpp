@@ -27,7 +27,8 @@ namespace shared_model {
 
       const interface::types::AccountIdType &accountId() const override;
 
-      boost::optional<interface::types::AccountDetailKeyType> key() const override;
+      boost::optional<interface::types::AccountDetailKeyType> key()
+          const override;
 
       boost::optional<interface::types::AccountIdType> writer() const override;
 

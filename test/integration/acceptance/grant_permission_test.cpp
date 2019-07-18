@@ -260,10 +260,8 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
       .checkBlock(
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          addAssetAndTransfer(kAdminName,
-                              kAdminKeypair,
-                              amount_of_asset,
-                              kAccount1),
+          addAssetAndTransfer(
+              kAdminName, kAdminKeypair, amount_of_asset, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
           transferAssetFromSource(kAccount2,
