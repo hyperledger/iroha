@@ -299,12 +299,6 @@ class Irohad {
   // synchronizer
   std::shared_ptr<iroha::synchronizer::Synchronizer> synchronizer;
 
-  // consensus gate
-  std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
-  rxcpp::composite_subscription consensus_gate_objects_lifetime;
-  rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
-  rxcpp::composite_subscription consensus_gate_events_subscription;
-
   // pcs
   std::shared_ptr<iroha::network::PeerCommunicationService> pcs;
 
@@ -325,6 +319,12 @@ class Irohad {
 
   // query service
   std::shared_ptr<iroha::torii::QueryService> query_service;
+
+  // consensus gate
+  std::shared_ptr<iroha::network::ConsensusGate> consensus_gate;
+  rxcpp::composite_subscription consensus_gate_objects_lifetime;
+  rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
+  rxcpp::composite_subscription consensus_gate_events_subscription;
 
   std::unique_ptr<ServerRunner> torii_server;
   std::unique_ptr<ServerRunner> internal_server;
