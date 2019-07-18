@@ -24,52 +24,52 @@ namespace iroha {
       virtual ~ModelCryptoProvider() = default;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signature verification of a transaction.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signature
+       * verification of a transaction.
        * @param tx - transaction for verification
        * @return true if transaction signature is valid, otherwise false
        */
       virtual bool verify(const Transaction &tx) const = 0;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signature verification of a query.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signature
+       * verification of a query.
        * @param query - query for verification
        * @return true if query signature is valid, otherwise false
        */
       virtual bool verify(const Query &query) const = 0;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signature verification of a block.
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signature
+       * verification of a block.
        * @param block - block for verification
        * @return true if block signature is valid, otherwise false
        */
       virtual bool verify(const Block &block) const = 0;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signing a block with stored keypair
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signing a
+       * block with stored keypair
        * @param block - block for signing
        */
       virtual void sign(Block &block) const = 0;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signing a transaction with stored keypair
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signing a
+       * transaction with stored keypair
        * @param transaction - transaction for signing
        */
       virtual void sign(Transaction &transaction) const = 0;
 
       /**
-       * [[deprecated]] Use irohad/crypto_provider with shared_model instead this
-       * class. It is for compatibility with cli.
-       * Method for signing a query with stored keypair
+       * [[deprecated]] Use irohad/crypto_provider with shared_model instead
+       * this class. It is for compatibility with cli. Method for signing a
+       * query with stored keypair
        * @param query - query to sign
        */
       virtual void sign(Query &query) const = 0;

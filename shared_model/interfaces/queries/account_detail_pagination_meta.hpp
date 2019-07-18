@@ -18,7 +18,6 @@ namespace shared_model {
     class AccountDetailPaginationMeta
         : public NonCopyableModelPrimitive<AccountDetailPaginationMeta> {
      public:
-
       /// Get the requested page size.
       virtual size_t pageSize() const = 0;
 

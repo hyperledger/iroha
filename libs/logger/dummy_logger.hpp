@@ -26,4 +26,4 @@ namespace logger {
 
 }  // namespace logger
 
-#endif // LOGGER_DUMMY_LOGGER_HPP
+#endif  // LOGGER_DUMMY_LOGGER_HPP

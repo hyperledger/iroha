@@ -17,7 +17,6 @@ namespace shared_model {
     class AccountDetailRecordId
         : public NonCopyableModelPrimitive<AccountDetailRecordId> {
      public:
-
       /// Get the writer.
       virtual interface::types::AccountIdType writer() const = 0;
 

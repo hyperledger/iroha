@@ -20,8 +20,7 @@ namespace iroha {
         std::shared_ptr<consensus::yac::SupermajorityChecker>
             supermajority_checker,
         logger::LoggerPtr log)
-        : supermajority_checker_(supermajority_checker),
-          log_(std::move(log)) {}
+        : supermajority_checker_(supermajority_checker), log_(std::move(log)) {}
 
     bool ChainValidatorImpl::validateAndApply(
         rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
@@ -102,8 +101,8 @@ namespace iroha {
         std::shared_ptr<const shared_model::interface::Block> block,
         const iroha::LedgerState &ledger_state) const {
       log_->debug("validate block: height {}, hash {}",
-                 block->height(),
-                 block->hash().hex());
+                  block->height(),
+                  block->hash().hex());
 
       return validatePreviousHash(*block, ledger_state.top_block_info.top_hash)
           and validateHeight(*block, ledger_state.top_block_info.height)

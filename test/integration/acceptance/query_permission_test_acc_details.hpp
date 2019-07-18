@@ -15,7 +15,6 @@ using namespace common_constants;
 
 class QueryPermissionAccDetails final : public QueryPermissionTestBase {
  public:
-
   QueryPermissionAccDetails();
 
   /**

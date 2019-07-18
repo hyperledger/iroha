@@ -14,7 +14,6 @@ using namespace shared_model::interface::permissions;
 
 class QueryPermissionSignatories final : public QueryPermissionTestBase {
  public:
-
   QueryPermissionSignatories();
 
   /**
@@ -48,6 +47,5 @@ class QueryPermissionSignatories final : public QueryPermissionTestBase {
 
   std::vector<crypto::PublicKey> user_signatories_;
 };
-
 
 #endif /* QUERY_PERMISSION_TEST_SIGNATORIES_HPP_ */

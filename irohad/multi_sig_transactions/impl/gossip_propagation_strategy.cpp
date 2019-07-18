@@ -26,9 +26,8 @@ namespace iroha {
       : peer_factory(peer_factory),
         non_visited({}),
         emit_worker(emit_worker),
-        emitent(rxcpp::observable<>::interval(steady_clock::now(),
-                                              params.emission_period,
-                                              emit_worker)
+        emitent(rxcpp::observable<>::interval(
+                    steady_clock::now(), params.emission_period, emit_worker)
                     .map([this, params](int) {
                       PropagationData vec;
                       auto range = boost::irange(0u, params.amount_per_once);

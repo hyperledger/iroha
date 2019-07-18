@@ -7,8 +7,7 @@
 
 namespace iroha {
 
-  MstProcessor::MstProcessor(logger::LoggerPtr log)
-      : log_(std::move(log)) {}
+  MstProcessor::MstProcessor(logger::LoggerPtr log) : log_(std::move(log)) {}
 
   void MstProcessor::propagateBatch(const DataType &batch) {
     this->propagateBatchImpl(batch);
