@@ -15,8 +15,8 @@ param_descriptions = """
   <strong>Branch commit</strong> - Linux/gcc v5; Test: Smoke, Unit;<br />
   <strong>On open PR -</strong> Linux/gcc v5, MacOS/appleclang, Windows/msvc; Test: All; Coverage; Analysis: cppcheck, sonar, codestyle;<br />
   <strong>Commit in Open PR</strong> - Same as Branch commit<br />
-  <strong>Before merge to trunk</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; Build type: Debug when Release; useBTF=true<br />
-  <strong>Nightly build</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; Build type: Debug when Release; useBTF=true; sanitize<br />
+  <strong>Before merge to trunk</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true<br />
+  <strong>Nightly build</strong> - Linux/gcc v5 v7, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true; sanitize<br />
   <strong>Custom command</strong> - enter command below, Ex: build_type='Release'; testing=false;<br />
 </p>
 """
