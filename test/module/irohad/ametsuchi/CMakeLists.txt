@@ -55,6 +55,7 @@ target_link_libraries(postgres_executor_test
     framework_sql_query
     pg_connection_init
     test_logger
+    common_test_constants
     )
 
 addtest(postgres_query_executor_test postgres_query_executor_test.cpp)
