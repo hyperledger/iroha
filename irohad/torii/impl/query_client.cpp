@@ -5,6 +5,8 @@
 
 #include "torii/query_client.hpp"
 
+#include <grpc++/channel.h>
+#include <grpc++/grpc++.h>
 #include "network/impl/grpc_channel_builder.hpp"
 
 namespace torii_utils {
