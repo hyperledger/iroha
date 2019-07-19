@@ -210,6 +210,15 @@ namespace iroha {
         createDefaultAccount();
       }
 
+      void addAssetAndCheckError(const std::string &quantity,
+                                 CommandError::ErrorCodeType code) {
+        auto cmd = mock_command_factory->constructAddAssetQuantity(
+            asset_id, shared_model::interface::Amount{quantity});
+        auto result = execute(*cmd, true);
+        std::vector<std::string> query_args{account_id, quantity, asset_id};
+        CHECK_ERROR_CODE_AND_MESSAGE(result, code, query_args);
+      }
+
       shared_model::interface::types::AssetIdType asset_id =
           "coin#" + domain_id;
     };
@@ -344,8 +353,9 @@ namespace iroha {
      * @given a user with all required permissions having the maximum allowed
      * quantity of an asset with precision 1
      * @when execute a tx with AddAssetQuantity command for that asset with the
-     * smallest possible quantity
-     * @then the last transaction is not committed
+     * smallest possible quantity with the same precision and then with a lower
+     * precision
+     * @then the last two transactions are not committed
      */
     TEST_F(AddAccountAssetTest, DestOverflowPrecision1) {
       addAsset();
@@ -354,20 +364,17 @@ namespace iroha {
           asset_id, kAmountPrec1Max);
       CHECK_SUCCESSFUL_RESULT(execute(*add_max, true));
 
-      auto add_min = mock_command_factory->constructAddAssetQuantity(
-          asset_id, shared_model::interface::Amount{"0.1"});
-      auto cmd_result = execute(*add_min, true);
-
-      std::vector<std::string> query_args{account_id, "0.1", asset_id};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+      addAssetAndCheckError("0.1", 4);
+      addAssetAndCheckError("1", 4);
     }
 
     /**
      * @given a user with all required permissions having the maximum allowed
      * quantity of an asset with precision 2
      * @when execute a tx with AddAssetQuantity command for that asset with the
-     * smallest possible quantity
-     * @then the last transaction is not committed
+     * smallest possible quantity with the same precision and then with a lower
+     * precision
+     * @then the last two transactions are not committed
      */
     TEST_F(AddAccountAssetTest, DestOverflowPrecision2) {
       addAsset("coin", domain_id, 2);
@@ -376,12 +383,8 @@ namespace iroha {
           asset_id, kAmountPrec2Max);
       CHECK_SUCCESSFUL_RESULT(execute(*add_max, true));
 
-      auto add_min = mock_command_factory->constructAddAssetQuantity(
-          asset_id, shared_model::interface::Amount{"0.01"});
-      auto cmd_result = execute(*add_min, true);
-
-      std::vector<std::string> query_args{account_id, "0.01", asset_id};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+      addAssetAndCheckError("0.01", 4);
+      addAssetAndCheckError("0.1", 4);
     }
 
     class AddPeer : public CommandExecutorTest {
@@ -1871,6 +1874,21 @@ namespace iroha {
       }
 
      public:
+      using Amount = shared_model::interface::Amount;
+
+      void transferAndCheckError(const std::string &from,
+                                 const std::string &to,
+                                 const std::string &quantity,
+                                 CommandError::ErrorCodeType code) {
+        static const std::string tx_description("some description");
+        auto cmd = mock_command_factory->constructTransferAsset(
+            from, to, asset_id, tx_description, Amount{quantity});
+        auto result = execute(*cmd, true);
+        std::vector<std::string> query_args{
+            from, to, asset_id, quantity, quantity};
+        CHECK_ERROR_CODE_AND_MESSAGE(result, code, query_args);
+      }
+
       shared_model::interface::types::AssetIdType asset_id =
           "coin#" + domain_id;
       shared_model::interface::types::AccountIdType account2_id;
@@ -2079,28 +2097,19 @@ namespace iroha {
     TEST_F(TransferAccountAssetTest, DestOverflowPrecision1) {
       addAllPerms();
       addAllPerms(account2_id, "all2");
-      shared_model::interface::Amount smallest_qty{"0.1"};
       addAsset();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
-                      asset_id, smallest_qty),
+                      asset_id, Amount{"10"}),
                   true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, kAmountPrec1Max),
                   false,
                   account2_id));
-      auto cmd_result = execute(
-          *mock_command_factory->constructTransferAsset(
-              account_id, account2_id, asset_id, "tx smallest", smallest_qty),
-          true);
 
-      std::vector<std::string> query_args{account_id,
-                                          account2_id,
-                                          asset_id,
-                                          smallest_qty.toStringRepr(),
-                                          "1"};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 7, query_args);
+      transferAndCheckError(account_id, account2_id, "0.1", 7);
+      transferAndCheckError(account_id, account2_id, "1", 7);
     }
 
     /**
@@ -2108,33 +2117,24 @@ namespace iroha {
      * allowed quantity of an asset with precision 2
      * @when execute a tx from another user with TransferAsset command for that
      * asset with the smallest possible quantity
-     * @then that transaction is not committed
+     * @then last 2 transactions are not committed
      */
     TEST_F(TransferAccountAssetTest, DestOverflowPrecision2) {
       addAllPerms();
       addAllPerms(account2_id, "all2");
-      shared_model::interface::Amount smallest_qty{"0.01"};
       addAsset("coin", domain_id, 2);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
-                      asset_id, smallest_qty),
+                      asset_id, Amount{"1.0"}),
                   true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, kAmountPrec2Max),
                   false,
                   account2_id));
-      auto cmd_result = execute(
-          *mock_command_factory->constructTransferAsset(
-              account_id, account2_id, asset_id, "tx smallest", smallest_qty),
-          true);
 
-      std::vector<std::string> query_args{account_id,
-                                          account2_id,
-                                          asset_id,
-                                          smallest_qty.toStringRepr(),
-                                          "1"};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 7, query_args);
+      transferAndCheckError(account_id, account2_id, "0.01", 7);
+      transferAndCheckError(account_id, account2_id, "0.1", 7);
     }
 
     class CompareAndSetAccountDetail : public CommandExecutorTest {
