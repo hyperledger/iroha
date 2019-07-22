@@ -26,4 +26,3 @@ def get_system_peers_query():
     query = iroha.query('GetPeers', creator_account=alice['id'])
     irohalib.IrohaCrypto.sign_query(query, alice['key'])
     return query
-    
