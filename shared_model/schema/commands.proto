@@ -16,6 +16,10 @@ message AddPeer {
     Peer peer = 1;
 }
 
+message RemovePeer {
+    string public_key = 1; // hex string
+}
+
 message AddSignatory {
     string account_id = 1;
     string public_key = 2; // hex string
@@ -110,5 +114,6 @@ message Command {
         SetAccountQuorum set_account_quorum = 14;
         SubtractAssetQuantity subtract_asset_quantity = 15;
         TransferAsset transfer_asset = 16;
+        RemovePeer remove_peer = 17;
     }
 }

@@ -22,6 +22,7 @@ namespace shared_model {
     class CreateRole;
     class DetachRole;
     class GrantPermission;
+    class RemovePeer;
     class RemoveSignatory;
     class RevokePermission;
     class SetAccountDetail;
@@ -97,6 +98,9 @@ namespace iroha {
 
       virtual CommandResult operator()(
           const shared_model::interface::GrantPermission &command) = 0;
+
+      virtual CommandResult operator()(
+          const shared_model::interface::RemovePeer &command) = 0;
 
       virtual CommandResult operator()(
           const shared_model::interface::RemoveSignatory &command) = 0;

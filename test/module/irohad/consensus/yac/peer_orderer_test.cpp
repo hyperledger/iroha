@@ -48,7 +48,7 @@ class YacPeerOrdererTest : public ::testing::Test {
       auto peer = makePeer(
           std::to_string(i),
           shared_model::interface::types::PubkeyType(std::string(32, '0')));
-      result.push_back(peer);
+      result.push_back(std::move(peer));
     }
     return result;
   }();
@@ -59,7 +59,7 @@ class YacPeerOrdererTest : public ::testing::Test {
       auto tmp = iroha::consensus::yac::makePeer(std::to_string(i));
       auto peer = makePeer(tmp->address(), tmp->pubkey());
 
-      result.emplace_back(peer);
+      result.emplace_back(std::move(peer));
     }
     return result;
   }();
