@@ -45,6 +45,17 @@ namespace shared_model {
           });
     }
 
+    MockCommandFactory::FactoryResult<MockRemovePeer>
+    MockCommandFactory::constructRemovePeer(
+        const types::PubkeyType &pubkey) const {
+      return createFactoryResult<MockRemovePeer>(
+          [&pubkey](FactoryResult<MockRemovePeer> specific_cmd_mock) {
+            ON_CALL(*specific_cmd_mock, pubkey())
+                .WillByDefault(ReturnRefOfCopy(pubkey));
+            return specific_cmd_mock;
+          });
+    }
+
     MockCommandFactory::FactoryResult<MockAddSignatory>
     MockCommandFactory::constructAddSignatory(
         const types::PubkeyType &pubkey,

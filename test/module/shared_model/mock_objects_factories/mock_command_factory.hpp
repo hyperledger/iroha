@@ -32,6 +32,14 @@ namespace shared_model {
       FactoryResult<MockAddPeer> constructAddPeer(const Peer &peer) const;
 
       /**
+       * Construct a mocked RemovePeer
+       * @param pubkey to be in that command
+       * @return pointer to the created command
+       */
+      FactoryResult<MockRemovePeer> constructRemovePeer(
+          const types::PubkeyType &pubkey) const;
+
+      /**
        * Construct a mocked AddSignatory
        * @param pubkey to be in that command
        * @param account_id to be in that command

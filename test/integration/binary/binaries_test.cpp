@@ -66,6 +66,11 @@ TYPED_TEST(BinaryTestFixture, can_add_peer) {
   this->doTest(2);
 }
 
+// TODO lebdron 2019-07-22: IR-587 Enable can_remove_peer test
+TYPED_TEST(BinaryTestFixture, DISABLED_can_remove_peer) {
+  this->doTest(2);
+}
+
 TYPED_TEST(BinaryTestFixture, can_create_role) {
   this->doTest(2);
 }

@@ -20,6 +20,7 @@
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
@@ -44,6 +45,10 @@ namespace shared_model {
 
     struct MockAddPeer : public shared_model::interface::AddPeer {
       MOCK_CONST_METHOD0(peer, const Peer &());
+    };
+
+    struct MockRemovePeer : public shared_model::interface::RemovePeer {
+      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
     };
 
     struct MockAddSignatory : public shared_model::interface::AddSignatory {

@@ -20,6 +20,7 @@
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
@@ -153,6 +154,15 @@ namespace shared_model {
 
         validator_.validateAccountId(reason, gp.accountId());
         validator_.validateGrantablePermission(reason, gp.permissionName());
+
+        return reason;
+      }
+
+      ReasonsGroupType operator()(const interface::RemovePeer &rp) const {
+        ReasonsGroupType reason;
+        addInvalidCommand(reason, "RemovePeer");
+
+        validator_.validatePubkey(reason, rp.pubkey());
 
         return reason;
       }

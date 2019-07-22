@@ -85,6 +85,9 @@ List of Permissions
     * - `can_add_peer`_ 
       - Peer
       - Command
+    * - `can_remove_peer`_ 
+      - Peer
+      - Command
     * - `can_append_role`_ 
       - Role
       - Command
@@ -519,6 +522,25 @@ A new peer will be a valid participant in the next `consensus <../core_concepts/
     :language: python
     :linenos:
     :lines: 10-34
+
+can_remove_peer
+^^^^^^^^^^^^^^^
+
+Allows removing `peers <../core_concepts/glossary.html#peer>`__ from the network.
+
+Removed peer will not participate in the next `consensus <../core_concepts/glossary.html#consensus>`__ round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "removePeer" `command <../core_concepts/glossary.html#command>`__.
+
+| Related API method: `Remove Peer <../api/commands.html#remove-peer>`__
+
+**Example**
+
+| Admin creates domain that contains only can_remove_peer permission and Alice account in that domain. Admin adds a second peer. Alice can remove existing peers.
+|
+
+.. literalinclude:: ../../../example/python/permissions/can_remove_peer.py
+    :language: python
+    :linenos:
+    :lines: 10-37
 
 Role
 ----

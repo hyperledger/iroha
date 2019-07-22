@@ -81,7 +81,7 @@ namespace iroha {
        * @param result to be checked
        */
 #define CHECK_SUCCESSFUL_RESULT(result) \
-  { ASSERT_TRUE(val(result)); }
+  { ASSERT_TRUE(val(result)) << err(result)->error; }
 
       /**
        * Check that command result contains specific error code and error
@@ -399,6 +399,107 @@ namespace iroha {
 
       std::vector<std::string> query_args{peer->toString()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+    }
+
+    class RemovePeer : public CommandExecutorTest {
+     public:
+      void SetUp() override {
+        CommandExecutorTest::SetUp();
+        peer = makePeer("address",
+                        shared_model::interface::types::PubkeyType{"pubkey"});
+        another_peer = makePeer(
+            "another_address",
+            shared_model::interface::types::PubkeyType{"another_pubkey"});
+        createDefaultRole();
+        createDefaultDomain();
+        createDefaultAccount();
+        CHECK_SUCCESSFUL_RESULT(
+            execute(*mock_command_factory->constructAddPeer(*peer), true));
+      }
+
+      std::unique_ptr<MockPeer> peer, another_peer;
+    };
+
+    /**
+     * @given command
+     * @when trying to remove peer
+     * @then peer is successfully removed
+     */
+    TEST_F(RemovePeer, Valid) {
+      addAllPerms();
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructAddPeer(*another_peer), true));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+
+      auto peers = wsv_query->getPeers();
+      ASSERT_TRUE(peers);
+      ASSERT_TRUE(std::find_if(peers->begin(),
+                               peers->end(),
+                               [this](const auto &peer) {
+                                 return this->peer->address() == peer->address()
+                                     and this->peer->pubkey() == peer->pubkey();
+                               })
+                  == peers->end());
+    }
+
+    /**
+     * @given command
+     * @when trying to remove peer without perms
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPerms) {
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructAddPeer(*another_peer), true));
+      auto cmd_result =
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+
+      std::vector<std::string> query_args{peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove nonexistent peer
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPeer) {
+      addAllPerms();
+      auto cmd_result = execute(
+          *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
+
+      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove nonexistent peer without validation
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPeerWithoutValidation) {
+      addAllPerms();
+      auto cmd_result = execute(
+          *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
+          true);
+
+      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove the only peer in the list
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, LastPeer) {
+      addAllPerms();
+      auto cmd_result =
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+
+      std::vector<std::string> query_args{peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
     class AddSignatory : public CommandExecutorTest {

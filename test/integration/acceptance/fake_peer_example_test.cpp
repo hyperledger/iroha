@@ -3,19 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ametsuchi/impl/storage_impl.hpp"
-#include "backend/protobuf/proto_proposal_factory.hpp"
+#include "integration/acceptance/fake_peer_fixture.hpp"
+
 #include "consensus/yac/vote_message.hpp"
-#include "datetime/time.hpp"
+#include "consensus/yac/yac_hash_provider.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
-#include "framework/integration_framework/fake_peer/fake_peer.hpp"
-#include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"
-#include "integration/acceptance/acceptance_fixture.hpp"
-#include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
-#include "module/shared_model/validators/validators.hpp"
 
 using namespace common_constants;
 using namespace shared_model;
@@ -28,57 +23,6 @@ using ::testing::Invoke;
 static constexpr std::chrono::seconds kMstStateWaitingTime(20);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
-class FakePeerExampleFixture : public AcceptanceFixture {
- public:
-  using FakePeer = fake_peer::FakePeer;
-
-  std::unique_ptr<IntegrationTestFramework> itf_;
-
-  /**
-   * Create honest fake iroha peers
-   *
-   * @param num_fake_peers - the amount of fake peers to create
-   */
-  void createFakePeers(size_t num_fake_peers) {
-    fake_peers_ = itf_->addFakePeers(num_fake_peers);
-  }
-
-  /**
-   * Prepare state of ledger:
-   * - create account of target user
-   * - add assets to admin
-   *
-   * @return reference to ITF
-   */
-  IntegrationTestFramework &prepareState() {
-    itf_->setGenesisBlock(itf_->defaultBlock()).subscribeQueuesAndRun();
-
-    // inside prepareState we can use lambda for such assert, since
-    // prepare transactions are not going to fail
-    auto block_with_tx = [](auto &block) {
-      ASSERT_EQ(block->transactions().size(), 1);
-    };
-
-    auto permissions =
-        interface::RolePermissionSet({Role::kReceive, Role::kTransfer});
-
-    return itf_->sendTxAwait(makeUserWithPerms(permissions), block_with_tx)
-        .sendTxAwait(
-            complete(baseTx(kAdminId).addAssetQuantity(kAssetId, "20000.0"),
-                     kAdminKeypair),
-            block_with_tx);
-  }
-
- protected:
-  void SetUp() override {
-    itf_ =
-        std::make_unique<IntegrationTestFramework>(1, boost::none, true, true);
-    itf_->initPipeline(kAdminKeypair);
-  }
-
-  std::vector<std::shared_ptr<FakePeer>> fake_peers_;
-};
-
 /**
  * Check that after sending a not fully signed transaction, an MST state
  * propagates to another peer
@@ -86,7 +30,7 @@ class FakePeerExampleFixture : public AcceptanceFixture {
  * @when such transaction is sent to one of two iroha peers in the network
  * @then that peer propagates MST state to another peer
  */
-TEST_F(FakePeerExampleFixture,
+TEST_F(FakePeerFixture,
        MstStateOfTransactionWithoutAllSignaturesPropagtesToOtherPeer) {
   createFakePeers(1);
   auto &itf = prepareState();
@@ -121,7 +65,7 @@ TEST_F(FakePeerExampleFixture,
  * @when the irohad needs to synchronize
  * @then it refuses the malicious fork and applies the valid one
  */
-TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
+TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
   constexpr size_t num_bad_peers = 3;  ///< bad fake peers - the ones
                                        ///< creating a malicious fork
   // the real peer is added to the bad peers as they once are failing together
@@ -301,8 +245,7 @@ TEST_F(FakePeerExampleFixture, SynchronizeTheRightVersionOfForkedLedger) {
  * @when fake peer provides a proposal with valid tx
  * @then the real peer must commit the transaction from that proposal
  */
-TEST_F(FakePeerExampleFixture,
-       OnDemandOrderingProposalAfterValidCommandReceived) {
+TEST_F(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
   // Create the tx:
   const auto tx = complete(
       baseTx(kAdminId).transferAsset(kAdminId, kUserId, kAssetId, "tx1", "1.0"),
