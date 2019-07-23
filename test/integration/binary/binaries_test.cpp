@@ -203,3 +203,7 @@ TYPED_TEST(BinaryTestFixture, can_get_all_txs) {
 TYPED_TEST(BinaryTestFixture, can_get_my_txs) {
   this->template doTest<TransactionsResponse>(3, 1);
 }
+
+TYPED_TEST(BinaryTestFixture, can_get_peers) {
+  this->template doTest<PeersResponse>(1, 1);
+}
