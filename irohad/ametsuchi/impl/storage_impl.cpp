@@ -222,13 +222,9 @@ namespace iroha {
       std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
       log_->info("Drop database {}", postgres_options_->workingDbName());
       freeConnections();
-      soci::session sql(*soci::factory_postgresql(),
-                        postgres_options_->maintenanceConnectionString());
-      // perform dropping
-      try {
-        sql << "DROP DATABASE " + postgres_options_->workingDbName();
-      } catch (std::exception &e) {
-        log_->warn("Drop database was failed. Reason: {}", e.what());
+      if (auto e = expected::resultToOptionalError(
+              PgConnectionInit::dropWorkingDatabase(*postgres_options_))) {
+        log_->warn(e.value());
       }
 
       // erase blocks
