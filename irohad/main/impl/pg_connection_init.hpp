@@ -45,6 +45,21 @@ namespace iroha {
       static iroha::expected::Result<void, std::string> rollbackPrepared(
           soci::session &sql, const std::string &prepared_block_name);
 
+      /*
+       * Check whether working database exists.
+       * @param pg_opt Database options.
+       * @return Result of bool that is true if the database exists and false
+       * otherwise, or error message if check has failed.
+       */
+      static expected::Result<bool, std::string> checkIfWorkingDatabaseExists(
+          const PostgresOptions &pg_opt);
+
+      /*
+       * Create working database if it does not exist.
+       * @param pg_opt Database options.
+       * @return Result of bool that is true if the database was creates and
+       * false otherwise, or error message if something has gone wrong.
+       */
       static expected::Result<bool, std::string> createDatabaseIfNotExist(
           const PostgresOptions &pg_opt);
 
