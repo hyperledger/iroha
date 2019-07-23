@@ -121,16 +121,6 @@ namespace iroha {
           const shared_model::interface::Query &query) const;
 
       /**
-       * A result type that provides expected specific query response that
-       * corresponds to some specific query, or a general response wrapper if
-       * the appropriate specific response could not be extracted.
-       */
-      template <typename ExpectedSpecificQueryResult>
-      using SpecificQueryResult =
-          iroha::expected::Result<std::unique_ptr<ExpectedSpecificQueryResult>,
-                                  ametsuchi::QueryExecutorResult>;
-
-      /**
        * Execute a query as account.
        * @tparam SpecificQuery The interface type of executed specific query.
        * @param query The query to execute.
@@ -140,15 +130,15 @@ namespace iroha {
        * @return Result of query execution.
        */
       template <typename SpecificQuery,
-                typename ExpectedReturnType =
-                    detail::GetSpecificQueryResponse<SpecificQuery>>
-      SpecificQueryResult<ExpectedReturnType> executeQuery(
+                typename = std::enable_if_t<detail::isSpecificQuery<
+                    detail::InterfaceQuery<SpecificQuery>>>>
+      iroha::ametsuchi::QueryExecutorResult executeQuery(
           const SpecificQuery &specific_query,
           const std::string &account_id,
           boost::optional<shared_model::interface::types::CounterType>
-              query_counter) {
+              query_counter = boost::none) {
         shared_model::interface::Query::QueryVariantType variant{
-            specific_query};
+            detail::getInterfaceQueryRef(specific_query)};
         shared_model::interface::MockQuery query;
         EXPECT_CALL(query, get()).WillRepeatedly(::testing::ReturnRef(variant));
         EXPECT_CALL(query, creatorAccountId())
@@ -163,35 +153,7 @@ namespace iroha {
         EXPECT_CALL(query, hash())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
                 shared_model::interface::types::HashType{query.toString()}));
-        return detail::convertToSpecificQueryResponse<ExpectedReturnType>(
-            executeQuery(query));
-      }
-
-      /**
-       * Execute a query as account.
-       * @tparam T The type of executed specific query that has the member type
-       * ModelType of the corresponding interface specific query.
-       * @param query The query to execute.
-       * @param account_id The issuer account id.
-       * @param query_counter The value to set to query counter field. If
-       * boost::none provided, the built-in query counter value will be used.
-       * @return Result of query execution.
-       */
-      template <
-          typename T,
-          typename SpecificQuery = typename T::ModelType,
-          typename ExpectedReturnType =
-              detail::GetSpecificQueryResponse<SpecificQuery>,
-          typename = std::enable_if_t<detail::isSpecificQuery<SpecificQuery>>>
-      SpecificQueryResult<ExpectedReturnType> executeQuery(
-          const T &specific_query,
-          const std::string &account_id,
-          boost::optional<shared_model::interface::types::CounterType>
-              query_counter) {
-        return executeQuery<SpecificQuery, ExpectedReturnType>(
-            static_cast<const SpecificQuery &>(specific_query),
-            account_id,
-            query_counter);
+        return executeQuery(query);
       }
 
       /**
@@ -207,6 +169,45 @@ namespace iroha {
                        shared_model::interface::types::CounterType{})) {
         return executeQuery(
             query, common_constants::kAdminId, ++query_counter_);
+      }
+
+      /**
+       * A struct that holds the general query response and provides the result
+       * of extraction of a specific response from it.
+       */
+      template <typename SpecificQueryResponse>
+      struct SpecificQueryResult {
+        SpecificQueryResult(
+            iroha::ametsuchi::QueryExecutorResult &&query_response)
+            : wrapped_response(std::move(query_response)),
+              specific_response(
+                  detail::convertToSpecificQueryResponse<SpecificQueryResponse>(
+                      wrapped_response)) {}
+
+        iroha::ametsuchi::QueryExecutorResult wrapped_response;
+        iroha::expected::Result<const SpecificQueryResponse &,
+                                iroha::ametsuchi::QueryExecutorResult &>
+            specific_response;
+      };
+
+      /**
+       * Execute a query as account and try to convert the result to appropriate
+       * type.
+       * @param query The query to execute.
+       * @param account_id The issuer account id.
+       * @param query_counter The value to set to query counter field. If
+       * boost::none provided, the built-in query counter value will be used.
+       * @return Result of query execution.
+       */
+      template <typename T,
+                typename SpecificQuery = detail::InterfaceQuery<T>,
+                typename ExpectedReturnType =
+                    detail::GetSpecificQueryResponse<SpecificQuery>,
+                typename... Types>
+      SpecificQueryResult<ExpectedReturnType> executeQueryAndConvertResult(
+          const T &specific_query, Types &&... args) {
+        return SpecificQueryResult<ExpectedReturnType>(
+            executeQuery(specific_query, std::forward<Types>(args)...));
       }
 
       // -------------- mock command and query factories getters ---------------

@@ -83,6 +83,21 @@ namespace iroha {
           shared_model::interface::Query::QueryVariantType::types,
           const std::decay_t<T> &>::type::value;
 
+      template <typename T>
+      std::enable_if_t<isSpecificQuery<T>, const T &> getInterfaceQueryRef(
+          const T &query) {
+        return query;
+      }
+
+      template <typename T, typename SpecificQuery = typename T::ModelType>
+      std::enable_if_t<isSpecificQuery<SpecificQuery>, const SpecificQuery &>
+      getInterfaceQueryRef(const T &query) {
+        return static_cast<const SpecificQuery &>(query);
+      }
+
+      template <typename T>
+      using InterfaceQuery = decltype(getInterfaceQueryRef(std::declval<T>()));
+
       /// response for specific query
       template <typename SpecificQuery,
                 typename = std::enable_if_t<isSpecificQuery<SpecificQuery>>>
@@ -99,23 +114,21 @@ namespace iroha {
        * response if not.
        */
       template <typename SpecificQueryResponse>
-      iroha::expected::Result<std::unique_ptr<SpecificQueryResponse>,
-                              iroha::ametsuchi::QueryExecutorResult>
+      iroha::expected::Result<const SpecificQueryResponse &,
+                              iroha::ametsuchi::QueryExecutorResult &>
       convertToSpecificQueryResponse(
-          iroha::ametsuchi::QueryExecutorResult &&query_result) {
+          iroha::ametsuchi::QueryExecutorResult &query_result) {
         if (auto specific_query_response =
                 boost::strict_get<const SpecificQueryResponse &>(
                     &query_result->get())) {
-          // TODO: refactor with specific QueryResponse mocks to avoid using
-          // proto implementations
-          return iroha::expected::makeValue(
-              std::unique_ptr<SpecificQueryResponse>(
-                  clone(specific_query_response)));
+          return iroha::expected::makeValue<const SpecificQueryResponse &>(
+              *specific_query_response);
         }
-        return iroha::expected::makeError(std::move(query_result));
+        return iroha::expected::makeError<
+            iroha::ametsuchi::QueryExecutorResult &>(query_result);
       }
-    }
-  }  // namespace integration_framework
+    }  // namespace detail
+  }    // namespace integration_framework
 }  // namespace iroha
 
 #endif  // IROHA_TEST_FRAMEWORK_EXECUTOR_ITF_HELPER_HPP
