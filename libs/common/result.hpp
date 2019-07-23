@@ -233,7 +233,7 @@ namespace iroha {
         typename std::enable_if_t<
             not isResult<Transformed> and not isValue<Transformed>>> {
       using ReturnType = Result<Transformed, ErrorType>;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return makeValue(std::move(result));
       }
     };
@@ -244,7 +244,7 @@ namespace iroha {
                           ErrorType,
                           std::enable_if_t<isResult<Transformed>>> {
       using ReturnType = Transformed;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return std::move(result);
       }
     };
@@ -255,7 +255,7 @@ namespace iroha {
                           ErrorType,
                           std::enable_if_t<isValue<Transformed>>> {
       using ReturnType = Result<typename Transformed::type, ErrorType>;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return std::move(result);
       }
     };
@@ -290,7 +290,7 @@ namespace iroha {
     constexpr auto operator|(const Result<V, E> &r, Transform &&f)
         -> ReturnType {
       return r.match(
-          [&f](const auto &v) { return TypeHelper::makeVaule(f(v.value)); },
+          [&f](const auto &v) { return TypeHelper::makeValue(f(v.value)); },
           [](const auto &e) { return ReturnType(makeError(e.error)); });
     }
 
@@ -304,7 +304,7 @@ namespace iroha {
       static_assert(isResult<ReturnType>, "wrong return_type");
       return std::move(r).match(
           [&f](auto &&v) {
-            return TypeHelper::makeVaule(f(std::move(v.value)));
+            return TypeHelper::makeValue(f(std::move(v.value)));
           },
           [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
     }
@@ -327,7 +327,7 @@ namespace iroha {
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 ReturnType>::type {
       return r.match(
-          [&f](const Value<T> &v) { return TypeHelper::makeVaule(f()); },
+          [&f](const Value<T> &v) { return TypeHelper::makeValue(f()); },
           [](const Error<E> &e) { return ReturnType(makeError(e.error)); });
     }
 
@@ -342,7 +342,7 @@ namespace iroha {
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
                                 ReturnType>::type {
       return std::move(r).match(
-          [&f](const auto &) { return TypeHelper::makeVaule(f()); },
+          [&f](const auto &) { return TypeHelper::makeValue(f()); },
           [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
     }
 
