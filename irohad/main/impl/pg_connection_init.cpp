@@ -324,6 +324,20 @@ iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
   return expected::Value<void>();
 }
 
+iroha::expected::Result<void, std::string>
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) {
+  soci::session sql(*soci::factory_postgresql(),
+                    options.maintenanceConnectionString());
+  try {
+    sql << "DROP DATABASE " + options.workingDbName();
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(
+        std::string{"Failed to drop working database: "}
+        + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}
+
 iroha::expected::Result<void, std::string> PgConnectionInit::resetPeers(
     soci::session &sql) {
   try {
