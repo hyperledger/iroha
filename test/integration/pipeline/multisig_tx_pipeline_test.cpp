@@ -286,11 +286,16 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
   auto pending_tx = baseTx()
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
+  auto user_tx = complete(pending_tx, kUserKeypair);
 
   auto &mst_itf = prepareMstItf();
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendTx(complete(pending_tx, signatories[1]))
-      .sendTx(complete(pending_tx, kUserKeypair))
+      .sendTx(user_tx)
+      .checkProposal([&user_tx](auto &proposal) {
+        ASSERT_EQ(proposal->transactions().size(), 1);
+        ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
+      })
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -314,9 +319,11 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
                              .finish();
 
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair),
-                 oldSignatoryCheck(1))
       .sendTx(fully_signed_tx)
+      .checkProposal([&fully_signed_tx](auto &proposal) {
+        ASSERT_EQ(proposal->transactions().size(), 1);
+        ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
+      })
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -383,11 +390,16 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
   auto pending_tx = baseTx()
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
+  auto user_tx = complete(pending_tx, kUserKeypair);
 
   auto &mst_itf = prepareMstItf();
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
       .sendTx(complete(pending_tx, signatories[1]))
-      .sendTx(complete(pending_tx, kUserKeypair))
+      .sendTx(user_tx)
+      .checkProposal([&user_tx](auto &proposal) {
+        ASSERT_EQ(proposal->transactions().size(), 1);
+        ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
+      })
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }
@@ -411,9 +423,11 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
                              .finish();
 
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
-                 signatoryCheck(1))
       .sendTx(fully_signed_tx)
+      .checkProposal([&fully_signed_tx](auto &proposal) {
+        ASSERT_EQ(proposal->transactions().size(), 1);
+        ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
+      })
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }

@@ -184,6 +184,9 @@ List of Permissions
     * - `can_get_my_txs`_ 
       - Transaction
       - Query
+    * - `can_get_peers`_ 
+      - Peer
+      - Query
 
 Command-related permissions
 ===========================
@@ -1163,6 +1166,26 @@ Allows getting `transaction <../core_concepts/glossary.html#transaction>`__ (tha
     :language: python
     :linenos:
     :lines: 11-62
+
+Peer
+----
+
+can_get_peers
+^^^^^^^^^^^^^
+
+Allows to request the list of `peers <../core_concepts/glossary.html#peer>`__ in the Iroha network.
+
+| Related API method: `Get Peers <../api/queries.html#get-peers>`__
+
+**Example**
+
+| Admin creates Alice account in any domain that has can_get_peers. Alice can now request the list of peers in the system. 
+|
+
+.. literalinclude:: ../../../example/python/permissions/can_get_peers.py
+    :language: python
+    :linenos:
+    :lines: 10-28
 
 Supplementary Sources
 =====================
