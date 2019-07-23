@@ -20,16 +20,16 @@ namespace iroha {
     };
 
     class TransactionExecutor {
-      public:
-       explicit TransactionExecutor(
-           std::shared_ptr<CommandExecutor> command_executor);
+     public:
+      explicit TransactionExecutor(
+          std::shared_ptr<CommandExecutor> command_executor);
 
-       iroha::expected::Result<void, TxExecutionError> execute(
-           const shared_model::interface::Transaction &transaction,
-           bool do_validation) const;
+      iroha::expected::Result<void, TxExecutionError> execute(
+          const shared_model::interface::Transaction &transaction,
+          bool do_validation) const;
 
-      private:
-       std::shared_ptr<CommandExecutor> command_executor_;
+     private:
+      std::shared_ptr<CommandExecutor> command_executor_;
     };
 
   }  // namespace ametsuchi

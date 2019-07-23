@@ -5,6 +5,7 @@
 
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 
+#include "backend/plain/signature.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
@@ -13,10 +14,8 @@ namespace iroha {
   namespace consensus {
     namespace yac {
       CryptoProviderImpl::CryptoProviderImpl(
-          const shared_model::crypto::Keypair &keypair,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory)
-          : keypair_(keypair), factory_(std::move(factory)) {}
+          const shared_model::crypto::Keypair &keypair)
+          : keypair_(keypair) {}
 
       bool CryptoProviderImpl::verify(const std::vector<VoteMessage> &msg) {
         return std::all_of(
@@ -45,9 +44,8 @@ namespace iroha {
 
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote
-        factory_->createSignature(pubkey, signature)
-            .match([&](auto &&sig) { vote.signature = std::move(sig.value); },
-                   [](const auto &) {});
+        vote.signature =
+            std::make_shared<shared_model::plain::Signature>(signature, pubkey);
 
         return vote;
       }

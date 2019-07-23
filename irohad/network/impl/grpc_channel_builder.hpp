@@ -19,17 +19,16 @@ namespace iroha {
      * @return gRPC stub of parametrized type
      */
     template <typename T>
-    auto createClient(const grpc::string& address) {
+    auto createClient(const grpc::string &address) {
       // in order to bypass built-in limitation of gRPC message size
       grpc::ChannelArguments args;
       args.SetMaxSendMessageSize(INT_MAX);
       args.SetMaxReceiveMessageSize(INT_MAX);
 
-      return
-          T::NewStub(grpc::CreateCustomChannel(
-              address, grpc::InsecureChannelCredentials(), args));
+      return T::NewStub(grpc::CreateCustomChannel(
+          address, grpc::InsecureChannelCredentials(), args));
     }
-  } // namespace network
-} // namespace iroha
+  }  // namespace network
+}  // namespace iroha
 
 #endif  // IROHA_GRPC_CHANNEL_BUILDER_HPP

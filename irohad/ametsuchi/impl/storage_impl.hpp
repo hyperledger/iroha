@@ -21,7 +21,6 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
 #include "common/result.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "logger/logger_fwd.hpp"
@@ -48,8 +47,6 @@ namespace iroha {
           std::string block_store_dir,
           std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
           PoolWrapper pool_wrapper,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
               converter,
           std::shared_ptr<shared_model::interface::PermissionToString>
@@ -119,8 +116,6 @@ namespace iroha {
                   std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
-                  std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-                      factory,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
                       converter,
                   std::shared_ptr<shared_model::interface::PermissionToString>
@@ -156,8 +151,6 @@ namespace iroha {
 
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;
-
-      std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
 
       rxcpp::composite_subscription notifier_lifetime_;
       rxcpp::subjects::subject<

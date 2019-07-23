@@ -13,7 +13,6 @@
 #include <boost/uuid/uuid_io.hpp>
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
-#include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/result.hpp"
@@ -46,12 +45,6 @@ class StorageInitTest : public ::testing::Test {
 
   std::string pg_opt_without_dbname_;
   std::string pgopt_;
-
-  std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
-      shared_model::validation::FieldValidator>>
-      factory = std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-          shared_model::validation::FieldValidator>>(
-          iroha::test::kTestsValidatorsConfig);
 
   std::shared_ptr<shared_model::proto::ProtoBlockJsonConverter> converter =
       std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
@@ -118,7 +111,6 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
   StorageImpl::create(block_store_path,
                       std::move(options),
                       std::move(pool_wrapper),
-                      factory,
                       converter,
                       perm_converter_,
                       std::move(block_storage_factory_),
@@ -146,7 +138,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
  */
 TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
   std::string pg_opt =
-      "host=localhost port=5432 user=nonexistinguser password=wrong dbname=test";
+      "host=localhost port=5432 user=nonexistinguser password=wrong "
+      "dbname=test";
 
   PostgresOptions options(pg_opt,
                           integration_framework::kDefaultWorkingDatabaseName,

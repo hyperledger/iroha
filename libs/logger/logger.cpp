@@ -13,4 +13,4 @@ namespace logger {
     return value ? "true" : "false";
   }
 
-}
+}  // namespace logger

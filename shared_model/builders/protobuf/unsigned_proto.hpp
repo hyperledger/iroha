@@ -32,9 +32,9 @@ namespace shared_model {
        */
       explicit UnsignedWrapper(const T &o) : object_(o) {}
 
-      explicit UnsignedWrapper(T &&o) : object_(std::move(o)) {}
+      explicit UnsignedWrapper(T && o) : object_(std::move(o)) {}
 
-      UnsignedWrapper(UnsignedWrapper<T> &&w)
+      UnsignedWrapper(UnsignedWrapper<T> && w)
           : object_(std::move(w.object_)),
             object_finalized_(w.object_finalized_) {
         w.object_finalized_ = true;

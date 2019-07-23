@@ -21,4 +21,4 @@ namespace iroha {
   }
 }  // namespace iroha
 
-#endif // IROHA_AMETSUCHI_COMMIT_RESULT_HPP
+#endif  // IROHA_AMETSUCHI_COMMIT_RESULT_HPP

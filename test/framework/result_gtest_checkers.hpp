@@ -41,8 +41,7 @@ namespace framework {
       }
 
       template <typename E>
-      std::string getValueMessage(const iroha::expected::Result<void, E> &r)
-      {
+      std::string getValueMessage(const iroha::expected::Result<void, E> &r) {
         return "void value";
       }
 
@@ -55,8 +54,7 @@ namespace framework {
       }
 
       template <typename V>
-      std::string getErrorMessage(const iroha::expected::Result<V, void> &r)
-      {
+      std::string getErrorMessage(const iroha::expected::Result<V, void> &r) {
         return "void error";
       }
     }  // namespace detail

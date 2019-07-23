@@ -12,7 +12,6 @@ namespace iroha {
   namespace network {
     class OrderingService : public network::OrderingServiceNotification {
      public:
-
       /**
        * Transform model proposal to transport object and send to peers
        * @param proposal - object for propagation

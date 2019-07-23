@@ -10,7 +10,6 @@
 
 #include <soci/soci.h>
 #include "ametsuchi/block_storage.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -30,8 +29,6 @@ namespace iroha {
               ledger_state,
           std::shared_ptr<TransactionExecutor> transaction_executor,
           std::unique_ptr<soci::session> sql,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory,
           std::unique_ptr<BlockStorage> block_storage,
           logger::LoggerManagerTreePtr log_manager);
 

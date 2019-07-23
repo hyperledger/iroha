@@ -8,8 +8,8 @@
 
 #include <ciso646>
 
-#include "utils/string_builder.hpp"
 #include "common/cloneable.hpp"
+#include "utils/string_builder.hpp"
 
 namespace shared_model {
   namespace interface {

@@ -11,7 +11,6 @@
 #include <boost/optional.hpp>
 
 namespace integration_framework {
-  extern const std::string kDefaultPostgresCreds;
   extern const std::string kDefaultWorkingDatabaseName;
 
   std::string getPostgresCredsOrDefault();

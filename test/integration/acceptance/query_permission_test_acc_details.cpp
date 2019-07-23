@@ -7,8 +7,8 @@
 
 #include <regex>
 
-#include "interfaces/query_responses/account_detail_response.hpp"
 #include "framework/common_constants.hpp"
+#include "interfaces/query_responses/account_detail_response.hpp"
 
 using namespace common_constants;
 

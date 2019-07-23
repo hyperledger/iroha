@@ -8,7 +8,7 @@ target_link_libraries(acceptance_fixture
     gtest::gtest
     gmock::gmock
     common_test_constants
-    shared_model_proto_builders
+    shared_model_default_builders
     )
 
 add_library(grantable_permissions_fixture
