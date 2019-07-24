@@ -308,7 +308,9 @@ TEST_F(BlockLoaderTest, NoBlocksInStorage) {
   EXPECT_CALL(*peer_query, getLedgerPeers())
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getBlock(1))
-      .WillOnce(Return(ByMove(iroha::expected::makeError("no block"))));
+      .WillOnce(
+          Return(ByMove(iroha::expected::makeError(BlockQuery::GetBlockError{
+              BlockQuery::GetBlockError::Code::kNoBlock, "no block"}))));
 
   auto block = loader->retrieveBlock(peer_key, 1);
   ASSERT_FALSE(block);

@@ -8,8 +8,6 @@
 
 #include <endpoint.grpc.pb.h>
 #include <endpoint.pb.h>
-#include <grpc++/channel.h>
-#include <grpc++/grpc++.h>
 #include <memory>
 #include <thread>
 
@@ -45,12 +43,13 @@ namespace torii_utils {
 
     std::string ip_;
     size_t port_;
-    std::unique_ptr<iroha::protocol::QueryService_v1::Stub> stub_;
+    std::unique_ptr<iroha::protocol::QueryService_v1::StubInterface> stub_;
   };
+
   /**
    * QueryAsyncClient
 
-  // Impelent here if we need this.
+  // Implement here if we need this.
 
   class QueryAsyncClient {
   };

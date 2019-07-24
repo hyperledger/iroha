@@ -13,6 +13,25 @@ using namespace iroha;
 using namespace iroha::ametsuchi;
 using namespace iroha::network;
 
+static grpc::Status handleGetBlockError(const BlockQuery::GetBlockError &error,
+                                        const logger::LoggerPtr &log) {
+  switch (error.code) {
+    case BlockQuery::GetBlockError::Code::kNoBlock:
+      log->error("Could not retrieve a block from block storage: {}",
+                 error.message);
+      return grpc::Status(grpc::StatusCode::NOT_FOUND, "No such block.");
+    default:
+      log->error("Unexpected GetBlockError code!");
+      assert(false);
+    case BlockQuery::GetBlockError::Code::kInternalError:
+      log->error("Could not retrieve a block from block storage: {}",
+                 error.message);
+      return grpc::Status(grpc::StatusCode::INTERNAL,
+                          std::string{"Internal error while retrieving block."}
+                              + error.message);
+  }
+}
+
 BlockLoaderService::BlockLoaderService(
     std::shared_ptr<BlockQueryFactory> block_query_factory,
     std::shared_ptr<iroha::consensus::ConsensusResultCache>
@@ -36,11 +55,8 @@ grpc::Status BlockLoaderService::retrieveBlocks(
   for (decltype(top_height) i = request->height(); i <= top_height; ++i) {
     auto block_result = (*block_query)->getBlock(i);
 
-    if (auto e = boost::get<expected::Error<std::string>>(&block_result)) {
-      log_->error("Could not retrieve a block from block storage: {}",
-                  e->error);
-      return grpc::Status(grpc::StatusCode::INTERNAL,
-                          "internal error happened");
+    if (auto e = expected::resultToOptionalError(block_result)) {
+      return handleGetBlockError(e.value(), log_);
     }
 
     auto &block =
@@ -97,9 +113,8 @@ grpc::Status BlockLoaderService::retrieveBlock(
 
   auto block_result = (*block_query)->getBlock(height);
 
-  if (auto e = boost::get<expected::Error<std::string>>(&block_result)) {
-    log_->error("Could not retrieve a block from block storage: {}", e->error);
-    return grpc::Status(grpc::StatusCode::INTERNAL, "internal error happened");
+  if (auto e = expected::resultToOptionalError(block_result)) {
+    return handleGetBlockError(e.value(), log_);
   }
 
   auto &block =

@@ -127,7 +127,9 @@ TEST_F(BlockQueryTest, GetNonExistentBlock) {
         FAIL() << "Nonexistent block request matched value "
                << v.value->toString();
       },
-      [](auto &&e) { SUCCEED(); });
+      [](auto &&e) {
+        EXPECT_EQ(e.error.code, BlockQuery::GetBlockError::Code::kNoBlock);
+      });
 }
 
 /**
@@ -140,8 +142,8 @@ TEST_F(BlockQueryTest, GetExactlyOneBlock) {
   auto stored_block = blocks->getBlock(1);
   stored_block.match([](auto &&v) { SUCCEED(); },
                      [](auto &&e) {
-                       FAIL() << "Existing block request matched error "
-                              << e.error;
+                       FAIL() << "Existing block request failed: "
+                              << e.error.message;
                      });
 }
 
@@ -158,7 +160,9 @@ TEST_F(BlockQueryTest, GetZeroBlock) {
         FAIL() << "Nonexistent block request matched value "
                << v.value->toString();
       },
-      [](auto &&e) { SUCCEED(); });
+      [](auto &&e) {
+        EXPECT_EQ(e.error.code, BlockQuery::GetBlockError::Code::kNoBlock);
+      });
 }
 
 /**
@@ -185,7 +189,10 @@ TEST_F(BlockQueryTest, GetBlockButItIsNotJSON) {
         FAIL() << "Nonexistent block request matched value "
                << v.value->toString();
       },
-      [](auto &&e) { SUCCEED(); });
+      [](auto &&e) {
+        EXPECT_EQ(e.error.code,
+                  BlockQuery::GetBlockError::Code::kInternalError);
+      });
 }
 
 /**
@@ -215,7 +222,10 @@ TEST_F(BlockQueryTest, GetBlockButItIsInvalidBlock) {
         FAIL() << "Nonexistent block request matched value "
                << v.value->toString();
       },
-      [](auto &&e) { SUCCEED(); });
+      [](auto &&e) {
+        EXPECT_EQ(e.error.code,
+                  BlockQuery::GetBlockError::Code::kInternalError);
+      });
 }
 
 /**
@@ -277,18 +287,16 @@ TEST_F(BlockQueryTest, GetTopBlockSuccess) {
 /**
  * @given empty block store
  * @when getTopBlock is invoked on this block store
- * @then result must be a string error, because no block was fetched
+ * @then result must be a kNoBlock error, because no block was fetched
  */
 TEST_F(BlockQueryTest, GetTopBlockFail) {
   EXPECT_CALL(*mock_file, last_id()).WillRepeatedly(Return(0));
   EXPECT_CALL(*mock_file, get(mock_file->last_id()))
       .WillOnce(Return(boost::none));
 
-  auto top_block_error = framework::expected::err(
+  auto top_block_error = iroha::expected::resultToOptionalError(
       empty_blocks->getBlock(empty_blocks->getTopBlockHeight()));
   ASSERT_TRUE(top_block_error);
-  auto expected_error =
-      boost::format("Failed to retrieve block with height %d");
-  ASSERT_EQ(top_block_error.value().error,
-            (expected_error % mock_file->last_id()).str());
+  ASSERT_EQ(top_block_error.value().code,
+            BlockQuery::GetBlockError::Code::kNoBlock);
 }
