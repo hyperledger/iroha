@@ -69,3 +69,5 @@ target_link_libraries(framework_sql_query
 target_compile_definitions(framework_sql_query
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
+
+add_subdirectory(executor_itf)
