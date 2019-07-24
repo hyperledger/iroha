@@ -312,5 +312,28 @@ namespace shared_model {
             return specific_cmd_mock;
           });
     }
+
+    MockCommandFactory::FactoryResult<MockCompareAndSetAccountDetail>
+    MockCommandFactory::constructCompareAndSetAccountDetail(
+        const shared_model::interface::types::AccountIdType &account_id,
+        const shared_model::interface::types::AccountDetailKeyType &cmd_key,
+        const shared_model::interface::types::AccountDetailValueType &cmd_value,
+        const boost::optional<
+            shared_model::interface::types::AccountDetailValueType>
+            cmd_old_value) const {
+      return createFactoryResult<MockCompareAndSetAccountDetail>(
+          [&account_id, &cmd_key, &cmd_value, &cmd_old_value](
+              FactoryResult<MockCompareAndSetAccountDetail> specific_cmd_mock) {
+            EXPECT_CALL(*specific_cmd_mock, accountId())
+                .WillRepeatedly(ReturnRefOfCopy(account_id));
+            EXPECT_CALL(*specific_cmd_mock, key())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_key));
+            EXPECT_CALL(*specific_cmd_mock, value())
+                .WillRepeatedly(ReturnRefOfCopy(cmd_value));
+            EXPECT_CALL(*specific_cmd_mock, oldValue())
+                .WillRepeatedly(Return(cmd_old_value));
+            return specific_cmd_mock;
+          });
+    }
   }  // namespace interface
 }  // namespace shared_model

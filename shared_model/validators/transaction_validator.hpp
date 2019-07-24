@@ -14,6 +14,7 @@
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
+#include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
 #include "interfaces/commands/create_domain.hpp"
@@ -233,6 +234,23 @@ namespace shared_model {
         validator_.validateAssetId(reason, ta.assetId());
         validator_.validateAmount(reason, ta.amount());
         validator_.validateDescription(reason, ta.description());
+
+        return reason;
+      }
+
+      ReasonsGroupType operator()(
+          const interface::CompareAndSetAccountDetail &casad) const {
+        ReasonsGroupType reason;
+        addInvalidCommand(reason, "CompareAndSetAccountDetail");
+
+        using iroha::operator|;
+
+        validator_.validateAccountId(reason, casad.accountId());
+        validator_.validateAccountDetailKey(reason, casad.key());
+        validator_.validateAccountDetailValue(reason, casad.value());
+        casad.oldValue() | [&reason, this](const auto &oldValue) {
+          this->validator_.validateOldAccountDetailValue(reason, oldValue);
+        };
 
         return reason;
       }

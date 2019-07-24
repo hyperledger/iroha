@@ -212,6 +212,15 @@ namespace shared_model {
       }
     }
 
+    void FieldValidator::validateOldAccountDetailValue(
+        ReasonsGroupType &reason,
+        const boost::optional<interface::types::AccountDetailValueType>
+            &old_value) const {
+      if (old_value) {
+        validateAccountDetailValue(reason, old_value.value());
+      }
+    }
+
     void FieldValidator::validatePrecision(
         ReasonsGroupType &reason,
         const interface::types::PrecisionType &precision) const {
