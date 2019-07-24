@@ -61,6 +61,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.GetRolePermissions.role_id", setString(role_name)},
         {"iroha.protocol.AddSignatory.public_key", setString(public_key)},
         {"iroha.protocol.CreateAccount.public_key", setString(public_key)},
+        {"iroha.protocol.RemovePeer.public_key", setString(public_key)},
         {"iroha.protocol.RemoveSignatory.public_key", setString(public_key)},
         {"iroha.protocol.TransferAsset.dest_account_id", setString(dest_id)},
         {"iroha.protocol.AddAssetQuantity.asset_id", setString(asset_id)},

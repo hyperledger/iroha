@@ -70,13 +70,13 @@ Schema
 
 .. code-block:: proto
 
-    message AddPeer {
-        Peer peer = 1;
-    }
-
     message Peer {
         string address = 1;
-        bytes peer_key = 2;
+        bytes peer_key = 2; // hex string
+    }
+
+    message AddPeer {
+        Peer peer = 1;
     }
 
 Structure
@@ -482,6 +482,51 @@ Possible Stateful Validation Errors
     "1", "Could not grant permission", "Internal error happened", "Try again or contact developers"
     "2", "No such permissions", "Command's creator does not have permission to grant permission", "Grant the necessary permission"
     "3", "No such account", "Cannot find account to grant permission to", "Make sure account id is correct"
+
+Remove peer
+-----------
+
+Purpose
+^^^^^^^
+
+The purpose of remove peer command is to write into ledger the fact of peer removal from the network.
+After a transaction with RemovePeer has been committed, consensus and synchronization components will start using it.
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message RemovePeer {
+        bytes public_key = 1; // hex string
+    }
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 10, 30
+
+    "Public key", "peer public key, which is used in consensus algorithm to sign vote messages", "ed25519 public key", "292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2"
+
+Validation
+^^^^^^^^^^
+
+1. There is more than one peer in the network
+2. Creator of the transaction has a role which has CanRemovePeer permission
+3. Peer should have been previously added to the network
+
+Possible Stateful Validation Errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "1", "Could not remove peer", "Internal error happened", "Try again or contact developers"
+    "2", "No such permissions", "Command's creator does not have permission to remove peer", "Grant the necessary permission"
+    "3", "No such peer", "Cannot find peer with such public key", "Make sure that the public key is correct"
+    "4", "Network size does not allow to remove peer", "After removing the peer the network would be empty", "Make sure that the network has at least two peers"
 
 Remove signatory
 ----------------

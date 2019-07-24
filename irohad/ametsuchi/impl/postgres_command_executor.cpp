@@ -20,6 +20,7 @@
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
@@ -576,6 +577,19 @@ namespace iroha {
               %s
               ELSE 1 END AS result)";
 
+    const std::string PostgresCommandExecutor::removePeerBase = R"(
+          PREPARE %s (text, text) AS
+          WITH
+          %s
+          removed AS (
+              DELETE FROM peer WHERE public_key = $2
+              %s
+              RETURNING (1)
+          )
+          SELECT CASE WHEN EXISTS (SELECT * FROM removed) THEN 0
+              %s
+              ELSE 1 END AS result)";
+
     const std::string PostgresCommandExecutor::removeSignatoryBase = R"(
           PREPARE %s (text, text, text) AS
           WITH
@@ -1037,6 +1051,23 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::RemovePeer &command) {
+      auto pubkey = command.pubkey();
+
+      auto cmd = boost::format("EXECUTE %1% ('%2%', '%3%')");
+
+      appendCommandName("removePeer", cmd, do_validation_);
+
+      cmd = (cmd % creator_account_id_ % pubkey.hex());
+
+      auto str_args = [&pubkey] {
+        return getQueryArgsStringBuilder().append(pubkey.toString()).finalize();
+      };
+
+      return executeQuery(sql_, cmd.str(), "RemovePeer", std::move(str_args));
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::RemoveSignatory &command) {
       auto &account_id = command.accountId();
       auto &pubkey = command.pubkey().hex();
@@ -1381,6 +1412,33 @@ namespace iroha {
                                  .str(),
                              R"( WHERE (SELECT * FROM has_perm))",
                              R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"}});
+
+      statements.push_back(
+          {"removePeer",
+           removePeerBase,
+           {(boost::format(R"(
+            has_perm AS (%s),
+            get_peer AS (
+              SELECT * from peer WHERE public_key = $2 LIMIT 1
+            ),
+            check_peers AS (
+              SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
+            ),
+            )")
+             % checkAccountRolePermission(
+                   shared_model::interface::permissions::Role::kRemovePeer,
+                   "$1"))
+                .str(),
+            R"(
+            AND (SELECT * FROM has_perm)
+            AND EXISTS (SELECT * FROM get_peer)
+            AND EXISTS (SELECT * FROM check_peers)
+            )",
+            R"(
+            WHEN NOT EXISTS (SELECT * from get_peer) THEN 3
+            WHEN NOT EXISTS (SELECT * from check_peers) THEN 4
+            WHEN NOT (SELECT * from has_perm) THEN 2
+            )"}});
 
       statements.push_back(
           {"removeSignatory",

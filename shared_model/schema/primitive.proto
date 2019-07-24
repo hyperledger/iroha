@@ -34,6 +34,7 @@ enum RolePermission {
   can_add_asset_qty = 3;
   can_subtract_asset_qty = 4;
   can_add_peer = 5;
+  can_remove_peer = 46;
   can_add_signatory = 6;
   can_remove_signatory = 7;
   can_set_quorum = 8;

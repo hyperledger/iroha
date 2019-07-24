@@ -157,6 +157,13 @@ namespace shared_model {
         return addPeerRaw(address, peer_key.hex());
       }
 
+      auto removePeer(const interface::types::PubkeyType &public_key) const {
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_remove_peer();
+          command->set_public_key(public_key.hex());
+        });
+      }
+
       auto addSignatoryRaw(const interface::types::AccountIdType &account_id,
                            const std::string &public_key) const {
         return addCommand([&](auto proto_command) {
