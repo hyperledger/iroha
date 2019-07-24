@@ -551,13 +551,12 @@ TEST_F(ToriiQueriesTest, FindTransactionsWhenValid) {
   std::string account_id = "accountA";
   auto creator = "a@domain";
   std::vector<wTransaction> txs;
-  std::vector<shared_model::proto::Transaction> proto_txs;
+  std::vector<wTransaction> response_txs;
   for (size_t i = 0; i < 3; ++i) {
     std::shared_ptr<shared_model::interface::Transaction> current =
         clone(TestTransactionBuilder().creatorAccountId(account_id).build());
     txs.push_back(current);
-    proto_txs.push_back(
-        *std::static_pointer_cast<shared_model::proto::Transaction>(current));
+    response_txs.emplace_back(current);
   }
 
   EXPECT_CALL(*wsv_query, getSignatories(creator))
@@ -573,13 +572,6 @@ TEST_F(ToriiQueriesTest, FindTransactionsWhenValid) {
                          .build()
                          .signAndAddSignature(pair)
                          .finish();
-
-  std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-      response_txs;
-  std::transform(std::begin(proto_txs),
-                 std::end(proto_txs),
-                 std::back_inserter(response_txs),
-                 [](const auto &proto_tx) { return clone(proto_tx); });
 
   auto *r = query_response_factory
                 ->createTransactionsResponse(std::move(response_txs),

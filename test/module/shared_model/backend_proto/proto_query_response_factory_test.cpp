@@ -288,7 +288,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
 
   constexpr int kTransactionsNumber = 5;
 
-  std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+  std::vector<std::shared_ptr<shared_model::interface::Transaction>>
       transactions, transactions_test_copy;
   for (auto i = 0; i < kTransactionsNumber; ++i) {
     auto tx = std::make_unique<shared_model::proto::Transaction>(

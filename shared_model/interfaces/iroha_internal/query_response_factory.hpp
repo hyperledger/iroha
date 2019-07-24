@@ -147,7 +147,7 @@ namespace shared_model {
        * @return transactions response
        */
       virtual std::unique_ptr<QueryResponse> createTransactionsResponse(
-          std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+          std::vector<std::shared_ptr<shared_model::interface::Transaction>>
               transactions,
           const crypto::Hash &query_hash) const = 0;
 
@@ -179,7 +179,7 @@ namespace shared_model {
        */
       virtual std::unique_ptr<QueryResponse>
       createPendingTransactionsPageResponse(
-          std::vector<std::unique_ptr<interface::Transaction>> transactions,
+          std::vector<std::shared_ptr<interface::Transaction>> transactions,
           interface::types::TransactionsNumberType all_transactions_size,
           boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
               next_batch_info,

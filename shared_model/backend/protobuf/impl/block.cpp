@@ -59,7 +59,7 @@ namespace shared_model {
           [this] { return makeBlob(payload_); }()};
 
       interface::types::HashType hash_ = makeHash(payload_blob_);
-    };
+    }; // struct Block::Impl
 
     Block::Block(Block &&o) noexcept = default;
 
@@ -73,6 +73,9 @@ namespace shared_model {
 
     interface::types::TransactionsCollectionType Block::transactions() const {
       return impl_->transactions_;
+    }
+    interface::types::TransactionsCollectionType Block::stealTransactions() {
+      return std::move(impl_->transactions_);
     }
 
     interface::types::HeightType Block::height() const {

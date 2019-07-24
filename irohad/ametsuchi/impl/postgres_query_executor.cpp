@@ -17,6 +17,7 @@
 #include <boost/range/irange.hpp>
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/peer.hpp"
+#include "backend/protobuf/transaction.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "cryptography/public_key.hpp"
@@ -177,21 +178,25 @@ namespace iroha {
         log_->error("{}", e->error);
         return result;
       }
-
       auto &block =
           boost::get<
               expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
               deserialized_block)
               .value;
 
-      boost::transform(range_gen(boost::size(block->transactions()))
-                           | boost::adaptors::transformed(
-                                 [&block](auto i) -> decltype(auto) {
-                                   return block->transactions()[i];
-                                 })
-                           | boost::adaptors::filtered(pred),
-                       std::back_inserter(result),
-                       [&](const auto &tx) { return clone(tx); });
+      auto txs = block->stealTransactions();
+      boost::for_each(
+          range_gen(boost::size(txs))
+              | boost::adaptors::transformed(
+                    [&txs](auto i) -> decltype(auto) { return txs[i]; })
+              | boost::adaptors::filtered(pred),
+          [&](auto &&tx) {
+            auto ptr =
+                std::make_unique<shared_model::proto::Transaction>(std::move(
+                    dynamic_cast<const shared_model::proto::Transaction &&>(
+                        tx)));
+            result.emplace_back(std::move(ptr));
+          });
 
       return result;
     }
@@ -797,7 +802,7 @@ namespace iroha {
               });
             });
 
-            std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+            std::vector<std::shared_ptr<shared_model::interface::Transaction>>
                 response_txs;
             for (auto &block : index) {
               auto txs = this->getTransactionsFromBlock(
@@ -1300,25 +1305,16 @@ namespace iroha {
 
     QueryExecutorResult PostgresQueryExecutorVisitor::operator()(
         const shared_model::interface::GetPendingTransactions &q) {
-      std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-          response_txs;
       if (q.paginationMeta()) {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id_,
                                      q.paginationMeta()->pageSize(),
                                      q.paginationMeta()->firstTxHash())
             .match(
-                [this, &response_txs](auto &&response) {
-                  auto &interface_txs = response.value.transactions;
-                  response_txs.reserve(interface_txs.size());
-                  // TODO igor-egorov 2019-06-06 IR-555 avoid use of clone()
-                  std::transform(interface_txs.begin(),
-                                 interface_txs.end(),
-                                 std::back_inserter(response_txs),
-                                 [](auto &tx) { return clone(*tx); });
+                [this](auto &&response) {
                   return query_response_factory_
                       ->createPendingTransactionsPageResponse(
-                          std::move(response_txs),
+                          std::move(response.value.transactions),
                           response.value.all_transactions_size,
                           std::move(response.value.next_batch_info),
                           query_hash_);
@@ -1349,16 +1345,10 @@ namespace iroha {
                 });
       } else {  // TODO 2019-06-06 igor-egorov IR-516 remove deprecated
                 // interface
-        auto interface_txs =
-            pending_txs_storage_->getPendingTransactions(creator_id_);
-        response_txs.reserve(interface_txs.size());
-
-        std::transform(interface_txs.begin(),
-                       interface_txs.end(),
-                       std::back_inserter(response_txs),
-                       [](auto &tx) { return clone(*tx); });
         return query_response_factory_->createTransactionsResponse(
-            std::move(response_txs), query_hash_);
+            std::move(
+                pending_txs_storage_->getPendingTransactions(creator_id_)),
+            query_hash_);
       }
     }
 

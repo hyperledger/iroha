@@ -25,6 +25,8 @@ namespace shared_model {
       interface::types::TransactionsCollectionType transactions()
           const override;
 
+      interface::types::TransactionsCollectionType stealTransactions() override;
+
       interface::types::HeightType height() const override;
 
       const interface::types::HashType &prevHash() const override;

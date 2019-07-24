@@ -26,6 +26,8 @@ struct MockBlock : public shared_model::interface::Block {
   MOCK_CONST_METHOD0(
       transactions,
       shared_model::interface::types::TransactionsCollectionType());
+  MOCK_METHOD0(stealTransactions,
+               shared_model::interface::types::TransactionsCollectionType());
   MOCK_CONST_METHOD0(rejected_transactions_hashes,
                      shared_model::interface::types::HashCollectionType());
   MOCK_CONST_METHOD0(height, shared_model::interface::types::HeightType());

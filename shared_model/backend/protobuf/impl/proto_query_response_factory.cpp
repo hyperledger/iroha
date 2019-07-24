@@ -220,7 +220,7 @@ shared_model::proto::ProtoQueryResponseFactory::createSignatoriesResponse(
 
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsResponse(
-    std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+    std::vector<std::shared_ptr<shared_model::interface::Transaction>>
         transactions,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
@@ -268,7 +268,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
 
 std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
     ProtoQueryResponseFactory::createPendingTransactionsPageResponse(
-        std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+        std::vector<std::shared_ptr<shared_model::interface::Transaction>>
             transactions,
         interface::types::TransactionsNumberType all_transactions_size,
         boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>

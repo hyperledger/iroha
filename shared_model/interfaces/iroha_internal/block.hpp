@@ -34,6 +34,14 @@ namespace shared_model {
       virtual types::TransactionsCollectionType transactions() const = 0;
 
       /**
+       * This method moves all transactions from block.
+       * So you should not use both transactions() and stealTransactions()
+       * after that method has been invoked.
+       * @return collection of transactions by move
+       */
+      virtual types::TransactionsCollectionType stealTransactions() = 0;
+
+      /**
        * @return collection of rejected transactions' hashes
        */
       virtual interface::types::HashCollectionType
