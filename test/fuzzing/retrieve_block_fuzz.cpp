@@ -5,6 +5,8 @@
 
 #include "block_loader_fixture.hpp"
 
+#include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   static fuzzing::BlockLoaderFixture fixture;
 

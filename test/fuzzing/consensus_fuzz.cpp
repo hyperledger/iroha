@@ -15,6 +15,7 @@
 #include "consensus/yac/yac.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
+#include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "module/irohad/common/validators_config.hpp"
