@@ -1,0 +1,41 @@
+{
+  "variables": {
+    "cloud_token": "{{ env `VAGRANT_CLOUD_TOKEN` }}",
+    "version": "1.0.3"
+  },
+  "builders": [
+    {
+      "add_force": "true",
+      "communicator": "ssh",
+      "source_path": "yzgyyang/macOS-10.14",
+      "provider": "virtualbox",
+      "type": "vagrant",
+      "output_vagrantfile": "../Vagrantfile.iroha"
+    }
+  ],
+  "provisioners": [
+    {
+      "type": "shell",
+      "inline": ["mkdir /tmp/vcpkg-vars"]
+    },
+    {
+      "type": "file",
+      "source": "../../vcpkg/",
+      "destination": "/tmp/vcpkg-vars"
+    },
+    {
+      "type": "shell",
+      "scripts": [
+        "./provisioner.sh"
+      ]
+    }
+  ],
+  "post-processors": [
+    {
+      "type": "vagrant-cloud",
+      "box_tag": "soramitsu/iroha-develop-build",
+      "access_token": "{{user `cloud_token`}}",
+      "version": "{{user `version`}}"
+    }
+  ]
+}

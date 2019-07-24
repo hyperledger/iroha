@@ -1,0 +1,4 @@
+Vagrant.configure("2") do |config|
+  config.vm.synced_folder ".", "/Users/vagrant/iroha", type: "rsync",
+    owner:"vagrant", group: "staff"
+end

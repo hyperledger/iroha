@@ -282,13 +282,20 @@ node ('master') {
   }
   def x64MacBuildSteps
   def x64MacBuildPostSteps = new Builder.PostSteps()
+  r = [:]
+  r.name = 'vagrant-agent'
+  r.host = 'localhost'
+  r.port = '2222'
+  r.user = 'vagrant'
+  r.password = 'vagrant'
+  r.allowAnyHosts = true
   if(!mac_compiler_list.isEmpty()){
     x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, useBTF, environmentList)}]
+      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, useBTF, environmentList, r)}]
     //If "master" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-        mac_compiler_list, 'Release', false, false, testList, true, false, false, environmentList)}]
+        mac_compiler_list, 'Release', false, false, testList, true, false, false, environmentList, r)}]
     }
     x64MacBuildPostSteps = new Builder.PostSteps(
       always: [{x64BuildScript.alwaysPostSteps(environmentList)}],

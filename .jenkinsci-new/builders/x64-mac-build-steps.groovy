@@ -8,9 +8,9 @@
 // Mac Build steps
 //
 
-def testSteps(scmVars, String buildDir, List environment, String testList) {
+def testSteps(scmVars, String buildDir, List environment, String testList, Map remote) {
   withEnv(environment) {
-      sh """#!/bin/bash
+      sh (script: """#!/bin/bash
         export IROHA_POSTGRES_PASSWORD=${IROHA_POSTGRES_PASSWORD}; \
         export IROHA_POSTGRES_USER=${IROHA_POSTGRES_USER}; \
         mkdir -p /var/jenkins/${scmVars.GIT_COMMIT}-${BUILD_NUMBER}; \
@@ -18,10 +18,10 @@ def testSteps(scmVars, String buildDir, List environment, String testList) {
         pg_ctl -D /var/jenkins/${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/ -o '-p 5433 -c max_prepared_transactions=100' -l /var/jenkins/${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/events.log start; \
         ./docker/release/wait-for-it.sh -h localhost -p 5433 -t 30 -- true; \
         psql -h localhost -d postgres -p 5433 -U ${IROHA_POSTGRES_USER} --file=<(echo create database ${IROHA_POSTGRES_USER};)
-      """
-      sh "cd build; IROHA_POSTGRES_HOST=localhost IROHA_POSTGRES_PORT=5433 ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true"
+      """, remote: remote)
+      sh (script: "cd build; IROHA_POSTGRES_HOST=localhost IROHA_POSTGRES_PORT=5433 ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true", remote: remote)
 
-      sh 'python .jenkinsci-new/helpers/platform_tag.py "Darwin \$(uname -m)" \$(ls build/Testing/*/Test.xml)'
+      sh (script: 'python .jenkinsci-new/helpers/platform_tag.py "Darwin \$(uname -m)" \$(ls build/Testing/*/Test.xml)', remote: remote)
       // Mark build as UNSTABLE if there are any failed tests (threshold <100%)
       xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
         tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
@@ -35,8 +35,8 @@ def testSteps(scmVars, String buildDir, List environment, String testList) {
 }
 
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean coverage, boolean testing, String testList,
-       boolean packagebuild, boolean fuzzing, boolean useBTF, List environment) {
-  withEnv(environment) {
+       boolean packagebuild, boolean fuzzing, boolean useBTF, List environment, Map remote) {
+  withEnv(environment + "VAGRANT_DOTFILE_PATH=/Users/administrator/vagrant/iroha/.vagrant/") {
     scmVars = checkout scm
     def build = load '.jenkinsci-new/build.groovy'
     def vars = load ".jenkinsci-new/utils/vars.groovy"
