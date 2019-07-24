@@ -18,8 +18,7 @@ def cmakeConfigure(String buildDir, String cmakeOptions, String sourceTreeDir=".
 
 def cmakeBuild(String buildDir, String cmakeOptions, int parallelism, Map remote) {
   sh (script: """
-    cmake --build ${buildDir} ${cmakeOptions} -- -j${parallelism} \
-    ccache --show-stats
+    cmake --build ${buildDir} ${cmakeOptions} -- -j${parallelism}
   """, remote: remote)
 }
 
@@ -71,8 +70,8 @@ def clangFormat (scmVars, environment, Map remote) {
   withEnv(environment) {
     if (env.CHANGE_TARGET){
       sh (script: """
-        git diff origin/${env.CHANGE_TARGET} --name-only | grep -E '\\.(cc|cpp|cxx|C|c\\+\\+|c|CPP|h|hpp|hh|icc)\$' | xargs clang-format-7 -style=file -i || true
-        git diff | tee  clang-format-report.txt
+        git diff origin/${env.CHANGE_TARGET} --name-only | grep -E '\\.(cc|cpp|cxx|C|c\\+\\+|c|CPP|h|hpp|hh|icc)\$' | xargs clang-format-7 -style=file -i || true && \
+        git diff | tee clang-format-report.txt && \
         git reset HEAD --hard
       """, remote: remote)
       if (remote) {
@@ -91,7 +90,7 @@ def initialCoverage(String buildDir, Map remote) {
 
 def postCoverage(buildDir, String cobertura_bin, Map remote) {
   sh(script: """
-    cmake --build ${buildDir} --target coverage.info \
+    cmake --build ${buildDir} --target coverage.info && \
     python ${cobertura_bin} ${buildDir}/reports/coverage.info -o ${buildDir}/reports/coverage.xml
   """, remote: remote)
   if (remote) {

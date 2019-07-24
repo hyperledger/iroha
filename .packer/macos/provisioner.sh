@@ -10,7 +10,9 @@ curl -L -o /tmp/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/
 tar zxf /tmp/cmake.tar.gz
 mv -f cmake-3.11.4-Darwin-x86_64/CMake.app .
 rm -rf /tmp/cmake.tar.gz /tmp/cmake-3.11.4-Darwin-x86_64
-echo 'export PATH="$HOME/CMake.app/Contents/bin:/usr/local/opt/postgresql@9.6/bin:$PATH"' > ~/.bash_profile
+echo 'cd iroha >& /dev/null
+export PATH="$HOME/CMake.app/Contents/bin:/usr/local/opt/postgresql@9.6/bin:$PATH"
+' | tee ~/.bash_profile ~/.bashrc
 
 # VCPKG
 git clone https://github.com/microsoft/vcpkg /tmp/vcpkg

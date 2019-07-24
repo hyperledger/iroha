@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-def vagrantSetupMacOS(String currentPackerTemplateURL, String referencePackerTemplateURL, List environment):
+def vagrantSetupMacOS(String currentPackerTemplateURL, String referencePackerTemplateURL, List environment) {
   def utils = load '.jenkinsci-new/utils/utils.groovy'
   randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
   currentPackerTemplate = utils.getUrl(currentPackerTemplateURL, "/tmp/${randDir}/currentPackerTemplate", true)
-  referencePackerTemplate = utils.getUrl(referencePackerTemplateURL, "/tmp/${randDir}/referencePackerTemplate", true)
+  referencePackerTemplate = utils.getUrl(referencePackerTemplateURL, "/tmp/${randDir}/referencePackerTemplate")
   // if (utils.filesDiffer(currentPackerTemplate, referencePackerTemplate)) {
   //   withCredentials([string(credentialsId: 'vagrantcloud-soramitsu', variable: 'VAGRANT_CLOUD_TOKEN')]) {
   //     // mainline branch -> publish an image on Vagrantcloud
@@ -26,11 +26,14 @@ def vagrantSetupMacOS(String currentPackerTemplateURL, String referencePackerTem
   //   }
   // }
   // else {
-    sh "vagrant init soramitsu/iroha-develop-build && vagrant up"
+    //sh "vagrant init soramitsu/iroha-develop-build && vagrant up"
   // }
+  sh "echo Initializaing vagrant..."
+}
 
 def vagrantTeardownMacOS() {
-  sh "vagrant destroy"
+  //sh "vagrant destroy"
+  sh "echo Destroying vagrant..."
 }
 
 return this
