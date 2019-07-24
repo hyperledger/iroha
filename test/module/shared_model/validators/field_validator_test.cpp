@@ -100,6 +100,12 @@ class FieldValidatorTest : public ValidatorsTest {
                       &FieldValidatorTest::detail_value,
                       detail_value_test_cases));
 
+    field_validators.insert(
+        makeValidator("old_value",
+                      &FieldValidator::validateOldAccountDetailValue,
+                      &FieldValidatorTest::detail_old_value,
+                      detail_old_value_test_cases));
+
     field_validators.insert(makeValidator("domain_id",
                                           &FieldValidator::validateDomainId,
                                           &FieldValidatorTest::domain_id,
@@ -496,6 +502,19 @@ class FieldValidatorTest : public ValidatorsTest {
           &FieldValidatorTest::detail_value,
           // 5 Mb, value greater than can put into one setAccountDetail
           std::string(5 * 1024 * 1024, '0'))};
+
+  std::vector<FieldTestCase> detail_old_value_test_cases{
+      makeValidCase(&FieldValidatorTest::detail_old_value, boost::none),
+      makeValidCase(&FieldValidatorTest::detail_old_value, "valid old value"),
+      makeValidCase(&FieldValidatorTest::detail_old_value,
+                    std::string(4096, '0')),
+      makeValidCase(&FieldValidatorTest::detail_old_value, ""),
+      makeInvalidCase("long_value",
+                      "old_value",
+                      &FieldValidatorTest::detail_old_value,
+                      // 5 Mb, value greater than can put into one
+                      // CompareAndSetAccountDetail
+                      std::string(5 * 1024 * 1024, '0'))};
 
   std::vector<FieldTestCase> description_test_cases{
       makeValidCase(&FieldValidatorTest::description, "valid description"),

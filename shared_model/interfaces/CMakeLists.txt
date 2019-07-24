@@ -24,6 +24,7 @@ add_library(shared_model_interfaces
     commands/impl/set_quorum.cpp
     commands/impl/subtract_asset_quantity.cpp
     commands/impl/transfer_asset.cpp
+    commands/impl/compare_and_set_account_detail.cpp
     queries/impl/query.cpp
     queries/impl/get_account.cpp
     queries/impl/get_account_asset_transactions.cpp

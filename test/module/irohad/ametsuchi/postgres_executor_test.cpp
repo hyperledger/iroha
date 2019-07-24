@@ -2093,5 +2093,215 @@ namespace iroha {
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 7, query_args);
     }
 
+    class CompareAndSetAccountDetail : public CommandExecutorTest {
+     public:
+      void SetUp() override {
+        CommandExecutorTest::SetUp();
+        createDefaultRole();
+        createDefaultDomain();
+        createDefaultAccount();
+        account2_id = "id2@" + domain_id;
+        CHECK_SUCCESSFUL_RESULT(
+            execute(*mock_command_factory->constructCreateAccount(
+                        "id2",
+                        domain_id,
+                        shared_model::interface::types::PubkeyType(
+                            std::string('2', 32))),
+                    true));
+      }
+      shared_model::interface::types::AccountIdType account2_id;
+    };
+
+    /**
+     * @given command
+     * @when trying to set kv
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, Valid) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv when has grantable permission
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidGrantablePerm) {
+      addOnePerm(
+          shared_model::interface::permissions::Role::kGetDomainAccDetail);
+      auto perm =
+          shared_model::interface::permissions::Grantable::kSetMyAccountDetail;
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructGrantPermission(account_id, perm),
+          true,
+          account2_id));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id));
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv when has role permission
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidRolePerm) {
+      addAllPerms();
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id));
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv while having no permissions
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NoPerms) {
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id);
+
+      std::vector<std::string> query_args{account2_id, "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), "{}");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv to non-existing account
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NoAccount) {
+      addAllPerms();
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      "doge@noaccount", "key", "value", boost::none),
+                  false,
+                  account_id);
+
+      std::vector<std::string> query_args{"doge@noaccount", "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv and then set kv1 with correct old value
+     * @then kv1 is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value1",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "value"))));
+      auto kv1 = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv1);
+      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value1"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv and then set kv1 with incorrect old value
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, InvalidOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value1",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "oldValue")));
+
+      std::vector<std::string> query_args{
+          account_id, "key", "value1", "oldValue"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
+    /**
+     * @given Two commands
+     * @when trying to set kv and then set k1v1
+     * @then kv and k1v1 are set
+     */
+    TEST_F(CompareAndSetAccountDetail, DifferentKeys) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key1", "value1", boost::none)));
+
+      auto ad = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(ad);
+      ASSERT_EQ(ad.get(),
+                R"({"id@domain": {"key": "value", "key1": "value1"}})");
+    }
+
+    /**
+     * @given commands
+     * @when trying to set kv without oldValue where v is empty string
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, EmptyDetail) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "", boost::none)));
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none));
+
+      std::vector<std::string> query_args{account_id, "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha

@@ -190,6 +190,21 @@ namespace shared_model {
           const types::DescriptionType &description,
           const Amount &amount) const;
 
+      /**
+       * Construct a mocked CompareAndSetAccountDetail
+       * @param account_id to be in that command
+       * @param key to be in that command
+       * @param value to be in that command
+       * @param old_value to be in that command
+       * @return pointer to the created command
+       */
+      FactoryResult<MockCompareAndSetAccountDetail>
+      constructCompareAndSetAccountDetail(
+          const types::AccountIdType &account_id,
+          const types::AccountDetailKeyType &key,
+          const types::AccountDetailValueType &value,
+          const boost::optional<types::AccountDetailValueType> old_value) const;
+
      private:
       /**
        * Actually create a pointer to the mocked command

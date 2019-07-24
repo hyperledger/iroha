@@ -30,6 +30,7 @@ namespace shared_model {
     class SetQuorum;
     class SubtractAssetQuantity;
     class TransferAsset;
+    class CompareAndSetAccountDetail;
 
     /**
      * Class provides commands container for all commands in system.
@@ -59,7 +60,8 @@ namespace shared_model {
                                       SetQuorum,
                                       SubtractAssetQuantity,
                                       TransferAsset,
-                                      RemovePeer>;
+                                      RemovePeer,
+                                      CompareAndSetAccountDetail>;
 
       /**
        * @return reference to const variant with concrete command

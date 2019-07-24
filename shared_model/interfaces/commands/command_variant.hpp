@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 #define IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 
+#include "compare_and_set_account_detail.hpp"
 #include "interfaces/commands/command.hpp"
 
 #include <boost/variant.hpp>
@@ -27,7 +28,8 @@ namespace boost {
       const shared_model::interface::SetAccountDetail &,
       const shared_model::interface::SetQuorum &,
       const shared_model::interface::SubtractAssetQuantity &,
-      const shared_model::interface::TransferAsset &>;
+      const shared_model::interface::TransferAsset &,
+      const shared_model::interface::CompareAndSetAccountDetail &>;
 }  // namespace boost
 
 #endif  // IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
