@@ -276,7 +276,7 @@ node ('master') {
   def x64WinBuildScript = load '.jenkinsci/builders/x64-win-build-steps.groovy'
 
   // Define Workers
-  x64LinuxWorker = new Worker(label: 'docker-build-agent', cpusAvailable: 8)
+  x64LinuxWorker = new Worker(label: 'docker-build-agent', cpusAvailable: 4)
   x64MacWorker = new Worker(label: 'mac', cpusAvailable: 4)
   x64WinWorker = new Worker(label: 'windows-iroha-agent', cpusAvailable: 8)
 
