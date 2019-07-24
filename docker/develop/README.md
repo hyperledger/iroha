@@ -2,7 +2,7 @@
 
 Navigate to root repository folder and run:
 ```
-docker build -t hyperledger/iroha-docker-develop:v1 -f docker/develop-vcpkg/Dockerfile .
+docker build -t hyperledger/iroha:develop-build -f docker/develop/Dockerfile .
 ```
 
 # Why
