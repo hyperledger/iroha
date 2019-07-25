@@ -29,7 +29,7 @@ find_package_handle_standard_args(grpc DEFAULT_MSG
     )
 
 set(URL https://github.com/grpc/grpc)
-set(VERSION bd44e485f69d70ca4095cea92decd98de3892aa6) # Release 1.11.0
+set(VERSION 75475f090875e737ad6909a6057c59577f0c79b1) # Release 1.21.1
 set_target_description(grpc "Remote Procedure Call library" ${URL} ${VERSION})
 
 if (NOT protobuf_FOUND)

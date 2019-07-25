@@ -110,6 +110,11 @@ namespace shared_model {
           ReasonsGroupType &reason,
           const interface::types::AccountDetailValueType &value) const;
 
+      void validateOldAccountDetailValue(
+          ReasonsGroupType &reason,
+          const boost::optional<interface::types::AccountDetailValueType>
+              &old_value) const;
+
       void validatePrecision(
           ReasonsGroupType &reason,
           const interface::types::PrecisionType &precision) const;

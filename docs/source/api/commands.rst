@@ -834,3 +834,63 @@ Possible Stateful Validation Errors
 
 .. [#f1] https://www.ietf.org/rfc/rfc1035.txt
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
+
+Compare and Set Account Detail
+------------------------------
+
+Purpose
+^^^^^^^
+
+Purpose of compare and set account detail command is to set key-value information for a given account if the old value matches the value passed.
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message CompareAndSetAccountDetail{
+        string account_id = 1;
+        string key = 2;
+        string value = 3;
+        oneof opt_old_value {
+            string old_value = 4;
+        }
+    }
+
+.. note::
+    Pay attention, that old_value field is optional.
+    This is due to the fact that the key-value pair might not exist.
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Account ID", "id of the account to which the key-value information was set. If key-value pair doesnot exist , then it will be created", "an existing account", "artyom@soramitsu"
+    "Key", "key of information being set", "`[A-Za-z0-9_]{1,64}`", "Name"
+    "Value", "new value for the corresponding key", "length of value ≤ 4096", "Artyom"
+    "Old value", "current value for the corresponding key", "length of value ≤ 4096", "Artem"
+
+Validation
+^^^^^^^^^^
+
+Three cases:
+
+    Case 1. When transaction creator wants to set account detail to his/her account and he or she has permission GetMyAccountDetail / GetAllAccountsDetail / GetDomainAccountDetail
+
+    Case 2. When transaction creator wants to set account detail to another account and he or she has permissions SetAccountDetail and GetAllAccountsDetail / GetDomainAccountDetail
+
+    Case 3. SetAccountDetail permission was granted to transaction creator and he or she has permission GetAllAccountsDetail / GetDomainAccountDetail
+
+Possible Stateful Validation Errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "1", "Could not compare and set account detail", "Internal error happened", "Try again or contact developers"
+    "2", "No such permissions", "Command's creator does not have permission to set and read account detail for this account", "Grant the necessary permission"
+    "3", "No such account", "Cannot find account to set account detail to", "Make sure account id is correct"
+    "4", "No match values", "Old values do not match", "Make sure old value is correct"

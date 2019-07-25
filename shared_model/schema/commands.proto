@@ -96,6 +96,15 @@ message SubtractAssetQuantity {
     string amount = 2;
 }
 
+message CompareAndSetAccountDetail{
+    string account_id = 1;
+    string key = 2;
+    string value = 3;
+    oneof opt_old_value {
+        string old_value = 4;
+    }
+}
+
 message Command {
     oneof command {
         AddAssetQuantity add_asset_quantity = 1;
@@ -115,5 +124,6 @@ message Command {
         SubtractAssetQuantity subtract_asset_quantity = 15;
         TransferAsset transfer_asset = 16;
         RemovePeer remove_peer = 17;
+        CompareAndSetAccountDetail compare_and_set_account_detail = 18;
     }
 }
