@@ -8,12 +8,6 @@
 // Small utils that can be used multiple times
 //
 
-def previousCommitOrCurrent(scmVars) {
-  // GIT_PREVIOUS_COMMIT is null on first PR build
-  // regardless Jenkins docs saying it equals the current one on first build in branch
-  return !scmVars.GIT_PREVIOUS_COMMIT ? scmVars.GIT_COMMIT : scmVars.GIT_PREVIOUS_COMMIT
-}
-
 def selectedBranchesCoverage(List branches) {
   return env.GIT_LOCAL_BRANCH in branches
 }
