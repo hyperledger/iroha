@@ -84,6 +84,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         "${env.GIT_RAW_BASE_URL}/master/docker/develop/Dockerfile",
         scmVars,
         environment,
+        buildDir,
         forceDockerDevelopBuild,
         ['PARALLELISM': parallelism])
 

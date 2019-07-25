@@ -18,7 +18,7 @@ def buildOptionsString(options) {
   return s
 }
 
-def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, scmVars, environment, forceBuild=false, buildOptions=null) {
+def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, scmVars, environment, buildDir, forceBuild=false, buildOptions=null) {
   buildOptions = buildOptionsString(buildOptions)
   withEnv(environment) {
     def utils = load '.jenkinsci/utils/utils.groovy'
@@ -26,6 +26,7 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, s
     randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
     currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
     referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
+    sh "rm -rf ${buildDir}"
     if (utils.filesDiffer(currentDockerfile, referenceDockerfile) || forceBuild) {
       // Dockerfile has been changed compared to reference file
       // We cannot rely on the local cache
