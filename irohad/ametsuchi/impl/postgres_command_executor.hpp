@@ -83,6 +83,10 @@ namespace iroha {
       CommandResult operator()(
           const shared_model::interface::TransferAsset &command) override;
 
+      CommandResult operator()(
+          const shared_model::interface::CompareAndSetAccountDetail &command)
+          override;
+
       static void prepareStatements(soci::session &sql);
 
      private:
@@ -111,6 +115,7 @@ namespace iroha {
       static const std::string setQuorumBase;
       static const std::string subtractAssetQuantityBase;
       static const std::string transferAssetBase;
+      static const std::string compareAndSetAccountDetailBase;
     };
   }  // namespace ametsuchi
 }  // namespace iroha
