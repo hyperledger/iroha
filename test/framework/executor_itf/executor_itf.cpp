@@ -5,15 +5,22 @@
 
 #include "framework/executor_itf/executor_itf.hpp"
 
+#include <soci/soci.h>
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
+#include "module/irohad/ametsuchi/mock_key_value_storage.hpp"
+#include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
+#include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 
@@ -23,6 +30,10 @@ using namespace common_constants;
 using namespace iroha::expected;
 
 namespace {
+  constexpr size_t kDataBaseSessionPoolSize = 2;  // sessions for:
+                                                  // - command executor
+                                                  // - query executor
+
   logger::LoggerManagerTreePtr getDefaultLogManager() {
     return getTestLoggerManager()->getChild("ExecutorITF");
   }
@@ -41,6 +52,10 @@ ExecutorItf::ExecutorItf(logger::LoggerManagerTreePtr log_manager,
           std::make_unique<shared_model::interface::MockCommandFactory>()),
       mock_query_factory_(
           std::make_unique<shared_model::interface::MockQueryFactory>()),
+      mock_block_storage_(std::make_unique<MockKeyValueStorage>()),
+      mock_pending_txs_storage_(
+          std::make_shared<MockPendingTransactionStorage>()),
+      mock_block_json_converter_(std::make_shared<MockBlockJsonConverter>()),
       query_counter_(0) {}
 
 ExecutorItf::~ExecutorItf() {
@@ -122,8 +137,37 @@ CommandResult ExecutorItf::createDomain(const std::string &name) const {
 }
 
 Result<void, std::string> ExecutorItf::connect() {
-  // initialize DB session, command & query executors
-  return {};
+  return PgConnectionInit::createDatabaseIfNotExist(pg_opts_) |
+             [this](bool /* db_was_created */) {
+               return PgConnectionInit::prepareConnectionPool(
+                   iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+                   pg_opts_,
+                   kDataBaseSessionPoolSize,
+                   this->log_manager_->getChild("DbConnectionPool"));
+             }
+             | [this](auto &&pool_wrapper) -> Result<void, std::string> {
+    pool_wrapper_ = std::make_unique<PoolWrapper>(std::move(pool_wrapper));
+
+    // initialize command & tx executors
+    cmd_executor_db_session_ =
+        std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
+    cmd_executor_ = std::make_shared<PostgresCommandExecutor>(
+        *cmd_executor_db_session_,
+        std::make_shared<shared_model::proto::ProtoPermissionToString>());
+    tx_executor_ = std::make_unique<TransactionExecutor>(cmd_executor_);
+
+    // initialize query executor
+    query_executor_ = std::make_unique<PostgresQueryExecutor>(
+        std::make_unique<soci::session>(*pool_wrapper_->connection_pool_),
+        *mock_block_storage_,
+        mock_pending_txs_storage_,
+        mock_block_json_converter_,
+        std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
+        std::make_shared<shared_model::proto::ProtoPermissionToString>(),
+        log_manager_->getChild("QueryExecutor"));
+
+    return {};
+  };
 }
 
 CommandResult ExecutorItf::grantAllToAdmin(

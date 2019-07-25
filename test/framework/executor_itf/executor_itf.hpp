@@ -23,6 +23,10 @@
 #include "module/shared_model/command_mocks.hpp"
 #include "module/shared_model/query_mocks.hpp"
 
+namespace soci {
+  class session;
+}
+
 namespace shared_model {
   namespace crypto {
     class PublicKey;
@@ -34,7 +38,16 @@ namespace shared_model {
   }
 }  // namespace shared_model
 
+struct MockBlockJsonConverter;
+
 namespace iroha {
+  class MockPendingTransactionStorage;
+
+  namespace ametsuchi {
+    class MockKeyValueStorage;
+    struct PoolWrapper;
+  }
+
   namespace integration_framework {
 
     class ExecutorItf {
@@ -301,11 +314,18 @@ namespace iroha {
 
       iroha::ametsuchi::PostgresOptions pg_opts_;
 
-      std::unique_ptr<shared_model::interface::MockCommandFactory>
+      const std::unique_ptr<shared_model::interface::MockCommandFactory>
           mock_command_factory_;
-      std::unique_ptr<shared_model::interface::MockQueryFactory>
+      const std::unique_ptr<shared_model::interface::MockQueryFactory>
           mock_query_factory_;
+      const std::unique_ptr<ametsuchi::MockKeyValueStorage> mock_block_storage_;
+      const std::shared_ptr<iroha::MockPendingTransactionStorage>
+          mock_pending_txs_storage_;
+      const std::shared_ptr<MockBlockJsonConverter> mock_block_json_converter_;
 
+      std::unique_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
+      std::unique_ptr<soci::session> cmd_executor_db_session_;
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> cmd_executor_;
       std::shared_ptr<iroha::ametsuchi::TransactionExecutor> tx_executor_;
       std::shared_ptr<iroha::ametsuchi::QueryExecutor> query_executor_;

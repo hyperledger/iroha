@@ -9,6 +9,7 @@ target_link_libraries(executor_itf
     commands_mocks_factory
     common_test_constants
     integration_framework_config_helper
+    pg_connection_init
     query_mocks_factory
     shared_model_interfaces
     shared_model_proto_backend
