@@ -62,6 +62,9 @@ namespace iroha {
           const shared_model::interface::GrantPermission &command) override;
 
       CommandResult operator()(
+          const shared_model::interface::RemovePeer &command) override;
+
+      CommandResult operator()(
           const shared_model::interface::RemoveSignatory &command) override;
 
       CommandResult operator()(
@@ -79,6 +82,10 @@ namespace iroha {
 
       CommandResult operator()(
           const shared_model::interface::TransferAsset &command) override;
+
+      CommandResult operator()(
+          const shared_model::interface::CompareAndSetAccountDetail &command)
+          override;
 
       static void prepareStatements(soci::session &sql);
 
@@ -101,12 +108,14 @@ namespace iroha {
       static const std::string createRoleBase;
       static const std::string detachRoleBase;
       static const std::string grantPermissionBase;
+      static const std::string removePeerBase;
       static const std::string removeSignatoryBase;
       static const std::string revokePermissionBase;
       static const std::string setAccountDetailBase;
       static const std::string setQuorumBase;
       static const std::string subtractAssetQuantityBase;
       static const std::string transferAssetBase;
+      static const std::string compareAndSetAccountDetailBase;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

@@ -19,7 +19,7 @@ find_package_handle_standard_args(protobuf DEFAULT_MSG
     )
 
 set(URL https://github.com/google/protobuf.git)
-set(VERSION 106ffc04be1abf3ff3399f54ccf149815b287dd9) # Protocol Buffers v3.5.1
+set(VERSION 09745575a923640154bcf307fba8aedff47f240a) # Protocol Buffers v3.8.0
 set_target_description(protobuf "Protocol buffers library" ${URL} ${VERSION})
 
 if (NOT protobuf_FOUND)

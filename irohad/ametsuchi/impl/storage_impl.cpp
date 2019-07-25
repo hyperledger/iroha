@@ -285,19 +285,24 @@ namespace iroha {
             auto opt_ledger_state = [&] {
               soci::session sql{*pool_wrapper.connection_pool_};
 
-              auto get_top_block_info =
-                  [&]() -> expected::Result<iroha::TopBlockInfo, std::string> {
+              using BlockInfoResult =
+                  expected::Result<iroha::TopBlockInfo, std::string>;
+              auto get_top_block_info = [&]() -> BlockInfoResult {
                 PostgresBlockQuery block_query(
                     sql,
                     *ctx.block_store,
                     converter,
                     log_manager->getChild("PostgresBlockQuery")->getLogger());
                 const auto ledger_height = block_query.getTopBlockHeight();
-                return block_query.getBlock(ledger_height) |
-                    [&ledger_height](const auto &block) {
-                      return expected::makeValue(
-                          iroha::TopBlockInfo{ledger_height, block->hash()});
-                    };
+                return block_query.getBlock(ledger_height)
+                    .match(
+                        [&ledger_height](const auto &block) -> BlockInfoResult {
+                          return expected::makeValue(iroha::TopBlockInfo{
+                              ledger_height, block.value->hash()});
+                        },
+                        [](auto &&err) -> BlockInfoResult {
+                          return std::move(err).error.message;
+                        });
               };
 
               auto get_ledger_peers =

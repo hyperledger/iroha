@@ -17,12 +17,14 @@ add_library(shared_model_interfaces
     commands/impl/create_role.cpp
     commands/impl/detach_role.cpp
     commands/impl/grant_permission.cpp
+    commands/impl/remove_peer.cpp
     commands/impl/remove_signatory.cpp
     commands/impl/revoke_permission.cpp
     commands/impl/set_account_detail.cpp
     commands/impl/set_quorum.cpp
     commands/impl/subtract_asset_quantity.cpp
     commands/impl/transfer_asset.cpp
+    commands/impl/compare_and_set_account_detail.cpp
     queries/impl/query.cpp
     queries/impl/get_account.cpp
     queries/impl/get_account_asset_transactions.cpp

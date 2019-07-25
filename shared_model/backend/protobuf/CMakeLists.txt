@@ -24,12 +24,14 @@ add_library(shared_model_proto_backend
     commands/impl/proto_create_role.cpp
     commands/impl/proto_detach_role.cpp
     commands/impl/proto_grant_permission.cpp
+    commands/impl/proto_remove_peer.cpp
     commands/impl/proto_remove_signatory.cpp
     commands/impl/proto_revoke_permission.cpp
     commands/impl/proto_set_account_detail.cpp
     commands/impl/proto_set_quorum.cpp
     commands/impl/proto_subtract_asset_quantity.cpp
     commands/impl/proto_transfer_asset.cpp
+    commands/impl/proto_compare_and_set_account_detail.cpp
     queries/impl/proto_query.cpp
     queries/impl/proto_get_account.cpp
     queries/impl/proto_get_account_asset_transactions.cpp

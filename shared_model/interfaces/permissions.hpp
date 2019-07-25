@@ -61,6 +61,8 @@ namespace shared_model {
         kAddDomainAssetQty,
         kSubtractDomainAssetQty,
         kGetPeers,
+        kRemovePeer,
+
         COUNT
       };
 
