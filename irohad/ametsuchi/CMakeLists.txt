@@ -52,6 +52,11 @@ target_compile_definitions(postgres_storage
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
 
+add_library(postgres_options impl/postgres_options.cpp)
+target_link_libraries(postgres_options
+    logger
+    )
+
 add_library(ametsuchi
     impl/command_executor.cpp
     impl/tx_executor.cpp
@@ -66,7 +71,6 @@ add_library(ametsuchi
     impl/postgres_indexer.cpp
     impl/postgres_block_index.cpp
     impl/wsv_restorer_impl.cpp
-    impl/postgres_options.cpp
     impl/postgres_query_executor.cpp
     impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
@@ -84,6 +88,7 @@ target_link_libraries(ametsuchi
     rxcpp
     libs_files
     common
+    postgres_options
     shared_model_interfaces
     shared_model_proto_backend_plain
     shared_model_stateless_validation
