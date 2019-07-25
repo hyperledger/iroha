@@ -72,6 +72,7 @@ target_compile_definitions(framework_sql_query
 
 add_library(test_db_manager test_db_manager.cpp)
 target_link_libraries(test_db_manager
+  gtest::main
   pg_connection_init
   postgres_options
   )
