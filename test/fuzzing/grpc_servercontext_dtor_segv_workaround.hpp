@@ -12,4 +12,4 @@
 // check https://github.com/grpc/grpc/issues/14633 for details
 static grpc::internal::GrpcLibraryInitializer g_gli_initializer;
 
-#endif //IROHA_GRPC_SERVERCONTEXT_DTOR_SEGV_WORKAROUND_HPP
+#endif  // IROHA_GRPC_SERVERCONTEXT_DTOR_SEGV_WORKAROUND_HPP
