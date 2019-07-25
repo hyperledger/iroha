@@ -19,9 +19,18 @@ namespace iroha {
      */
     class BlockQuery {
      public:
+      struct GetBlockError {
+        enum class Code {
+          kNoBlock,
+          kInternalError,
+        };
+        Code code;
+        std::string message;
+      };
+
       using BlockResult =
           expected::Result<std::unique_ptr<shared_model::interface::Block>,
-                           std::string>;
+                           GetBlockError>;
 
       virtual ~BlockQuery() = default;
 

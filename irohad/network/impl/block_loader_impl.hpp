@@ -49,11 +49,11 @@ namespace iroha {
        * @param peer for connecting
        * @return RPC stub
        */
-      proto::Loader::Stub &getPeerStub(
+      proto::Loader::StubInterface &getPeerStub(
           const shared_model::interface::Peer &peer);
 
       std::unordered_map<shared_model::interface::types::AddressType,
-                         std::unique_ptr<proto::Loader::Stub>>
+                         std::unique_ptr<proto::Loader::StubInterface>>
           peer_connections_;
       std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory_;
       shared_model::proto::ProtoBlockFactory block_factory_;

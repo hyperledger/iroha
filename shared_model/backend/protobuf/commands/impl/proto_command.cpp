@@ -9,12 +9,14 @@
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
 #include "backend/protobuf/commands/proto_append_role.hpp"
+#include "backend/protobuf/commands/proto_compare_and_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_create_account.hpp"
 #include "backend/protobuf/commands/proto_create_asset.hpp"
 #include "backend/protobuf/commands/proto_create_domain.hpp"
 #include "backend/protobuf/commands/proto_create_role.hpp"
 #include "backend/protobuf/commands/proto_detach_role.hpp"
 #include "backend/protobuf/commands/proto_grant_permission.hpp"
+#include "backend/protobuf/commands/proto_remove_peer.hpp"
 #include "backend/protobuf/commands/proto_remove_signatory.hpp"
 #include "backend/protobuf/commands/proto_revoke_permission.hpp"
 #include "backend/protobuf/commands/proto_set_account_detail.hpp"
@@ -41,7 +43,9 @@ namespace {
                        shared_model::proto::SetAccountDetail,
                        shared_model::proto::SetQuorum,
                        shared_model::proto::SubtractAssetQuantity,
-                       shared_model::proto::TransferAsset>;
+                       shared_model::proto::TransferAsset,
+                       shared_model::proto::RemovePeer,
+                       shared_model::proto::CompareAndSetAccountDetail>;
 
   /// list of types in proto variant
   using ProtoCommandListType = ProtoCommandVariantType::types;

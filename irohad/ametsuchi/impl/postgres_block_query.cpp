@@ -41,9 +41,15 @@ namespace iroha {
       if (not serialized_block) {
         auto error =
             boost::format("Failed to retrieve block with height %d") % height;
-        return expected::makeError(error.str());
+        return expected::makeError(
+            GetBlockError{GetBlockError::Code::kNoBlock, error.str()});
       }
-      return converter_->deserialize(bytesToString(*serialized_block));
+      return converter_->deserialize(bytesToString(*serialized_block))
+          .match([](auto &&val) -> BlockResult { return std::move(val.value); },
+                 [](auto &&err) -> BlockResult {
+                   return GetBlockError{GetBlockError::Code::kInternalError,
+                                        std::move(err.error)};
+                 });
     }
 
     shared_model::interface::types::HeightType

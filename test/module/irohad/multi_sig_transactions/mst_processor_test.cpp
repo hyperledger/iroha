@@ -319,7 +319,7 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
-      another_peer};
+      std::move(another_peer)};
   propagation_subject.get_subscriber().on_next(peers);
 }
 

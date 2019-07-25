@@ -3,18 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "integration/acceptance/fake_peer_fixture.hpp"
+
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
-#include "datetime/time.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
-#include "framework/integration_framework/fake_peer/fake_peer.hpp"
-#include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"
-#include "integration/acceptance/acceptance_fixture.hpp"
-#include "main/server_runner.hpp"
-#include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "ordering/impl/on_demand_common.cpp"
 
@@ -26,66 +22,6 @@ using namespace shared_model::interface::permissions;
 static constexpr std::chrono::seconds kMstStateWaitingTime(20);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
-template <size_t N>
-void checkBlockHasNTxs(const std::shared_ptr<const interface::Block> &block) {
-  ASSERT_EQ(block->transactions().size(), N);
-}
-
-class FakePeerExampleFixture : public AcceptanceFixture {
- public:
-  using FakePeer = fake_peer::FakePeer;
-
-  std::unique_ptr<IntegrationTestFramework> itf_;
-
-  /**
-   * Create honest fake iroha peers
-   *
-   * @param num_fake_peers - the amount of fake peers to create
-   */
-  void createFakePeers(size_t num_fake_peers) {
-    fake_peers_ = itf_->addFakePeers(num_fake_peers);
-  }
-
-  /**
-   * Prepare state of ledger:
-   * - create account of target user
-   * - add assets to admin
-   *
-   * @return reference to ITF
-   */
-  IntegrationTestFramework &prepareState() {
-    itf_->setGenesisBlock(itf_->defaultBlock()).subscribeQueuesAndRun();
-
-    auto permissions =
-        interface::RolePermissionSet({Role::kReceive, Role::kTransfer});
-
-    return itf_->sendTxAwait(makeUserWithPerms(permissions),
-                             checkBlockHasNTxs<1>);
-  }
-
- protected:
-  void SetUp() override {
-    itf_ =
-        std::make_unique<IntegrationTestFramework>(1, boost::none, true, true);
-    itf_->initPipeline(kAdminKeypair);
-  }
-
-  std::vector<std::shared_ptr<FakePeer>> fake_peers_;
-};
-
-auto makePeerPointeeMatcher(interface::types::AddressType address,
-                            interface::types::PubkeyType pubkey) {
-  return ::testing::Truly(
-      [address = std::move(address),
-       pubkey = std::move(pubkey)](std::shared_ptr<interface::Peer> peer) {
-        return peer->address() == address and peer->pubkey() == pubkey;
-      });
-}
-
-auto makePeerPointeeMatcher(std::shared_ptr<interface::Peer> peer) {
-  return makePeerPointeeMatcher(peer->address(), peer->pubkey());
-}
-
 /**
  * @given a network of single peer
  * @when it receives a valid signed addPeer command
@@ -94,7 +30,7 @@ auto makePeerPointeeMatcher(std::shared_ptr<interface::Peer> peer) {
  *    @and the WSV reports that there are two peers: the initial and the added
  * one
  */
-TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
+TEST_F(FakePeerFixture, FakePeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -162,7 +98,7 @@ TEST_F(FakePeerExampleFixture, FakePeerIsAdded) {
  * @when it receives a not fully signed transaction and then a new peer is added
  * @then the first peer propagates MST state to the newly added peer
  */
-TEST_F(FakePeerExampleFixture, MstStatePropagtesToNewPeer) {
+TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
   // ------------------------ GIVEN ------------------------
   // init the real peer with no other peers in the genesis block
   auto &itf = prepareState();
@@ -208,7 +144,7 @@ TEST_F(FakePeerExampleFixture, MstStatePropagtesToNewPeer) {
  * @when itf peer is brought up
  * @then itf peer gets synchronized, sees itself in the WSV and can commit txs
  */
-TEST_F(FakePeerExampleFixture, RealPeerIsAdded) {
+TEST_F(FakePeerFixture, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
   auto initial_peer = itf_->addFakePeer(boost::none);
