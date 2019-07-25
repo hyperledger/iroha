@@ -148,6 +148,12 @@ Result<void, std::string> ExecutorItf::connect() {
              | [this](auto &&pool_wrapper) -> Result<void, std::string> {
     pool_wrapper_ = std::make_unique<PoolWrapper>(std::move(pool_wrapper));
 
+    // reset WSV
+    {
+      soci::session sql(*pool_wrapper_->connection_pool_);
+      PgConnectionInit::resetWsv(sql);
+    }
+
     // initialize command & tx executors
     cmd_executor_db_session_ =
         std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
