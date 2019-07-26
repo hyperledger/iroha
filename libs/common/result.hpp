@@ -233,7 +233,7 @@ namespace iroha {
         typename std::enable_if_t<
             not isResult<Transformed> and not isValue<Transformed>>> {
       using ReturnType = Result<Transformed, ErrorType>;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return makeValue(std::move(result));
       }
     };
@@ -244,7 +244,7 @@ namespace iroha {
                           ErrorType,
                           std::enable_if_t<isResult<Transformed>>> {
       using ReturnType = Transformed;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return std::move(result);
       }
     };
@@ -255,7 +255,7 @@ namespace iroha {
                           ErrorType,
                           std::enable_if_t<isValue<Transformed>>> {
       using ReturnType = Result<typename Transformed::type, ErrorType>;
-      static ReturnType makeVaule(Transformed &&result) {
+      static ReturnType makeValue(Transformed &&result) {
         return std::move(result);
       }
     };
@@ -290,7 +290,7 @@ namespace iroha {
     constexpr auto operator|(const Result<V, E> &r, Transform &&f)
         -> ReturnType {
       return r.match(
-          [&f](const auto &v) { return TypeHelper::makeVaule(f(v.value)); },
+          [&f](const auto &v) { return TypeHelper::makeValue(f(v.value)); },
           [](const auto &e) { return ReturnType(makeError(e.error)); });
     }
 
@@ -304,7 +304,7 @@ namespace iroha {
       static_assert(isResult<ReturnType>, "wrong return_type");
       return std::move(r).match(
           [&f](auto &&v) {
-            return TypeHelper::makeVaule(f(std::move(v.value)));
+            return TypeHelper::makeValue(f(std::move(v.value)));
           },
           [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
     }
@@ -317,25 +317,33 @@ namespace iroha {
      */
 
     /// constref version
-    template <typename T, typename E, typename Procedure>
+    template <typename T,
+              typename E,
+              typename Procedure,
+              typename TypeHelper =
+                  BindReturnType<decltype(std::declval<Procedure>()()), E>,
+              typename ReturnType = typename TypeHelper::ReturnType>
     constexpr auto operator|(const Result<T, E> &r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
-                                decltype(f())>::type {
-      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
+                                ReturnType>::type {
       return r.match(
-          [&f](const Value<T> &v) { return f(); },
-          [](const Error<E> &e) { return return_type(makeError(e.error)); });
+          [&f](const Value<T> &v) { return TypeHelper::makeValue(f()); },
+          [](const Error<E> &e) { return ReturnType(makeError(e.error)); });
     }
 
     /// rvalue ref version
-    template <typename T, typename E, typename Procedure>
-    constexpr auto operator|(Result<T, E> &&r, Procedure f) ->
+    template <typename V,
+              typename E,
+              typename Procedure,
+              typename TypeHelper =
+                  BindReturnType<decltype(std::declval<Procedure>()()), E>,
+              typename ReturnType = typename TypeHelper::ReturnType>
+    constexpr auto operator|(Result<V, E> &&r, Procedure f) ->
         typename std::enable_if<not std::is_same<decltype(f()), void>::value,
-                                decltype(f())>::type {
-      using return_type = typename BindReturnType<decltype(f()), E>::ReturnType;
+                                ReturnType>::type {
       return std::move(r).match(
-          [&f](const auto &) { return f(); },
-          [](auto &&e) { return return_type(makeError(std::move(e.error))); });
+          [&f](const auto &) { return TypeHelper::makeValue(f()); },
+          [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
     }
 
     /// operator |= is a shortcut for `Result = Result | function'
