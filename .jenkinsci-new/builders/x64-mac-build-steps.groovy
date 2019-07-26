@@ -10,16 +10,15 @@
 
 def testSteps(scmVars, String buildDir, List environment, String testList, Map remote) {
   withEnv(environment) {
-      sh (script: """bash -c "
-        export IROHA_POSTGRES_PASSWORD=${IROHA_POSTGRES_PASSWORD} && \
+      sh (script: "export IROHA_POSTGRES_PASSWORD=${IROHA_POSTGRES_PASSWORD} && \
         export IROHA_POSTGRES_USER=${IROHA_POSTGRES_USER} && \
         mkdir /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER} && \
         initdb -D /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/ -U ${IROHA_POSTGRES_USER} --pwfile=<(echo ${IROHA_POSTGRES_PASSWORD}) && \
         pg_ctl -D /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/ -o '-c max_prepared_transactions=100' -l /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/events.log start && \
         until nc -z localhost 5432; do echo 'Waiting for Postgres...'; sleep 1; done && \
-        psql -h localhost -d postgres -U ${IROHA_POSTGRES_USER} --file=<(echo create database ${IROHA_POSTGRES_USER})"
-      """, remote: remote)
-      sh (script: "cd build; IROHA_POSTGRES_HOST=localhost ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true", remote: remote)
+        psql -h localhost -d postgres -U ${IROHA_POSTGRES_USER} --file=<(echo create database ${IROHA_POSTGRES_USER})" , remote: remote)
+      // sh (script: "cd build; IROHA_POSTGRES_HOST=localhost ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true", remote: remote)
+      sh (script: "cd build; IROHA_POSTGRES_HOST=localhost ctest --output-on-failure --no-compress-output --tests-regex 'ametsuchi_test'  --test-action Test || true", remote: remote)
       sh (script: 'python .jenkinsci-new/helpers/platform_tag.py "Darwin \$(uname -m)" \$(ls build/Testing/*/Test.xml)', remote: remote)
       if (remote) {
         sh "vagrant rsync"
@@ -29,10 +28,8 @@ def testSteps(scmVars, String buildDir, List environment, String testList, Map r
         tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
         pattern: 'build/Testing/**/Test.xml', skipNoTestFiles: false, stopProcessingIfError: true)]
 
-      sh (script: """bash -c "
-        pg_ctl -D /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/ stop && \
-        rm -rf /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/"
-      """, remote: remote)
+      sh (script: "pg_ctl -D /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/ stop && \
+        rm -rf /tmp/db-instance-${scmVars.GIT_COMMIT}-${BUILD_NUMBER}/", remote: remote)
   }
 }
 
@@ -47,7 +44,8 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
     buildDir = 'build'
     compilers = vars.compilerMapping()
     cmakeBooleanOption = [ (true): 'ON', (false): 'OFF' ]
-    cmakeBuildOptions = ""
+    // cmakeBuildOptions = ""
+    cmakeBuildOptions = " --target ametsuchi_test "
     if (packagebuild){
       cmakeBuildOptions = " --target package "
     }
@@ -56,21 +54,25 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
       "${env.GIT_RAW_BASE_URL}/master/.packer/macos/macos-build.json",
       environment)
     for (compiler in compilerVersions) {
-      // stage ("build ${compiler}"){
-      //   // Remove artifacts from the previous build
-      //   build.removeDirectory(buildDir, remote)
-      //   build.cmakeConfigure(buildDir,
-      //   "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
-      //   -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
-      //   -DCMAKE_BUILD_TYPE=${build_type} \
-      //   -DCOVERAGE=${cmakeBooleanOption[coverage]} \
-      //   -DTESTING=${cmakeBooleanOption[testing]} \
-      //   -DFUZZING=${cmakeBooleanOption[fuzzing]} \
-      //   -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
-      //   -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
-      //   -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ", remote)
-      //   build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism, remote)
-      // }
+      stage ("build ${compiler}") {
+        // sh(script: "sudo sed -E -i .bak 's/(AcceptEnv .+)/\\1 IROHA_\\*/' /etc/ssh/sshd_config", remote: remote)
+        // sh(script: "sudo launchctl stop com.openssh.sshd", remote: remote)
+        sh(script: "echo Local env: \$(env) ")
+        sh(script: "echo Remote env: \$(env)", remote: remote)
+        // Remove artifacts from the previous build
+        // build.removeDirectory(buildDir, remote)
+        // build.cmakeConfigure(buildDir,
+        // "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
+        // -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
+        // -DCMAKE_BUILD_TYPE=${build_type} \
+        // -DCOVERAGE=${cmakeBooleanOption[coverage]} \
+        // -DTESTING=${cmakeBooleanOption[testing]} \
+        // -DFUZZING=${cmakeBooleanOption[fuzzing]} \
+        // -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
+        // -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
+        // -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ", remote)
+        // build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism, remote)
+      }
       if (testing) {
         stage("Test ${compiler}") {
           coverage ? build.initialCoverage(buildDir, remote) : echo('Skipping initial coverage...')
@@ -124,7 +126,7 @@ def alwaysPostSteps(List environment, Map remote) {
         fi
       ''', remote: remote)
       vagrant.vagrantTeardownMacOS()
-      cleanWs()
+      //cleanWs()
     }
   }
 }

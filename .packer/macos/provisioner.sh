@@ -26,3 +26,6 @@ sudo mkdir -p /opt ~/iroha
 sudo mv -f /tmp/vcpkg/dependencies /opt
 sudo chmod +x /opt/dependencies/installed/x64-osx/tools/protobuf/protoc*
 rm -rf /tmp/vcpkg*
+
+# Enable host env passthrough
+sudo sed -E -i .bak 's/(AcceptEnv .+)/\1 IROHA_\*/' /etc/ssh/sshd_config

@@ -290,6 +290,7 @@ node ('master') {
   r.user = 'vagrant'
   r.password = 'vagrant'
   r.allowAnyHosts = true
+  r.key_file = '/Users/jenkins/vagrant'
   if(!mac_compiler_list.isEmpty()){
     x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
       mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, useBTF, environmentList, r)}]

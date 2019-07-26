@@ -26,7 +26,7 @@ def vagrantSetupMacOS(String currentPackerTemplateURL, String referencePackerTem
   //   }
   // }
   // else {
-    //sh "vagrant init soramitsu/iroha-develop-build && vagrant up"
+    // sh "vagrant init soramitsu/iroha-develop-build && vagrant up"
   // }
   sh "echo Initializaing vagrant..."
 }
