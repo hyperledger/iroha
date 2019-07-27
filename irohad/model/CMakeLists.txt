@@ -15,19 +15,19 @@ target_link_libraries(sha3_hash
     )
 
 add_library(model
-    model_crypto_provider_impl.cpp
     impl/model_operators.cpp
     )
 
 target_link_libraries(model
-    hash
-    sha3_hash
-    rxcpp
-    logger
-    schema
-    ed25519_crypto
-    rapidjson
     common
+    rxcpp
+    )
+
+add_library(model_crypto_provider
+    model_crypto_provider_impl.cpp
+    )
+target_link_libraries(model_crypto_provider
+    sha3_hash
     )
 
 add_library(model_registrations INTERFACE)

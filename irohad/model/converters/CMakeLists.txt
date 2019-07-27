@@ -16,6 +16,7 @@ target_link_libraries(json_model_converters
     schema
     ed25519_crypto
     common
+    logger
     )
 
 add_library(pb_model_converters
@@ -32,4 +33,5 @@ target_link_libraries(pb_model_converters
     ed25519_crypto
     common
     boost
+    logger
     )
