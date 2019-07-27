@@ -5,6 +5,7 @@
 
 addtest(model_crypto_provider_test model_crypto_provider_test.cpp)
 target_link_libraries(model_crypto_provider_test
+    model_crypto_provider
     model
     hash
     ed25519_crypto
@@ -24,6 +25,7 @@ target_link_libraries(transaction_converter_test
 addtest(block_converter_test converters/pb_block_test.cpp)
 target_link_libraries(block_converter_test
     pb_model_converters
+    sha3_hash
     )
 
 addtest(query_responses_test converters/pb_query_responses_test.cpp)
@@ -34,11 +36,13 @@ target_link_libraries(query_responses_test
 addtest(model_operators_test operators/model_operators_test.cpp)
 target_link_libraries(model_operators_test
     model
+    sha3_hash
     )
 
 addtest(json_command_converter_test converters/json_commands_test.cpp)
 target_link_libraries(json_command_converter_test
     json_model_converters
+    sha3_hash
     )
 
 addtest(json_transaction_converter_test converters/json_transaction_test.cpp)
