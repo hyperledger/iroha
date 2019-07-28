@@ -68,6 +68,7 @@ add_library(ametsuchi
     impl/wsv_restorer_impl.cpp
     impl/postgres_options.cpp
     impl/postgres_query_executor.cpp
+    impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
