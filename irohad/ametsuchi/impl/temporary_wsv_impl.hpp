@@ -46,8 +46,7 @@ namespace iroha {
 
       TemporaryWsvImpl(
           std::unique_ptr<soci::session> sql,
-          std::shared_ptr<shared_model::interface::PermissionToString>
-              perm_converter,
+          std::unique_ptr<TransactionExecutor> transaction_executor,
           logger::LoggerManagerTreePtr log_manager);
 
       expected::Result<void, validation::CommandError> apply(
