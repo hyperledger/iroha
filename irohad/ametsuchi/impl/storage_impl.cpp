@@ -20,6 +20,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
@@ -127,15 +128,21 @@ namespace iroha {
             "createQueryExecutor: connection to database is not initialised");
         return boost::none;
       }
+      auto sql = std::make_unique<soci::session>(*connection_);
+      auto log_manager = log_manager_->getChild("QueryExecutor");
       return boost::make_optional<std::shared_ptr<QueryExecutor>>(
           std::make_shared<PostgresQueryExecutor>(
-              std::make_unique<soci::session>(*connection_),
-              *block_store_,
-              std::move(pending_txs_storage),
-              converter_,
-              std::move(response_factory),
-              perm_converter_,
-              log_manager_->getChild("QueryExecutor")));
+              std::move(sql),
+              response_factory,
+              std::make_shared<PostgresSpecificQueryExecutor>(
+                  *sql,
+                  *block_store_,
+                  std::move(pending_txs_storage),
+                  converter_,
+                  response_factory,
+                  perm_converter_,
+                  log_manager->getChild("SpecificQueryExecutor")->getLogger()),
+              log_manager->getLogger()));
     }
 
     bool StorageImpl::insertBlock(
