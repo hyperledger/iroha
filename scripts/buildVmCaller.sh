@@ -21,7 +21,7 @@ echo "All sources downloaded, vmCall build is started"
 
 # build vmCall.so and vmCall.h
 mkdir -p $GOPATH/src/iroha_protocol
-protoc --proto_path=/opt/iroha/shared_model/schema --go_out $GOPATH/src/iroha_protocol /opt/iroha/shared_model/schema/*.proto
+/opt/dependencies/installed/x64-linux/tools/protobuf/protoc -I/opt/dependencies/installed/x64-linux/include --proto_path=/opt/iroha/shared_model/schema --go_out $GOPATH/src/iroha_protocol /opt/iroha/shared_model/schema/*.proto
 cd $GOPATH/src/vmCaller
 go build -o vmCall.a -buildmode=c-archive main.go iroha_app_state.go iroha_event_sink.go
 cp $GOPATH/src/vmCaller/vmCall.a /opt/iroha/irohad/ametsuchi/

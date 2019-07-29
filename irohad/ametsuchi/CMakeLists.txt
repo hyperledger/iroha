@@ -67,6 +67,31 @@ target_link_libraries(tx_executor
     common
     )
 
+add_library(proto_command_executor
+    impl/proto_command_executor.cpp
+    )
+target_link_libraries(proto_command_executor
+    shared_model_proto_backend
+    )
+
+add_library(postgres_query_executor
+    impl/postgres_query_executor.cpp
+    )
+target_link_libraries(postgres_query_executor
+    SOCI::core
+    )
+target_compile_definitions(postgres_query_executor
+    PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+
+add_library(proto_query_executor
+    impl/proto_query_executor.cpp
+    )
+target_link_libraries(proto_query_executor
+    postgres_query_executor
+    shared_model_proto_backend
+    )
+
 add_library(ametsuchi
     impl/storage_impl.cpp
     impl/temporary_wsv_impl.cpp
@@ -81,12 +106,10 @@ add_library(ametsuchi
     impl/postgres_indexer.cpp
     impl/postgres_block_index.cpp
     impl/wsv_restorer_impl.cpp
-    impl/postgres_query_executor.cpp
     impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
-    impl/proto_command_executor.cpp
     )
 
 if(USE_BURROW)
@@ -99,6 +122,10 @@ endif()
 
 add_library(vmCall STATIC IMPORTED GLOBAL)
 set_property(TARGET vmCall PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/vmCall.a")
+target_link_libraries(vmCall INTERFACE
+    proto_command_executor
+    proto_query_executor
+    )
 
 target_link_libraries(ametsuchi
     pg_connection_init
@@ -119,6 +146,7 @@ target_link_libraries(ametsuchi
     SOCI::postgresql
     SOCI::core
     vmCall
+    postgres_query_executor
     )
 
 target_compile_definitions(ametsuchi
