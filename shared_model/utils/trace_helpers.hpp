@@ -51,6 +51,11 @@ namespace shared_model {
       const T &txs_;
     };
 
+    template <class T>
+    TxHashesPrinter<T> makeTxHashesPrinter(const T &txs) {
+      return TxHashesPrinter<T>(txs);
+    }
+
   }  // namespace interface
 }  // namespace shared_model
 #endif  // IROHA_SHARED_MODEL_TRACE_HELPERS_HPP

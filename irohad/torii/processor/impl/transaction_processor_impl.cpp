@@ -82,11 +82,10 @@ namespace iroha {
               log_->info("VerifiedProposalCreatorEvent StatefulValid: {}",
                          successful_tx.hash().hex());
 
-              log_->trace(
-                  "VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      proposal_and_errors->verified_proposal->transactions())>{
-                      proposal_and_errors->verified_proposal->transactions()});
+              log_->trace("VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
+                          shared_model::interface::makeTxHashesPrinter(
+                              {proposal_and_errors->verified_proposal
+                                   ->transactions()}));
 
               this->publishStatus(TxStatusType::kStatefulValid,
                                   successful_tx.hash());
@@ -134,8 +133,7 @@ namespace iroha {
       log_->info("handle batch");
 
       log_->trace("Handle batch: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      transaction_batch->transactions())>(
+                  shared_model::interface::makeTxHashesPrinter(
                       transaction_batch->transactions()));
 
       if (transaction_batch->hasAllSignatures()

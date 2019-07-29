@@ -31,9 +31,9 @@ namespace iroha {
         const {
       log_->info("propagate batch");
 
-      log_->trace("Propagate batch: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      batch->transactions())>(batch->transactions()));
+      log_->trace(
+          "Propagate batch: [ {} ]",
+          shared_model::interface::makeTxHashesPrinter(batch->transactions()));
 
       ordering_gate_->propagateBatch(batch);
     }

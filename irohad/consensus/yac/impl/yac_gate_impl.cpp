@@ -131,8 +131,8 @@ namespace iroha {
                      block->hash().hex());
 
           log_->trace("Commit top block: [ {} ]",
-                      shared_model::interface::TxHashesPrinter<decltype(
-                          block->transactions())>(block->transactions()));
+                      shared_model::interface::makeTxHashesPrinter(
+                          block->transactions()));
 
           return rxcpp::observable<>::just<GateObject>(PairValid(
               current_hash_.vote_round, current_ledger_state_, block));

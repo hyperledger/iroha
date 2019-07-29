@@ -80,8 +80,7 @@ void OnDemandOrderingGate::propagateBatch(
 
   log_->trace(
       "Propagate batch: [ {} ]",
-      shared_model::interface::TxHashesPrinter<decltype(batch->transactions())>(
-          batch->transactions()));
+      shared_model::interface::makeTxHashesPrinter(batch->transactions()));
 
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});

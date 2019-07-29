@@ -198,7 +198,7 @@ namespace iroha {
       const auto &txs = batch->transactions();
 
       log_->trace("Process batch: [ {} ] ",
-                  shared_model::interface::TxHashesPrinter<decltype(txs)>(txs));
+                  shared_model::interface::makeTxHashesPrinter(txs));
 
       bool has_final_status{false};
 

@@ -57,9 +57,9 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
   for (const auto &batch : batches)
-    log_->trace("On Batches: [ {} ]",
-                shared_model::interface::TxHashesPrinter<decltype(
-                    batch->transactions())>(batch->transactions()));
+    log_->trace(
+        "On Batches: [ {} ]",
+        shared_model::interface::makeTxHashesPrinter(batch->transactions()));
 
   auto unprocessed_batches =
       boost::adaptors::filter(batches, [this](const auto &batch) {
@@ -193,7 +193,7 @@ void OnDemandOrderingServiceImpl::packNextProposals(
       generate_proposal({round.block_round + 1, kFirstRejectRound}, txs);
 
       log_->trace("Generate proposal: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(txs)>(txs));
+                  shared_model::interface::makeTxHashesPrinter(txs));
     }
   }
 

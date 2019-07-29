@@ -87,8 +87,8 @@ namespace iroha {
       log_->info("process proposal");
 
       log_->trace("Process proposal: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      proposal.transactions())>(proposal.transactions()));
+                  shared_model::interface::makeTxHashesPrinter(
+                      proposal.transactions()));
 
       auto temporary_wsv_var = ametsuchi_factory_->createTemporaryWsv();
       if (auto e =
@@ -120,8 +120,8 @@ namespace iroha {
       const auto &proposal = verified_proposal_and_errors->verified_proposal;
 
       log_->trace("Process verified proposal: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      proposal->transactions())>(proposal->transactions()));
+                  shared_model::interface::makeTxHashesPrinter(
+                      proposal->transactions()));
 
       std::vector<shared_model::crypto::Hash> rejected_hashes;
       for (const auto &rejected_tx :

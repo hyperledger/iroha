@@ -129,8 +129,8 @@ namespace iroha {
                  proposal.transactions().size());
 
       log_->trace("Validate proposal: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      proposal.transactions())>(proposal.transactions()));
+                  shared_model::interface::makeTxHashesPrinter(
+                      proposal.transactions()));
 
       auto validation_result = std::make_unique<VerifiedProposalAndErrors>();
       auto valid_txs =
@@ -152,8 +152,7 @@ namespace iroha {
                  validation_result->verified_proposal->transactions().size());
 
       log_->trace("Proposal validated: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      validation_result->verified_proposal->transactions())>(
+                  shared_model::interface::makeTxHashesPrinter(
                       validation_result->verified_proposal->transactions()));
 
       return validation_result;
