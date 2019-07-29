@@ -26,6 +26,8 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, s
     randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
     currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
     referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
+    // Always check for updates in base image. See https://github.com/moby/moby/issues/31613
+    sh ("docker pull \$(grep -ioP '(?<=^from)\\s+\\S+' /tmp/${randDir}/currentDockerfile)")
     if (utils.filesDiffer(currentDockerfile, referenceDockerfile) || forceBuild) {
       // Dockerfile has been changed compared to reference file
       // We cannot rely on the local cache
@@ -33,7 +35,8 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, s
       // from invalid (stale) addresses
       iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --no-cache -f ${currentDockerfile} .")
     }
-    iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions}  -f ${currentDockerfile} .")
+    // Build using cache
+    iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --cache-from ${env.DOCKER_REGISTRY_BASENAME}:${imageName} -f ${currentDockerfile} .")
   }
   return iC
 }
