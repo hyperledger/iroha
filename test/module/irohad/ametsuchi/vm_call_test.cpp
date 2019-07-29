@@ -10,11 +10,13 @@
 #include <boost/mpl/copy.hpp>
 #include <boost/mpl/count.hpp>
 #include <boost/mpl/find.hpp>
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
+#include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
 #include "interfaces/commands/create_domain.hpp"
@@ -22,13 +24,17 @@
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
 #include "interfaces/commands/set_quorum.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
+#include "interfaces/queries/blocks_query.hpp"
+#include "interfaces/queries/query.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
+#include "module/irohad/ametsuchi/mock_query_executor.hpp"
 
 template <typename T>
 class VariantTypeMatcher {
@@ -107,23 +113,44 @@ contract C {
   char *caller = const_cast<char *>("caller"),
        *callee = const_cast<char *>("Callee"), *empty = const_cast<char *>("");
 
-  iroha::ametsuchi::MockCommandExecutor executor;
+  iroha::ametsuchi::MockCommandExecutor command_executor;
   EXPECT_CALL(
-      executor,
+      command_executor,
       execute(VariantWithType<const shared_model::interface::CreateAccount &>(),
               ::testing::_,
               ::testing::_))
       .WillRepeatedly(::testing::Return(iroha::expected::Value<void>({})));
 
-  auto res = VmCall(code, empty, caller, callee, &executor);
+  iroha::ametsuchi::MockQueryExecutor query_executor;
+  auto query_response_factory =
+      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+  EXPECT_CALL(query_executor, validateAndExecute_(::testing::_))
+      .WillRepeatedly([query_response_factory](const auto &) {
+        return query_response_factory
+            ->createAccountResponse("admin@test", "test", 1, {}, {"user"}, {})
+            .release();
+      });
+
+  auto res =
+      VmCall(code, empty, caller, callee, &command_executor, &query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty, inputCallSetter, caller, callee, &executor);
+  res = VmCall(empty,
+               inputCallSetter,
+               caller,
+               callee,
+               &command_executor,
+               &query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty, inputCallGetter, caller, callee, &executor);
+  res = VmCall(empty,
+               inputCallGetter,
+               caller,
+               callee,
+               &command_executor,
+               &query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 }

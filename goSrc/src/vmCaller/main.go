@@ -3,6 +3,7 @@ package main
 // #cgo CFLAGS: -I ../../../irohad
 // #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
 // #include "ametsuchi/impl/proto_command_executor.h"
+// #include "ametsuchi/impl/proto_query_executor.h"
 import "C"
 import "unsafe"
 import (
@@ -46,7 +47,8 @@ var ourVm = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogge
 var evmState = evm.NewState(appState, blockHashGetter)
 
 //export VmCall
-func VmCall(code, input, caller, callee *C.char, executor unsafe.Pointer) (*C.char, bool) {
+func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer, queryExecutor unsafe.Pointer) (*C.char, bool) {
+	// command example
 	// command := &pb.Command{Command: &pb.Command_CreateAccount{CreateAccount: &pb.CreateAccount{AccountName: "admin", DomainId: "test"}}}
 	// fmt.Println(proto.MarshalTextString(command))
 	// out, err := proto.Marshal(command)
@@ -54,8 +56,26 @@ func VmCall(code, input, caller, callee *C.char, executor unsafe.Pointer) (*C.ch
 	// 	fmt.Println(err)
 	// }
 	// cOut := C.CBytes(out)
-	// result := C.Iroha_ProtoCommandExecutorExecute(executor, cOut, C.int(len(out)))
-	// fmt.Println(result)
+	// commandResult := C.Iroha_ProtoCommandExecutorExecute(commandExecutor, cOut, C.int(len(out)))
+	// fmt.Println(commandResult)
+
+	// query example
+	// query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{GetAccount: &pb.GetAccount{AccountId: "admin@test"}}}}
+	// fmt.Println(proto.MarshalTextString(query))
+	// out, err = proto.Marshal(query)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// cOut = C.CBytes(out)
+	// queryResult := C.Iroha_ProtoQueryExecutorExecute(queryExecutor, cOut, C.int(len(out)))
+	// fmt.Println(queryResult)
+	// out = C.GoBytes(queryResult.data, queryResult.size)
+	// queryResponse := &pb.QueryResponse{}
+	// err = proto.Unmarshal(out, queryResponse)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// fmt.Println(queryResponse)
 
 	// Convert strings into EVM addresses
 	evmCaller := toEVMaddress(C.GoString(caller))
