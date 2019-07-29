@@ -14,5 +14,4 @@ target_link_libraries(processors PUBLIC
     status_bus
     common
     verified_proposal_creator_common
-    trace_helpers
     )

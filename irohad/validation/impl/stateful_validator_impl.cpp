@@ -15,6 +15,7 @@
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "logger/logger.hpp"
+#include "utils/trace_helpers.hpp"
 #include "validation/utils.hpp"
 
 namespace iroha {
@@ -127,11 +128,9 @@ namespace iroha {
       log_->info("transactions in proposal: {}",
                  proposal.transactions().size());
 
-      std::string hashes;
-      for (const auto &tx : proposal.transactions())
-        hashes += tx.hash().hex() + " ";
-
-      log_->trace("Validate proposal: [ {} ]", hashes);
+      log_->trace("Validate proposal: [ {} ]",
+                  shared_model::interface::TxHashesPrinter<decltype(
+                      proposal.transactions())>(proposal.transactions()));
 
       auto validation_result = std::make_unique<VerifiedProposalAndErrors>();
       auto valid_txs =
@@ -152,12 +151,10 @@ namespace iroha {
       log_->info("transactions in verified proposal: {}",
                  validation_result->verified_proposal->transactions().size());
 
-      hashes = "";
-      for (const auto &tx :
-           validation_result->verified_proposal->transactions())
-        hashes += tx.hash().hex() + " ";
-
-      log_->trace("Proposal validated: [ {} ]", hashes);
+      log_->trace("Proposal validated: [ {} ]",
+                  shared_model::interface::TxHashesPrinter<decltype(
+                      validation_result->verified_proposal->transactions())>(
+                      validation_result->verified_proposal->transactions()));
 
       return validation_result;
     }

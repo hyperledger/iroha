@@ -6,6 +6,7 @@
 #include "consensus/yac/impl/yac_gate_impl.hpp"
 
 #include <boost/range/adaptor/transformed.hpp>
+
 #include "common/visitor.hpp"
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/outcome_messages.hpp"
@@ -18,6 +19,8 @@
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
 #include "simulator/block_creator.hpp"
+#include "utils/trace_helpers.hpp"
+
 namespace iroha {
   namespace consensus {
     namespace yac {
@@ -127,10 +130,9 @@ namespace iroha {
                      block->height(),
                      block->hash().hex());
 
-          std::string hashes;
-          for (const auto &tx : block->transactions())
-            hashes += tx.hash().hex() + " ";
-          log_->trace("Commit top block: [ {} ]", hashes);
+          log_->trace("Commit top block: [ {} ]",
+                      shared_model::interface::TxHashesPrinter<decltype(
+                          block->transactions())>(block->transactions()));
 
           return rxcpp::observable<>::just<GateObject>(PairValid(
               current_hash_.vote_round, current_ledger_state_, block));

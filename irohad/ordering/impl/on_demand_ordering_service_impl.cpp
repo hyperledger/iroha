@@ -21,6 +21,7 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
+#include "utils/trace_helpers.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -55,12 +56,10 @@ void OnDemandOrderingServiceImpl::onCollaborationOutcome(
 // ----------------------------| OdOsNotification |-----------------------------
 
 void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
-  for (const auto &batch : batches) {
-    std::string hashes;
-    for (const auto &tx : batch->transactions())
-      hashes += tx->hash().hex() + " ";
-    log_->trace("On Batches: [ {} ]", hashes);
-  }
+  for (const auto &batch : batches)
+    log_->trace("On Batches: [ {} ]",
+                shared_model::interface::TxHashesPrinter<decltype(
+                    batch->transactions())>(batch->transactions()));
 
   auto unprocessed_batches =
       boost::adaptors::filter(batches, [this](const auto &batch) {
@@ -110,10 +109,10 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
  * @param discarded_txs_amount - the amount of discarded txs
  * @return transactions
  */
-static std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-getTransactions(size_t requested_tx_amount,
-                detail::BatchSetType &batch_collection,
-                boost::optional<size_t &> discarded_txs_amount) {
+static shared_model::interface::types::SharedTxsCollectionType getTransactions(
+    size_t requested_tx_amount,
+    detail::BatchSetType &batch_collection,
+    boost::optional<size_t &> discarded_txs_amount) {
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
 
   auto it = batch_collection.begin();
@@ -192,11 +191,9 @@ void OnDemandOrderingServiceImpl::packNextProposals(
     if (not txs.empty()) {
       generate_proposal({round.block_round, round.reject_round + 1}, txs);
       generate_proposal({round.block_round + 1, kFirstRejectRound}, txs);
-      std::string hashes;
-      for (const auto &tx : txs)
-        hashes += tx->hash().hex() + " ";
-      log_->trace("Generate proposal: [ {} ]", hashes);
 
+      log_->trace("Generate proposal: [ {} ]",
+                  shared_model::interface::TxHashesPrinter<decltype(txs)>(txs));
     }
   }
 

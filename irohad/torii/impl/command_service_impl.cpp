@@ -13,6 +13,7 @@
 #include "interfaces/transaction.hpp"
 #include "interfaces/transaction_responses/not_received_tx_response.hpp"
 #include "logger/logger.hpp"
+#include "utils/trace_helpers.hpp"
 
 namespace iroha {
   namespace torii {
@@ -198,7 +199,8 @@ namespace iroha {
 
       std::string hashes;
       for (const auto &tx : txs) hashes += tx->hash().hex() + " ";
-      log_->trace("Process batch: [ {} ] ", hashes);
+      log_->trace("Process batch: [ {} ] ",
+                  shared_model::interface::TxHashesPrinter<decltype(txs)>(txs));
 
       bool has_final_status{false};
 

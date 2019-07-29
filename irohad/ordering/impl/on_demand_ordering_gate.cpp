@@ -17,6 +17,7 @@
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "utils/trace_helpers.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -77,9 +78,10 @@ void OnDemandOrderingGate::propagateBatch(
     std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
   cache_->addToBack({batch});
 
-  std::string hashes;
-  for (const auto &tx : batch->transactions()) hashes += tx->hash().hex() + " ";
-  log_->trace("Propagate batch: [ {} ]", hashes);
+  log_->trace(
+      "Propagate batch: [ {} ]",
+      shared_model::interface::TxHashesPrinter<decltype(batch->transactions())>(
+          batch->transactions()));
 
   network_client_->onBatches(
       transport::OdOsNotification::CollectionType{batch});

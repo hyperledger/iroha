@@ -4,7 +4,3 @@
 add_library(shared_model_utils
     string_builder.cpp
     )
-
-add_library(trace_helpers
-    trace_helpers.cpp
-    )

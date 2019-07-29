@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <boost/variant/apply_visitor.hpp>
+
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
@@ -16,6 +17,7 @@
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "utils/trace_helpers.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -50,6 +52,10 @@ namespace iroha {
       log_->info("Applying block: height {}, hash {}",
                  block->height(),
                  block->hash().hex());
+
+      log_->trace("Applying block: [ {} ]",
+                  shared_model::interface::TxHashesPrinter<decltype(
+                      block->transactions())>(block->transactions()));
 
       auto block_applied =
           (not ledger_state_ or predicate(block, *ledger_state_.value()))
