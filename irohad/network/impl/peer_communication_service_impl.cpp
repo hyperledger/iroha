@@ -11,6 +11,7 @@
 #include "network/ordering_gate.hpp"
 #include "simulator/verified_proposal_creator.hpp"
 #include "synchronizer/synchronizer.hpp"
+#include "utils/trace_helpers.hpp"
 
 namespace iroha {
   namespace network {
@@ -32,7 +33,9 @@ namespace iroha {
       std::string hashes;
       for (const auto &tx : batch->transactions())
         hashes += tx->hash().hex() + " ";
-      log_->trace("Propagate batch: [ {} ]", hashes);
+      log_->trace("Propagate batch: [ {} ]",
+                  shared_model::interface::TxHashesPrinter<decltype(
+                      batch->transactions())>(batch->transactions()));
 
       ordering_gate_->propagateBatch(batch);
     }

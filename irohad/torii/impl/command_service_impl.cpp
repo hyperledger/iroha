@@ -197,8 +197,6 @@ namespace iroha {
       const auto status_issuer = "ToriiBatchProcessor";
       const auto &txs = batch->transactions();
 
-      std::string hashes;
-      for (const auto &tx : txs) hashes += tx->hash().hex() + " ";
       log_->trace("Process batch: [ {} ] ",
                   shared_model::interface::TxHashesPrinter<decltype(txs)>(txs));
 
