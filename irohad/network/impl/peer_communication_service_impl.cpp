@@ -30,9 +30,7 @@ namespace iroha {
         std::shared_ptr<shared_model::interface::TransactionBatch> batch)
         const {
       log_->info("propagate batch");
-      std::string hashes;
-      for (const auto &tx : batch->transactions())
-        hashes += tx->hash().hex() + " ";
+
       log_->trace("Propagate batch: [ {} ]",
                   shared_model::interface::TxHashesPrinter<decltype(
                       batch->transactions())>(batch->transactions()));
