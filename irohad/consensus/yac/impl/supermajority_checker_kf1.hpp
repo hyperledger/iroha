@@ -32,10 +32,10 @@ namespace iroha {
       inline bool checkKfPlus1Supermajority(PeersNumberType number,
                                             PeersNumberType all,
                                             unsigned int k) {
-        if (agreed > all) {
+        if (number > all) {
           return false;
         }
-        return agreed * k >= (k - 1) * (all - 1) + k;
+        return number * k >= (k - 1) * (all - 1) + k;
       }
 
       /**
