@@ -58,8 +58,8 @@ class SupermajorityCheckerTest
     return checker->hasSupermajority(current, all);
   }
 
-  bool hasMajority(PeersNumberType voted, PeersNumberType all) const {
-    return checker->hasMajority(voted, all);
+  bool isTolerated(PeersNumberType number, PeersNumberType all) const {
+    return checker->isTolerated(number, all);
   }
 
   bool canHaveSupermajority(const VoteGroups &votes,
@@ -144,10 +144,10 @@ TEST_P(CftAndBftSupermajorityCheckerTest, MajorityWithSize4) {
   size_t A = 4;
   for (size_t i = 0; i < 5; ++i) {
     if (i >= getMajority(A) and i <= A) {
-      ASSERT_TRUE(hasMajority(i, A))
+      ASSERT_TRUE(isTolerated(i, A))
           << i << " votes out of " << A << " in " << modelToString();
     } else {
-      ASSERT_FALSE(hasMajority(i, A))
+      ASSERT_FALSE(isTolerated(i, A))
           << i << " votes out of " << A << " in " << modelToString();
     }
   }

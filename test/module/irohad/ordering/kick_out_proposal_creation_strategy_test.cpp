@@ -54,7 +54,7 @@ class KickOutProposalCreationStrategyTest : public testing::Test {
  * @then  shouldCreateRound returns true
  */
 TEST_F(KickOutProposalCreationStrategyTest, OnNonMaliciousCase) {
-  EXPECT_CALL(*supermajority_checker_, hasMajority(0, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(0, number_of_peers))
       .WillOnce(Return(false));
 
   strategy_->onCollaborationOutcome(peers);
@@ -67,7 +67,7 @@ TEST_F(KickOutProposalCreationStrategyTest, OnNonMaliciousCase) {
     strategy_->onProposalRequest(peers.at(i), {2, 0});
   }
 
-  EXPECT_CALL(*supermajority_checker_, hasMajority(f, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(f, number_of_peers))
       .WillOnce(Return(false));
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(true, is_invoked);
@@ -87,7 +87,7 @@ TEST_F(KickOutProposalCreationStrategyTest, OnMaliciousCase) {
     strategy_->onProposalRequest(peers.at(i), {2, 0});
   }
 
-  EXPECT_CALL(*supermajority_checker_, hasMajority(requested, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(requested, number_of_peers))
       .WillOnce(Return(true));
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(false, is_invoked);
@@ -106,7 +106,7 @@ TEST_F(KickOutProposalCreationStrategyTest, RepeadedRequest) {
   for (auto i = 0u; i < requested; ++i) {
     strategy_->onProposalRequest(peers.at(0), {2, 0});
   }
-  EXPECT_CALL(*supermajority_checker_, hasMajority(1, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(1, number_of_peers))
       .WillOnce(Return(false));
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(true, is_invoked);
@@ -127,7 +127,7 @@ TEST_F(KickOutProposalCreationStrategyTest, UnknownPeerRequestsProposal) {
   }
   strategy_->onProposalRequest(shared_model::crypto::PublicKey{"unknown"},
                                {2, 0});
-  EXPECT_CALL(*supermajority_checker_, hasMajority(f, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(f, number_of_peers))
       .WillOnce(Return(false));
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(true, is_invoked);
@@ -150,11 +150,11 @@ TEST_F(KickOutProposalCreationStrategyTest, UnknownPeerRequestsProposal) {
  * @note: The test is disabled because of CI can't perform concurrent tests well
  */
 TEST_F(KickOutProposalCreationStrategyTest, DISABLED_ConcurrentTest) {
-  EXPECT_CALL(*supermajority_checker_, hasMajority(0, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(0, number_of_peers))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(*supermajority_checker_, hasMajority(1, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(1, number_of_peers))
       .WillRepeatedly(Return(false));
-  EXPECT_CALL(*supermajority_checker_, hasMajority(2, number_of_peers))
+  EXPECT_CALL(*supermajority_checker_, isTolerated(2, number_of_peers))
       .WillRepeatedly(Return(true));
 
   std::atomic<uint64_t> commit_round{1};
