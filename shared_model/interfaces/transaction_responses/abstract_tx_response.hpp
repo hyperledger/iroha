@@ -6,7 +6,8 @@
 #ifndef IROHA_ABSTRACT_TX_RESPONSE_HPP
 #define IROHA_ABSTRACT_TX_RESPONSE_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "utils/string_builder.hpp"
 
 namespace shared_model {
@@ -16,7 +17,7 @@ namespace shared_model {
      * @tparam Model - concrete model transaction response
      */
     template <typename Model>
-    class AbstractTxResponse : public ModelPrimitive<Model> {
+    class AbstractTxResponse : public NonCopyableModelPrimitive<Model> {
      private:
       /**
        * @return string representation of class name

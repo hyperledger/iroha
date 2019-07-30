@@ -45,6 +45,6 @@ namespace common_constants {
   extern const Keypair kUserKeypair;
   extern const Keypair kSameDomainUserKeypair;
   extern const Keypair kAnotherDomainUserKeypair;
-}
+}  // namespace common_constants
 
 #endif /* IROHA_TEST_FRAMEWORK_COMMON_CONSTANTS_HPP_ */

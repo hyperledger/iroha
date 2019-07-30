@@ -6,30 +6,25 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ROLE_PERMISSIONS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ROLE_PERMISSIONS_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/query_responses/role_permissions.hpp"
+
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
     class RolePermissionsResponse final
-        : public CopyableProto<interface::RolePermissionsResponse,
-                               iroha::protocol::QueryResponse,
-                               RolePermissionsResponse> {
+        : public interface::RolePermissionsResponse {
      public:
-      template <typename QueryResponseType>
-      explicit RolePermissionsResponse(QueryResponseType &&queryResponse);
-
-      RolePermissionsResponse(const RolePermissionsResponse &o);
-
-      RolePermissionsResponse(RolePermissionsResponse &&o);
+      explicit RolePermissionsResponse(
+          iroha::protocol::QueryResponse &query_response);
 
       const interface::RolePermissionSet &rolePermissions() const override;
 
       std::string toString() const override;
 
      private:
-      const iroha::protocol::RolePermissionsResponse &role_permissions_response_;
+      const iroha::protocol::RolePermissionsResponse
+          &role_permissions_response_;
 
       const interface::RolePermissionSet role_permissions_;
     };

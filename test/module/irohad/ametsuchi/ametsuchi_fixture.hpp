@@ -53,23 +53,22 @@ namespace iroha {
         reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
 
-        PostgresOptions options(
-            pgopt_, PgConnectionInit::kDefaultDatabaseName, storage_logger_);
+        auto options = std::make_unique<PostgresOptions>(
+            pgopt_,
+            integration_framework::kDefaultWorkingDatabaseName,
+            storage_logger_);
 
-        PgConnectionInit connection_init;
-        connection_init
-            .createDatabaseIfNotExist(options.dbname(),
-                                      options.optionsStringWithoutDbName())
-            .match([](auto &&val) {},
-                   [&](auto &&error) {
-                     storage_logger_->error("Database creation error: {}",
-                                            error.error);
-                     std::terminate();
-                   });
+        PgConnectionInit::createDatabaseIfNotExist(*options).match(
+            [](auto &&val) {},
+            [&](auto &&error) {
+              storage_logger_->error("Database creation error: {}",
+                                     error.error);
+              std::terminate();
+            });
 
-        auto pool = connection_init.prepareConnectionPool(
+        auto pool = PgConnectionInit::prepareConnectionPool(
             *reconnection_strategy_factory_,
-            options,
+            *options,
             pool_size_,
             getTestLoggerManager()->getChild("Storage"));
 
@@ -82,9 +81,8 @@ namespace iroha {
             std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
 
         StorageImpl::create(block_store_path,
-                            options,
+                            std::move(options),
                             std::move(pool_wrapper_),
-                            factory,
                             converter,
                             perm_converter_,
                             std::move(block_storage_factory),

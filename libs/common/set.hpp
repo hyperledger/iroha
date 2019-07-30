@@ -10,20 +10,20 @@
 
 namespace iroha {
   /**
-       * Merge collections with unique elements
-       * @tparam Collection - type of collection
-       * @tparam TargetType - type of elements in collection
-       * @tparam Hasher - class for hashing TargetType objects
-       * @param left - first collection
-       * @param right - second collection
-       * @return collection with type Collection, that contain unique union of elements
-       */
-  template<typename Hasher,
-      typename Collection,
-      typename TargetType = typename Collection::value_type>
+   * Merge collections with unique elements
+   * @tparam Collection - type of collection
+   * @tparam TargetType - type of elements in collection
+   * @tparam Hasher - class for hashing TargetType objects
+   * @param left - first collection
+   * @param right - second collection
+   * @return collection with type Collection, that contain unique union of
+   * elements
+   */
+  template <typename Hasher,
+            typename Collection,
+            typename TargetType = typename Collection::value_type>
   auto merge_unique(Collection left, Collection right) {
-    std::unordered_set<TargetType, Hasher>
-        unique_set(left.begin(), left.end());
+    std::unordered_set<TargetType, Hasher> unique_set(left.begin(), left.end());
 
     unique_set.insert(right.begin(), right.end());
     return Collection(unique_set.begin(), unique_set.end());
@@ -39,7 +39,7 @@ namespace iroha {
    * @return new set, that contains union of elements,
    * where same elements merged inside
    */
-  template<typename Set, typename Merge>
+  template <typename Set, typename Merge>
   Set set_union(const Set &left, const Set &right, Merge &&merge) {
     Set out;
     out.insert(left.begin(), left.end());
@@ -59,7 +59,7 @@ namespace iroha {
    * @tparam Set - type of set
    * @return difference of sets.
    */
-  template<typename Set>
+  template <typename Set>
   Set set_difference(const Set &left, const Set &right) {
     Set out;
     for (auto &&element : left) {
@@ -69,5 +69,5 @@ namespace iroha {
     }
     return out;
   }
-} // namespace iroha
-#endif //IROHA_SET_HPP
+}  // namespace iroha
+#endif  // IROHA_SET_HPP

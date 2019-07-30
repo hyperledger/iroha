@@ -18,8 +18,7 @@ namespace iroha {
     using shared_model::converters::protobuf::jsonToProto;
     using shared_model::interface::Block;
 
-    BlockLoader::BlockLoader(logger::LoggerPtr log)
-        : log_(std::move(log)) {}
+    BlockLoader::BlockLoader(logger::LoggerPtr log) : log_(std::move(log)) {}
 
     boost::optional<std::shared_ptr<Block>> BlockLoader::parseBlock(
         const std::string &data) {

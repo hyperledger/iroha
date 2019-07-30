@@ -9,17 +9,13 @@
 #include "consensus/yac/yac_crypto_provider.hpp"
 
 #include "cryptography/keypair.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 
 namespace iroha {
   namespace consensus {
     namespace yac {
       class CryptoProviderImpl : public YacCryptoProvider {
        public:
-        CryptoProviderImpl(
-            const shared_model::crypto::Keypair &keypair,
-            std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-                factory);
+        CryptoProviderImpl(const shared_model::crypto::Keypair &keypair);
 
         bool verify(const std::vector<VoteMessage> &msg) override;
 
@@ -27,7 +23,6 @@ namespace iroha {
 
        private:
         shared_model::crypto::Keypair keypair_;
-        std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
       };
     }  // namespace yac
   }    // namespace consensus

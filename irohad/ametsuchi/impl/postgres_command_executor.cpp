@@ -14,12 +14,14 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
@@ -263,6 +265,71 @@ namespace {
                          % creator_id % account_id)
                             .str();
     return query;
+  }
+
+  shared_model::interface::types::DomainIdType getDomainFromName(
+      const shared_model::interface::types::AccountIdType &account_id) {
+    // TODO 03.10.18 andrei: IR-1728 Move getDomainFromName to shared_model
+    std::vector<std::string> res;
+    boost::split(res, account_id, boost::is_any_of("@"));
+    return res.at(1);
+  }
+
+  /**
+   * Generate an SQL subquery which checks if creator has corresponding
+   * permissions for target account
+   * It verifies individual, domain, and global permissions, and returns true if
+   * any of listed permissions is present
+   */
+  auto hasQueryPermission(
+      const shared_model::interface::types::AccountIdType &creator,
+      const shared_model::interface::types::AccountIdType &target_account,
+      shared_model::interface::permissions::Role indiv_permission_id,
+      shared_model::interface::permissions::Role all_permission_id,
+      shared_model::interface::permissions::Role domain_permission_id,
+      const shared_model::interface::types::DomainIdType &creator_domain,
+      const shared_model::interface::types::DomainIdType
+          &target_account_domain) {
+    const auto bits = shared_model::interface::RolePermissionSet::size();
+    const auto perm_str =
+        shared_model::interface::RolePermissionSet({indiv_permission_id})
+            .toBitstring();
+    const auto all_perm_str =
+        shared_model::interface::RolePermissionSet({all_permission_id})
+            .toBitstring();
+    const auto domain_perm_str =
+        shared_model::interface::RolePermissionSet({domain_permission_id})
+            .toBitstring();
+
+    boost::format cmd(R"(
+    has_indiv_perm AS (
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+      & '%3%') = '%3%' FROM role_has_permissions AS rp
+          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+          WHERE ar.account_id = %2%
+    ),
+    has_all_perm AS (
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+      & '%4%') = '%4%' FROM role_has_permissions AS rp
+          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+          WHERE ar.account_id = %2%
+    ),
+    has_domain_perm AS (
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+      & '%5%') = '%5%' FROM role_has_permissions AS rp
+          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+          WHERE ar.account_id = %2%
+    ),
+    has_query_perm AS (
+      SELECT (%2% = %6% AND (SELECT * FROM has_indiv_perm))
+          OR (SELECT * FROM has_all_perm)
+          OR (%7% = %8% AND (SELECT * FROM has_domain_perm)) AS perm
+    )
+    )");
+
+    return (cmd % bits % creator % perm_str % all_perm_str % domain_perm_str
+            % target_account % creator_domain % target_account_domain)
+        .str();
   }
 
   std::string checkAccountDomainRoleOrGlobalRolePermission(
@@ -576,6 +643,19 @@ namespace iroha {
               %s
               ELSE 1 END AS result)";
 
+    const std::string PostgresCommandExecutor::removePeerBase = R"(
+          PREPARE %s (text, text) AS
+          WITH
+          %s
+          removed AS (
+              DELETE FROM peer WHERE public_key = $2
+              %s
+              RETURNING (1)
+          )
+          SELECT CASE WHEN EXISTS (SELECT * FROM removed) THEN 0
+              %s
+              ELSE 1 END AS result)";
+
     const std::string PostgresCommandExecutor::removeSignatoryBase = R"(
           PREPARE %s (text, text, text) AS
           WITH
@@ -782,6 +862,51 @@ namespace iroha {
                                LIMIT 1) THEN 7
               ELSE 1
           END AS result)";
+
+    const std::string PostgresCommandExecutor::compareAndSetAccountDetailBase =
+        R"(PREPARE %s (text, text, text, text, text, text, text) AS
+          WITH %s
+              old_value AS
+              (
+                  SELECT *
+                  FROM account
+                  WHERE
+                    account_id = $2
+                    AND CASE
+                      WHEN data ? $1 AND data->$1 ?$3
+                        THEN
+                          CASE
+                            WHEN $5 IS NOT NULL THEN data->$1->$3 = $5::jsonb
+                            ELSE FALSE
+                          END
+                      ELSE TRUE
+                    END
+              ),
+              inserted AS
+              (
+                  UPDATE account
+                  SET data = jsonb_set(
+                    CASE
+                      WHEN data ? $1 THEN data
+                      ELSE jsonb_set(data, array[$1], '{}')
+                    END,
+                    array[$1, $3], $4::jsonb
+                  )
+                  WHERE
+                    EXISTS (SELECT * FROM old_value)
+                    AND account_id = $2
+                    %s
+                  RETURNING (1)
+              )
+              SELECT CASE
+                  WHEN EXISTS (SELECT * FROM inserted) THEN 0
+                  WHEN NOT EXISTS
+                        (SELECT * FROM account WHERE account_id=$2) THEN 3
+                  WHEN NOT EXISTS (SELECT * FROM old_value) THEN 4
+                  %s
+                  ELSE 1
+                END
+              AS result)";
 
     std::string CommandError::toString() const {
       return (boost::format("%s: %d with extra info '%s'") % command_name
@@ -1037,6 +1162,23 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::RemovePeer &command) {
+      auto pubkey = command.pubkey();
+
+      auto cmd = boost::format("EXECUTE %1% ('%2%', '%3%')");
+
+      appendCommandName("removePeer", cmd, do_validation_);
+
+      cmd = (cmd % creator_account_id_ % pubkey.hex());
+
+      auto str_args = [&pubkey] {
+        return getQueryArgsStringBuilder().append(pubkey.toString()).finalize();
+      };
+
+      return executeQuery(sql_, cmd.str(), "RemovePeer", std::move(str_args));
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
         const shared_model::interface::RemoveSignatory &command) {
       auto &account_id = command.accountId();
       auto &pubkey = command.pubkey().hex();
@@ -1195,6 +1337,43 @@ namespace iroha {
 
       return executeQuery(
           sql_, cmd.str(), "TransferAsset", std::move(str_args));
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::CompareAndSetAccountDetail &command) {
+      auto &account_id = command.accountId();
+      auto &key = command.key();
+      auto &value = command.value();
+      auto &old_value = command.oldValue();
+
+      auto cmd = boost::format(
+          "EXECUTE %1% ('%2%', '%3%', '%4%', '%5%', %6%, '%7%', '%8%')");
+
+      appendCommandName("compareAndSetAccountDetail", cmd, do_validation_);
+
+      std::string new_json_value = "\"" + value + "\"";
+      std::string expected_json_value = "NULL";
+
+      if (old_value) {
+        expected_json_value = "'\"" + old_value.get() + "\"'";
+      }
+
+      cmd = (cmd % creator_account_id_ % account_id % key % new_json_value
+             % expected_json_value % getDomainFromName(creator_account_id_)
+             % getDomainFromName(account_id));
+
+      auto str_args = [&account_id, &key, &new_json_value, &old_value] {
+        return getQueryArgsStringBuilder()
+            .append("account_id", account_id)
+            .append("key", key)
+            .append("value", new_json_value)
+            .append("old_value",
+                    old_value ? "\"" + old_value.get() + "\"" : "NULL")
+            .finalize();
+      };
+
+      return executeQuery(
+          sql_, cmd.str(), "compareAndSetAccountDetail", std::move(str_args));
     }
 
     void PostgresCommandExecutor::prepareStatements(soci::session &sql) {
@@ -1368,14 +1547,46 @@ namespace iroha {
       statements.push_back({"grantPermission",
                             grantPermissionBase,
                             {(boost::format(R"(
-            has_perm AS (SELECT COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-          & $4 = $4 FROM role_has_permissions AS rp
-              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = $1),)")
+            has_perm AS (
+                SELECT
+                    (
+                        COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+                        & $4
+                    ) = $4
+                FROM role_has_permissions AS rp
+                JOIN account_has_roles AS ar ON ar.role_id = rp.role_id
+                WHERE ar.account_id = $1),)")
                               % bits)
                                  .str(),
                              R"( WHERE (SELECT * FROM has_perm))",
                              R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"}});
+
+      statements.push_back(
+          {"removePeer",
+           removePeerBase,
+           {(boost::format(R"(
+            has_perm AS (%s),
+            get_peer AS (
+              SELECT * from peer WHERE public_key = $2 LIMIT 1
+            ),
+            check_peers AS (
+              SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
+            ),
+            )")
+             % checkAccountRolePermission(
+                   shared_model::interface::permissions::Role::kRemovePeer,
+                   "$1"))
+                .str(),
+            R"(
+            AND (SELECT * FROM has_perm)
+            AND EXISTS (SELECT * FROM get_peer)
+            AND EXISTS (SELECT * FROM check_peers)
+            )",
+            R"(
+            WHEN NOT EXISTS (SELECT * from get_peer) THEN 3
+            WHEN NOT EXISTS (SELECT * from check_peers) THEN 4
+            WHEN NOT (SELECT * from has_perm) THEN 2
+            )"}});
 
       statements.push_back(
           {"removeSignatory",
@@ -1532,6 +1743,45 @@ namespace iroha {
                    shared_model::interface::permissions::Role::kReceive, "$3"))
                 .str(),
             R"( AND (SELECT * FROM has_perm))",
+            R"( AND (SELECT * FROM has_perm))",
+            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"}});
+
+      statements.push_back(
+          {"compareAndSetAccountDetail",
+           compareAndSetAccountDetailBase,
+           {(boost::format(R"(
+              has_role_perm AS (%s),
+              has_grantable_perm AS (%s),
+              %s,
+              has_perm AS (SELECT CASE
+                               WHEN (SELECT * FROM has_query_perm) THEN
+                                   CASE
+                                       WHEN (SELECT * FROM has_grantable_perm)
+                                           THEN true
+                                       WHEN ($1 = $2) THEN true
+                                       WHEN (SELECT * FROM has_role_perm)
+                                           THEN true
+                                       ELSE false END
+                               ELSE false END
+              ),
+              )")
+             % checkAccountRolePermission(
+                   shared_model::interface::permissions::Role::kSetDetail, "$1")
+             % checkAccountGrantablePermission(
+                   shared_model::interface::permissions::Grantable::
+                       kSetMyAccountDetail,
+                   "$1",
+                   "$2")
+             % hasQueryPermission(
+                   "$1",
+                   "$2",
+                   shared_model::interface::permissions::Role::kGetMyAccDetail,
+                   shared_model::interface::permissions::Role::kGetAllAccDetail,
+                   shared_model::interface::permissions::Role::
+                       kGetDomainAccDetail,
+                   "$6",
+                   "$7"))
+                .str(),
             R"( AND (SELECT * FROM has_perm))",
             R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"}});
 

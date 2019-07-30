@@ -14,6 +14,7 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
+#include "network/impl/grpc_channel_builder.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace iroha;
@@ -22,8 +23,7 @@ using namespace iroha::network;
 using iroha::ConstRefState;
 namespace {
   auto default_sender_factory = [](const shared_model::interface::Peer &to) {
-    return transport::MstTransportGrpc::NewStub(
-        grpc::CreateChannel(to.address(), grpc::InsecureChannelCredentials()));
+    return createClient<transport::MstTransportGrpc>(to.address());
   };
 }
 void sendStateAsyncImpl(
@@ -63,7 +63,7 @@ MstTransportGrpc::deserializeTransactions(const transport::MstState *request) {
       shared_model::interface::types::SharedTxsCollectionType>(
       request->transactions()
       | boost::adaptors::transformed(
-          [&](const auto &tx) { return transaction_factory_->build(tx); })
+            [&](const auto &tx) { return transaction_factory_->build(tx); })
       | boost::adaptors::filtered([&](const auto &result) {
           return result.match(
               [](const auto &) { return true; },

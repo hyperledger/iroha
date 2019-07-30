@@ -44,7 +44,7 @@ class TxPresenceCacheTemplateTest : public TxPresenceCacheTest {};
 using CacheStatusTypes = ::testing::Types<tx_cache_status_responses::Missing,
                                           tx_cache_status_responses::Rejected,
                                           tx_cache_status_responses::Committed>;
-TYPED_TEST_CASE(TxPresenceCacheTemplateTest, CacheStatusTypes);
+TYPED_TEST_CASE(TxPresenceCacheTemplateTest, CacheStatusTypes, );
 
 /**
  * @given hash which has a {Missing, Rejected, Committed} status in storage

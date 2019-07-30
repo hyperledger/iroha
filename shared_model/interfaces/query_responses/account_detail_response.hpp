@@ -6,8 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_ACCOUNT_DETAIL_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_ACCOUNT_DETAIL_RESPONSE_HPP
 
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include <boost/optional.hpp>
-#include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
 
@@ -16,7 +17,8 @@ namespace shared_model {
     /**
      * Provide response with account asset
      */
-    class AccountDetailResponse : public ModelPrimitive<AccountDetailResponse> {
+    class AccountDetailResponse
+        : public NonCopyableModelPrimitive<AccountDetailResponse> {
      public:
       /**
        * @return Account has Asset model

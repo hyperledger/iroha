@@ -74,7 +74,7 @@ class IrohadTest : public AcceptanceFixture {
     blockstore_path_ = (boost::filesystem::temp_directory_path()
                         / boost::filesystem::unique_path())
                            .string();
-    pgopts_ = integration_framework::getPostgresCredsOrDefault(
+    pgopts_ = integration_framework::getPostgresCredsFromEnv().value_or(
         doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
@@ -313,7 +313,7 @@ TEST_F(IrohadTest, SendQuery) {
   auto query = complete(baseQry(kAdminId).getRoles(), key_pair.get());
   auto client = torii_utils::QuerySyncClient(kAddress, kPort);
   client.Find(query.getTransport(), response);
-  auto resp = shared_model::proto::QueryResponse(response);
+  shared_model::proto::QueryResponse resp{std::move(response)};
 
   ASSERT_NO_THROW(
       boost::get<const shared_model::interface::RolesResponse &>(resp.get()));

@@ -130,7 +130,7 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
   return *it;
 }
 
-proto::Loader::Stub &BlockLoaderImpl::getPeerStub(
+proto::Loader::StubInterface &BlockLoaderImpl::getPeerStub(
     const shared_model::interface::Peer &peer) {
   auto it = peer_connections_.find(peer.address());
   if (it == peer_connections_.end()) {

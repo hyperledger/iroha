@@ -6,9 +6,10 @@
 #ifndef IROHA_SHARED_MODEL_PENDING_TRANSACTIONS_PAGE_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PENDING_TRANSACTIONS_PAGE_RESPONSE_HPP
 
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include <boost/optional/optional_fwd.hpp>
 #include "cryptography/hash.hpp"
-#include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -19,7 +20,7 @@ namespace shared_model {
      * Response for paginated queries
      */
     class PendingTransactionsPageResponse
-        : public ModelPrimitive<PendingTransactionsPageResponse> {
+        : public NonCopyableModelPrimitive<PendingTransactionsPageResponse> {
      public:
       // TODO igor-egorov 2019-06-29 IR-570 Convert BatchInfo to a shared model
       // object

@@ -7,6 +7,7 @@
 #define IROHA_COMMAND_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include <boost/optional.hpp>
 #include <boost/variant.hpp>
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -14,12 +15,14 @@
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
+#include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
 #include "interfaces/commands/grant_permission.hpp"
+#include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
@@ -44,6 +47,10 @@ namespace shared_model {
 
     struct MockAddPeer : public shared_model::interface::AddPeer {
       MOCK_CONST_METHOD0(peer, const Peer &());
+    };
+
+    struct MockRemovePeer : public shared_model::interface::RemovePeer {
+      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
     };
 
     struct MockAddSignatory : public shared_model::interface::AddSignatory {
@@ -142,6 +149,15 @@ namespace shared_model {
       MOCK_CONST_METHOD0(assetId, const types::AssetIdType &());
       MOCK_CONST_METHOD0(amount, const Amount &());
       MOCK_CONST_METHOD0(description, const types::DescriptionType &());
+    };
+
+    struct MockCompareAndSetAccountDetail
+        : public shared_model::interface::CompareAndSetAccountDetail {
+      MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
+      MOCK_CONST_METHOD0(key, const types::AccountDetailKeyType &());
+      MOCK_CONST_METHOD0(value, const types::AccountDetailValueType &());
+      MOCK_CONST_METHOD0(
+          oldValue, const boost::optional<types::AccountDetailValueType>());
     };
   }  // namespace interface
 }  // namespace shared_model

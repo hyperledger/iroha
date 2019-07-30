@@ -45,6 +45,7 @@ target_link_libraries(integration_framework
     server_runner
     mst_transport
     test_logger
+    pg_connection_init
     )
 
 add_library(common_test_constants common_constants.cpp)
@@ -55,6 +56,9 @@ add_library(integration_framework_config_helper
     config_helper.cpp
     )
 target_include_directories(integration_framework_config_helper PUBLIC ${PROJECT_SOURCE_DIR}/test)
+target_link_libraries(integration_framework_config_helper
+    boost
+    )
 
 add_library(framework_sql_query
     sql_query.cpp
@@ -68,3 +72,5 @@ target_link_libraries(framework_sql_query
 target_compile_definitions(framework_sql_query
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
+
+add_subdirectory(executor_itf)

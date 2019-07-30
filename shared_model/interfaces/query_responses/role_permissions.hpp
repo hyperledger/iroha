@@ -6,7 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_ROLE_PERMISSIONS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_ROLE_PERMISSIONS_RESPONSE_HPP
 
-#include "interfaces/base/model_primitive.hpp"
+#include "interfaces/base/noncopyable_model_primitive.hpp"
+
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -16,7 +17,7 @@ namespace shared_model {
      * Response with all permissions related to role
      */
     class RolePermissionsResponse
-        : public ModelPrimitive<RolePermissionsResponse> {
+        : public NonCopyableModelPrimitive<RolePermissionsResponse> {
      public:
       /**
        * @return role permissions

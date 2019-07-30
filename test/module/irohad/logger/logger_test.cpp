@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "logger/logger_manager.hpp"
 #include <gtest/gtest.h>
+#include "logger/logger_manager.hpp"
 
 #include <vector>
 

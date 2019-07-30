@@ -70,13 +70,13 @@ Schema
 
 .. code-block:: proto
 
-    message AddPeer {
-        Peer peer = 1;
-    }
-
     message Peer {
         string address = 1;
-        bytes peer_key = 2;
+        bytes peer_key = 2; // hex string
+    }
+
+    message AddPeer {
+        Peer peer = 1;
     }
 
 Structure
@@ -483,6 +483,51 @@ Possible Stateful Validation Errors
     "2", "No such permissions", "Command's creator does not have permission to grant permission", "Grant the necessary permission"
     "3", "No such account", "Cannot find account to grant permission to", "Make sure account id is correct"
 
+Remove peer
+-----------
+
+Purpose
+^^^^^^^
+
+The purpose of remove peer command is to write into ledger the fact of peer removal from the network.
+After a transaction with RemovePeer has been committed, consensus and synchronization components will start using it.
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message RemovePeer {
+        bytes public_key = 1; // hex string
+    }
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 10, 30
+
+    "Public key", "peer public key, which is used in consensus algorithm to sign vote messages", "ed25519 public key", "292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2"
+
+Validation
+^^^^^^^^^^
+
+1. There is more than one peer in the network
+2. Creator of the transaction has a role which has CanRemovePeer permission
+3. Peer should have been previously added to the network
+
+Possible Stateful Validation Errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "1", "Could not remove peer", "Internal error happened", "Try again or contact developers"
+    "2", "No such permissions", "Command's creator does not have permission to remove peer", "Grant the necessary permission"
+    "3", "No such peer", "Cannot find peer with such public key", "Make sure that the public key is correct"
+    "4", "Network size does not allow to remove peer", "After removing the peer the network would be empty", "Make sure that the network has at least two peers"
+
 Remove signatory
 ----------------
 
@@ -789,3 +834,63 @@ Possible Stateful Validation Errors
 
 .. [#f1] https://www.ietf.org/rfc/rfc1035.txt
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
+
+Compare and Set Account Detail
+------------------------------
+
+Purpose
+^^^^^^^
+
+Purpose of compare and set account detail command is to set key-value information for a given account if the old value matches the value passed.
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message CompareAndSetAccountDetail{
+        string account_id = 1;
+        string key = 2;
+        string value = 3;
+        oneof opt_old_value {
+            string old_value = 4;
+        }
+    }
+
+.. note::
+    Pay attention, that old_value field is optional.
+    This is due to the fact that the key-value pair might not exist.
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Account ID", "id of the account to which the key-value information was set. If key-value pair doesnot exist , then it will be created", "an existing account", "artyom@soramitsu"
+    "Key", "key of information being set", "`[A-Za-z0-9_]{1,64}`", "Name"
+    "Value", "new value for the corresponding key", "length of value ≤ 4096", "Artyom"
+    "Old value", "current value for the corresponding key", "length of value ≤ 4096", "Artem"
+
+Validation
+^^^^^^^^^^
+
+Three cases:
+
+    Case 1. When transaction creator wants to set account detail to his/her account and he or she has permission GetMyAccountDetail / GetAllAccountsDetail / GetDomainAccountDetail
+
+    Case 2. When transaction creator wants to set account detail to another account and he or she has permissions SetAccountDetail and GetAllAccountsDetail / GetDomainAccountDetail
+
+    Case 3. SetAccountDetail permission was granted to transaction creator and he or she has permission GetAllAccountsDetail / GetDomainAccountDetail
+
+Possible Stateful Validation Errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "1", "Could not compare and set account detail", "Internal error happened", "Try again or contact developers"
+    "2", "No such permissions", "Command's creator does not have permission to set and read account detail for this account", "Grant the necessary permission"
+    "3", "No such account", "Cannot find account to set account detail to", "Make sure account id is correct"
+    "4", "No match values", "Old values do not match", "Make sure old value is correct"

@@ -6,24 +6,17 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_SIGNATORIES_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_SIGNATORIES_RESPONSE_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
+
+#include "cryptography/public_key.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class SignatoriesResponse final
-        : public CopyableProto<interface::SignatoriesResponse,
-                               iroha::protocol::QueryResponse,
-                               SignatoriesResponse> {
+    class SignatoriesResponse final : public interface::SignatoriesResponse {
      public:
-      template <typename QueryResponseType>
-      explicit SignatoriesResponse(QueryResponseType &&queryResponse);
-
-      SignatoriesResponse(const SignatoriesResponse &o);
-
-      SignatoriesResponse(SignatoriesResponse &&o);
+      explicit SignatoriesResponse(
+          iroha::protocol::QueryResponse &query_response);
 
       const interface::types::PublicKeyCollectionType &keys() const override;
 

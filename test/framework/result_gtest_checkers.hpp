@@ -9,59 +9,80 @@
 #include "common/result.hpp"
 
 #include <gtest/gtest.h>
+#include "common/bind.hpp"
 
 namespace framework {
   namespace expected {
     namespace detail {
-      std::string getMessage(const std::string &s) {
+      inline std::string getMessage(const std::string &s) {
         return s;
       }
 
       template <typename T>
-      auto getMessage(const T &o) -> std::enable_if_t<
+      inline auto getMessage(const T &o) -> std::enable_if_t<
           std::is_same<decltype(o.toString()), std::string>::value,
           std::string> {
         return o.toString();
       }
 
       template <typename T>
-      auto getMessage(const T &o) -> std::enable_if_t<
+      inline auto getMessage(const T &o) -> std::enable_if_t<
           std::is_same<decltype(o->toString()), std::string>::value,
           std::string> {
         return o->toString();
       }
+
+      template <typename V, typename E>
+      inline auto getValueMessage(const iroha::expected::Result<V, E> &r)
+          -> decltype(getMessage(std::declval<V>())) {
+        using iroha::operator|;
+        return iroha::expected::resultToOptionalValue(r) |
+            [](const auto v) { return getMessage(v); };
+      }
+
+      template <typename E>
+      inline std::string getValueMessage(
+          const iroha::expected::Result<void, E> &r) {
+        return "void value";
+      }
+
+      template <typename V, typename E>
+      inline auto getErrorMessage(const iroha::expected::Result<V, E> &r)
+          -> decltype(getMessage(std::declval<E>())) {
+        using iroha::operator|;
+        return iroha::expected::resultToOptionalError(r) |
+            [](const auto e) { return getMessage(e); };
+      }
+
+      template <typename V>
+      inline std::string getErrorMessage(
+          const iroha::expected::Result<V, void> &r) {
+        return "void error";
+      }
     }  // namespace detail
 
     template <typename V, typename E>
-    void expectResultValue(const iroha::expected::Result<V, E> &r) {
+    inline void expectResultValue(const iroha::expected::Result<V, E> &r) {
       EXPECT_TRUE(iroha::expected::hasValue(r))
-          << "Value expected, but got error: "
-          << detail::getMessage(
-                 iroha::expected::resultToOptionalError(r).value());
+          << "Value expected, but got error: " << detail::getErrorMessage(r);
     }
 
     template <typename V, typename E>
-    void assertResultValue(const iroha::expected::Result<V, E> &r) {
+    inline void assertResultValue(const iroha::expected::Result<V, E> &r) {
       ASSERT_TRUE(iroha::expected::hasValue(r))
-          << "Value expected, but got error: "
-          << detail::getMessage(
-                 iroha::expected::resultToOptionalError(r).value());
+          << "Value expected, but got error: " << detail::getErrorMessage(r);
     }
 
     template <typename V, typename E>
-    void expectResultError(const iroha::expected::Result<V, E> &r) {
+    inline void expectResultError(const iroha::expected::Result<V, E> &r) {
       EXPECT_TRUE(iroha::expected::hasError(r))
-          << "Error expected, but got value: "
-          << detail::getMessage(
-                 iroha::expected::resultToOptionalValue(r).value());
+          << "Error expected, but got value: " << detail::getValueMessage(r);
     }
 
     template <typename V, typename E>
-    void assertResultError(const iroha::expected::Result<V, E> &r) {
+    inline void assertResultError(const iroha::expected::Result<V, E> &r) {
       ASSERT_TRUE(iroha::expected::hasError(r))
-          << "Error expected, but got value: "
-          << detail::getMessage(
-                 iroha::expected::resultToOptionalValue(r).value());
+          << "Error expected, but got value: " << detail::getValueMessage(r);
     }
 
   }  // namespace expected

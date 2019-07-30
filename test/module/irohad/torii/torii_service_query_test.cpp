@@ -9,7 +9,6 @@
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
-#include "builders/default_builders.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"

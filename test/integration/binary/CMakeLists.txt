@@ -18,8 +18,19 @@ set(PYTHON_PROTO_INCLUDES
     "${PYLIB_PATH}/transaction_pb2.py"
     )
 
+if (VCPKG_TOOLCHAIN)
+    set(GEN_COMMAND "${Protobuf_PROTOC_EXECUTABLE}")
+    set(GEN_ARGS ${Protobuf_INCLUDE_DIR})
+  else()
+    set(GEN_COMMAND "${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${protobuf_LIBRARY_DIR}:$ENV{LD_LIBRARY_PATH} ${protoc_EXECUTABLE}")
+    set(GEN_ARGS ${protobuf_INCLUDE_DIR})
+  endif()
+
 add_custom_command(
-    COMMAND make
+    COMMAND ${CMAKE_COMMAND} -E env
+    "PROTOC_EXECUTABLE=${GEN_COMMAND} -I${GEN_ARGS}"
+    "PYTHON_INTERPRETER=${PYTHON_EXECUTABLE}"
+    make
     WORKING_DIRECTORY ${PYLIB_PATH}
     OUTPUT ${PYTHON_PROTO_INCLUDES}
     COMMENT "Generating python protobuf includes"

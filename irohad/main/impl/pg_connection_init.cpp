@@ -41,11 +41,11 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
 
 iroha::expected::Result<PoolWrapper, std::string>
 PgConnectionInit::prepareConnectionPool(
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
     const int pool_size,
     logger::LoggerManagerTreePtr log_manager) {
-  auto options_str = options.optionsString();
+  auto options_str = options.workingConnectionString();
 
   auto conn = initPostgresConnection(options_str, pool_size);
   if (auto e = boost::get<expected::Error<std::string>>(&conn)) {
@@ -59,11 +59,9 @@ PgConnectionInit::prepareConnectionPool(
   soci::session sql(*connection);
   bool enable_prepared_transactions = preparedTransactionsAvailable(sql);
   try {
-    std::string prepared_block_name = "prepared_block" + options.dbname();
-
     auto try_rollback = [&](soci::session &session) {
       if (enable_prepared_transactions) {
-        rollbackPrepared(session, prepared_block_name)
+        rollbackPrepared(session, options.preparedBlockName())
             .match([](auto &&v) {},
                    [&](auto &&e) {
                      log_manager->getLogger()->warn(
@@ -81,7 +79,7 @@ PgConnectionInit::prepareConnectionPool(
                              try_rollback,
                              *failover_callback_factory,
                              reconnection_strategy_factory,
-                             options.optionsStringWithoutDbName(),
+                             options.maintenanceConnectionString(),
                              log_manager);
 
     return expected::makeValue<PoolWrapper>(
@@ -115,30 +113,45 @@ iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
 }
 
 iroha::expected::Result<bool, std::string>
-PgConnectionInit::createDatabaseIfNotExist(
-    const std::string &dbname, const std::string &options_str_without_dbname) {
+PgConnectionInit::checkIfWorkingDatabaseExists(const PostgresOptions &pg_opt) {
   try {
-    soci::session sql(*soci::factory_postgresql(), options_str_without_dbname);
+    soci::session sql(*soci::factory_postgresql(),
+                      pg_opt.maintenanceConnectionString());
 
-    int size;
-    std::string name = dbname;
+    size_t count;
+    std::string working_dbname = pg_opt.workingDbName();
 
     sql << "SELECT count(datname) FROM pg_catalog.pg_database WHERE "
            "datname = :dbname",
-        soci::into(size), soci::use(name);
+        soci::into(count), soci::use(working_dbname, "dbname");
 
-    if (size == 0) {
-      std::string query = "CREATE DATABASE ";
-      query += dbname;
-      sql << query;
-      return expected::makeValue(true);
-    }
-    return expected::makeValue(false);
+    return expected::makeValue(count == 1);
   } catch (std::exception &e) {
     return expected::makeError<std::string>(
         std::string("Connection to PostgreSQL broken: ")
         + formatPostgresMessage(e.what()));
   }
+}
+
+iroha::expected::Result<bool, std::string>
+PgConnectionInit::createDatabaseIfNotExist(const PostgresOptions &pg_opt) {
+  return checkIfWorkingDatabaseExists(pg_opt) |
+             [&pg_opt](
+                 bool db_exists) -> iroha::expected::Result<bool, std::string> {
+    try {
+      if (not db_exists) {
+        soci::session sql(*soci::factory_postgresql(),
+                          pg_opt.maintenanceConnectionString());
+        sql << "CREATE DATABASE " + pg_opt.workingDbName();
+        return expected::makeValue(true);
+      }
+      return expected::makeValue(false);
+    } catch (std::exception &e) {
+      return expected::makeError<std::string>(
+          std::string("Connection to PostgreSQL broken: ")
+          + formatPostgresMessage(e.what()));
+    }
+  };
 }
 
 template <typename RollbackFunction>
@@ -148,7 +161,7 @@ void PgConnectionInit::initializeConnectionPool(
     const std::string &prepare_tables_sql,
     RollbackFunction try_rollback,
     FailoverCallbackHolder &callback_factory,
-    ReconnectionStrategyFactory &reconnection_strategy_factory,
+    const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const std::string &pg_reconnection_options,
     logger::LoggerManagerTreePtr log_manager) {
   auto log = log_manager->getLogger();
@@ -202,8 +215,6 @@ void PgConnectionInit::initializeConnectionPool(
     initialize_session(session, [](auto &) {}, init_failover_callback);
   }
 }
-
-const std::string PgConnectionInit::kDefaultDatabaseName{"iroha_default"};
 
 const std::string PgConnectionInit::init_ = R"(
 CREATE TABLE IF NOT EXISTS role (
@@ -298,3 +309,46 @@ CREATE TABLE IF NOT EXISTS position_by_account_asset (
     index bigint
 );
 )";
+
+iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
+    soci::session &sql) {
+  try {
+    static const std::string reset = R"(
+      TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_asset RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE role_has_permissions RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_roles RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account_has_grantable_permissions RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE account RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE asset RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE domain RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE signatory RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE role RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+    )";
+    sql << reset;
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(std::string{"Failed to reset WSV: "}
+                                      + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}
+
+iroha::expected::Result<void, std::string> PgConnectionInit::resetPeers(
+    soci::session &sql) {
+  try {
+    static const std::string reset_peers = R"(
+      TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
+    )";
+    sql << reset_peers;
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(std::string{"Failed to reset peers: "}
+                                      + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}

@@ -30,10 +30,14 @@ namespace iroha {
     using SharedBatch = std::shared_ptr<TransactionBatch>;
     using StateObservable = rxcpp::observable<SharedState>;
     using BatchObservable = rxcpp::observable<SharedBatch>;
+    using PreparedTransactionDescriptor = std::pair<AccountIdType, HashType>;
+    using PreparedTransactionsObservable =
+        rxcpp::observable<PreparedTransactionDescriptor>;
 
     PendingTransactionStorageImpl(StateObservable updated_batches,
                                   BatchObservable prepared_batch,
-                                  BatchObservable expired_batch);
+                                  BatchObservable expired_batch,
+                                  PreparedTransactionsObservable prepared_txs);
 
     ~PendingTransactionStorageImpl() override;
 
@@ -51,6 +55,12 @@ namespace iroha {
 
     void removeBatch(const SharedBatch &batch);
 
+    void removeBatch(const PreparedTransactionDescriptor &prepared_transaction);
+
+    void removeFromStorage(const HashType &first_tx_hash,
+                           const std::set<AccountIdType> &batch_creators,
+                           uint64_t batch_size);
+
     static std::set<AccountIdType> batchCreators(const TransactionBatch &batch);
 
     /**
@@ -59,6 +69,7 @@ namespace iroha {
     rxcpp::composite_subscription updated_batches_subscription_;
     rxcpp::composite_subscription prepared_batch_subscription_;
     rxcpp::composite_subscription expired_batch_subscription_;
+    rxcpp::composite_subscription prepared_transactions_subscription_;
 
     /**
      * Mutex for single-write multiple-read storage access

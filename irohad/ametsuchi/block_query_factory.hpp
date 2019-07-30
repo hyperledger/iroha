@@ -18,8 +18,8 @@ namespace iroha {
        * Creates a block query from the current state.
        * @return Created block query
        */
-      virtual boost::optional<std::shared_ptr<BlockQuery>>
-      createBlockQuery() const = 0;
+      virtual boost::optional<std::shared_ptr<BlockQuery>> createBlockQuery()
+          const = 0;
 
       virtual ~BlockQueryFactory() = default;
     };

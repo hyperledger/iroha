@@ -4,4 +4,3 @@
 #
 
 add_subdirectory(protobuf)
-add_subdirectory(transaction_responses)

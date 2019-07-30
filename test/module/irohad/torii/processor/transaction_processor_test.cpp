@@ -5,11 +5,10 @@
 
 #include "torii/processor/transaction_processor_impl.hpp"
 
-#include <backend/protobuf/proto_tx_status_factory.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/join.hpp>
 #include <boost/variant.hpp>
-#include "builders/default_builders.hpp"
+#include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
@@ -66,7 +65,7 @@ class TransactionProcessorTest : public ::testing::Test {
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
     ledger_state = std::make_shared<LedgerState>(
-        shared_model::interface::types::PeerList{peer},
+        shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
         shared_model::crypto::Hash{"hash"});
   }
@@ -144,9 +143,8 @@ class TransactionProcessorTest : public ::testing::Test {
   std::shared_ptr<MockMstProcessor> mst;
 
   StatusMapType status_map;
-  shared_model::builder::TransactionStatusBuilder<
-      shared_model::proto::TransactionStatusBuilder>
-      status_builder;
+  std::shared_ptr<shared_model::interface::TxStatusFactory> status_factory =
+      std::make_shared<shared_model::proto::ProtoTxStatusFactory>();
 
   consensus::Round round{1, 0};
   std::shared_ptr<LedgerState> ledger_state;
@@ -352,8 +350,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
   for (size_t i = 0; i < block_size; i++) {
     auto &&tx = TestTransactionBuilder().createdTime(i).build();
     block_txs.push_back(tx);
-    status_map[tx.hash()] =
-        status_builder.notReceived().txHash(tx.hash()).build();
+    status_map[tx.hash()] = status_factory->makeNotReceived(tx.hash());
   }
 
   std::vector<shared_model::proto::Transaction> invalid_txs;
@@ -361,8 +358,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
   for (size_t i = block_size; i < proposal_size; i++) {
     auto &&tx = TestTransactionBuilder().createdTime(i).build();
     invalid_txs.push_back(tx);
-    status_map[tx.hash()] =
-        status_builder.notReceived().txHash(tx.hash()).build();
+    status_map[tx.hash()] = status_factory->makeNotReceived(tx.hash());
   }
 
   // For all transactions from proposal

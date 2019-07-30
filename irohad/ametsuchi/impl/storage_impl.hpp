@@ -21,7 +21,6 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
 #include "common/result.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "logger/logger_fwd.hpp"
@@ -46,10 +45,8 @@ namespace iroha {
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
-          const PostgresOptions &options,
+          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
           PoolWrapper pool_wrapper,
-          std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-              factory,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
               converter,
           std::shared_ptr<shared_model::interface::PermissionToString>
@@ -116,22 +113,19 @@ namespace iroha {
      protected:
       StorageImpl(boost::optional<std::shared_ptr<const iroha::LedgerState>>
                       ledger_state,
-                  PostgresOptions postgres_options,
+                  std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
-                  std::shared_ptr<shared_model::interface::CommonObjectsFactory>
-                      factory,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
                       converter,
                   std::shared_ptr<shared_model::interface::PermissionToString>
                       perm_converter,
                   std::unique_ptr<BlockStorageFactory> block_storage_factory,
                   size_t pool_size,
-                  const std::string &prepared_block_name,
                   logger::LoggerManagerTreePtr log_manager);
 
       // db info
-      const PostgresOptions postgres_options_;
+      const std::unique_ptr<ametsuchi::PostgresOptions> postgres_options_;
 
      private:
       using StoreBlockResult = iroha::expected::Result<void, std::string>;
@@ -157,8 +151,6 @@ namespace iroha {
 
       /// ref for pool_wrapper_::connection_pool_
       std::shared_ptr<soci::connection_pool> &connection_;
-
-      std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;
 
       rxcpp::composite_subscription notifier_lifetime_;
       rxcpp::subjects::subject<
@@ -186,10 +178,6 @@ namespace iroha {
       std::string prepared_block_name_;
 
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
-
-     protected:
-      static const std::string &reset_;
-      static const std::string &reset_peers_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

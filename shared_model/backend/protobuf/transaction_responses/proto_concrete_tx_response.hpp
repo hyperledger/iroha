@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "backend/protobuf/common_objects/proto_ref.hpp"
 #include "endpoint.pb.h"
 #include "interfaces/transaction_responses/committed_tx_response.hpp"
 #include "interfaces/transaction_responses/enough_signatures_collected_response.hpp"
@@ -22,37 +22,36 @@ namespace shared_model {
     // -------------------------| Stateless statuses |--------------------------
 
     using StatelessFailedTxResponse =
-        TrivialProto<interface::StatelessFailedTxResponse,
-                     iroha::protocol::ToriiResponse>;
+        ProtoRef<interface::StatelessFailedTxResponse,
+                 iroha::protocol::ToriiResponse>;
     using StatelessValidTxResponse =
-        TrivialProto<interface::StatelessValidTxResponse,
-                     iroha::protocol::ToriiResponse>;
+        ProtoRef<interface::StatelessValidTxResponse,
+                 iroha::protocol::ToriiResponse>;
     // -------------------------| Stateful statuses |---------------------------
 
     using StatefulFailedTxResponse =
-        TrivialProto<interface::StatefulFailedTxResponse,
-                     iroha::protocol::ToriiResponse>;
-    using StatefulValidTxResponse =
-        TrivialProto<interface::StatefulValidTxResponse,
-                     iroha::protocol::ToriiResponse>;
+        ProtoRef<interface::StatefulFailedTxResponse,
+                 iroha::protocol::ToriiResponse>;
+    using StatefulValidTxResponse = ProtoRef<interface::StatefulValidTxResponse,
+                                             iroha::protocol::ToriiResponse>;
 
     // ----------------------------| End statuses |-----------------------------
 
-    using CommittedTxResponse = TrivialProto<interface::CommittedTxResponse,
-                                             iroha::protocol::ToriiResponse>;
-    using RejectedTxResponse = TrivialProto<interface::RejectedTxResponse,
-                                            iroha::protocol::ToriiResponse>;
+    using CommittedTxResponse = ProtoRef<interface::CommittedTxResponse,
+                                         iroha::protocol::ToriiResponse>;
+    using RejectedTxResponse =
+        ProtoRef<interface::RejectedTxResponse, iroha::protocol::ToriiResponse>;
 
     // ---------------------------| Rest statuses |-----------------------------
 
-    using MstExpiredResponse = TrivialProto<interface::MstExpiredResponse,
-                                            iroha::protocol::ToriiResponse>;
-    using NotReceivedTxResponse = TrivialProto<interface::NotReceivedTxResponse,
-                                               iroha::protocol::ToriiResponse>;
-    using MstPendingResponse = TrivialProto<interface::MstPendingResponse,
-                                            iroha::protocol::ToriiResponse>;
+    using MstExpiredResponse =
+        ProtoRef<interface::MstExpiredResponse, iroha::protocol::ToriiResponse>;
+    using NotReceivedTxResponse = ProtoRef<interface::NotReceivedTxResponse,
+                                           iroha::protocol::ToriiResponse>;
+    using MstPendingResponse =
+        ProtoRef<interface::MstPendingResponse, iroha::protocol::ToriiResponse>;
     using EnoughSignaturesCollectedResponse =
-        TrivialProto<interface::EnoughSignaturesCollectedResponse,
-                     iroha::protocol::ToriiResponse>;
+        ProtoRef<interface::EnoughSignaturesCollectedResponse,
+                 iroha::protocol::ToriiResponse>;
   }  // namespace proto
 }  // namespace shared_model

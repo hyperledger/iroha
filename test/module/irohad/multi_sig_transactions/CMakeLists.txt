@@ -5,7 +5,7 @@ AddTest(state_test state_test.cpp)
 target_link_libraries(state_test
     mst_state
     test_logger
-    shared_model_proto_builders
+    shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
     )
@@ -14,7 +14,7 @@ AddTest(storage_test storage_test.cpp)
 target_link_libraries(storage_test
     mst_storage
     test_logger
-    shared_model_proto_builders
+    shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
     )
@@ -38,7 +38,7 @@ AddTest(mst_processor_test mst_processor_test.cpp)
 target_link_libraries(mst_processor_test
     mst_processor
     test_logger
-    shared_model_proto_builders
+    shared_model_default_builders
     shared_model_stateless_validation
     )
 

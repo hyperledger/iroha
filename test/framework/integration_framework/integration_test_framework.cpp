@@ -630,8 +630,7 @@ namespace integration_framework {
 
     iroha::protocol::QueryResponse response;
     query_client_.Find(qry.getTransport(), response);
-    auto query_response =
-        shared_model::proto::QueryResponse(std::move(response));
+    shared_model::proto::QueryResponse query_response{std::move(response)};
 
     validation(query_response);
     return *this;

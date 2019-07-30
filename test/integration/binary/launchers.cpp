@@ -5,9 +5,12 @@
 
 #include "integration/binary/launchers.hpp"
 
+#include <future>
+#include <sstream>
 #include <string>
 
 #include <gtest/gtest.h>
+#include <boost/asio.hpp>
 #include "common/byteutils.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/keypair.hpp"
@@ -37,28 +40,32 @@ namespace binary_test {
   constexpr auto cTimeToKill = std::chrono::minutes(15);
 
   void Launcher::operator()(const std::string &example) {
-    ipstream pipe;
     const auto &command = launchCommand(example);
     if (command.empty()) {
       FAIL() << "Launcher provided empty command";
     }
-    child c(command, std_out > pipe);
-    auto terminated = c.wait_for(cTimeToKill);
-    if (not terminated) {
+
+    boost::asio::io_service ios;
+
+    std::future<std::string> data;
+
+    child c(command, std_out > data, ios);
+    ios.run_for(cTimeToKill);
+    if (not ios.stopped()) {
       c.terminate();
       FAIL() << "Child process was terminated because execution time limit "
                 "has been exceeded";
     }
-    readBinaries(pipe);
+    readBinaries(data.get());
   }
 
-  void Launcher::readBinaries(ipstream &stream) {
+  void Launcher::readBinaries(const std::string &data) {
     transactions.clear();
     queries.clear();
+    std::istringstream iss(data);
     std::string packed_line;
     std::string raw_payload;
-    while (stream and std::getline(stream, packed_line)
-           and packed_line.size() > 1) {
+    while (iss and std::getline(iss, packed_line) and packed_line.size() > 1) {
       raw_payload = packed_line.substr(1);
       if (auto byte_string = iroha::hexstringToBytestring(raw_payload)) {
         auto binary_type = packed_line.at(0);

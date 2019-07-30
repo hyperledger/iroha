@@ -4,6 +4,9 @@ tbb:
 gtest:
 gflags:
 soci[boost,postgresql]:
+rapidjson:
+fmt:
+spdlog:
 boost-filesystem:
 boost-system:
 boost-thread:
@@ -17,3 +20,4 @@ boost-uuid:
 boost-accumulators:
 boost-property-tree:
 boost-process:
+iroha-ed25519:

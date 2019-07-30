@@ -59,7 +59,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
     ledger_state = std::make_shared<LedgerState>(
-        shared_model::interface::types::PeerList{peer},
+        shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round,
         shared_model::crypto::Hash{"hash"});
   }

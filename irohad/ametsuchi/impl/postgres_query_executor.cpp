@@ -538,7 +538,7 @@ namespace iroha {
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), total_size, query_hash_);
+                std::move(response_txs), boost::none, total_size, query_hash_);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }

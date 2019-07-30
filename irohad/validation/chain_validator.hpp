@@ -38,7 +38,8 @@ namespace iroha {
        * @param blocks - observable with all blocks, that should be applied
        * atomically
        * @param storage - storage to which the blocks are applied
-       * @return true if commit is valid and successfully applied, false otherwise
+       * @return true if commit is valid and successfully applied, false
+       * otherwise
        */
       virtual bool validateAndApply(
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>

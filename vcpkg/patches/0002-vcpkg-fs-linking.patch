@@ -1,0 +1,22 @@
+diff --git a/toolsrc/CMakeLists.txt b/toolsrc/CMakeLists.txt
+index fccf2b7a..ed2baece 100644
+--- a/toolsrc/CMakeLists.txt
++++ b/toolsrc/CMakeLists.txt
+@@ -55,10 +55,14 @@ if(CLANG)
+     endif()
+ endif()
+ 
+-if(GCC OR (CLANG AND USES_LIBSTDCXX))
++if(GCC)
+     target_link_libraries(vcpkg PRIVATE stdc++fs)
+-elseif(CLANG)
+-    target_link_libraries(vcpkg PRIVATE c++fs)
++elseif(CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9")
++    if (USES_LIBSTDCXX)
++        target_link_libraries(vcpkg PRIVATE stdc++fs)
++    else()
++        target_link_libraries(vcpkg PRIVATE c++fs)
++    endif()
+ endif()
+ 
+ if(MSVC)

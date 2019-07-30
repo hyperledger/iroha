@@ -23,12 +23,14 @@ namespace shared_model {
     class CreateRole;
     class DetachRole;
     class GrantPermission;
+    class RemovePeer;
     class RemoveSignatory;
     class RevokePermission;
     class SetAccountDetail;
     class SetQuorum;
     class SubtractAssetQuantity;
     class TransferAsset;
+    class CompareAndSetAccountDetail;
 
     /**
      * Class provides commands container for all commands in system.
@@ -57,7 +59,9 @@ namespace shared_model {
                                       SetAccountDetail,
                                       SetQuorum,
                                       SubtractAssetQuantity,
-                                      TransferAsset>;
+                                      TransferAsset,
+                                      RemovePeer,
+                                      CompareAndSetAccountDetail>;
 
       /**
        * @return reference to const variant with concrete command

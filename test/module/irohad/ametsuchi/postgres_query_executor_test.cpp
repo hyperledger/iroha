@@ -2165,7 +2165,7 @@ namespace iroha {
         ::testing::Types<GetAccountTxPaginationImpl,
                          GetAccountAssetTxPaginationImpl>;
     TYPED_TEST_CASE(GetPagedTransactionsExecutorTest,
-                    QueryTxPaginationTestingTypes);
+                    QueryTxPaginationTestingTypes, );
 
     /**
      * @given initialized storage, user has 3 transactions committed

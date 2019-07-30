@@ -43,12 +43,8 @@ namespace iroha {
         sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
                                               pgopt_);
 
-        auto factory =
-            std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-                shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
-        wsv_query = std::make_unique<PostgresWsvQuery>(
-            *sql, factory, getTestLogger("WcvQuery"));
+        wsv_query =
+            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WcvQuery"));
         PostgresCommandExecutor::prepareStatements(*sql);
         executor =
             std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
@@ -85,7 +81,7 @@ namespace iroha {
        * @param result to be checked
        */
 #define CHECK_SUCCESSFUL_RESULT(result) \
-  { ASSERT_TRUE(val(result)); }
+  { ASSERT_TRUE(val(result)) << err(result)->error; }
 
       /**
        * Check that command result contains specific error code and error
@@ -403,6 +399,107 @@ namespace iroha {
 
       std::vector<std::string> query_args{peer->toString()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+    }
+
+    class RemovePeer : public CommandExecutorTest {
+     public:
+      void SetUp() override {
+        CommandExecutorTest::SetUp();
+        peer = makePeer("address",
+                        shared_model::interface::types::PubkeyType{"pubkey"});
+        another_peer = makePeer(
+            "another_address",
+            shared_model::interface::types::PubkeyType{"another_pubkey"});
+        createDefaultRole();
+        createDefaultDomain();
+        createDefaultAccount();
+        CHECK_SUCCESSFUL_RESULT(
+            execute(*mock_command_factory->constructAddPeer(*peer), true));
+      }
+
+      std::unique_ptr<MockPeer> peer, another_peer;
+    };
+
+    /**
+     * @given command
+     * @when trying to remove peer
+     * @then peer is successfully removed
+     */
+    TEST_F(RemovePeer, Valid) {
+      addAllPerms();
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructAddPeer(*another_peer), true));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+
+      auto peers = wsv_query->getPeers();
+      ASSERT_TRUE(peers);
+      ASSERT_TRUE(std::find_if(peers->begin(),
+                               peers->end(),
+                               [this](const auto &peer) {
+                                 return this->peer->address() == peer->address()
+                                     and this->peer->pubkey() == peer->pubkey();
+                               })
+                  == peers->end());
+    }
+
+    /**
+     * @given command
+     * @when trying to remove peer without perms
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPerms) {
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructAddPeer(*another_peer), true));
+      auto cmd_result =
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+
+      std::vector<std::string> query_args{peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove nonexistent peer
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPeer) {
+      addAllPerms();
+      auto cmd_result = execute(
+          *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
+
+      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove nonexistent peer without validation
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, NoPeerWithoutValidation) {
+      addAllPerms();
+      auto cmd_result = execute(
+          *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
+          true);
+
+      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to remove the only peer in the list
+     * @then peer is not removed
+     */
+    TEST_F(RemovePeer, LastPeer) {
+      addAllPerms();
+      auto cmd_result =
+          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+
+      std::vector<std::string> query_args{peer->pubkey().toString()};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
     class AddSignatory : public CommandExecutorTest {
@@ -1994,6 +2091,216 @@ namespace iroha {
                                           uint256_halfmax.toStringRepr(),
                                           "1"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 7, query_args);
+    }
+
+    class CompareAndSetAccountDetail : public CommandExecutorTest {
+     public:
+      void SetUp() override {
+        CommandExecutorTest::SetUp();
+        createDefaultRole();
+        createDefaultDomain();
+        createDefaultAccount();
+        account2_id = "id2@" + domain_id;
+        CHECK_SUCCESSFUL_RESULT(
+            execute(*mock_command_factory->constructCreateAccount(
+                        "id2",
+                        domain_id,
+                        shared_model::interface::types::PubkeyType(
+                            std::string('2', 32))),
+                    true));
+      }
+      shared_model::interface::types::AccountIdType account2_id;
+    };
+
+    /**
+     * @given command
+     * @when trying to set kv
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, Valid) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv when has grantable permission
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidGrantablePerm) {
+      addOnePerm(
+          shared_model::interface::permissions::Role::kGetDomainAccDetail);
+      auto perm =
+          shared_model::interface::permissions::Grantable::kSetMyAccountDetail;
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructGrantPermission(account_id, perm),
+          true,
+          account2_id));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id));
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv when has role permission
+     * @then kv is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidRolePerm) {
+      addAllPerms();
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id));
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv while having no permissions
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NoPerms) {
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      account2_id, "key", "value", boost::none),
+                  false,
+                  account_id);
+
+      std::vector<std::string> query_args{account2_id, "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
+
+      auto kv = sql_query->getAccountDetail(account2_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), "{}");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv to non-existing account
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NoAccount) {
+      addAllPerms();
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+                      "doge@noaccount", "key", "value", boost::none),
+                  false,
+                  account_id);
+
+      std::vector<std::string> query_args{"doge@noaccount", "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv and then set kv1 with correct old value
+     * @then kv1 is set
+     */
+    TEST_F(CompareAndSetAccountDetail, ValidOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value1",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "value"))));
+      auto kv1 = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv1);
+      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value1"}})");
+    }
+
+    /**
+     * @given command
+     * @when trying to set kv and then set kv1 with incorrect old value
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, InvalidOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      auto kv = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv);
+      ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value1",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "oldValue")));
+
+      std::vector<std::string> query_args{
+          account_id, "key", "value1", "oldValue"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
+    /**
+     * @given Two commands
+     * @when trying to set kv and then set k1v1
+     * @then kv and k1v1 are set
+     */
+    TEST_F(CompareAndSetAccountDetail, DifferentKeys) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none)));
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key1", "value1", boost::none)));
+
+      auto ad = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(ad);
+      ASSERT_EQ(ad.get(),
+                R"({"id@domain": {"key": "value", "key1": "value1"}})");
+    }
+
+    /**
+     * @given commands
+     * @when trying to set kv without oldValue where v is empty string
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, EmptyDetail) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "", boost::none)));
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id, "key", "value", boost::none));
+
+      std::vector<std::string> query_args{account_id, "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
   }  // namespace ametsuchi

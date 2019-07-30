@@ -14,8 +14,7 @@ namespace iroha {
   namespace ametsuchi {
 
     /**
-     * Type for convenient parse and accessing postres options from pg_opt
-     * string
+     * Type for convenient formatting of PostgreSQL connection strings.
      */
     class PostgresOptions {
      public:
@@ -25,29 +24,60 @@ namespace iroha {
        * not provided in pg_opt.
        * @param log Logger for internal messages.
        *
-       * TODO 2019.06.07 mboldyrev IR-556 make dbname required & remove the
-       * default.
+       * TODO 2019.06.07 mboldyrev IR-556 remove this constructor
        */
       PostgresOptions(const std::string &pg_opt,
                       std::string default_dbname,
                       logger::LoggerPtr log);
 
       /**
-       * @return full pg_opt string with options
+       * @param host PostgreSQL host.
+       * @param port PostgreSQL port.
+       * @param user PostgreSQL username.
+       * @param password PostgreSQL password.
+       * @param working_dbname The name of working database.
+       * @param maintenance_dbname The name of database for maintenance
+       * purposes. It will not be altered in any way and is used to manage
+       * working database.
+       * @param log Logger for internal messages.
        */
-      std::string optionsString() const;
+      PostgresOptions(const std::string &host,
+                      uint16_t port,
+                      const std::string &user,
+                      const std::string &password,
+                      const std::string &working_dbname,
+                      const std::string &maintenance_dbname,
+                      logger::LoggerPtr log);
 
-      /**
-       * @return pg_opt string without dbname param
-       */
-      std::string optionsStringWithoutDbName() const;
+      /// @return connection string without dbname param
+      std::string connectionStringWithoutDbName() const;
 
-      const std::string &dbname() const;
+      /// @return connection string to working database
+      std::string workingConnectionString() const;
+
+      /// @return connection string to maintenance database
+      std::string maintenanceConnectionString() const;
+
+      /// @return working database name
+      std::string workingDbName() const;
+
+      /// @return maintenance database name
+      std::string maintenanceDbName() const;
+
+      /// @return prepared block name
+      const std::string &preparedBlockName() const;
 
      private:
-      const std::string pg_opt_;
-      std::string pg_opt_without_db_name_;
-      std::string dbname_;
+      std::string getConnectionStringWithDbName(
+          const std::string &dbname) const;
+
+      const std::string host_;
+      const uint16_t port_;
+      const std::string user_;
+      const std::string password_;
+      const std::string working_dbname_;
+      const std::string maintenance_dbname_;
+      const std::string prepared_block_name_;
     };
 
   }  // namespace ametsuchi
