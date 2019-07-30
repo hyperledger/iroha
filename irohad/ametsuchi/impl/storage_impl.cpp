@@ -84,7 +84,10 @@ namespace iroha {
       return expected::makeValue<std::unique_ptr<TemporaryWsv>>(
           std::make_unique<TemporaryWsvImpl>(
               std::move(sql),
-              perm_converter_,
+              std::make_unique<TransactionExecutor>(
+                  std::make_unique<PostgresCommandExecutor>(*sql,
+                                                            perm_converter_)),
+
               log_manager_->getChild("TemporaryWorldStateView")));
     }
 

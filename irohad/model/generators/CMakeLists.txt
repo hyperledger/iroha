@@ -14,4 +14,5 @@ target_link_libraries(model_generators
     model
     generator
     keys_manager
+    sha3_hash
     )
