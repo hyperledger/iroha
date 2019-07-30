@@ -1062,6 +1062,10 @@ Response Schema
       }
     }
 
+    message BlockResponse {
+      Block block = 1;
+    }
+
     message BlockErrorResponse {
       string message = 1;
     }
@@ -1091,7 +1095,7 @@ Possible Stateful Validation Errors
     `BlockErrorResponse` contains only `message` field.
     In case of stateful validation error it will be "stateful invalid".
     `GetBlock <#get-block>`__ requires same `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission.
-    Therefore, it can be used with `height = 1` (first block is always present) to check for invalid signatories are insufficient permissions.
+    Therefore, it can be used with `height = 1` (first block is always present) to check for invalid signatories or insufficient permissions.
 
 Example
 -------
