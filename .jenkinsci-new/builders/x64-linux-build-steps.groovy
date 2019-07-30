@@ -131,7 +131,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
       }
     } // end iC.inside
     stage ('Docker ManifestPush'){
-      if (specialBranch || forceDockerDevelopBuild) {
+      if (specialBranch && !env.TAG_NAME || forceDockerDevelopBuild) {
         utils.dockerPush(iC, "${platform}-develop-build")
         dockerManifestPush(iC, "develop-build", environment)
       }
