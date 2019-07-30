@@ -2004,6 +2004,10 @@ namespace iroha {
       addAsset();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, shared_model::interface::Amount{"0.1"}),
+                  true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto cmd_result = execute(
@@ -2064,6 +2068,53 @@ namespace iroha {
 
     /**
      * @given command
+     * @when trying to transfer asset that the transmitter does not posess
+     * @then account asset fails to be transferred
+     */
+    TEST_F(TransferAccountAssetTest, NoSrcAsset) {
+      addAllPerms();
+      addAllPerms(account2_id, "all2");
+      addAsset();
+      auto cmd_result = execute(*mock_command_factory->constructTransferAsset(
+          account_id, account2_id, asset_id, "desc", asset_amount_one_zero));
+
+      std::vector<std::string> query_args{account_id,
+                                          account2_id,
+                                          asset_id,
+                                          asset_amount_one_zero.toStringRepr(),
+                                          "1"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 6, query_args);
+    }
+
+    /**
+     * @given command
+     * @when transfer an asset which the receiver already has
+     * @then account asset is successfully transferred
+     */
+    TEST_F(TransferAccountAssetTest, DestHasAsset) {
+      addAllPerms();
+      addAllPerms(account2_id, "all2");
+      addAsset();
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, asset_amount_one_zero),
+                  true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, shared_model::interface::Amount{"0.1"}),
+                  true,
+                  account2_id));
+      auto cmd_result = execute(*mock_command_factory->constructTransferAsset(
+          account_id, account2_id, asset_id, "desc", asset_amount_one_zero));
+
+      auto account_asset = sql_query->getAccountAsset(account2_id, asset_id);
+      ASSERT_TRUE(account_asset);
+      ASSERT_EQ(account_asset.get()->balance(),
+                shared_model::interface::Amount{"1.1"});
+    }
+
+    /**
+     * @given command
      * @when trying to transfer account asset, but has insufficient amount of it
      * @then account asset fails to be transferred
      */
@@ -2091,8 +2142,8 @@ namespace iroha {
      * @given two users with all required permissions, one having the maximum
      * allowed quantity of an asset with precision 1
      * @when execute a tx from another user with TransferAsset command for that
-     * asset with the smallest possible quantity
-     * @then that transaction is not committed
+     * asset with the smallest possible quantity and then with a lower one
+     * @then the last 2 transactions are not committed
      */
     TEST_F(TransferAccountAssetTest, DestOverflowPrecision1) {
       addAllPerms();
@@ -2116,7 +2167,7 @@ namespace iroha {
      * @given two users with all required permissions, one having the maximum
      * allowed quantity of an asset with precision 2
      * @when execute a tx from another user with TransferAsset command for that
-     * asset with the smallest possible quantity
+     * asset with the smallest possible quantity and then with a lower one
      * @then last 2 transactions are not committed
      */
     TEST_F(TransferAccountAssetTest, DestOverflowPrecision2) {
