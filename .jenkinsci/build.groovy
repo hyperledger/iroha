@@ -70,6 +70,9 @@ def clangFormat (scmVars, environment) {
       sh"""
         git diff origin/${env.CHANGE_TARGET} --name-only | grep -E '\\.(cc|cpp|cxx|C|c\\+\\+|c|CPP|h|hpp|hh|icc)\$' | xargs clang-format-7 -style=file -i || true
         git diff | tee  clang-format-report.txt
+        if [ \$(cat clang-format-report.txt | wc -l ) -eq 0 ]; then
+          echo "All clean!" >> clang-format-report.txt
+        fi
         git reset HEAD --hard
       """
       archiveArtifacts artifacts: 'clang-format-report.txt', allowEmptyArchive: true
