@@ -81,16 +81,16 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	evmCaller := toEVMaddress(C.GoString(caller))
 	evmCallee := toEVMaddress(C.GoString(callee))
 
+	// Check if this accounts exists.
+	// If not — create them
+	if ! evmState.Exists(evmCaller) {
+		evmState.CreateAccount(evmCaller)
+	}
+
 	shouldCreateAcc := false
-	if acc, err := appState.GetAccount(evmCallee); err == nil {
-		// If acc evmCallee does not exist — create it in cache.
-		// Below sync with appState is done
-		shouldCreateAcc = acc == nil
-		if shouldCreateAcc {
-			evmState.CreateAccount(evmCallee)
-		}
-	} else {
-		panic("Error while GetAccount")
+	if ! evmState.Exists(evmCallee) {
+		shouldCreateAcc = true
+		evmState.CreateAccount(evmCallee)
 	}
 
 	var gas uint64 = 1000000
