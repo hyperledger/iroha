@@ -49,6 +49,9 @@ target_link_libraries(integration_framework
     )
 
 add_library(common_test_constants common_constants.cpp)
+target_link_libraries(common_test_constants
+    shared_model_interfaces
+    )
 
 target_include_directories(integration_framework PUBLIC ${PROJECT_SOURCE_DIR}/test)
 
