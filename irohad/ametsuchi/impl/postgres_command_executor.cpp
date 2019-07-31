@@ -863,7 +863,7 @@ namespace iroha {
                             WHEN $5 IS NOT NULL THEN data->$1->$3 = $5::jsonb
                             ELSE FALSE
                           END
-                      ELSE TRUE
+                      ELSE $5 IS NULL
                     END
               ),
               inserted AS
