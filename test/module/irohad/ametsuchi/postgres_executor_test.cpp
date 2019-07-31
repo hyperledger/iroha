@@ -2400,7 +2400,7 @@ namespace iroha {
 
     /**
      * @given commands
-     * @when trying to set kv with not empty oldValue
+     * @when trying to set new kv with not empty oldValue
      * @then corresponding error code is returned
      */
     TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValue) {
