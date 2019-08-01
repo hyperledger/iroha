@@ -20,19 +20,16 @@ namespace iroha {
      */
     class ProposalCreationStrategy {
      public:
-      /// shortcut for peer type
-      using PeerType = shared_model::crypto::PublicKey;
       /// shortcut for round type
       using RoundType = consensus::Round;
-      /// collection of peers type
-      using PeerList = boost::
-          any_range<PeerType, boost::forward_traversal_tag, const PeerType>;
 
       /**
        * Indicates the start of new round.
-       * @param peers - peers which participate in new round
+       * @param round - proposal round which has started
+       * @param peers_in_round - peers which participate in new round
        */
-      virtual void onCollaborationOutcome(const PeerList &peers) = 0;
+      virtual void onCollaborationOutcome(RoundType round,
+                                          size_t peers_in_round) = 0;
 
       /**
        * @param round - new consensus round
@@ -44,12 +41,11 @@ namespace iroha {
 
       /**
        * Notify the strategy about proposal request
-       * @param who - peer which requests the proposal
        * @param requested_round - in which round proposal is requested
        * @return round where proposal is required to be created immediately
        */
       virtual boost::optional<RoundType> onProposalRequest(
-          const PeerType &who, RoundType requested_round) = 0;
+          RoundType requested_round) = 0;
 
       virtual ~ProposalCreationStrategy() = default;
     };

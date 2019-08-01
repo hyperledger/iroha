@@ -14,11 +14,10 @@ namespace iroha {
   namespace ordering {
     class MockProposalCreationStrategy : public ProposalCreationStrategy {
      public:
-      MOCK_METHOD1(onCollaborationOutcome, void(const PeerList &));
+      MOCK_METHOD2(onCollaborationOutcome, void(RoundType, size_t));
       MOCK_METHOD2(shouldCreateRound,
                    void(RoundType, const std::function<void()> &));
-      MOCK_METHOD2(onProposalRequest,
-                   boost::optional<RoundType>(const PeerType &, RoundType));
+      MOCK_METHOD1(onProposalRequest, boost::optional<RoundType>(RoundType));
     };
   }  // namespace ordering
 }  // namespace iroha

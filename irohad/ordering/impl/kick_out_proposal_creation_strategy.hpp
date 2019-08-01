@@ -8,12 +8,11 @@
 
 #include "ordering/ordering_service_proposal_creation_strategy.hpp"
 
+#include <map>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
 
 #include "consensus/yac/supermajority_checker.hpp"
-#include "multi_sig_transactions/hash.hpp"
 
 namespace iroha {
   namespace ordering {
@@ -23,31 +22,29 @@ namespace iroha {
       using SupermajorityCheckerType =
           iroha::consensus::yac::SupermajorityChecker;
       KickOutProposalCreationStrategy(
-          std::shared_ptr<SupermajorityCheckerType> majority_checker);
+          std::shared_ptr<SupermajorityCheckerType> tolerance_checker);
 
       /**
        * Update peers state with new peers.
        * Note: the method removes peers which are not participating in consensus
        * and adds new with minimal round
-       * @param peers - list of peers which fetched in the last round
        */
-      void onCollaborationOutcome(const PeerList &peers) override;
+      void onCollaborationOutcome(RoundType round,
+                                  size_t peers_in_round) override;
 
       void shouldCreateRound(RoundType round,
                              const std::function<void()> &on_create) override;
 
       boost::optional<RoundType> onProposalRequest(
-          const PeerType &who, RoundType requested_round) override;
+          RoundType requested_round) override;
 
      private:
-      using RoundCollectionType =
-          std::unordered_map<shared_model::crypto::PublicKey,
-                             RoundType,
-                             iroha::model::BlobHasher>;
+      using RoundCollectionType = std::map<RoundType, size_t>;
 
       std::mutex mutex_;
-      std::shared_ptr<SupermajorityCheckerType> majority_checker_;
-      RoundCollectionType last_requested_;
+      std::shared_ptr<SupermajorityCheckerType> tolerance_checker_;
+      size_t peers_in_round_;
+      RoundCollectionType requested_count_;
     };
   }  // namespace ordering
 }  // namespace iroha

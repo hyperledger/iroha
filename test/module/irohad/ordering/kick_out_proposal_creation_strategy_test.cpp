@@ -5,12 +5,10 @@
 
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 
-#include <vector>
-
-// dependencies for the concurrent test
 #include <atomic>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -26,10 +24,6 @@ class KickOutProposalCreationStrategyTest : public testing::Test {
   void SetUp() override {
     is_invoked = false;
 
-    for (auto i = 0u; i < number_of_peers; ++i) {
-      peers.emplace_back(std::to_string(i));
-    }
-
     supermajority_checker_ =
         std::make_shared<iroha::consensus::yac::MockSupermajorityChecker>();
     strategy_ = std::make_shared<KickOutProposalCreationStrategy>(
@@ -40,7 +34,6 @@ class KickOutProposalCreationStrategyTest : public testing::Test {
   std::shared_ptr<iroha::consensus::yac::MockSupermajorityChecker>
       supermajority_checker_;
 
-  std::vector<KickOutProposalCreationStrategy::PeerType> peers;
   size_t number_of_peers = 7;
   size_t f = 2;
   bool is_invoked;
@@ -57,14 +50,14 @@ TEST_F(KickOutProposalCreationStrategyTest, OnNonMaliciousCase) {
   EXPECT_CALL(*supermajority_checker_, isTolerated(0, number_of_peers))
       .WillOnce(Return(false));
 
-  strategy_->onCollaborationOutcome(peers);
+  strategy_->onCollaborationOutcome({1, 0}, number_of_peers);
 
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(true, is_invoked);
   is_invoked = false;
 
   for (auto i = 0u; i < f; ++i) {
-    strategy_->onProposalRequest(peers.at(i), {2, 0});
+    strategy_->onProposalRequest({2, 0});
   }
 
   EXPECT_CALL(*supermajority_checker_, isTolerated(f, number_of_peers))
@@ -77,60 +70,20 @@ TEST_F(KickOutProposalCreationStrategyTest, OnNonMaliciousCase) {
  * @given initialized kickOutStrategy
  *        @and onCollaborationOutcome is invoked for the first round
  * @when  onProposal calls F + 1 times with different peers for further rounds
- * @then  onCollaborationOutcome returns false
+ * @then  shouldCreateRound returns false
  */
 TEST_F(KickOutProposalCreationStrategyTest, OnMaliciousCase) {
-  strategy_->onCollaborationOutcome(peers);
+  strategy_->onCollaborationOutcome({1, 0}, number_of_peers);
 
   auto requested = f + 1;
   for (auto i = 0u; i < requested; ++i) {
-    strategy_->onProposalRequest(peers.at(i), {2, 0});
+    strategy_->onProposalRequest({2, 0});
   }
 
   EXPECT_CALL(*supermajority_checker_, isTolerated(requested, number_of_peers))
       .WillOnce(Return(true));
   strategy_->shouldCreateRound({2, 0}, invocation_checker);
   ASSERT_EQ(false, is_invoked);
-}
-
-/**
- * @given initialized kickOutStrategy
- *        @and onCollaborationOutcome is invoked for the first round
- * @when  onProposal calls F + 1 times with one peer
- * @then  onCollaborationOutcome call returns true
- */
-TEST_F(KickOutProposalCreationStrategyTest, RepeadedRequest) {
-  strategy_->onCollaborationOutcome(peers);
-
-  auto requested = f + 1;
-  for (auto i = 0u; i < requested; ++i) {
-    strategy_->onProposalRequest(peers.at(0), {2, 0});
-  }
-  EXPECT_CALL(*supermajority_checker_, isTolerated(1, number_of_peers))
-      .WillOnce(Return(false));
-  strategy_->shouldCreateRound({2, 0}, invocation_checker);
-  ASSERT_EQ(true, is_invoked);
-}
-
-/**
- * @given initialized kickOutStrategy
- *        @and onCollaborationOutcome is invoked for the first round
- * @when  onProposal calls F times different peers
- *        @and 1 time with unknown peer
- * @then  onCollaborationOutcome call returns true
- */
-TEST_F(KickOutProposalCreationStrategyTest, UnknownPeerRequestsProposal) {
-  strategy_->onCollaborationOutcome(peers);
-
-  for (auto i = 0u; i < f; ++i) {
-    strategy_->onProposalRequest(peers.at(i), {2, 0});
-  }
-  strategy_->onProposalRequest(shared_model::crypto::PublicKey{"unknown"},
-                               {2, 0});
-  EXPECT_CALL(*supermajority_checker_, isTolerated(f, number_of_peers))
-      .WillOnce(Return(false));
-  strategy_->shouldCreateRound({2, 0}, invocation_checker);
-  ASSERT_EQ(true, is_invoked);
 }
 
 /**
@@ -167,7 +120,7 @@ TEST_F(KickOutProposalCreationStrategyTest, DISABLED_ConcurrentTest) {
   auto main_thread = [this, &commit_round, &last_requested, &mutex]() {
     for (int i = 0; i < 10000; ++i) {
       auto round = iroha::consensus::Round{commit_round.load(), 0};
-      strategy_->onCollaborationOutcome(peers);
+      strategy_->onCollaborationOutcome({0, 0}, number_of_peers);
       bool all_the_same = false;
       uint64_t last_val = 0;
       {
@@ -192,7 +145,7 @@ TEST_F(KickOutProposalCreationStrategyTest, DISABLED_ConcurrentTest) {
       [this, &commit_round, &last_requested, &mutex](size_t num) {
         for (int i = 0; i < 10000; ++i) {
           auto round = iroha::consensus::Round{commit_round.load(), 0};
-          strategy_->onProposalRequest(peers.at(num), round);
+          strategy_->onProposalRequest(round);
           {
             std::lock_guard<std::mutex> guard(mutex);
             last_requested.at(num) = round.block_round;

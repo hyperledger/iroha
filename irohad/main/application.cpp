@@ -503,10 +503,6 @@ Irohad::RunResult Irohad::initOrderingGate() {
       std::make_shared<ordering::KickOutProposalCreationStrategy>(
           getSupermajorityChecker(kConsensusConsistencyModel));
 
-  auto field_validator =
-      std::make_shared<shared_model::validation::FieldValidator>(
-          validators_config_);
-
   ordering_gate =
       ordering_init.initOrderingGate(max_proposal_size_,
                                      proposal_delay_,
@@ -518,11 +514,9 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      std::move(factory),
                                      proposal_factory,
                                      persistent_cache,
-                                     delay,
-                                     log_manager_->getChild("Ordering"),
-                                     field_validator,
                                      proposal_strategy,
-                                     keypair.publicKey());
+                                     delay,
+                                     log_manager_->getChild("Ordering"));
   log_->info("[Init] => init ordering gate - [{}]",
              logger::logBool(ordering_gate));
   return {};

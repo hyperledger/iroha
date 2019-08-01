@@ -72,11 +72,7 @@ namespace integration_framework {
             transaction_batch_factory,
         std::shared_ptr<iroha::ordering::transport::OnDemandOsClientGrpc::
                             TransportFactoryType> proposal_factory,
-        std::shared_ptr<shared_model::validation::FieldValidator>
-            field_validator,
         std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
-        std::shared_ptr<iroha::ordering::ProposalCreationStrategy>
-            proposal_creation_strategy,
         logger::LoggerManagerTreePtr log_manager)
         : log_(log_manager->getLogger()),
           log_manager_(std::move(log_manager)),
@@ -88,8 +84,6 @@ namespace integration_framework {
           transaction_factory_(transaction_factory),
           transaction_batch_factory_(transaction_batch_factory),
           proposal_factory_(std::move(proposal_factory)),
-          field_validator_(std::move(field_validator)),
-          proposal_creation_strategy_(std::move(proposal_creation_strategy)),
           batch_parser_(batch_parser),
           listen_ip_(listen_ip),
           internal_port_(internal_port),
@@ -151,8 +145,6 @@ namespace integration_framework {
           transaction_factory_,
           batch_parser_,
           transaction_batch_factory_,
-          field_validator_,
-          proposal_creation_strategy_,
           ordering_log_manager_->getChild("Transport")->getLogger());
 
       initialized_ = true;
@@ -395,7 +387,6 @@ namespace integration_framework {
               proposal_factory_,
               [] { return std::chrono::system_clock::now(); },
               timeout,
-              keypair_->publicKey(),
               ordering_log_manager_->getChild("NetworkClient")->getLogger())
               .create(*real_peer_);
       return on_demand_os_transport->onRequestProposal(round);

@@ -52,12 +52,9 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                std::move(proposal_creation_strategy)](auto event) {
             log_->debug("Current: {}", event.next_round);
 
+            // notify our ordering service about new round
             proposal_creation_strategy->onCollaborationOutcome(
-                event.ledger_state->ledger_peers
-                | boost::adaptors::transformed(
-                      [](auto &peer) -> decltype(auto) {
-                        return peer->pubkey();
-                      }));  // notify our ordering service about new round
+                event.next_round, event.ledger_state->ledger_peers.size());
             ordering_service_->onCollaborationOutcome(event.next_round);
 
             this->sendCachedTransactions();

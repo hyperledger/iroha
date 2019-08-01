@@ -29,7 +29,6 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "network/mst_transport.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
-#include "ordering/ordering_service_proposal_creation_strategy.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -507,10 +506,7 @@ namespace integration_framework {
     std::shared_ptr<
         iroha::ordering::transport::OnDemandOsClientGrpc::TransportFactoryType>
         proposal_factory_;
-    std::shared_ptr<shared_model::validation::FieldValidator> field_validator_;
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
-    std::shared_ptr<iroha::ordering::ProposalCreationStrategy>
-        proposal_creation_strategy_;
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
