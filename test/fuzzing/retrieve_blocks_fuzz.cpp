@@ -5,6 +5,7 @@
 
 #include "fuzzing/block_loader_fixture.hpp"
 
+#include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "module/vendor/grpc_mocks.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {

@@ -5,9 +5,10 @@
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
+#include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
+#include "fuzzing/ordering_service_fixture.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
-#include "ordering_service_fixture.hpp"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   static fuzzing::OrderingServiceFixture fixture;

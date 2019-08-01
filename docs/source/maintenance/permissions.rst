@@ -85,6 +85,9 @@ List of Permissions
     * - `can_add_peer`_ 
       - Peer
       - Command
+    * - `can_remove_peer`_ 
+      - Peer
+      - Command
     * - `can_append_role`_ 
       - Role
       - Command
@@ -180,6 +183,9 @@ List of Permissions
       - Query
     * - `can_get_my_txs`_ 
       - Transaction
+      - Query
+    * - `can_get_peers`_ 
+      - Peer
       - Query
 
 Command-related permissions
@@ -519,6 +525,25 @@ A new peer will be a valid participant in the next `consensus <../core_concepts/
     :language: python
     :linenos:
     :lines: 10-34
+
+can_remove_peer
+^^^^^^^^^^^^^^^
+
+Allows removing `peers <../core_concepts/glossary.html#peer>`__ from the network.
+
+Removed peer will not participate in the next `consensus <../core_concepts/glossary.html#consensus>`__ round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "removePeer" `command <../core_concepts/glossary.html#command>`__.
+
+| Related API method: `Remove Peer <../api/commands.html#remove-peer>`__
+
+**Example**
+
+| Admin creates domain that contains only can_remove_peer permission and Alice account in that domain. Admin adds a second peer. Alice can remove existing peers.
+|
+
+.. literalinclude:: ../../../example/python/permissions/can_remove_peer.py
+    :language: python
+    :linenos:
+    :lines: 10-37
 
 Role
 ----
@@ -1028,7 +1053,10 @@ Block Stream
 can_get_blocks
 ^^^^^^^^^^^^^^
 
-Allows subscription to the stream of accepted `blocks <../core_concepts/glossary.html#block>`__.
+Allows reading `blocks <../core_concepts/glossary.html#block>`__.
+Allows subscription to the stream of accepted blocks.
+
+| Related API methods: `Get Block <../api/queries.html#get-block>`__, `Fetchcommits <../api/queries.html#fetchcommits>`__
 
 Role
 ----
@@ -1141,6 +1169,26 @@ Allows getting `transaction <../core_concepts/glossary.html#transaction>`__ (tha
     :language: python
     :linenos:
     :lines: 11-62
+
+Peer
+----
+
+can_get_peers
+^^^^^^^^^^^^^
+
+Allows to request the list of `peers <../core_concepts/glossary.html#peer>`__ in the Iroha network.
+
+| Related API method: `Get Peers <../api/queries.html#get-peers>`__
+
+**Example**
+
+| Admin creates Alice account in any domain that has can_get_peers. Alice can now request the list of peers in the system. 
+|
+
+.. literalinclude:: ../../../example/python/permissions/can_get_peers.py
+    :language: python
+    :linenos:
+    :lines: 10-28
 
 Supplementary Sources
 =====================

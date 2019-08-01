@@ -113,30 +113,45 @@ iroha::expected::Result<void, std::string> PgConnectionInit::rollbackPrepared(
 }
 
 iroha::expected::Result<bool, std::string>
-PgConnectionInit::createDatabaseIfNotExist(const PostgresOptions &pg_opt) {
+PgConnectionInit::checkIfWorkingDatabaseExists(const PostgresOptions &pg_opt) {
   try {
     soci::session sql(*soci::factory_postgresql(),
                       pg_opt.maintenanceConnectionString());
 
-    int size;
+    size_t count;
     std::string working_dbname = pg_opt.workingDbName();
 
     sql << "SELECT count(datname) FROM pg_catalog.pg_database WHERE "
            "datname = :dbname",
-        soci::into(size), soci::use(working_dbname);
+        soci::into(count), soci::use(working_dbname, "dbname");
 
-    if (size == 0) {
-      std::string query = "CREATE DATABASE ";
-      query += working_dbname;
-      sql << query;
-      return expected::makeValue(true);
-    }
-    return expected::makeValue(false);
+    return expected::makeValue(count == 1);
   } catch (std::exception &e) {
     return expected::makeError<std::string>(
         std::string("Connection to PostgreSQL broken: ")
         + formatPostgresMessage(e.what()));
   }
+}
+
+iroha::expected::Result<bool, std::string>
+PgConnectionInit::createDatabaseIfNotExist(const PostgresOptions &pg_opt) {
+  return checkIfWorkingDatabaseExists(pg_opt) |
+             [&pg_opt](
+                 bool db_exists) -> iroha::expected::Result<bool, std::string> {
+    try {
+      if (not db_exists) {
+        soci::session sql(*soci::factory_postgresql(),
+                          pg_opt.maintenanceConnectionString());
+        sql << "CREATE DATABASE " + pg_opt.workingDbName();
+        return expected::makeValue(true);
+      }
+      return expected::makeValue(false);
+    } catch (std::exception &e) {
+      return expected::makeError<std::string>(
+          std::string("Connection to PostgreSQL broken: ")
+          + formatPostgresMessage(e.what()));
+    }
+  };
 }
 
 template <typename RollbackFunction>

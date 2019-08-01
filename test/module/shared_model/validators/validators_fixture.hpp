@@ -54,6 +54,8 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.RevokePermission.account_id", setString(account_id)},
         {"iroha.protocol.SetAccountDetail.account_id", setString(account_id)},
         {"iroha.protocol.SetAccountQuorum.account_id", setString(account_id)},
+        {"iroha.protocol.CompareAndSetAccountDetail.account_id",
+         setString(account_id)},
         {"iroha.protocol.AppendRole.role_name", setString(role_name)},
         {"iroha.protocol.DetachRole.role_name", setString(role_name)},
         {"iroha.protocol.CreateRole.role_name", setString(role_name)},
@@ -61,6 +63,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.GetRolePermissions.role_id", setString(role_name)},
         {"iroha.protocol.AddSignatory.public_key", setString(public_key)},
         {"iroha.protocol.CreateAccount.public_key", setString(public_key)},
+        {"iroha.protocol.RemovePeer.public_key", setString(public_key)},
         {"iroha.protocol.RemoveSignatory.public_key", setString(public_key)},
         {"iroha.protocol.TransferAsset.dest_account_id", setString(dest_id)},
         {"iroha.protocol.AddAssetQuantity.asset_id", setString(asset_id)},
@@ -81,9 +84,13 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.RevokePermission.permission",
          setEnum(grantable_permission)},
         {"iroha.protocol.SetAccountDetail.key", setString(detail_key)},
+        {"iroha.protocol.CompareAndSetAccountDetail.key",
+         setString(detail_key)},
         {"iroha.protocol.GetAccountDetail.key", setString(detail_key)},
         {"iroha.protocol.GetAccountDetail.writer", setString(writer)},
         {"iroha.protocol.SetAccountDetail.value", setString("")},
+        {"iroha.protocol.CompareAndSetAccountDetail.value", setString("")},
+        {"iroha.protocol.CompareAndSetAccountDetail.old_value", setString("")},
         {"iroha.protocol.GetTransactions.tx_hashes", addString(hash)},
         {"iroha.protocol.SetAccountQuorum.quorum", setUInt32(quorum)},
         {"iroha.protocol.TransferAsset.description", setString("")},
@@ -258,6 +265,7 @@ class ValidatorsTest : public ::testing::Test {
   std::string domain_id;
   std::string detail_key;
   std::string detail_value;
+  boost::optional<std::string> detail_old_value;
   std::string description;
   std::string public_key;
   std::string hash;

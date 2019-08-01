@@ -74,6 +74,7 @@ add_library(ametsuchi
     )
 
 target_link_libraries(ametsuchi
+    pg_connection_init
     flat_file_storage
     postgres_storage
     logger
