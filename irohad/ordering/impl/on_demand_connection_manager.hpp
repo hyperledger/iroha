@@ -11,7 +11,6 @@
 #include <shared_mutex>
 
 #include <rxcpp/rx.hpp>
-#include "interfaces/common_objects/peer.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

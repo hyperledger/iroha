@@ -44,7 +44,7 @@ class SupermajorityCheckerTest
     return total_peers - getAllowedFaultyPeers(total_peers);
   }
 
-  size_t getMajority(size_t total_peers) const {
+  size_t getTolerance(size_t total_peers) const {
     return getAllowedFaultyPeers(total_peers) + 1;
   }
 
@@ -140,10 +140,10 @@ TEST_P(CftAndBftSupermajorityCheckerTest, SuperMajorityCheckWithSize4) {
  * @when check range of voted participants
  * @then correct result
  */
-TEST_P(CftAndBftSupermajorityCheckerTest, MajorityWithSize4) {
+TEST_P(CftAndBftSupermajorityCheckerTest, ToleranceWithSize4) {
   size_t A = 4;
   for (size_t i = 0; i < 5; ++i) {
-    if (i >= getMajority(A) and i <= A) {
+    if (i >= getTolerance(A) and i <= A) {
       ASSERT_TRUE(isTolerated(i, A))
           << i << " votes out of " << A << " in " << modelToString();
     } else {

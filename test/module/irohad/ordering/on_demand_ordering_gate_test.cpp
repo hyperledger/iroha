@@ -11,7 +11,6 @@
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/ametsuchi/mock_tx_presence_cache.hpp"
-#include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/irohad/ordering/mock_on_demand_os_notification.hpp"
 #include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 #include "module/irohad/ordering/ordering_mocks.hpp"
@@ -58,7 +57,8 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         cache,
         std::move(ufactory),
         tx_cache,
-        proposal_creation_strategy,1000,
+        proposal_creation_strategy,
+        1000,
         getTestLogger("OrderingGate"));
 
     auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));

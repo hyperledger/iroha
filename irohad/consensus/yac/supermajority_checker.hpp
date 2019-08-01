@@ -50,10 +50,10 @@ namespace iroha {
                                       PeersNumberType all) const = 0;
 
         /**
-         * Check if majority of votes is achieved
+         * Check tolerance condition
          * @param number - voted peers
          * @param all - number of all peers in network
-         * @return true if majority is reached
+         * @return true if the given number of peers is tolerated by the network
          */
         virtual bool isTolerated(PeersNumberType number,
                                  PeersNumberType all) const = 0;

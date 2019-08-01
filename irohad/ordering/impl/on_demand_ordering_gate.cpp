@@ -13,7 +13,6 @@
 #include <boost/range/empty.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "common/visitor.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
