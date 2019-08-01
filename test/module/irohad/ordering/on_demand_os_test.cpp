@@ -7,7 +7,6 @@
 
 #include <memory>
 #include <thread>
-#include <vector>
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -405,7 +404,7 @@ TEST_F(OnDemandOsTest, RejectCommit) {
 /**
  * @given initialized on-demand OS with a batch inside
  * @when creation strategy denies creation of new proposals
- * @then check that prposal isn't created
+ * @then check that proposal isn't created
  */
 TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
   EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_, _))

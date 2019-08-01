@@ -117,8 +117,8 @@ namespace iroha {
        * requests to ordering service and processing responses
        * @param proposal_factory factory required by ordering service to produce
        * proposals
-       * @param creation_strategy - provides a strategy for creaing proposals in
-       * OS
+       * @param creation_strategy - provides a strategy for creating proposals
+       * in OS
        * @return initialized ordering gate
        */
       std::shared_ptr<network::OrderingGate> initOrderingGate(

@@ -47,6 +47,7 @@ namespace iroha {
        * @param log to print progress
        * @param number_of_proposals - number of stored proposals, older will be
        * removed. Default value is 3
+       * @param creation_strategy - provides a strategy for creating proposals
        */
       OnDemandOrderingServiceImpl(
           size_t transaction_limit,
@@ -130,7 +131,7 @@ namespace iroha {
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
 
       /**
-       *
+       * Strategy for creating proposals
        */
       std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy_;
 

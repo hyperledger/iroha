@@ -17,6 +17,9 @@
 namespace iroha {
   namespace ordering {
 
+    /**
+     * Creation strategy based on supermajority checker tolerance condition
+     */
     class KickOutProposalCreationStrategy : public ProposalCreationStrategy {
      public:
       using SupermajorityCheckerType =
@@ -24,11 +27,6 @@ namespace iroha {
       KickOutProposalCreationStrategy(
           std::shared_ptr<SupermajorityCheckerType> tolerance_checker);
 
-      /**
-       * Update peers state with new peers.
-       * Note: the method removes peers which are not participating in consensus
-       * and adds new with minimal round
-       */
       void onCollaborationOutcome(RoundType round,
                                   size_t peers_in_round) override;
 

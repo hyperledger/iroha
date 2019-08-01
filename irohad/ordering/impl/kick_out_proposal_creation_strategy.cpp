@@ -5,7 +5,6 @@
 
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 
-#include <algorithm>
 #include <utility>
 
 using namespace iroha::ordering;

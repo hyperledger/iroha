@@ -7,9 +7,7 @@
 #define IROHA_ORDERING_SERVICE_PROPOSAL_CREATION_STRATEGY_HPP
 
 #include <boost/optional.hpp>
-#include <boost/range/any_range.hpp>
 #include "consensus/round.hpp"
-#include "cryptography/public_key.hpp"
 
 namespace iroha {
   namespace ordering {
