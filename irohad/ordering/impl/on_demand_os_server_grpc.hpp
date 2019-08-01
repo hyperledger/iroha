@@ -8,14 +8,11 @@
 
 #include "ordering/on_demand_os_transport.hpp"
 
-#include <boost/optional.hpp>
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser.hpp"
 #include "logger/logger_fwd.hpp"
 #include "ordering.grpc.pb.h"
-#include "ordering/ordering_service_proposal_creation_strategy.hpp"
-#include "validators/field_validator.hpp"
 
 namespace iroha {
   namespace ordering {
@@ -38,10 +35,6 @@ namespace iroha {
                 batch_parser,
             std::shared_ptr<shared_model::interface::TransactionBatchFactory>
                 transaction_batch_factory,
-            std::shared_ptr<shared_model::validation::FieldValidator>
-                field_validator,
-            std::shared_ptr<ProposalCreationStrategy>
-                proposal_creation_strategy,
             logger::LoggerPtr log);
 
         grpc::Status SendBatches(::grpc::ServerContext *context,
@@ -54,9 +47,6 @@ namespace iroha {
             proto::ProposalResponse *response) override;
 
        private:
-        boost::optional<shared_model::crypto::PublicKey> fetchPeer(
-            const std::string &pub_key) const;
-
         /**
          * Flat map transport transactions to shared model
          */
@@ -70,9 +60,6 @@ namespace iroha {
             batch_parser_;
         std::shared_ptr<shared_model::interface::TransactionBatchFactory>
             batch_factory_;
-        std::shared_ptr<shared_model::validation::FieldValidator>
-            field_validator_;
-        std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy_;
 
         logger::LoggerPtr log_;
       };

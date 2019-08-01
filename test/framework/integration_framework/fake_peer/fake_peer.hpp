@@ -66,11 +66,7 @@ namespace integration_framework {
               transaction_batch_factory,
           std::shared_ptr<iroha::ordering::transport::OnDemandOsClientGrpc::
                               TransportFactoryType> proposal_factory,
-          std::shared_ptr<shared_model::validation::FieldValidator>
-              field_validator,
           std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache,
-          std::shared_ptr<iroha::ordering::ProposalCreationStrategy>
-              proposal_creation_strategy,
           logger::LoggerManagerTreePtr log_manager);
 
       ~FakePeer();
@@ -226,10 +222,6 @@ namespace integration_framework {
       std::shared_ptr<iroha::ordering::transport::OnDemandOsClientGrpc::
                           TransportFactoryType>
           proposal_factory_;
-      std::shared_ptr<shared_model::validation::FieldValidator>
-          field_validator_;
-      std::shared_ptr<iroha::ordering::ProposalCreationStrategy>
-          proposal_creation_strategy_;
       std::shared_ptr<shared_model::interface::TransactionBatchParser>
           batch_parser_;
 
