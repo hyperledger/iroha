@@ -251,7 +251,6 @@ CREATE TABLE IF NOT EXISTS asset (
     asset_id character varying(288),
     domain_id character varying(255) NOT NULL REFERENCES domain,
     precision int NOT NULL,
-    data json,
     PRIMARY KEY (asset_id)
 );
 CREATE TABLE IF NOT EXISTS account_has_asset (
