@@ -202,8 +202,8 @@ namespace iroha {
         const shared_model::interface::Asset &asset) {
       auto precision = asset.precision();
       soci::statement st = sql_.prepare
-          << "INSERT INTO asset(asset_id, domain_id, \"precision\", data) "
-             "VALUES (:id, :domain_id, :precision, NULL)";
+          << "INSERT INTO asset(asset_id, domain_id, \"precision\") "
+             "VALUES (:id, :domain_id, :precision)";
       st.exchange(soci::use(asset.assetId()));
       st.exchange(soci::use(asset.domainId()));
       st.exchange(soci::use(precision));
