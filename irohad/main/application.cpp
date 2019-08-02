@@ -278,6 +278,8 @@ Irohad::RunResult Irohad::initStorage(
   return StorageImpl::create(std::move(pg_opt),
                              pool_wrapper_,
                              perm_converter,
+                             pending_txs_storage_,
+                             query_response_factory_,
                              std::move(temporary_block_storage_factory),
                              std::move(persistent_block_storage),
                              log_manager_->getChild("Storage"))

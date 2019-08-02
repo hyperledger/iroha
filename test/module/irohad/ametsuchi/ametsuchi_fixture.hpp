@@ -18,6 +18,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "framework/config_helper.hpp"
@@ -27,6 +28,7 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
 
 namespace iroha {
@@ -47,6 +49,10 @@ namespace iroha {
                 iroha::test::kTestsValidatorsConfig);
         perm_converter_ =
             std::make_shared<shared_model::proto::ProtoPermissionToString>();
+        pending_txs_storage_ =
+            std::make_shared<MockPendingTransactionStorage>();
+        query_response_factory_ =
+            std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
         auto block_storage_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
         auto block_storage = block_storage_factory->create();
@@ -84,6 +90,8 @@ namespace iroha {
         StorageImpl::create(std::move(options),
                             std::move(pool_wrapper_),
                             perm_converter_,
+                            pending_txs_storage_,
+                            query_response_factory_,
                             std::move(block_storage_factory),
                             std::move(block_storage),
                             getTestLoggerManager()->getChild("Storage"))
@@ -158,6 +166,12 @@ namespace iroha {
       static std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
 
+      static std::shared_ptr<MockPendingTransactionStorage>
+          pending_txs_storage_;
+
+      static std::shared_ptr<shared_model::interface::QueryResponseFactory>
+          query_response_factory_;
+
       static std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
           reconnection_strategy_factory_;
 
@@ -191,6 +205,12 @@ namespace iroha {
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;
+
+    std::shared_ptr<MockPendingTransactionStorage>
+        AmetsuchiTest::pending_txs_storage_ = nullptr;
+
+    std::shared_ptr<shared_model::interface::QueryResponseFactory>
+        AmetsuchiTest::query_response_factory_ = nullptr;
 
     std::unique_ptr<iroha::ametsuchi::ReconnectionStrategyFactory>
         AmetsuchiTest::reconnection_strategy_factory_ = nullptr;
