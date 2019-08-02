@@ -47,6 +47,9 @@ namespace iroha {
         std::shared_ptr<PoolWrapper> pool_wrapper,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
+        std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
+        std::shared_ptr<shared_model::interface::QueryResponseFactory>
+            query_response_factory,
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         size_t pool_size,
         logger::LoggerManagerTreePtr log_manager)
@@ -56,6 +59,8 @@ namespace iroha {
           connection_(pool_wrapper_->connection_pool_),
           notifier_(notifier_lifetime_),
           perm_converter_(std::move(perm_converter)),
+          pending_txs_storage_(std::move(pending_txs_storage)),
+          query_response_factory_(std::move(query_response_factory)),
           temporary_block_storage_factory_(
               std::move(temporary_block_storage_factory)),
           log_manager_(std::move(log_manager)),
@@ -268,6 +273,9 @@ namespace iroha {
         std::shared_ptr<PoolWrapper> pool_wrapper,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
+        std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
+        std::shared_ptr<shared_model::interface::QueryResponseFactory>
+            query_response_factory,
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         std::unique_ptr<BlockStorage> persistent_block_storage,
         logger::LoggerManagerTreePtr log_manager,
@@ -333,6 +341,8 @@ namespace iroha {
                           std::move(persistent_block_storage),
                           std::move(pool_wrapper),
                           perm_converter,
+                          std::move(pending_txs_storage),
+                          std::move(query_response_factory),
                           std::move(temporary_block_storage_factory),
                           pool_size,
                           std::move(log_manager))));

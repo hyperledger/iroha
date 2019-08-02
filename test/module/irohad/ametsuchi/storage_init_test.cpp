@@ -15,11 +15,13 @@
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "common/result.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace iroha::ametsuchi;
@@ -43,6 +45,13 @@ class StorageInitTest : public ::testing::Test {
 
   std::shared_ptr<shared_model::interface::PermissionToString> perm_converter_ =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
+
+  std::shared_ptr<iroha::MockPendingTransactionStorage> pending_txs_storage_ =
+      std::make_shared<iroha::MockPendingTransactionStorage>();
+
+  std::shared_ptr<shared_model::interface::QueryResponseFactory>
+      query_response_factory_ =
+          std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
   std::unique_ptr<BlockStorageFactory> block_storage_factory_ =
       std::make_unique<InMemoryBlockStorageFactory>();
@@ -101,6 +110,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
   StorageImpl::create(std::move(options),
                       std::move(pool_wrapper),
                       perm_converter_,
+                      pending_txs_storage_,
+                      query_response_factory_,
                       std::move(block_storage_factory_),
                       std::move(block_storage_),
                       storage_log_manager_)
