@@ -63,10 +63,12 @@ add_library(ametsuchi
     impl/peer_query_wsv.cpp
     impl/postgres_block_query.cpp
     impl/postgres_command_executor.cpp
+    impl/postgres_indexer.cpp
     impl/postgres_block_index.cpp
     impl/wsv_restorer_impl.cpp
     impl/postgres_options.cpp
     impl/postgres_query_executor.cpp
+    impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
