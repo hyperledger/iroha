@@ -69,6 +69,13 @@ namespace iroha {
        */
       static expected::Result<void, std::string> resetWsv(soci::session &sql);
 
+      /*
+       * Drop working database.
+       * @return Error message if dropping has failed.
+       */
+      static expected::Result<void, std::string> dropWorkingDatabase(
+          const PostgresOptions &options);
+
       /**
        * Removes all peers from WSV
        * @return error message if reset has failed
