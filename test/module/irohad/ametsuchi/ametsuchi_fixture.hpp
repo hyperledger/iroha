@@ -219,12 +219,7 @@ CREATE TABLE IF NOT EXISTS tx_status_by_hash (
 );
 CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index ON tx_status_by_hash USING hash (hash);
 
-CREATE TABLE IF NOT EXISTS height_by_account_set (
-    account_id text,
-    height bigint
-);
-CREATE TABLE IF NOT EXISTS index_by_creator_height (
-    id serial,
+CREATE TABLE IF NOT EXISTS tx_position_by_creator (
     creator_id text,
     height bigint,
     index bigint

@@ -18,6 +18,7 @@
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
@@ -407,7 +408,8 @@ namespace iroha {
         soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
-            sql, log_manager_->getChild("BlockIndex")->getLogger());
+            std::make_unique<PostgresIndexer>(sql),
+            log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);
         block_is_prepared_ = false;
 

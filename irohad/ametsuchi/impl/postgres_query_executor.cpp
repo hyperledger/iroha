@@ -704,7 +704,7 @@ namespace iroha {
     QueryExecutorResult PostgresQueryExecutorVisitor::operator()(
         const shared_model::interface::GetAccountTransactions &q) {
       std::string related_txs = R"(SELECT DISTINCT height, index
-      FROM index_by_creator_height
+      FROM tx_position_by_creator
       WHERE creator_id = :account_id
       ORDER BY height, index ASC)";
 
@@ -828,7 +828,7 @@ namespace iroha {
           FROM position_by_account_asset
           WHERE account_id = :account_id
           AND asset_id = :asset_id
-          ORDER BY height, index ASC)";
+          ORDER BY height, index ASC)";  // consider index when changing this
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
