@@ -85,10 +85,10 @@ target_compile_definitions(postgres_query_executor
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
 
-add_library(proto_query_executor
-    impl/proto_query_executor.cpp
+add_library(proto_specific_query_executor
+    impl/proto_specific_query_executor.cpp
     )
-target_link_libraries(proto_query_executor
+target_link_libraries(proto_specific_query_executor
     postgres_query_executor
     shared_model_proto_backend
     )
@@ -125,7 +125,7 @@ add_library(vmCall STATIC IMPORTED GLOBAL)
 set_property(TARGET vmCall PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/vmCall.a")
 target_link_libraries(vmCall INTERFACE
     proto_command_executor
-    proto_query_executor
+    proto_specific_query_executor
     )
 
 target_link_libraries(ametsuchi
