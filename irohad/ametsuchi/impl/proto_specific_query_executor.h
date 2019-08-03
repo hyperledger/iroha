@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_AMETSUCHI_PROTO_QUERY_EXECUTOR_H
-#define IROHA_AMETSUCHI_PROTO_QUERY_EXECUTOR_H
+#ifndef IROHA_AMETSUCHI_PROTO_SPECIFIC_QUERY_EXECUTOR_H
+#define IROHA_AMETSUCHI_PROTO_SPECIFIC_QUERY_EXECUTOR_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,11 +15,11 @@ struct Iroha_ProtoQueryResponse {
   int size;
 };
 
-extern struct Iroha_ProtoQueryResponse Iroha_ProtoQueryExecutorExecute(
+extern struct Iroha_ProtoQueryResponse Iroha_ProtoSpecificQueryExecutorExecute(
     void *executor, void *data, int size);
 
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // IROHA_AMETSUCHI_PROTO_QUERY_EXECUTOR_H
+#endif  // IROHA_AMETSUCHI_PROTO_SPECIFIC_QUERY_EXECUTOR_H

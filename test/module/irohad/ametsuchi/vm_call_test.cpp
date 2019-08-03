@@ -34,7 +34,7 @@
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
-#include "module/irohad/ametsuchi/mock_query_executor.hpp"
+#include "module/irohad/ametsuchi/mock_query_executor_visitor.hpp"
 
 template <typename T>
 class VariantTypeMatcher {
@@ -121,18 +121,17 @@ contract C {
               ::testing::_))
       .WillRepeatedly(::testing::Return(iroha::expected::Value<void>({})));
 
-  iroha::ametsuchi::MockQueryExecutor query_executor;
+  iroha::ametsuchi::MockSpecificQueryExecutor specific_query_executor;
   auto query_response_factory =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-  EXPECT_CALL(query_executor, validateAndExecute_(::testing::_))
+  EXPECT_CALL(specific_query_executor, execute(::testing::_))
       .WillRepeatedly([query_response_factory](const auto &) {
-        return query_response_factory
-            ->createAccountResponse("admin@test", "test", 1, {}, {"user"}, {})
-            .release();
+        return query_response_factory->createAccountResponse(
+            "admin@test", "test", 1, {}, {"user"}, {});
       });
 
-  auto res =
-      VmCall(code, empty, caller, callee, &command_executor, &query_executor);
+  auto res = VmCall(
+      code, empty, caller, callee, &command_executor, &specific_query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
@@ -141,7 +140,7 @@ contract C {
                caller,
                callee,
                &command_executor,
-               &query_executor);
+               &specific_query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
@@ -150,7 +149,7 @@ contract C {
                caller,
                callee,
                &command_executor,
-               &query_executor);
+               &specific_query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 }

@@ -3,7 +3,7 @@ package main
 // #cgo CFLAGS: -I ../../../irohad
 // #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
 // #include "ametsuchi/impl/proto_command_executor.h"
-// #include "ametsuchi/impl/proto_query_executor.h"
+// #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import "unsafe"
 import (
@@ -67,7 +67,7 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	// 	fmt.Println(err)
 	// }
 	// cOut = C.CBytes(out)
-	// queryResult := C.Iroha_ProtoQueryExecutorExecute(queryExecutor, cOut, C.int(len(out)))
+	// queryResult := C.Iroha_ProtoSpecificQueryExecutorExecute(queryExecutor, cOut, C.int(len(out)))
 	// fmt.Println(queryResult)
 	// out = C.GoBytes(queryResult.data, queryResult.size)
 	// queryResponse := &pb.QueryResponse{}
