@@ -234,54 +234,6 @@ TEST_F(BlockQueryTest, GetBlockButItIsInvalidBlock) {
 }
 
 /**
- * @given block store with 2 blocks totally containing 3 txs created by
- * user1@test AND 1 tx created by user2@test
- * @when get zero block
- * @then no blocks returned
- */
-TEST_F(BlockQueryTest, GetZeroBlock) {
-  auto stored_block = blocks->getBlock(0);
-  stored_block.match(
-      [](auto &&v) {
-        FAIL() << "Nonexistent block request matched value "
-               << v.value->toString();
-      },
-      [](auto &&e) {
-        EXPECT_EQ(e.error.code, BlockQuery::GetBlockError::Code::kNoBlock);
-      });
-}
-
-// TODO: luckychess 05.08.2019 IR-595 Unit tests for ProtoBlockJsonConverter
-/**
- * @given block store with 2 blocks totally containing 3 txs created by
- * user1@test AND 1 tx created by user2@test. Block #1 is filled with trash data
- * (NOT JSON).
- * @when read block #1
- * @then get no blocks
- */
-TEST_F(BlockQueryTest, GetBlockButItIsNotJSON) {
-  namespace fs = boost::filesystem;
-  size_t block_n = 1;
-
-  // write something that is NOT JSON to block #1
-  auto block_path = fs::path{block_store_path} / FlatFile::id_to_name(block_n);
-  fs::ofstream block_file(block_path);
-  std::string content = R"(this is definitely not json)";
-  block_file << content;
-  block_file.close();
-
-  auto stored_block = blocks->getBlock(block_n);
-  stored_block.match(
-      [](auto &&v) {
-        FAIL() << "Nonexistent block request matched value "
-               << v.value->toString();
-      },
-      [](auto &&e) {
-        EXPECT_EQ(e.error.code, BlockQuery::GetBlockError::Code::kNoBlock);
-      });
-}
-
-/**
  * @given block store with preinserted blocks
  * @when checkTxPresence is invoked on existing transaction hash
  * @then Committed status is returned

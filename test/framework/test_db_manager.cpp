@@ -71,7 +71,7 @@ TestDbManager::createWithRandomDbName(
                     pg_opts->maintenanceConnectionString()),
                 pg_opts->workingDbName());
             return std::unique_ptr<TestDbManager>(
-                new TestDbManager(std::move(pool_wrapper).connection_pool_,
+                new TestDbManager(std::move(pool_wrapper)->connection_pool_,
                                   std::move(db_dropper)));
           };
     }
