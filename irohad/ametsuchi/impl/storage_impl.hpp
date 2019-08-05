@@ -9,7 +9,6 @@
 #include "ametsuchi/storage.hpp"
 
 #include <atomic>
-#include <cmath>
 #include <shared_mutex>
 
 #include <soci/soci.h>
@@ -28,8 +27,6 @@
 
 namespace iroha {
   namespace ametsuchi {
-
-    class FlatFile;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
