@@ -285,19 +285,15 @@ CREATE TABLE IF NOT EXISTS position_by_hash (
     height bigint,
     index bigint
 );
-
 CREATE TABLE IF NOT EXISTS tx_status_by_hash (
     hash varchar,
     status boolean
 );
-CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index ON tx_status_by_hash USING hash (hash);
-
-CREATE TABLE IF NOT EXISTS height_by_account_set (
-    account_id text,
-    height bigint
-);
-CREATE TABLE IF NOT EXISTS index_by_creator_height (
-    id serial,
+CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index
+  ON tx_status_by_hash
+  USING hash
+  (hash);
+CREATE TABLE IF NOT EXISTS tx_position_by_creator (
     creator_id text,
     height bigint,
     index bigint
@@ -308,6 +304,10 @@ CREATE TABLE IF NOT EXISTS position_by_account_asset (
     height bigint,
     index bigint
 );
+CREATE INDEX IF NOT EXISTS position_by_account_asset_index
+  ON position_by_account_asset
+  USING btree
+  (account_id, asset_id, height, index ASC);
 )";
 
 iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
@@ -327,14 +327,27 @@ iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
       TRUNCATE TABLE role RESTART IDENTITY CASCADE;
       TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
       TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
-      TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
-      TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE tx_position_by_creator RESTART IDENTITY CASCADE;
       TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
     )";
     sql << reset;
   } catch (std::exception &e) {
     return iroha::expected::makeError(std::string{"Failed to reset WSV: "}
                                       + formatPostgresMessage(e.what()));
+  }
+  return expected::Value<void>();
+}
+
+iroha::expected::Result<void, std::string>
+PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) {
+  soci::session sql(*soci::factory_postgresql(),
+                    options.maintenanceConnectionString());
+  try {
+    sql << "DROP DATABASE " + options.workingDbName();
+  } catch (std::exception &e) {
+    return iroha::expected::makeError(
+        std::string{"Failed to drop working database: "}
+        + formatPostgresMessage(e.what()));
   }
   return expected::Value<void>();
 }

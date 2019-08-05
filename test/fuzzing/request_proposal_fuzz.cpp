@@ -7,6 +7,7 @@
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "backend/protobuf/proto_proposal_factory.hpp"
+#include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 

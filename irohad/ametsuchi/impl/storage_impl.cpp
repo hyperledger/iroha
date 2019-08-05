@@ -18,7 +18,9 @@
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
@@ -126,15 +128,21 @@ namespace iroha {
             "createQueryExecutor: connection to database is not initialised");
         return boost::none;
       }
+      auto sql = std::make_unique<soci::session>(*connection_);
+      auto log_manager = log_manager_->getChild("QueryExecutor");
       return boost::make_optional<std::shared_ptr<QueryExecutor>>(
           std::make_shared<PostgresQueryExecutor>(
-              std::make_unique<soci::session>(*connection_),
-              *block_store_,
-              std::move(pending_txs_storage),
-              converter_,
-              std::move(response_factory),
-              perm_converter_,
-              log_manager_->getChild("QueryExecutor")));
+              std::move(sql),
+              response_factory,
+              std::make_shared<PostgresSpecificQueryExecutor>(
+                  *sql,
+                  *block_store_,
+                  std::move(pending_txs_storage),
+                  converter_,
+                  response_factory,
+                  perm_converter_,
+                  log_manager->getChild("SpecificQueryExecutor")->getLogger()),
+              log_manager->getLogger()));
     }
 
     bool StorageImpl::insertBlock(
@@ -222,13 +230,9 @@ namespace iroha {
       std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
       log_->info("Drop database {}", postgres_options_->workingDbName());
       freeConnections();
-      soci::session sql(*soci::factory_postgresql(),
-                        postgres_options_->maintenanceConnectionString());
-      // perform dropping
-      try {
-        sql << "DROP DATABASE " + postgres_options_->workingDbName();
-      } catch (std::exception &e) {
-        log_->warn("Drop database was failed. Reason: {}", e.what());
+      if (auto e = expected::resultToOptionalError(
+              PgConnectionInit::dropWorkingDatabase(*postgres_options_))) {
+        log_->warn(e.value());
       }
 
       // erase blocks
@@ -407,7 +411,8 @@ namespace iroha {
         soci::session sql(*connection_);
         sql << "COMMIT PREPARED '" + prepared_block_name_ + "';";
         PostgresBlockIndex block_index(
-            sql, log_manager_->getChild("BlockIndex")->getLogger());
+            std::make_unique<PostgresIndexer>(sql),
+            log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);
         block_is_prepared_ = false;
 

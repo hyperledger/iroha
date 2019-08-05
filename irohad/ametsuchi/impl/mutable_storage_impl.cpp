@@ -8,6 +8,7 @@
 #include <boost/variant/apply_visitor.hpp>
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
+#include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/ledger_state.hpp"
@@ -31,7 +32,8 @@ namespace iroha {
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
                   *sql_, log_manager->getChild("WsvQuery")->getLogger()))),
           block_index_(std::make_unique<PostgresBlockIndex>(
-              *sql_, log_manager->getChild("PostgresBlockIndex")->getLogger())),
+              std::make_unique<PostgresIndexer>(*sql_),
+              log_manager->getChild("PostgresBlockIndex")->getLogger())),
           transaction_executor_(std::move(transaction_executor)),
           block_storage_(std::move(block_storage)),
           committed(false),
