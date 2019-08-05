@@ -38,7 +38,7 @@ namespace iroha {
 
   namespace ametsuchi {
 
-    class KeyValueStorage;
+    class BlockStorage;
 
     using QueryErrorType =
         shared_model::interface::QueryResponseFactory::ErrorQueryType;
@@ -51,7 +51,7 @@ namespace iroha {
      public:
       PostgresSpecificQueryExecutor(
           soci::session &sql,
-          KeyValueStorage &block_store,
+          BlockStorage &block_store,
           std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
               converter,
@@ -226,7 +226,7 @@ namespace iroha {
       };
 
       soci::session &sql_;
-      KeyValueStorage &block_store_;
+      BlockStorage &block_store_;
       shared_model::interface::types::AccountIdType creator_id_;
       shared_model::interface::types::HashType query_hash_;
       std::shared_ptr<PendingTransactionStorage> pending_txs_storage_;

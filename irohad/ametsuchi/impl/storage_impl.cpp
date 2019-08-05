@@ -26,6 +26,7 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/permissions.hpp"
+#include "backend/protobuf/proto_block_json_converter.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "cryptography/public_key.hpp"
@@ -41,31 +42,31 @@ namespace iroha {
     const char *kTmpWsv = "TemporaryWsv";
 
     StorageImpl::StorageImpl(
-            boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-            std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
-            std::unique_ptr<BlockStorage> block_store,
-            std::shared_ptr<PoolWrapper> pool_wrapper,
-            std::shared_ptr<shared_model::interface::PermissionToString>
+        boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+        std::unique_ptr<BlockStorage> block_store,
+        std::shared_ptr<PoolWrapper> pool_wrapper,
+        std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
-            std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
-            size_t pool_size,
-            logger::LoggerManagerTreePtr log_manager)
-            : postgres_options_(std::move(postgres_options)),
-              block_store_(std::move(block_store)),
-              pool_wrapper_(std::move(pool_wrapper)),
-              connection_(pool_wrapper_->connection_pool_),
-              notifier_(notifier_lifetime_),
-              perm_converter_(std::move(perm_converter)),
-              temporary_block_storage_factory_(
-                      std::move(temporary_block_storage_factory)),
-              log_manager_(std::move(log_manager)),
-              log_(log_manager_->getLogger()),
-              pool_size_(pool_size),
-              prepared_blocks_enabled_(
-                      pool_wrapper_->enable_prepared_transactions_),
-              block_is_prepared_(false),
-              prepared_block_name_(postgres_options_->preparedBlockName()),
-              ledger_state_(std::move(ledger_state)) {}
+        std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
+        size_t pool_size,
+        logger::LoggerManagerTreePtr log_manager)
+        : postgres_options_(std::move(postgres_options)),
+          block_store_(std::move(block_store)),
+          pool_wrapper_(std::move(pool_wrapper)),
+          connection_(pool_wrapper_->connection_pool_),
+          notifier_(notifier_lifetime_),
+          perm_converter_(std::move(perm_converter)),
+          temporary_block_storage_factory_(
+              std::move(temporary_block_storage_factory)),
+          log_manager_(std::move(log_manager)),
+          log_(log_manager_->getLogger()),
+          pool_size_(pool_size),
+          prepared_blocks_enabled_(
+              pool_wrapper_->enable_prepared_transactions_),
+          block_is_prepared_(false),
+          prepared_block_name_(postgres_options_->preparedBlockName()),
+          ledger_state_(std::move(ledger_state)) {}
 
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
     StorageImpl::createTemporaryWsv() {
@@ -125,19 +126,22 @@ namespace iroha {
       }
       auto sql = std::make_unique<soci::session>(*connection_);
       auto log_manager = log_manager_->getChild("QueryExecutor");
+      std::shared_ptr<shared_model::interface::BlockJsonConverter>
+          block_converter =
+              std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
       return boost::make_optional<std::shared_ptr<QueryExecutor>>(
-              std::make_shared<PostgresQueryExecutor>(
-                      std::move(sql),
-                      response_factory,
-                      std::make_shared<PostgresSpecificQueryExecutor>(
-                              *sql,
-                              *block_store_,
-                              std::move(pending_txs_storage),
-                              response_factory,
-                              perm_converter_,
-                              log_manager->getChild("SpecificQueryExecutor")->getLogger()),
-                      log_manager->getLogger()));
-
+          std::make_shared<PostgresQueryExecutor>(
+              std::move(sql),
+              response_factory,
+              std::make_shared<PostgresSpecificQueryExecutor>(
+                  *sql,
+                  *block_store_,
+                  std::move(pending_txs_storage),
+                  block_converter,
+                  response_factory,
+                  perm_converter_,
+                  log_manager->getChild("SpecificQueryExecutor")->getLogger()),
+              log_manager->getLogger()));
     }
 
     bool StorageImpl::insertBlock(
@@ -258,9 +262,9 @@ namespace iroha {
 
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
-            std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
-            std::shared_ptr<PoolWrapper> pool_wrapper,
-            std::shared_ptr<shared_model::interface::PermissionToString>
+        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+        std::shared_ptr<PoolWrapper> pool_wrapper,
+        std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         std::unique_ptr<BlockStorage> persistent_block_storage,
@@ -293,7 +297,7 @@ namespace iroha {
                 std::vector<std::shared_ptr<shared_model::interface::Peer>>,
                 std::string> {
           PostgresWsvQuery peer_query(
-              sql,  log_manager->getChild("WsvQuery")->getLogger());
+              sql, log_manager->getChild("WsvQuery")->getLogger());
           auto peers = peer_query.getPeers();
           if (peers) {
             return expected::makeValue(std::move(peers.value()));
