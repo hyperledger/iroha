@@ -358,7 +358,7 @@ node ('master') {
     if ( line == 1 )
       gitNotify ("Jenkins: ClangFormat", "SUCCESS", 'SUCCESS', report_file )
     else
-      gitNotify ("Jenkins: ClangFormat", "You need to format ~ ${line/2} lines", 'PENDING', report_file )
+       gitNotify ("Jenkins: ClangFormat", "You need to format ~ ${line/2} lines", 'FAILURE', report_file )
   }
   if (build_scenario == 'Before merge to trunk')
     if (currentBuild.currentResult == 'SUCCESS')
