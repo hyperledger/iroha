@@ -76,4 +76,16 @@ target_compile_definitions(framework_sql_query
     PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
 
+add_library(test_db_manager test_db_manager.cpp)
+target_link_libraries(test_db_manager
+    gtest::main
+    integration_framework_config_helper
+    k_times_reconnection_strategy
+    logger_manager
+    pg_connection_init
+    postgres_options
+    SOCI::postgresql
+    SOCI::core
+    )
+
 add_subdirectory(executor_itf)

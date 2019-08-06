@@ -16,7 +16,6 @@
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
-#include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/files.hpp"
 #include "framework/config_helper.hpp"
@@ -39,16 +38,16 @@ namespace iroha {
         ASSERT_FALSE(boost::filesystem::exists(block_store_path))
             << "Temporary block store " << block_store_path
             << " directory already exists";
+
         factory =
             std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
                 shared_model::validation::FieldValidator>>(
                 iroha::test::kTestsValidatorsConfig);
         perm_converter_ =
             std::make_shared<shared_model::proto::ProtoPermissionToString>();
-        auto converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
         auto block_storage_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
+        auto block_storage = block_storage_factory->create();
 
         reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
@@ -72,20 +71,19 @@ namespace iroha {
             pool_size_,
             getTestLoggerManager()->getChild("Storage"));
 
-        if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
-          storage_logger_->error("Pool initialization error: {}", e->error);
+        if (auto error = resultToOptionalError(pool)) {
+          storage_logger_->error("Pool initialization error: {}", *error);
           std::terminate();
         }
 
         pool_wrapper_ =
-            std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
+            std::move(expected::resultToOptionalValue(pool).value());
 
-        StorageImpl::create(block_store_path,
-                            std::move(options),
+        StorageImpl::create(std::move(options),
                             std::move(pool_wrapper_),
-                            converter,
                             perm_converter_,
                             std::move(block_storage_factory),
+                            std::move(block_storage),
                             getTestLoggerManager()->getChild("Storage"))
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
@@ -140,9 +138,9 @@ namespace iroha {
 
       static std::string pgopt_;
 
-      static iroha::ametsuchi::PoolWrapper pool_wrapper_;
-
       static std::string block_store_path;
+
+      static std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
       // TODO(warchant): IR-1019 hide SQLs under some interface
       // TODO igor-egorov 24-05-2019 IR-517 Refactor SQL in test
@@ -182,7 +180,6 @@ CREATE TABLE IF NOT EXISTS asset (
     asset_id character varying(288),
     domain_id character varying(255) NOT NULL REFERENCES domain,
     precision int NOT NULL,
-    data json,
     PRIMARY KEY (asset_id)
 );
 CREATE TABLE IF NOT EXISTS account_has_asset (
@@ -246,8 +243,8 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
 
-    iroha::ametsuchi::PoolWrapper AmetsuchiTest::pool_wrapper_ =
-        iroha::ametsuchi::PoolWrapper(nullptr, nullptr, false);
+    std::shared_ptr<iroha::ametsuchi::PoolWrapper>
+        AmetsuchiTest::pool_wrapper_ = nullptr;
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;

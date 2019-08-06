@@ -37,6 +37,7 @@ namespace shared_model {
     class Keypair;
   }
   namespace interface {
+    class CommonObjectsFactory;
     class Block;
     class Proposal;
   }  // namespace interface
@@ -110,10 +111,7 @@ namespace integration_framework {
         const boost::optional<std::string> &dbname = boost::none,
         bool cleanup_on_exit = true,
         bool mst_support = false,
-        const std::string &block_store_path =
-            (boost::filesystem::temp_directory_path()
-             / boost::filesystem::unique_path())
-                .string(),
+        const boost::optional<std::string> block_store_path = boost::none,
         milliseconds proposal_waiting = milliseconds(20000),
         milliseconds block_waiting = milliseconds(20000),
         milliseconds tx_response_waiting = milliseconds(10000),
