@@ -1,12 +1,20 @@
 package main
 
+// #cgo CFLAGS: -I ../../../irohad
+// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #include "ametsuchi/impl/proto_command_executor.h"
+// #include "ametsuchi/impl/proto_specific_query_executor.h"
+import "C"
 import (
 	"bytes"
 	"fmt"
+	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
+	pb "iroha_protocol"
+	"unsafe"
 )
 
 // Analogue of the following code, but without metadata:
@@ -15,6 +23,8 @@ import (
 type IrohaAppState struct {
 	accounts map[crypto.Address]*acm.Account
 	storage  map[crypto.Address]map[binary.Word256][]byte
+	commandExecutor unsafe.Pointer
+	queryExecutor unsafe.Pointer
 }
 
 // check IrohaAppState implements acmstate.ReaderWriter
@@ -90,4 +100,45 @@ func (ias *IrohaAppState) accountsDump() string {
 		fmt.Fprint(buf, acc.GetAddress().String(), "\n")
 	}
 	return buf.String()
+}
+
+// Create a tied account into Iroha (EVM address + @evm)
+func (ias *IrohaAppState) createIrohaAccount(addr crypto.Address) (err error) {
+	// command example
+	command := &pb.Command{Command: &pb.Command_CreateAccount{CreateAccount: &pb.CreateAccount{AccountName: addr.String(), DomainId: "evm"}}}
+	fmt.Println(proto.MarshalTextString(command))
+	out, err := proto.Marshal(command)
+	if err != nil {
+		fmt.Println(err)
+	}
+	cOut := C.CBytes(out)
+	commandResult := C.Iroha_ProtoCommandExecutorExecute(ias.commandExecutor, cOut, C.int(len(out)))
+	fmt.Println("Create Iroha account with address result " + addr.String())
+	fmt.Println(commandResult)
+	return err
+}
+
+// Query Iroha about the tied account
+func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (account *acm.Account, err error) {
+	// query example
+	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
+	fmt.Println(proto.MarshalTextString(query))
+	out, err := proto.Marshal(query)
+	if err != nil {
+		fmt.Println(err)
+	}
+	cOut := C.CBytes(out)
+	queryResult := C.Iroha_ProtoSpecificQueryExecutorExecute(ias.queryExecutor, cOut, C.int(len(out)))
+	fmt.Println(queryResult)
+	out = C.GoBytes(queryResult.data, queryResult.size)
+	queryResponse := &pb.QueryResponse{}
+	err = proto.Unmarshal(out, queryResponse)
+	if err != nil {
+		fmt.Println(err)
+		return nil, err
+	}
+	fmt.Println("Query result for address " + addr.String() + " " + queryResponse.String())
+
+	// not sure if this is the correct initialisation
+	return &acm.Account{Address:addr}, nil
 }

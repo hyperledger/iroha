@@ -1,11 +1,6 @@
 package main
 
-// #cgo CFLAGS: -I ../../../irohad
-// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
-// #include "ametsuchi/impl/proto_command_executor.h"
-// #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
-import "unsafe"
 import (
 	"fmt"
 	"github.com/hyperledger/burrow/binary"
@@ -15,9 +10,8 @@ import (
 	"github.com/tmthrgd/go-hex"
 	"golang.org/x/crypto/ripemd160"
 	"strconv"
+	"unsafe"
 )
-// import "github.com/golang/protobuf/proto"
-// import pb "iroha_protocol"
 
 func newParams() evm.Params {
 	return evm.Params{
@@ -40,42 +34,21 @@ func blockHashGetter(height uint64) []byte {
 
 // Real application state
 var appState = NewIrohaAppState()
-// EVM instance
-var ourVm = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogger())
-// EVM cache. Should be synced with real application state
-// Sync is performed during VmCall
-var evmState = evm.NewState(appState, blockHashGetter)
+// Create EVM instance
+var burrowEVM = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogger())
 
 //export VmCall
 func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer, queryExecutor unsafe.Pointer) (*C.char, bool) {
-	// command example
-	// command := &pb.Command{Command: &pb.Command_CreateAccount{CreateAccount: &pb.CreateAccount{AccountName: "admin", DomainId: "test"}}}
-	// fmt.Println(proto.MarshalTextString(command))
-	// out, err := proto.Marshal(command)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// cOut := C.CBytes(out)
-	// commandResult := C.Iroha_ProtoCommandExecutorExecute(commandExecutor, cOut, C.int(len(out)))
-	// fmt.Println(commandResult)
 
-	// query example
-	// query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{GetAccount: &pb.GetAccount{AccountId: "admin@test"}}}}
-	// fmt.Println(proto.MarshalTextString(query))
-	// out, err = proto.Marshal(query)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// cOut = C.CBytes(out)
-	// queryResult := C.Iroha_ProtoSpecificQueryExecutorExecute(queryExecutor, cOut, C.int(len(out)))
-	// fmt.Println(queryResult)
-	// out = C.GoBytes(queryResult.data, queryResult.size)
-	// queryResponse := &pb.QueryResponse{}
-	// err = proto.Unmarshal(out, queryResponse)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
-	// fmt.Println(queryResponse)
+	// Update executors
+	appState.commandExecutor = commandExecutor
+	appState.queryExecutor = queryExecutor
+
+	// The wrapper for EVM state.
+	// Contains real application state (here it is the appState) and it's cache.
+	// Since Iroha state changes are possible between VmCall invocations,
+	// cache should be synced with appState to prevent using of invalid data.
+	var evmState = evm.NewState(appState, blockHashGetter)
 
 	// Convert strings into EVM addresses
 	evmCaller := toEVMaddress(C.GoString(caller))
@@ -96,16 +69,18 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	var gas uint64 = 1000000
 	goByteCode := hex.MustDecodeString(C.GoString(code))
 	goInput := hex.MustDecodeString(C.GoString(input))
-	output, err := ourVm.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
+	output, err := burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
 		goByteCode, goInput, 0, &gas)
 
 	if shouldCreateAcc {
 		evmState.InitCode(evmCallee, output)
 	}
 
+	// If there is no errors after smart contract execution, cache data is written to Iroha.
 	if err := evmState.Sync(); err != nil {
 		panic("Sync error")
 	}
+
 	// Transform output data to a string value.
 	// It is a problem to convert []byte, which contains 0 byte inside, to C string.
 	// Conversion to C.CString will cut all data after the 0 byte.
