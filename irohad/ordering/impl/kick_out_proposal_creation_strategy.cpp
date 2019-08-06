@@ -23,13 +23,10 @@ void KickOutProposalCreationStrategy::onCollaborationOutcome(
   }
 }
 
-void KickOutProposalCreationStrategy::shouldCreateRound(
-    RoundType round, const std::function<void()> &on_create) {
+bool KickOutProposalCreationStrategy::shouldCreateRound(RoundType round) {
   std::lock_guard<std::mutex> guard(mutex_);
-  if (not tolerance_checker_->isTolerated(requested_count_[round],
-                                          peers_in_round_)) {
-    on_create();
-  }
+  return not tolerance_checker_->isTolerated(requested_count_[round],
+                                             peers_in_round_);
 }
 
 boost::optional<ProposalCreationStrategy::RoundType>

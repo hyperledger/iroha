@@ -30,8 +30,7 @@ namespace iroha {
       void onCollaborationOutcome(RoundType round,
                                   size_t peers_in_round) override;
 
-      void shouldCreateRound(RoundType round,
-                             const std::function<void()> &on_create) override;
+      bool shouldCreateRound(RoundType round) override;
 
       boost::optional<RoundType> onProposalRequest(
           RoundType requested_round) override;
