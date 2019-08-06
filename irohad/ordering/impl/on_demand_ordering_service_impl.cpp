@@ -77,6 +77,7 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;
   {
+    // tryCreateProposal will not be able to aquire the lock and access the map
     std::shared_lock<std::shared_timed_mutex> lock(proposals_mutex_);
     proposal_creation_strategy_->onProposalRequest(round);
     // TODO 2019-08-01 lebdron: IR-487 good case optimization
@@ -154,15 +155,13 @@ void OnDemandOrderingServiceImpl::tryCreateProposal(
     const TransactionsCollectionType &txs,
     shared_model::interface::types::TimestampType created_time) {
   if (not txs.empty()) {
-    bool is_invoked = false;
-    proposal_creation_strategy_->shouldCreateRound(round, [&] {
+    // onRequestProposal will not be able to aquire the lock and access the map
+    std::lock_guard<std::shared_timed_mutex> lock(proposals_mutex_);
+    if (proposal_creation_strategy_->shouldCreateRound(round)) {
       auto proposal = proposal_factory_->unsafeCreateProposal(
           round.block_round, created_time, txs | boost::adaptors::indirected);
       proposal_map_.erase(round);
       proposal_map_.emplace(round, std::move(proposal));
-      is_invoked = true;
-    });
-    if (is_invoked) {
       log_->debug(
           "packNextProposal: data has been fetched for {}. "
           "Number of transactions in proposal = {}.",
@@ -171,7 +170,6 @@ void OnDemandOrderingServiceImpl::tryCreateProposal(
     } else {
       log_->debug("Proposal for {} not created by the strategy", round);
     }
-
   } else {
     log_->debug("No transactions to create a proposal for {}", round);
   }

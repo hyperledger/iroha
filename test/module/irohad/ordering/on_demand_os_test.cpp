@@ -6,7 +6,6 @@
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
 #include <memory>
-#include <thread>
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -69,8 +68,8 @@ class OnDemandOsTest : public ::testing::Test {
 
     proposal_creation_strategy =
         std::make_shared<MockProposalCreationStrategy>();
-    ON_CALL(*proposal_creation_strategy, shouldCreateRound(_, _))
-        .WillByDefault(Invoke([](auto, const auto &action) { action(); }));
+    ON_CALL(*proposal_creation_strategy, shouldCreateRound(_))
+        .WillByDefault(Return(true));
 
     os = std::make_shared<OnDemandOrderingServiceImpl>(
         transaction_limit,
@@ -165,42 +164,6 @@ TEST_F(OnDemandOsTest, OverflowRound) {
   ASSERT_TRUE(os->onRequestProposal(target_round));
   ASSERT_EQ(transaction_limit,
             (*os->onRequestProposal(target_round))->transactions().size());
-}
-
-/**
- * @given initialized on-demand OS
- * @when  send transactions from different threads
- * AND initiate next round
- * @then  check that all transactions appear in proposal
- */
-TEST_F(OnDemandOsTest, DISABLED_ConcurrentInsert) {
-  auto large_tx_limit = 10000u;
-  auto factory = std::make_unique<
-      shared_model::proto::ProtoProposalFactory<MockProposalValidator>>(
-      iroha::test::kTestsValidatorsConfig);
-  auto tx_cache =
-      std::make_unique<NiceMock<iroha::ametsuchi::MockTxPresenceCache>>();
-  os = std::make_shared<OnDemandOrderingServiceImpl>(
-      large_tx_limit,
-      std::move(factory),
-      std::move(tx_cache),
-      proposal_creation_strategy,
-      getTestLogger("OdOrderingService"),
-      proposal_limit);
-
-  auto call = [this](auto bounds) {
-    for (auto i = bounds.first; i < bounds.second; ++i) {
-      this->generateTransactionsAndInsert({i, i + 1});
-    }
-  };
-
-  std::thread one(call, std::make_pair(0u, large_tx_limit / 2));
-  std::thread two(call, std::make_pair(large_tx_limit / 2, large_tx_limit));
-  one.join();
-  two.join();
-  os->onCollaborationOutcome(commit_round);
-  ASSERT_EQ(large_tx_limit,
-            os->onRequestProposal(target_round).get()->transactions().size());
 }
 
 /**
@@ -407,8 +370,8 @@ TEST_F(OnDemandOsTest, RejectCommit) {
  * @then check that proposal isn't created
  */
 TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
-  EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_, _))
-      .WillRepeatedly(Invoke([](auto, const auto &) {}));
+  EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_))
+      .WillRepeatedly(Return(false));
 
   generateTransactionsAndInsert({1, 2});
 

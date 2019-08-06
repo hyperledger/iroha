@@ -31,11 +31,9 @@ namespace iroha {
 
       /**
        * @param round - new consensus round
-       * @param on_create - lambda which invokes when the round should be
-       * created
+       * @return true, if proposal should be created in the new round
        */
-      virtual void shouldCreateRound(
-          RoundType round, const std::function<void()> &on_create) = 0;
+      virtual bool shouldCreateRound(RoundType round) = 0;
 
       /**
        * Notify the strategy about proposal request
