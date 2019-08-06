@@ -8,53 +8,39 @@
 #include <boost/format.hpp>
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "common/byteutils.hpp"
+#include "common/cloneable.hpp"
 #include "logger/logger.hpp"
 
 namespace iroha {
   namespace ametsuchi {
-    PostgresBlockQuery::PostgresBlockQuery(
-        soci::session &sql,
-        KeyValueStorage &file_store,
-        std::shared_ptr<shared_model::interface::BlockJsonDeserializer>
-            converter,
-        logger::LoggerPtr log)
-        : sql_(sql),
-          block_store_(file_store),
-          converter_(std::move(converter)),
-          log_(std::move(log)) {}
+    PostgresBlockQuery::PostgresBlockQuery(soci::session &sql,
+                                           BlockStorage &block_storage,
+                                           logger::LoggerPtr log)
+        : sql_(sql), block_storage_(block_storage), log_(std::move(log)) {}
 
-    PostgresBlockQuery::PostgresBlockQuery(
-        std::unique_ptr<soci::session> sql,
-        KeyValueStorage &file_store,
-        std::shared_ptr<shared_model::interface::BlockJsonDeserializer>
-            converter,
-        logger::LoggerPtr log)
+    PostgresBlockQuery::PostgresBlockQuery(std::unique_ptr<soci::session> sql,
+                                           BlockStorage &block_storage,
+                                           logger::LoggerPtr log)
         : psql_(std::move(sql)),
           sql_(*psql_),
-          block_store_(file_store),
-          converter_(std::move(converter)),
+          block_storage_(block_storage),
           log_(std::move(log)) {}
 
     BlockQuery::BlockResult PostgresBlockQuery::getBlock(
         shared_model::interface::types::HeightType height) {
-      auto serialized_block = block_store_.get(height);
-      if (not serialized_block) {
+      auto block = block_storage_.fetch(height);
+      if (not block) {
         auto error =
             boost::format("Failed to retrieve block with height %d") % height;
         return expected::makeError(
             GetBlockError{GetBlockError::Code::kNoBlock, error.str()});
       }
-      return converter_->deserialize(bytesToString(*serialized_block))
-          .match([](auto &&val) -> BlockResult { return std::move(val.value); },
-                 [](auto &&err) -> BlockResult {
-                   return GetBlockError{GetBlockError::Code::kInternalError,
-                                        std::move(err.error)};
-                 });
+      return clone(**block);
     }
 
     shared_model::interface::types::HeightType
     PostgresBlockQuery::getTopBlockHeight() {
-      return block_store_.last_id();
+      return block_storage_.size();
     }
 
     boost::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(

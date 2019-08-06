@@ -31,7 +31,8 @@ namespace iroha {
                               std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
-      static expected::Result<PoolWrapper, std::string> prepareConnectionPool(
+      static expected::Result<std::shared_ptr<PoolWrapper>, std::string>
+      prepareConnectionPool(
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
           const int pool_size,
@@ -68,6 +69,13 @@ namespace iroha {
        * @return error message if reset has failed
        */
       static expected::Result<void, std::string> resetWsv(soci::session &sql);
+
+      /*
+       * Drop working database.
+       * @return Error message if dropping has failed.
+       */
+      static expected::Result<void, std::string> dropWorkingDatabase(
+          const PostgresOptions &options);
 
       /**
        * Removes all peers from WSV

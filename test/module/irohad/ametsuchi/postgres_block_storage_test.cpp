@@ -6,8 +6,16 @@
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 
+#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
+#include "ametsuchi/impl/postgres_options.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
-#include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
+#include "common/result.hpp"
+#include "framework/config_helper.hpp"
+#include "framework/result_gtest_checkers.hpp"
+#include "framework/test_logger.hpp"
+#include "generator/generator.hpp"
+#include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -21,9 +29,9 @@ using ::testing::Return;
 using ::testing::ReturnRef;
 
 using MockBlockIValidator = MockValidator<shared_model::interface::Block>;
-using MockBlockPValidator = MockValidator<iroha::protocol::Block_v1>;
+using MockBlockPValidator = MockValidator<iroha::protocol::Block>;
 
-class PostgresBlockStorageTest : public AmetsuchiTest {
+class PostgresBlockStorageTest : public ::testing::Test {
  public:
   PostgresBlockStorageTest() {
     ON_CALL(*mock_block_, height()).WillByDefault(Return(height_));
@@ -34,43 +42,71 @@ class PostgresBlockStorageTest : public AmetsuchiTest {
 
  protected:
   void SetUp() override {
-    AmetsuchiTest::SetUp();
+    PgConnectionInit::createDatabaseIfNotExist(options_).match(
+        [](auto &&val) {},
+        [&](auto &&error) {
+          storage_logger_->error("Database creation error: {}", error.error);
+          std::terminate();
+        });
+
+    auto reconnection_strategy_factory =
+        std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(
+            0);
+
+    auto pool = PgConnectionInit::prepareConnectionPool(
+        *reconnection_strategy_factory,
+        options_,
+        pool_size_,
+        getTestLoggerManager()->getChild("Storage"));
+
+    if (auto e = boost::get<iroha::expected::Error<std::string>>(&pool)) {
+      storage_logger_->error("Pool initialization error: {}", e->error);
+      std::terminate();
+    }
+
+    pool_wrapper_ = std::move(
+        boost::get<iroha::expected::Value<std::shared_ptr<PoolWrapper>>>(pool)
+            .value);
 
     auto validator = std::make_unique<MockBlockIValidator>();
     auto proto_validator = std::make_unique<MockBlockPValidator>();
 
-    block_factory_ =
-        std::make_shared<shared_model::proto::ProtoTransportFactory<
-            shared_model::interface::Block,
-            shared_model::proto::Block>>(std::move(validator),
-                                         std::move(proto_validator));
+    block_factory_ = std::make_shared<shared_model::proto::ProtoBlockFactory>(
+        std::move(validator), std::move(proto_validator));
 
-    sql_ = std::make_unique<soci::session>(*soci::factory_postgresql(), pgopt_);
     block_storage_ =
-        PostgresBlockStorageFactory(
-            *sql_, block_factory_, getTestLogger("PostgresBlockStorage"))
+        PostgresBlockStorageFactory(pool_wrapper_,
+                                    block_factory_,
+                                    [&]() { return test_table_; },
+                                    getTestLogger("PostgresBlockStorage"))
             .create();
-    *sql_ << "CREATE TABLE IF NOT EXISTS blocks (height bigint PRIMARY KEY, "
-             "block_data text not null);";
   }
 
   void TearDown() override {
-    *sql_ << "DROP TABLE IF EXISTS blocks;";
-    sql_->close();
-    AmetsuchiTest::TearDown();
+    block_storage_ = nullptr;
+    pool_wrapper_ = nullptr;
+    framework::expected::assertResultValue(
+        PgConnectionInit::dropWorkingDatabase(options_));
   }
 
-  std::shared_ptr<PostgresBlockStorage::BlockTransportFactory> block_factory_;
-  std::unique_ptr<soci::session> sql_;
-  std::unique_ptr<BlockStorage> block_storage_;
+  std::shared_ptr<shared_model::proto::ProtoBlockFactory> block_factory_;
   std::shared_ptr<MockBlock> mock_block_ =
       std::make_shared<NiceMock<MockBlock>>();
   std::shared_ptr<MockBlock> mock_other_block_ =
       std::make_shared<NiceMock<MockBlock>>();
-  shared_model::interface::types::HeightType height_ = 1;
+  shared_model::interface::types::HeightType height_ = 6;
   shared_model::crypto::Blob blob_ = shared_model::crypto::Blob(
       shared_model::crypto::Blob::Bytes{0, 1, 5, 17, 66, 255});
   std::string creator_ = "user1@test";
+  std::string test_table_ = "abc";
+  int pool_size_ = 10;
+  std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+  std::unique_ptr<BlockStorage> block_storage_;
+  logger::LoggerPtr storage_logger_ = getTestLogger("Storage");
+  std::string dbname_ = integration_framework::getRandomDbName();
+  std::string pgopt_ = "dbname=" + dbname_ + " "
+      + integration_framework::getPostgresCredsOrDefault();
+  PostgresOptions options_{pgopt_, dbname_, storage_logger_};
 };
 
 /**

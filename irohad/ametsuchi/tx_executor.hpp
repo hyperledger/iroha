@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #ifndef IROHA_AMETSUCHI_TX_EXECUTOR_HPP
 #define IROHA_AMETSUCHI_TX_EXECUTOR_HPP
 

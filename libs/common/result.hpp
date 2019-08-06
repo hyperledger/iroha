@@ -234,7 +234,7 @@ namespace iroha {
             not isResult<Transformed> and not isValue<Transformed>>> {
       using ReturnType = Result<Transformed, ErrorType>;
       static ReturnType makeValue(Transformed &&result) {
-        return makeValue(std::move(result));
+        return iroha::expected::makeValue(std::move(result));
       }
     };
 

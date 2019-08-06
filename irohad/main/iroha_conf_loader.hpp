@@ -23,7 +23,9 @@ struct IrohadConfig {
     std::string maintenance_dbname;
   };
 
-  std::string block_store_path;
+  // TODO: block_store_path is now optional, change docs IR-576
+  // luckychess 29.06.2019
+  boost::optional<std::string> block_store_path;
   uint16_t torii_port;
   uint16_t internal_port;
   boost::optional<std::string>

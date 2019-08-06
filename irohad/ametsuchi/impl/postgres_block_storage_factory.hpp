@@ -9,8 +9,6 @@
 #include "ametsuchi/block_storage_factory.hpp"
 
 #include "ametsuchi/impl/postgres_block_storage.hpp"
-#include "ametsuchi/impl/soci_utils.hpp"
-#include "backend/protobuf/proto_block_factory.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -18,16 +16,19 @@ namespace iroha {
     class PostgresBlockStorageFactory : public BlockStorageFactory {
      public:
       PostgresBlockStorageFactory(
-          soci::session &sql,
-          std::shared_ptr<PostgresBlockStorage::BlockTransportFactory>
-              block_factory,
+          std::shared_ptr<PoolWrapper> pool_wrapper,
+          std::shared_ptr<shared_model::proto::ProtoBlockFactory> block_factory,
+          std::function<std::string()> table_name_provider,
           logger::LoggerPtr log);
       std::unique_ptr<BlockStorage> create() override;
 
+      static iroha::expected::Result<void, std::string> createTable(
+          soci::session &sql, const std::string &table);
+
      private:
-      soci::session &sql_;
-      std::shared_ptr<PostgresBlockStorage::BlockTransportFactory>
-          block_factory_;
+      std::shared_ptr<PoolWrapper> pool_wrapper_;
+      std::shared_ptr<shared_model::proto::ProtoBlockFactory> block_factory_;
+      std::function<std::string()> table_name_provider_;
       logger::LoggerPtr log_;
     };
   }  // namespace ametsuchi
