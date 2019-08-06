@@ -18,7 +18,6 @@
 #include "common/byteutils.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
-#include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/get_account.hpp"
@@ -171,7 +170,6 @@ namespace iroha {
         soci::session &sql,
         BlockStorage &block_store,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
-        std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<shared_model::interface::PermissionToString>
@@ -180,7 +178,6 @@ namespace iroha {
         : sql_(sql),
           block_store_(block_store),
           pending_txs_storage_(std::move(pending_txs_storage)),
-          converter_(std::move(converter)),
           query_response_factory_{std::move(response_factory)},
           perm_converter_(std::move(perm_converter)),
           log_(std::move(log)) {}

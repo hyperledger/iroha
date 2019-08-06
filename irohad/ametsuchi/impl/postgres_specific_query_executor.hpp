@@ -14,7 +14,6 @@
 
 namespace shared_model {
   namespace interface {
-    class BlockJsonConverter;
     class PermissionToString;
     class GetAccount;
     class GetBlock;
@@ -53,8 +52,6 @@ namespace iroha {
           soci::session &sql,
           BlockStorage &block_store,
           std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
-          std::shared_ptr<shared_model::interface::BlockJsonConverter>
-              converter,
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory,
           std::shared_ptr<shared_model::interface::PermissionToString>
@@ -230,7 +227,6 @@ namespace iroha {
       shared_model::interface::types::AccountIdType creator_id_;
       shared_model::interface::types::HashType query_hash_;
       std::shared_ptr<PendingTransactionStorage> pending_txs_storage_;
-      std::shared_ptr<shared_model::interface::BlockJsonConverter> converter_;
       std::shared_ptr<shared_model::interface::QueryResponseFactory>
           query_response_factory_;
       std::shared_ptr<shared_model::interface::PermissionToString>

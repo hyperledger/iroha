@@ -26,7 +26,6 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/permissions.hpp"
-#include "backend/protobuf/proto_block_json_converter.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "cryptography/public_key.hpp"
@@ -126,9 +125,6 @@ namespace iroha {
       }
       auto sql = std::make_unique<soci::session>(*connection_);
       auto log_manager = log_manager_->getChild("QueryExecutor");
-      std::shared_ptr<shared_model::interface::BlockJsonConverter>
-          block_converter =
-              std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
       return boost::make_optional<std::shared_ptr<QueryExecutor>>(
           std::make_shared<PostgresQueryExecutor>(
               std::move(sql),
@@ -137,7 +133,6 @@ namespace iroha {
                   *sql,
                   *block_store_,
                   std::move(pending_txs_storage),
-                  block_converter,
                   response_factory,
                   perm_converter_,
                   log_manager->getChild("SpecificQueryExecutor")->getLogger()),
