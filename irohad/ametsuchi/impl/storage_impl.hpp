@@ -27,16 +27,16 @@
 namespace iroha {
   namespace ametsuchi {
     class StorageImpl : public Storage {
-      public:
+     public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
-              std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
-              std::shared_ptr<PoolWrapper> pool_wrapper,
-              std::shared_ptr<shared_model::interface::PermissionToString>
+          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+          std::shared_ptr<PoolWrapper> pool_wrapper,
+          std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
-              std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
-              std::unique_ptr<BlockStorage> persistent_block_storage,
-              logger::LoggerManagerTreePtr log_manager,
-              size_t pool_size = 10);
+          std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
+          std::unique_ptr<BlockStorage> persistent_block_storage,
+          logger::LoggerManagerTreePtr log_manager,
+          size_t pool_size = 10);
 
       expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
       createTemporaryWsv() override;
@@ -95,12 +95,12 @@ namespace iroha {
 
      protected:
       StorageImpl(
-              boost::optional<std::shared_ptr<const iroha::LedgerState>>
+          boost::optional<std::shared_ptr<const iroha::LedgerState>>
               ledger_state,
-              std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
-              std::unique_ptr<BlockStorage> block_store,
-              std::shared_ptr<PoolWrapper> pool_wrapper,
-              std::shared_ptr<shared_model::interface::PermissionToString>
+          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+          std::unique_ptr<BlockStorage> block_store,
+          std::shared_ptr<PoolWrapper> pool_wrapper,
+          std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           size_t pool_size,

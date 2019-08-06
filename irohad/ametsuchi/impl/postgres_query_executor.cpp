@@ -20,22 +20,22 @@ namespace iroha {
   namespace ametsuchi {
 
     PostgresQueryExecutor::PostgresQueryExecutor(
-            std::unique_ptr<soci::session> sql,
-            std::shared_ptr<shared_model::interface::QueryResponseFactory>
+        std::unique_ptr<soci::session> sql,
+        std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
-            std::shared_ptr<SpecificQueryExecutor> specific_query_executor,
-            logger::LoggerPtr log)
-            : sql_(std::move(sql)),
-              specific_query_executor_(std::move(specific_query_executor)),
-              query_response_factory_{std::move(response_factory)},
-              log_(std::move(log)) {}
+        std::shared_ptr<SpecificQueryExecutor> specific_query_executor,
+        logger::LoggerPtr log)
+        : sql_(std::move(sql)),
+          specific_query_executor_(std::move(specific_query_executor)),
+          query_response_factory_{std::move(response_factory)},
+          log_(std::move(log)) {}
 
     template <class Q>
     bool PostgresQueryExecutor::validateSignatures(const Q &query) {
       auto keys_range =
-              query.signatures() | boost::adaptors::transformed([](const auto &s) {
-                return s.publicKey().hex();
-              });
+          query.signatures() | boost::adaptors::transformed([](const auto &s) {
+            return s.publicKey().hex();
+          });
 
       if (boost::size(keys_range) != 1) {
         return false;
@@ -52,8 +52,8 @@ namespace iroha {
 
       try {
         *sql_ << qry, soci::into(signatories_valid),
-                soci::use(query.creatorAccountId(), "account_id"),
-                soci::use(keys, "pk");
+            soci::use(query.creatorAccountId(), "account_id"),
+            soci::use(keys, "pk");
       } catch (const std::exception &e) {
         log_->error("{}", e.what());
         return false;
@@ -63,26 +63,26 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresQueryExecutor::validateAndExecute(
-            const shared_model::interface::Query &query,
-            const bool validate_signatories = true) {
+        const shared_model::interface::Query &query,
+        const bool validate_signatories = true) {
       specific_query_executor_->setCreatorId(query.creatorAccountId());
       specific_query_executor_->setQueryHash(query.hash());
       if (validate_signatories and not validateSignatures(query)) {
         // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 3
         // with a named constant
         return query_response_factory_->createErrorQueryResponse(
-                shared_model::interface::QueryResponseFactory::ErrorQueryType::
+            shared_model::interface::QueryResponseFactory::ErrorQueryType::
                 kStatefulFailed,
-                "query signatories did not pass validation",
-                3,
-                query.hash());
+            "query signatories did not pass validation",
+            3,
+            query.hash());
       }
       return specific_query_executor_->execute(query);
     }
 
     bool PostgresQueryExecutor::validate(
-            const shared_model::interface::BlocksQuery &query,
-            const bool validate_signatories = true) {
+        const shared_model::interface::BlocksQuery &query,
+        const bool validate_signatories = true) {
       if (validate_signatories and not validateSignatures(query)) {
         log_->error("query signatories did not pass validation");
         return false;

@@ -32,6 +32,7 @@ class TestDbManager::DbDropper {
   ~DbDropper() {
     *management_session_ << "DROP DATABASE " + dropped_db_name_;
   }
+
  private:
   std::unique_ptr<soci::session> management_session_;
   std::string dropped_db_name_;
@@ -63,17 +64,16 @@ TestDbManager::createWithRandomDbName(
                 sessions,
                 log_manager->getChild("DbConnectionPool"));
           }
-      |
-          [&pg_opts](auto &&pool_wrapper) {
-            auto db_dropper = std::make_unique<DbDropper>(
-                std::make_unique<soci::session>(
-                    *soci::factory_postgresql(),
-                    pg_opts->maintenanceConnectionString()),
-                pg_opts->workingDbName());
-            return std::unique_ptr<TestDbManager>(
-                new TestDbManager(std::move(pool_wrapper)->connection_pool_,
-                                  std::move(db_dropper)));
-          };
+      | [&pg_opts](auto &&pool_wrapper) {
+          auto db_dropper = std::make_unique<DbDropper>(
+              std::make_unique<soci::session>(
+                  *soci::factory_postgresql(),
+                  pg_opts->maintenanceConnectionString()),
+              pg_opts->workingDbName());
+          return std::unique_ptr<TestDbManager>(
+              new TestDbManager(std::move(pool_wrapper)->connection_pool_,
+                                std::move(db_dropper)));
+        };
     }
   }
   return makeError(

@@ -305,4 +305,3 @@ TEST_F(BlockQueryTest, GetTopBlockFail) {
   ASSERT_EQ(top_block_error.value().code,
             BlockQuery::GetBlockError::Code::kNoBlock);
 }
-

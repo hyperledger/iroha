@@ -117,11 +117,11 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       log_(log_manager_->getLogger()) {
   log_->info("created");
   validators_config_ =
-          std::make_shared<shared_model::validation::ValidatorsConfig>(
-                  max_proposal_size_);
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_);
   block_validators_config_ =
-          std::make_shared<shared_model::validation::ValidatorsConfig>(
-                  max_proposal_size_, true);
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, true);
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
@@ -233,21 +233,21 @@ Irohad::RunResult Irohad::initStorage(
   std::unique_ptr<BlockStorage> persistent_block_storage;
   if (block_store_dir_) {
     auto flat_file = FlatFile::create(
-            *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
+        *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
     if (not flat_file) {
       return expected::makeError(
-              "Unable to create FlatFile for persistent storage");
+          "Unable to create FlatFile for persistent storage");
     }
     std::shared_ptr<shared_model::interface::BlockJsonConverter>
-            block_converter =
+        block_converter =
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
-            std::move(flat_file.get()),
-            block_converter,
-            log_manager_->getChild("FlatFileBlockStorage")->getLogger());
+        std::move(flat_file.get()),
+        block_converter,
+        log_manager_->getChild("FlatFileBlockStorage")->getLogger());
   } else {
     auto sql =
-            std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
+        std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
     const std::string persistent_table("blocks");
 
     auto create_table_result =
@@ -256,7 +256,7 @@ Irohad::RunResult Irohad::initStorage(
       return create_table_result;
     }
     persistent_block_storage = std::make_unique<PostgresBlockStorage>(
-            pool_wrapper_, block_transport_factory, persistent_table, log_);
+        pool_wrapper_, block_transport_factory, persistent_table, log_);
   }
   return StorageImpl::create(std::move(pg_opt),
                              pool_wrapper_,
@@ -264,7 +264,7 @@ Irohad::RunResult Irohad::initStorage(
                              std::move(temporary_block_storage_factory),
                              std::move(persistent_block_storage),
                              log_manager_->getChild("Storage"))
-         | [&](auto &&v) -> RunResult {
+             | [&](auto &&v) -> RunResult {
     storage = std::move(v);
     log_->info("[Init] => storage");
     return {};
