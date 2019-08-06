@@ -12,13 +12,12 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
+#include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
-#include "ametsuchi/key_value_storage.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/byteutils.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
-#include "interfaces/iroha_internal/block_json_converter.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/get_account.hpp"
@@ -169,9 +168,8 @@ namespace iroha {
 
     PostgresSpecificQueryExecutor::PostgresSpecificQueryExecutor(
         soci::session &sql,
-        KeyValueStorage &block_store,
+        BlockStorage &block_store,
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
-        std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory,
         std::shared_ptr<shared_model::interface::PermissionToString>
@@ -180,7 +178,6 @@ namespace iroha {
         : sql_(sql),
           block_store_(block_store),
           pending_txs_storage_(std::move(pending_txs_storage)),
-          converter_(std::move(converter)),
           query_response_factory_{std::move(response_factory)},
           perm_converter_(std::move(perm_converter)),
           log_(std::move(log)) {}
@@ -195,30 +192,16 @@ namespace iroha {
     PostgresSpecificQueryExecutor::getTransactionsFromBlock(
         uint64_t block_id, RangeGen &&range_gen, Pred &&pred) {
       std::vector<std::unique_ptr<shared_model::interface::Transaction>> result;
-      auto serialized_block = block_store_.get(block_id);
-      if (not serialized_block) {
+      auto block = block_store_.fetch(block_id);
+      if (not block) {
         log_->error("Failed to retrieve block with id {}", block_id);
         return result;
       }
-      auto deserialized_block =
-          converter_->deserialize(bytesToString(*serialized_block));
-      // boost::get of pointer returns pointer to requested type, or nullptr
-      if (auto e =
-              boost::get<expected::Error<std::string>>(&deserialized_block)) {
-        log_->error("{}", e->error);
-        return result;
-      }
 
-      auto &block =
-          boost::get<
-              expected::Value<std::unique_ptr<shared_model::interface::Block>>>(
-              deserialized_block)
-              .value;
-
-      boost::transform(range_gen(boost::size(block->transactions()))
+      boost::transform(range_gen(boost::size((*block)->transactions()))
                            | boost::adaptors::transformed(
                                  [&block](auto i) -> decltype(auto) {
-                                   return block->transactions()[i];
+                                   return (*block)->transactions()[i];
                                  })
                            | boost::adaptors::filtered(pred),
                        std::back_inserter(result),
@@ -531,7 +514,7 @@ namespace iroha {
             query_hash_);
       }
 
-      auto ledger_height = block_store_.last_id();
+      auto ledger_height = block_store_.size();
       if (q.height() > ledger_height) {
         // invalid height
         return logAndReturnErrorResponse(
@@ -546,27 +529,14 @@ namespace iroha {
         return "could not retrieve block with given height: "
             + std::to_string(height);
       };
-      auto serialized_block = block_store_.get(q.height());
-      if (not serialized_block) {
+      auto block = block_store_.fetch(q.height());
+      if (not block) {
         // for some reason, block with such height was not retrieved
         return logAndReturnErrorResponse(
             QueryErrorType::kStatefulFailed, block_deserialization_msg(), 1);
       }
-
-      return converter_->deserialize(bytesToString(*serialized_block))
-          .match(
-              [this](auto &&block) {
-                return this->query_response_factory_->createBlockResponse(
-                    std::move(block.value), query_hash_);
-              },
-              [this, err_msg = block_deserialization_msg()](const auto &err) {
-                auto extended_error =
-                    err_msg + ", because it was not deserialized: " + err.error;
-                return this->logAndReturnErrorResponse(
-                    QueryErrorType::kStatefulFailed,
-                    std::move(extended_error),
-                    1);
-              });
+      return query_response_factory_->createBlockResponse(clone(**block),
+                                                          query_hash_);
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(

@@ -39,7 +39,7 @@ PgConnectionInit::initPostgresConnection(std::string &options_str,
   return expected::makeValue(pool);
 }
 
-iroha::expected::Result<PoolWrapper, std::string>
+iroha::expected::Result<std::shared_ptr<PoolWrapper>, std::string>
 PgConnectionInit::prepareConnectionPool(
     const ReconnectionStrategyFactory &reconnection_strategy_factory,
     const PostgresOptions &options,
@@ -82,8 +82,8 @@ PgConnectionInit::prepareConnectionPool(
                              options.maintenanceConnectionString(),
                              log_manager);
 
-    return expected::makeValue<PoolWrapper>(
-        iroha::ametsuchi::PoolWrapper(std::move(connection),
+    return expected::makeValue<std::shared_ptr<PoolWrapper>>(
+        std::make_shared<PoolWrapper>(std::move(connection),
                                       std::move(failover_callback_factory),
                                       enable_prepared_transactions));
 

@@ -21,11 +21,6 @@ FlatFileBlockStorage::FlatFileBlockStorage(
       json_converter_(std::move(json_converter)),
       log_(std::move(log)) {}
 
-FlatFileBlockStorage::~FlatFileBlockStorage() {
-  log_->info("Remove {} temp directory", flat_file_storage_->directory());
-  boost::filesystem::remove_all(flat_file_storage_->directory());
-}
-
 bool FlatFileBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
   return json_converter_->serialize(*block).match(
