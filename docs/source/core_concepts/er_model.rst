@@ -21,7 +21,6 @@ Asset
  - asset_id — identifier of asset, formatted as asset_name#domain_id
  - domain_id — identifier of domain, where the asset was created, references existing domain
  - precision — size of fractional part
- - data — JSON with arbitrary structure of asset description
 
 Signatory
 ---------

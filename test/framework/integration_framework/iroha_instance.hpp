@@ -44,7 +44,7 @@ namespace integration_framework {
      * @param dbname is a name of postgres database
      */
     IrohaInstance(bool mst_support,
-                  const std::string &block_store_path,
+                  const boost::optional<std::string> &block_store_path,
                   const std::string &listen_ip,
                   size_t torii_port,
                   size_t internal_port,
@@ -75,7 +75,7 @@ namespace integration_framework {
     std::shared_ptr<TestIrohad> &getIrohaInstance();
 
     // config area
-    const std::string block_store_dir_;
+    const boost::optional<std::string> block_store_dir_;
     const std::string working_dbname_;
     const std::string listen_ip_;
     const size_t torii_port_;

@@ -22,14 +22,15 @@ static constexpr std::chrono::milliseconds kMstEmissionPeriod = 100ms;
 
 namespace integration_framework {
 
-  IrohaInstance::IrohaInstance(bool mst_support,
-                               const std::string &block_store_path,
-                               const std::string &listen_ip,
-                               size_t torii_port,
-                               size_t internal_port,
-                               logger::LoggerManagerTreePtr irohad_log_manager,
-                               logger::LoggerPtr log,
-                               const boost::optional<std::string> &dbname)
+  IrohaInstance::IrohaInstance(
+      bool mst_support,
+      const boost::optional<std::string> &block_store_path,
+      const std::string &listen_ip,
+      size_t torii_port,
+      size_t internal_port,
+      logger::LoggerManagerTreePtr irohad_log_manager,
+      logger::LoggerPtr log,
+      const boost::optional<std::string> &dbname)
       : block_store_dir_(block_store_path),
         working_dbname_(dbname.value_or(getRandomDbName())),
         listen_ip_(listen_ip),

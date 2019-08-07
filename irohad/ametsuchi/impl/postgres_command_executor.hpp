@@ -12,7 +12,7 @@
 namespace shared_model {
   namespace interface {
     class PermissionToString;
-  }
+  }  // namespace interface
 }  // namespace shared_model
 
 namespace iroha {

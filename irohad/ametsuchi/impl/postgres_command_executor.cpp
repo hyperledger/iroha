@@ -554,13 +554,13 @@ namespace iroha {
               END AS result)";
 
     const std::string PostgresCommandExecutor::createAssetBase = R"(
-              PREPARE %s (text, text, text, int) AS
+              PREPARE %s (text, text, text) AS
               WITH %s
               inserted AS
               (
-                  INSERT INTO asset(asset_id, domain_id, precision, data)
+                  INSERT INTO asset(asset_id, domain_id, precision)
                   (
-                      SELECT $2, $3, $4, NULL
+                      SELECT $2, $3, $4
                       %s
                   ) RETURNING (1)
               )
@@ -1772,7 +1772,7 @@ namespace iroha {
       for (const auto &st : statements) {
         prepareStatement(sql, st);
       }
-    };
+    }
 
   }  // namespace ametsuchi
 }  // namespace iroha
