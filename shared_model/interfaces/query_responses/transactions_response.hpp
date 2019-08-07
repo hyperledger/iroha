@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_TRANSACTIONS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_TRANSACTIONS_RESPONSE_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -16,8 +16,7 @@ namespace shared_model {
     /**
      * Container of asset, for fetching data.
      */
-    class TransactionsResponse
-        : public NonCopyableModelPrimitive<TransactionsResponse> {
+    class TransactionsResponse : public ModelPrimitive<TransactionsResponse> {
      public:
       /**
        * @return Attached transactions

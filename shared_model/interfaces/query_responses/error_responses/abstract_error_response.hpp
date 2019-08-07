@@ -6,7 +6,7 @@
 #ifndef IROHA_ABSTRACT_ERROR_RESPONSE_HPP
 #define IROHA_ABSTRACT_ERROR_RESPONSE_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "utils/string_builder.hpp"
 
@@ -17,7 +17,7 @@ namespace shared_model {
      * @tparam Model - concrete model error response
      */
     template <typename Model>
-    class AbstractErrorResponse : public NonCopyableModelPrimitive<Model> {
+    class AbstractErrorResponse : public ModelPrimitive<Model> {
      private:
       /**
        * @return string representation of error reason

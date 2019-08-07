@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_TRANSFER_ASSET_HPP
 #define IROHA_SHARED_MODEL_TRANSFER_ASSET_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -16,7 +16,7 @@ namespace shared_model {
     /**
      * Grant permission to account
      */
-    class TransferAsset : public NonCopyableModelPrimitive<TransferAsset> {
+    class TransferAsset : public ModelPrimitive<TransferAsset> {
      public:
       /**
        * @return Id of the account from which transfer assets
