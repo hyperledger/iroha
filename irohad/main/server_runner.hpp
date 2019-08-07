@@ -28,7 +28,7 @@ class ServerRunner {
       const std::string &address,
       logger::LoggerPtr log,
       bool reuse = true,
-      const boost::optional<TLSKeypair> &tls_keypair = boost::none);
+      const boost::optional<TlsKeypair> &tls_keypair = boost::none);
 
   /**
    * Adds a new grpc service to be run.
@@ -84,7 +84,7 @@ class ServerRunner {
   std::string server_address_;
   bool reuse_;
   std::vector<std::shared_ptr<grpc::Service>> services_;
-  boost::optional<TLSKeypair> tls_keypair_;
+  boost::optional<TlsKeypair> tls_keypair_;
 };
 
 #endif  // MAIN_SERVER_RUNNER_HPP

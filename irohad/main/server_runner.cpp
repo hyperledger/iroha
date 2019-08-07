@@ -5,8 +5,6 @@
 
 #include "main/server_runner.hpp"
 
-#include <fstream>
-
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
@@ -16,7 +14,7 @@ const auto kPortBindError = "Cannot bind server to address %s";
 ServerRunner::ServerRunner(const std::string &address,
                            logger::LoggerPtr log,
                            bool reuse,
-                           const boost::optional<TLSKeypair> &tls_keypair)
+                           const boost::optional<TlsKeypair> &tls_keypair)
     : log_(std::move(log)),
       server_address_(address),
       reuse_(reuse),
