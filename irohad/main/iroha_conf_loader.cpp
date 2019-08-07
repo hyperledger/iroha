@@ -287,7 +287,7 @@ inline void JsonDeserializerImpl::getVal<logger::LogLevel>(
     BOOST_THROW_EXCEPTION(std::runtime_error(
         "Wrong log level at " + path + ": must be one of '"
         + boost::algorithm::join(
-            config_members::LogLevels | boost::adaptors::map_keys, "', '")
+              config_members::LogLevels | boost::adaptors::map_keys, "', '")
         + "'."));
   }
   dest = it->second;

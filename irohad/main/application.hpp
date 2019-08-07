@@ -14,9 +14,9 @@
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
-#include "main/server_runner.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
+#include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
