@@ -52,6 +52,7 @@
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
 #include "torii/query_service.hpp"
+#include "torii/tls_params.hpp"
 #include "validation/impl/chain_validator_impl.hpp"
 #include "validation/impl/stateful_validator_impl.hpp"
 #include "validators/always_valid_validator.hpp"
@@ -96,10 +97,12 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
                    opt_alternative_peers,
                logger::LoggerManagerTreePtr logger_manager,
                const boost::optional<GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params)
+                   &opt_mst_gossip_params,
+               const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
     : block_store_dir_(block_store_dir),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
+      torii_tls_params_(torii_tls_params),
       internal_port_(internal_port),
       max_proposal_size_(max_proposal_size),
       proposal_delay_(proposal_delay),
@@ -819,25 +822,52 @@ Irohad::RunResult Irohad::run() {
       log_manager_->getChild("InternalServerRunner")->getLogger(),
       false);
 
+  static const auto make_port_logger = [this](const std::string &server_name) {
+    return [this, &server_name](auto port) -> RunResult {
+      log_->info("{} server bound on port {}", server_name, port);
+      return {};
+    };
+  };
+
   // Run torii server
-  return (torii_server->append(command_service_transport)
-              .append(query_service)
-              .run()
-          |
-          [&](const auto &port) {
-            log_->info("Torii server bound on port {}", port);
-            if (is_mst_supported_) {
-              internal_server->append(
-                  std::static_pointer_cast<MstTransportGrpc>(mst_transport));
-            }
-            // Run internal server
-            return internal_server->append(ordering_init.service)
-                .append(yac_init->getConsensusNetwork())
-                .append(loader_init.service)
-                .run();
-          }) |
-             [&](const auto &port) -> RunResult {
-    log_->info("Internal server bound on port {}", port);
+  auto run_result = torii_server->append(command_service_transport)
+                        .append(query_service)
+                        .run()
+      | make_port_logger("Torii");
+
+  // Run torii TLS server
+  if (torii_tls_params_) {
+    auto tls_keypair =
+        TLSKeypairFactory().readFromFiles(torii_tls_params_->key_path);
+
+    run_result |= [&, this] {
+      torii_tls_server = std::make_unique<ServerRunner>(
+          listen_ip_ + ":" + std::to_string(torii_tls_params_->port),
+          log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
+          false,
+          tls_keypair);
+      return (*torii_tls_server)
+                 ->append(command_service_transport)
+                 .append(query_service)
+                 .run()
+          | make_port_logger("Torii TLS");
+    };
+  }
+
+  // Run internal server
+  run_result |= [&, this] {
+    if (is_mst_supported_) {
+      internal_server->append(
+          std::static_pointer_cast<MstTransportGrpc>(mst_transport));
+    }
+    return internal_server->append(ordering_init.service)
+               .append(yac_init->getConsensusNetwork())
+               .append(loader_init.service)
+               .run()
+        | make_port_logger("Internal");
+  };
+
+  return run_result | [&]() -> RunResult {
     log_->info("===> iroha initialized");
     // initiate first round
     auto block_query = storage->createBlockQuery();

@@ -57,6 +57,7 @@ class IrohadTest : public AcceptanceFixture {
   IrohadTest()
       : kAddress("127.0.0.1"),
         kPort(50051),
+        kSecurePort(55552),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
         keys_manager_(
             kAdminId,
@@ -152,6 +153,38 @@ class IrohadTest : public AcceptanceFixture {
         config_copy_, path_genesis_.string(), path_keypair_.string(), {});
   }
 
+  iroha::expected::Result<torii::CommandSyncClient, std::string>
+  createToriiClient(bool enable_tls = false,
+                    const boost::optional<uint16_t> override_port = {}) {
+    uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
+
+    std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
+    boost::optional<std::string> stub_error;
+    if (enable_tls) {
+      // example certificate with CN=localhost and subjectAltName=IP:127.0.0.1
+      auto certificate_path = (test_data_path_ / "tls/correct.crt").string();
+
+      iroha::network::createSecureClient<iroha::protocol::CommandService_v1>(
+          kAddress + ":" + std::to_string(port), certificate_path)
+          .match([&](auto secure_stub) { stub = std::move(secure_stub.value); },
+                 [&](const auto &error) { stub_error = error.error; });
+    } else {
+      stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
+          kAddress + ":" + std::to_string(port));
+    }
+    if (stub_error) {
+      return iroha::expected::makeError(*stub_error);
+    }
+
+    return iroha::expected::makeValue(torii::CommandSyncClient(
+        std::move(stub),
+        getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger()));
+  }
+
+  auto createDefaultTx(const shared_model::crypto::Keypair &key_pair) {
+    return complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+  }
+
   /**
    * Send default transaction with given key pair.
    * Method will wait until transaction reach COMMITTED status
@@ -159,30 +192,28 @@ class IrohadTest : public AcceptanceFixture {
    * @param key_pair Key pair for signing transaction
    * @return Response object from Torii
    */
-  iroha::protocol::ToriiResponse sendDefaultTx(
-      const shared_model::crypto::Keypair &key_pair) {
+  iroha::expected::Result<iroha::protocol::ToriiResponse &, std::string>
+  sendDefaultTx(const shared_model::crypto::Keypair &key_pair,
+                bool enable_tls = false) {
     iroha::protocol::TxStatusRequest tx_request;
     iroha::protocol::ToriiResponse torii_response;
 
-    auto tx =
-        complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+    auto tx = createDefaultTx(key_pair);
     tx_request.set_tx_hash(tx.hash().hex());
 
-    torii::CommandSyncClient client(
-        iroha::network::createClient<iroha::protocol::CommandService_v1>(
-            kAddress + ":" + std::to_string(kPort)),
-        getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
-    client.Torii(tx.getTransport());
+    return createToriiClient(enable_tls) | [&](const auto &client) {
+      client.Torii(tx.getTransport());
 
-    auto resub_counter(resubscribe_attempts);
-    constexpr auto committed_status = iroha::protocol::TxStatus::COMMITTED;
-    do {
-      std::this_thread::sleep_for(resubscribe_timeout);
-      client.Status(tx_request, torii_response);
-    } while (torii_response.tx_status() != committed_status
-             and --resub_counter);
+      auto resub_counter(resubscribe_attempts);
+      constexpr auto committed_status = iroha::protocol::TxStatus::COMMITTED;
+      do {
+        std::this_thread::sleep_for(resubscribe_timeout);
+        client.Status(tx_request, torii_response);
+      } while (torii_response.tx_status() != committed_status
+               and --resub_counter);
 
-    return torii_response;
+      return iroha::expected::makeValue(torii_response);
+    };
   }
 
   /**
@@ -192,10 +223,18 @@ class IrohadTest : public AcceptanceFixture {
    * OR until limit of attempts is exceeded.
    * @param key_pair Key pair for signing transaction
    */
-  void sendDefaultTxAndCheck(const shared_model::crypto::Keypair &key_pair) {
-    iroha::protocol::ToriiResponse torii_response;
-    torii_response = sendDefaultTx(key_pair);
-    ASSERT_EQ(torii_response.tx_status(), iroha::protocol::TxStatus::COMMITTED);
+  void sendDefaultTxAndCheck(const shared_model::crypto::Keypair &key_pair,
+                             bool enable_tls = false) {
+    sendDefaultTx(key_pair, enable_tls)
+        .match(
+            [](const auto &result) {
+              ASSERT_EQ(result.value.tx_status(),
+                        iroha::protocol::TxStatus::COMMITTED);
+            },
+            [](const auto &err) {
+              // i dunno
+              ASSERT_TRUE(false);
+            });
   }
 
  private:
@@ -213,6 +252,7 @@ class IrohadTest : public AcceptanceFixture {
   const std::chrono::milliseconds kTimeout = 30s;
   const std::string kAddress;
   const uint16_t kPort;
+  const uint16_t kSecurePort;
 
   boost::optional<child> iroha_process_;
 
@@ -267,6 +307,52 @@ TEST_F(IrohadTest, SendTx) {
 
   SCOPED_TRACE("From send transaction test");
   sendDefaultTxAndCheck(key_pair.get());
+}
+
+/**
+ * Test verifies that a transaction can be sent to running iroha and commited,
+ * through a TLS port
+ * @given running Iroha with an open TLS port
+ * @when a client sends a transaction to Iroha AND the server's certificate
+ *       is valid
+ * @then the transaction is committed
+ */
+TEST_F(IrohadTest, SendTxSecure) {
+  launchIroha();
+
+  auto key_pair = keys_manager_.loadKeys();
+  ASSERT_TRUE(key_pair);
+
+  SCOPED_TRACE("From secure send transaction test");
+  sendDefaultTxAndCheck(key_pair.get(), true);
+}
+
+/**
+ * Test verifies that you could not connect to the TLS port and send plaintext
+ * data. (well you surely can, but it will not be processed)
+ * @given running Iroha with an open TLS port
+ * @when a client sends a transaction to Iroha without using TLS
+ * @then the transaction is not committed AND client's connection fails
+ */
+TEST_F(IrohadTest, SendTxInsecureWithTls) {
+  launchIroha();
+
+  auto key_pair = keys_manager_.loadKeys();
+  ASSERT_TRUE(key_pair);
+
+  auto tx = createDefaultTx(*key_pair);
+
+  createToriiClient(false, kSecurePort)
+      .match(
+          [&](const auto &result) {
+            auto response = result.value.Torii(tx.getTransport());
+
+            // gRPC will close the socket with status code UNAVAILABLE, and
+            // message "Socket closed" so, this seems to be a good enough way to
+            // test this behaviour
+            ASSERT_TRUE(response.error_code() == grpc::StatusCode::UNAVAILABLE);
+          },
+          [&](const auto &err) { ASSERT_TRUE(false); });
 }
 
 /**
