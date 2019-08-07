@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_SET_ACCOUNT_DETAIL_HPP
 #define IROHA_SHARED_MODEL_SET_ACCOUNT_DETAIL_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
 
@@ -16,8 +16,7 @@ namespace shared_model {
     /**
      * Set key-value pair of given account
      */
-    class SetAccountDetail
-        : public NonCopyableModelPrimitive<SetAccountDetail> {
+    class SetAccountDetail : public ModelPrimitive<SetAccountDetail> {
      public:
       /**
        * @return Identity of user to set account detail

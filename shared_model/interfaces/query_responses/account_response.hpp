@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_ACCOUNT_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_ACCOUNT_RESPONSE_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -16,7 +16,7 @@ namespace shared_model {
     /**
      * Provide response with account
      */
-    class AccountResponse : public NonCopyableModelPrimitive<AccountResponse> {
+    class AccountResponse : public ModelPrimitive<AccountResponse> {
      public:
       /// Collection of role_id types
       using AccountRolesIdType = std::vector<types::RoleIdType>;
