@@ -19,7 +19,7 @@ namespace {
     ss << file.rdbuf();
     return ss.str();
   }
-}
+}  // namespace
 
 TLSKeypair::TLSKeypair(const std::string &pem_private_key,
                        const std::string &pem_certificate)

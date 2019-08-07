@@ -8,7 +8,6 @@
 
 #include <string>
 
-
 namespace iroha {
   namespace torii {
     /**
@@ -22,11 +21,10 @@ namespace iroha {
      *   "/path/to/a/key.crt"
      */
     struct TlsParams {
-        size_t port;
-        std::string key_path;
+      size_t port;
+      std::string key_path;
     };
   }  // namespace torii
 }  // namespace iroha
 
 #endif  // TORII_TLS_PARAMS
-
