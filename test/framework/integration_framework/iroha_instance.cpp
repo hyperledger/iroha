@@ -30,11 +30,13 @@ namespace integration_framework {
       size_t internal_port,
       logger::LoggerManagerTreePtr irohad_log_manager,
       logger::LoggerPtr log,
-      const boost::optional<std::string> &dbname)
+      const boost::optional<std::string> &dbname,
+      const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
       : block_store_dir_(block_store_path),
         working_dbname_(dbname.value_or(getRandomDbName())),
         listen_ip_(listen_ip),
         torii_port_(torii_port),
+        torii_tls_params_(torii_tls_params),
         internal_port_(internal_port),
         // proposal_timeout results in non-deterministic behavior due
         // to thread scheduling and network
@@ -108,7 +110,8 @@ namespace integration_framework {
         boost::none,
         irohad_log_manager_,
         log_,
-        opt_mst_gossip_params_);
+        opt_mst_gossip_params_,
+        torii_tls_params_);
   }
 
   void IrohaInstance::run() {

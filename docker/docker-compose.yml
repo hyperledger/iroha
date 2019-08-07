@@ -5,6 +5,7 @@ services:
     image: hyperledger/iroha:develop-build
     ports:
       - "${IROHA_PORT}:50051"
+      - "${IROHA_TLS_PORT}:55552"
       - "${DEBUGGER_PORT}:20000"
     environment:
       - IROHA_POSTGRES_HOST=${COMPOSE_PROJECT_NAME}_postgres_1
@@ -19,8 +20,8 @@ services:
       - postgres
     tty: true
     volumes:
-      - ../:/opt/iroha
-      - ccache-data:/tmp/ccache
+      - ../:/opt/iroha:delegated
+      - ccache-data:/tmp/ccache:delegated
     working_dir: /opt/iroha
     cap_add:
       - SYS_PTRACE
