@@ -17,15 +17,18 @@ namespace {
 
     std::stringstream ss;
     ss << file.rdbuf();
+    if (!ss) {
+      return boost::none;
+    }
     return ss.str();
   }
 }  // namespace
 
-TLSKeypair::TLSKeypair(const std::string &pem_private_key,
+TlsKeypair::TlsKeypair(const std::string &pem_private_key,
                        const std::string &pem_certificate)
     : pem_private_key(pem_private_key), pem_certificate(pem_certificate) {}
 
-boost::optional<TLSKeypair> TLSKeypairFactory::readFromFiles(
+boost::optional<TlsKeypair> TlsKeypairFactory::readFromFiles(
     const std::string &path) {
   auto certificate = readFile(path + ".crt");
   auto private_key = readFile(path + ".key");
@@ -34,5 +37,5 @@ boost::optional<TLSKeypair> TLSKeypairFactory::readFromFiles(
     return boost::none;
   }
 
-  return TLSKeypair(*private_key, *certificate);
+  return TlsKeypair(*private_key, *certificate);
 }

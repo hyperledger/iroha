@@ -822,8 +822,8 @@ Irohad::RunResult Irohad::run() {
       log_manager_->getChild("InternalServerRunner")->getLogger(),
       false);
 
-  static const auto make_port_logger = [this](const std::string &server_name) {
-    return [this, &server_name](auto port) -> RunResult {
+  auto make_port_logger = [this](std::string server_name) {
+    return [this, server_name](auto port) -> RunResult {
       log_->info("{} server bound on port {}", server_name, port);
       return {};
     };
@@ -838,7 +838,11 @@ Irohad::RunResult Irohad::run() {
   // Run torii TLS server
   if (torii_tls_params_) {
     auto tls_keypair =
-        TLSKeypairFactory().readFromFiles(torii_tls_params_->key_path);
+        TlsKeypairFactory().readFromFiles(torii_tls_params_->key_path);
+    if (not tls_keypair) {
+      return expected::makeError("Failed to read TLS keypair from "
+                                 + torii_tls_params_->key_path);
+    }
 
     run_result |= [&, this] {
       torii_tls_server = std::make_unique<ServerRunner>(

@@ -12,13 +12,6 @@
 #include <grpc++/grpc++.h>
 #include <boost/format.hpp>
 
-#include <fstream>
-#include <sstream>
-
-#include "common/result.hpp"
-
-const auto kCannotReadCertificateError = "Cannot read root certificate file";
-
 namespace iroha {
   namespace network {
     namespace details {
@@ -94,30 +87,17 @@ namespace iroha {
      * messages of INT_MAX bytes size
      * @tparam T type for gRPC stub, e.g. proto::Yac
      * @param address ip address for connection, ipv4:port
-     * @param root_certificate_path root certificate for the server's CA
+     * @param root_certificate root certificate for the server's CA
      * @return gRPC stub of parametrized type
      */
     template <typename T>
-    auto createSecureClient(const grpc::string &address,
-                            const std::string &root_certificate_path)
-        -> iroha::expected::Result<std::unique_ptr<typename T::Stub>,
-                                   std::string> {
-      std::string root_ca_data;
-      try {
-        std::ifstream root_ca_file(root_certificate_path);
-        std::stringstream ss;
-        ss << root_ca_file.rdbuf();
-        root_ca_data = ss.str();
-      } catch (std::ifstream::failure e) {
-        return iroha::expected::makeError(kCannotReadCertificateError);
-      }
-
+    std::unique_ptr<typename T::Stub> createSecureClient(
+        const grpc::string &address, const std::string &root_certificate) {
       auto options = grpc::SslCredentialsOptions();
-      options.pem_root_certs = root_ca_data;
+      options.pem_root_certs = root_certificate;
       auto credentials = grpc::SslCredentials(options);
 
-      return iroha::expected::makeValue(
-          createClientWithCredentials<T>(address, credentials));
+      return createClientWithCredentials<T>(address, credentials);
     }
   }  // namespace network
 }  // namespace iroha

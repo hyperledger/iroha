@@ -40,7 +40,6 @@ namespace config_members {
   extern const char *InitialPeers;
   extern const char *Address;
   extern const char *PublicKey;
-  extern const char *Port;
 
 }  // namespace config_members
 
