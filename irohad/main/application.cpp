@@ -29,6 +29,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
@@ -43,7 +44,6 @@
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
-#include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
@@ -113,10 +113,8 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
-      updated_batches(pending_storage_lifetime),
-      prepared_batch(pending_storage_lifetime),
-      expired_batch(pending_storage_lifetime),
-      prepared_txs(pending_storage_lifetime),
+      pending_txs_storage_init(
+          std::make_unique<PendingTransactionStorageInit>()),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
@@ -148,9 +146,6 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
 Irohad::~Irohad() {
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
-  mst_pending_storage_subscription.unsubscribe();
-  pcs_pending_storage_subscription.unsubscribe();
-  pending_storage_lifetime.unsubscribe();
 }
 
 /**
@@ -682,24 +677,7 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
     }
   });
 
-  using PreparedTransactionDescriptor =
-      PendingTransactionStorageImpl::PreparedTransactionDescriptor;
-  pcs->onProposal()
-      .flat_map([](const OrderingEvent &event)
-                    -> rxcpp::observable<PreparedTransactionDescriptor> {
-        if (not event.proposal) {
-          return rxcpp::observable<>::empty<PreparedTransactionDescriptor>();
-        }
-        auto prepared_transactions =
-            event.proposal.get()->transactions()
-            | boost::adaptors::transformed(
-                  [](const auto &tx) -> PreparedTransactionDescriptor {
-                    return std::make_pair(tx.creatorAccountId(), tx.hash());
-                  });
-        return rxcpp::observable<>::iterate(prepared_transactions);
-      })
-      .subscribe(pcs_pending_storage_subscription,
-                 prepared_txs.get_subscriber());
+  pending_txs_storage_init->setSubscriptions(*pcs);
 
   log_->info("[Init] => pcs");
   return {};
@@ -749,23 +727,15 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  mst_processor->onStateUpdate().subscribe(mst_pending_storage_subscription,
-                                           updated_batches.get_subscriber());
-  mst_processor->onPreparedBatches().subscribe(mst_pending_storage_subscription,
-                                               prepared_batch.get_subscriber());
-  mst_processor->onExpiredBatches().subscribe(mst_pending_storage_subscription,
-                                              expired_batch.get_subscriber());
+  pending_txs_storage_init->setSubscriptions(*mst_processor);
 
   log_->info("[Init] => MST processor");
   return {};
 }
 
 Irohad::RunResult Irohad::initPendingTxsStorage() {
-  pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>(
-      updated_batches.get_observable(),
-      prepared_batch.get_observable(),
-      expired_batch.get_observable(),
-      prepared_txs.get_observable());
+  pending_txs_storage_ =
+      pending_txs_storage_init->createPendingTransactionsStorage();
   log_->info("[Init] => pending transactions storage");
   return {};
 }

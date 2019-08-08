@@ -22,8 +22,8 @@
 
 namespace iroha {
   class PendingTransactionStorage;
+  class PendingTransactionStorageInit;
   class MstProcessor;
-  class MstState;
   namespace ametsuchi {
     class WsvRestorer;
     class TxPresenceCache;
@@ -222,18 +222,8 @@ class Irohad {
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 
-  rxcpp::composite_subscription pending_storage_lifetime;
-  rxcpp::subjects::subject<std::shared_ptr<iroha::MstState>> updated_batches;
-  rxcpp::subjects::subject<
-      std::shared_ptr<shared_model::interface::TransactionBatch>>
-      prepared_batch;
-  rxcpp::subjects::subject<
-      std::shared_ptr<shared_model::interface::TransactionBatch>>
-      expired_batch;
-  rxcpp::subjects::subject<
-      std::pair<shared_model::interface::types::AccountIdType,
-                shared_model::interface::types::HashType>>
-      prepared_txs;
+  std::unique_ptr<iroha::PendingTransactionStorageInit>
+      pending_txs_storage_init;
 
   // pending transactions storage
   std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;
@@ -329,7 +319,6 @@ class Irohad {
 
   // pcs
   std::shared_ptr<iroha::network::PeerCommunicationService> pcs;
-  rxcpp::composite_subscription pcs_pending_storage_subscription;
 
   // status bus
   std::shared_ptr<iroha::torii::StatusBus> status_bus_;
@@ -337,7 +326,6 @@ class Irohad {
   // mst
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
-  rxcpp::composite_subscription mst_pending_storage_subscription;
 
   // transaction service
   std::shared_ptr<iroha::torii::CommandService> command_service;
