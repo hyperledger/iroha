@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetPeers::GetPeers(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)) {}
+        : TrivialProto(std::forward<QueryType>(query)) {}
 
     template GetPeers::GetPeers(GetPeers::TransportType &);
     template GetPeers::GetPeers(const GetPeers::TransportType &);

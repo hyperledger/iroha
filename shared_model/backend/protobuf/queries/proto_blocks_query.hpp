@@ -13,9 +13,9 @@
 
 namespace shared_model {
   namespace proto {
-    class BlocksQuery final : public CopyableProto<interface::BlocksQuery,
-                                                   iroha::protocol::BlocksQuery,
-                                                   BlocksQuery> {
+    class BlocksQuery final
+        : public TrivialProto<interface::BlocksQuery,
+                              iroha::protocol::BlocksQuery> {
      public:
       template <typename BlocksQueryType>
       explicit BlocksQuery(BlocksQueryType &&query);

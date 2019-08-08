@@ -16,9 +16,8 @@ namespace shared_model {
 
     /// Provides query metadata for any transaction list pagination.
     class TxPaginationMeta final
-        : public CopyableProto<interface::TxPaginationMeta,
-                               iroha::protocol::TxPaginationMeta,
-                               TxPaginationMeta> {
+        : public TrivialProto<interface::TxPaginationMeta,
+                              iroha::protocol::TxPaginationMeta> {
      public:
       explicit TxPaginationMeta(const TransportType &query);
       explicit TxPaginationMeta(TransportType &&query);

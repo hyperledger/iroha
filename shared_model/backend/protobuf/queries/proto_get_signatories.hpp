@@ -12,9 +12,8 @@
 
 namespace shared_model {
   namespace proto {
-    class GetSignatories final : public CopyableProto<interface::GetSignatories,
-                                                      iroha::protocol::Query,
-                                                      GetSignatories> {
+    class GetSignatories final : public TrivialProto<interface::GetSignatories,
+                                                     iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetSignatories(QueryType &&query);

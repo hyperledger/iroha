@@ -13,13 +13,12 @@
 
 namespace shared_model {
   namespace proto {
-    class Asset final : public CopyableProto<interface::Asset,
-                                             iroha::protocol::Asset,
-                                             Asset> {
+    class Asset final
+        : public TrivialProto<interface::Asset, iroha::protocol::Asset> {
      public:
       template <typename AssetType>
       explicit Asset(AssetType &&account)
-          : CopyableProto(std::forward<AssetType>(account)) {}
+          : TrivialProto(std::forward<AssetType>(account)) {}
 
       Asset(const Asset &o) : Asset(o.proto_) {}
 

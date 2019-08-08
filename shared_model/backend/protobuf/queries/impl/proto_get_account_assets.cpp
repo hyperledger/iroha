@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetAccountAssets::GetAccountAssets(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           account_assets_{proto_->payload().get_account_assets()},
           pagination_meta_{
               [this]() -> boost::optional<const AssetPaginationMeta> {

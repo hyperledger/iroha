@@ -15,9 +15,8 @@
 namespace shared_model {
   namespace proto {
     class GetTransactions final
-        : public CopyableProto<interface::GetTransactions,
-                               iroha::protocol::Query,
-                               GetTransactions> {
+        : public TrivialProto<interface::GetTransactions,
+                              iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetTransactions(QueryType &&query);

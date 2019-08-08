@@ -13,9 +13,8 @@
 namespace shared_model {
   namespace proto {
     class QueryPayloadMeta final
-        : public CopyableProto<interface::QueryPayloadMeta,
-                               iroha::protocol::QueryPayloadMeta,
-                               QueryPayloadMeta> {
+        : public TrivialProto<interface::QueryPayloadMeta,
+                              iroha::protocol::QueryPayloadMeta> {
      public:
       template <typename QueryPayloadMetaType>
       explicit QueryPayloadMeta(QueryPayloadMetaType &&query);

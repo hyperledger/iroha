@@ -14,9 +14,8 @@
 namespace shared_model {
   namespace proto {
     class GetAccountAssetTransactions final
-        : public CopyableProto<interface::GetAccountAssetTransactions,
-                               iroha::protocol::Query,
-                               GetAccountAssetTransactions> {
+        : public TrivialProto<interface::GetAccountAssetTransactions,
+                              iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetAccountAssetTransactions(QueryType &&query);

@@ -29,6 +29,9 @@
  * auto c1 = clone(derived);
  */
 
+template <typename T>
+class Cloneable;
+
 /**
  * Function to clone from Cloneable.
  * @tparam T - derived from Cloneable
@@ -40,7 +43,7 @@ std::unique_ptr<T> clone(const T &object) {
   using base_type = typename T::base_type;
   static_assert(std::is_base_of<base_type, T>::value,
                 "T object has to derived from T::base_type");
-  auto ptr = static_cast<const base_type &>(object).clone();
+  auto ptr = static_cast<const Cloneable<base_type> &>(object).clone();
   return std::unique_ptr<T>(static_cast<T *>(ptr));
 }
 

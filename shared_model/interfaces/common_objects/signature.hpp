@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_SIGNATURE_HPP
 #define IROHA_SHARED_MODEL_SIGNATURE_HPP
 
+#include "common/cloneable.hpp"
 #include "interfaces/base/model_primitive.hpp"
 #include "utils/string_builder.hpp"
 
@@ -21,7 +22,8 @@ namespace shared_model {
     /**
      * Class represents signature of high-level domain objects.
      */
-    class Signature : public ModelPrimitive<Signature> {
+    class Signature : public ModelPrimitive<Signature>,
+                      public Cloneable<Signature> {
      public:
       /**
        * Type of public key
