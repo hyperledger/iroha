@@ -63,25 +63,6 @@ TEST_F(AddAssetQuantity, NoPermissions) {
 }
 
 /**
- * TODO mboldyrev 17.01.2019 IR-203 convert to a field validator unit test
- *
- * @given pair of users with all required permissions
- * @when execute tx with AddAssetQuantity command with negative amount
- * @then the tx hasn't passed stateless validation
- *       (aka skipProposal throws)
- */
-TEST_F(AddAssetQuantity, NegativeAmount) {
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kAssetId, "-1.0")),
-              CHECK_STATELESS_INVALID);
-}
-
-/**
  * TODO mboldyrev 17.01.2019 IR-203 seems can be removed (covered by field
  * validator test and the above test)
  *
