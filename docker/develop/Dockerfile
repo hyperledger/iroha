@@ -81,6 +81,7 @@ RUN set -e; \
 
 # OpenJRE 8
 RUN set -e; \
+    apt-get update; \
     apt-get -y install openjdk-8-jre; \
     java -version
 
