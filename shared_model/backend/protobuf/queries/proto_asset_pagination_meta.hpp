@@ -17,9 +17,8 @@ namespace shared_model {
 
     /// Provides query metadata for AccountAsset list pagination.
     class AssetPaginationMeta final
-        : public CopyableProto<interface::AssetPaginationMeta,
-                               iroha::protocol::AssetPaginationMeta,
-                               AssetPaginationMeta> {
+        : public TrivialProto<interface::AssetPaginationMeta,
+                              iroha::protocol::AssetPaginationMeta> {
      public:
       explicit AssetPaginationMeta(const TransportType &query);
       explicit AssetPaginationMeta(TransportType &&query);

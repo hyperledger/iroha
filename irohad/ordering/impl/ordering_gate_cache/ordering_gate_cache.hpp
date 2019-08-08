@@ -6,6 +6,7 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_CACHE_HPP
 #define IROHA_ON_DEMAND_ORDERING_CACHE_HPP
 
+#include <memory>
 #include <unordered_set>
 
 #include "cryptography/hash.hpp"

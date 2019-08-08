@@ -12,13 +12,12 @@
 
 namespace shared_model {
   namespace proto {
-    class Domain final : public CopyableProto<interface::Domain,
-                                              iroha::protocol::Domain,
-                                              Domain> {
+    class Domain final
+        : public TrivialProto<interface::Domain, iroha::protocol::Domain> {
      public:
       template <typename DomainType>
       explicit Domain(DomainType &&domain)
-          : CopyableProto(std::forward<DomainType>(domain)) {}
+          : TrivialProto(std::forward<DomainType>(domain)) {}
 
       Domain(const Domain &o) : Domain(o.proto_) {}
 

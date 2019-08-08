@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_TRANSACTION_HPP
 #define IROHA_SHARED_MODEL_TRANSACTION_HPP
 
+#include "common/cloneable.hpp"
 #include "interfaces/base/signable.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -19,7 +20,8 @@ namespace shared_model {
      * Transaction class represent well-formed intent from client to change
      * state of ledger.
      */
-    class Transaction : public Signable<Transaction> {
+    class Transaction : public Signable<Transaction>,
+                        public Cloneable<Transaction> {
      public:
       /**
        * @return creator of transaction

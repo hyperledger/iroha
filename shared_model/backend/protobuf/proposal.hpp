@@ -37,9 +37,6 @@ namespace shared_model {
 
       ~Proposal() override;
 
-     protected:
-      Proposal::ModelType *clone() const override;
-
      private:
       struct Impl;
       std::unique_ptr<Impl> impl_;

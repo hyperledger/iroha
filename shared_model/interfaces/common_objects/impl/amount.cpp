@@ -80,9 +80,3 @@ std::string Amount::toString() const {
       .append(impl_->string_repr_)
       .finalize();
 }
-
-Amount::Amount(std::shared_ptr<const Impl> impl) : impl_(std::move(impl)) {}
-
-Amount *Amount::clone() const {
-  return new Amount(impl_);
-}

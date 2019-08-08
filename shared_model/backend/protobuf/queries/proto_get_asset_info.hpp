@@ -12,9 +12,8 @@
 
 namespace shared_model {
   namespace proto {
-    class GetAssetInfo final : public CopyableProto<interface::GetAssetInfo,
-                                                    iroha::protocol::Query,
-                                                    GetAssetInfo> {
+    class GetAssetInfo final
+        : public TrivialProto<interface::GetAssetInfo, iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetAssetInfo(QueryType &&query);

@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetPendingTransactions::GetPendingTransactions(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           pending_transactions_{proto_->payload().get_pending_transactions()},
           pagination_meta_{[this]() -> boost::optional<const TxPaginationMeta> {
             if (pending_transactions_.has_pagination_meta()) {

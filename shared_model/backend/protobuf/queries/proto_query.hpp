@@ -47,9 +47,6 @@ namespace shared_model {
 
       const TransportType &getTransport() const;
 
-     protected:
-      Query *clone() const override;
-
      private:
       struct Impl;
       std::unique_ptr<Impl> impl_;

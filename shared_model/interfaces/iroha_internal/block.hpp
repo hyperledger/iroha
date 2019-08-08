@@ -6,13 +6,14 @@
 #ifndef IROHA_SHARED_MODEL_BLOCK_HPP
 #define IROHA_SHARED_MODEL_BLOCK_HPP
 
+#include "common/cloneable.hpp"
 #include "interfaces/base/signable.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace interface {
 
-    class Block : public Signable<Block> {
+    class Block : public Signable<Block>, public Cloneable<Block> {
      public:
       /**
        * @return block number in the ledger

@@ -12,7 +12,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetAccountAssetTransactions::GetAccountAssetTransactions(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           account_asset_transactions_{
               proto_->payload().get_account_asset_transactions()},
           pagination_meta_{account_asset_transactions_.pagination_meta()} {}

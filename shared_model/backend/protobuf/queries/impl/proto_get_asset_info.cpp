@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetAssetInfo::GetAssetInfo(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           asset_info_{proto_->payload().get_asset_info()} {}
 
     template GetAssetInfo::GetAssetInfo(GetAssetInfo::TransportType &);
