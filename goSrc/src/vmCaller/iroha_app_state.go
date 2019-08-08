@@ -13,7 +13,7 @@ import (
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
-	pb "iroha_protocol"
+	pb "vmCaller/iroha_protocol"
 	"unsafe"
 )
 

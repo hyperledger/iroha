@@ -3,8 +3,8 @@
 # docker should be runned with sudo (sudo bash scripts/run-iroha-dev.sh)
 
 # remove preinstalled version of go
-apt remove golang-go
-apt autoremove 
+apt remove -y golang-go
+apt autoremove -y
 
 # update golang version since Burrow uses later version than preinstalled in the docker environment
 git clone https://github.com/udhos/update-golang
@@ -18,5 +18,4 @@ rm -rf update-golang
 rm -rf go1*
 
 # set folder which will contain all go sources that Burrow needs
-export GOPATH="/opt/iroha/goSrc"
-export PATH=/opt/iroha/goSrc/bin:/usr/local/go/bin:$PATH
+export PATH="$HOME/go/bin:/usr/local/go/bin:$PATH"
