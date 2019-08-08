@@ -1370,8 +1370,11 @@ namespace iroha {
     PostgresCommandExecutor::PostgresCommandExecutor(
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
-            perm_converter)
-        : sql_(std::move(sql)), perm_converter_{std::move(perm_converter)} {
+            perm_converter,
+        std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor)
+        : sql_(std::move(sql)),
+          perm_converter_{std::move(perm_converter)},
+          specific_query_executor_{std::move(specific_query_executor)} {
       initStatements();
     }
 

@@ -44,12 +44,16 @@ namespace shared_model {
 namespace iroha {
   namespace ametsuchi {
 
+    class PostgresSpecificQueryExecutor;
+
     class PostgresCommandExecutor final : public CommandExecutor {
      public:
       PostgresCommandExecutor(
           std::unique_ptr<soci::session> sql,
           std::shared_ptr<shared_model::interface::PermissionToString>
-              perm_converter);
+              perm_converter,
+          std::shared_ptr<PostgresSpecificQueryExecutor>
+              specific_query_executor);
 
       ~PostgresCommandExecutor();
 
@@ -195,6 +199,7 @@ namespace iroha {
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
+      std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor_;
 
       std::unique_ptr<CommandStatements> add_asset_quantity_statements_;
       std::unique_ptr<CommandStatements> add_peer_statements_;

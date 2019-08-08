@@ -5,14 +5,17 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/protobuf/proto_query_response_factory.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
@@ -44,6 +47,9 @@ namespace iroha {
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
             shared_model::interface::permissions::Grantable::kAddMySignatory;
+
+        query_response_factory =
+            std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
       }
 
       void SetUp() override {
@@ -54,8 +60,19 @@ namespace iroha {
         wsv_query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
-        executor = std::make_unique<PostgresCommandExecutor>(std::move(sql),
-                                                             perm_converter);
+        pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
+        executor = std::make_unique<PostgresCommandExecutor>(
+            std::move(sql),
+            perm_converter,
+            std::make_shared<PostgresSpecificQueryExecutor>(
+                *sql,
+                *block_storage_,
+                pending_txs_storage,
+                query_response_factory,
+                perm_converter,
+                getTestLoggerManager()
+                    ->getChild("SpecificQueryExecutor")
+                    ->getLogger()));
       }
 
       void TearDown() override {
@@ -207,6 +224,10 @@ namespace iroha {
 
       std::unique_ptr<CommandExecutor> executor;
       std::unique_ptr<WsvQuery> wsv_query;
+      std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
+
+      std::shared_ptr<shared_model::interface::QueryResponseFactory>
+          query_response_factory;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter =
