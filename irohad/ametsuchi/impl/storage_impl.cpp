@@ -173,8 +173,16 @@ namespace iroha {
         return expected::makeError("Connection was closed");
       }
       auto sql = std::make_unique<soci::session>(*connection_);
-      return std::make_unique<PostgresCommandExecutor>(std::move(sql),
-                                                       perm_converter_);
+      return std::make_unique<PostgresCommandExecutor>(
+          std::move(sql),
+          perm_converter_,
+          std::make_shared<PostgresSpecificQueryExecutor>(
+              *sql,
+              *block_store_,
+              pending_txs_storage_,
+              query_response_factory_,
+              perm_converter_,
+              log_manager_->getChild("SpecificQueryExecutor")->getLogger()));
     }
 
     std::unique_ptr<MutableStorage> StorageImpl::createMutableStorage(
