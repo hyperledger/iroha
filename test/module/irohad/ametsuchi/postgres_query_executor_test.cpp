@@ -1075,7 +1075,8 @@ namespace iroha {
       QueryExecutorResult queryPage(
           boost::optional<std::string> writer,
           boost::optional<std::string> key,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         auto query = TestQueryBuilder()
                          .creatorAccountId(account_id)
@@ -1100,7 +1101,8 @@ namespace iroha {
           const QueryExecutorResult &response,
           boost::optional<std::string> writer,
           boost::optional<std::string> key,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
             response, [&, this](const auto &response) {
@@ -1113,7 +1115,7 @@ namespace iroha {
      protected:
       struct Response {
         size_t total_number{0};
-        boost::optional<types::AccountDetailRecordId> next_record;
+        boost::optional<shared_model::plain::AccountDetailRecordId> next_record;
         DetailsByKeyByWriter details;
       };
 
@@ -1124,7 +1126,8 @@ namespace iroha {
       Response getExpectedResponse(
           const boost::optional<std::string> &req_writer,
           const boost::optional<std::string> &req_key,
-          const boost::optional<types::AccountDetailRecordId> &first_record_id,
+          const boost::optional<shared_model::plain::AccountDetailRecordId>
+              &first_record_id,
           size_t page_size) {
         auto optional_match = [](const auto &opt, const auto &val) {
           return not opt or opt.value() == val;
@@ -1150,12 +1153,14 @@ namespace iroha {
                 page_started = page_started
                     or optional_match(
                                    first_record_id,
-                                   types::AccountDetailRecordId{writer, key});
+                                   shared_model::plain::AccountDetailRecordId{
+                                       writer, key});
                 if (page_started) {
                   if (page_ended) {
                     if (not expected_response.next_record) {
                       expected_response.next_record =
-                          types::AccountDetailRecordId{writer, key};
+                          shared_model::plain::AccountDetailRecordId{writer,
+                                                                     key};
                     }
                   } else {
                     expected_response.details[writer][key] = val;
@@ -1182,9 +1187,9 @@ namespace iroha {
             ADD_FAILURE() << "nextRecordId not set!";
           } else {
             EXPECT_EQ(response.nextRecordId()->writer(),
-                      expected_response.next_record->writer);
+                      expected_response.next_record->writer());
             EXPECT_EQ(response.nextRecordId()->key(),
-                      expected_response.next_record->key);
+                      expected_response.next_record->key());
           }
         } else {
           EXPECT_FALSE(response.nextRecordId());
@@ -1309,7 +1314,8 @@ namespace iroha {
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
           queryPage(boost::none,
                     boost::none,
-                    types::AccountDetailRecordId{makeAccountId(2), makeKey(2)},
+                    shared_model::plain::AccountDetailRecordId{makeAccountId(2),
+                                                               makeKey(2)},
                     2),
           kInvalidPagination);
     }
@@ -1348,15 +1354,16 @@ namespace iroha {
         return boost::none;
       }
 
-      types::AccountDetailRecordId makeFirstRecordId(std::string writer,
-                                                     std::string key) {
-        return types::AccountDetailRecordId{
+      shared_model::plain::AccountDetailRecordId makeFirstRecordId(
+          std::string writer, std::string key) {
+        return shared_model::plain::AccountDetailRecordId{
             requestedWriter().value_or(std::move(writer)),
             requestedKey().value_or(std::move(key))};
       }
 
       QueryExecutorResult queryPage(
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         return GetAccountDetailPagedExecutorTest::queryPage(
             requestedWriter(),
@@ -1372,7 +1379,8 @@ namespace iroha {
 
       void validatePageResponse(
           const QueryExecutorResult &response,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
             response, [&, this](const auto &response) {

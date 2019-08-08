@@ -88,7 +88,7 @@ std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createAccountDetailResponse(
     shared_model::interface::types::DetailType account_detail,
     size_t total_number,
-    boost::optional<shared_model::interface::types::AccountDetailRecordId>
+    boost::optional<const shared_model::interface::AccountDetailRecordId &>
         next_record_id,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
@@ -101,9 +101,8 @@ shared_model::proto::ProtoQueryResponseFactory::createAccountDetailResponse(
         if (next_record_id) {
           auto protocol_next_record_id =
               protocol_specific_response->mutable_next_record_id();
-          protocol_next_record_id->set_writer(
-              std::move(next_record_id->writer));
-          protocol_next_record_id->set_key(std::move(next_record_id->key));
+          protocol_next_record_id->set_writer(next_record_id->writer());
+          protocol_next_record_id->set_key(next_record_id->key());
         }
       },
       query_hash);
