@@ -10,6 +10,7 @@
 #include <boost/mpl/copy.hpp>
 #include <boost/mpl/count.hpp>
 #include <boost/mpl/find.hpp>
+#include <unordered_set>
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
@@ -32,6 +33,7 @@
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/queries/blocks_query.hpp"
+#include "interfaces/queries/get_account.hpp"
 #include "interfaces/queries/query.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor_visitor.hpp"
@@ -113,21 +115,51 @@ contract C {
   char *caller = const_cast<char *>("caller"),
        *callee = const_cast<char *>("Callee"), *empty = const_cast<char *>("");
 
+  // Emulate account existence for the smart contract engine
+  std::unordered_set<std::string> existingTestAccounts;
+
   iroha::ametsuchi::MockCommandExecutor command_executor;
   EXPECT_CALL(
       command_executor,
       execute(VariantWithType<const shared_model::interface::CreateAccount &>(),
               ::testing::_,
               ::testing::_))
-      .WillRepeatedly(::testing::Return(iroha::expected::Value<void>({})));
+      .WillRepeatedly(
+          [&existingTestAccounts](const auto &cmd, const auto &, auto) {
+            const auto &cmdNewAcc =
+                boost::get<const shared_model::interface::CreateAccount &>(
+                    cmd.get());
+            existingTestAccounts.insert(cmdNewAcc.accountName());
+            return iroha::ametsuchi::CommandResult{};
+          });
 
   iroha::ametsuchi::MockSpecificQueryExecutor specific_query_executor;
   auto query_response_factory =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+
   EXPECT_CALL(specific_query_executor, execute(::testing::_))
-      .WillRepeatedly([query_response_factory](const auto &) {
-        return query_response_factory->createAccountResponse(
-            "admin@test", "test", 1, {}, {"user"}, {});
+      .WillRepeatedly([query_response_factory, &existingTestAccounts](
+                          const shared_model::interface::Query &query) {
+        const auto concreteCommand = query.get();
+        const auto &queryVariant =
+            static_cast<shared_model::interface::Query::QueryVariantType>(
+                concreteCommand);
+        const auto &getAccQuery =
+            boost::get<const shared_model::interface::GetAccount &>(
+                queryVariant);
+        const auto &id = getAccQuery.accountId();
+        if (existingTestAccounts.find(id) != existingTestAccounts.end()) {
+          return query_response_factory->createAccountResponse(
+              id, "@evm", 1, {}, {"user"}, {});
+        } else {
+          // TODO(IvanTyulyandin): Fix magic number 5
+          return query_response_factory->createErrorQueryResponse(
+              shared_model::interface::QueryResponseFactory::ErrorQueryType::
+                  kNoAccount,
+              "No such account",
+              5,
+              {});
+        }
       });
 
   auto res = VmCall(

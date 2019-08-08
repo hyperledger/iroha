@@ -39,6 +39,25 @@ func NewIrohaAppState() *IrohaAppState {
 
 func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) {
 	fmt.Println("GetAccount: " + addr.String())
+	if ias.accounts[addr] == nil {
+		// if not in cache — request Iroha.
+		// getIrohaAccount and createIrohaAccount returns initialised account
+		// to put into ias.
+		ptrToAcc, err := ias.getIrohaAccount(addr)
+		if err != nil {
+			fmt.Println("Error while getting Iroha account")
+			return nil, err
+		} else if ptrToAcc == nil {
+			// if Iroha does not have account — create it in Iroha
+			ptrToAcc, err = ias.createIrohaAccount(addr)
+			if err != nil {
+				fmt.Println("Error while creating Iroha tied account")
+				return nil, err
+			}
+		}
+		ias.accounts[addr] = ptrToAcc
+		return ias.accounts[addr], err
+	}
 	return ias.accounts[addr], nil
 }
 
@@ -102,8 +121,10 @@ func (ias *IrohaAppState) accountsDump() string {
 	return buf.String()
 }
 
-// Create a tied account into Iroha (EVM address + @evm)
-func (ias *IrohaAppState) createIrohaAccount(addr crypto.Address) (err error) {
+// Create a tied account into Iroha (EVM address + @evm).
+// Returns account to put into ias.
+// Error signs about technical error, not logical.
+func (ias *IrohaAppState) createIrohaAccount(addr crypto.Address) (account *acm.Account, err error) {
 	// command example
 	command := &pb.Command{Command: &pb.Command_CreateAccount{CreateAccount: &pb.CreateAccount{AccountName: addr.String(), DomainId: "evm"}}}
 	fmt.Println(proto.MarshalTextString(command))
@@ -115,10 +136,15 @@ func (ias *IrohaAppState) createIrohaAccount(addr crypto.Address) (err error) {
 	commandResult := C.Iroha_ProtoCommandExecutorExecute(ias.commandExecutor, cOut, C.int(len(out)))
 	fmt.Println("Create Iroha account with address result " + addr.String())
 	fmt.Println(commandResult)
-	return err
+	if commandResult.error_code != 0 {
+		return nil, fmt.Errorf("Error while creating tied account in Iroha at addr " + addr.String())
+	}
+	return &acm.Account{Address:addr}, nil
 }
 
 // Query Iroha about the tied account
+// Returns account to put into ias.
+// Error signs about technical error, not logical.
 func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (account *acm.Account, err error) {
 	// query example
 	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
@@ -137,8 +163,19 @@ func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (account *acm.Acc
 		fmt.Println(err)
 		return nil, err
 	}
-	fmt.Println("Query result for address " + addr.String() + " " + queryResponse.String())
+	switch queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		fmt.Println("QueryResponse_ErrorResponse")
+		// TODO (IvanTyulyandin):
+		// check if "no account" error returned
 
-	// not sure if this is the correct initialisation
-	return &acm.Account{Address:addr}, nil
+		// No errors, but requested account does not exist
+		return nil, nil
+	case *pb.QueryResponse_AccountResponse:
+		fmt.Println("Query result for address " + addr.String() + " " + queryResponse.String())
+		// not sure if this is the correct initialisation
+		return &acm.Account{Address:addr}, nil
+	default:
+		panic("Wrong queryResponce for getIrohaAccount")
+	}
 }
