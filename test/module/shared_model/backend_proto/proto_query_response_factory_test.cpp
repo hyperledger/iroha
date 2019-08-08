@@ -6,6 +6,7 @@
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include <gtest/gtest.h>
 #include <boost/optional.hpp>
+#include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
@@ -123,14 +124,10 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
 
   const DetailType account_details = "{ fav_meme : doge }";
   const size_t total_number = 999;
-  const AccountIdType next_writer("pepe@uganda");
-  const AccountDetailKeyType next_key("fav_chan");
+  const shared_model::plain::AccountDetailRecordId next_record_id{"pepe@uganda",
+                                                                  "fav_chan"};
   auto query_response = response_factory->createAccountDetailResponse(
-      account_details,
-      total_number,
-      shared_model::interface::types::AccountDetailRecordId{next_writer,
-                                                            next_key},
-      kQueryHash);
+      account_details, total_number, next_record_id, kQueryHash);
 
   ASSERT_TRUE(query_response);
   ASSERT_EQ(query_response->queryHash(), kQueryHash);
@@ -141,8 +138,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
     EXPECT_EQ(response.detail(), account_details);
     EXPECT_EQ(response.totalNumber(), total_number);
     ASSERT_TRUE(response.nextRecordId());
-    EXPECT_EQ(response.nextRecordId()->writer(), next_writer);
-    EXPECT_EQ(response.nextRecordId()->key(), next_key);
+    EXPECT_EQ(response.nextRecordId().value(), next_record_id);
   });
 }
 
