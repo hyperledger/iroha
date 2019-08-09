@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetAccountDetail::GetAccountDetail(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           account_detail_{proto_->payload().get_account_detail()},
           pagination_meta_{[this]() -> decltype(pagination_meta_) {
             if (this->account_detail_.has_pagination_meta()) {

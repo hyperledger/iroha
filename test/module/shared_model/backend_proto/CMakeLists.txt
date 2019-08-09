@@ -108,6 +108,7 @@ if (IROHA_ROOT_PROJECT)
       proto_query_response_factory_test.cpp
       )
   target_link_libraries(proto_query_response_factory_test
+      shared_model_plain_backend
       shared_model_proto_backend
       shared_model_stateless_validation
       )

@@ -14,13 +14,12 @@
 
 namespace shared_model {
   namespace proto {
-    class Signature final : public CopyableProto<interface::Signature,
-                                                 iroha::protocol::Signature,
-                                                 Signature> {
+    class Signature final : public TrivialProto<interface::Signature,
+                                                iroha::protocol::Signature> {
      public:
       template <typename SignatureType>
       explicit Signature(SignatureType &&signature)
-          : CopyableProto(std::forward<SignatureType>(signature)) {}
+          : TrivialProto(std::forward<SignatureType>(signature)) {}
 
       Signature(const Signature &o) : Signature(o.proto_) {}
 
@@ -35,6 +34,10 @@ namespace shared_model {
       }
 
      private:
+      interface::Signature *clone() const override {
+        return new Signature(proto_);
+      }
+
       const PublicKeyType public_key_{
           PublicKeyType::fromHexString(proto_->public_key())};
 

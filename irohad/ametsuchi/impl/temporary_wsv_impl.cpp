@@ -19,13 +19,10 @@ namespace iroha {
   namespace ametsuchi {
     TemporaryWsvImpl::TemporaryWsvImpl(
         std::unique_ptr<soci::session> sql,
-        std::shared_ptr<shared_model::interface::PermissionToString>
-            perm_converter,
+        std::unique_ptr<TransactionExecutor> transaction_executor,
         logger::LoggerManagerTreePtr log_manager)
         : sql_(std::move(sql)),
-          transaction_executor_(std::make_unique<TransactionExecutor>(
-              std::make_unique<PostgresCommandExecutor>(
-                  *sql_, std::move(perm_converter)))),
+          transaction_executor_(std::move(transaction_executor)),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
       *sql_ << "BEGIN";

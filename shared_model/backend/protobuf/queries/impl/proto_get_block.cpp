@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetBlock::GetBlock(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           get_block_{proto_->payload().get_block()} {}
 
     template GetBlock::GetBlock(GetBlock::TransportType &);

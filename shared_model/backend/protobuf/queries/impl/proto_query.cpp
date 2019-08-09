@@ -143,9 +143,5 @@ namespace shared_model {
       return impl_->proto_;
     }
 
-    Query *Query::clone() const {
-      return new Query(impl_->proto_);
-    }
-
   }  // namespace proto
 }  // namespace shared_model

@@ -31,6 +31,7 @@ OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<cache::OrderingGateCache> cache,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory> factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     size_t transaction_limit,
     logger::LoggerPtr log)
     : log_(std::move(log)),
@@ -44,11 +45,15 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                         hashes->size());
             cache_->remove(*hashes);
           })),
-      round_switch_subscription_(
-          round_switch_events.subscribe([this](auto event) {
+      round_switch_subscription_(round_switch_events.subscribe(
+          [this,
+           proposal_creation_strategy =
+               std::move(proposal_creation_strategy)](auto event) {
             log_->debug("Current: {}", event.next_round);
 
             // notify our ordering service about new round
+            proposal_creation_strategy->onCollaborationOutcome(
+                event.next_round, event.ledger_state->ledger_peers.size());
             ordering_service_->onCollaborationOutcome(event.next_round);
 
             this->sendCachedTransactions();

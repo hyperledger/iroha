@@ -5,7 +5,10 @@
 
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
-add_library(server_runner server_runner.cpp)
+add_library(server_runner
+    server_runner.cpp
+    tls_keypair.cpp
+    )
 target_link_libraries(server_runner
     logger
     grpc++
@@ -23,6 +26,7 @@ target_link_libraries(raw_block_loader
 
 add_library(pg_connection_init impl/pg_connection_init.cpp)
 target_link_libraries(pg_connection_init
+    ametsuchi
     SOCI::postgresql
     SOCI::core
     failover_callback
@@ -65,6 +69,7 @@ target_link_libraries(application
     pending_txs_storage
     common
     pg_connection_init
+    generator
     )
 
 add_executable(irohad irohad.cpp)

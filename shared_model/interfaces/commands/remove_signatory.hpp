@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_REMOVE_SIGNATORY_HPP
 #define IROHA_SHARED_MODEL_REMOVE_SIGNATORY_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
 
@@ -15,7 +15,7 @@ namespace shared_model {
     /**
      * Remove signatory from the account
      */
-    class RemoveSignatory : public NonCopyableModelPrimitive<RemoveSignatory> {
+    class RemoveSignatory : public ModelPrimitive<RemoveSignatory> {
      public:
       /**
        * @return account from which remove signatory

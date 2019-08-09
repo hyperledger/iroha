@@ -120,25 +120,6 @@ TEST_F(SubtractAssetQuantity, NoPermissions) {
  * TODO mboldyrev 18.01.2019 IR-225 remove, covered by field validator test
  *
  * @given pair of users with all required permissions
- * @when execute tx with SubtractAssetQuantity command with negative amount
- * @then the tx hasn't passed stateless validation
- *       (aka skipProposal throws)
- */
-TEST_F(SubtractAssetQuantity, NegativeAmount) {
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipBlock()
-      .sendTxAwait(replenish(), [](auto &) {})
-      .sendTx(complete(baseTx().subtractAssetQuantity(kAssetId, "-1.0")),
-              CHECK_STATELESS_INVALID);
-}
-
-/**
- * TODO mboldyrev 18.01.2019 IR-225 remove, covered by field validator test
- *
- * @given pair of users with all required permissions
  * @when execute tx with SubtractAssetQuantity command with zero amount
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)

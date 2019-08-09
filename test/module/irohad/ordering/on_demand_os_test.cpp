@@ -6,7 +6,6 @@
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
 #include <memory>
-#include <thread>
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/proto_proposal_factory.hpp"
@@ -16,6 +15,7 @@
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -47,6 +47,7 @@ class OnDemandOsTest : public ::testing::Test {
                          commit_round = {3, kFirstRejectRound},
                          reject_round = {2, kNextRejectRoundConsumer};
   NiceMock<iroha::ametsuchi::MockTxPresenceCache> *mock_cache;
+  std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy;
 
   void SetUp() override {
     // TODO: nickaleks IR-1811 use mock factory
@@ -64,13 +65,19 @@ class OnDemandOsTest : public ::testing::Test {
                 _)))
         .WillByDefault(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
             iroha::ametsuchi::tx_cache_status_responses::Missing()}));
+
+    proposal_creation_strategy =
+        std::make_shared<MockProposalCreationStrategy>();
+    ON_CALL(*proposal_creation_strategy, shouldCreateRound(_))
+        .WillByDefault(Return(true));
+
     os = std::make_shared<OnDemandOrderingServiceImpl>(
         transaction_limit,
         std::move(factory),
         std::move(tx_cache),
+        proposal_creation_strategy,
         getTestLogger("OdOrderingService"),
-        proposal_limit,
-        initial_round);
+        proposal_limit);
   }
 
   /**
@@ -161,42 +168,6 @@ TEST_F(OnDemandOsTest, OverflowRound) {
 
 /**
  * @given initialized on-demand OS
- * @when  send transactions from different threads
- * AND initiate next round
- * @then  check that all transactions appear in proposal
- */
-TEST_F(OnDemandOsTest, DISABLED_ConcurrentInsert) {
-  auto large_tx_limit = 10000u;
-  auto factory = std::make_unique<
-      shared_model::proto::ProtoProposalFactory<MockProposalValidator>>(
-      iroha::test::kTestsValidatorsConfig);
-  auto tx_cache =
-      std::make_unique<NiceMock<iroha::ametsuchi::MockTxPresenceCache>>();
-  os = std::make_shared<OnDemandOrderingServiceImpl>(
-      large_tx_limit,
-      std::move(factory),
-      std::move(tx_cache),
-      getTestLogger("OdOrderingService"),
-      proposal_limit,
-      initial_round);
-
-  auto call = [this](auto bounds) {
-    for (auto i = bounds.first; i < bounds.second; ++i) {
-      this->generateTransactionsAndInsert({i, i + 1});
-    }
-  };
-
-  std::thread one(call, std::make_pair(0u, large_tx_limit / 2));
-  std::thread two(call, std::make_pair(large_tx_limit / 2, large_tx_limit));
-  one.join();
-  two.join();
-  os->onCollaborationOutcome(commit_round);
-  ASSERT_EQ(large_tx_limit,
-            os->onRequestProposal(target_round).get()->transactions().size());
-}
-
-/**
- * @given initialized on-demand OS
  * @when  insert commit round and then proposal_limit + 2 reject rounds
  * @then  first proposal still not expired
  *
@@ -248,9 +219,9 @@ TEST_F(OnDemandOsTest, UseFactoryForProposal) {
       transaction_limit,
       std::move(factory),
       std::move(tx_cache),
+      proposal_creation_strategy,
       getTestLogger("OdOrderingService"),
-      proposal_limit,
-      initial_round);
+      proposal_limit);
 
   EXPECT_CALL(*mock_factory, unsafeCreateProposal(_, _, _))
       .WillOnce(Return(ByMove(makeMockProposal())))
@@ -391,4 +362,20 @@ TEST_F(OnDemandOsTest, RejectCommit) {
 
   proposal = os->onRequestProposal(commit_round);
   ASSERT_EQ(2, boost::size((*proposal)->transactions()));
+}
+
+/**
+ * @given initialized on-demand OS with a batch inside
+ * @when creation strategy denies creation of new proposals
+ * @then check that proposal isn't created
+ */
+TEST_F(OnDemandOsTest, FailOnCreationStrategy) {
+  EXPECT_CALL(*proposal_creation_strategy, shouldCreateRound(_))
+      .WillRepeatedly(Return(false));
+
+  generateTransactionsAndInsert({1, 2});
+
+  os->onCollaborationOutcome(commit_round);
+
+  ASSERT_FALSE(os->onRequestProposal(target_round));
 }

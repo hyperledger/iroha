@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_CREATE_ACCOUNT_HPP
 #define IROHA_SHARED_MODEL_CREATE_ACCOUNT_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
 
@@ -16,7 +16,7 @@ namespace shared_model {
     /**
      * Create acccount in Iroha domain
      */
-    class CreateAccount : public NonCopyableModelPrimitive<CreateAccount> {
+    class CreateAccount : public ModelPrimitive<CreateAccount> {
      public:
       /**
        * @return Name of the account to create in Iroha

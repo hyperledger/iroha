@@ -12,9 +12,8 @@
 
 namespace shared_model {
   namespace proto {
-    class GetBlock final : public CopyableProto<interface::GetBlock,
-                                                iroha::protocol::Query,
-                                                GetBlock> {
+    class GetBlock final
+        : public TrivialProto<interface::GetBlock, iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetBlock(QueryType &&query);

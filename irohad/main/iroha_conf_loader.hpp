@@ -12,6 +12,7 @@
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_manager.hpp"
+#include "torii/tls_params.hpp"
 
 struct IrohadConfig {
   struct DbConfig {
@@ -23,8 +24,11 @@ struct IrohadConfig {
     std::string maintenance_dbname;
   };
 
-  std::string block_store_path;
+  // TODO: block_store_path is now optional, change docs IR-576
+  // luckychess 29.06.2019
+  boost::optional<std::string> block_store_path;
   uint16_t torii_port;
+  boost::optional<iroha::torii::TlsParams> torii_tls_params;
   uint16_t internal_port;
   boost::optional<std::string>
       pg_opt;  // TODO 2019.06.26 mboldyrev IR-556 remove

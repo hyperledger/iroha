@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_ADD_ASSET_QUANTITY_HPP
 #define IROHA_SHARED_MODEL_ADD_ASSET_QUANTITY_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -17,8 +17,7 @@ namespace shared_model {
     /**
      * Add amount of asset to an account
      */
-    class AddAssetQuantity
-        : public NonCopyableModelPrimitive<AddAssetQuantity> {
+    class AddAssetQuantity : public ModelPrimitive<AddAssetQuantity> {
      public:
       /**
        * @return asset identifier

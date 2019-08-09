@@ -42,9 +42,6 @@ namespace shared_model {
       std::string toString() const override;
 
      private:
-      Keypair *clone() const override;
-
-     private:
       PublicKey public_key_;
       PrivateKey private_key_;
     };

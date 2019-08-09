@@ -31,16 +31,15 @@ OnDemandOrderingServiceImpl::OnDemandOrderingServiceImpl(
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
     logger::LoggerPtr log,
-    size_t number_of_proposals,
-    const consensus::Round &initial_round)
+    size_t number_of_proposals)
     : transaction_limit_(transaction_limit),
       number_of_proposals_(number_of_proposals),
       proposal_factory_(std::move(proposal_factory)),
       tx_cache_(std::move(tx_cache)),
-      log_(std::move(log)) {
-  onCollaborationOutcome(initial_round);
-}
+      proposal_creation_strategy_(std::move(proposal_creation_strategy)),
+      log_(std::move(log)) {}
 
 // -------------------------| OnDemandOrderingService |-------------------------
 
@@ -78,7 +77,10 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;
   {
+    // tryCreateProposal will not be able to aquire the lock and access the map
     std::shared_lock<std::shared_timed_mutex> lock(proposals_mutex_);
+    proposal_creation_strategy_->onProposalRequest(round);
+    // TODO 2019-08-01 lebdron: IR-487 good case optimization
     auto it = proposal_map_.find(round);
     if (it != proposal_map_.end()) {
       result = it->second;
@@ -131,66 +133,45 @@ getTransactions(size_t requested_tx_amount,
 
 void OnDemandOrderingServiceImpl::packNextProposals(
     const consensus::Round &round) {
-  /*
-   * The possible cases can be visualised as a diagram, where:
-   * o - current round, x - next round, v - target round
-   *
-   *   0 1 2
-   * 0 o x v
-   * 1 x v .
-   * 2 v . .
-   *
-   * Reject case:
-   *
-   *   0 1 2 3
-   * 0 . o x v
-   * 1 x v . .
-   * 2 v . . .
-   *
-   * (0,1) - current round. Round (0,2) is closed for transactions.
-   * Round (0,3) is now receiving transactions.
-   * Rounds (1,) and (2,) do not change.
-   *
-   * Commit case:
-   *
-   *   0 1 2
-   * 0 . . .
-   * 1 o x v
-   * 2 x v .
-   * 3 v . .
-   *
-   * (1,0) - current round. The diagram is similar to the initial case.
-   */
-
-  size_t discarded_txs_quantity;
-  auto now = iroha::time::now();
-  auto generate_proposal = [this, now, &discarded_txs_quantity](
-                               consensus::Round round, const auto &txs) {
-    auto proposal = proposal_factory_->unsafeCreateProposal(
-        round.block_round, now, txs | boost::adaptors::indirected);
-    proposal_map_.erase(round);
-    proposal_map_.emplace(round, std::move(proposal));
-    log_->debug(
-        "packNextProposal: data has been fetched for {}. "
-        "Number of transactions in proposal = {}. Discarded {} "
-        "transactions.",
-        round,
-        txs.size(),
-        discarded_txs_quantity);
-  };
-
   if (not pending_batches_.empty()) {
+    size_t discarded_txs_quantity;
     auto txs = getTransactions(
         transaction_limit_, pending_batches_, discarded_txs_quantity);
-    if (not txs.empty()) {
-      generate_proposal({round.block_round, round.reject_round + 1}, txs);
-      generate_proposal({round.block_round + 1, kFirstRejectRound}, txs);
-    }
+    log_->debug("Discarded {} transactions", discarded_txs_quantity);
+    auto now = iroha::time::now();
+    // create proposals for the next commit and reject rounds
+    tryCreateProposal({round.block_round, round.reject_round + 1}, txs, now);
+    tryCreateProposal({round.block_round + 1, kFirstRejectRound}, txs, now);
   }
 
   if (round.reject_round == kFirstRejectRound) {
     std::lock_guard<std::shared_timed_mutex> lock(batches_mutex_);
     pending_batches_.clear();
+  }
+}
+
+void OnDemandOrderingServiceImpl::tryCreateProposal(
+    iroha::consensus::Round round,
+    const TransactionsCollectionType &txs,
+    shared_model::interface::types::TimestampType created_time) {
+  if (not txs.empty()) {
+    // onRequestProposal will not be able to aquire the lock and access the map
+    std::lock_guard<std::shared_timed_mutex> lock(proposals_mutex_);
+    if (proposal_creation_strategy_->shouldCreateRound(round)) {
+      auto proposal = proposal_factory_->unsafeCreateProposal(
+          round.block_round, created_time, txs | boost::adaptors::indirected);
+      proposal_map_.erase(round);
+      proposal_map_.emplace(round, std::move(proposal));
+      log_->debug(
+          "packNextProposal: data has been fetched for {}. "
+          "Number of transactions in proposal = {}.",
+          round,
+          txs.size());
+    } else {
+      log_->debug("Proposal for {} not created by the strategy", round);
+    }
+  } else {
+    log_->debug("No transactions to create a proposal for {}", round);
   }
 }
 

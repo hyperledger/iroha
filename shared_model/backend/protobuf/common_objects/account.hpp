@@ -13,13 +13,12 @@
 
 namespace shared_model {
   namespace proto {
-    class Account final : public CopyableProto<interface::Account,
-                                               iroha::protocol::Account,
-                                               Account> {
+    class Account final
+        : public TrivialProto<interface::Account, iroha::protocol::Account> {
      public:
       template <typename AccountType>
       explicit Account(AccountType &&account)
-          : CopyableProto(std::forward<AccountType>(account)) {}
+          : TrivialProto(std::forward<AccountType>(account)) {}
 
       Account(const Account &o) : Account(o.proto_) {}
 

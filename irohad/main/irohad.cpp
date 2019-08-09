@@ -215,7 +215,8 @@ int main(int argc, char *argv[]) {
       std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
-                           iroha::GossipPropagationStrategyParams{}));
+                           iroha::GossipPropagationStrategyParams{}),
+      config.torii_tls_params);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {

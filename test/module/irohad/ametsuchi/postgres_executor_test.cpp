@@ -7,6 +7,7 @@
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
@@ -15,6 +16,8 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
+using namespace common_constants;
+
 namespace iroha {
   namespace ametsuchi {
 
@@ -22,11 +25,12 @@ namespace iroha {
 
     using namespace framework::expected;
 
+    static const std::string domain_id{"domain"};
+
     class CommandExecutorTest : public AmetsuchiTest {
       // TODO [IR-1831] Akvinikym 31.10.18: rework the CommandExecutorTest
      public:
       CommandExecutorTest() {
-        domain_id = "domain";
         name = "id";
         account_id = name + "@" + domain_id;
 
@@ -137,6 +141,18 @@ namespace iroha {
             true));
       }
 
+      /**
+       * Add an asset and check command success
+       */
+      void addAsset(const std::string &name = "coin",
+                    const std::string &domain = domain_id,
+                    size_t precision = 1) {
+        CHECK_SUCCESSFUL_RESULT(
+            execute(*mock_command_factory->constructCreateAsset(
+                        name, domain, precision),
+                    true));
+      }
+
       /*
        * The functions below create common objects with default parameters
        * without any validation - specifically for SetUp methods
@@ -164,7 +180,6 @@ namespace iroha {
       const std::string another_role = "role2";
       shared_model::interface::RolePermissionSet role_permissions;
       shared_model::interface::permissions::Grantable grantable_permission;
-      shared_model::interface::types::DomainIdType domain_id;
       shared_model::interface::types::AccountIdType account_id, name;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
       std::unique_ptr<soci::session> sql;
@@ -178,10 +193,6 @@ namespace iroha {
           perm_converter =
               std::make_shared<shared_model::proto::ProtoPermissionToString>();
 
-      const shared_model::interface::Amount uint256_halfmax{
-          "5789604461865809771178549250434395392663499233282028201972879200"
-          "3956"
-          "564819966.0"};  // 2**255
       const shared_model::interface::Amount asset_amount_one_zero{"1.0"};
 
       std::unique_ptr<shared_model::interface::MockCommandFactory>
@@ -198,14 +209,14 @@ namespace iroha {
         createDefaultDomain();
         createDefaultAccount();
       }
-      /**
-       * Add default asset and check that it is done
-       */
-      void addAsset(const shared_model::interface::types::DomainIdType
-                        &domain_id = "domain") {
-        CHECK_SUCCESSFUL_RESULT(execute(
-            *mock_command_factory->constructCreateAsset("coin", domain_id, 1),
-            true));
+
+      void addAssetAndCheckError(const std::string &quantity,
+                                 CommandError::ErrorCodeType code) {
+        auto cmd = mock_command_factory->constructAddAssetQuantity(
+            asset_id, shared_model::interface::Amount{quantity});
+        auto result = execute(*cmd, true);
+        std::vector<std::string> query_args{account_id, quantity, asset_id};
+        CHECK_ERROR_CODE_AND_MESSAGE(result, code, query_args);
       }
 
       shared_model::interface::types::AssetIdType asset_id =
@@ -275,7 +286,7 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role),
           true));
-      addAsset(domain2_id);
+      addAsset("coin", domain2_id, 1);
       addOnePerm(
           shared_model::interface::permissions::Role::kAddDomainAssetQty);
 
@@ -339,22 +350,41 @@ namespace iroha {
     }
 
     /**
-     * @given command
-     * @when trying to add account asset that overflows
-     * @then account asset fails to added
+     * @given a user with all required permissions having the maximum allowed
+     * quantity of an asset with precision 1
+     * @when execute a tx with AddAssetQuantity command for that asset with the
+     * smallest possible quantity with the same precision and then with a lower
+     * precision
+     * @then the last two transactions are not committed
      */
-    TEST_F(AddAccountAssetTest, Uint256Overflow) {
+    TEST_F(AddAccountAssetTest, DestOverflowPrecision1) {
       addAsset();
 
-      auto add_asset = mock_command_factory->constructAddAssetQuantity(
-          asset_id, uint256_halfmax);
-      CHECK_SUCCESSFUL_RESULT(execute(*add_asset, true));
+      auto add_max = mock_command_factory->constructAddAssetQuantity(
+          asset_id, kAmountPrec1Max);
+      CHECK_SUCCESSFUL_RESULT(execute(*add_max, true));
 
-      auto cmd_result = execute(*add_asset, true);
+      addAssetAndCheckError("0.1", 4);
+      addAssetAndCheckError("1", 4);
+    }
 
-      std::vector<std::string> query_args{
-          account_id, uint256_halfmax.toStringRepr(), asset_id, "1"};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    /**
+     * @given a user with all required permissions having the maximum allowed
+     * quantity of an asset with precision 2
+     * @when execute a tx with AddAssetQuantity command for that asset with the
+     * smallest possible quantity with the same precision and then with a lower
+     * precision
+     * @then the last two transactions are not committed
+     */
+    TEST_F(AddAccountAssetTest, DestOverflowPrecision2) {
+      addAsset("coin", domain_id, 2);
+
+      auto add_max = mock_command_factory->constructAddAssetQuantity(
+          asset_id, kAmountPrec2Max);
+      CHECK_SUCCESSFUL_RESULT(execute(*add_max, true));
+
+      addAssetAndCheckError("0.01", 4);
+      addAssetAndCheckError("0.1", 4);
     }
 
     class AddPeer : public CommandExecutorTest {
@@ -1640,16 +1670,6 @@ namespace iroha {
       }
 
      public:
-      /**
-       * Add default asset and check that it is done
-       */
-      void addAsset(const shared_model::interface::types::DomainIdType
-                        &domain_id = "domain") {
-        CHECK_SUCCESSFUL_RESULT(execute(
-            *mock_command_factory->constructCreateAsset("coin", domain_id, 1),
-            true));
-      }
-
       shared_model::interface::types::AssetIdType asset_id =
           "coin#" + domain_id;
     };
@@ -1760,7 +1780,7 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role),
           true));
-      addAsset(domain2_id);
+      addAsset("coin", domain2_id, 1);
       addOnePerm(
           shared_model::interface::permissions::Role::kSubtractDomainAssetQty);
 
@@ -1854,13 +1874,19 @@ namespace iroha {
       }
 
      public:
-      /**
-       * Add default asset and check that it is done
-       */
-      void addAsset() {
-        CHECK_SUCCESSFUL_RESULT(execute(
-            *mock_command_factory->constructCreateAsset("coin", domain_id, 1),
-            true));
+      using Amount = shared_model::interface::Amount;
+
+      void transferAndCheckError(const std::string &from,
+                                 const std::string &to,
+                                 const std::string &quantity,
+                                 CommandError::ErrorCodeType code) {
+        static const std::string tx_description("some description");
+        auto cmd = mock_command_factory->constructTransferAsset(
+            from, to, asset_id, tx_description, Amount{quantity});
+        auto result = execute(*cmd, true);
+        std::vector<std::string> query_args{
+            from, to, asset_id, quantity, quantity};
+        CHECK_ERROR_CODE_AND_MESSAGE(result, code, query_args);
       }
 
       shared_model::interface::types::AssetIdType asset_id =
@@ -1978,6 +2004,10 @@ namespace iroha {
       addAsset();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, shared_model::interface::Amount{"0.1"}),
+                  true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto cmd_result = execute(
@@ -2038,6 +2068,53 @@ namespace iroha {
 
     /**
      * @given command
+     * @when trying to transfer asset that the transmitter does not posess
+     * @then account asset fails to be transferred
+     */
+    TEST_F(TransferAccountAssetTest, NoSrcAsset) {
+      addAllPerms();
+      addAllPerms(account2_id, "all2");
+      addAsset();
+      auto cmd_result = execute(*mock_command_factory->constructTransferAsset(
+          account_id, account2_id, asset_id, "desc", asset_amount_one_zero));
+
+      std::vector<std::string> query_args{account_id,
+                                          account2_id,
+                                          asset_id,
+                                          asset_amount_one_zero.toStringRepr(),
+                                          "1"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 6, query_args);
+    }
+
+    /**
+     * @given command
+     * @when transfer an asset which the receiver already has
+     * @then account asset is successfully transferred
+     */
+    TEST_F(TransferAccountAssetTest, DestHasAsset) {
+      addAllPerms();
+      addAllPerms(account2_id, "all2");
+      addAsset();
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, asset_amount_one_zero),
+                  true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, shared_model::interface::Amount{"0.1"}),
+                  true,
+                  account2_id));
+      auto cmd_result = execute(*mock_command_factory->constructTransferAsset(
+          account_id, account2_id, asset_id, "desc", asset_amount_one_zero));
+
+      auto account_asset = sql_query->getAccountAsset(account2_id, asset_id);
+      ASSERT_TRUE(account_asset);
+      ASSERT_EQ(account_asset.get()->balance(),
+                shared_model::interface::Amount{"1.1"});
+    }
+
+    /**
+     * @given command
      * @when trying to transfer account asset, but has insufficient amount of it
      * @then account asset fails to be transferred
      */
@@ -2062,35 +2139,53 @@ namespace iroha {
     }
 
     /**
-     * @given command
-     * @when trying to transfer account asset, but final value overflows the
-     * destination's asset value
-     * @then account asset fails to be transferred
+     * @given two users with all required permissions, one having the maximum
+     * allowed quantity of an asset with precision 1
+     * @when execute a tx from another user with TransferAsset command for that
+     * asset with the smallest possible quantity and then with a lower one
+     * @then the last 2 transactions are not committed
      */
-    TEST_F(TransferAccountAssetTest, OverflowDestination) {
+    TEST_F(TransferAccountAssetTest, DestOverflowPrecision1) {
       addAllPerms();
       addAllPerms(account2_id, "all2");
       addAsset();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
-                      asset_id, uint256_halfmax),
+                      asset_id, Amount{"10"}),
                   true));
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructAddAssetQuantity(
-                      asset_id, uint256_halfmax),
+                      asset_id, kAmountPrec1Max),
                   false,
                   account2_id));
-      auto cmd_result = execute(
-          *mock_command_factory->constructTransferAsset(
-              account_id, account2_id, asset_id, "desc", uint256_halfmax),
-          true);
 
-      std::vector<std::string> query_args{account_id,
-                                          account2_id,
-                                          asset_id,
-                                          uint256_halfmax.toStringRepr(),
-                                          "1"};
-      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 7, query_args);
+      transferAndCheckError(account_id, account2_id, "0.1", 7);
+      transferAndCheckError(account_id, account2_id, "1", 7);
+    }
+
+    /**
+     * @given two users with all required permissions, one having the maximum
+     * allowed quantity of an asset with precision 2
+     * @when execute a tx from another user with TransferAsset command for that
+     * asset with the smallest possible quantity and then with a lower one
+     * @then last 2 transactions are not committed
+     */
+    TEST_F(TransferAccountAssetTest, DestOverflowPrecision2) {
+      addAllPerms();
+      addAllPerms(account2_id, "all2");
+      addAsset("coin", domain_id, 2);
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, Amount{"1.0"}),
+                  true));
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructAddAssetQuantity(
+                      asset_id, kAmountPrec2Max),
+                  false,
+                  account2_id));
+
+      transferAndCheckError(account_id, account2_id, "0.01", 7);
+      transferAndCheckError(account_id, account2_id, "0.1", 7);
     }
 
     class CompareAndSetAccountDetail : public CommandExecutorTest {
@@ -2300,6 +2395,28 @@ namespace iroha {
               account_id, "key", "value", boost::none));
 
       std::vector<std::string> query_args{account_id, "key", "value"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
+    /**
+     * @given commands
+     * @when trying to set new kv with not empty oldValue
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "notEmptyOldValue")));
+
+      std::vector<std::string> query_args{
+          account_id, "key", "value", "notEmptyOldValue"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 

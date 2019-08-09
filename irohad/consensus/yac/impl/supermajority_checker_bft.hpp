@@ -23,6 +23,9 @@ namespace iroha {
         bool hasSupermajority(PeersNumberType current,
                               PeersNumberType all) const override;
 
+        bool isTolerated(PeersNumberType number,
+                         PeersNumberType all) const override;
+
         bool canHaveSupermajority(const VoteGroups &votes,
                                   PeersNumberType all) const override;
       };

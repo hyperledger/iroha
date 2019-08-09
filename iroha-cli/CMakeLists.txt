@@ -22,7 +22,6 @@ add_library(client
     impl/grpc_response_handler.cpp
     )
 target_link_libraries(client
-    interactive_cli
     ed25519_crypto
     logger
     rapidjson
@@ -45,6 +44,8 @@ add_executable(iroha-cli
     validators.cpp
     )
 target_link_libraries(iroha-cli
+    interactive_cli
+    model_crypto_provider
     client
     cli-flags_validators
     keys_manager

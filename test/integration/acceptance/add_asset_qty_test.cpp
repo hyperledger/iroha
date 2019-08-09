@@ -63,25 +63,6 @@ TEST_F(AddAssetQuantity, NoPermissions) {
 }
 
 /**
- * TODO mboldyrev 17.01.2019 IR-203 convert to a field validator unit test
- *
- * @given pair of users with all required permissions
- * @when execute tx with AddAssetQuantity command with negative amount
- * @then the tx hasn't passed stateless validation
- *       (aka skipProposal throws)
- */
-TEST_F(AddAssetQuantity, NegativeAmount) {
-  IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .skipVerifiedProposal()
-      .skipBlock()
-      .sendTx(complete(baseTx().addAssetQuantity(kAssetId, "-1.0")),
-              CHECK_STATELESS_INVALID);
-}
-
-/**
  * TODO mboldyrev 17.01.2019 IR-203 seems can be removed (covered by field
  * validator test and the above test)
  *
@@ -102,31 +83,28 @@ TEST_F(AddAssetQuantity, ZeroAmount) {
 }
 
 /**
- * TODO mboldyrev 17.01.2019 IR-203 remove, covered by
- * postgres_executor_test AddAccountAssetTest.Uint256Overflow
+ * TODO mboldyrev 17.01.2019 IR-203 convert to ExecutorItf test
  *
- * @given pair of users with all required permissions
- * @when execute two txes with AddAssetQuantity command with amount more than a
- * uint256 max half
- * @then first transaction is committed @and verified proposal is empty for the
- * second
+ * @given a user with all required permissions having the maximum allowed
+ * quantity of an asset with precision 1
+ * @when execute a tx with AddAssetQuantity command for that asset with the
+ * smallest possible quantity
+ * @then the last transaction is not committed
  */
-TEST_F(AddAssetQuantity, Uint256DestOverflow) {
-  std::string uint256_halfmax =
-      "578960446186580977117854925043439539266349923328202820197287920039565648"
-      "19966.0";  // 2**255 - 2
+TEST_F(AddAssetQuantity, DestOverflowPrecision1) {
   IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
       .skipBlock()
-      // Add first half of the maximum
+      // Add the maximum quantity
       .sendTxAwait(
-          complete(baseTx().addAssetQuantity(kAssetId, uint256_halfmax)),
+          complete(baseTx().addAssetQuantity(kAssetId,
+                                             kAmountPrec1Max.toStringRepr())),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      // Add second half of the maximum
-      .sendTx(complete(baseTx().addAssetQuantity(kAssetId, uint256_halfmax)))
+      // Add the smallest quantity
+      .sendTx(complete(baseTx().addAssetQuantity(kAssetId, "0.1")))
       .skipProposal()
       .checkVerifiedProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })

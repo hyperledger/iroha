@@ -40,3 +40,10 @@ target_link_libraries(on_demand_cache_test
     on_demand_ordering_gate
     shared_model_interfaces_factories
     )
+
+addtest(kick_out_proposal_creation_strategy_test
+    kick_out_proposal_creation_strategy_test.cpp
+    )
+target_link_libraries(kick_out_proposal_creation_strategy_test
+    on_demand_ordering_service
+    )

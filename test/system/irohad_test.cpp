@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <fstream>
+#include <sstream>
+
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 #include <rapidjson/istreamwrapper.h>
@@ -19,10 +22,12 @@
 #include "common/bind.hpp"
 #include "common/files.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
@@ -55,6 +60,7 @@ class IrohadTest : public AcceptanceFixture {
   IrohadTest()
       : kAddress("127.0.0.1"),
         kPort(50051),
+        kSecurePort(55552),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
         keys_manager_(
             kAdminId,
@@ -71,17 +77,18 @@ class IrohadTest : public AcceptanceFixture {
     doc.ParseStream(isw);
     ASSERT_FALSE(doc.HasParseError())
         << "Failed to parse irohad config at " << path_config_.string();
-    blockstore_path_ = (boost::filesystem::temp_directory_path()
-                        / boost::filesystem::unique_path())
-                           .string();
-    pgopts_ = integration_framework::getPostgresCredsFromEnv().value_or(
-        doc[config_members::PgOpt].GetString());
+    db_name_ = integration_framework::getRandomDbName();
+    pgopts_ = "dbname=" + db_name_ + " "
+        + integration_framework::getPostgresCredsFromEnv().value_or(
+              doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
-    doc[config_members::BlockStorePath].SetString(blockstore_path_.data(),
-                                                  blockstore_path_.size());
     doc[config_members::PgOpt].SetString(pgopts_.data(), pgopts_.size());
+    doc[config_members::ToriiTlsParams]
+        .GetObject()[config_members::KeyPairPath]
+        .SetString(path_tls_keypair_.string().data(),
+                   path_tls_keypair_.string().size());
     rapidjson::StringBuffer sb;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     doc.Accept(writer);
@@ -119,14 +126,9 @@ class IrohadTest : public AcceptanceFixture {
 
   int getBlockCount() {
     int block_count = 0;
-
-    for (directory_iterator itr(blockstore_path_); itr != directory_iterator();
-         ++itr) {
-      if (is_regular_file(itr->path())) {
-        ++block_count;
-      }
-    }
-
+    auto sql =
+        std::make_unique<soci::session>(*soci::factory_postgresql(), pgopts_);
+    *sql << "SELECT COUNT(*) FROM blocks;", soci::into(block_count);
     return block_count;
   }
 
@@ -135,8 +137,9 @@ class IrohadTest : public AcceptanceFixture {
       iroha_process_->terminate();
     }
 
-    boost::filesystem::remove_all(blockstore_path_);
-    dropPostgres();
+    framework::expected::assertResultValue(
+        iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(
+            iroha::ametsuchi::PostgresOptions{pgopts_, db_name_, log_}));
     boost::filesystem::remove(config_copy_);
   }
 
@@ -157,26 +160,51 @@ class IrohadTest : public AcceptanceFixture {
         config_copy_, path_genesis_.string(), path_keypair_.string(), {});
   }
 
+  torii::CommandSyncClient createToriiClient(
+      bool enable_tls = false,
+      const boost::optional<uint16_t> override_port = {}) {
+    uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
+
+    std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
+    if (enable_tls) {
+      std::ifstream root_ca_file(path_root_certificate_.string());
+      std::stringstream ss;
+      ss << root_ca_file.rdbuf();
+      std::string root_ca_data = ss.str();
+      stub = iroha::network::createSecureClient<
+          iroha::protocol::CommandService_v1>(
+          kAddress + ":" + std::to_string(port), root_ca_data);
+    } else {
+      stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
+          kAddress + ":" + std::to_string(port));
+    }
+
+    return torii::CommandSyncClient(
+        std::move(stub),
+        getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
+  }
+
+  auto createDefaultTx(const shared_model::crypto::Keypair &key_pair) {
+    return complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+  }
+
   /**
    * Send default transaction with given key pair.
    * Method will wait until transaction reach COMMITTED status
    * OR until limit of attempts is exceeded.
    * @param key_pair Key pair for signing transaction
+   * @param enable_tls use TLS to send the transaction
    * @return Response object from Torii
    */
   iroha::protocol::ToriiResponse sendDefaultTx(
-      const shared_model::crypto::Keypair &key_pair) {
+      const shared_model::crypto::Keypair &key_pair, bool enable_tls = false) {
     iroha::protocol::TxStatusRequest tx_request;
     iroha::protocol::ToriiResponse torii_response;
 
-    auto tx =
-        complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+    auto tx = createDefaultTx(key_pair);
     tx_request.set_tx_hash(tx.hash().hex());
 
-    torii::CommandSyncClient client(
-        iroha::network::createClient<iroha::protocol::CommandService_v1>(
-            kAddress + ":" + std::to_string(kPort)),
-        getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
+    auto client = createToriiClient(enable_tls);
     client.Torii(tx.getTransport());
 
     auto resub_counter(resubscribe_attempts);
@@ -196,11 +224,12 @@ class IrohadTest : public AcceptanceFixture {
    * Method will wait until transaction reach COMMITTED status
    * OR until limit of attempts is exceeded.
    * @param key_pair Key pair for signing transaction
+   * @param enable_tls use TLS to send the transaction
    */
-  void sendDefaultTxAndCheck(const shared_model::crypto::Keypair &key_pair) {
-    iroha::protocol::ToriiResponse torii_response;
-    torii_response = sendDefaultTx(key_pair);
-    ASSERT_EQ(torii_response.tx_status(), iroha::protocol::TxStatus::COMMITTED);
+  void sendDefaultTxAndCheck(const shared_model::crypto::Keypair &key_pair,
+                             bool enable_tls = false) {
+    auto response = sendDefaultTx(key_pair, enable_tls);
+    ASSERT_EQ(response.tx_status(), iroha::protocol::TxStatus::COMMITTED);
   }
 
  private:
@@ -210,30 +239,10 @@ class IrohadTest : public AcceptanceFixture {
     path_config_ = test_data_path_ / "config.sample";
     path_genesis_ = test_data_path_ / "genesis.block";
     path_keypair_ = test_data_path_ / "node0";
+    path_tls_keypair_ = test_data_path_ / "tls" / "correct";
+    // example certificate with CN=localhost and subjectAltName=IP:127.0.0.1
+    path_root_certificate_ = test_data_path_ / "tls" / "correct.crt";
     config_copy_ = path_config_.string() + std::string(".copy");
-  }
-
-  void dropPostgres() {
-    const auto drop = R"(
-DROP TABLE IF EXISTS account_has_signatory;
-DROP TABLE IF EXISTS account_has_asset;
-DROP TABLE IF EXISTS role_has_permissions;
-DROP TABLE IF EXISTS account_has_roles;
-DROP TABLE IF EXISTS account_has_grantable_permissions;
-DROP TABLE IF EXISTS account;
-DROP TABLE IF EXISTS asset;
-DROP TABLE IF EXISTS domain;
-DROP TABLE IF EXISTS signatory;
-DROP TABLE IF EXISTS peer;
-DROP TABLE IF EXISTS role;
-DROP TABLE IF EXISTS position_by_hash;
-DROP TABLE IF EXISTS height_by_account_set;
-DROP TABLE IF EXISTS index_by_creator_height;
-DROP TABLE IF EXISTS position_by_account_asset;
-)";
-
-    soci::session sql(*soci::factory_postgresql(), pgopts_);
-    sql << drop;
   }
 
  public:
@@ -241,6 +250,7 @@ DROP TABLE IF EXISTS position_by_account_asset;
   const std::chrono::milliseconds kTimeout = 30s;
   const std::string kAddress;
   const uint16_t kPort;
+  const uint16_t kSecurePort;
 
   boost::optional<child> iroha_process_;
 
@@ -263,8 +273,10 @@ DROP TABLE IF EXISTS position_by_account_asset;
   boost::filesystem::path path_config_;
   boost::filesystem::path path_genesis_;
   boost::filesystem::path path_keypair_;
+  boost::filesystem::path path_tls_keypair_;
+  boost::filesystem::path path_root_certificate_;
+  std::string db_name_;
   std::string pgopts_;
-  std::string blockstore_path_;
   std::string config_copy_;
   iroha::KeysManagerImpl keys_manager_;
 
@@ -295,6 +307,48 @@ TEST_F(IrohadTest, SendTx) {
 
   SCOPED_TRACE("From send transaction test");
   sendDefaultTxAndCheck(key_pair.get());
+}
+
+/**
+ * Test verifies that a transaction can be sent to running iroha and commited,
+ * through a TLS port
+ * @given running Iroha with an open TLS port
+ * @when a client sends a transaction to Iroha AND the server's certificate
+ *       is valid
+ * @then the transaction is committed
+ */
+TEST_F(IrohadTest, SendTxSecure) {
+  launchIroha();
+
+  auto key_pair = keys_manager_.loadKeys();
+  ASSERT_TRUE(key_pair);
+
+  SCOPED_TRACE("From secure send transaction test");
+  sendDefaultTxAndCheck(key_pair.get(), true);
+}
+
+/**
+ * Test verifies that you could not connect to the TLS port and send plaintext
+ * data. (well you surely can, but it will not be processed)
+ * @given running Iroha with an open TLS port
+ * @when a client sends a transaction to Iroha without using TLS
+ * @then the transaction is not committed AND client's connection fails
+ */
+TEST_F(IrohadTest, SendTxInsecureWithTls) {
+  launchIroha();
+
+  auto key_pair = keys_manager_.loadKeys();
+  ASSERT_TRUE(key_pair);
+
+  auto tx = createDefaultTx(*key_pair);
+
+  auto client = createToriiClient(false, kSecurePort);
+  auto response = client.Torii(tx.getTransport());
+
+  // gRPC will close the socket with status code UNAVAILABLE, and
+  // message "Socket closed" so, this seems to be a good enough way to
+  // test this behaviour
+  ASSERT_EQ(grpc::StatusCode::UNAVAILABLE, response.error_code());
 }
 
 /**

@@ -16,7 +16,9 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
+#include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
+#include "torii/tls_params.hpp"
 
 namespace iroha {
   class PendingTransactionStorage;
@@ -27,6 +29,7 @@ namespace iroha {
     class Storage;
     class ReconnectionStrategyFactory;
     class PostgresOptions;
+    struct PoolWrapper;
   }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
@@ -52,6 +55,8 @@ namespace iroha {
     class CommandService;
     class CommandServiceTransportGrpc;
     class QueryService;
+
+    struct TlsParams;
   }  // namespace torii
   namespace validation {
     class ChainValidator;
@@ -64,13 +69,10 @@ namespace shared_model {
     class Keypair;
   }
   namespace interface {
-    class CommonObjectsFactory;
     class QueryResponseFactory;
     class TransactionBatchFactory;
   }  // namespace interface
 }  // namespace shared_model
-
-class ServerRunner;
 
 class Irohad {
  public:
@@ -100,8 +102,10 @@ class Irohad {
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
+   * @param torii_tls_params - optional TLS params for torii.
+   * @see iroha::torii::TlsParams
    */
-  Irohad(const std::string &block_store_dir,
+  Irohad(const boost::optional<std::string> &block_store_dir,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
          size_t torii_port,
@@ -117,7 +121,9 @@ class Irohad {
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none);
+             &opt_mst_gossip_params = boost::none,
+         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+             boost::none);
 
   /**
    * Initialization of whole objects in system
@@ -198,9 +204,10 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  std::string block_store_dir_;
+  const boost::optional<std::string> block_store_dir_;
   const std::string listen_ip_;
   size_t torii_port_;
+  boost::optional<iroha::torii::TlsParams> torii_tls_params_;
   size_t internal_port_;
   size_t max_proposal_size_;
   std::chrono::milliseconds proposal_delay_;
@@ -224,6 +231,8 @@ class Irohad {
   iroha::network::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
+
+  std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
@@ -327,6 +336,7 @@ class Irohad {
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
   std::unique_ptr<ServerRunner> torii_server;
+  boost::optional<std::unique_ptr<ServerRunner>> torii_tls_server = boost::none;
   std::unique_ptr<ServerRunner> internal_server;
 
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager

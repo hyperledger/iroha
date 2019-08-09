@@ -14,9 +14,8 @@
 namespace shared_model {
   namespace proto {
     class GetAccountDetail final
-        : public CopyableProto<interface::GetAccountDetail,
-                               iroha::protocol::Query,
-                               GetAccountDetail> {
+        : public TrivialProto<interface::GetAccountDetail,
+                              iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetAccountDetail(QueryType &&query);

@@ -9,65 +9,74 @@
 
 #include "utils/string_builder.hpp"
 
-namespace shared_model {
-  namespace interface {
-    Amount::Amount(const std::string &amount) : Amount(std::string(amount)) {}
-    Amount::Amount(std::string &&amount)
-        : amount_(std::move(amount)),
-          precision_(0),
-          multiprecision_repr_([this] {
-            static const std::regex r("([0-9]+)(\\.([0-9]+))?");
-            // 123.456 will have the following groups:
-            //   [0] -> 123.456, [1] -> 123
-            //   [2] -> .456,    [3] -> 456
-            std::smatch match;
-            if (std::regex_match(this->amount_, match, r)
-                && match.size() == 4) {
-              this->precision_ = match[3].length();
-              auto str = match[0].str();
-              size_t pos = match[1].length();
-              // remove dot if it exist
-              if (pos < str.size()) {
-                str.erase(str.begin() + pos);
-              }
-              // remove leading zeroes
-              str.erase(0,
-                        std::min(str.find_first_not_of('0'), str.size() - 1));
-              return boost::multiprecision::uint256_t(str);
-            }
-            return std::numeric_limits<boost::multiprecision::uint256_t>::min();
-          }()) {}
+static const char kDecimalSeparator = '.';
+static const char *kDigits = "0123456789";
 
-    Amount::Amount(const Amount &o) : Amount(std::string(o.amount_)) {}
+using namespace shared_model::interface;
 
-    Amount::Amount(Amount &&o) noexcept
-        : Amount(std::move(const_cast<std::string &>(o.amount_))) {}
-
-    const boost::multiprecision::uint256_t &Amount::intValue() const {
-      return multiprecision_repr_;
+struct Amount::Impl {
+  Impl(const std::string &amount)
+      : string_repr_("NaN"), precision_(0), multiprecision_repr_(0) {
+    const auto dot_pos = amount.find_first_not_of(kDigits);
+    if (dot_pos != std::string::npos) {
+      // fail, if:
+      if (amount[dot_pos]
+              != kDecimalSeparator  // string contains an invalid character
+          or amount.find_first_not_of(kDigits, dot_pos + 1)
+              != std::string::npos  // string contains more than one non-digit
+          or dot_pos == 0  // dot is the first symbol (for compatibility)
+          or dot_pos == amount.size() - 1  // dot is the last symbol
+      ) {
+        return;
+      }
+      std::string amount_without_dot = amount.substr(0, dot_pos);
+      amount_without_dot.append(amount.substr(dot_pos + 1));
+      precision_ = amount.size() - dot_pos - 1;
+      multiprecision_repr_ =
+          boost::multiprecision::uint256_t(amount_without_dot);
+    } else {
+      multiprecision_repr_ = boost::multiprecision::uint256_t(amount);
     }
 
-    types::PrecisionType Amount::precision() const {
-      return precision_;
+    // make the string representation
+    std::stringstream ss;
+    ss << std::setw(precision_ + 1) << std::setfill('0')
+       << std::setiosflags(std::ios::right) << multiprecision_repr_;
+    string_repr_ = ss.str();
+    if (precision_ > 0) {
+      const auto dot_pos = string_repr_.end() - precision_;
+      string_repr_.insert(dot_pos, '.');
     }
+  }
 
-    std::string Amount::toStringRepr() const {
-      return amount_;
-    }
+  std::string string_repr_;
+  interface::types::PrecisionType precision_;
+  boost::multiprecision::uint256_t multiprecision_repr_;
+};
 
-    bool Amount::operator==(const ModelType &rhs) const {
-      return amount_ == rhs.amount_;
-    }
+Amount::Amount(const std::string &amount)
+    : impl_(std::make_shared<Impl>(amount)) {}
 
-    std::string Amount::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("Amount")
-          .append("value", amount_)
-          .finalize();
-    }
+const boost::multiprecision::uint256_t &Amount::intValue() const {
+  return impl_->multiprecision_repr_;
+}
 
-    Amount *Amount::clone() const {
-      return new Amount(*this);
-    }
-  }  // namespace interface
-}  // namespace shared_model
+types::PrecisionType Amount::precision() const {
+  return impl_->precision_;
+}
+
+std::string Amount::toStringRepr() const {
+  return impl_->string_repr_;
+}
+
+bool Amount::operator==(const ModelType &rhs) const {
+  return impl_->precision_ == rhs.impl_->precision_
+      and impl_->multiprecision_repr_ == rhs.impl_->multiprecision_repr_;
+}
+
+std::string Amount::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("Amount")
+      .append(impl_->string_repr_)
+      .finalize();
+}

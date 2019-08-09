@@ -4,6 +4,7 @@
 add_subdirectory(backend_proto)
 add_subdirectory(converters)
 add_subdirectory(builders)
+add_subdirectory(interface)
 add_subdirectory(validators)
 add_subdirectory(cryptography)
 

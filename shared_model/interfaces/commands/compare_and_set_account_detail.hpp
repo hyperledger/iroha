@@ -7,7 +7,7 @@
 #define IROHA_SHARED_MODEL_COMPARE_AND_SET_ACCOUNT_DETAIL_HPP
 
 #include <boost/optional.hpp>
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
 
@@ -19,7 +19,7 @@ namespace shared_model {
      * expectation
      */
     class CompareAndSetAccountDetail
-        : public NonCopyableModelPrimitive<CompareAndSetAccountDetail> {
+        : public ModelPrimitive<CompareAndSetAccountDetail> {
      public:
       /**
        * @return Identity of user to set account detail to
