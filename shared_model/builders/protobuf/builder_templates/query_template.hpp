@@ -9,6 +9,7 @@
 #include <boost/optional.hpp>
 #include <boost/range/algorithm/for_each.hpp>
 
+#include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -186,8 +187,8 @@ namespace shared_model {
           const interface::types::AccountIdType &account_id = "",
           const interface::types::AccountDetailKeyType &key = "",
           const interface::types::AccountIdType &writer = "",
-          const boost::optional<interface::types::AccountDetailRecordId>
-              &first_record_id = boost::none) {
+          const boost::optional<plain::AccountDetailRecordId> &first_record_id =
+              boost::none) {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_detail();
           if (not account_id.empty()) {
@@ -204,8 +205,8 @@ namespace shared_model {
           if (first_record_id) {
             auto proto_first_record_id =
                 pagination_meta->mutable_first_record_id();
-            proto_first_record_id->set_writer(first_record_id->writer);
-            proto_first_record_id->set_key(first_record_id->key);
+            proto_first_record_id->set_writer(first_record_id->writer());
+            proto_first_record_id->set_key(first_record_id->key());
           }
         });
       }

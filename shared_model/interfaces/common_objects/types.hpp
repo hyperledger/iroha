@@ -76,15 +76,6 @@ namespace shared_model {
       using AccountDetailKeyType = std::string;
       /// Type of account detail value
       using AccountDetailValueType = std::string;
-      /// Type of account detail record unique ID
-      struct AccountDetailRecordId {
-        AccountIdType writer;
-        AccountDetailKeyType key;
-
-        bool operator==(const AccountDetailRecordId &rhs) const {
-          return writer == rhs.writer and key == rhs.key;
-        }
-      };
       // TODO igor-egorov 28.05.2019 IR-520 Inconsistent C++/Protobuf type sizes
       /// Type of a number of transactions in block and query response page
       using TransactionsNumberType = uint16_t;

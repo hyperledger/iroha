@@ -70,8 +70,8 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createAccountDetailResponse(
           types::DetailType account_detail,
           size_t total_number,
-          boost::optional<shared_model::interface::types::AccountDetailRecordId>
-              next_record_id,
+          boost::optional<const shared_model::interface::AccountDetailRecordId
+                              &> next_record_id,
           const crypto::Hash &query_hash) const = 0;
 
       /**
