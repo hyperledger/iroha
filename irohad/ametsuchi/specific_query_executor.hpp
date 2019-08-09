@@ -34,12 +34,6 @@ namespace iroha {
       virtual QueryExecutorResult execute(
           const shared_model::interface::Query &qry) = 0;
 
-      virtual void setCreatorId(
-          const shared_model::interface::types::AccountIdType &creator_id) = 0;
-
-      virtual void setQueryHash(
-          const shared_model::crypto::Hash &query_hash) = 0;
-
       virtual bool hasAccountRolePermission(
           shared_model::interface::permissions::Role permission,
           const std::string &account_id) const = 0;

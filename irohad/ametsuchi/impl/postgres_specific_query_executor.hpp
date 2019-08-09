@@ -61,11 +61,6 @@ namespace iroha {
       QueryExecutorResult execute(
           const shared_model::interface::Query &qry) override;
 
-      void setCreatorId(const shared_model::interface::types::AccountIdType
-                            &creator_id) override;
-
-      void setQueryHash(const shared_model::crypto::Hash &query_hash) override;
-
       bool hasAccountRolePermission(
           shared_model::interface::permissions::Role permission,
           const std::string &account_id) const override;

@@ -184,6 +184,8 @@ namespace iroha {
 
     QueryExecutorResult PostgresSpecificQueryExecutor::execute(
         const shared_model::interface::Query &qry) {
+      query_hash_ = qry.hash();
+      creator_id_ = qry.creatorAccountId();
       return boost::apply_visitor(*this, qry.get());
     }
 
@@ -267,16 +269,6 @@ namespace iroha {
         log_->error("Failed to validate query: {}", e.what());
         return false;
       }
-    }
-
-    void PostgresSpecificQueryExecutor::setCreatorId(
-        const shared_model::interface::types::AccountIdType &creator_id) {
-      creator_id_ = creator_id;
-    }
-
-    void PostgresSpecificQueryExecutor::setQueryHash(
-        const shared_model::interface::types::HashType &query_hash) {
-      query_hash_ = query_hash;
     }
 
     std::unique_ptr<shared_model::interface::QueryResponse>
