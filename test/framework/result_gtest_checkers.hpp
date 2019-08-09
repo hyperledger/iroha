@@ -37,7 +37,7 @@ namespace framework {
           -> decltype(getMessage(std::declval<V>())) {
         using iroha::operator|;
         return iroha::expected::resultToOptionalValue(r) |
-            [](const auto v) { return getMessage(v); };
+            [](const auto &v) { return getMessage(v); };
       }
 
       template <typename E>
@@ -51,7 +51,7 @@ namespace framework {
           -> decltype(getMessage(std::declval<E>())) {
         using iroha::operator|;
         return iroha::expected::resultToOptionalError(r) |
-            [](const auto e) { return getMessage(e); };
+            [](const auto &e) { return getMessage(e); };
       }
 
       template <typename V>
