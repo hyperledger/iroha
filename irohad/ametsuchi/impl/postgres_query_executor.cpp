@@ -65,8 +65,6 @@ namespace iroha {
     QueryExecutorResult PostgresQueryExecutor::validateAndExecute(
         const shared_model::interface::Query &query,
         const bool validate_signatories = true) {
-      specific_query_executor_->setCreatorId(query.creatorAccountId());
-      specific_query_executor_->setQueryHash(query.hash());
       if (validate_signatories and not validateSignatures(query)) {
         // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 3
         // with a named constant
