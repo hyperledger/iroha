@@ -16,6 +16,7 @@
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/executor_itf/executor_itf_helper.hpp"
+#include "framework/executor_itf/executor_itf_param.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
@@ -31,28 +32,26 @@ namespace shared_model {
     class MockCommandFactory;
     class MockQueryFactory;
     class Transaction;
-  }
+  }  // namespace interface
 }  // namespace shared_model
 
 namespace iroha {
+  namespace ametsuchi {
+    class SpecificQueryExecutor;
+  }
+
   namespace integration_framework {
 
     class ExecutorItf {
      public:
       /**
        * Create and initialize an ExecutorItf.
-       * - connect to database 
-       * - prepare database schema
-       * - initialize command & query executors
-       * - create admin account, role and domain with all permissions
-       *
-       * @param pg_opts (optional) The options for database connection. When not
-       * provided, use the default.
+       * Creates admin account, role and domain with all permissions.
+       * @param target The backend that will be used (@see ExecutorItfTarget).
        * @return Created ExecutorItf or string error description.
        */
       static iroha::expected::Result<std::unique_ptr<ExecutorItf>, std::string>
-      create(boost::optional<iroha::ametsuchi::PostgresOptions> pg_opts =
-                 boost::none);
+      create(ExecutorItfTarget target);
 
       ~ExecutorItf();
 
@@ -262,15 +261,11 @@ namespace iroha {
           const std::string &name) const;
 
      private:
-      ExecutorItf(logger::LoggerManagerTreePtr log_manager,
-                  iroha::ametsuchi::PostgresOptions pg_opts);
-
-      /**
-       * Connect to database, prepare schema and initialize the depending
-       * objects.
-       * @return The aggregate result of required actions.
-       */
-      iroha::expected::Result<void, std::string> connect();
+      ExecutorItf(
+          std::shared_ptr<iroha::ametsuchi::CommandExecutor> cmd_executor,
+          std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor>
+              query_executor,
+          logger::LoggerManagerTreePtr log_manager);
 
       /// Create admin account with all permissions.
       iroha::ametsuchi::CommandResult createAdmin() const;
@@ -299,16 +294,14 @@ namespace iroha {
       logger::LoggerManagerTreePtr log_manager_;
       logger::LoggerPtr log_;
 
-      iroha::ametsuchi::PostgresOptions pg_opts_;
-
-      std::unique_ptr<shared_model::interface::MockCommandFactory>
+      const std::unique_ptr<shared_model::interface::MockCommandFactory>
           mock_command_factory_;
-      std::unique_ptr<shared_model::interface::MockQueryFactory>
+      const std::unique_ptr<shared_model::interface::MockQueryFactory>
           mock_query_factory_;
 
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> cmd_executor_;
       std::shared_ptr<iroha::ametsuchi::TransactionExecutor> tx_executor_;
-      std::shared_ptr<iroha::ametsuchi::QueryExecutor> query_executor_;
+      std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor> query_executor_;
 
       shared_model::interface::types::CounterType query_counter_;
     };

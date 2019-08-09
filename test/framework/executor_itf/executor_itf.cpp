@@ -5,10 +5,8 @@
 
 #include "framework/executor_itf/executor_itf.hpp"
 
-#include "ametsuchi/impl/postgres_command_executor.hpp"
-#include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/specific_query_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "backend/protobuf/proto_permission_to_string.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/permissions.hpp"
@@ -32,15 +30,18 @@ namespace {
   }
 }  // namespace
 
-ExecutorItf::ExecutorItf(logger::LoggerManagerTreePtr log_manager,
-                         iroha::ametsuchi::PostgresOptions pg_opts)
+ExecutorItf::ExecutorItf(std::shared_ptr<CommandExecutor> cmd_executor,
+                         std::shared_ptr<SpecificQueryExecutor> query_executor,
+                         logger::LoggerManagerTreePtr log_manager)
     : log_manager_(std::move(log_manager)),
       log_(log_manager_->getLogger()),
-      pg_opts_(std::move(pg_opts)),
       mock_command_factory_(
           std::make_unique<shared_model::interface::MockCommandFactory>()),
       mock_query_factory_(
           std::make_unique<shared_model::interface::MockQueryFactory>()),
+      cmd_executor_(std::move(cmd_executor)),
+      tx_executor_(std::make_unique<TransactionExecutor>(cmd_executor_)),
+      query_executor_(std::move(query_executor)),
       query_counter_(0) {}
 
 ExecutorItf::~ExecutorItf() {
@@ -49,25 +50,17 @@ ExecutorItf::~ExecutorItf() {
 
 using CreateResult = Result<std::unique_ptr<ExecutorItf>, std::string>;
 
-CreateResult ExecutorItf::create(
-    boost::optional<iroha::ametsuchi::PostgresOptions> pg_opts) {
+CreateResult ExecutorItf::create(ExecutorItfTarget target) {
   auto log_manager = getDefaultLogManager();
   std::unique_ptr<ExecutorItf> executor_itf(
-      new ExecutorItf(log_manager, pg_opts.value_or_eval([&log_manager] {
-        return iroha::ametsuchi::PostgresOptions{
-            ::integration_framework::getPostgresCredsOrDefault(),
-            ::integration_framework::kDefaultWorkingDatabaseName,
-            log_manager->getChild("PostgresOptions")->getLogger()};
-      })));
-  return executor_itf->connect() | [&executor_itf] {
-    return executor_itf->createAdmin().match(
-        [&executor_itf](const auto &) -> CreateResult {
-          return std::move(executor_itf);
-        },
-        [](const auto &error) -> CreateResult {
-          return error.error.toString();
-        });
-  };
+      new ExecutorItf(std::move(target.command_executor),
+                      std::move(target.query_executor),
+                      log_manager));
+  return executor_itf->createAdmin().match(
+      [&executor_itf](const auto &) -> CreateResult {
+        return std::move(executor_itf);
+      },
+      [](const auto &error) -> CreateResult { return error.error.toString(); });
 }
 
 CommandResult ExecutorItf::executeCommandAsAccount(
@@ -85,7 +78,7 @@ Result<void, TxExecutionError> ExecutorItf::executeTransaction(
 
 iroha::ametsuchi::QueryExecutorResult ExecutorItf::executeQuery(
     const shared_model::interface::Query &query) const {
-  return query_executor_->validateAndExecute(query, false);
+  return query_executor_->execute(query);
 }
 
 const std::unique_ptr<shared_model::interface::MockCommandFactory>
@@ -119,11 +112,6 @@ CommandResult ExecutorItf::createDomain(const std::string &name) const {
   createRoleWithPerms(default_role, {});
   return executeCommand(
       *getMockCommandFactory()->constructCreateDomain(name, default_role));
-}
-
-Result<void, std::string> ExecutorItf::connect() {
-  // initialize DB session, command & query executors
-  return {};
 }
 
 CommandResult ExecutorItf::grantAllToAdmin(
