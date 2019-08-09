@@ -5,12 +5,13 @@
 
 #include "ametsuchi/vmCall.h"
 
+#include <unordered_map>
+
 #include <gtest/gtest.h>
 #include <boost/mpl/back_inserter.hpp>
 #include <boost/mpl/copy.hpp>
 #include <boost/mpl/count.hpp>
 #include <boost/mpl/find.hpp>
-#include <unordered_set>
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
@@ -34,6 +35,7 @@
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/get_account.hpp"
+#include "interfaces/queries/get_account_detail.hpp"
 #include "interfaces/queries/query.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor_visitor.hpp"
@@ -68,6 +70,16 @@ template <typename T>
 inline auto VariantWithType() {
   return ::testing::MakePolymorphicMatcher(VariantTypeMatcher<T>());
 }
+
+using AccountName = std::string;
+using Key = std::string;
+using Value = std::string;
+
+class TestAccount {
+ public:
+  // Emulate Iroha AccountDetail
+  std::unordered_map<Key, Value> storage;
+};
 
 TEST(VmCallTest, UsageTest) {
   /*
@@ -115,8 +127,8 @@ contract C {
   char *caller = const_cast<char *>("caller"),
        *callee = const_cast<char *>("Callee"), *empty = const_cast<char *>("");
 
-  // Emulate account existence for the smart contract engine
-  std::unordered_set<std::string> existingTestAccounts;
+  // Emulate accounts' storages for the smart contract engine
+  std::unordered_map<AccountName, TestAccount> testAccounts;
 
   iroha::ametsuchi::MockCommandExecutor command_executor;
   EXPECT_CALL(
@@ -124,41 +136,106 @@ contract C {
       execute(VariantWithType<const shared_model::interface::CreateAccount &>(),
               ::testing::_,
               ::testing::_))
-      .WillRepeatedly(
-          [&existingTestAccounts](const auto &cmd, const auto &, auto) {
-            const auto &cmdNewAcc =
-                boost::get<const shared_model::interface::CreateAccount &>(
-                    cmd.get());
-            existingTestAccounts.insert(cmdNewAcc.accountName());
-            return iroha::ametsuchi::CommandResult{};
-          });
+      .WillRepeatedly([&testAccounts](const auto &cmd, const auto &, auto) {
+        const auto &cmdNewAcc =
+            boost::get<const shared_model::interface::CreateAccount &>(
+                cmd.get());
+        testAccounts.insert(
+            std::make_pair(cmdNewAcc.accountName(), TestAccount{}));
+        return iroha::ametsuchi::CommandResult{};
+      });
+
+  EXPECT_CALL(
+      command_executor,
+      execute(
+          VariantWithType<const shared_model::interface::SetAccountDetail &>(),
+          ::testing::_,
+          ::testing::_))
+      .WillRepeatedly([&testAccounts](const auto &cmd, const auto &, auto) {
+        const auto &cmdSetDetail =
+            boost::get<const shared_model::interface::SetAccountDetail &>(
+                cmd.get());
+        // Check if account exist to get storage of the requested detail
+        const auto iterToAcc = testAccounts.find(cmdSetDetail.accountId());
+        if (iterToAcc != testAccounts.end()) {
+          (*iterToAcc).second.storage[cmdSetDetail.key()] =
+              cmdSetDetail.value();
+          return iroha::ametsuchi::CommandResult{};
+        } else {
+          // TODO(IvanTyulyandin): Fix magic number 5
+          return iroha::ametsuchi::CommandResult{iroha::ametsuchi::CommandError{
+              "MockedSetAccountDetail_No_Such_Account", 5, ""}};
+        }
+      });
 
   iroha::ametsuchi::MockSpecificQueryExecutor specific_query_executor;
   auto query_response_factory =
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
   EXPECT_CALL(specific_query_executor, execute(::testing::_))
-      .WillRepeatedly([query_response_factory, &existingTestAccounts](
+      .WillRepeatedly([query_response_factory, &testAccounts](
                           const shared_model::interface::Query &query) {
-        const auto concreteCommand = query.get();
-        const auto &queryVariant =
-            static_cast<shared_model::interface::Query::QueryVariantType>(
-                concreteCommand);
-        const auto &getAccQuery =
-            boost::get<const shared_model::interface::GetAccount &>(
-                queryVariant);
-        const auto &id = getAccQuery.accountId();
-        if (existingTestAccounts.find(id) != existingTestAccounts.end()) {
-          return query_response_factory->createAccountResponse(
-              id, "@evm", 1, {}, {"user"}, {});
+        // Try to cast to GetAccount query.
+        // If fail, then it is GetIrohaAccountDetail,
+        // according to the internals of Burrow EVM integration.
+        const auto &queryVariant = query.get();
+        if (boost::get<const shared_model::interface::GetAccount &>(
+                &queryVariant)
+            != nullptr) {
+          // Get data from GetAccount
+          const auto &getAccQuery =
+              boost::get<const shared_model::interface::GetAccount &>(
+                  queryVariant);
+          const auto &accountId = getAccQuery.accountId();
+
+          // Check the requested account exists in testAccounts
+          if (testAccounts.find(accountId) != testAccounts.end()) {
+            return query_response_factory->createAccountResponse(
+                accountId, "@evm", 1, {}, {"user"}, {});
+          } else {
+            // TODO(IvanTyulyandin): Fix magic number 5
+            return query_response_factory->createErrorQueryResponse(
+                shared_model::interface::QueryResponseFactory::ErrorQueryType::
+                    kNoAccount,
+                "No account " + accountId,
+                5,
+                {});
+          }
         } else {
-          // TODO(IvanTyulyandin): Fix magic number 5
-          return query_response_factory->createErrorQueryResponse(
-              shared_model::interface::QueryResponseFactory::ErrorQueryType::
-                  kNoAccount,
-              "No such account",
-              5,
-              {});
+          // Get data from GetAccountDetail
+          const auto &getAccDetailQuery =
+              boost::get<const shared_model::interface::GetAccountDetail &>(
+                  queryVariant);
+          const auto &accountId = getAccDetailQuery.accountId();
+          // Since Burrow should always set a key, no need to check for
+          // boost::optional emptiness
+          const auto &key = *getAccDetailQuery.key();
+
+          // Check the requested account and detail exist
+          const auto iterToTestAccount = testAccounts.find(accountId);
+          if (iterToTestAccount != testAccounts.end()) {
+            const auto iterToValue =
+                (*iterToTestAccount).second.storage.find(key);
+            if (iterToValue != (*iterToTestAccount).second.storage.end()) {
+              return query_response_factory->createAccountDetailResponse(
+                  (*iterToValue).second, 1, {}, {});
+            } else {
+              return query_response_factory->createErrorQueryResponse(
+                  shared_model::interface::QueryResponseFactory::
+                      ErrorQueryType::kNoAccountDetail,
+                  "No detail" + key + " for account " + accountId,
+                  5,
+                  {});
+            }
+          } else {
+            // TODO(IvanTyulyandin): Fix magic number 5
+            return query_response_factory->createErrorQueryResponse(
+                shared_model::interface::QueryResponseFactory::ErrorQueryType::
+                    kNoAccount,
+                "No account " + accountId + " for query detail " + key,
+                5,
+                {});
+          }
         }
       });
 
