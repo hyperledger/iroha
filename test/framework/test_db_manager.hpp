@@ -12,7 +12,7 @@
 namespace soci {
   class connection_pool;
   class session;
-}
+}  // namespace soci
 
 namespace iroha {
   namespace integration_framework {
@@ -38,6 +38,8 @@ namespace iroha {
                                      std::string>
       createWithRandomDbName(size_t sessions,
                              logger::LoggerManagerTreePtr log_manager);
+
+      ~TestDbManager();
 
       /// Get a session.
       std::unique_ptr<soci::session> getSession();

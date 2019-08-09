@@ -61,9 +61,18 @@ add_library(k_times_reconnection_strategy
     impl/k_times_reconnection_strategy.cpp
     )
 
+add_library(command_executor impl/command_executor.cpp)
+target_link_libraries(command_executor
+    common
+    )
+
+add_library(tx_executor impl/tx_executor.cpp)
+target_link_libraries(tx_executor
+    command_executor
+    common
+    )
+
 add_library(ametsuchi
-    impl/command_executor.cpp
-    impl/tx_executor.cpp
     impl/storage_impl.cpp
     impl/temporary_wsv_impl.cpp
     impl/mutable_storage_impl.cpp
@@ -96,6 +105,7 @@ target_link_libraries(ametsuchi
     shared_model_interfaces
     shared_model_plain_backend
     shared_model_stateless_validation
+    tx_executor
     failover_callback
     SOCI::postgresql
     SOCI::core

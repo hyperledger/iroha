@@ -81,6 +81,8 @@ TestDbManager::createWithRandomDbName(
       + std::to_string(random_db_name_attempts) + " attempts.");
 }
 
+TestDbManager::~TestDbManager() = default;
+
 std::unique_ptr<soci::session> TestDbManager::getSession() {
   return std::make_unique<soci::session>(*connection_pool_);
 }
