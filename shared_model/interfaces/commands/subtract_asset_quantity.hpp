@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_SUBTRACT_ASSET_QUANTITY_HPP
 #define IROHA_SHARED_MODEL_SUBTRACT_ASSET_QUANTITY_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -17,8 +17,7 @@ namespace shared_model {
     /**
      * Subtract amount of asset from an account
      */
-    class SubtractAssetQuantity
-        : public NonCopyableModelPrimitive<SubtractAssetQuantity> {
+    class SubtractAssetQuantity : public ModelPrimitive<SubtractAssetQuantity> {
      public:
       /**
        * @return asset identifier

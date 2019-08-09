@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "common/cloneable.hpp"
 #include "interfaces/base/model_primitive.hpp"
 
 namespace shared_model {
@@ -21,7 +22,8 @@ namespace shared_model {
      * Blob class present user-friendly blob for working with low-level
      * binary stuff. Its length is not fixed in compile time.
      */
-    class Blob : public interface::ModelPrimitive<Blob> {
+    class Blob : public interface::ModelPrimitive<Blob>,
+                 public Cloneable<Blob> {
      public:
       using Bytes = std::vector<uint8_t>;
 

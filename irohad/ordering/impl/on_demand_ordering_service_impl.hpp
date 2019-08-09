@@ -18,6 +18,7 @@
 // TODO 2019-03-15 andrei: IR-403 Separate BatchHashEquality and MstState
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "ordering/impl/on_demand_common.hpp"
+#include "ordering/ordering_service_proposal_creation_strategy.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -46,17 +47,16 @@ namespace iroha {
        * @param log to print progress
        * @param number_of_proposals - number of stored proposals, older will be
        * removed. Default value is 3
-       * @param initial_round - first round of agreement.
-       * Default value is {2, kFirstRejectRound} since genesis block height is 1
+       * @param creation_strategy - provides a strategy for creating proposals
        */
       OnDemandOrderingServiceImpl(
           size_t transaction_limit,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+          std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy,
           logger::LoggerPtr log,
-          size_t number_of_proposals = 3,
-          const consensus::Round &initial_round = {2, kFirstRejectRound});
+          size_t number_of_proposals = 3);
 
       // --------------------- | OnDemandOrderingService |_---------------------
 
@@ -75,6 +75,14 @@ namespace iroha {
        * Note: method is not thread-safe
        */
       void packNextProposals(const consensus::Round &round);
+
+      using TransactionsCollectionType =
+          std::vector<std::shared_ptr<shared_model::interface::Transaction>>;
+
+      void tryCreateProposal(
+          consensus::Round round,
+          const TransactionsCollectionType &txs,
+          shared_model::interface::types::TimestampType created_time);
 
       /**
        * Removes last elements if it is required
@@ -121,6 +129,11 @@ namespace iroha {
        * Processed transactions cache used for replay prevention
        */
       std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache_;
+
+      /**
+       * Strategy for creating proposals
+       */
+      std::shared_ptr<ProposalCreationStrategy> proposal_creation_strategy_;
 
       /**
        * Logger instance

@@ -15,9 +15,8 @@
 namespace shared_model {
   namespace proto {
     class GetPendingTransactions final
-        : public CopyableProto<interface::GetPendingTransactions,
-                               iroha::protocol::Query,
-                               GetPendingTransactions> {
+        : public TrivialProto<interface::GetPendingTransactions,
+                              iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetPendingTransactions(QueryType &&query);

@@ -18,11 +18,6 @@ namespace iroha {
       MOCK_METHOD1(execute,
                    QueryExecutorResult(const shared_model::interface::Query &));
 
-      MOCK_METHOD1(setCreatorId,
-                   void(const shared_model::interface::types::AccountIdType &));
-
-      MOCK_METHOD1(setQueryHash, void(const shared_model::crypto::Hash &));
-
       MOCK_CONST_METHOD2(
           hasAccountRolePermission,
           bool(shared_model::interface::permissions::Role permission,

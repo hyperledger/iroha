@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetAccount::GetAccount(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           account_{proto_->payload().get_account()} {}
 
     template GetAccount::GetAccount(GetAccount::TransportType &);

@@ -20,7 +20,7 @@
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "ordering/impl/ordering_gate_cache/ordering_gate_cache.hpp"
 #include "ordering/on_demand_ordering_service.hpp"
-#include "ordering/on_demand_os_transport.hpp"
+#include "ordering/ordering_service_proposal_creation_strategy.hpp"
 
 namespace iroha {
   namespace network {
@@ -71,6 +71,7 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+          std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
           std::function<std::chrono::milliseconds(
               const synchronizer::SynchronizationEvent &)> delay_func,
           size_t max_number_of_transactions,
@@ -85,6 +86,7 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+          std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
           const logger::LoggerManagerTreePtr &ordering_log_manager);
 
       rxcpp::composite_subscription sync_event_notifier_lifetime_;
@@ -115,6 +117,8 @@ namespace iroha {
        * requests to ordering service and processing responses
        * @param proposal_factory factory required by ordering service to produce
        * proposals
+       * @param creation_strategy - provides a strategy for creating proposals
+       * in OS
        * @return initialized ordering gate
        */
       std::shared_ptr<network::OrderingGate> initOrderingGate(
@@ -134,6 +138,7 @@ namespace iroha {
               proposal_factory,
           std::shared_ptr<TransportFactoryType> proposal_transport_factory,
           std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+          std::shared_ptr<ordering::ProposalCreationStrategy> creation_strategy,
           std::function<std::chrono::milliseconds(
               const synchronizer::SynchronizationEvent &)> delay_func,
           logger::LoggerManagerTreePtr ordering_log_manager);

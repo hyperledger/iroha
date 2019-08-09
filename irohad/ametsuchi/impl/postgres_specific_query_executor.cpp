@@ -14,7 +14,9 @@
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
+#include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -184,6 +186,8 @@ namespace iroha {
 
     QueryExecutorResult PostgresSpecificQueryExecutor::execute(
         const shared_model::interface::Query &qry) {
+      query_hash_ = qry.hash();
+      creator_id_ = qry.creatorAccountId();
       return boost::apply_visitor(*this, qry.get());
     }
 
@@ -267,16 +271,6 @@ namespace iroha {
         log_->error("Failed to validate query: {}", e.what());
         return false;
       }
-    }
-
-    void PostgresSpecificQueryExecutor::setCreatorId(
-        const shared_model::interface::types::AccountIdType &creator_id) {
-      creator_id_ = creator_id;
-    }
-
-    void PostgresSpecificQueryExecutor::setQueryHash(
-        const shared_model::interface::types::HashType &query_hash) {
-      query_hash_ = query_hash;
     }
 
     std::unique_ptr<shared_model::interface::QueryResponse>
@@ -1026,8 +1020,7 @@ namespace iroha {
                           "getAccountDetail query result {}.",
                           q);
                     }
-                    boost::optional<
-                        shared_model::interface::types::AccountDetailRecordId>
+                    boost::optional<shared_model::plain::AccountDetailRecordId>
                         next_record_id{[this, &next_writer, &next_key]()
                                            -> decltype(next_record_id) {
                           if (next_key or next_writer) {
@@ -1043,16 +1036,20 @@ namespace iroha {
                               assert(next_key);
                               return boost::none;
                             }
-                            return shared_model::interface::types::
-                                AccountDetailRecordId{next_writer.value(),
-                                                      next_key.value()};
+                            return shared_model::plain::AccountDetailRecordId{
+                                next_writer.value(), next_key.value()};
                           }
                           return boost::none;
                         }()};
                     return query_response_factory_->createAccountDetailResponse(
                         json.value(),
                         total_number.value_or(0),
-                        next_record_id,
+                        next_record_id |
+                            [](const auto &next_record_id) {
+                              return boost::optional<
+                                  const shared_model::interface::
+                                      AccountDetailRecordId &>(next_record_id);
+                            },
                         query_hash_);
                   }
                   if (total_number.value_or(0) > 0) {

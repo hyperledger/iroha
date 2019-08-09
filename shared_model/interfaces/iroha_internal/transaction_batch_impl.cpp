@@ -74,20 +74,5 @@ namespace shared_model {
                            return left->equalsByValue(*right);
                          });
     }
-
-    TransactionBatch *TransactionBatchImpl::clone() const {
-      const auto &original_txs = this->transactions_;
-      types::SharedTxsCollectionType copy_txs =
-          std::accumulate(std::begin(original_txs),
-                          std::end(original_txs),
-                          types::SharedTxsCollectionType{},
-                          [](types::SharedTxsCollectionType acc,
-                             std::shared_ptr<Transaction> tx) {
-                            acc.push_back(::clone(*tx));
-                            return acc;
-                          });
-      return new TransactionBatchImpl(std::move(copy_txs));
-    }
-
   }  // namespace interface
 }  // namespace shared_model

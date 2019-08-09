@@ -2398,5 +2398,27 @@ namespace iroha {
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
+    /**
+     * @given commands
+     * @when trying to set new kv with not empty oldValue
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValue) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+
+      auto cmd_result =
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value",
+              boost::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "notEmptyOldValue")));
+
+      std::vector<std::string> query_args{
+          account_id, "key", "value", "notEmptyOldValue"};
+      CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha

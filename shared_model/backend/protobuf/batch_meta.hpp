@@ -16,13 +16,13 @@
 namespace shared_model {
   namespace proto {
     class BatchMeta final
-        : public CopyableProto<interface::BatchMeta,
-                               iroha::protocol::Transaction::Payload::BatchMeta,
-                               BatchMeta> {
+        : public TrivialProto<
+              interface::BatchMeta,
+              iroha::protocol::Transaction::Payload::BatchMeta> {
      public:
       template <typename BatchMetaType>
       explicit BatchMeta(BatchMetaType &&batch_meta)
-          : CopyableProto(std::forward<BatchMetaType>(batch_meta)),
+          : TrivialProto(std::forward<BatchMetaType>(batch_meta)),
             type_{[this] {
               unsigned which = proto_->GetDescriptor()
                                    ->FindFieldByName("type")

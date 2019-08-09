@@ -7,7 +7,7 @@
 #define IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_DETAIL_PAGINATION_META_HPP
 
 #include <boost/optional.hpp>
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
 
@@ -16,7 +16,7 @@ namespace shared_model {
 
     /// Provides query metadata for account detail list pagination.
     class AccountDetailPaginationMeta
-        : public NonCopyableModelPrimitive<AccountDetailPaginationMeta> {
+        : public ModelPrimitive<AccountDetailPaginationMeta> {
      public:
       /// Get the requested page size.
       virtual size_t pageSize() const = 0;

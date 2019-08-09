@@ -11,7 +11,7 @@ namespace shared_model {
 
     template <typename BlocksQueryType>
     BlocksQuery::BlocksQuery(BlocksQueryType &&query)
-        : CopyableProto(std::forward<BlocksQueryType>(query)),
+        : TrivialProto(std::forward<BlocksQueryType>(query)),
           blob_{makeBlob(*proto_)},
           payload_{makeBlob(proto_->meta())},
           signatures_{[this] {

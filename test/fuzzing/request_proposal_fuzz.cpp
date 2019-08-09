@@ -10,6 +10,7 @@
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/ordering/mock_proposal_creation_strategy.hpp"
 
 struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
   std::unique_ptr<shared_model::proto::ProtoProposalFactory<
@@ -17,6 +18,7 @@ struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
       proposal_factory_;
   std::shared_ptr<iroha::ametsuchi::MockStorage> storage_;
   std::shared_ptr<iroha::ametsuchi::TxPresenceCacheImpl> persistent_cache_;
+  std::shared_ptr<MockProposalCreationStrategy> proposal_creation_strategy_;
   std::shared_ptr<OnDemandOrderingServiceImpl> ordering_service_;
   std::shared_ptr<OnDemandOsServerGrpc> server_;
 
@@ -29,6 +31,8 @@ struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
     storage_ = std::make_shared<iroha::ametsuchi::MockStorage>();
     persistent_cache_ =
         std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage_);
+    proposal_creation_strategy_ =
+        std::make_shared<NiceMock<MockProposalCreationStrategy>>();
   }
 
   void init_with(size_t transaction_limit) {
@@ -36,6 +40,7 @@ struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
         transaction_limit,
         std::move(proposal_factory_),
         std::move(persistent_cache_),
+        proposal_creation_strategy_,
         logger::getDummyLoggerPtr());
     server_ =
         std::make_shared<OnDemandOsServerGrpc>(ordering_service_,

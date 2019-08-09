@@ -12,9 +12,8 @@
 
 namespace shared_model {
   namespace proto {
-    class GetPeers final : public CopyableProto<interface::GetPeers,
-                                                iroha::protocol::Query,
-                                                GetPeers> {
+    class GetPeers final
+        : public TrivialProto<interface::GetPeers, iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetPeers(QueryType &&query);
