@@ -103,21 +103,21 @@ message QueryPayloadMeta {
 message Query {
   message Payload {
     QueryPayloadMeta meta = 1;
-     oneof query {
-       GetAccount get_account = 3;
-       GetSignatories get_signatories = 4;
-       GetAccountTransactions get_account_transactions = 5;
-       GetAccountAssetTransactions get_account_asset_transactions = 6;
-       GetTransactions get_transactions = 7;
-       GetAccountAssets get_account_assets = 8;
-       GetAccountDetail get_account_detail = 9;
-       GetRoles get_roles = 10;
-       GetRolePermissions get_role_permissions = 11;
-       GetAssetInfo get_asset_info = 12;
-       GetPendingTransactions get_pending_transactions = 13;
-       GetBlock get_block = 14;
-       GetPeers get_peers = 15;
-     }
+    oneof query {
+      GetAccount get_account = 3;
+      GetSignatories get_signatories = 4;
+      GetAccountTransactions get_account_transactions = 5;
+      GetAccountAssetTransactions get_account_asset_transactions = 6;
+      GetTransactions get_transactions = 7;
+      GetAccountAssets get_account_assets = 8;
+      GetAccountDetail get_account_detail = 9;
+      GetRoles get_roles = 10;
+      GetRolePermissions get_role_permissions = 11;
+      GetAssetInfo get_asset_info = 12;
+      GetPendingTransactions get_pending_transactions = 13;
+      GetBlock get_block = 14;
+      GetPeers get_peers = 15;
+    }
   }
 
   Payload payload = 1;
