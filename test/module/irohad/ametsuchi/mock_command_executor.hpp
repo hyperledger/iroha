@@ -70,6 +70,11 @@ namespace iroha {
       }
 
       CommandResult operator()(
+          const shared_model::interface::RemovePeer &command) override {
+        return doRemovePeer(command);
+      }
+
+      CommandResult operator()(
           const shared_model::interface::RemoveSignatory &command) override {
         return doRemoveSignatory(command);
       }
@@ -134,6 +139,9 @@ namespace iroha {
       MOCK_METHOD1(
           doGrantPermission,
           CommandResult(const shared_model::interface::GrantPermission &));
+
+      MOCK_METHOD1(doRemovePeer,
+                   CommandResult(const shared_model::interface::RemovePeer &));
 
       MOCK_METHOD1(
           doRemoveSignatory,
