@@ -18,14 +18,17 @@ namespace iroha {
 
     class MockStorage : public Storage {
      public:
-      MOCK_CONST_METHOD0(getWsvQuery, std::shared_ptr<WsvQuery>(void));
-      MOCK_CONST_METHOD0(getBlockQuery, std::shared_ptr<BlockQuery>(void));
+      MOCK_CONST_METHOD0(getWsvQuery, std::shared_ptr<WsvQuery>());
+      MOCK_CONST_METHOD0(getBlockQuery, std::shared_ptr<BlockQuery>());
       MOCK_METHOD0(
+          createCommandExecutor,
+          expected::Result<std::unique_ptr<CommandExecutor>, std::string>());
+      MOCK_METHOD1(
           createTemporaryWsv,
-          expected::Result<std::unique_ptr<TemporaryWsv>, std::string>(void));
-      MOCK_METHOD0(
+          std::unique_ptr<TemporaryWsv>(std::shared_ptr<CommandExecutor>));
+      MOCK_METHOD1(
           createMutableStorage,
-          expected::Result<std::unique_ptr<MutableStorage>, std::string>(void));
+          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>));
       MOCK_CONST_METHOD0(createPeerQuery,
                          boost::optional<std::shared_ptr<PeerQuery>>());
       MOCK_CONST_METHOD0(createBlockQuery,
@@ -42,18 +45,19 @@ namespace iroha {
           CommitResult(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
-      MOCK_METHOD1(createMutableStorage,
-                   expected::Result<std::unique_ptr<MutableStorage>,
-                                    std::string>(BlockStorageFactory &));
+      MOCK_METHOD2(
+          createMutableStorage,
+          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>,
+                                          BlockStorageFactory &));
 
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(
                        const shared_model::interface::Peer &));
-      MOCK_METHOD0(reset, void(void));
+      MOCK_METHOD0(reset, void());
       MOCK_METHOD0(resetWsv, expected::Result<void, std::string>());
-      MOCK_METHOD0(resetPeers, void(void));
-      MOCK_METHOD0(dropStorage, void(void));
-      MOCK_METHOD0(freeConnections, void(void));
+      MOCK_METHOD0(resetPeers, void());
+      MOCK_METHOD0(dropStorage, void());
+      MOCK_METHOD0(freeConnections, void());
       MOCK_METHOD1(prepareBlock_, void(std::unique_ptr<TemporaryWsv> &));
 
       void prepareBlock(std::unique_ptr<TemporaryWsv> wsv) override {

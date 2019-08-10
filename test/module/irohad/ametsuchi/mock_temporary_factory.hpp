@@ -15,9 +15,9 @@ namespace iroha {
 
     class MockTemporaryFactory : public TemporaryFactory {
      public:
-      MOCK_METHOD0(
+      MOCK_METHOD1(
           createTemporaryWsv,
-          expected::Result<std::unique_ptr<TemporaryWsv>, std::string>(void));
+          std::unique_ptr<TemporaryWsv>(std::shared_ptr<CommandExecutor>));
       MOCK_METHOD1(prepareBlock_, void(std::unique_ptr<TemporaryWsv> &));
 
       void prepareBlock(std::unique_ptr<TemporaryWsv> wsv) override {

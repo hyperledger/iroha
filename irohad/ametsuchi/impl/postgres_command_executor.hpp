@@ -26,7 +26,7 @@ namespace iroha {
     class PostgresCommandExecutor final : public CommandExecutor {
      public:
       PostgresCommandExecutor(
-          soci::session &transaction,
+          std::unique_ptr<soci::session> sql,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter);
 
@@ -37,6 +37,8 @@ namespace iroha {
               &creator_account_id) override;
 
       void doValidation(bool do_validation) override;
+
+      soci::session &getSession();
 
       CommandResult operator()(
           const shared_model::interface::AddAssetQuantity &command) override;
@@ -101,11 +103,11 @@ namespace iroha {
       void initStatements();
 
       std::unique_ptr<CommandStatements> makeCommandStatements(
-          soci::session &session,
+          const std::unique_ptr<soci::session> &session,
           const std::string &base_statement,
           const std::vector<std::string> &permission_checks);
 
-      soci::session &sql_;
+      std::unique_ptr<soci::session> sql_;
       bool do_validation_;
 
       shared_model::interface::types::AccountIdType creator_account_id_;

@@ -6,8 +6,10 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <boost/variant/apply_visitor.hpp>
+#include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
+#include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
@@ -22,23 +24,23 @@ namespace iroha {
   namespace ametsuchi {
     MutableStorageImpl::MutableStorageImpl(
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        std::shared_ptr<TransactionExecutor> transaction_executor,
-        std::unique_ptr<soci::session> sql,
+        std::shared_ptr<PostgresCommandExecutor> command_executor,
         std::unique_ptr<BlockStorage> block_storage,
         logger::LoggerManagerTreePtr log_manager)
         : ledger_state_(std::move(ledger_state)),
-          sql_(std::move(sql)),
+          sql_(command_executor->getSession()),
           peer_query_(
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
-                  *sql_, log_manager->getChild("WsvQuery")->getLogger()))),
+                  sql_, log_manager->getChild("WsvQuery")->getLogger()))),
           block_index_(std::make_unique<PostgresBlockIndex>(
-              std::make_unique<PostgresIndexer>(*sql_),
+              std::make_unique<PostgresIndexer>(sql_),
               log_manager->getChild("PostgresBlockIndex")->getLogger())),
-          transaction_executor_(std::move(transaction_executor)),
+          transaction_executor_(std::make_unique<TransactionExecutor>(
+              std::move(command_executor))),
           block_storage_(std::move(block_storage)),
           committed(false),
           log_(log_manager->getLogger()) {
-      *sql_ << "BEGIN";
+      sql_ << "BEGIN";
     }
 
     bool MutableStorageImpl::apply(
@@ -78,14 +80,14 @@ namespace iroha {
     template <typename Function>
     bool MutableStorageImpl::withSavepoint(Function &&function) {
       try {
-        *sql_ << "SAVEPOINT savepoint_";
+        sql_ << "SAVEPOINT savepoint_";
 
         auto function_executed = std::forward<Function>(function)();
 
         if (function_executed) {
-          *sql_ << "RELEASE SAVEPOINT savepoint_";
+          sql_ << "RELEASE SAVEPOINT savepoint_";
         } else {
-          *sql_ << "ROLLBACK TO SAVEPOINT savepoint_";
+          sql_ << "ROLLBACK TO SAVEPOINT savepoint_";
         }
         return function_executed;
       } catch (std::exception &e) {
@@ -121,7 +123,7 @@ namespace iroha {
     MutableStorageImpl::~MutableStorageImpl() {
       if (not committed) {
         try {
-          *sql_ << "ROLLBACK";
+          sql_ << "ROLLBACK";
         } catch (std::exception &e) {
           log_->warn("Apply has been failed. Reason: {}", e.what());
         }

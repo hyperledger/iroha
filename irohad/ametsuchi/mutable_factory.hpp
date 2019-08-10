@@ -9,6 +9,7 @@
 #include <memory>
 
 #include <boost/optional.hpp>
+#include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/commit_result.hpp"
 #include "common/result.hpp"
 
@@ -28,10 +29,10 @@ namespace iroha {
       /**
        * Creates a mutable storage from the current state.
        * Mutable storage is the only way to commit the block to the ledger.
-       * @return Created Result with mutable storage or error string
+       * @return Created mutable storage
        */
-      virtual expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage() = 0;
+      virtual std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor) = 0;
 
       /**
        * Commit mutable storage to Ametsuchi.

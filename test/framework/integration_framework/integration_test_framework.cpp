@@ -20,7 +20,6 @@
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction_sequence_builder.hpp"
-#include "common/files.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
@@ -214,7 +213,7 @@ namespace integration_framework {
 
   IntegrationTestFramework::~IntegrationTestFramework() {
     if (cleanup_on_exit_) {
-      cleanup();
+      iroha_instance_->terminateAndCleanup();
     }
     for (auto &server : fake_peers_servers_) {
       server->shutdown(std::chrono::system_clock::now());
@@ -766,18 +765,7 @@ namespace integration_framework {
 
   void IntegrationTestFramework::done() {
     log_->info("done");
-    cleanup();
-  }
-
-  void IntegrationTestFramework::cleanup() {
-    log_->info("removing storage");
-    if (iroha_instance_->getIrohaInstance()
-        and iroha_instance_->getIrohaInstance()->storage) {
-      iroha_instance_->getIrohaInstance()->storage->dropStorage();
-      if (iroha_instance_->block_store_dir_) {
-        boost::filesystem::remove_all(*iroha_instance_->block_store_dir_);
-      }
-    }
+    iroha_instance_->terminateAndCleanup();
   }
 
   IrohaInstance &IntegrationTestFramework::getIrohaInstance() {

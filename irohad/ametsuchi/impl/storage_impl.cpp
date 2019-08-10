@@ -67,30 +67,26 @@ namespace iroha {
           prepared_block_name_(postgres_options_->preparedBlockName()),
           ledger_state_(std::move(ledger_state)) {}
 
-    expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
-    StorageImpl::createTemporaryWsv() {
-      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      if (connection_ == nullptr) {
-        return expected::makeError("Connection was closed");
+    std::unique_ptr<TemporaryWsv> StorageImpl::createTemporaryWsv(
+        std::shared_ptr<CommandExecutor> command_executor) {
+      auto postgres_command_executor =
+          std::dynamic_pointer_cast<PostgresCommandExecutor>(command_executor);
+      if (postgres_command_executor == nullptr) {
+        throw std::runtime_error("Bad PostgresCommandExecutor cast!");
       }
-      auto sql = std::make_unique<soci::session>(*connection_);
       // if we create temporary storage, then we intend to validate a new
       // proposal. this means that any state prepared before that moment is
       // not needed and must be removed to prevent locking
-      tryRollback(*sql);
-      return expected::makeValue<std::unique_ptr<TemporaryWsv>>(
-          std::make_unique<TemporaryWsvImpl>(
-              std::move(sql),
-              std::make_unique<TransactionExecutor>(
-                  std::make_unique<PostgresCommandExecutor>(*sql,
-                                                            perm_converter_)),
-
-              log_manager_->getChild("TemporaryWorldStateView")));
+      tryRollback(postgres_command_executor->getSession());
+      return std::make_unique<TemporaryWsvImpl>(
+          std::move(postgres_command_executor),
+          log_manager_->getChild("TemporaryWorldStateView"));
     }
 
-    expected::Result<std::unique_ptr<MutableStorage>, std::string>
-    StorageImpl::createMutableStorage() {
-      return createMutableStorage(*temporary_block_storage_factory_);
+    std::unique_ptr<MutableStorage> StorageImpl::createMutableStorage(
+        std::shared_ptr<CommandExecutor> command_executor) {
+      return createMutableStorage(std::move(command_executor),
+                                  *temporary_block_storage_factory_);
     }
 
     boost::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
@@ -142,15 +138,19 @@ namespace iroha {
     bool StorageImpl::insertBlock(
         std::shared_ptr<const shared_model::interface::Block> block) {
       log_->info("create mutable storage");
-      bool inserted = false;
-      createMutableStorage().match(
-          [&, this](auto &&storage) {
-            inserted = storage.value->apply(block);
-            log_->info("block inserted: {}", inserted);
-            this->commit(std::move(storage.value));
+      return createCommandExecutor().match(
+          [&, this](auto &&command_executor) {
+            auto mutable_storage =
+                this->createMutableStorage(std::move(command_executor).value);
+            bool is_inserted = mutable_storage->apply(block);
+            log_->info("Block {}inserted", is_inserted ? "" : "not ");
+            this->commit(std::move(mutable_storage));
+            return is_inserted;
           },
-          [&](const auto &error) { log_->error("{}", error.error); });
-      return inserted;
+          [&](const auto &error) {
+            log_->error("Block insertion failed: {}", error.error);
+            return false;
+          });
     }
 
     expected::Result<void, std::string> StorageImpl::insertPeer(
@@ -161,27 +161,34 @@ namespace iroha {
       return wsv_command.insertPeer(peer);
     }
 
-    expected::Result<std::unique_ptr<MutableStorage>, std::string>
-    StorageImpl::createMutableStorage(BlockStorageFactory &storage_factory) {
+    expected::Result<std::unique_ptr<CommandExecutor>, std::string>
+    StorageImpl::createCommandExecutor() {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
       if (connection_ == nullptr) {
         return expected::makeError("Connection was closed");
       }
-
       auto sql = std::make_unique<soci::session>(*connection_);
+      return std::make_unique<PostgresCommandExecutor>(std::move(sql),
+                                                       perm_converter_);
+    }
+
+    std::unique_ptr<MutableStorage> StorageImpl::createMutableStorage(
+        std::shared_ptr<CommandExecutor> command_executor,
+        BlockStorageFactory &storage_factory) {
+      auto postgres_command_executor =
+          std::dynamic_pointer_cast<PostgresCommandExecutor>(command_executor);
+      if (postgres_command_executor == nullptr) {
+        throw std::runtime_error("Bad PostgresCommandExecutor cast!");
+      }
       // if we create mutable storage, then we intend to mutate wsv
       // this means that any state prepared before that moment is not needed
       // and must be removed to prevent locking
-      tryRollback(*sql);
-      return expected::makeValue<std::unique_ptr<MutableStorage>>(
-          std::make_unique<MutableStorageImpl>(
-              ledger_state_,
-              std::make_shared<TransactionExecutor>(
-                  std::make_shared<PostgresCommandExecutor>(*sql,
-                                                            perm_converter_)),
-              std::move(sql),
-              storage_factory.create(),
-              log_manager_->getChild("MutableStorageImpl")));
+      tryRollback(postgres_command_executor->getSession());
+      return std::make_unique<MutableStorageImpl>(
+          ledger_state_,
+          std::move(postgres_command_executor),
+          storage_factory.create(),
+          log_manager_->getChild("MutableStorageImpl"));
     }
 
     void StorageImpl::reset() {
@@ -316,7 +323,7 @@ namespace iroha {
                   },
                   [](auto &&e) -> expected::Result<
                                    std::shared_ptr<const iroha::LedgerState>,
-                                   std::string> { return e; });
+                                   std::string> { return std::move(e); });
             });
       }();
 
@@ -336,7 +343,7 @@ namespace iroha {
       auto storage = static_cast<MutableStorageImpl *>(mutable_storage.get());
 
       try {
-        *(storage->sql_) << "COMMIT";
+        storage->sql_ << "COMMIT";
       } catch (std::exception &e) {
         storage->committed = false;
         return expected::makeError(e.what());
@@ -452,7 +459,7 @@ namespace iroha {
             "Refusing to add new prepared state, because there already is one. "
             "Multiple prepared states are not yet supported.");
       } else {
-        soci::session &sql = *wsv_impl.sql_;
+        soci::session &sql = wsv_impl.sql_;
         try {
           sql << "PREPARE TRANSACTION '" + prepared_block_name_ + "';";
           block_is_prepared_ = true;

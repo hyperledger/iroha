@@ -12,6 +12,7 @@
 namespace iroha {
   namespace ametsuchi {
 
+    class CommandExecutor;
     class TemporaryWsv;
 
     class TemporaryFactory {
@@ -21,10 +22,10 @@ namespace iroha {
        * Temporary state will be not committed and will be erased on destructor
        * call.
        * Temporary state might be used for transaction validation.
-       * @return Created Result with temporary wsv or string error
+       * @return Created temporary wsv.
        */
-      virtual expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
-      createTemporaryWsv() = 0;
+      virtual std::unique_ptr<TemporaryWsv> createTemporaryWsv(
+          std::shared_ptr<CommandExecutor> command_executor) = 0;
 
       /**
        * Prepare state which was accumulated in temporary WSV.
