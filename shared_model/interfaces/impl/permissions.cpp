@@ -65,11 +65,6 @@ std::string PermissionSet<Perm>::toBitstring() const {
 }
 
 template <typename Perm>
-size_t PermissionSet<Perm>::size() {
-  return static_cast<size_t>(Perm::COUNT);
-}
-
-template <typename Perm>
 PermissionSet<Perm> &PermissionSet<Perm>::unsetAll() {
   perms_bitset_.reset();
   return *this;

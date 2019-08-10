@@ -163,7 +163,6 @@ namespace iroha {
                 shared_model::validation::FieldValidator>>(
                 iroha::test::kTestsValidatorsConfig);
         query_executor = storage;
-        PostgresCommandExecutor::prepareStatements(*sql);
         executor =
             std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();

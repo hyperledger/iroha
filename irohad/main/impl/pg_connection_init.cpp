@@ -176,7 +176,6 @@ void PgConnectionInit::initializeConnectionPool(
     // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
     // IR-464
     on_init_db(session);
-    PostgresCommandExecutor::prepareStatements(session);
   };
 
   /// lambda contains special actions which should be execute once

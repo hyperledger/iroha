@@ -49,7 +49,6 @@ namespace iroha {
 
         wsv_query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WcvQuery"));
-        PostgresCommandExecutor::prepareStatements(*sql);
         executor =
             std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
 
@@ -485,7 +484,7 @@ namespace iroha {
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
 
-      std::vector<std::string> query_args{peer->pubkey().toString()};
+      std::vector<std::string> query_args{peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -499,7 +498,7 @@ namespace iroha {
       auto cmd_result = execute(
           *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
 
-      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      std::vector<std::string> query_args{another_peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
     }
 
@@ -514,7 +513,7 @@ namespace iroha {
           *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
           true);
 
-      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      std::vector<std::string> query_args{another_peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
     }
 
@@ -528,7 +527,7 @@ namespace iroha {
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
 
-      std::vector<std::string> query_args{peer->pubkey().toString()};
+      std::vector<std::string> query_args{peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
