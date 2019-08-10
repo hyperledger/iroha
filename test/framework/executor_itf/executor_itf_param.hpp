@@ -12,7 +12,7 @@ namespace iroha {
   namespace ametsuchi {
     class CommandExecutor;
     class SpecificQueryExecutor;
-  }
+  }  // namespace ametsuchi
 
   namespace integration_framework {
 
