@@ -83,12 +83,14 @@ namespace iroha {
        */
       static expected::Result<void, std::string> resetPeers(soci::session &sql);
 
+      /// Create tables in the given session. Left public for tests.
+      static void prepareTables(soci::session &session);
+
      private:
       /**
        * Function initializes existing connection pool
        * @param connection_pool - pool with connections
        * @param pool_size - number of connections in pool
-       * @param prepare_tables_sql - sql code for db initialization
        * @param try_rollback - function which performs blocks rollback before
        * initialization
        * @param callback_factory - factory for reconnect callbacks
@@ -103,15 +105,11 @@ namespace iroha {
       static void initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
-          const std::string &prepare_tables_sql,
           RollbackFunction try_rollback,
           FailoverCallbackHolder &callback_factory,
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const std::string &pg_reconnection_options,
           logger::LoggerManagerTreePtr log_manager);
-
-     public:
-      static const std::string init_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha
