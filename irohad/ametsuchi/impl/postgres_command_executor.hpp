@@ -7,7 +7,12 @@
 #define IROHA_POSTGRES_COMMAND_EXECUTOR_HPP
 
 #include "ametsuchi/command_executor.hpp"
+
 #include "ametsuchi/impl/soci_utils.hpp"
+
+namespace soci {
+  class session;
+}
 
 namespace shared_model {
   namespace interface {
@@ -18,12 +23,14 @@ namespace shared_model {
 namespace iroha {
   namespace ametsuchi {
 
-    class PostgresCommandExecutor : public CommandExecutor {
+    class PostgresCommandExecutor final : public CommandExecutor {
      public:
       PostgresCommandExecutor(
           soci::session &transaction,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter);
+
+      ~PostgresCommandExecutor();
 
       void setCreatorAccountId(
           const shared_model::interface::types::AccountIdType
@@ -42,6 +49,10 @@ namespace iroha {
 
       CommandResult operator()(
           const shared_model::interface::AppendRole &command) override;
+
+      CommandResult operator()(
+          const shared_model::interface::CompareAndSetAccountDetail &command)
+          override;
 
       CommandResult operator()(
           const shared_model::interface::CreateAccount &command) override;
@@ -83,13 +94,17 @@ namespace iroha {
       CommandResult operator()(
           const shared_model::interface::TransferAsset &command) override;
 
-      CommandResult operator()(
-          const shared_model::interface::CompareAndSetAccountDetail &command)
-          override;
-
-      static void prepareStatements(soci::session &sql);
-
      private:
+      class CommandStatements;
+      class StatementExecutor;
+
+      void initStatements();
+
+      std::unique_ptr<CommandStatements> makeCommandStatements(
+          soci::session &session,
+          const std::string &base_statement,
+          const std::vector<std::string> &permission_checks);
+
       soci::session &sql_;
       bool do_validation_;
 
@@ -97,25 +112,25 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
 
-      // 14.09.18 nickaleks: IR-1708 Load SQL from separate files
-      static const std::string addAssetQuantityBase;
-      static const std::string addPeerBase;
-      static const std::string addSignatoryBase;
-      static const std::string appendRoleBase;
-      static const std::string createAccountBase;
-      static const std::string createAssetBase;
-      static const std::string createDomainBase;
-      static const std::string createRoleBase;
-      static const std::string detachRoleBase;
-      static const std::string grantPermissionBase;
-      static const std::string removePeerBase;
-      static const std::string removeSignatoryBase;
-      static const std::string revokePermissionBase;
-      static const std::string setAccountDetailBase;
-      static const std::string setQuorumBase;
-      static const std::string subtractAssetQuantityBase;
-      static const std::string transferAssetBase;
-      static const std::string compareAndSetAccountDetailBase;
+      std::unique_ptr<CommandStatements> add_asset_quantity_statements_;
+      std::unique_ptr<CommandStatements> add_peer_statements_;
+      std::unique_ptr<CommandStatements> add_signatory_statements_;
+      std::unique_ptr<CommandStatements> append_role_statements_;
+      std::unique_ptr<CommandStatements>
+          compare_and_set_account_detail_statements_;
+      std::unique_ptr<CommandStatements> create_account_statements_;
+      std::unique_ptr<CommandStatements> create_asset_statements_;
+      std::unique_ptr<CommandStatements> create_domain_statements_;
+      std::unique_ptr<CommandStatements> create_role_statements_;
+      std::unique_ptr<CommandStatements> detach_role_statements_;
+      std::unique_ptr<CommandStatements> grant_permission_statements_;
+      std::unique_ptr<CommandStatements> remove_peer_statements_;
+      std::unique_ptr<CommandStatements> remove_signatory_statements_;
+      std::unique_ptr<CommandStatements> revoke_permission_statements_;
+      std::unique_ptr<CommandStatements> set_account_detail_statements_;
+      std::unique_ptr<CommandStatements> set_quorum_statements_;
+      std::unique_ptr<CommandStatements> subtract_asset_quantity_statements_;
+      std::unique_ptr<CommandStatements> transfer_asset_statements_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha
