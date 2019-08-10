@@ -15,6 +15,7 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_temporary_factory.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/validation/mock_stateful_validator.hpp"
@@ -48,6 +49,7 @@ class SimulatorTest : public ::testing::Test {
       shared_model::interface::Block>;
 
   void SetUp() override {
+    auto command_executor = std::make_unique<MockCommandExecutor>();
     validator = std::make_shared<MockStatefulValidator>();
     factory = std::make_shared<NiceMock<MockTemporaryFactory>>();
     ordering_gate = std::make_shared<MockOrderingGate>();
@@ -61,7 +63,8 @@ class SimulatorTest : public ::testing::Test {
     EXPECT_CALL(*ordering_gate, onProposal())
         .WillOnce(Return(ordering_events.get_observable()));
 
-    simulator = std::make_shared<Simulator>(ordering_gate,
+    simulator = std::make_shared<Simulator>(std::move(command_executor),
+                                            ordering_gate,
                                             validator,
                                             factory,
                                             crypto_signer,
@@ -130,7 +133,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
               .build());
   const auto &proposal = validation_result->verified_proposal;
 
-  EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
+  EXPECT_CALL(*factory, createTemporaryWsv(_)).Times(1);
 
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&validation_result](const auto &p, auto &v) {
@@ -215,7 +218,7 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
             validation::CommandError{"SomeCommand", 1, "", true}});
   }
 
-  EXPECT_CALL(*factory, createTemporaryWsv()).Times(1);
+  EXPECT_CALL(*factory, createTemporaryWsv(_)).Times(1);
 
   EXPECT_CALL(*validator, validate(_, _))
       .WillOnce(Invoke([&verified_proposal_and_errors](const auto &p, auto &v) {
@@ -224,15 +227,15 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
 
   auto verification_result = simulator->processProposal(*proposal);
   ASSERT_TRUE(verification_result);
-  auto verified_proposal = verification_result->get()->verified_proposal;
+  auto verified_proposal = verification_result->verified_proposal;
 
   // ensure that txs in verified proposal do not include failed ones
   EXPECT_EQ(verified_proposal->height(), verified_proposal_height);
   EXPECT_EQ(verified_proposal->transactions(), verified_proposal_transactions);
-  EXPECT_TRUE(verification_result->get()->rejected_transactions.size()
+  EXPECT_TRUE(verification_result->rejected_transactions.size()
               == kNumTransactions - 1);
   const auto verified_proposal_rejected_tx_hashes =
-      verification_result->get()->rejected_transactions
+      verification_result->rejected_transactions
       | boost::adaptors::transformed(
             [](const auto &tx_error) { return tx_error.tx_hash; });
   for (auto rejected_tx = txs.begin() + 1; rejected_tx != txs.end();

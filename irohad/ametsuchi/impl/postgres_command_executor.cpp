@@ -456,11 +456,11 @@ namespace iroha {
 
     std::unique_ptr<PostgresCommandExecutor::CommandStatements>
     PostgresCommandExecutor::makeCommandStatements(
-        soci::session &session,
+        const std::unique_ptr<soci::session> &session,
         const std::string &base_statement,
         const std::vector<std::string> &permission_checks) {
       return std::make_unique<CommandStatements>(
-          session, base_statement, permission_checks);
+          *session, base_statement, permission_checks);
     }
 
     void PostgresCommandExecutor::initStatements() {
@@ -1311,10 +1311,10 @@ namespace iroha {
     }
 
     PostgresCommandExecutor::PostgresCommandExecutor(
-        soci::session &sql,
+        std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter)
-        : sql_(sql),
+        : sql_(std::move(sql)),
           do_validation_(true),
           perm_converter_{std::move(perm_converter)} {
       initStatements();
@@ -1330,6 +1330,10 @@ namespace iroha {
 
     void PostgresCommandExecutor::doValidation(bool do_validation) {
       do_validation_ = do_validation;
+    }
+
+    soci::session &PostgresCommandExecutor::getSession() {
+      return *sql_;
     }
 
     CommandResult PostgresCommandExecutor::operator()(

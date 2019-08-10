@@ -6,6 +6,7 @@
 #include "simulator/impl/simulator.hpp"
 
 #include <boost/range/adaptor/transformed.hpp>
+#include "ametsuchi/command_executor.hpp"
 #include "common/bind.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
@@ -15,6 +16,7 @@ namespace iroha {
   namespace simulator {
 
     Simulator::Simulator(
+        std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
         std::shared_ptr<network::OrderingGate> ordering_gate,
         std::shared_ptr<validation::StatefulValidator> statefulValidator,
         std::shared_ptr<ametsuchi::TemporaryFactory> factory,
@@ -22,7 +24,8 @@ namespace iroha {
         std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
             block_factory,
         logger::LoggerPtr log)
-        : notifier_(notifier_lifetime_),
+        : command_executor_(std::move(command_executor)),
+          notifier_(notifier_lifetime_),
           block_notifier_(block_notifier_lifetime_),
           validator_(std::move(statefulValidator)),
           ametsuchi_factory_(std::move(factory)),
@@ -35,12 +38,10 @@ namespace iroha {
               auto validated_proposal_and_errors =
                   this->processProposal(*getProposalUnsafe(event));
 
-              if (validated_proposal_and_errors) {
-                notifier_.get_subscriber().on_next(
-                    VerifiedProposalCreatorEvent{*validated_proposal_and_errors,
-                                                 event.round,
-                                                 event.ledger_state});
-              }
+              notifier_.get_subscriber().on_next(
+                  VerifiedProposalCreatorEvent{validated_proposal_and_errors,
+                                               event.round,
+                                               event.ledger_state});
             } else {
               notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
                   boost::none, event.round, event.ledger_state});
@@ -79,22 +80,12 @@ namespace iroha {
       return notifier_.get_observable();
     }
 
-    boost::optional<std::shared_ptr<validation::VerifiedProposalAndErrors>>
+    std::shared_ptr<validation::VerifiedProposalAndErrors>
     Simulator::processProposal(
         const shared_model::interface::Proposal &proposal) {
       log_->info("process proposal");
 
-      auto temporary_wsv_var = ametsuchi_factory_->createTemporaryWsv();
-      if (auto e =
-              boost::get<expected::Error<std::string>>(&temporary_wsv_var)) {
-        log_->error("could not create temporary storage: {}", e->error);
-        return boost::none;
-      }
-
-      auto storage = std::move(
-          boost::get<expected::Value<std::unique_ptr<ametsuchi::TemporaryWsv>>>(
-              &temporary_wsv_var)
-              ->value);
+      auto storage = ametsuchi_factory_->createTemporaryWsv(command_executor_);
 
       std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
           validated_proposal_and_errors =

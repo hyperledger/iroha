@@ -12,6 +12,7 @@
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
+#include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_mutable_factory.hpp"
 #include "module/irohad/ametsuchi/mock_mutable_storage.hpp"
 #include "module/irohad/network/network_mocks.hpp"
@@ -57,6 +58,7 @@ class SynchronizerTest : public ::testing::Test {
  public:
   void SetUp() override {
     chain_validator = std::make_shared<MockChainValidator>();
+    auto command_executor = std::make_unique<MockCommandExecutor>();
     mutable_factory = std::make_shared<MockMutableFactory>();
     block_query_factory =
         std::make_shared<::testing::NiceMock<MockBlockQueryFactory>>();
@@ -98,7 +100,8 @@ class SynchronizerTest : public ::testing::Test {
     EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
     synchronizer =
-        std::make_shared<SynchronizerImpl>(consensus_gate,
+        std::make_shared<SynchronizerImpl>(std::move(command_executor),
+                                           consensus_gate,
                                            chain_validator,
                                            mutable_factory,
                                            block_query_factory,
@@ -189,8 +192,8 @@ void mutableStorageExpectChain(
     iroha::ametsuchi::MockMutableFactory &mutable_factory,
     std::vector<std::shared_ptr<shared_model::interface::Block>> chain) {
   const bool must_create_storage = not chain.empty();
-  auto create_mutable_storage = [chain = std::move(chain)]()
-      -> expected::Result<std::unique_ptr<MutableStorage>, std::string> {
+  auto create_mutable_storage =
+      [chain = std::move(chain)](auto) -> std::unique_ptr<MutableStorage> {
     auto mutable_storage = std::make_unique<MockMutableStorage>();
     if (chain.empty()) {
       EXPECT_CALL(*mutable_storage, apply(_)).Times(0);
@@ -204,15 +207,14 @@ void mutableStorageExpectChain(
             .WillOnce(Return(true));
       }
     }
-    return expected::Value<std::unique_ptr<MutableStorage>>{
-        std::move(mutable_storage)};
+    return mutable_storage;
   };
   if (must_create_storage) {
-    EXPECT_CALL(mutable_factory, createMutableStorage())
+    EXPECT_CALL(mutable_factory, createMutableStorage(_))
         .Times(AtLeast(1))
         .WillRepeatedly(::testing::Invoke(create_mutable_storage));
   } else {
-    EXPECT_CALL(mutable_factory, createMutableStorage())
+    EXPECT_CALL(mutable_factory, createMutableStorage(_))
         .WillRepeatedly(::testing::Invoke(create_mutable_storage));
   }
 }
@@ -245,30 +247,6 @@ TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
 
 /**
  * @given A commit from consensus and initialized components
- * @when Storage cannot be initialized
- * @then No commit should be passed
- */
-TEST_F(SynchronizerTest, ValidWhenBadStorage) {
-  DefaultValue<
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>>::Clear();
-  EXPECT_CALL(*mutable_factory, createMutableStorage())
-      .WillOnce(Return(ByMove(expected::makeError("Connection was closed"))));
-  EXPECT_CALL(*mutable_factory, commit_(_)).Times(0);
-  EXPECT_CALL(*chain_validator, validateAndApply(_, _)).Times(0);
-  EXPECT_CALL(*block_loader, retrieveBlocks(_, _)).Times(0);
-
-  auto wrapper =
-      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
-  wrapper.subscribe();
-
-  gate_outcome.get_subscriber().on_next(consensus::PairValid(
-      consensus::Round{kHeight, 1}, ledger_state, commit_message));
-
-  ASSERT_TRUE(wrapper.validate());
-}
-
-/**
- * @given A commit from consensus and initialized components
  * @when gate have voted for other block
  * @then Successful commit
  */
@@ -276,7 +254,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
 
-  EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(1);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
       .WillOnce(Return(true));
@@ -305,7 +283,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
 
-  EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(1);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   const auto target_height = kHeight + 1;
   auto target_commit = makeCommit(target_height);
@@ -341,7 +319,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
 TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
-  EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(3);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(3);
   {
     InSequence s;  // ensures the call order
     EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({}), _))
@@ -378,7 +356,7 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
   const size_t number_of_failures{ledger_peers.size() + 2};
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
-  EXPECT_CALL(*mutable_factory, createMutableStorage())
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_))
       .Times(number_of_failures + 1);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillRepeatedly(Return(rxcpp::observable<>::just(commit_message)));
@@ -510,7 +488,7 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   EXPECT_CALL(*mutable_factory, preparedCommitEnabled()).Times(0);
   EXPECT_CALL(*mutable_factory, commitPrepared(_)).Times(0);
 
-  EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(1);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillRepeatedly(Return(rxcpp::observable<>::just(commit_message)));
@@ -612,7 +590,7 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
 
-  EXPECT_CALL(*mutable_factory, createMutableStorage()).Times(1);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
   EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({commit_message}), _))
       .WillOnce(Return(true));

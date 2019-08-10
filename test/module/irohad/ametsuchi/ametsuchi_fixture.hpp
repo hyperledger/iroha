@@ -15,9 +15,11 @@
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
+#include "ametsuchi/mutable_storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "common/files.hpp"
+#include "common/result.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/sql_query.hpp"
 #include "framework/test_logger.hpp"
@@ -96,9 +98,18 @@ namespace iroha {
                                               pgopt_);
         sql_query =
             std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
+
+        storage->createCommandExecutor().match(
+            [](auto &&value) { command_executor = std::move(value).value; },
+            [](const auto &error) {
+              FAIL()
+                  << "Could not create command executor to apply genesis block!"
+                  << error.error;
+            });
       }
 
       static void TearDownTestCase() {
+        command_executor.reset();
         sql->close();
         storage->dropStorage();
         boost::filesystem::remove_all(block_store_path);
@@ -106,6 +117,24 @@ namespace iroha {
 
       void TearDown() override {
         storage->reset();
+      }
+
+      /**
+       * Apply block to given storage
+       * @param storage storage object
+       * @param block to apply
+       */
+      void apply(const std::shared_ptr<StorageImpl> &storage,
+                 std::shared_ptr<const shared_model::interface::Block> block) {
+        auto ms = createMutableStorage();
+        ASSERT_TRUE(ms->apply(block));
+        ASSERT_TRUE(
+            expected::resultToOptionalValue(storage->commit(std::move(ms))));
+      }
+
+      /// Create mutable storage from initialized storage
+      std::unique_ptr<ametsuchi::MutableStorage> createMutableStorage() {
+        return storage->createMutableStorage(command_executor);
       }
 
      protected:
@@ -123,6 +152,7 @@ namespace iroha {
        */
       static logger::LoggerPtr storage_logger_;
       static std::shared_ptr<StorageImpl> storage;
+      static std::shared_ptr<CommandExecutor> command_executor;
       static std::unique_ptr<framework::ametsuchi::SqlQuery> sql_query;
 
       static std::shared_ptr<shared_model::interface::PermissionToString>
@@ -257,6 +287,7 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
     logger::LoggerPtr AmetsuchiTest::storage_logger_ =
         getTestLoggerManager()->getChild("Storage")->getLogger();
     std::shared_ptr<StorageImpl> AmetsuchiTest::storage = nullptr;
+    std::shared_ptr<CommandExecutor> AmetsuchiTest::command_executor = nullptr;
     std::unique_ptr<framework::ametsuchi::SqlQuery> AmetsuchiTest::sql_query =
         nullptr;
   }  // namespace ametsuchi

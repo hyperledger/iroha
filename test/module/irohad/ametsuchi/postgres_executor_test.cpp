@@ -44,19 +44,17 @@ namespace iroha {
 
       void SetUp() override {
         AmetsuchiTest::SetUp();
-        sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
 
+        auto sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                                   pgopt_);
         wsv_query =
-            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WcvQuery"));
-        executor =
-            std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
+            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
-        *sql << init_;
+        executor = std::make_unique<PostgresCommandExecutor>(std::move(sql),
+                                                             perm_converter);
       }
 
       void TearDown() override {
-        sql->close();
         AmetsuchiTest::TearDown();
       }
 
@@ -181,12 +179,11 @@ namespace iroha {
       shared_model::interface::permissions::Grantable grantable_permission;
       shared_model::interface::types::AccountIdType account_id, name;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
-      std::unique_ptr<soci::session> sql;
 
       std::unique_ptr<shared_model::interface::Command> command;
 
-      std::unique_ptr<WsvQuery> wsv_query;
       std::unique_ptr<CommandExecutor> executor;
+      std::unique_ptr<WsvQuery> wsv_query;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter =

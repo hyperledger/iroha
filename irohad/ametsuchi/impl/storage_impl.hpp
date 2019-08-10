@@ -38,11 +38,14 @@ namespace iroha {
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
-      expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
-      createTemporaryWsv() override;
+      expected::Result<std::unique_ptr<CommandExecutor>, std::string>
+      createCommandExecutor() override;
 
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage() override;
+      std::unique_ptr<TemporaryWsv> createTemporaryWsv(
+          std::shared_ptr<CommandExecutor> command_executor) override;
+
+      std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor) override;
 
       boost::optional<std::shared_ptr<PeerQuery>> createPeerQuery()
           const override;
@@ -61,8 +64,9 @@ namespace iroha {
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage(BlockStorageFactory &storage_factory) override;
+      std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor,
+          BlockStorageFactory &storage_factory) override;
 
       void reset() override;
 

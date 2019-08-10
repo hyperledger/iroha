@@ -9,7 +9,6 @@
 #include "ametsuchi/command_executor.hpp"
 
 #include <gmock/gmock.h>
-#include <soci/session.h>
 
 namespace iroha {
   namespace ametsuchi {
@@ -101,30 +100,30 @@ namespace iroha {
         return doTransferAsset(command);
       }
 
-      MOCK_METHOD1(doAddAssetQuantity,
-                   CommandResult(
-                       const shared_model::interface::AddAssetQuantity &));
+      MOCK_METHOD1(
+          doAddAssetQuantity,
+          CommandResult(const shared_model::interface::AddAssetQuantity &));
 
       MOCK_METHOD1(doAddPeer,
                    CommandResult(const shared_model::interface::AddPeer &));
 
-      MOCK_METHOD1(doAddSignatory,
-                   CommandResult(
-                       const shared_model::interface::AddSignatory &));
+      MOCK_METHOD1(
+          doAddSignatory,
+          CommandResult(const shared_model::interface::AddSignatory &));
 
       MOCK_METHOD1(doAppendRole,
                    CommandResult(const shared_model::interface::AppendRole &));
 
-      MOCK_METHOD1(doCreateAccount,
-                   CommandResult(
-                       const shared_model::interface::CreateAccount &));
+      MOCK_METHOD1(
+          doCreateAccount,
+          CommandResult(const shared_model::interface::CreateAccount &));
 
       MOCK_METHOD1(doCreateAsset,
                    CommandResult(const shared_model::interface::CreateAsset &));
 
-      MOCK_METHOD1(doCreateDomain,
-                   CommandResult(
-                       const shared_model::interface::CreateDomain &));
+      MOCK_METHOD1(
+          doCreateDomain,
+          CommandResult(const shared_model::interface::CreateDomain &));
 
       MOCK_METHOD1(doCreateRole,
                    CommandResult(const shared_model::interface::CreateRole &));
@@ -132,21 +131,21 @@ namespace iroha {
       MOCK_METHOD1(doDetachRole,
                    CommandResult(const shared_model::interface::DetachRole &));
 
-      MOCK_METHOD1(doGrantPermission,
-                   CommandResult(
-                       const shared_model::interface::GrantPermission &));
+      MOCK_METHOD1(
+          doGrantPermission,
+          CommandResult(const shared_model::interface::GrantPermission &));
 
-      MOCK_METHOD1(doRemoveSignatory,
-                   CommandResult(
-                       const shared_model::interface::RemoveSignatory &));
+      MOCK_METHOD1(
+          doRemoveSignatory,
+          CommandResult(const shared_model::interface::RemoveSignatory &));
 
-      MOCK_METHOD1(doRevokePermission,
-                   CommandResult(
-                       const shared_model::interface::RevokePermission &));
+      MOCK_METHOD1(
+          doRevokePermission,
+          CommandResult(const shared_model::interface::RevokePermission &));
 
-      MOCK_METHOD1(doSetAccountDetail,
-                   CommandResult(
-                       const shared_model::interface::SetAccountDetail &));
+      MOCK_METHOD1(
+          doSetAccountDetail,
+          CommandResult(const shared_model::interface::SetAccountDetail &));
 
       MOCK_METHOD1(doSetQuorum,
                    CommandResult(const shared_model::interface::SetQuorum &));
@@ -155,9 +154,9 @@ namespace iroha {
                    CommandResult(
                        const shared_model::interface::SubtractAssetQuantity &));
 
-      MOCK_METHOD1(doTransferAsset,
-                   CommandResult(
-                       const shared_model::interface::TransferAsset &));
+      MOCK_METHOD1(
+          doTransferAsset,
+          CommandResult(const shared_model::interface::TransferAsset &));
     };
 
   }  // namespace ametsuchi
