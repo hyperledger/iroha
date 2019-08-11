@@ -3,12 +3,6 @@
 Architecture
 ************
 
-.. toctree::
-   :maxdepth: 1
-
-   execution_model.rst
-   shared_objects.rst
-
 HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below.
 
 .. image:: ../../image_assets/pipeline-diagram.png
