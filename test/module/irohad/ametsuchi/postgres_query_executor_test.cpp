@@ -202,10 +202,11 @@ namespace iroha {
                    bool do_validation = false,
                    const shared_model::interface::types::AccountIdType
                        &creator = "id@domain") {
-        executor->doValidation(not do_validation);
-        executor->setCreatorAccountId(creator);
-        ASSERT_TRUE(
-            val(executor->operator()(std::forward<CommandType>(command))));
+        shared_model::interface::Command::CommandVariantType variant{
+            std::forward<CommandType>(command)};
+        shared_model::interface::MockCommand cmd;
+        EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
+        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
       }
 
       void addPerms(

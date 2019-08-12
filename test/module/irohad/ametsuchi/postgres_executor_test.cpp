@@ -72,9 +72,11 @@ namespace iroha {
                             const shared_model::interface::types::AccountIdType
                                 &creator = "id@domain") {
         // TODO igor-egorov 15.04.2019 IR-446 Refactor postgres_executor_test
-        executor->doValidation(not do_validation);
-        executor->setCreatorAccountId(creator);
-        return executor->operator()(std::forward<CommandType>(command));
+        shared_model::interface::Command::CommandVariantType variant{
+            std::forward<CommandType>(command)};
+        shared_model::interface::MockCommand cmd;
+        EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
+        return executor->execute(cmd, creator, not do_validation);
       }
 
       /**
