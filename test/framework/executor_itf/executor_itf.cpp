@@ -66,8 +66,7 @@ CreateResult ExecutorItf::create(ExecutorItfTarget target) {
 CommandResult ExecutorItf::executeCommandAsAccount(
     const shared_model::interface::Command &cmd,
     const std::string &account_id) const {
-  cmd_executor_->setCreatorAccountId(account_id);
-  return cmd_executor_->execute(cmd);
+  return cmd_executor_->execute(cmd, account_id, true);
 }
 
 Result<void, TxExecutionError> ExecutorItf::executeTransaction(

@@ -17,6 +17,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
@@ -1314,22 +1315,21 @@ namespace iroha {
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter)
-        : sql_(std::move(sql)),
-          do_validation_(true),
-          perm_converter_{std::move(perm_converter)} {
+        : sql_(std::move(sql)), perm_converter_{std::move(perm_converter)} {
       initStatements();
     }
 
     PostgresCommandExecutor::~PostgresCommandExecutor() = default;
 
-    void PostgresCommandExecutor::setCreatorAccountId(
-        const shared_model::interface::types::AccountIdType
-            &creator_account_id) {
-      creator_account_id_ = creator_account_id;
-    }
-
-    void PostgresCommandExecutor::doValidation(bool do_validation) {
-      do_validation_ = do_validation;
+    CommandResult PostgresCommandExecutor::execute(
+        const shared_model::interface::Command &cmd,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
+      return boost::apply_visitor(
+          [this, &creator_account_id, do_validation](const auto &command) {
+            return (*this)(command, creator_account_id, do_validation);
+          },
+          cmd.get());
     }
 
     soci::session &PostgresCommandExecutor::getSession() {
@@ -1337,16 +1337,18 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::AddAssetQuantity &command) {
+        const shared_model::interface::AddAssetQuantity &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &asset_id = command.assetId();
       auto quantity = command.amount().toStringRepr();
       int precision = command.amount().precision();
 
       StatementExecutor executor(add_asset_quantity_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "AddAssetQuantity",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("asset_id", asset_id);
       executor.use("precision", precision);
       executor.use("quantity", quantity);
@@ -1355,12 +1357,14 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::AddPeer &command) {
+        const shared_model::interface::AddPeer &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &peer = command.peer();
 
       StatementExecutor executor(
-          add_peer_statements_, do_validation_, "AddPeer", perm_converter_);
-      executor.use("creator", creator_account_id_);
+          add_peer_statements_, do_validation, "AddPeer", perm_converter_);
+      executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
       executor.use("pubkey", peer.pubkey().hex());
 
@@ -1368,15 +1372,17 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::AddSignatory &command) {
+        const shared_model::interface::AddSignatory &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &target = command.accountId();
       const auto &pubkey = command.pubkey().hex();
 
       StatementExecutor executor(add_signatory_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "AddSignatory",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", target);
       executor.use("pubkey", pubkey);
 
@@ -1384,15 +1390,17 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::AppendRole &command) {
+        const shared_model::interface::AppendRole &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &target = command.accountId();
       auto &role = command.roleName();
 
       StatementExecutor executor(append_role_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "AppendRole",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", target);
       executor.use("role", role);
 
@@ -1400,30 +1408,34 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::CompareAndSetAccountDetail &command) {
+        const shared_model::interface::CompareAndSetAccountDetail &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       std::string new_json_value = makeJsonString(command.value());
       const std::string expected_json_value =
           makeJsonString(command.oldValue().value_or(""));
 
       StatementExecutor executor(compare_and_set_account_detail_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "CompareAndSetAccountDetail",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", command.accountId());
       executor.use("key", command.key());
       executor.use("new_value", new_json_value);
       executor.use("have_expected_value",
                    static_cast<bool>(command.oldValue()));
       executor.use("expected_value", expected_json_value);
-      executor.use("creator_domain", getDomainFromName(creator_account_id_));
+      executor.use("creator_domain", getDomainFromName(creator_account_id));
       executor.use("target_domain", getDomainFromName(command.accountId()));
 
       return executor.execute();
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::CreateAccount &command) {
+        const shared_model::interface::CreateAccount &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &account_name = command.accountName();
       auto &domain_id = command.domainId();
       auto &pubkey = command.pubkey().hex();
@@ -1431,10 +1443,10 @@ namespace iroha {
           account_name + "@" + domain_id;
 
       StatementExecutor executor(create_account_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "CreateAccount",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("account_id", account_id);
       executor.use("domain", domain_id);
       executor.use("pubkey", pubkey);
@@ -1443,16 +1455,18 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::CreateAsset &command) {
+        const shared_model::interface::CreateAsset &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &domain_id = command.domainId();
       auto asset_id = command.assetName() + "#" + domain_id;
       int precision = command.precision();
 
       StatementExecutor executor(create_asset_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "CreateAsset",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("asset_id", asset_id);
       executor.use("domain", domain_id);
       executor.use("precision", precision);
@@ -1461,15 +1475,17 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::CreateDomain &command) {
+        const shared_model::interface::CreateDomain &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &domain_id = command.domainId();
       auto &default_role = command.userDefaultRole();
 
       StatementExecutor executor(create_domain_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "CreateDomain",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("domain", domain_id);
       executor.use("default_role", default_role);
 
@@ -1477,16 +1493,18 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::CreateRole &command) {
+        const shared_model::interface::CreateRole &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &role_id = command.roleName();
       auto &permissions = command.rolePermissions();
       auto perm_str = permissions.toBitstring();
 
       StatementExecutor executor(create_role_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "CreateRole",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("role", role_id);
       executor.use("perms", perm_str);
 
@@ -1494,15 +1512,17 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::DetachRole &command) {
+        const shared_model::interface::DetachRole &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &account_id = command.accountId();
       auto &role_name = command.roleName();
 
       StatementExecutor executor(detach_role_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "DetachRole",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", account_id);
       executor.use("role", role_name);
 
@@ -1510,17 +1530,19 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::GrantPermission &command) {
+        const shared_model::interface::GrantPermission &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &permittee_account_id = command.accountId();
       auto granted_perm = command.permissionName();
       auto required_perm =
           shared_model::interface::permissions::permissionFor(granted_perm);
 
       StatementExecutor executor(grant_permission_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "GrantPermission",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", permittee_account_id);
       executor.use("granted_perm", granted_perm);
       executor.use("required_perm", required_perm);
@@ -1529,29 +1551,33 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::RemovePeer &command) {
+        const shared_model::interface::RemovePeer &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto pubkey = command.pubkey().hex();
 
       StatementExecutor executor(remove_peer_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "RemovePeer",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("pubkey", pubkey);
 
       return executor.execute();
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::RemoveSignatory &command) {
+        const shared_model::interface::RemoveSignatory &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &account_id = command.accountId();
       auto &pubkey = command.pubkey().hex();
 
       StatementExecutor executor(remove_signatory_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "RemoveSignatory",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", account_id);
       executor.use("pubkey", pubkey);
 
@@ -1559,15 +1585,17 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::RevokePermission &command) {
+        const shared_model::interface::RevokePermission &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &permittee_account_id = command.accountId();
       auto revoked_perm = command.permissionName();
 
       StatementExecutor executor(revoke_permission_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "RevokePermission",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("target", permittee_account_id);
       executor.use("revoked_perm", revoked_perm);
 
@@ -1575,21 +1603,25 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::SetAccountDetail &command) {
+        const shared_model::interface::SetAccountDetail &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &account_id = command.accountId();
       auto &key = command.key();
       auto &value = command.value();
-      if (creator_account_id_.empty()) {
-        // When creator is not known, it is genesis block
-        creator_account_id_ = "genesis";
-      }
       std::string json_value = makeJsonString(value);
 
       StatementExecutor executor(set_account_detail_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "SetAccountDetail",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      if (not creator_account_id.empty()) {
+        executor.use("creator", creator_account_id);
+      } else {
+        // When creator is not known, it is genesis block
+        static const std::string genesis_creator_account_id = "genesis";
+        executor.use("creator", genesis_creator_account_id);
+      }
       executor.use("target", account_id);
       executor.use("key", key);
       executor.use("value", json_value);
@@ -1598,13 +1630,15 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::SetQuorum &command) {
+        const shared_model::interface::SetQuorum &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &account_id = command.accountId();
       int quorum = command.newQuorum();
 
       StatementExecutor executor(
-          set_quorum_statements_, do_validation_, "SetQuorum", perm_converter_);
-      executor.use("creator", creator_account_id_);
+          set_quorum_statements_, do_validation, "SetQuorum", perm_converter_);
+      executor.use("creator", creator_account_id);
       executor.use("target", account_id);
       executor.use("quorum", quorum);
 
@@ -1612,16 +1646,18 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::SubtractAssetQuantity &command) {
+        const shared_model::interface::SubtractAssetQuantity &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &asset_id = command.assetId();
       auto quantity = command.amount().toStringRepr();
       uint32_t precision = command.amount().precision();
 
       StatementExecutor executor(subtract_asset_quantity_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "SubtractAssetQuantity",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("asset_id", asset_id);
       executor.use("quantity", quantity);
       executor.use("precision", precision);
@@ -1630,7 +1666,9 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::TransferAsset &command) {
+        const shared_model::interface::TransferAsset &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
       auto &src_account_id = command.srcAccountId();
       auto &dest_account_id = command.destAccountId();
       auto &asset_id = command.assetId();
@@ -1638,10 +1676,10 @@ namespace iroha {
       uint32_t precision = command.amount().precision();
 
       StatementExecutor executor(transfer_asset_statements_,
-                                 do_validation_,
+                                 do_validation,
                                  "TransferAsset",
                                  perm_converter_);
-      executor.use("creator", creator_account_id_);
+      executor.use("creator", creator_account_id);
       executor.use("source_account_id", src_account_id);
       executor.use("dest_account_id", dest_account_id);
       executor.use("asset_id", asset_id);
