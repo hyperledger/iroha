@@ -83,7 +83,8 @@ namespace iroha {
       /**
        * remove already processed transactions from proposal
        */
-      std::shared_ptr<const shared_model::interface::Proposal> removeReplays(
+      std::shared_ptr<const shared_model::interface::Proposal>
+      removeReplaysAndDuplicates(
           std::shared_ptr<const shared_model::interface::Proposal> proposal)
           const;
 

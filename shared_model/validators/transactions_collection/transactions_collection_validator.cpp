@@ -28,7 +28,8 @@ namespace shared_model {
             std::shared_ptr<ValidatorsConfig> config,
             TransactionValidator transactions_validator)
         : transaction_validator_(std::move(transactions_validator)),
-          batch_validator_(std::make_shared<BatchValidator>(config)) {}
+          batch_validator_(std::make_shared<BatchValidator>(config)),
+          txs_duplicates_allowed_(config->txs_duplicates_allowed) {}
 
     template <typename TransactionValidator, bool CollectionCanBeEmpty>
     template <typename Validator>
@@ -58,6 +59,22 @@ namespace shared_model {
               (boost::format("Tx %s : %s") % tx.hash().hex() % answer.reason())
                   .str();
           reason.second.push_back(message);
+        }
+      }
+
+      if (!txs_duplicates_allowed_) {
+        std::unordered_set<std::string> hashes = {};
+        for (const auto &tx : transactions) {
+          if (hashes.count(tx.hash().hex())) {
+            auto message =
+                (boost::format("Transaction with hash %s has already appeared "
+                               "within a collection")
+                 % tx.hash().hex())
+                    .str();
+            reason.second.push_back(message);
+          } else {
+            hashes.insert(tx.hash().hex());
+          }
         }
       }
 

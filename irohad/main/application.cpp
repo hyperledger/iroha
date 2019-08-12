@@ -126,6 +126,9 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
   block_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           max_proposal_size_, true);
+  proposal_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, false, true);
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
@@ -358,7 +361,7 @@ Irohad::RunResult Irohad::initFactories() {
       shared_model::interface::Proposal>>
       proposal_validator =
           std::make_unique<shared_model::validation::DefaultProposalValidator>(
-              validators_config_);
+              proposal_validators_config_);
   std::unique_ptr<
       shared_model::validation::AbstractValidator<iroha::protocol::Proposal>>
       proto_proposal_validator =

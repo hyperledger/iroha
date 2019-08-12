@@ -169,12 +169,17 @@ class TransportBuilderTest : public ::testing::Test {
             typename FailCase>
   void testTransport(const ObjectOriginalModel &orig_model,
                      SuccessCase &&successCase,
-                     FailCase &&failCase) {
+                     FailCase &&failCase,
+                     bool txs_duplicates_allowed = false) {
     auto proto_model = orig_model.getTransport();
 
-    auto built_model = TransportBuilder<ObjectOriginalModel, Validator>(
-                           iroha::test::kTestsValidatorsConfig)
-                           .build(proto_model);
+    auto built_model = txs_duplicates_allowed
+        ? TransportBuilder<ObjectOriginalModel, Validator>(
+              iroha::test::kProposalTestsValidatorsConfig)
+              .build(proto_model)
+        : TransportBuilder<ObjectOriginalModel, Validator>(
+              iroha::test::kTestsValidatorsConfig)
+              .build(proto_model);
 
     built_model.match(successCase, failCase);
   }
@@ -306,7 +311,8 @@ TEST_F(TransportBuilderTest, ProposalCreationTest) {
         ASSERT_EQ(model.value.getTransport().SerializeAsString(),
                   orig_model.getTransport().SerializeAsString());
       },
-      [](const Error<std::string> &) { FAIL(); });
+      [](const Error<std::string> &) { FAIL(); },
+      true);
 }
 
 /**
@@ -320,7 +326,8 @@ TEST_F(TransportBuilderTest, DISABLED_EmptyProposalCreationTest) {
   testTransport<validation::DefaultProposalValidator>(
       orig_model,
       [](const Value<decltype(orig_model)> &) { FAIL(); },
-      [](const Error<std::string> &) { SUCCEED(); });
+      [](const Error<std::string> &) { SUCCEED(); },
+      true);
 }
 
 //---------------------------Transaction Sequence-------------------------------
