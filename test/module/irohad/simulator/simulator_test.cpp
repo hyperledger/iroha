@@ -106,9 +106,9 @@ auto makeProposal(int height) {
           std::move(proposal)));
 }
 
-auto makeTx() {
+auto makeTx(size_t created_time = iroha::time::now()) {
   return shared_model::proto::TransactionBuilder()
-      .createdTime(iroha::time::now())
+      .createdTime(created_time)
       .creatorAccountId("admin@ru")
       .addAssetQuantity("coin#coin", "1.0")
       .quorum(1)
@@ -189,8 +189,9 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
   // verified proposal
   const int kNumTransactions = 3;
   std::vector<shared_model::proto::Transaction> txs;
+  uint64_t created_time = iroha::time::now();
   for (int i = 0; i < kNumTransactions; ++i) {
-    txs.push_back(makeTx());
+    txs.push_back(makeTx(created_time + i));
   }
   auto proposal = std::make_shared<shared_model::proto::Proposal>(
       shared_model::proto::ProposalBuilder()
