@@ -40,3 +40,10 @@ target_link_libraries(add_asset_qty_test
     common_test_constants
     query_permission_test
     )
+
+add_library(query_permission_test query_permission_test.cpp)
+target_link_libraries(query_permission_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    )
