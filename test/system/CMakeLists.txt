@@ -5,6 +5,7 @@
 
 addtest(irohad_test irohad_test.cpp)
 target_link_libraries(irohad_test
+        ametsuchi
         boost
         SOCI::postgresql
         SOCI::core

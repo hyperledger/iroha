@@ -14,7 +14,6 @@
 #include <boost/range/algorithm/replace_if.hpp>
 
 #include "ametsuchi/impl/failover_callback_holder.hpp"
-#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -25,6 +24,9 @@
 
 namespace iroha {
   namespace ametsuchi {
+
+    struct PoolWrapper;
+
     class PgConnectionInit {
      public:
       static expected::Result<std::shared_ptr<soci::connection_pool>,

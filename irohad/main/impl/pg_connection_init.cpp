@@ -5,6 +5,7 @@
 
 #include "main/impl/pg_connection_init.hpp"
 
+#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 

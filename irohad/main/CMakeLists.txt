@@ -26,7 +26,6 @@ target_link_libraries(raw_block_loader
 
 add_library(pg_connection_init impl/pg_connection_init.cpp)
 target_link_libraries(pg_connection_init
-    ametsuchi
     SOCI::postgresql
     SOCI::core
     failover_callback
