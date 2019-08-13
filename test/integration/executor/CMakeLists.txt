@@ -25,3 +25,10 @@ add_library(executor_fixture_param_provider executor_fixture_param_provider.cpp)
 target_link_libraries(executor_fixture_param_provider
     executor_fixture_param_postgres
     )
+
+addtest(add_signatory_test add_signatory_test.cpp)
+target_link_libraries(add_signatory_test
+    executor_fixture
+    executor_fixture_param_provider
+    query_permission_test
+    )

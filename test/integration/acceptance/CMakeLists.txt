@@ -173,14 +173,6 @@ target_link_libraries(get_account_test
     integration_framework
     )
 
-addtest(add_signatory_test
-    add_signatory_test.cpp
-    )
-target_link_libraries(add_signatory_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(remove_signatory_test
     remove_signatory_test.cpp
     )
