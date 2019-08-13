@@ -162,9 +162,9 @@ contract C {
               cmdSetDetail.value();
           return iroha::ametsuchi::CommandResult{};
         } else {
-          // TODO(IvanTyulyandin): Fix magic number 5
+          // TODO(IvanTyulyandin): Fix magic number 1
           return iroha::ametsuchi::CommandResult{iroha::ametsuchi::CommandError{
-              "MockedSetAccountDetail_No_Such_Account", 5, ""}};
+              "MockedSetAccountDetail_No_Such_Account", 1, ""}};
         }
       });
 
@@ -193,12 +193,12 @@ contract C {
             return query_response_factory->createAccountResponse(
                 accountId, "@evm", 1, {}, {"user"}, {});
           } else {
-            // TODO(IvanTyulyandin): Fix magic number 5
+            // TODO(IvanTyulyandin): Fix magic number 2
             return query_response_factory->createErrorQueryResponse(
                 shared_model::interface::QueryResponseFactory::ErrorQueryType::
                     kNoAccount,
                 "No account " + accountId,
-                5,
+                2,
                 {});
           }
         } else {
@@ -209,7 +209,7 @@ contract C {
           const auto &accountId = getAccDetailQuery.accountId();
           // Since Burrow should always set a key, no need to check for
           // boost::optional emptiness
-          const auto &key = *getAccDetailQuery.key();
+          const std::string &key = *getAccDetailQuery.key();
 
           // Check the requested account and detail exist
           const auto iterToTestAccount = testAccounts.find(accountId);
@@ -220,20 +220,21 @@ contract C {
               return query_response_factory->createAccountDetailResponse(
                   (*iterToValue).second, 1, {}, {});
             } else {
+              // TODO(IvanTyulyandin): Fix magic number 3
               return query_response_factory->createErrorQueryResponse(
                   shared_model::interface::QueryResponseFactory::
                       ErrorQueryType::kNoAccountDetail,
-                  "No detail" + key + " for account " + accountId,
-                  5,
+                  "No detail " + key + " for account " + accountId,
+                  3,
                   {});
             }
           } else {
-            // TODO(IvanTyulyandin): Fix magic number 5
+            // TODO(IvanTyulyandin): Fix magic number 4
             return query_response_factory->createErrorQueryResponse(
                 shared_model::interface::QueryResponseFactory::ErrorQueryType::
                     kNoAccount,
                 "No account " + accountId + " for query detail " + key,
-                5,
+                4,
                 {});
           }
         }
@@ -244,7 +245,10 @@ contract C {
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty,
+  // Save returned code from EVM by copying res.r0
+  const auto deployedCode = std::string(res.r0);
+
+  res = VmCall(const_cast<char *>(deployedCode.c_str()),
                inputCallSetter,
                caller,
                callee,
@@ -253,7 +257,7 @@ contract C {
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty,
+  res = VmCall(const_cast<char *>(deployedCode.c_str()),
                inputCallGetter,
                caller,
                callee,
