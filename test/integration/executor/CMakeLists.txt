@@ -32,3 +32,11 @@ target_link_libraries(add_signatory_test
     executor_fixture_param_provider
     query_permission_test
     )
+
+addtest(add_asset_qty_test add_asset_qty_test.cpp)
+target_link_libraries(add_asset_qty_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    query_permission_test
+    )
