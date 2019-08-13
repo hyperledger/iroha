@@ -29,7 +29,6 @@
 #include "interfaces/commands/set_quorum.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
-#include "logger/logger.hpp"
 
 using testing::Return;
 

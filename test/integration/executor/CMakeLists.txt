@@ -78,3 +78,11 @@ target_link_libraries(get_signatories_test
     common_test_constants
     query_permission_test
     )
+
+addtest(set_account_detail_test set_account_detail_test.cpp)
+target_link_libraries(set_account_detail_test
+    account_detail_checker
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    )
