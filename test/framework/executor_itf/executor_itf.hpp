@@ -61,17 +61,21 @@ namespace iroha {
        * Execute a command as account.
        * @param cmd The command to execute.
        * @param account_id The issuer account id.
+       * @param do_validation Initializes the same parameter of command
+       * executor.
        * @return Result of command execution.
        */
       iroha::ametsuchi::CommandResult executeCommandAsAccount(
           const shared_model::interface::Command &cmd,
-          const std::string &account_id) const;
+          const std::string &account_id,
+          bool do_validation) const;
 
       /**
        * Execute a command as account.
        * @tparam SpecificCommand The type of executed specific command.
        * @param cmd The command to execute.
        * @param account_id The issuer account id.
+       * @param do_validation Whether to perform permissions check.
        * @return Result of command execution.
        */
       template <typename SpecificCommand,
@@ -79,30 +83,31 @@ namespace iroha {
                     typename SpecificCommand::ModelType>>>
       iroha::ametsuchi::CommandResult executeCommandAsAccount(
           const SpecificCommand &specific_cmd,
-          const std::string &account_id) const {
+          const std::string &account_id,
+          bool do_validation) const {
         shared_model::interface::Command::CommandVariantType variant{
             specific_cmd};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executeCommandAsAccount(cmd, account_id);
+        return executeCommandAsAccount(cmd, account_id, do_validation);
       }
 
       /**
-       * Execute a command as admin.
+       * Execute a command as admin without validation.
        * @tparam SpecificCommand The type of executed specific command.
        * @param cmd The command to execute.
        * @return Result of command execution.
        */
       template <typename T>
-      auto executeCommand(const T &cmd) const
-          -> decltype(executeCommandAsAccount(cmd, std::string{})) {
-        return executeCommandAsAccount(cmd, common_constants::kAdminId);
+      auto executeMaintenanceCommand(const T &cmd) const
+          -> decltype(executeCommandAsAccount(cmd, std::string{}, false)) {
+        return executeCommandAsAccount(cmd, common_constants::kAdminId, false);
       }
 
       /**
        * Execute a transaction.
        * @param cmd The transaction to execute.
-       * @param do_validation Whether to enable permissions validation.
+       * @param do_validation Whether to perform permissions check.
        * @return Error in case of failure.
        */
       iroha::expected::Result<void, iroha::ametsuchi::TxExecutionError>
@@ -267,6 +272,9 @@ namespace iroha {
           std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor>
               query_executor,
           logger::LoggerManagerTreePtr log_manager);
+
+      /// Prepare WSV (as part of initialization).
+      iroha::expected::Result<void, std::string> prepareState() const;
 
       /// Create admin account with all permissions.
       iroha::ametsuchi::CommandResult createAdmin() const;
