@@ -79,6 +79,9 @@ namespace integration_framework {
     //      IR-1885              refactoring requested.
     std::shared_ptr<TestIrohad> &getIrohaInstance();
 
+    /// Terminate Iroha instance and clean the resources up.
+    void terminateAndCleanup();
+
     // config area
     const boost::optional<std::string> block_store_dir_;
     const std::string working_dbname_;
@@ -99,9 +102,6 @@ namespace integration_framework {
     logger::LoggerManagerTreePtr irohad_log_manager_;
 
     logger::LoggerPtr log_;
-
-    boost::optional<std::chrono::milliseconds> mst_gossip_emitting_period_;
-    boost::optional<uint32_t> mst_gossip_amount_per_once_;
   };
 }  // namespace integration_framework
 #endif  // IROHA_IROHA_INSTANCE_HPP

@@ -24,6 +24,7 @@ namespace shared_model {
       TransactionValidator transaction_validator_;
       std::shared_ptr<AbstractValidator<interface::TransactionBatch>>
           batch_validator_;
+      bool txs_duplicates_allowed_;
 
      private:
       template <typename Validator>

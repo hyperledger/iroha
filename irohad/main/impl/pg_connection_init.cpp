@@ -75,7 +75,6 @@ PgConnectionInit::prepareConnectionPool(
 
     initializeConnectionPool(*connection,
                              pool_size,
-                             init_,
                              try_rollback,
                              *failover_callback_factory,
                              reconnection_strategy_factory,
@@ -158,7 +157,6 @@ template <typename RollbackFunction>
 void PgConnectionInit::initializeConnectionPool(
     soci::connection_pool &connection_pool,
     size_t pool_size,
-    const std::string &prepare_tables_sql,
     RollbackFunction try_rollback,
     FailoverCallbackHolder &callback_factory,
     const ReconnectionStrategyFactory &reconnection_strategy_factory,
@@ -176,7 +174,6 @@ void PgConnectionInit::initializeConnectionPool(
     // TODO: 2019-05-06 @muratovv rework unhandled exception with Result
     // IR-464
     on_init_db(session);
-    PostgresCommandExecutor::prepareStatements(session);
   };
 
   /// lambda contains special actions which should be execute once
@@ -184,7 +181,7 @@ void PgConnectionInit::initializeConnectionPool(
     // rollback current prepared transaction
     // if there exists any since last session
     try_rollback(session);
-    session << prepare_tables_sql;
+    prepareTables(session);
   };
 
   /// lambda contains actions which should be invoked once for each
@@ -216,7 +213,8 @@ void PgConnectionInit::initializeConnectionPool(
   }
 }
 
-const std::string PgConnectionInit::init_ = R"(
+void PgConnectionInit::prepareTables(soci::session &session) {
+  static const std::string prepare_tables_sql = R"(
 CREATE TABLE IF NOT EXISTS role (
     role_id character varying(32),
     PRIMARY KEY (role_id)
@@ -262,8 +260,8 @@ CREATE TABLE IF NOT EXISTS account_has_asset (
 CREATE TABLE IF NOT EXISTS role_has_permissions (
     role_id character varying(32) NOT NULL REFERENCES role,
     permission bit()"
-    + std::to_string(shared_model::interface::RolePermissionSet::size())
-    + R"() NOT NULL,
+      + std::to_string(shared_model::interface::RolePermissionSet::size())
+      + R"() NOT NULL,
     PRIMARY KEY (role_id)
 );
 CREATE TABLE IF NOT EXISTS account_has_roles (
@@ -275,8 +273,8 @@ CREATE TABLE IF NOT EXISTS account_has_grantable_permissions (
     permittee_account_id character varying(288) NOT NULL REFERENCES account,
     account_id character varying(288) NOT NULL REFERENCES account,
     permission bit()"
-    + std::to_string(shared_model::interface::GrantablePermissionSet::size())
-    + R"() NOT NULL,
+      + std::to_string(shared_model::interface::GrantablePermissionSet::size())
+      + R"() NOT NULL,
     PRIMARY KEY (permittee_account_id, account_id)
 );
 CREATE TABLE IF NOT EXISTS position_by_hash (
@@ -307,7 +305,9 @@ CREATE INDEX IF NOT EXISTS position_by_account_asset_index
   ON position_by_account_asset
   USING btree
   (account_id, asset_id, height, index ASC);
-)";
+  )";
+  session << prepare_tables_sql;
+}
 
 iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
     soci::session &sql) {

@@ -22,6 +22,7 @@ namespace shared_model {
 namespace iroha {
 
   namespace ametsuchi {
+    class PostgresCommandExecutor;
     class TransactionExecutor;
 
     class TemporaryWsvImpl : public TemporaryWsv {
@@ -45,8 +46,7 @@ namespace iroha {
       };
 
       TemporaryWsvImpl(
-          std::unique_ptr<soci::session> sql,
-          std::unique_ptr<TransactionExecutor> transaction_executor,
+          std::shared_ptr<PostgresCommandExecutor> command_executor,
           logger::LoggerManagerTreePtr log_manager);
 
       expected::Result<void, validation::CommandError> apply(
@@ -65,7 +65,7 @@ namespace iroha {
       expected::Result<void, validation::CommandError> validateSignatures(
           const shared_model::interface::Transaction &transaction);
 
-      std::unique_ptr<soci::session> sql_;
+      soci::session &sql_;
       std::unique_ptr<TransactionExecutor> transaction_executor_;
 
       logger::LoggerManagerTreePtr log_manager_;

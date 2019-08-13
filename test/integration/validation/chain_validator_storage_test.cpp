@@ -73,14 +73,6 @@ namespace iroha {
       return clone(std::forward<Wrapper>(wrapper).finish());
     }
 
-    /// Create mutable storage from initialized storage
-    auto createMutableStorage() {
-      return boost::get<
-                 expected::Value<std::unique_ptr<ametsuchi::MutableStorage>>>(
-                 storage->createMutableStorage())
-          .value;
-    }
-
     /// Create first block with 4 peers, apply it to storage and return it
     auto generateAndApplyFirstBlock() {
       auto tx =

@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ametsuchi/block_query_factory.hpp"
+#include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "common/bind.hpp"
 #include "common/visitor.hpp"
@@ -18,13 +19,15 @@ namespace iroha {
   namespace synchronizer {
 
     SynchronizerImpl::SynchronizerImpl(
+        std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
         std::shared_ptr<network::ConsensusGate> consensus_gate,
         std::shared_ptr<validation::ChainValidator> validator,
         std::shared_ptr<ametsuchi::MutableFactory> mutable_factory,
         std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
         std::shared_ptr<network::BlockLoader> block_loader,
         logger::LoggerPtr log)
-        : validator_(std::move(validator)),
+        : command_executor_(std::move(command_executor)),
+          validator_(std::move(validator)),
           mutable_factory_(std::move(mutable_factory)),
           block_query_factory_(std::move(block_query_factory)),
           block_loader_(std::move(block_loader)),
@@ -64,10 +67,7 @@ namespace iroha {
       while (true) {
         // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
         for (const auto &public_key : public_keys) {
-          auto storage = getStorage().value_or(nullptr);
-          if (not storage) {
-            return iroha::expected::makeError("Could not get mutable storage.");
-          }
+          auto storage = getStorage();
 
           shared_model::interface::types::HeightType my_height = start_height;
           auto network_chain =
@@ -84,19 +84,8 @@ namespace iroha {
       }
     }
 
-    boost::optional<std::unique_ptr<ametsuchi::MutableStorage>>
-    SynchronizerImpl::getStorage() {
-      auto mutable_storage_var = mutable_factory_->createMutableStorage();
-      if (auto e =
-              boost::get<expected::Error<std::string>>(&mutable_storage_var)) {
-        log_->error("could not create mutable storage: {}", e->error);
-        return {};
-      }
-      return {std::move(
-          boost::get<
-              expected::Value<std::unique_ptr<ametsuchi::MutableStorage>>>(
-              &mutable_storage_var)
-              ->value)};
+    std::unique_ptr<ametsuchi::MutableStorage> SynchronizerImpl::getStorage() {
+      return mutable_factory_->createMutableStorage(command_executor_);
     }
 
     void SynchronizerImpl::processNext(const consensus::PairValid &msg) {
@@ -121,12 +110,7 @@ namespace iroha {
                     return false;
                   });
       if (not committed_prepared) {
-        auto opt_storage = getStorage();
-        if (opt_storage == boost::none) {
-          return;
-        }
-        std::unique_ptr<ametsuchi::MutableStorage> storage =
-            std::move(opt_storage.value());
+        auto storage = getStorage();
         if (storage->apply(msg.block)) {
           mutable_factory_->commit(std::move(storage))
               .match(

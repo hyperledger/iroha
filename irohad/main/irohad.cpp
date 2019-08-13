@@ -277,7 +277,10 @@ int main(int argc, char *argv[]) {
       // clear previous storage if any
       irohad.dropStorage();
 
-      irohad.storage->insertBlock(block.value());
+      if (not irohad.storage->insertBlock(block.value())) {
+        log->critical("Could not apply genesis block!");
+        return EXIT_FAILURE;
+      }
       log->info("Genesis block inserted, number of transactions: {}",
                 block.value()->transactions().size());
     }

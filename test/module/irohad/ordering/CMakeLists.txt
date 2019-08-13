@@ -33,6 +33,7 @@ target_link_libraries(on_demand_ordering_gate_test
     ordering_gate_common
     shared_model_interfaces_factories
     test_logger
+    shared_model_proto_backend
     )
 
 addtest(on_demand_cache_test on_demand_cache_test.cpp)

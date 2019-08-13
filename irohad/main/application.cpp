@@ -126,6 +126,9 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
   block_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           max_proposal_size_, true);
+  proposal_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, false, true);
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
@@ -358,7 +361,7 @@ Irohad::RunResult Irohad::initFactories() {
       shared_model::interface::Proposal>>
       proposal_validator =
           std::make_unique<shared_model::validation::DefaultProposalValidator>(
-              validators_config_);
+              proposal_validators_config_);
   std::unique_ptr<
       shared_model::validation::AbstractValidator<iroha::protocol::Proposal>>
       proto_proposal_validator =
@@ -529,26 +532,33 @@ Irohad::RunResult Irohad::initOrderingGate() {
  * Initializing iroha verified proposal creator and block creator
  */
 Irohad::RunResult Irohad::initSimulator() {
-  auto block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
-      //  Block factory in simulator uses UnsignedBlockValidator because
-      //  it is not required to check signatures of block here, as they
-      //  will be checked when supermajority of peers will sign the block.
-      //  It is also not required to validate signatures of transactions
-      //  here because they are validated in the ordering gate, where they
-      //  are received from the ordering service.
-      std::make_unique<shared_model::validation::DefaultUnsignedBlockValidator>(
-          block_validators_config_),
-      std::make_unique<shared_model::validation::ProtoBlockValidator>());
-  simulator = std::make_shared<Simulator>(
-      ordering_gate,
-      stateful_validator,
-      storage,
-      crypto_signer_,
-      std::move(block_factory),
-      log_manager_->getChild("Simulator")->getLogger());
+  return storage->createCommandExecutor() |
+             [this](auto &&command_executor) -> RunResult {
+    auto block_factory =
+        std::make_unique<shared_model::proto::ProtoBlockFactory>(
+            //  Block factory in simulator uses UnsignedBlockValidator because
+            //  it is not required to check signatures of block here, as they
+            //  will be checked when supermajority of peers will sign the block.
+            //  It is also not required to validate signatures of transactions
+            //  here because they are validated in the ordering gate, where they
+            //  are received from the ordering service.
+            std::make_unique<
+                shared_model::validation::DefaultUnsignedBlockValidator>(
+                block_validators_config_),
+            std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-  log_->info("[Init] => init simulator");
-  return {};
+    simulator = std::make_shared<Simulator>(
+        std::move(command_executor),
+        ordering_gate,
+        stateful_validator,
+        storage,
+        crypto_signer_,
+        std::move(block_factory),
+        log_manager_->getChild("Simulator")->getLogger());
+
+    log_->info("[Init] => init simulator");
+    return {};
+  };
 }
 
 /**
@@ -616,16 +626,20 @@ Irohad::RunResult Irohad::initConsensusGate() {
  * Initializing synchronizer
  */
 Irohad::RunResult Irohad::initSynchronizer() {
-  synchronizer = std::make_shared<SynchronizerImpl>(
-      consensus_gate,
-      chain_validator,
-      storage,
-      storage,
-      block_loader,
-      log_manager_->getChild("Synchronizer")->getLogger());
+  return storage->createCommandExecutor() |
+             [this](auto &&command_executor) -> RunResult {
+    synchronizer = std::make_shared<SynchronizerImpl>(
+        std::move(command_executor),
+        consensus_gate,
+        chain_validator,
+        storage,
+        storage,
+        block_loader,
+        log_manager_->getChild("Synchronizer")->getLogger());
 
-  log_->info("[Init] => synchronizer");
-  return {};
+    log_->info("[Init] => synchronizer");
+    return {};
+  };
 }
 
 /**

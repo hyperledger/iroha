@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 
 #include <boost/format.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "cryptography/public_key.hpp"
@@ -18,14 +19,14 @@
 namespace iroha {
   namespace ametsuchi {
     TemporaryWsvImpl::TemporaryWsvImpl(
-        std::unique_ptr<soci::session> sql,
-        std::unique_ptr<TransactionExecutor> transaction_executor,
+        std::shared_ptr<PostgresCommandExecutor> command_executor,
         logger::LoggerManagerTreePtr log_manager)
-        : sql_(std::move(sql)),
-          transaction_executor_(std::move(transaction_executor)),
+        : sql_(command_executor->getSession()),
+          transaction_executor_(std::make_unique<TransactionExecutor>(
+              std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
-      *sql_ << "BEGIN";
+      sql_ << "BEGIN";
     }
 
     expected::Result<void, validation::CommandError>
@@ -57,7 +58,7 @@ namespace iroha {
 
       try {
         auto keys_range_size = boost::size(keys_range);
-        *sql_ << (query % keys).str(), soci::into(signatories_valid),
+        sql_ << (query % keys).str(), soci::into(signatories_valid),
             soci::use(keys_range_size, "signatures_count"),
             soci::use(transaction.creatorAccountId(), "account_id");
       } catch (const std::exception &e) {
@@ -116,7 +117,7 @@ namespace iroha {
 
     TemporaryWsvImpl::~TemporaryWsvImpl() {
       try {
-        *sql_ << "ROLLBACK";
+        sql_ << "ROLLBACK";
       } catch (std::exception &e) {
         log_->error("Rollback did not happen: {}", e.what());
       }
@@ -126,7 +127,7 @@ namespace iroha {
         const iroha::ametsuchi::TemporaryWsvImpl &wsv,
         std::string savepoint_name,
         logger::LoggerPtr log)
-        : sql_{*wsv.sql_},
+        : sql_{wsv.sql_},
           savepoint_name_{std::move(savepoint_name)},
           is_released_{false},
           log_(std::move(log)) {

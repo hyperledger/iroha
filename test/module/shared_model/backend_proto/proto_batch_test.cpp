@@ -240,8 +240,11 @@ TEST_F(TransactionBatchTest, BatchWithNoSignatures) {
  * @then transaction batch is successfully created
  */
 TEST_F(TransactionBatchTest, BatchWithOneSignature) {
+  uint64_t created_time = iroha::time::now();
   auto unsigned_transactions = framework::batch::makeTestBatchTransactions(
-      makeTxBuilder(1), makeTxBuilder(2), makeSignedTxBuilder(1));
+      makeTxBuilder(1, created_time),
+      makeTxBuilder(2, created_time + 1),
+      makeSignedTxBuilder(1, created_time + 2));
   auto transaction_batch =
       factory_->createTransactionBatch(unsigned_transactions);
   ASSERT_TRUE(framework::expected::val(transaction_batch))
