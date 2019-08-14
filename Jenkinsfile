@@ -152,6 +152,7 @@ node ('master') {
   doxygen = false
 
   build_type = 'Debug'
+  build_shared_libs = false
   packageBuild = false
   pushDockerTag = 'not-supposed-to-be-pushed'
   packagePush = false
@@ -286,13 +287,19 @@ node ('master') {
   def x64LinuxPostSteps = new Builder.PostSteps()
   if(!x64linux_compiler_list.isEmpty()){
     x64LinuxBuildSteps = [{x64LinuxBuildScript.buildSteps(
-      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, specialBranch, coverage,
+      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, build_shared_libs, specialBranch, coverage,
       testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, coredumps, useBTF, forceDockerDevelopBuild, environmentList)}]
-    //If "master" or "dev" also run Release build
+    //If "master" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', specialBranch, false,
+      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', build_shared_libs, specialBranch, false,
       false, testList, false, false, false, false, true, false, false, false, false, false, environmentList)}]
+    }
+    if (build_scenario == 'Before merge to trunk') {
+      // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
+      x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
+      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc5'], build_type, true, false, false,
+      false, testList, false, false, false, false, false, false, false, false, false, false, environmentList)}]
     }
     x64LinuxPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
