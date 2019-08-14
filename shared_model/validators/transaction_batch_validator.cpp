@@ -6,6 +6,7 @@
 #include "validators/transaction_batch_validator.hpp"
 
 #include <boost/range/adaptor/indirected.hpp>
+#include <unordered_set>
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/transaction.hpp"
 
@@ -15,7 +16,8 @@ namespace {
     kNoBatchMeta,
     kIncorrectBatchMetaSize,
     kIncorrectHashes,
-    kTooManyTransactions
+    kTooManyTransactions,
+    kDuplicateTransactions
   };
   /**
    * Check that all transactions from the collection are mentioned in batch_meta
@@ -59,20 +61,34 @@ namespace {
       return BatchCheckResult::kIncorrectBatchMetaSize;
     }
 
+    std::unordered_set<std::string> hashes = {};
     auto hashes_begin = boost::begin(batch_hashes);
     auto hashes_end = boost::end(batch_hashes);
     auto transactions_begin = boost::begin(transactions);
     auto transactions_end = boost::end(transactions);
     bool hashes_are_correct = true;
+    bool hashes_are_unique = true;
 
     for (; transactions_begin != transactions_end; ++hashes_begin) {
       if (hashes_begin == hashes_end) {
         hashes_are_correct = false;
         break;
       }
+
+      if (hashes.count(hashes_begin->hex())) {
+        hashes_are_unique = false;
+        break;
+      }
+
       if (*hashes_begin == transactions_begin->reducedHash()) {
         ++transactions_begin;
       }
+
+      hashes.insert(hashes_begin->hex());
+    }
+
+    if (not hashes_are_unique) {
+      return BatchCheckResult::kDuplicateTransactions;
     }
 
     if (not hashes_are_correct) {
@@ -135,6 +151,10 @@ namespace shared_model {
         case BatchCheckResult::kTooManyTransactions:
           batch_reason.second.emplace_back(
               "Batch contains too many transactions");
+          break;
+        case BatchCheckResult::kDuplicateTransactions:
+          batch_reason.second.emplace_back(
+              "Batch contains duplicate transactions");
           break;
       }
 

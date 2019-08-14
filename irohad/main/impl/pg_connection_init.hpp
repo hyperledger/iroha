@@ -14,7 +14,6 @@
 #include <boost/range/algorithm/replace_if.hpp>
 
 #include "ametsuchi/impl/failover_callback_holder.hpp"
-#include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -25,6 +24,9 @@
 
 namespace iroha {
   namespace ametsuchi {
+
+    struct PoolWrapper;
+
     class PgConnectionInit {
      public:
       static expected::Result<std::shared_ptr<soci::connection_pool>,
@@ -83,12 +85,14 @@ namespace iroha {
        */
       static expected::Result<void, std::string> resetPeers(soci::session &sql);
 
+      /// Create tables in the given session. Left public for tests.
+      static void prepareTables(soci::session &session);
+
      private:
       /**
        * Function initializes existing connection pool
        * @param connection_pool - pool with connections
        * @param pool_size - number of connections in pool
-       * @param prepare_tables_sql - sql code for db initialization
        * @param try_rollback - function which performs blocks rollback before
        * initialization
        * @param callback_factory - factory for reconnect callbacks
@@ -103,15 +107,11 @@ namespace iroha {
       static void initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
-          const std::string &prepare_tables_sql,
           RollbackFunction try_rollback,
           FailoverCallbackHolder &callback_factory,
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const std::string &pg_reconnection_options,
           logger::LoggerManagerTreePtr log_manager);
-
-     public:
-      static const std::string init_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

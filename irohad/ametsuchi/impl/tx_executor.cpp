@@ -17,14 +17,11 @@ TransactionExecutor::TransactionExecutor(
 iroha::expected::Result<void, TxExecutionError> TransactionExecutor::execute(
     const shared_model::interface::Transaction &transaction,
     bool do_validation) const {
-  const auto &tx_creator = transaction.creatorAccountId();
-  command_executor_->setCreatorAccountId(tx_creator);
-  command_executor_->doValidation(do_validation);
-
   size_t cmd_index = 0;
   for (const auto &cmd : transaction.commands()) {
-    if (auto cmd_error = iroha::expected::resultToOptionalError(
-            command_executor_->execute(cmd))) {
+    if (auto cmd_error =
+            iroha::expected::resultToOptionalError(command_executor_->execute(
+                cmd, transaction.creatorAccountId(), do_validation))) {
       return iroha::expected::makeError(
           TxExecutionError{std::move(cmd_error.value()), cmd_index});
     }

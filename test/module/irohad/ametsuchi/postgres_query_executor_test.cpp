@@ -155,17 +155,16 @@ namespace iroha {
 
       void SetUp() override {
         AmetsuchiTest::SetUp();
-        sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
 
         auto factory =
             std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
                 shared_model::validation::FieldValidator>>(
                 iroha::test::kTestsValidatorsConfig);
         query_executor = storage;
-        PostgresCommandExecutor::prepareStatements(*sql);
-        executor =
-            std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
+        executor = std::make_unique<PostgresCommandExecutor>(
+            std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                            pgopt_),
+            perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
 
         execute(
@@ -187,7 +186,6 @@ namespace iroha {
       }
 
       void TearDown() override {
-        sql->close();
         AmetsuchiTest::TearDown();
       }
 
@@ -204,10 +202,11 @@ namespace iroha {
                    bool do_validation = false,
                    const shared_model::interface::types::AccountIdType
                        &creator = "id@domain") {
-        executor->doValidation(not do_validation);
-        executor->setCreatorAccountId(creator);
-        ASSERT_TRUE(
-            val(executor->operator()(std::forward<CommandType>(command))));
+        shared_model::interface::Command::CommandVariantType variant{
+            std::forward<CommandType>(command)};
+        shared_model::interface::MockCommand cmd;
+        EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
+        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
       }
 
       void addPerms(
@@ -266,8 +265,6 @@ namespace iroha {
 
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey2;
-
-      std::unique_ptr<soci::session> sql;
 
       std::unique_ptr<shared_model::interface::Command> command;
 
@@ -1481,12 +1478,7 @@ namespace iroha {
        */
       void commitBlocks(shared_model::interface::types::HeightType
                             number_of_blocks = kLedgerHeight) {
-        std::unique_ptr<MutableStorage> ms;
-        storage->createMutableStorage().match(
-            [&ms](auto &&storage) { ms = std::move(storage.value); },
-            [](const auto &error) {
-              FAIL() << "MutableStorage: " << error.error;
-            });
+        auto ms = createMutableStorage();
 
         auto prev_hash = shared_model::crypto::Hash(zero_string);
         for (decltype(number_of_blocks) i = 1; i < number_of_blocks; ++i) {
@@ -1740,25 +1732,6 @@ namespace iroha {
         this->block_store = std::move(block_store);
         createDefaultAccount();
         createDefaultAsset();
-      }
-
-      /**
-       * Apply block to given storage
-       * @tparam S storage type
-       * @param storage storage object
-       * @param block to apply
-       */
-      template <typename S>
-      void apply(S &&storage,
-                 std::shared_ptr<const shared_model::interface::Block> block) {
-        std::unique_ptr<MutableStorage> ms;
-        storage->createMutableStorage().match(
-            [&](auto &&_storage) { ms = std::move(_storage.value); },
-            [](const auto &error) {
-              FAIL() << "MutableStorage: " << error.error;
-            });
-        ms->apply(block);
-        ASSERT_TRUE(val(storage->commit(std::move(ms))));
       }
 
       void commitBlocks() {

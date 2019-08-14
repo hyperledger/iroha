@@ -97,3 +97,21 @@ TEST_F(BatchValidatorFixture,
               ::testing::HasSubstr("Hashes of provided transactions and ones "
                                    "in batch_meta are different"));
 }
+
+/**
+ * @given a batch validator with allowed partial ordered batches
+ * @when an ordered batch with duplicate transactions arrives
+ * @then the batch fails validation
+ */
+TEST_F(BatchValidatorFixture, DuplicateTransactions) {
+  auto validator = getValidator(false);
+  auto txs = framework::batch::createBatchOneSignTransactions(
+      shared_model::interface::types::BatchType::ORDERED,
+      {"alice@iroha", "bob@iroha", "alice@iroha"});
+  auto batch =
+      std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
+  auto result = validator->validate(*batch);
+  ASSERT_TRUE(result.hasErrors());
+  ASSERT_THAT(result.reason(),
+              ::testing::HasSubstr("Batch contains duplicate transactions"));
+}

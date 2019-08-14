@@ -26,12 +26,16 @@ target_link_libraries(raw_block_loader
 
 add_library(pg_connection_init impl/pg_connection_init.cpp)
 target_link_libraries(pg_connection_init
-    ametsuchi
     SOCI::postgresql
     SOCI::core
     failover_callback
     pool_wrapper
     logger
+    )
+
+add_library(pending_txs_storage_init impl/pending_transaction_storage_init.cpp)
+target_link_libraries(pending_txs_storage_init
+    pending_txs_storage
     )
 
 add_library(application
@@ -66,7 +70,7 @@ target_link_libraries(application
     block_loader_service
     mst_processor
     torii_service
-    pending_txs_storage
+    pending_txs_storage_init
     common
     pg_connection_init
     generator

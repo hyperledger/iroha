@@ -22,6 +22,7 @@
 
 namespace iroha {
   class PendingTransactionStorage;
+  class PendingTransactionStorageInit;
   class MstProcessor;
   namespace ametsuchi {
     class WsvRestorer;
@@ -221,6 +222,16 @@ class Irohad {
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
 
+  std::unique_ptr<iroha::PendingTransactionStorageInit>
+      pending_txs_storage_init;
+
+  // pending transactions storage
+  std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;
+
+  // query response factory
+  std::shared_ptr<shared_model::interface::QueryResponseFactory>
+      query_response_factory_;
+
   // ------------------------| internal dependencies |-------------------------
  public:
   shared_model::crypto::Keypair keypair;
@@ -249,6 +260,8 @@ class Irohad {
   std::shared_ptr<shared_model::validation::ValidatorsConfig>
       validators_config_;
   std::shared_ptr<shared_model::validation::ValidatorsConfig>
+      proposal_validators_config_;
+  std::shared_ptr<shared_model::validation::ValidatorsConfig>
       block_validators_config_;
   std::shared_ptr<iroha::validation::StatefulValidator> stateful_validator;
   std::shared_ptr<iroha::validation::ChainValidator> chain_validator;
@@ -266,10 +279,6 @@ class Irohad {
       shared_model::interface::Transaction,
       iroha::protocol::Transaction>>
       transaction_factory;
-
-  // query response factory
-  std::shared_ptr<shared_model::interface::QueryResponseFactory>
-      query_response_factory_;
 
   // query factory
   std::shared_ptr<shared_model::interface::AbstractTransportFactory<
@@ -317,9 +326,6 @@ class Irohad {
   // mst
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
-
-  // pending transactions storage
-  std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;
 
   // transaction service
   std::shared_ptr<iroha::torii::CommandService> command_service;

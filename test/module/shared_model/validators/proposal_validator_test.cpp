@@ -7,8 +7,10 @@
 
 #include <gtest/gtest.h>
 
+#include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/default_validator.hpp"
@@ -23,6 +25,42 @@ class ProposalValidatorTest : public ValidatorsTest {
       std::pair<shared_model::interface::types::BatchType, std::string>;
 
   DefaultProposalValidator validator_;
+
+  template <typename TransactionBuilder>
+  auto getBaseTransactionBuilder() {
+    return TestUnsignedTransactionBuilder()
+        .createdTime(created_time)
+        .quorum(quorum)
+        .setAccountQuorum(account_id, quorum);
+  }
+
+  auto createTransaction() {
+    return getBaseTransactionBuilder<shared_model::proto::TransactionBuilder>()
+        .creatorAccountId(account_id)
+        .build()
+        .signAndAddSignature(keypair)
+        .finish();
+  }
+
+  template <typename ProposalBuilder>
+  auto getBaseProposalBuilder(bool transport_proposal) {
+    return ProposalBuilder(transport_proposal)
+        .createdTime(created_time)
+        .height(1);
+  }
+
+  auto createProposalWithDuplicateTransactions() {
+    std::vector<shared_model::proto::Transaction> txs;
+    txs.push_back(createTransaction());
+    txs.push_back(createTransaction());
+    return getBaseProposalBuilder<shared_model::proto::ProposalBuilder>(true)
+        .transactions(txs)
+        .build();
+  }
+
+ protected:
+  shared_model::crypto::Keypair keypair =
+      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 };
 
 /**
@@ -49,4 +87,32 @@ TEST_F(ProposalValidatorTest, IncompleteBatch) {
 
   auto answer = validator_.validate(*proposal);
   ASSERT_TRUE(answer);
+}
+
+/**
+ * @given a transport proposal with duplicate transactions
+ * @when proposal is validated
+ * @then result is OK
+ */
+TEST_F(ProposalValidatorTest, TransportProposalWithDuplicateTransactions) {
+  auto proposal = createProposalWithDuplicateTransactions();
+
+  shared_model::validation::DefaultProposalValidator validator(
+      iroha::test::kProposalTestsValidatorsConfig);
+
+  auto answer = validator.validate(proposal);
+  ASSERT_FALSE(answer.hasErrors());
+}
+
+/**
+ * @given a proposal with duplicate transactions
+ * @when proposal is validated
+ * @then error appears after validation
+ */
+TEST_F(ProposalValidatorTest, ProposalWithDuplicateTransactions) {
+  auto proposal = createProposalWithDuplicateTransactions();
+
+  auto answer = validator_.validate(proposal);
+  ASSERT_TRUE(answer.hasErrors());
+  ASSERT_THAT(answer.reason(), testing::HasSubstr("Transaction with hash"));
 }

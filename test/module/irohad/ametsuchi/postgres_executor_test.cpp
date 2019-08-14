@@ -44,20 +44,17 @@ namespace iroha {
 
       void SetUp() override {
         AmetsuchiTest::SetUp();
-        sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
 
+        auto sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                                   pgopt_);
         wsv_query =
-            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WcvQuery"));
-        PostgresCommandExecutor::prepareStatements(*sql);
-        executor =
-            std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
+            std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
-        *sql << init_;
+        executor = std::make_unique<PostgresCommandExecutor>(std::move(sql),
+                                                             perm_converter);
       }
 
       void TearDown() override {
-        sql->close();
         AmetsuchiTest::TearDown();
       }
 
@@ -75,9 +72,11 @@ namespace iroha {
                             const shared_model::interface::types::AccountIdType
                                 &creator = "id@domain") {
         // TODO igor-egorov 15.04.2019 IR-446 Refactor postgres_executor_test
-        executor->doValidation(not do_validation);
-        executor->setCreatorAccountId(creator);
-        return executor->operator()(std::forward<CommandType>(command));
+        shared_model::interface::Command::CommandVariantType variant{
+            std::forward<CommandType>(command)};
+        shared_model::interface::MockCommand cmd;
+        EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
+        return executor->execute(cmd, creator, not do_validation);
       }
 
       /**
@@ -182,12 +181,11 @@ namespace iroha {
       shared_model::interface::permissions::Grantable grantable_permission;
       shared_model::interface::types::AccountIdType account_id, name;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
-      std::unique_ptr<soci::session> sql;
 
       std::unique_ptr<shared_model::interface::Command> command;
 
-      std::unique_ptr<WsvQuery> wsv_query;
       std::unique_ptr<CommandExecutor> executor;
+      std::unique_ptr<WsvQuery> wsv_query;
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter =
@@ -427,7 +425,8 @@ namespace iroha {
     TEST_F(AddPeer, NoPerms) {
       auto cmd_result = execute(*mock_command_factory->constructAddPeer(*peer));
 
-      std::vector<std::string> query_args{peer->toString()};
+      std::vector<std::string> query_args{peer->address(),
+                                          peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -485,7 +484,7 @@ namespace iroha {
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
 
-      std::vector<std::string> query_args{peer->pubkey().toString()};
+      std::vector<std::string> query_args{peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -499,7 +498,7 @@ namespace iroha {
       auto cmd_result = execute(
           *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
 
-      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      std::vector<std::string> query_args{another_peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
     }
 
@@ -514,7 +513,7 @@ namespace iroha {
           *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
           true);
 
-      std::vector<std::string> query_args{another_peer->pubkey().toString()};
+      std::vector<std::string> query_args{another_peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
     }
 
@@ -528,7 +527,7 @@ namespace iroha {
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
 
-      std::vector<std::string> query_args{peer->pubkey().toString()};
+      std::vector<std::string> query_args{peer->pubkey().hex()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 

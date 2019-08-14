@@ -25,8 +25,13 @@ namespace {
     return getTestLoggerManager()->getChild("ExecutorITF");
   }
 
+  std::string getDefaultRole(const std::string &name,
+                             const std::string &domain) {
+    return name + "_at_" + domain + "_defrole";
+  }
+
   std::string getDefaultRole(const std::string &name) {
-    return name + "_default_role";
+    return name + "_defrole";
   }
 }  // namespace
 
@@ -66,8 +71,7 @@ CreateResult ExecutorItf::create(ExecutorItfTarget target) {
 CommandResult ExecutorItf::executeCommandAsAccount(
     const shared_model::interface::Command &cmd,
     const std::string &account_id) const {
-  cmd_executor_->setCreatorAccountId(account_id);
-  return cmd_executor_->execute(cmd);
+  return cmd_executor_->execute(cmd, account_id, true);
 }
 
 Result<void, TxExecutionError> ExecutorItf::executeTransaction(
@@ -116,7 +120,8 @@ CommandResult ExecutorItf::createDomain(const std::string &name) const {
 
 CommandResult ExecutorItf::grantAllToAdmin(
     const std::string &account_id) const {
-  static const std::string admin_role_name = getDefaultRole(kAdminName);
+  static const std::string admin_role_name =
+      getDefaultRole(kAdminName, kDomain);
   shared_model::interface::GrantablePermissionSet all_grantable_perms;
   CommandResult grant_perm_result =
       executeCommand(*getMockCommandFactory()->constructAppendRole(
@@ -146,7 +151,7 @@ CommandResult ExecutorItf::createUserWithPermsInternal(
   createDomain(domain);
 
   const std::string account_id = account_name + "@" + domain;
-  const std::string account_role_name = getDefaultRole(account_name);
+  const std::string account_role_name = getDefaultRole(account_name, domain);
 
   return executeCommand(*getMockCommandFactory()->constructCreateAccount(
              account_name, domain, pubkey))

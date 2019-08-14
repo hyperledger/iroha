@@ -11,25 +11,7 @@
 
 namespace shared_model {
   namespace interface {
-    class AddAssetQuantity;
-    class AddPeer;
-    class AddSignatory;
-    class AppendRole;
     class Command;
-    class CreateAccount;
-    class CreateAsset;
-    class CreateDomain;
-    class CreateRole;
-    class DetachRole;
-    class GrantPermission;
-    class RemovePeer;
-    class RemoveSignatory;
-    class RevokePermission;
-    class SetAccountDetail;
-    class SetQuorum;
-    class SubtractAssetQuantity;
-    class TransferAsset;
-    class CompareAndSetAccountDetail;
   }  // namespace interface
 }  // namespace shared_model
 
@@ -58,72 +40,15 @@ namespace iroha {
      */
     using CommandResult = expected::Result<void, CommandError>;
 
-    class CommandExecutor : public boost::static_visitor<CommandResult> {
+    class CommandExecutor {
      public:
       virtual ~CommandExecutor() = default;
 
-      CommandResult execute(const shared_model::interface::Command &cmd);
-
-      virtual void setCreatorAccountId(
+      virtual CommandResult execute(
+          const shared_model::interface::Command &cmd,
           const shared_model::interface::types::AccountIdType
-              &creator_account_id) = 0;
-
-      virtual void doValidation(bool do_validation) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::AddAssetQuantity &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::AddPeer &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::AddSignatory &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::AppendRole &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::CreateAccount &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::CreateAsset &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::CreateDomain &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::CreateRole &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::DetachRole &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::GrantPermission &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::RemovePeer &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::RemoveSignatory &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::RevokePermission &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::SetAccountDetail &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::SetQuorum &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::SubtractAssetQuantity &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::TransferAsset &command) = 0;
-
-      virtual CommandResult operator()(
-          const shared_model::interface::CompareAndSetAccountDetail
-              &command) = 0;
+              &creator_account_id,
+          bool do_validation) = 0;
     };
   }  // namespace ametsuchi
 }  // namespace iroha

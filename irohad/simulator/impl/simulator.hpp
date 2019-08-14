@@ -18,6 +18,10 @@
 #include "validation/stateful_validator.hpp"
 
 namespace iroha {
+  namespace ametsuchi {
+    class CommandExecutor;
+  }
+
   namespace simulator {
 
     class Simulator : public VerifiedProposalCreator, public BlockCreator {
@@ -26,6 +30,9 @@ namespace iroha {
           shared_model::interface::Block>;
 
       Simulator(
+          // TODO IR-598 mboldyrev 2019.08.10: remove command_executor from
+          // Simulator
+          std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
           std::shared_ptr<network::OrderingGate> ordering_gate,
           std::shared_ptr<validation::StatefulValidator> statefulValidator,
           std::shared_ptr<ametsuchi::TemporaryFactory> factory,
@@ -36,8 +43,7 @@ namespace iroha {
 
       ~Simulator() override;
 
-      boost::optional<std::shared_ptr<validation::VerifiedProposalAndErrors>>
-      processProposal(
+      std::shared_ptr<validation::VerifiedProposalAndErrors> processProposal(
           const shared_model::interface::Proposal &proposal) override;
 
       rxcpp::observable<VerifiedProposalCreatorEvent> onVerifiedProposal()
@@ -53,6 +59,8 @@ namespace iroha {
 
      private:
       // internal
+      std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
+
       rxcpp::composite_subscription notifier_lifetime_;
       rxcpp::subjects::subject<VerifiedProposalCreatorEvent> notifier_;
       rxcpp::composite_subscription block_notifier_lifetime_;

@@ -27,8 +27,6 @@ namespace iroha {
         command = std::make_unique<PostgresWsvCommand>(*sql);
         query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
-
-        *sql << init_;
       }
 
       void TearDown() override {

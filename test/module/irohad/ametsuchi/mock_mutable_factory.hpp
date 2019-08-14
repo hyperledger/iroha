@@ -15,9 +15,9 @@ namespace iroha {
 
     class MockMutableFactory : public MutableFactory {
      public:
-      MOCK_METHOD0(
+      MOCK_METHOD1(
           createMutableStorage,
-          expected::Result<std::unique_ptr<MutableStorage>, std::string>(void));
+          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>));
 
       CommitResult commit(
           std::unique_ptr<MutableStorage> mutableStorage) override {
