@@ -32,6 +32,12 @@ target_link_libraries(account_detail_checker
     rapidjson
     )
 
+addtest(create_account_test create_account_test.cpp)
+target_link_libraries(create_account_test
+    executor_fixture
+    executor_fixture_param_provider
+    )
+
 addtest(add_signatory_test add_signatory_test.cpp)
 target_link_libraries(add_signatory_test
     executor_fixture
