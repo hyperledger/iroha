@@ -714,8 +714,9 @@ namespace iroha {
             (
                 INSERT INTO signatory(public_key)
                 (
-                    SELECT :pubkey WHERE EXISTS
-                    (SELECT * FROM get_domain_default_role)
+                    SELECT :pubkey
+                    WHERE EXISTS (SELECT * FROM get_domain_default_role)
+                      %s
                 )
                 ON CONFLICT (public_key)
                   DO UPDATE SET public_key = excluded.public_key
@@ -728,7 +729,6 @@ namespace iroha {
                     SELECT :account_id, :domain, 1, '{}'
                     WHERE EXISTS (SELECT * FROM insert_signatory)
                       AND EXISTS (SELECT * FROM get_domain_default_role)
-                    %s
                 ) RETURNING (1)
             ),
             insert_account_signatory AS
