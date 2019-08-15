@@ -234,16 +234,14 @@ To build Iroha, use those commands
 .. code-block:: shell
 
   cmake -H. -Bbuild -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja"
-  cmake --build build --target irohad -- -j<number of threads>
-
-.. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
-  environments use the path you have got in previous steps.
-
-.. note:: On Linux you can get an optimal number of threads via ``nproc``.
-  On MacOS check the number of  logical cores with ``sysctl -n hw.ncpu``.
-  On Windows you can use ``echo %NUMBER_OF_PROCESSORS%``.
+  cmake --build build
 
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
+
+.. note:: You can build in multiple threads to speed the process up by a command ``cmake --build build -- -j$(nproc)``
+  On macOS ``$(nproc)`` variable does not work. Check the number of  logical cores with ``sysctl -n hw.ncpu``
+  and put it explicitly in the command above, e.g. ``cmake --build build -- -j4``.
+  On Windows you can use ``%NUMBER_OF_PROCESSORS%`` environment variable.
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^
