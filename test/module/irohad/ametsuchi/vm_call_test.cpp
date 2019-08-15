@@ -209,7 +209,7 @@ contract C {
           const auto &accountId = getAccDetailQuery.accountId();
           // Since Burrow should always set a key, no need to check for
           // boost::optional emptiness
-          const std::string &key = *getAccDetailQuery.key();
+          const std::string key = getAccDetailQuery.key().value();
 
           // Check the requested account and detail exist
           const auto iterToTestAccount = testAccounts.find(accountId);
