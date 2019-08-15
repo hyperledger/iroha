@@ -60,9 +60,9 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 		evmState.CreateAccount(evmCaller)
 	}
 
-	shouldCreateAcc := false
+	shouldAddEvmCodeToCallee := false
 	if ! evmState.Exists(evmCallee) {
-		shouldCreateAcc = true
+		shouldAddEvmCodeToCallee = true
 		evmState.CreateAccount(evmCallee)
 	}
 
@@ -72,12 +72,13 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	output, err := burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
 		goByteCode, goInput, 0, &gas)
 
-	if shouldCreateAcc {
+	if shouldAddEvmCodeToCallee {
 		evmState.InitCode(evmCallee, output)
 	}
 
 	// If there is no errors after smart contract execution, cache data is written to Iroha.
 	if err := evmState.Sync(); err != nil {
+		fmt.Println(err)
 		panic("Sync error")
 	}
 

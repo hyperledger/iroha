@@ -6,7 +6,7 @@ package main
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
-	"bytes"
+	"encoding/hex"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/burrow/acm"
@@ -22,7 +22,6 @@ import (
 
 type IrohaAppState struct {
 	accounts map[crypto.Address]*acm.Account
-	storage  map[crypto.Address]map[binary.Word256][]byte
 	commandExecutor unsafe.Pointer
 	queryExecutor   unsafe.Pointer
 }
@@ -33,7 +32,6 @@ var _ acmstate.ReaderWriter = &IrohaAppState{}
 func NewIrohaAppState() *IrohaAppState {
 	return &IrohaAppState{
 		accounts: make(map[crypto.Address]*acm.Account),
-		storage:  make(map[crypto.Address]map[binary.Word256][]byte),
 		commandExecutor: unsafe.Pointer(nil),
 		queryExecutor  : unsafe.Pointer(nil),
 	}
@@ -42,21 +40,20 @@ func NewIrohaAppState() *IrohaAppState {
 func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) {
 	fmt.Println("GetAccount: " + addr.String())
 	if ias.accounts[addr] == nil {
-		// if not in cache — request Iroha.
-		ptrToAcc, err := ias.getIrohaAccount(addr)
+		// If not in cache — request Iroha.
+		tiedAccExist, err := ias.getIrohaAccount(addr)
 		if err != nil {
 			fmt.Println("Error while getting Iroha account")
 			return nil, err
-		} else if ptrToAcc == nil {
-			// if Iroha does not have account — create it in Iroha
-			ptrToAcc, err = ias.createIrohaAccount(addr)
+		}
+		if ! tiedAccExist {
+			// If Iroha does not have account — create it in Iroha
+			err = ias.createIrohaEvmAccount(addr)
 			if err != nil {
 				fmt.Println("Error while creating Iroha tied account")
 				return nil, err
 			}
 		}
-		ias.accounts[addr] = ptrToAcc
-		return ias.accounts[addr], err
 	}
 	return ias.accounts[addr], nil
 }
@@ -90,35 +87,12 @@ func (ias *IrohaAppState) RemoveAccount(address crypto.Address) error {
 
 func (ias *IrohaAppState) GetStorage(addr crypto.Address, key binary.Word256) ([]byte, error) {
 	fmt.Printf("GetStorage: " + addr.String() + " %x\n", key)
-	storage, ok := ias.storage[addr]
-	if !ok {
-		return []byte{}, fmt.Errorf("could not find storage for account %s", addr)
-	}
-	value, ok := storage[key]
-	if !ok {
-		return []byte{}, fmt.Errorf("could not find key %x for account %s", key, addr)
-	}
-	return value, nil
+	return ias.getIrohaAccountDetail(addr, key)
 }
 
 func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, value []byte) error {
 	fmt.Printf("SetStorage: " + addr.String() + " %x %x\n", key, value)
-	storage, ok := ias.storage[addr]
-	if !ok {
-		storage = make(map[binary.Word256][]byte)
-		ias.storage[addr] = storage
-	}
-	storage[key] = value
-	return nil
-}
-
-func (ias *IrohaAppState) accountsDump() string {
-	buf := new(bytes.Buffer)
-	fmt.Fprint(buf, "Dumping accounts...", "\n")
-	for _, acc := range ias.accounts {
-		fmt.Fprint(buf, acc.GetAddress().String(), "\n")
-	}
-	return buf.String()
+	return ias.setIrohaAccountDetail(addr, key, value)
 }
 
 /*
@@ -129,43 +103,51 @@ func (ias *IrohaAppState) accountsDump() string {
 
 // -----------------------Iroha commands---------------------------------------
 
-// Creates a tied account in Iroha (EVM address + @evm).
-// Returns account to put into ias.
-func (ias *IrohaAppState) createIrohaAccount(addr crypto.Address) (account *acm.Account, err error) {
+// Creates a tied account in Iroha (EVM address + @evm)
+func (ias *IrohaAppState) createIrohaEvmAccount(addr crypto.Address) (err error) {
+	// Send CreateAccount to Iroha
 	command := &pb.Command{Command: &pb.Command_CreateAccount{
-		CreateAccount: &pb.CreateAccount{AccountName: addr.String(), DomainId: "evm"}}}
+		CreateAccount: &pb.CreateAccount{AccountName: addr.String() + "@evm", DomainId: "evm"}}}
 	commandResult, err := makeProtobufCmdAndExecute(ias.commandExecutor, command)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	fmt.Print("Create Iroha account with address " + addr.String() + " result: ")
 	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
-		return nil, fmt.Errorf("Error while creating tied account in Iroha at addr " + addr.String())
+		return fmt.Errorf("Error while creating tied account in Iroha at addr " + addr.String())
 	}
-	return &acm.Account{Address:addr}, nil
+
+	return nil
 }
 
 // Sets key-value pair in storage of the tied Iroha account
 func (ias *IrohaAppState) setIrohaAccountDetail(
 	addr crypto.Address, key binary.Word256, value []byte) (err error) {
 
+	hexKey   := hex.EncodeToString(key.Bytes())
+	hexValue := hex.EncodeToString(value)
+	// Send SetAccountDetail to Iroha
 	command := &pb.Command{Command: &pb.Command_SetAccountDetail{&pb.SetAccountDetail{
-		AccountId: addr.String() + "@evm", Key: key.String(), Value: string(value)}}}
+		AccountId: addr.String() + "@evm", Key: hexKey, Value: hexValue}}}
 	commandResult, err := makeProtobufCmdAndExecute(ias.commandExecutor, command)
 	if err != nil {
 		return err
 	}
-	fmt.Println("Set Iroha account detail with address " + addr.String() + " result:")
+	fmt.Println("Set Iroha account detail " + hexKey + " with address " + addr.String() + " result:")
 	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
-		return fmt.Errorf("Error while creating tied account in Iroha at addr " + addr.String())
+		return fmt.Errorf("Error while setting Iroha detail " + hexKey + " at addr " + addr.String() +
+			", value " + hexValue)
 	}
+
 	return nil
 }
 
 // Helper function to perform Iroha commands
-func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
+func makeProtobufCmdAndExecute(
+	cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
+
 	fmt.Println(proto.MarshalTextString(command))
 	out, err := proto.Marshal(command)
 	if err != nil {
@@ -181,14 +163,12 @@ func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) 
 // -----------------------Iroha queries---------------------------------------
 
 // Queries Iroha about the tied account.
-// Returns account to put into ias or nil, if account does not exist in Iroha.
-func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (account *acm.Account, err error) {
-	// query example
+func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{
 		GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	switch queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
@@ -197,42 +177,39 @@ func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (account *acm.Acc
 		// check if "no account" error returned
 
 		// No errors, but requested account does not exist
-		return nil, nil
+		return false, nil
 	case *pb.QueryResponse_AccountResponse:
 		fmt.Println("Query result for address " + addr.String() + ": " + queryResponse.String())
-		// If ias is asking Iroha, then ias does not have the account with addr,
-		// this account should be inited.
-		// Not sure if following is the correct initialisation.
-		return &acm.Account{Address:addr}, nil
+		return true, nil
 	default:
 		panic("Wrong queryResponce for getIrohaAccount")
 	}
 }
 
-
-// Queries Iroha about the tied account.
-// Returns account to put into ias or nil, if account does not exist in Iroha.
+// Queries Iroha about the tied account detail.
+// Returns account detail
 func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key binary.Word256) (detail []byte, err error) {
+	hexKey := hex.EncodeToString(key.Bytes())
 	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccountDetail{
 		&pb.GetAccountDetail{
 			OptAccountId: &pb.GetAccountDetail_AccountId {AccountId: addr.String() + "@evm"},
-			OptKey      : &pb.GetAccountDetail_Key       {Key      : key.String()}}}}}
+			OptKey      : &pb.GetAccountDetail_Key       {Key      : hexKey}}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
 		return []byte{}, err
 	}
 	switch queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
-		fmt.Println("QueryResponse_ErrorResponse getIrohaAccountDetail for address " + addr.String() + ", key " + key.String())
+		fmt.Println("QueryResponse_ErrorResponse getIrohaAccountDetail for address " + addr.String() + ", key " + hexKey)
 		// TODO (IvanTyulyandin):
 		// check if "no account detail" error returned
 
-		// No errors, but requested account does not exist
-		return nil, nil
+		// No errors, but requested account detail does not exist
+		return []byte{}, nil
 	case *pb.QueryResponse_AccountDetailResponse:
-		fmt.Println("Query details result for address " + addr.String() + ", key " + key.String() + ": " + queryResponse.String())
+		fmt.Println("Query details result for address " + addr.String() + ", key " + hexKey + ": " + queryResponse.String())
 		getAccDetail := queryResponse.GetAccountDetailResponse()
-		return []byte(getAccDetail.Detail), nil
+		return hex.DecodeString(getAccDetail.Detail)
 	default:
 		panic("Wrong queryResponce for getIrohaAccountDetail")
 	}
