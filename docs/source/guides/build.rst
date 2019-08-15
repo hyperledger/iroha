@@ -84,19 +84,6 @@ Now your are ready to build Iroha! Please go to `Building Iroha` section.
 Linux
 ^^^^^
 
-Boost
-"""""
-
-Iroha requires Boost of at least 1.65 version.
-To install Boost libraries (``libboost-all-dev``), use `current release
-<http://www.boost.org/users/download/>`_ from Boost webpage. The only
-dependencies are thread, system and filesystem, so use
-``./bootstrap.sh --with-libraries=thread,system,filesystem`` when you are building
-the project.
-
-Other Dependencies
-""""""""""""""""""
-
 To build Iroha, you need following packages:
 
 ``build-essential`` ``automake`` ``libtool`` ``libssl-dev`` ``zlib1g-dev``
@@ -129,7 +116,7 @@ to install all dependencies with Homebrew.
 .. code-block:: shell
 
   xcode-select --install
-  brew install cmake boost postgres grpc autoconf automake libtool golang soci
+  brew install cmake autoconf automake libtool golang
 
 .. hint:: To install the Homebrew itself please run
 
@@ -139,13 +126,13 @@ to install all dependencies with Homebrew.
 Windows
 ^^^^^^^
 
-All the listed commands are desinged for building 64-bit version of Iroha.
+All the listed commands are designed for building 64-bit version of Iroha.
 
 Chocolatey Package Manager
 """"""""""""""""""""""""""
 
 First of all you need chocolatey package manager installed.
-Please refer `the guide <https://chocolatey.org/install>`_ for chocoloatey installation.
+Please refer `the guide <https://chocolatey.org/install>`_ for chocolatey installation.
 
 Build Toolset
 """""""""""""
@@ -154,7 +141,8 @@ Install CMake, Git, Microsoft compilers via chocolatey being in Administrative m
 
 .. code-block:: shell
 
-  choco install cmake git visualstudio2017-workload-vctools
+  choco install cmake git visualstudio2019-workload-vctools
+  # visualstudio2017-workload-vctools should work as well
 
 .. hint::
   Despite PostgreSQL is not a build dependency it is recommended to install Postgres now for the testing later.
@@ -165,64 +153,57 @@ Install CMake, Git, Microsoft compilers via chocolatey being in Administrative m
     # Don't forget the password you set!
 
 
-Vcpkg Dependency Manager
-""""""""""""""""""""""""
 
-Although Vcpkg is aimed to control dependency hell among the C++ libraries,
-unfortunately, we cannot install its default version.
-The first problem is that Iroha dependency called SOCI is not able to work with the latest Boost.
-The second reason - Vcpkg does not provide Postgres related libraries for Debug build.
+Install build dependencies with Vcpkg Dependency Manager
+--------------------------------------------------------
 
-The solution is to use Vcpkg from a `pull request <https://github.com/Microsoft/vcpkg/pull/6328>`_ (until it is merged):
+
+Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS. We use a fixed version of
+Vcpkg to ensure the patches we need will work. The version can be found inside the Iroha repository so we need to
+clone Iroha first.
+The whole process is pretty similar for all platforms but the exact commands are slightly different.
+
+Linux and MacOS
+^^^^^^^^^^^^^^^
+
+Run in terminal:
 
 .. code-block:: shell
 
-  git clone https://github.com/Microsoft/vcpkg.git --depth=1
+  git clone https://github.com/hyperledger/iroha.git
+  git clone https://github.com/Microsoft/vcpkg.git
   cd vcpkg
-  git fetch origin pull/6328/head:vcpkg_for_iroha
-  git checkout vcpkg_for_iroha
+  git checkout $(cat ../iroha/vcpkg/VCPKG_COMMIT_SHA)
+  for i in ../iroha/vcpkg/patches/*.patch; do git apply $i; done;
+  ./bootstrap-vcpkg.sh
+  ./vcpkg install $(cat ../iroha/vcpkg/VCPKG_DEPS_LIST | cut -d':' -f1 | tr '\n' ' ')
+  ./vcpkg install --head $(cat ../iroha/vcpkg/VCPKG_HEAD_DEPS_LIST | cut -d':' -f1 | tr '\n' ' ')
+  ./vcpkg integrate install
 
-Then follow Vcpkg installation `guide <https://github.com/Microsoft/vcpkg/blob/master/README.md>`_:
+After the installation of vcpkg you will be provided with a CMake build parameter like
+``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
+Save it somewhere for the later use.
 
-.. code-block:: text
+Windows
+^^^^^^^
 
-  # execute in Power shell
+Execute from Power Shell:
+
+.. code-block:: shell
+
+  git clone https://github.com/hyperledger/iroha.git
+  git clone https://github.com/Microsoft/vcpkg.git
+  cd vcpkg
+  git checkout (Get-Content -Path ..\iroha\vcpkg\VCPKG_COMMIT_SHA)
+  foreach($file in Get-ChildItem '..\iroha\vcpkg\patches\' -Filter *.patch) { git -C . apply $file.FullName }
   .\bootstrap-vcpkg.bat
+  .\vcpkg.exe install (Get-Content -Path ..\iroha\vcpkg\VCPKG_DEPS_LIST).Replace(":",":x64-windows")
+  .\vcpkg.exe install (Get-Content -Path ..\iroha\vcpkg\VCPKG_HEAD_DEPS_LIST).Replace(":",":x64-windows")
   .\vcpkg.exe integrate install
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
 Save it somewhere for the later use.
-
-Vcpkg Packages
-""""""""""""""
-
-Install C++ dependencies via vcpkg:
-
-.. code-block:: shell
-
-  # Execute this from cmd.exe NOT from Power Shell
-
-  vcpkg.exe install ^
-  protobuf:x64-windows ^
-  grpc:x64-windows ^
-  tbb:x64-windows ^
-  gtest:x64-windows ^
-  gflags:x64-windows ^
-  soci[boost,postgresql]:x64-windows ^
-  boost-filesystem:x64-windows ^
-  boost-system:x64-windows ^
-  boost-thread:x64-windows ^
-  boost-variant:x64-windows ^
-  boost-multiprecision:x64-windows ^
-  boost-bimap:x64-windows ^
-  boost-format:x64-windows ^
-  boost-circular-buffer:x64-windows ^
-  boost-assign:x64-windows ^
-  boost-uuid:x64-windows ^
-  boost-accumulators:x64-windows ^
-  boost-property-tree:x64-windows ^
-  boost-process:x64-windows
 
 .. note:: If you plan to build 32-bit version of Iroha -
   you will need to install all the mentioned librares above
@@ -233,7 +214,8 @@ Build Process
 
 Cloning the Repository
 ^^^^^^^^^^^^^^^^^^^^^^
-Clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
+This step is currently unnecessary since you have already cloned Iroha in the previous step.
+But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the
 directory of your choice.
 
 .. code-block:: shell
@@ -250,25 +232,19 @@ directory of your choice.
 Building Iroha
 ^^^^^^^^^^^^^^
 
-Building on Windows differs from the main flow and the guide is `here <#building-iroha-on-windows>`_.
-
 To build Iroha, use those commands
 
 .. code-block:: shell
 
-  mkdir build; cd build; cmake ..; make -j$(nproc)
+  cmake -H. -Bbuild -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja"
+  cmake --build build
 
-Alternatively, you can use these shorthand parameters (they are not documented
-though)
+.. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
 
-.. code-block:: shell
-
-  cmake -H. -Bbuild;
-  cmake --build build -- -j$(nproc)
-
-.. note::  On macOS ``$(nproc)`` variable does not work. Check the number of
-  logical cores with ``sysctl -n hw.ncpu`` and put it explicitly in the command
-  above, e.g. ``cmake --build build -- -j4``
+.. note:: You can build in multiple threads to speed the process up by a command ``cmake --build build -- -j$(nproc)``
+  On macOS ``$(nproc)`` variable does not work. Check the number of  logical cores with ``sysctl -n hw.ncpu``
+  and put it explicitly in the command above, e.g. ``cmake --build build -- -j4``.
+  On Windows you can use ``%NUMBER_OF_PROCESSORS%`` environment variable.
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^
@@ -341,49 +317,3 @@ Alternatively, you can run following command in the ``build`` folder
     -p 5432:5432 \
     -d postgres:9.5 \
     -c 'max_prepared_transactions=100'
-
-
-Building Iroha on Windows
-"""""""""""""""""""""""""
-
-Configure the CMake project using configuration parameter acquired from vcpkg.
-
-.. code-block:: text
-
-  cmake -HC:\path\to\iroha -BC:\path\to\build ^
-  -DCMAKE_TOOLCHAIN_FILE=C:\path\to\vcpkg\scripts\buildsystems\vcpkg.cmake ^
-  -G "Visual Studio 15 2017 Win64" -T host=x64
-
-.. note:: To build a 32-bit version of Iroha change ``-G "Visual Studio 15 2017 Win64"``
-  to ``-G "Visual Studio 15 2017"``
-
-.. note:: ``-T host=x64`` indicates only the fact that 64-bit system is used as a host,
-  where Iroha is going to be compiled.
-
-Build ``irohad`` and ``iroha-cli``:
-
-.. code-block:: text
-
-  cmake --build C:\path\to\build --target irohad
-  cmake --build C:\path\to\build --target iroha-cli
-
-
-Running Iroha on Windows
-""""""""""""""""""""""""
-
-Set the correct path and PostgreSQL password in ``config-win.sample``
-
-.. code-block:: text
-
-  C:\path\to\irohad.exe ^
-  --config C:\path\to\iroha\example\config-win.sample ^
-  --genesis_block C:\path\to\iroha\example\genesis-win.block ^
-  --keypair_name C:\path\to\iroha\example\node0
-
-As we stated before Windows build support is on experimental stage,
-that is why there no much details regarding the process.
-If you want to explore the maximum of Windows-related works around
-Iroha please take a look at these pull requests:
-`1 <https://github.com/hyperledger-archives/iroha/pull/1988>`_,
-`2 <https://github.com/hyperledger-archives/iroha/pull/2022>`_,
-`3 <https://github.com/hyperledger/iroha/pull/55>`_.
