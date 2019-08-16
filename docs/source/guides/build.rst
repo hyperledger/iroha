@@ -17,7 +17,7 @@ In order to successfully build Iroha, we need to configure the environment.
 There are several ways to do it and we will describe all of them.
 
 Currently, we support Unix-like systems (we are basically targeting popular
-Linux distros and macOS). If you happen to have Windows or you don't want to
+Linux distros and MacOS). If you happen to have Windows or you don't want to
 spend time installing all dependencies you might want to consider using Docker
 environment. Also, Windows users might consider using
 `WSL <https://en.wikipedia.org/wiki/Windows_Subsystem_for_Linux>`_
@@ -60,7 +60,7 @@ After it, you need to run the development environment. Run the
   bash scripts/run-iroha-dev.sh
 
 .. hint:: Please make sure that Docker is running before executing the script.
-  macOS users could find a Docker icon in system tray, Linux user could use
+  MacOS users could find a Docker icon in system tray, Linux user could use
   ``systemctl start docker``
 
 After you execute this script, following things happen:
@@ -98,7 +98,7 @@ Use this code to install dependencies on Debian-based Linux distro.
   apt-get -y --no-install-recommends install \
   build-essential automake libtool \
   libssl-dev zlib1g-dev \
-  libc6-dbg golang \
+  libc6-dbg golang ninja-build \
   git tar gzip ca-certificates \
   wget curl file unzip \
   python cmake
@@ -107,7 +107,7 @@ Use this code to install dependencies on Debian-based Linux distro.
   libraries, please consider installing the
   `latest release <https://cmake.org/download/>`_ of CMake.
 
-macOS
+MacOS
 ^^^^^
 
 If you want to build it from scratch and actively develop it, please use this code
@@ -116,7 +116,7 @@ to install all dependencies with Homebrew.
 .. code-block:: shell
 
   xcode-select --install
-  brew install cmake autoconf automake libtool golang
+  brew install cmake autoconf automake libtool golang ninja
 
 .. hint:: To install the Homebrew itself please run
 
@@ -237,14 +237,16 @@ To build Iroha, use those commands
 .. code-block:: shell
 
   cmake -H. -Bbuild -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake -G "Ninja"
-  cmake --build build
+  cmake --build build --target irohad -- -j<number of threads>
+
+.. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
+  environments use the path you have got in previous steps.
+
+.. note:: On Linux you can get an optimal number of threads via ``nproc``.
+  On MacOS check the number of  logical cores with ``sysctl -n hw.ncpu``.
+  On Windows you can use ``echo %NUMBER_OF_PROCESSORS%``.
 
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
-
-.. note:: You can build in multiple threads to speed the process up by a command ``cmake --build build -- -j$(nproc)``
-  On macOS ``$(nproc)`` variable does not work. Check the number of  logical cores with ``sysctl -n hw.ncpu``
-  and put it explicitly in the command above, e.g. ``cmake --build build -- -j4``.
-  On Windows you can use ``%NUMBER_OF_PROCESSORS%`` environment variable.
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^
