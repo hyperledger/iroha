@@ -8,7 +8,13 @@
 
 #include "validators/abstract_validator.hpp"
 
-#include "transaction.pb.h"
+#include "validators/protobuf/proto_command_validator.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Transaction;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace validation {
@@ -17,6 +23,9 @@ namespace shared_model {
         : public AbstractValidator<iroha::protocol::Transaction> {
      public:
       Answer validate(const iroha::protocol::Transaction &tx) const override;
+
+     private:
+      ProtoCommandValidator command_validator_;
     };
   }  // namespace validation
 }  // namespace shared_model
