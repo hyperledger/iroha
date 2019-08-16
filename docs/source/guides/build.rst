@@ -4,14 +4,22 @@ Building Iroha
 ==============
 
 In this guide we will learn how to install all dependencies, required to build
-Iroha and how to build it.
+Iroha and how to actually build it.
+
+There will be 3 steps:
+
+#. Installing environment prerequisites
+
+#. Installing Iroha dependencies (will be performed automatically for Docker)
+
+#. Building Iroha
 
 .. note:: You don't need to build Iroha to start using it.
   Instead, you can download prepared Docker image from the Hub,
   this process explained in details in the :ref:`getting-started` page of this documentation.
 
-Preparing the Environment
--------------------------
+Prerequisites
+-------------
 
 In order to successfully build Iroha, we need to configure the environment.
 There are several ways to do it and we will describe all of them.
@@ -26,14 +34,22 @@ Technically Iroha can be built under Windows natively in experimental mode.
 This guide covers that way too.
 All the stages related to native Windows build are separated from the main flow due to its significant differences.
 
+Please choose your preferred platform below for a quick access:
+
+    - :ref:`docker-pre`
+    - :ref:`linux-pre`
+    - :ref:`MacOS-pre`
+    - :ref:`Windows-pre`
+
+
 .. hint:: Having troubles? Check FAQ section or communicate to us directly, in
   case you were stuck on something. We don't expect this to happen, but some
   issues with an environment are possible.
 
+.. _docker-pre:
+
 Docker
 ^^^^^^
-.. note:: You don't need Docker to run Iroha, it is just one of the possible
-  choices.
 
 First of all, you need to install ``docker`` and ``docker-compose``. You can
 read how to install it on the
@@ -42,7 +58,7 @@ read how to install it on the
 .. note:: Please, use the latest available docker daemon and docker-compose.
 
 Then you should clone the `Iroha repository <https://github.com/hyperledger/iroha>`_
-to the directory of your choice.
+to the directory of your choice:
 
 .. code-block:: shell
 
@@ -52,7 +68,7 @@ to the directory of your choice.
   save some time and bandwidth. If you want to get a full commit history, you
   can omit this option.
 
-After it, you need to run the development environment. Run the
+When it is done, you need to run the development environment. Run the
 ``scripts/run-iroha-dev.sh`` script:
 
 .. code-block:: shell
@@ -60,37 +76,39 @@ After it, you need to run the development environment. Run the
   bash scripts/run-iroha-dev.sh
 
 .. hint:: Please make sure that Docker is running before executing the script.
-  MacOS users could find a Docker icon in system tray, Linux user could use
+  MacOS users could find a Docker icon in system tray, Linux users can use
   ``systemctl start docker``
 
-After you execute this script, following things happen:
+After you execute this script, the following things will happen:
 
-1. The script checks if you don't have containers with Iroha already running.
+#. The script will check whether you have containers with Iroha already running.
 Successful completion finishes with the new container shell.
 
-2. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images.
+#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images.
 ``hyperledger/iroha:develop-build`` image contains all development dependencies and is
 based on top of ``ubuntu:16.04``. ``postgres`` image is required for starting
 and running Iroha.
 
-3. Two containers are created and launched.
+#. Two containers are created and launched.
 
-4. The user is attached to the interactive environment for development and
+#. The user is attached to the interactive environment for development and
 testing with ``iroha`` folder mounted from the host machine. Iroha folder
 is mounted to ``/opt/iroha`` in Docker container.
 
-Now your are ready to build Iroha! Please go to `Building Iroha` section.
+Now your are ready to build Iroha! Please go directly to `Building Iroha <#build-process>`_ section.
+
+.. _linux-pre:
 
 Linux
 ^^^^^
 
-To build Iroha, you need following packages:
+To build Iroha, you will need the following packages:
 
 ``build-essential`` ``automake`` ``libtool`` ``libssl-dev`` ``zlib1g-dev``
 ``libc6-dbg`` ``golang`` ``git`` ``tar`` ``gzip`` ``ca-certificates``
 ``wget`` ``curl`` ``file`` ``unzip`` ``python`` ``cmake``
 
-Use this code to install dependencies on Debian-based Linux distro.
+Use this code to install environment dependencies on Debian-based Linux distro.
 
 .. code-block:: shell
 
@@ -107,11 +125,15 @@ Use this code to install dependencies on Debian-based Linux distro.
   libraries, please consider installing the
   `latest release <https://cmake.org/download/>`_ of CMake.
 
+Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
+
+.. _macos-pre:
+
 MacOS
 ^^^^^
 
-If you want to build it from scratch and actively develop it, please use this code
-to install all dependencies with Homebrew.
+If you want to build Iroha from scratch and actively develop it, please use the following code
+to install all environment dependencies with Homebrew:
 
 .. code-block:: shell
 
@@ -122,20 +144,23 @@ to install all dependencies with Homebrew.
 
   ``ruby -e "$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)"``
 
+Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
+
+.. _windows-pre:
 
 Windows
 ^^^^^^^
 
-All the listed commands are designed for building 64-bit version of Iroha.
+.. note:: All the listed commands are designed for building 64-bit version of Iroha.
 
 Chocolatey Package Manager
 """"""""""""""""""""""""""
 
-First of all you need chocolatey package manager installed.
+First of all you need Chocolatey package manager installed.
 Please refer `the guide <https://chocolatey.org/install>`_ for chocolatey installation.
 
-Build Toolset
-"""""""""""""
+Building the Toolset
+""""""""""""""""""""
 
 Install CMake, Git, Microsoft compilers via chocolatey being in Administrative mode of command prompt:
 
@@ -144,23 +169,23 @@ Install CMake, Git, Microsoft compilers via chocolatey being in Administrative m
   choco install cmake git visualstudio2019-workload-vctools
   # visualstudio2017-workload-vctools should work as well
 
-.. hint::
-  Despite PostgreSQL is not a build dependency it is recommended to install Postgres now for the testing later.
+
+PostgreSQL is not a build dependency, but it is recommended to install it now for the testing later:
 
   .. code-block:: shell
 
     choco install postgresql
     # Don't forget the password you set!
 
+Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
-
-Install build dependencies with Vcpkg Dependency Manager
+Installing dependencies with Vcpkg Dependency Manager
 --------------------------------------------------------
 
+Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS.
+We use a fixed version of Vcpkg to ensure the patches we need will work.
 
-Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS. We use a fixed version of
-Vcpkg to ensure the patches we need will work. The version can be found inside the Iroha repository so we need to
-clone Iroha first.
+That stable version can only be found inside the Iroha repository, so we will need to clone Iroha.
 The whole process is pretty similar for all platforms but the exact commands are slightly different.
 
 Linux and MacOS
@@ -182,7 +207,7 @@ Run in terminal:
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for the later use.
+Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
 
 Windows
 ^^^^^^^
@@ -203,7 +228,7 @@ Execute from Power Shell:
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
-Save it somewhere for the later use.
+Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section.
 
 .. note:: If you plan to build 32-bit version of Iroha -
   you will need to install all the mentioned librares above
@@ -232,7 +257,7 @@ directory of your choice.
 Building Iroha
 ^^^^^^^^^^^^^^
 
-To build Iroha, use those commands
+To build Iroha, use these commands:
 
 .. code-block:: shell
 
@@ -240,22 +265,24 @@ To build Iroha, use those commands
   cmake --build build --target irohad -- -j<number of threads>
 
 .. note:: On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other
-  environments use the path you have got in previous steps.
+  environment please use the path you have got in previous steps.
 
-.. note:: On Linux you can get an optimal number of threads via ``nproc``.
-  On MacOS check the number of  logical cores with ``sysctl -n hw.ncpu``.
-  On Windows you can use ``echo %NUMBER_OF_PROCESSORS%``.
+Number of threads will be defined differently depending on the platform:
+- On Linux: via ``nproc``.
+- On MacOS: with ``sysctl -n hw.ncpu``.
+- On Windows: use ``echo %NUMBER_OF_PROCESSORS%``.
 
 .. note:: When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt.
+
+Now Iroha is built. Although, if you like, you can build it with additional parameters described below.
 
 CMake Parameters
 ^^^^^^^^^^^^^^^^
 
-We use CMake to build platform-dependent build files. It has numerous flags
-for configuring the final build. Note that besides the listed parameters
-cmake's variables can be useful as well. Also as long as this page can be
-deprecated (or just not complete) you can browse custom flags via
-``cmake -L``, ``cmake-gui``, or ``ccmake``.
+We use CMake to build platform-dependent build files.
+It has numerous flags for configuring the final build.
+Note that besides the listed parameters cmake's variables can be useful as well.
+Also as long as this page can be deprecated (or just not complete) you can browse custom flags via ``cmake -L``, ``cmake-gui``, or ``ccmake``.
 
 .. hint::  You can specify parameters at the cmake configuring stage
   (e.g cmake -DTESTING=ON).
@@ -300,7 +327,7 @@ of the daemon. You can run tests with this code:
 
   cmake --build build --target test
 
-Alternatively, you can run following command in the ``build`` folder
+Alternatively, you can run the following command in the ``build`` folder
 
 .. code-block:: shell
 
