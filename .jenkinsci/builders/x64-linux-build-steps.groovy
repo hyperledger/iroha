@@ -40,7 +40,7 @@ def testSteps(String buildDir, List environment, String testList) {
   }
 }
 
-def buildSteps(int parallelism, List compilerVersions, String build_type, boolean specialBranch, boolean coverage,
+def buildSteps(int parallelism, List compilerVersions, String build_type, boolean build_shared_libs, boolean specialBranch, boolean coverage,
       boolean testing, String testList, boolean cppcheck, boolean sonar, boolean codestyle, boolean docs, boolean packagebuild,
       boolean sanitize, boolean fuzzing, boolean coredumps, boolean useBTF, boolean forceDockerDevelopBuild, List environment) {
   withEnv(environment) {
@@ -102,6 +102,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
           build.cmakeConfigure(buildDir, "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
             -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
             -DCMAKE_BUILD_TYPE=${build_type} \
+            -DBUILD_SHARED_LIBS=${cmakeBooleanOption[build_shared_libs]} \
             -DCOVERAGE=${cmakeBooleanOption[coverage]} \
             -DTESTING=${cmakeBooleanOption[testing]} \
             -DFUZZING=${cmakeBooleanOption[fuzzing]} \
