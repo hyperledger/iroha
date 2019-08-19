@@ -72,6 +72,7 @@ add_library(proto_command_executor
     )
 target_link_libraries(proto_command_executor
     shared_model_proto_backend
+    shared_model_stateless_validation
     )
 
 add_library(postgres_query_executor

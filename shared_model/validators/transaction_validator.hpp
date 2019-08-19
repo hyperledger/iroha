@@ -40,6 +40,8 @@
 namespace shared_model {
   namespace validation {
 
+    struct ValidatorsConfig;
+
     /**
      * Visitor used by transaction validator to validate each command
      * @tparam FieldValidator - field validator type

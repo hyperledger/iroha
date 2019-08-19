@@ -17,7 +17,7 @@ struct Iroha_CommandError {
 };
 
 extern struct Iroha_CommandError Iroha_ProtoCommandExecutorExecute(
-    void *executor, void *data, int size);
+    void *executor, void *data, int size, char *account_id);
 
 #ifdef __cplusplus
 }  // extern "C"

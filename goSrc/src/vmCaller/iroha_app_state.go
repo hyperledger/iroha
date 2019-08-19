@@ -206,7 +206,7 @@ func makeProtobufCmdAndExecute(
 		return &C.struct_Iroha_CommandError{error_code: 100}, err
 	}
 	cOut := C.CBytes(out)
-	commandResult := C.Iroha_ProtoCommandExecutorExecute(cmdExecutor, cOut, C.int(len(out)))
+	commandResult := C.Iroha_ProtoCommandExecutorExecute(cmdExecutor, cOut, C.int(len(out)), C.CString("evm@evm"))
 	return &commandResult, nil
 }
 
@@ -282,4 +282,12 @@ func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) 
 		return nil, err
 	}
 	return queryResponse, nil
+}
+
+func (res *C.struct_Iroha_CommandError) String() string {
+	if (res.error_extra != nil) {
+		return fmt.Sprintf("Iroha_CommandError: code - %d, message - %s", res.error_code, C.GoString(res.error_extra))
+	} else {
+		return fmt.Sprintf("Iroha_CommandError: code %d", res.error_code)
+	}
 }
