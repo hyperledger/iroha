@@ -7,6 +7,7 @@ package main
 import "C"
 import (
 	"encoding/hex"
+	stdBinary "encoding/binary"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/burrow/acm"
@@ -67,7 +68,12 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 			fmt.Println("Failed to get EVM_bytecode")
 		}
 
-		//TODO (IvanTyulyandin): add balance field
+		EvmBalanceBytes, err := ias.getIrohaAccountDetail(addr, "EVM_balance")
+		if err != nil {
+			errHappened = true
+			fmt.Println("Failed to get EVM_balance")
+		}
+		EvmBalance := stdBinary.BigEndian.Uint64(EvmBalanceBytes)
 
 		if errHappened {
 			return &acm.Account{}, fmt.Errorf("Error happened in GetAccount for addr " + addr.String())
@@ -75,6 +81,7 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 
 		result := &acm.Account{
 			Address:  addr,
+			Balance:  EvmBalance,
 			EVMCode:  EvmBytecode,
 		}
 		return result, nil
@@ -107,7 +114,13 @@ func (ias *IrohaAppState) UpdateAccount(account *acm.Account) error {
 		fmt.Println("Failed to set EVM_bytecode")
 	}
 
-	//TODO (IvanTyulyandin): add balance field
+	uintByteSlice := make([]byte, 8)
+	stdBinary.BigEndian.PutUint64(uintByteSlice, account.Balance)
+	err = ias.setIrohaAccountDetail(account.Address, "EVM_balance", uintByteSlice)
+	if err != nil {
+		errHappened = true
+		fmt.Println("Failed to set EVM_balance")
+	}
 
 	if errHappened {
 		return fmt.Errorf("Error happened in UpdateAccount for addr " + account.Address.String())
