@@ -78,8 +78,8 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 
 	// If there is no errors after smart contract execution, cache data is written to Iroha.
 	if err := evmState.Sync(); err != nil {
-		fmt.Println(err)
-		panic("Sync error")
+		fmt.Println(err, "Sync error")
+		return nil, false
 	}
 
 	// Transform output data to a string value.
