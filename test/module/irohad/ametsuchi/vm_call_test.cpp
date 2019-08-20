@@ -141,7 +141,8 @@ contract C {
             boost::get<const shared_model::interface::CreateAccount &>(
                 cmd.get());
         testAccounts.insert(
-            std::make_pair(cmdNewAcc.accountName(), TestAccount{}));
+            std::make_pair(cmdNewAcc.accountName() + "@" + cmdNewAcc.domainId(),
+                           TestAccount{}));
         return iroha::ametsuchi::CommandResult{};
       });
 
@@ -164,7 +165,7 @@ contract C {
         } else {
           // TODO(IvanTyulyandin): Fix magic number 1
           return iroha::ametsuchi::CommandResult{iroha::ametsuchi::CommandError{
-              "MockedSetAccountDetail_No_Such_Account", 1, ""}};
+              "SetAccountDetail", 1, "Mocked_No_Such_Account"}};
         }
       });
 
