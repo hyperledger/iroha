@@ -92,6 +92,7 @@ add_library(proto_specific_query_executor
 target_link_libraries(proto_specific_query_executor
     postgres_query_executor
     shared_model_proto_backend
+    shared_model_stateless_validation
     )
 
 add_library(ametsuchi

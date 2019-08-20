@@ -6,6 +6,7 @@ package main
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
+	"time"
 	"encoding/hex"
 	stdBinary "encoding/binary"
 	"fmt"
@@ -214,20 +215,27 @@ func makeProtobufCmdAndExecute(
 
 // Queries Iroha about the tied account.
 func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err error) {
-	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccount{
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime: uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: "evm@evm",
+			QueryCounter: 1},
+			Query: &pb.Query_Payload_GetAccount{
 		GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
 		return false, err
 	}
-	switch queryResponse.Response.(type) {
+	fmt.Println(queryResponse)
+	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
 		fmt.Println("QueryResponse_ErrorResponse getIrohaAccount for address " + addr.String())
-		// TODO (IvanTyulyandin):
-		// check if "no account" error returned
+		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
+			// No errors, but requested account does not exist
+			return false, nil
+		}
 
-		// No errors, but requested account does not exist
-		return false, nil
+		return false, fmt.Errorf("QueryResponse_ErrorResponse: code - %d, message - %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
 	case *pb.QueryResponse_AccountResponse:
 		fmt.Println("Query result for address " + addr.String() + ": " + queryResponse.String())
 		return true, nil
@@ -239,7 +247,12 @@ func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err 
 // Queries Iroha about the tied account detail.
 // Returns account detail
 func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string) (detail []byte, err error) {
-	query := &pb.Query{Payload: &pb.Query_Payload{Query: &pb.Query_Payload_GetAccountDetail{
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime: uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: "evm@evm",
+			QueryCounter: 1},
+			Query: &pb.Query_Payload_GetAccountDetail{
 		&pb.GetAccountDetail{
 			OptAccountId: &pb.GetAccountDetail_AccountId {AccountId: addr.String() + "@evm"},
 			OptKey      : &pb.GetAccountDetail_Key       {Key      : key}}}}}
@@ -247,14 +260,16 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 	if err != nil {
 		return []byte{}, err
 	}
-	switch queryResponse.Response.(type) {
+	fmt.Println(queryResponse)
+	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
 		fmt.Println("QueryResponse_ErrorResponse getIrohaAccountDetail for address " + addr.String() + ", key " + key)
-		// TODO (IvanTyulyandin):
-		// check if "no account detail" error returned
+		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT_DETAIL {
+			// No errors, but requested account detail does not exist
+			return []byte{}, nil
+		}
 
-		// No errors, but requested account detail does not exist
-		return []byte{}, nil
+		return []byte{}, fmt.Errorf("QueryResponse_ErrorResponse: code - %d, message - %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
 	case *pb.QueryResponse_AccountDetailResponse:
 		fmt.Println("Query details result for address " + addr.String() + ", key " + key + ": " + queryResponse.String())
 		getAccDetail := queryResponse.GetAccountDetailResponse()

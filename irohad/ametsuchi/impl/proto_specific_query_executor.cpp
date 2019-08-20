@@ -8,25 +8,65 @@
 #include "ametsuchi/specific_query_executor.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
+#include "validators/field_validator.hpp"
+#include "validators/protobuf/proto_query_validator.hpp"
+#include "validators/query_validator.hpp"
+#include "validators/validators_common.hpp"
+
+namespace {
+  Iroha_ProtoQueryResponse serialize(iroha::protocol::QueryResponse response) {
+    Iroha_ProtoQueryResponse result{};
+
+    result.size = response.ByteSize();
+    result.data = malloc(result.size);
+    response.SerializeToArray(result.data, result.size);
+
+    return result;
+  }
+
+  iroha::protocol::QueryResponse makeErrorResponse(int code,
+                                                   std::string message) {
+    iroha::protocol::QueryResponse result{};
+
+    auto *error_response = result.mutable_error_response();
+    error_response->set_error_code(code);
+    error_response->set_message(std::move(message));
+
+    return result;
+  }
+}  // namespace
 
 Iroha_ProtoQueryResponse Iroha_ProtoSpecificQueryExecutorExecute(void *executor,
                                                                  void *data,
                                                                  int size) {
-  Iroha_ProtoQueryResponse result{};
+  iroha::protocol::Query protocol_query;
+  if (!protocol_query.ParseFromArray(data, size)) {
+    return serialize(makeErrorResponse(100, "Deserialization failed"));
+  }
 
-  iroha::protocol::Query query;
-  if (!query.ParseFromArray(data, size)) {
-    return result;
+  if (auto answer = shared_model::validation::ProtoQueryValidator().validate(
+          protocol_query)) {
+    return serialize(makeErrorResponse(200, answer.reason()));
+  }
+
+  shared_model::proto::Query proto_query(protocol_query);
+
+  if (auto answer =
+          shared_model::validation::QueryValidator<
+              shared_model::validation::FieldValidator,
+              shared_model::validation::QueryValidatorVisitor<
+                  shared_model::validation::FieldValidator>>(
+              std::make_shared<shared_model::validation::ValidatorsConfig>(0))
+              .validate(proto_query)) {
+    return serialize(makeErrorResponse(300, answer.reason()));
   }
 
   auto response =
       reinterpret_cast<iroha::ametsuchi::SpecificQueryExecutor *>(executor)
-          ->execute(shared_model::proto::Query(query));
+          ->execute(proto_query);
   auto &proto_response =
       static_cast<shared_model::proto::QueryResponse *>(response.get())
           ->getTransport();
-  result.size = proto_response.ByteSize();
-  result.data = malloc(result.size);
-  proto_response.SerializeToArray(result.data, result.size);
-  return result;
+
+  return serialize(proto_response);
 }
