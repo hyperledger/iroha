@@ -156,7 +156,7 @@ func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, va
 func (ias *IrohaAppState) createIrohaEvmAccount(addr crypto.Address) (err error) {
 	// Send CreateAccount to Iroha
 	command := &pb.Command{Command: &pb.Command_CreateAccount{
-		CreateAccount: &pb.CreateAccount{AccountName: addr.String() + "@evm", DomainId: "evm"}}}
+		CreateAccount: &pb.CreateAccount{AccountName: addr.String(), DomainId: "evm", PublicKey: fmt.Sprintf("%064s", addr.String())}}}
 	commandResult, err := makeProtobufCmdAndExecute(ias.commandExecutor, command)
 	if err != nil {
 		return err
