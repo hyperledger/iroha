@@ -30,6 +30,8 @@ class ServerRunner {
       bool reuse = true,
       const boost::optional<TlsKeypair> &tls_keypair = boost::none);
 
+  ~ServerRunner();
+
   /**
    * Adds a new grpc service to be run.
    * @param service - service to append.
