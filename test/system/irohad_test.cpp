@@ -84,6 +84,7 @@ class IrohadTest : public AcceptanceFixture {
 
   void SetUp() override {
     setPaths();
+    root_ca_ = readFile(path_root_certificate_);
 
     rapidjson::Document doc;
     std::ifstream ifs_iroha(path_config_.string());
@@ -117,10 +118,7 @@ class IrohadTest : public AcceptanceFixture {
     launchIroha(setDefaultParams());
   }
 
-  void launchIroha(const std::string &parameters) {
-    iroha_process_.emplace(irohad_executable.string() + parameters);
-    auto channel = grpc::CreateChannel(kAddress + ":" + std::to_string(kPort),
-                                       grpc::InsecureChannelCredentials());
+  void waitForChannelReady(std::shared_ptr<grpc::Channel> channel) {
     auto state = channel->GetState(true);
     auto deadline = std::chrono::system_clock::now() + kTimeout;
     while (state != grpc_connectivity_state::GRPC_CHANNEL_READY
@@ -129,6 +127,22 @@ class IrohadTest : public AcceptanceFixture {
       state = channel->GetState(true);
     }
     ASSERT_EQ(state, grpc_connectivity_state::GRPC_CHANNEL_READY);
+  }
+
+  void waitForServersReady() {
+    waitForChannelReady(
+        grpc::CreateChannel(kAddress + ":" + std::to_string(kPort),
+                            grpc::InsecureChannelCredentials()));
+    grpc::SslCredentialsOptions ssl_options;
+    ssl_options.pem_root_certs = root_ca_;
+    waitForChannelReady(
+        grpc::CreateChannel(kAddress + ":" + std::to_string(kSecurePort),
+                            grpc::SslCredentials(ssl_options)));
+  }
+
+  void launchIroha(const std::string &parameters) {
+    iroha_process_.emplace(irohad_executable.string() + parameters);
+    waitForServersReady();
     ASSERT_TRUE(iroha_process_->running());
   }
 
@@ -185,13 +199,9 @@ class IrohadTest : public AcceptanceFixture {
 
     std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
     if (enable_tls) {
-      std::ifstream root_ca_file(path_root_certificate_.string());
-      std::stringstream ss;
-      ss << root_ca_file.rdbuf();
-      std::string root_ca_data = ss.str();
       stub = iroha::network::createSecureClient<
           iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port), root_ca_data);
+          kAddress + ":" + std::to_string(port), root_ca_);
     } else {
       stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
           kAddress + ":" + std::to_string(port));
@@ -364,6 +374,17 @@ class IrohadTest : public AcceptanceFixture {
     config_copy_ = path_config_.string() + std::string(".copy");
   }
 
+  std::string readFile(const boost::filesystem::path &path) {
+    std::ifstream file(path.string());
+    if (not file) {
+      throw std::runtime_error(std::string{"Can not read file '"}
+                               + path.string() + "'");
+    }
+    std::stringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
+  }
+
  public:
   boost::filesystem::path irohad_executable;
   const std::chrono::milliseconds kTimeout = 30s;
@@ -400,6 +421,7 @@ class IrohadTest : public AcceptanceFixture {
   iroha::KeysManagerImpl keys_manager_node_;
   iroha::KeysManagerImpl keys_manager_admin_;
   iroha::KeysManagerImpl keys_manager_testuser_;
+  std::string root_ca_;
 
   logger::LoggerPtr log_;
 };
@@ -453,7 +475,7 @@ TEST_F(IrohadTest, SendTxSecure) {
  * data. (well you surely can, but it will not be processed)
  * @given running Iroha with an open TLS port
  * @when a client sends a transaction to Iroha without using TLS
- * @then the transaction is not committed AND client's connection fails
+ * @then client request fails with UNAVAILABLE status code
  */
 TEST_F(IrohadTest, SendTxInsecureWithTls) {
   launchIroha();
