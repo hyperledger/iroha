@@ -7,10 +7,9 @@ import (
 	"github.com/hyperledger/burrow/execution/exec"
 )
 
-
 var _ evm.EventSink = &IrohaEventSink{}
 
-type IrohaEventSink struct {}
+type IrohaEventSink struct{}
 
 func (ies *IrohaEventSink) Call(call *exec.CallEvent, exception *errors.Exception) error {
 	fmt.Println("Call")

@@ -34,6 +34,7 @@ func blockHashGetter(height uint64) []byte {
 
 // Real application state
 var appState = NewIrohaAppState()
+
 // Create EVM instance
 var burrowEVM = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogger())
 
@@ -56,12 +57,12 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 
 	// Check if this accounts exists.
 	// If not — create them
-	if ! evmState.Exists(evmCaller) {
+	if !evmState.Exists(evmCaller) {
 		evmState.CreateAccount(evmCaller)
 	}
 
 	shouldAddEvmCodeToCallee := false
-	if ! evmState.Exists(evmCallee) {
+	if !evmState.Exists(evmCallee) {
 		shouldAddEvmCodeToCallee = true
 		evmState.CreateAccount(evmCallee)
 	}
@@ -109,6 +110,4 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 
 }
 
-
 func main() {}
-
