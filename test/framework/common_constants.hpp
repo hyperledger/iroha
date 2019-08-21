@@ -24,6 +24,7 @@ namespace common_constants {
 
   /// role names
   extern const std::string kAdminRole;
+  extern const std::string kMoneyCreator;
   extern const std::string kDefaultRole;
   extern const std::string kRole;
 

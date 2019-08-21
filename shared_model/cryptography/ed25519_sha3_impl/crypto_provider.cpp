@@ -44,7 +44,7 @@ namespace shared_model {
 
     const size_t CryptoProviderEd25519Sha3::kHashLength = 256 / 8;
     const size_t CryptoProviderEd25519Sha3::kPublicKeyLength = 256 / 8;
-    const size_t CryptoProviderEd25519Sha3::kPrivateKeyLength = 512 / 8;
+    const size_t CryptoProviderEd25519Sha3::kPrivateKeyLength = 256 / 8;
     const size_t CryptoProviderEd25519Sha3::kSignatureLength = 512 / 8;
     const size_t CryptoProviderEd25519Sha3::kSeedLength = 256 / 8;
   }  // namespace crypto

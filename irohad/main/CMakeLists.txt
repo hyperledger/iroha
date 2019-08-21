@@ -64,7 +64,6 @@ target_link_libraries(application
     chain_validator
     stateful_validator
     processors
-    ed25519_crypto
     simulator
     block_loader
     block_loader_service

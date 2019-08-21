@@ -9,14 +9,13 @@
 #include <fstream>
 #include <string>
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
-
-#define PUBKEY_HEX_SIZE 64
-#define PRIVKEY_HEX_SIZE 64
 
 using namespace iroha;
 using namespace boost::filesystem;
 using namespace std::string_literals;
+using namespace shared_model::crypto;
 
 class KeyManager : public ::testing::Test {
  public:
@@ -45,10 +44,11 @@ class KeyManager : public ::testing::Test {
       (test_dir / boost::filesystem::unique_path()).string();
   const path pub_key_path = filepath + KeysManagerImpl::kPublicKeyExtension;
   const path pri_key_path = filepath + KeysManagerImpl::kPrivateKeyExtension;
-  const std::string pubkey =
-      "00576e02f23c8c694c322796cb3ef494829fdf484f4b42312fb7d776fbd5123b"s;
-  const std::string prikey =
-      "36f028580bb02cc8272a9a020f4200e346e276ae664e45ee80745574e2f5ab80"s;
+
+  Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
+  const std::string pubkey = keypair.publicKey().hex();
+  const std::string prikey = keypair.privateKey().hex();
+
   const logger::LoggerPtr kKeysManagerLogger = getTestLogger("KeysManager");
   KeysManagerImpl manager = KeysManagerImpl(filepath, kKeysManagerLogger);
   const std::string passphrase = "test";
@@ -75,12 +75,16 @@ TEST_F(KeyManager, LoadEmptyFilesPrikey) {
 
 TEST_F(KeyManager, LoadInvalidPubkey) {
   create_file(pub_key_path, pubkey);
-  create_file(pri_key_path, std::string(PUBKEY_HEX_SIZE, '1'));
+  create_file(
+      pri_key_path,
+      std::string(DefaultCryptoAlgorithmType::kPublicKeyLength * 2, '1'));
   ASSERT_FALSE(manager.loadKeys());
 }
 
 TEST_F(KeyManager, LoadInvalidPrikey) {
-  create_file(pub_key_path, std::string(PRIVKEY_HEX_SIZE, '1'));
+  create_file(
+      pub_key_path,
+      std::string(DefaultCryptoAlgorithmType::kPrivateKeyLength * 2, '1'));
   create_file(pri_key_path, prikey);
   ASSERT_FALSE(manager.loadKeys());
 }

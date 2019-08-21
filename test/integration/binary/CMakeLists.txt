@@ -50,11 +50,13 @@ target_link_libraries(binary_test
 add_dependencies(binary_test python_proto_includes)
 target_include_directories(binary_test PUBLIC ${PROJECT_SOURCE_DIR}/test)
 
-add_test(
-    NAME python_binary_test
-    COMMAND ${CMAKE_COMMAND} -E env
-    "PYTHON_INTERPRETER=${PYTHON_EXECUTABLE}"
-    "PYTHONPATH=${PYLIB_PATH}"
-    "ROOT_DIR=${PROJECT_SOURCE_DIR}"
-    $<TARGET_FILE:binary_test> --gtest_filter=*/0*
-)
+if (NOT USE_LIBURSA)
+    add_test(
+        NAME python_binary_test
+        COMMAND ${CMAKE_COMMAND} -E env
+        "PYTHON_INTERPRETER=${PYTHON_EXECUTABLE}"
+        "PYTHONPATH=${PYLIB_PATH}"
+        "ROOT_DIR=${PROJECT_SOURCE_DIR}"
+        $<TARGET_FILE:binary_test> --gtest_filter=*/0*
+    )
+endif()

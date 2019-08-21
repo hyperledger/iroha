@@ -6,12 +6,12 @@
 #ifndef IROHA_SHARED_MODEL_CRYPTO_DEFAULTS_HPP
 #define IROHA_SHARED_MODEL_CRYPTO_DEFAULTS_HPP
 
-#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
+#include "@DEFAULT_CRYPTO_INCLUDE@"
 
 namespace shared_model {
   namespace crypto {
     /// Default type of crypto algorithm
-    using DefaultCryptoAlgorithmType = CryptoProviderEd25519Sha3;
+    using DefaultCryptoAlgorithmType = @DEFAULT_CRYPTO_PROVIDER@;
   }  // namespace crypto
 }  // namespace shared_model
 #endif  // IROHA_SHARED_MODEL_CRYPTO_DEFAULTS_HPP

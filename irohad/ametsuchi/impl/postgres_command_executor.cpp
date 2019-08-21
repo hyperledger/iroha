@@ -554,17 +554,17 @@ namespace iroha {
             insert_signatory AS
             (
                 INSERT INTO signatory(public_key)
-                (SELECT :pubkey %s) ON CONFLICT DO NOTHING RETURNING (1)
+                (SELECT :pubkey %s)
+                ON CONFLICT (public_key)
+                  DO UPDATE SET public_key = excluded.public_key
+                RETURNING (1)
             ),
-            has_signatory AS (SELECT * FROM signatory WHERE public_key = :pubkey),
             insert_account_signatory AS
             (
                 INSERT INTO account_has_signatory(account_id, public_key)
                 (
-                    SELECT :target, :pubkey WHERE (EXISTS
-                    (SELECT * FROM insert_signatory) OR
-                    EXISTS (SELECT * FROM has_signatory))
-                    %s
+                    SELECT :target, :pubkey
+                    WHERE EXISTS (SELECT * FROM insert_signatory)
                 )
                 RETURNING (1)
             )
@@ -581,7 +581,6 @@ namespace iroha {
                                                  ":target"))
                .str(),
            "WHERE (SELECT * FROM has_perm)",
-           "AND (SELECT * FROM has_perm)",
            "WHEN NOT (SELECT * from has_perm) THEN 2"});
 
       append_role_statements_ = makeCommandStatements(
@@ -715,20 +714,21 @@ namespace iroha {
             (
                 INSERT INTO signatory(public_key)
                 (
-                    SELECT :pubkey WHERE EXISTS
-                    (SELECT * FROM get_domain_default_role)
-                ) ON CONFLICT DO NOTHING RETURNING (1)
+                    SELECT :pubkey
+                    WHERE EXISTS (SELECT * FROM get_domain_default_role)
+                      %s
+                )
+                ON CONFLICT (public_key)
+                  DO UPDATE SET public_key = excluded.public_key
+                RETURNING (1)
             ),
-            has_signatory AS (SELECT * FROM signatory WHERE public_key = :pubkey),
             insert_account AS
             (
                 INSERT INTO account(account_id, domain_id, quorum, data)
                 (
-                    SELECT :account_id, :domain, 1, '{}' WHERE (EXISTS
-                        (SELECT * FROM insert_signatory) OR EXISTS
-                        (SELECT * FROM has_signatory)
-                    ) AND EXISTS (SELECT * FROM get_domain_default_role)
-                    %s
+                    SELECT :account_id, :domain, 1, '{}'
+                    WHERE EXISTS (SELECT * FROM insert_signatory)
+                      AND EXISTS (SELECT * FROM get_domain_default_role)
                 ) RETURNING (1)
             ),
             insert_account_signatory AS
