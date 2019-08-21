@@ -7,8 +7,9 @@ package main
 import "C"
 import (
 	"time"
-	"encoding/hex"
 	stdBinary "encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/burrow/acm"
@@ -273,7 +274,18 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 	case *pb.QueryResponse_AccountDetailResponse:
 		fmt.Println("Query details result for address " + addr.String() + ", key " + key + ": " + queryResponse.String())
 		getAccDetail := queryResponse.GetAccountDetailResponse()
-		return hex.DecodeString(getAccDetail.Detail)
+		accDetailAsBytes:= []byte(getAccDetail.Detail)
+		var detailResponse interface{}
+		err = json.Unmarshal(accDetailAsBytes, &detailResponse)
+
+		// Some weird casts to get data from detail response
+		// {"evm@evm":{key:value}}, where all data types are strings
+		value := detailResponse.(map[string]interface{})["evm@evm"].(map[string]interface{})[key].(string)
+		if err != nil {
+			fmt.Println("Failed to unmarshal detail response")
+			return []byte{}, err
+		}
+		return hex.DecodeString(value)
 	default:
 		panic("Wrong queryResponce for getIrohaAccountDetail")
 	}
