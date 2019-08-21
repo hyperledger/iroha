@@ -6,7 +6,6 @@ package main
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
-	"time"
 	stdBinary "encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -16,8 +15,9 @@ import (
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
-	pb "vmCaller/iroha_protocol"
+	"time"
 	"unsafe"
+	pb "vmCaller/iroha_protocol"
 )
 
 // Analogue of the following code, but without metadata:
@@ -34,7 +34,7 @@ var _ acmstate.ReaderWriter = &IrohaAppState{}
 func NewIrohaAppState() *IrohaAppState {
 	return &IrohaAppState{
 		commandExecutor: unsafe.Pointer(nil),
-		queryExecutor  : unsafe.Pointer(nil),
+		queryExecutor:   unsafe.Pointer(nil),
 	}
 }
 
@@ -46,7 +46,7 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 		return nil, err
 	}
 
-	if ! tiedAccExist {
+	if !tiedAccExist {
 		// If Iroha does not have account — create it in Iroha
 		err = ias.createIrohaEvmAccount(addr)
 		if err != nil {
@@ -54,7 +54,7 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 			return nil, err
 		} else {
 			// Return nil, but prepare tied account in Iroha
-			err = ias.UpdateAccount(&acm.Account{Address:addr})
+			err = ias.UpdateAccount(&acm.Account{Address: addr})
 			return nil, err
 		}
 
@@ -82,9 +82,9 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 		}
 
 		result := &acm.Account{
-			Address:  addr,
-			Balance:  EvmBalance,
-			EVMCode:  EvmBytecode,
+			Address: addr,
+			Balance: EvmBalance,
+			EVMCode: EvmBytecode,
 		}
 		return result, nil
 	}
@@ -137,12 +137,12 @@ func (ias *IrohaAppState) RemoveAccount(address crypto.Address) error {
 }
 
 func (ias *IrohaAppState) GetStorage(addr crypto.Address, key binary.Word256) ([]byte, error) {
-	fmt.Printf("GetStorage: " + addr.String() + " %x\n", key)
+	fmt.Printf("GetStorage: "+addr.String()+" %x\n", key)
 	return ias.getIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()))
 }
 
 func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, value []byte) error {
-	fmt.Printf("SetStorage: " + addr.String() + " %x %x\n", key, value)
+	fmt.Printf("SetStorage: "+addr.String()+" %x %x\n", key, value)
 	return ias.setIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()), value)
 }
 
@@ -218,11 +218,11 @@ func makeProtobufCmdAndExecute(
 func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
-			CreatedTime: uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: "evm@evm",
-			QueryCounter: 1},
-			Query: &pb.Query_Payload_GetAccount{
-		GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetAccount{
+			GetAccount: &pb.GetAccount{AccountId: addr.String() + "@evm"}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
 		return false, err
@@ -250,13 +250,13 @@ func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err 
 func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string) (detail []byte, err error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
-			CreatedTime: uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: "evm@evm",
-			QueryCounter: 1},
-			Query: &pb.Query_Payload_GetAccountDetail{
-		&pb.GetAccountDetail{
-			OptAccountId: &pb.GetAccountDetail_AccountId {AccountId: addr.String() + "@evm"},
-			OptKey      : &pb.GetAccountDetail_Key       {Key      : key}}}}}
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetAccountDetail{
+			&pb.GetAccountDetail{
+				OptAccountId: &pb.GetAccountDetail_AccountId{AccountId: addr.String() + "@evm"},
+				OptKey:       &pb.GetAccountDetail_Key{Key: key}}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
 		return []byte{}, err
@@ -274,7 +274,7 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 	case *pb.QueryResponse_AccountDetailResponse:
 		fmt.Println("Query details result for address " + addr.String() + ", key " + key + ": " + queryResponse.String())
 		getAccDetail := queryResponse.GetAccountDetailResponse()
-		accDetailAsBytes:= []byte(getAccDetail.Detail)
+		accDetailAsBytes := []byte(getAccDetail.Detail)
 		var detailResponse interface{}
 		err = json.Unmarshal(accDetailAsBytes, &detailResponse)
 
@@ -312,7 +312,7 @@ func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) 
 }
 
 func (res *C.struct_Iroha_CommandError) String() string {
-	if (res.error_extra != nil) {
+	if res.error_extra != nil {
 		return fmt.Sprintf("Iroha_CommandError: code - %d, message - %s", res.error_code, C.GoString(res.error_extra))
 	} else {
 		return fmt.Sprintf("Iroha_CommandError: code %d", res.error_code)
