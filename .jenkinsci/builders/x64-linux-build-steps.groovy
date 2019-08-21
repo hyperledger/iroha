@@ -42,7 +42,7 @@ def testSteps(String buildDir, List environment, String testList) {
 
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean build_shared_libs, boolean specialBranch, boolean coverage,
       boolean testing, String testList, boolean cppcheck, boolean sonar, boolean codestyle, boolean docs, boolean packagebuild,
-      boolean sanitize, boolean fuzzing, boolean coredumps, boolean useBTF, boolean forceDockerDevelopBuild, List environment) {
+      boolean sanitize, boolean fuzzing, boolean coredumps, boolean useBTF, boolean use_libursa, boolean forceDockerDevelopBuild, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
     def build = load '.jenkinsci/build.groovy'
@@ -109,6 +109,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
             -DPACKAGE_DEB=${cmakeBooleanOption[packagebuild]} \
             -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
             -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
+            -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
             -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ${cmakeOptions}")
           build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
         }
