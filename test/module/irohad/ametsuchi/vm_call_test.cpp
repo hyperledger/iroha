@@ -218,8 +218,10 @@ contract C {
             const auto iterToValue =
                 (*iterToTestAccount).second.storage.find(key);
             if (iterToValue != (*iterToTestAccount).second.storage.end()) {
+              std::string response = "{\"evm@evm\": {\"" + key + "\": \"" 
+                  + (*iterToValue).second + "\"}}";
               return query_response_factory->createAccountDetailResponse(
-                  (*iterToValue).second, 1, {}, {});
+                  response, 1, {}, {});
             } else {
               // TODO(IvanTyulyandin): Fix magic number 3
               return query_response_factory->createErrorQueryResponse(
