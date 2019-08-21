@@ -256,6 +256,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><strong>use_libursa</strong> = false </p>
+      <ul>
+         <li>
+            <p>use Hyperledger Ursa-provided ed25519 with SHA-2 instead of iroha-ed25519 with SHA-3</p>
+         </li>
+         <li>
+            <p>Ex:use_libursa=true</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><strong>forceDockerDevelopBuild</strong> = false </p>
       <ul>
          <li>
