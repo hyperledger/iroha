@@ -54,12 +54,7 @@ RUN set -e; \
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -e; \
-    git clone https://github.com/microsoft/vcpkg /tmp/vcpkg; \
-    (cd /tmp/vcpkg ; git checkout $(cat /tmp/vcpkg-vars/VCPKG_COMMIT_SHA)); \
-    for i in /tmp/vcpkg-vars/patches/*.patch; do git -C /tmp/vcpkg apply $i; done; \
-    sh /tmp/vcpkg/bootstrap-vcpkg.sh; \
-    /tmp/vcpkg/vcpkg install $(cat /tmp/vcpkg-vars/VCPKG_DEPS_LIST | cut -d':' -f1 | tr '\n' ' '); \
-    /tmp/vcpkg/vcpkg install --head $(cat /tmp/vcpkg-vars/VCPKG_HEAD_DEPS_LIST | cut -d':' -f1 | tr '\n' ' '); \
+    sh /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
     chmod +x /opt/dependencies/installed/x64-linux/tools/protobuf/protoc*; \
