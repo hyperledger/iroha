@@ -52,12 +52,8 @@ namespace shared_model {
        */
       std::string toString() const override;
 
-      Amount *clone() const override;
-
      private:
       struct Impl;
-
-      Amount(std::shared_ptr<const Impl> impl);
 
       const std::shared_ptr<const Impl> impl_;
     };

@@ -60,6 +60,7 @@ target_link_libraries(postgres_executor_test
 
 addtest(postgres_query_executor_test postgres_query_executor_test.cpp)
 target_link_libraries(postgres_query_executor_test
+    shared_model_plain_backend
     shared_model_proto_backend
     ametsuchi_fixture
     ametsuchi

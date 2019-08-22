@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PEERS_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PEERS_RESPONSE_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include <boost/range/any_range.hpp>
 #include "interfaces/common_objects/types.hpp"
@@ -20,7 +20,7 @@ namespace shared_model {
     /**
      * Provide response with peers in the network
      */
-    class PeersResponse : public NonCopyableModelPrimitive<PeersResponse> {
+    class PeersResponse : public ModelPrimitive<PeersResponse> {
      public:
       /**
        * @return a list of peers

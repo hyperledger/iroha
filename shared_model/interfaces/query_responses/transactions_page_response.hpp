@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_TRANSACTIONS_PAGE_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_TRANSACTIONS_PAGE_RESPONSE_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include <boost/optional/optional_fwd.hpp>
 #include "interfaces/common_objects/range_types.hpp"
@@ -18,7 +18,7 @@ namespace shared_model {
      * Response for paginated queries
      */
     class TransactionsPageResponse
-        : public NonCopyableModelPrimitive<TransactionsPageResponse> {
+        : public ModelPrimitive<TransactionsPageResponse> {
      public:
       /**
        * @return transactions from this page

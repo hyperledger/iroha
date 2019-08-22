@@ -60,8 +60,10 @@ namespace shared_model {
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateProposalBuilder()
-          : TemplateProposalBuilder(SV(iroha::test::kTestsValidatorsConfig)) {}
+      TemplateProposalBuilder(bool transport_proposal = false)
+          : TemplateProposalBuilder(SV(
+                transport_proposal ? iroha::test::kProposalTestsValidatorsConfig
+                                   : iroha::test::kTestsValidatorsConfig)) {}
 
       auto height(const interface::types::HeightType height) const {
         return transform<Height>(

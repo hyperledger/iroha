@@ -5,10 +5,8 @@
 
 #include "framework/executor_itf/executor_itf.hpp"
 
-#include "ametsuchi/impl/postgres_command_executor.hpp"
-#include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/specific_query_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "backend/protobuf/proto_permission_to_string.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/permissions.hpp"
@@ -27,20 +25,28 @@ namespace {
     return getTestLoggerManager()->getChild("ExecutorITF");
   }
 
+  std::string getDefaultRole(const std::string &name,
+                             const std::string &domain) {
+    return name + "_at_" + domain + "_defrole";
+  }
+
   std::string getDefaultRole(const std::string &name) {
-    return name + "_default_role";
+    return name + "_defrole";
   }
 }  // namespace
 
-ExecutorItf::ExecutorItf(logger::LoggerManagerTreePtr log_manager,
-                         iroha::ametsuchi::PostgresOptions pg_opts)
+ExecutorItf::ExecutorItf(std::shared_ptr<CommandExecutor> cmd_executor,
+                         std::shared_ptr<SpecificQueryExecutor> query_executor,
+                         logger::LoggerManagerTreePtr log_manager)
     : log_manager_(std::move(log_manager)),
       log_(log_manager_->getLogger()),
-      pg_opts_(std::move(pg_opts)),
       mock_command_factory_(
           std::make_unique<shared_model::interface::MockCommandFactory>()),
       mock_query_factory_(
           std::make_unique<shared_model::interface::MockQueryFactory>()),
+      cmd_executor_(std::move(cmd_executor)),
+      tx_executor_(std::make_unique<TransactionExecutor>(cmd_executor_)),
+      query_executor_(std::move(query_executor)),
       query_counter_(0) {}
 
 ExecutorItf::~ExecutorItf() {
@@ -49,32 +55,21 @@ ExecutorItf::~ExecutorItf() {
 
 using CreateResult = Result<std::unique_ptr<ExecutorItf>, std::string>;
 
-CreateResult ExecutorItf::create(
-    boost::optional<iroha::ametsuchi::PostgresOptions> pg_opts) {
+CreateResult ExecutorItf::create(ExecutorItfTarget target) {
   auto log_manager = getDefaultLogManager();
   std::unique_ptr<ExecutorItf> executor_itf(
-      new ExecutorItf(log_manager, pg_opts.value_or_eval([&log_manager] {
-        return iroha::ametsuchi::PostgresOptions{
-            ::integration_framework::getPostgresCredsOrDefault(),
-            ::integration_framework::kDefaultWorkingDatabaseName,
-            log_manager->getChild("PostgresOptions")->getLogger()};
-      })));
-  return executor_itf->connect() | [&executor_itf] {
-    return executor_itf->createAdmin().match(
-        [&executor_itf](const auto &) -> CreateResult {
-          return std::move(executor_itf);
-        },
-        [](const auto &error) -> CreateResult {
-          return error.error.toString();
-        });
-  };
+      new ExecutorItf(std::move(target.command_executor),
+                      std::move(target.query_executor),
+                      log_manager));
+  return executor_itf->prepareState() |
+      [&executor_itf] { return std::move(executor_itf); };
 }
 
 CommandResult ExecutorItf::executeCommandAsAccount(
     const shared_model::interface::Command &cmd,
-    const std::string &account_id) const {
-  cmd_executor_->setCreatorAccountId(account_id);
-  return cmd_executor_->execute(cmd);
+    const std::string &account_id,
+    bool do_validation) const {
+  return cmd_executor_->execute(cmd, account_id, do_validation);
 }
 
 Result<void, TxExecutionError> ExecutorItf::executeTransaction(
@@ -85,7 +80,7 @@ Result<void, TxExecutionError> ExecutorItf::executeTransaction(
 
 iroha::ametsuchi::QueryExecutorResult ExecutorItf::executeQuery(
     const shared_model::interface::Query &query) const {
-  return query_executor_->validateAndExecute(query, false);
+  return query_executor_->execute(query);
 }
 
 const std::unique_ptr<shared_model::interface::MockCommandFactory>
@@ -101,7 +96,7 @@ const std::unique_ptr<shared_model::interface::MockQueryFactory>
 CommandResult ExecutorItf::createRoleWithPerms(
     const std::string &role_id,
     const shared_model::interface::RolePermissionSet &role_permissions) const {
-  return executeCommand(
+  return executeMaintenanceCommand(
       *getMockCommandFactory()->constructCreateRole(role_id, role_permissions));
 }
 
@@ -117,21 +112,17 @@ CommandResult ExecutorItf::createUserWithPerms(
 CommandResult ExecutorItf::createDomain(const std::string &name) const {
   const std::string default_role = getDefaultRole(name);
   createRoleWithPerms(default_role, {});
-  return executeCommand(
+  return executeMaintenanceCommand(
       *getMockCommandFactory()->constructCreateDomain(name, default_role));
-}
-
-Result<void, std::string> ExecutorItf::connect() {
-  // initialize DB session, command & query executors
-  return {};
 }
 
 CommandResult ExecutorItf::grantAllToAdmin(
     const std::string &account_id) const {
-  static const std::string admin_role_name = getDefaultRole(kAdminName);
+  static const std::string admin_role_name =
+      getDefaultRole(kAdminName, kDomain);
   shared_model::interface::GrantablePermissionSet all_grantable_perms;
   CommandResult grant_perm_result =
-      executeCommand(*getMockCommandFactory()->constructAppendRole(
+      executeMaintenanceCommand(*getMockCommandFactory()->constructAppendRole(
           account_id, admin_role_name));
   all_grantable_perms.setAll();
   all_grantable_perms.iterate(
@@ -140,11 +131,12 @@ CommandResult ExecutorItf::grantAllToAdmin(
           return this->executeCommandAsAccount(
               *this->getMockCommandFactory()->constructGrantPermission(kAdminId,
                                                                        perm),
-              account_id);
+              account_id,
+              false);
         };
       });
   return grant_perm_result | [&, this] {
-    return this->executeCommand(
+    return this->executeMaintenanceCommand(
         *this->getMockCommandFactory()->constructDetachRole(account_id,
                                                             admin_role_name));
   };
@@ -158,16 +150,26 @@ CommandResult ExecutorItf::createUserWithPermsInternal(
   createDomain(domain);
 
   const std::string account_id = account_name + "@" + domain;
-  const std::string account_role_name = getDefaultRole(account_name);
+  const std::string account_role_name = getDefaultRole(account_name, domain);
 
-  return executeCommand(*getMockCommandFactory()->constructCreateAccount(
-             account_name, domain, pubkey))
+  return executeMaintenanceCommand(
+             *getMockCommandFactory()->constructCreateAccount(
+                 account_name, domain, pubkey))
       | [&, this] { return createRoleWithPerms(account_role_name, role_perms); }
   | [&, this] {
-      return this->executeCommand(
+      return this->executeMaintenanceCommand(
           *this->getMockCommandFactory()->constructAppendRole(
               account_id, account_role_name));
     };
+}
+
+Result<void, std::string> ExecutorItf::prepareState() const {
+  auto create_admin_result = createAdmin();
+  if (auto e = resultToOptionalError(create_admin_result)) {
+    return makeError(std::string{"Could not create admin account: "}
+                     + e.value().toString());
+  }
+  return {};
 }
 
 CommandResult ExecutorItf::createAdmin() const {

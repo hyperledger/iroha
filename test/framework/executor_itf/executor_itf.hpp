@@ -16,6 +16,7 @@
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/executor_itf/executor_itf_helper.hpp"
+#include "framework/executor_itf/executor_itf_param.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
@@ -31,28 +32,26 @@ namespace shared_model {
     class MockCommandFactory;
     class MockQueryFactory;
     class Transaction;
-  }
+  }  // namespace interface
 }  // namespace shared_model
 
 namespace iroha {
+  namespace ametsuchi {
+    class SpecificQueryExecutor;
+  }
+
   namespace integration_framework {
 
     class ExecutorItf {
      public:
       /**
        * Create and initialize an ExecutorItf.
-       * - connect to database 
-       * - prepare database schema
-       * - initialize command & query executors
-       * - create admin account, role and domain with all permissions
-       *
-       * @param pg_opts (optional) The options for database connection. When not
-       * provided, use the default.
+       * Creates admin account, role and domain with all permissions.
+       * @param target The backend that will be used (@see ExecutorItfTarget).
        * @return Created ExecutorItf or string error description.
        */
       static iroha::expected::Result<std::unique_ptr<ExecutorItf>, std::string>
-      create(boost::optional<iroha::ametsuchi::PostgresOptions> pg_opts =
-                 boost::none);
+      create(ExecutorItfTarget target);
 
       ~ExecutorItf();
 
@@ -62,17 +61,21 @@ namespace iroha {
        * Execute a command as account.
        * @param cmd The command to execute.
        * @param account_id The issuer account id.
+       * @param do_validation Initializes the same parameter of command
+       * executor.
        * @return Result of command execution.
        */
       iroha::ametsuchi::CommandResult executeCommandAsAccount(
           const shared_model::interface::Command &cmd,
-          const std::string &account_id) const;
+          const std::string &account_id,
+          bool do_validation) const;
 
       /**
        * Execute a command as account.
        * @tparam SpecificCommand The type of executed specific command.
        * @param cmd The command to execute.
        * @param account_id The issuer account id.
+       * @param do_validation Whether to perform permissions check.
        * @return Result of command execution.
        */
       template <typename SpecificCommand,
@@ -80,30 +83,31 @@ namespace iroha {
                     typename SpecificCommand::ModelType>>>
       iroha::ametsuchi::CommandResult executeCommandAsAccount(
           const SpecificCommand &specific_cmd,
-          const std::string &account_id) const {
+          const std::string &account_id,
+          bool do_validation) const {
         shared_model::interface::Command::CommandVariantType variant{
             specific_cmd};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executeCommandAsAccount(cmd, account_id);
+        return executeCommandAsAccount(cmd, account_id, do_validation);
       }
 
       /**
-       * Execute a command as admin.
+       * Execute a command as admin without validation.
        * @tparam SpecificCommand The type of executed specific command.
        * @param cmd The command to execute.
        * @return Result of command execution.
        */
       template <typename T>
-      auto executeCommand(const T &cmd) const
-          -> decltype(executeCommandAsAccount(cmd, std::string{})) {
-        return executeCommandAsAccount(cmd, common_constants::kAdminId);
+      auto executeMaintenanceCommand(const T &cmd) const
+          -> decltype(executeCommandAsAccount(cmd, std::string{}, false)) {
+        return executeCommandAsAccount(cmd, common_constants::kAdminId, false);
       }
 
       /**
        * Execute a transaction.
        * @param cmd The transaction to execute.
-       * @param do_validation Whether to enable permissions validation.
+       * @param do_validation Whether to perform permissions check.
        * @return Error in case of failure.
        */
       iroha::expected::Result<void, iroha::ametsuchi::TxExecutionError>
@@ -122,16 +126,6 @@ namespace iroha {
           const shared_model::interface::Query &query) const;
 
       /**
-       * A result type that provides expected specific query response that
-       * corresponds to some specific query, or a general response wrapper if
-       * the appropriate specific response could not be extracted.
-       */
-      template <typename ExpectedSpecificQueryResult>
-      using SpecificQueryResult =
-          iroha::expected::Result<std::unique_ptr<ExpectedSpecificQueryResult>,
-                                  ametsuchi::QueryExecutorResult>;
-
-      /**
        * Execute a query as account.
        * @tparam SpecificQuery The interface type of executed specific query.
        * @param query The query to execute.
@@ -141,15 +135,15 @@ namespace iroha {
        * @return Result of query execution.
        */
       template <typename SpecificQuery,
-                typename ExpectedReturnType =
-                    detail::GetSpecificQueryResponse<SpecificQuery>>
-      SpecificQueryResult<ExpectedReturnType> executeQuery(
+                typename = std::enable_if_t<detail::isSpecificQuery<
+                    detail::InterfaceQuery<SpecificQuery>>>>
+      iroha::ametsuchi::QueryExecutorResult executeQuery(
           const SpecificQuery &specific_query,
           const std::string &account_id,
           boost::optional<shared_model::interface::types::CounterType>
-              query_counter) {
+              query_counter = boost::none) {
         shared_model::interface::Query::QueryVariantType variant{
-            specific_query};
+            detail::getInterfaceQueryRef(specific_query)};
         shared_model::interface::MockQuery query;
         EXPECT_CALL(query, get()).WillRepeatedly(::testing::ReturnRef(variant));
         EXPECT_CALL(query, creatorAccountId())
@@ -164,35 +158,7 @@ namespace iroha {
         EXPECT_CALL(query, hash())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
                 shared_model::interface::types::HashType{query.toString()}));
-        return detail::convertToSpecificQueryResponse<ExpectedReturnType>(
-            executeQuery(query));
-      }
-
-      /**
-       * Execute a query as account.
-       * @tparam T The type of executed specific query that has the member type
-       * ModelType of the corresponding interface specific query.
-       * @param query The query to execute.
-       * @param account_id The issuer account id.
-       * @param query_counter The value to set to query counter field. If
-       * boost::none provided, the built-in query counter value will be used.
-       * @return Result of query execution.
-       */
-      template <
-          typename T,
-          typename SpecificQuery = typename T::ModelType,
-          typename ExpectedReturnType =
-              detail::GetSpecificQueryResponse<SpecificQuery>,
-          typename = std::enable_if_t<detail::isSpecificQuery<SpecificQuery>>>
-      SpecificQueryResult<ExpectedReturnType> executeQuery(
-          const T &specific_query,
-          const std::string &account_id,
-          boost::optional<shared_model::interface::types::CounterType>
-              query_counter) {
-        return executeQuery<SpecificQuery, ExpectedReturnType>(
-            static_cast<const SpecificQuery &>(specific_query),
-            account_id,
-            query_counter);
+        return executeQuery(query);
       }
 
       /**
@@ -208,6 +174,45 @@ namespace iroha {
                        shared_model::interface::types::CounterType{})) {
         return executeQuery(
             query, common_constants::kAdminId, ++query_counter_);
+      }
+
+      /**
+       * A struct that holds the general query response and provides the result
+       * of extraction of a specific response from it.
+       */
+      template <typename SpecificQueryResponse>
+      struct SpecificQueryResult {
+        SpecificQueryResult(
+            iroha::ametsuchi::QueryExecutorResult &&query_response)
+            : wrapped_response(std::move(query_response)),
+              specific_response(
+                  detail::convertToSpecificQueryResponse<SpecificQueryResponse>(
+                      wrapped_response)) {}
+
+        iroha::ametsuchi::QueryExecutorResult wrapped_response;
+        iroha::expected::Result<const SpecificQueryResponse &,
+                                iroha::ametsuchi::QueryExecutorResult &>
+            specific_response;
+      };
+
+      /**
+       * Execute a query as account and try to convert the result to appropriate
+       * type.
+       * @param query The query to execute.
+       * @param account_id The issuer account id.
+       * @param query_counter The value to set to query counter field. If
+       * boost::none provided, the built-in query counter value will be used.
+       * @return Result of query execution.
+       */
+      template <typename T,
+                typename SpecificQuery = detail::InterfaceQuery<T>,
+                typename ExpectedReturnType =
+                    detail::GetSpecificQueryResponse<SpecificQuery>,
+                typename... Types>
+      SpecificQueryResult<ExpectedReturnType> executeQueryAndConvertResult(
+          const T &specific_query, Types &&... args) {
+        return SpecificQueryResult<ExpectedReturnType>(
+            executeQuery(specific_query, std::forward<Types>(args)...));
       }
 
       // -------------- mock command and query factories getters ---------------
@@ -262,15 +267,14 @@ namespace iroha {
           const std::string &name) const;
 
      private:
-      ExecutorItf(logger::LoggerManagerTreePtr log_manager,
-                  iroha::ametsuchi::PostgresOptions pg_opts);
+      ExecutorItf(
+          std::shared_ptr<iroha::ametsuchi::CommandExecutor> cmd_executor,
+          std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor>
+              query_executor,
+          logger::LoggerManagerTreePtr log_manager);
 
-      /**
-       * Connect to database, prepare schema and initialize the depending
-       * objects.
-       * @return The aggregate result of required actions.
-       */
-      iroha::expected::Result<void, std::string> connect();
+      /// Prepare WSV (as part of initialization).
+      iroha::expected::Result<void, std::string> prepareState() const;
 
       /// Create admin account with all permissions.
       iroha::ametsuchi::CommandResult createAdmin() const;
@@ -299,16 +303,14 @@ namespace iroha {
       logger::LoggerManagerTreePtr log_manager_;
       logger::LoggerPtr log_;
 
-      iroha::ametsuchi::PostgresOptions pg_opts_;
-
-      std::unique_ptr<shared_model::interface::MockCommandFactory>
+      const std::unique_ptr<shared_model::interface::MockCommandFactory>
           mock_command_factory_;
-      std::unique_ptr<shared_model::interface::MockQueryFactory>
+      const std::unique_ptr<shared_model::interface::MockQueryFactory>
           mock_query_factory_;
 
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> cmd_executor_;
       std::shared_ptr<iroha::ametsuchi::TransactionExecutor> tx_executor_;
-      std::shared_ptr<iroha::ametsuchi::QueryExecutor> query_executor_;
+      std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor> query_executor_;
 
       shared_model::interface::types::CounterType query_counter_;
     };

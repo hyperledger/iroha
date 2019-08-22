@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_REMOVE_PEER_HPP
 #define IROHA_SHARED_MODEL_REMOVE_PEER_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -17,7 +17,7 @@ namespace shared_model {
     /**
      * Remove a peer from Iroha
      */
-    class RemovePeer : public NonCopyableModelPrimitive<RemovePeer> {
+    class RemovePeer : public ModelPrimitive<RemovePeer> {
      public:
       /**
        * Return public key of peer to be removed by the command.

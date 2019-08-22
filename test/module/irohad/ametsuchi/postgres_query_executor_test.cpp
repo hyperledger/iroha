@@ -155,17 +155,16 @@ namespace iroha {
 
       void SetUp() override {
         AmetsuchiTest::SetUp();
-        sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
 
         auto factory =
             std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
                 shared_model::validation::FieldValidator>>(
                 iroha::test::kTestsValidatorsConfig);
         query_executor = storage;
-        PostgresCommandExecutor::prepareStatements(*sql);
-        executor =
-            std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
+        executor = std::make_unique<PostgresCommandExecutor>(
+            std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                            pgopt_),
+            perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
 
         execute(
@@ -187,7 +186,6 @@ namespace iroha {
       }
 
       void TearDown() override {
-        sql->close();
         AmetsuchiTest::TearDown();
       }
 
@@ -204,10 +202,11 @@ namespace iroha {
                    bool do_validation = false,
                    const shared_model::interface::types::AccountIdType
                        &creator = "id@domain") {
-        executor->doValidation(not do_validation);
-        executor->setCreatorAccountId(creator);
-        ASSERT_TRUE(
-            val(executor->operator()(std::forward<CommandType>(command))));
+        shared_model::interface::Command::CommandVariantType variant{
+            std::forward<CommandType>(command)};
+        shared_model::interface::MockCommand cmd;
+        EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
+        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
       }
 
       void addPerms(
@@ -266,8 +265,6 @@ namespace iroha {
 
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey2;
-
-      std::unique_ptr<soci::session> sql;
 
       std::unique_ptr<shared_model::interface::Command> command;
 
@@ -1075,7 +1072,8 @@ namespace iroha {
       QueryExecutorResult queryPage(
           boost::optional<std::string> writer,
           boost::optional<std::string> key,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         auto query = TestQueryBuilder()
                          .creatorAccountId(account_id)
@@ -1100,7 +1098,8 @@ namespace iroha {
           const QueryExecutorResult &response,
           boost::optional<std::string> writer,
           boost::optional<std::string> key,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
             response, [&, this](const auto &response) {
@@ -1113,7 +1112,7 @@ namespace iroha {
      protected:
       struct Response {
         size_t total_number{0};
-        boost::optional<types::AccountDetailRecordId> next_record;
+        boost::optional<shared_model::plain::AccountDetailRecordId> next_record;
         DetailsByKeyByWriter details;
       };
 
@@ -1124,7 +1123,8 @@ namespace iroha {
       Response getExpectedResponse(
           const boost::optional<std::string> &req_writer,
           const boost::optional<std::string> &req_key,
-          const boost::optional<types::AccountDetailRecordId> &first_record_id,
+          const boost::optional<shared_model::plain::AccountDetailRecordId>
+              &first_record_id,
           size_t page_size) {
         auto optional_match = [](const auto &opt, const auto &val) {
           return not opt or opt.value() == val;
@@ -1150,12 +1150,14 @@ namespace iroha {
                 page_started = page_started
                     or optional_match(
                                    first_record_id,
-                                   types::AccountDetailRecordId{writer, key});
+                                   shared_model::plain::AccountDetailRecordId{
+                                       writer, key});
                 if (page_started) {
                   if (page_ended) {
                     if (not expected_response.next_record) {
                       expected_response.next_record =
-                          types::AccountDetailRecordId{writer, key};
+                          shared_model::plain::AccountDetailRecordId{writer,
+                                                                     key};
                     }
                   } else {
                     expected_response.details[writer][key] = val;
@@ -1182,9 +1184,9 @@ namespace iroha {
             ADD_FAILURE() << "nextRecordId not set!";
           } else {
             EXPECT_EQ(response.nextRecordId()->writer(),
-                      expected_response.next_record->writer);
+                      expected_response.next_record->writer());
             EXPECT_EQ(response.nextRecordId()->key(),
-                      expected_response.next_record->key);
+                      expected_response.next_record->key());
           }
         } else {
           EXPECT_FALSE(response.nextRecordId());
@@ -1309,7 +1311,8 @@ namespace iroha {
       checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
           queryPage(boost::none,
                     boost::none,
-                    types::AccountDetailRecordId{makeAccountId(2), makeKey(2)},
+                    shared_model::plain::AccountDetailRecordId{makeAccountId(2),
+                                                               makeKey(2)},
                     2),
           kInvalidPagination);
     }
@@ -1348,15 +1351,16 @@ namespace iroha {
         return boost::none;
       }
 
-      types::AccountDetailRecordId makeFirstRecordId(std::string writer,
-                                                     std::string key) {
-        return types::AccountDetailRecordId{
+      shared_model::plain::AccountDetailRecordId makeFirstRecordId(
+          std::string writer, std::string key) {
+        return shared_model::plain::AccountDetailRecordId{
             requestedWriter().value_or(std::move(writer)),
             requestedKey().value_or(std::move(key))};
       }
 
       QueryExecutorResult queryPage(
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         return GetAccountDetailPagedExecutorTest::queryPage(
             requestedWriter(),
@@ -1372,7 +1376,8 @@ namespace iroha {
 
       void validatePageResponse(
           const QueryExecutorResult &response,
-          boost::optional<types::AccountDetailRecordId> first_record_id,
+          boost::optional<shared_model::plain::AccountDetailRecordId>
+              first_record_id,
           size_t page_size) {
         checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
             response, [&, this](const auto &response) {
@@ -1473,12 +1478,7 @@ namespace iroha {
        */
       void commitBlocks(shared_model::interface::types::HeightType
                             number_of_blocks = kLedgerHeight) {
-        std::unique_ptr<MutableStorage> ms;
-        storage->createMutableStorage().match(
-            [&ms](auto &&storage) { ms = std::move(storage.value); },
-            [](const auto &error) {
-              FAIL() << "MutableStorage: " << error.error;
-            });
+        auto ms = createMutableStorage();
 
         auto prev_hash = shared_model::crypto::Hash(zero_string);
         for (decltype(number_of_blocks) i = 1; i < number_of_blocks; ++i) {
@@ -1732,25 +1732,6 @@ namespace iroha {
         this->block_store = std::move(block_store);
         createDefaultAccount();
         createDefaultAsset();
-      }
-
-      /**
-       * Apply block to given storage
-       * @tparam S storage type
-       * @param storage storage object
-       * @param block to apply
-       */
-      template <typename S>
-      void apply(S &&storage,
-                 std::shared_ptr<const shared_model::interface::Block> block) {
-        std::unique_ptr<MutableStorage> ms;
-        storage->createMutableStorage().match(
-            [&](auto &&_storage) { ms = std::move(_storage.value); },
-            [](const auto &error) {
-              FAIL() << "MutableStorage: " << error.error;
-            });
-        ms->apply(block);
-        ASSERT_TRUE(val(storage->commit(std::move(ms))));
       }
 
       void commitBlocks() {

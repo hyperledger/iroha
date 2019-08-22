@@ -47,7 +47,9 @@ class BlockValidatorTest : public ValidatorsTest {
    * @param txs to be placed inside
    * @return created block
    */
-  auto generateBlock(const std::vector<shared_model::proto::Transaction> &txs) {
+  auto generateBlock(
+      const std::vector<shared_model::proto::Transaction> &txs,
+      const std::vector<shared_model::crypto::Hash> &rejected_hashes) {
     return shared_model::proto::TemplateBlockBuilder<
                (1 << shared_model::proto::TemplateBlockBuilder<>::total) - 1,
                shared_model::validation::AlwaysValidValidator,
@@ -56,6 +58,7 @@ class BlockValidatorTest : public ValidatorsTest {
         .height(1)
         .prevHash(kPrevHash)
         .createdTime(iroha::time::now())
+        .rejectedTransactions(rejected_hashes)
         .transactions(txs)
         .build()
         .signAndAddSignature(kDefaultKey)
@@ -76,7 +79,8 @@ class BlockValidatorTest : public ValidatorsTest {
 TEST_F(BlockValidatorTest, ValidBlock) {
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(generateTx(true));
-  auto valid_block = generateBlock(txs);
+  auto valid_block =
+      generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
   auto validation_result = validator_.validate(valid_block);
   ASSERT_FALSE(validation_result.hasErrors());
@@ -89,7 +93,8 @@ TEST_F(BlockValidatorTest, ValidBlock) {
  */
 TEST_F(BlockValidatorTest, EmptyBlock) {
   auto empty_block =
-      generateBlock(std::vector<shared_model::proto::Transaction>{});
+      generateBlock(std::vector<shared_model::proto::Transaction>{},
+                    std::vector<shared_model::crypto::Hash>{});
 
   auto validation_result = validator_.validate(empty_block);
   ASSERT_FALSE(validation_result.hasErrors());
@@ -103,8 +108,67 @@ TEST_F(BlockValidatorTest, EmptyBlock) {
 TEST_F(BlockValidatorTest, InvalidBlock) {
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(generateTx(false));
-  auto invalid_block = generateBlock(txs);
+  auto invalid_block =
+      generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
   auto validation_result = validator_.validate(invalid_block);
   ASSERT_TRUE(validation_result.hasErrors());
+}
+
+/**
+ * @given block validator @and invalid block with two duplicate rejected hashes
+ * @when block is validated
+ * @then error appears after validation
+ */
+TEST_F(BlockValidatorTest, DuplicateRejectedHash) {
+  std::vector<shared_model::proto::Transaction> txs;
+  std::vector<shared_model::crypto::Hash> rejected_hashes;
+  shared_model::proto::Transaction tx = generateTx(true);
+  rejected_hashes.push_back(tx.hash());
+  rejected_hashes.push_back(tx.hash());
+  auto invalid_block = generateBlock(txs, rejected_hashes);
+
+  auto validation_result = validator_.validate(invalid_block);
+  ASSERT_TRUE(validation_result.hasErrors());
+  ASSERT_THAT(validation_result.reason(), testing::HasSubstr("Rejected hash"));
+}
+
+/**
+ * @given block validator @and invalid block with committed transaction which
+ * hash in rejected hashes
+ * @when block is validated
+ * @then error appears after validation
+ */
+TEST_F(BlockValidatorTest, CommitedHashInRejectedHash) {
+  std::vector<shared_model::proto::Transaction> txs;
+  std::vector<shared_model::crypto::Hash> rejected_hashes;
+  shared_model::proto::Transaction tx = generateTx(true);
+  txs.push_back(tx);
+  rejected_hashes.push_back(tx.hash());
+  auto invalid_block = generateBlock(txs, rejected_hashes);
+
+  auto validation_result = validator_.validate(invalid_block);
+  ASSERT_TRUE(validation_result.hasErrors());
+  ASSERT_THAT(validation_result.reason(),
+              testing::HasSubstr("has already appeared in rejected hashes"));
+}
+
+/**
+ * @given block validator @and invalid block with duplicate
+ * transactions
+ * @when block is validated
+ * @then error appears after validation
+ */
+TEST_F(BlockValidatorTest, DuplicateTransactionsInBlock) {
+  std::vector<shared_model::proto::Transaction> txs;
+  shared_model::proto::Transaction tx = generateTx(true);
+  txs.push_back(tx);
+  txs.push_back(tx);
+  auto invalid_block =
+      generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
+
+  auto validation_result = validator_.validate(invalid_block);
+  ASSERT_TRUE(validation_result.hasErrors());
+  ASSERT_THAT(validation_result.reason(),
+              testing::HasSubstr("Transaction with hash"));
 }

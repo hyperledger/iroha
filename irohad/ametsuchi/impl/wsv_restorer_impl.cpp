@@ -8,6 +8,7 @@
 #include "ametsuchi/block_query.hpp"
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/block_storage_factory.hpp"
+#include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/storage.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -98,10 +99,12 @@ namespace {
 namespace iroha {
   namespace ametsuchi {
     CommitResult WsvRestorerImpl::restoreWsv(Storage &storage) {
-      BlockStorageStubFactory storage_factory;
+      return storage.createCommandExecutor() |
+                 [&storage](auto &&command_executor) -> CommitResult {
+        BlockStorageStubFactory storage_factory;
 
-      return storage.createMutableStorage(storage_factory) |
-                 [&storage](auto &&mutable_storage) -> CommitResult {
+        auto mutable_storage = storage.createMutableStorage(
+            std::move(command_executor), storage_factory);
         auto block_query = storage.getBlockQuery();
         if (not block_query) {
           return expected::makeError("Cannot create BlockQuery");

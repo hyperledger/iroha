@@ -14,7 +14,9 @@
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
+#include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -184,7 +186,11 @@ namespace iroha {
 
     QueryExecutorResult PostgresSpecificQueryExecutor::execute(
         const shared_model::interface::Query &qry) {
-      return boost::apply_visitor(*this, qry.get());
+      return boost::apply_visitor(
+          [this, &qry](const auto &query) {
+            return (*this)(query, qry.creatorAccountId(), qry.hash());
+          },
+          qry.get());
     }
 
     template <typename RangeGen, typename Pred>
@@ -217,6 +223,7 @@ namespace iroha {
               typename PermissionsErrResponse>
     QueryExecutorResult PostgresSpecificQueryExecutor::executeQuery(
         QueryExecutor &&query_executor,
+        const shared_model::interface::types::HashType &query_hash,
         ResponseCreator &&response_creator,
         PermissionsErrResponse &&perms_err_response) {
       using T = concat<QueryTuple, PermissionTuple>;
@@ -226,7 +233,7 @@ namespace iroha {
 
         return apply(
             viewPermissions<PermissionTuple>(range.front()),
-            [this, range, &response_creator, &perms_err_response](
+            [this, range, &response_creator, &perms_err_response, &query_hash](
                 auto... perms) {
               bool temp[] = {not perms...};
               if (std::all_of(std::begin(temp), std::end(temp), [](auto b) {
@@ -237,7 +244,8 @@ namespace iroha {
                 return this->logAndReturnErrorResponse(
                     QueryErrorType::kStatefulFailed,
                     std::forward<PermissionsErrResponse>(perms_err_response)(),
-                    2);
+                    2,
+                    query_hash);
               }
               auto query_range =
                   range | boost::adaptors::transformed([](auto &t) {
@@ -248,7 +256,7 @@ namespace iroha {
             });
       } catch (const std::exception &e) {
         return this->logAndReturnErrorResponse(
-            QueryErrorType::kStatefulFailed, e.what(), 1);
+            QueryErrorType::kStatefulFailed, e.what(), 1, query_hash);
       }
     }
 
@@ -269,21 +277,12 @@ namespace iroha {
       }
     }
 
-    void PostgresSpecificQueryExecutor::setCreatorId(
-        const shared_model::interface::types::AccountIdType &creator_id) {
-      creator_id_ = creator_id;
-    }
-
-    void PostgresSpecificQueryExecutor::setQueryHash(
-        const shared_model::interface::types::HashType &query_hash) {
-      query_hash_ = query_hash;
-    }
-
     std::unique_ptr<shared_model::interface::QueryResponse>
     PostgresSpecificQueryExecutor::logAndReturnErrorResponse(
         QueryErrorType error_type,
         QueryErrorMessageType error_body,
-        QueryErrorCodeType error_code) const {
+        QueryErrorCodeType error_code,
+        const shared_model::interface::types::HashType &query_hash) const {
       std::string error;
       switch (error_type) {
         case QueryErrorType::kNoAccount:
@@ -312,7 +311,7 @@ namespace iroha {
 
       log_->error("{}", error);
       return query_response_factory_->createErrorQueryResponse(
-          error_type, error, error_code, query_hash_);
+          error_type, error, error_code, query_hash);
     }
 
     template <typename Query,
@@ -321,6 +320,8 @@ namespace iroha {
               typename... Permissions>
     QueryExecutorResult PostgresSpecificQueryExecutor::executeTransactionsQuery(
         const Query &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash,
         QueryChecker &&qry_checker,
         const std::string &related_txs,
         QueryApplier applier,
@@ -361,7 +362,7 @@ namespace iroha {
       auto first_tx = R"(SELECT height, index FROM position_by_hash
       ORDER BY height, index ASC LIMIT 1)";
 
-      auto cmd = base % hasQueryPermission(creator_id_, q.accountId(), perms...)
+      auto cmd = base % hasQueryPermission(creator_id, q.accountId(), perms...)
           % related_txs;
       if (first_hash) {
         cmd = base % first_by_hash;
@@ -373,6 +374,7 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
+          query_hash,
           [&](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             uint64_t total_size = 0;
@@ -409,7 +411,7 @@ namespace iroha {
                               % first_hash->hex())
                                  .str();
                 return this->logAndReturnErrorResponse(
-                    QueryErrorType::kStatefulFailed, error, 4);
+                    QueryErrorType::kStatefulFailed, error, 4, query_hash);
               }
               // if paging hash is not specified, we should check, why 0
               // transactions are returned - it can be because there are
@@ -420,7 +422,8 @@ namespace iroha {
                 return this->logAndReturnErrorResponse(
                     QueryErrorType::kStatefulFailed,
                     query_incorrect.error_message,
-                    query_incorrect.error_code);
+                    query_incorrect.error_code,
+                    query_hash);
               }
             }
 
@@ -432,17 +435,19 @@ namespace iroha {
               auto next_hash = response_txs.back()->hash();
               response_txs.pop_back();
               return query_response_factory_->createTransactionsPageResponse(
-                  std::move(response_txs), next_hash, total_size, query_hash_);
+                  std::move(response_txs), next_hash, total_size, query_hash);
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), boost::none, total_size, query_hash_);
+                std::move(response_txs), boost::none, total_size, query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAccount &q) {
+        const shared_model::interface::GetAccount &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
           QueryType<shared_model::interface::types::AccountIdType,
                     shared_model::interface::types::DomainIdType,
@@ -462,24 +467,24 @@ namespace iroha {
       SELECT account_id, domain_id, quorum, data, roles, perm
       FROM t RIGHT OUTER JOIN has_perms AS p ON TRUE
       )")
-                  % hasQueryPermission(creator_id_,
+                  % hasQueryPermission(creator_id,
                                        q.accountId(),
                                        Role::kGetMyAccount,
                                        Role::kGetAllAccounts,
                                        Role::kGetDomainAccounts))
                      .str();
 
-      auto query_apply = [this](auto &account_id,
-                                auto &domain_id,
-                                auto &quorum,
-                                auto &data,
-                                auto &roles_str) {
+      auto query_apply = [this, &query_hash](auto &account_id,
+                                             auto &domain_id,
+                                             auto &quorum,
+                                             auto &data,
+                                             auto &roles_str) {
         std::vector<shared_model::interface::types::RoleIdType> roles;
         auto roles_str_no_brackets = roles_str.substr(1, roles_str.size() - 2);
         boost::split(
             roles, roles_str_no_brackets, [](char c) { return c == ','; });
         return query_response_factory_->createAccountResponse(
-            account_id, domain_id, quorum, data, std::move(roles), query_hash_);
+            account_id, domain_id, quorum, data, std::move(roles), query_hash);
       };
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -487,11 +492,12 @@ namespace iroha {
             return (sql_.prepare << cmd,
                     soci::use(q.accountId(), "target_account_id"));
           },
-          [this, &q, &query_apply](auto range, auto &) {
+          query_hash,
+          [this, &q, &query_apply, &query_hash](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
-                  QueryErrorType::kNoAccount, q.accountId(), 0);
+                  QueryErrorType::kNoAccount, q.accountId(), 0, query_hash);
             }
 
             return apply(range_without_nulls.front(), query_apply);
@@ -503,15 +509,17 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetBlock &q) {
-      if (not hasAccountRolePermission(Role::kGetBlocks, creator_id_)) {
+        const shared_model::interface::GetBlock &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
+      if (not hasAccountRolePermission(Role::kGetBlocks, creator_id)) {
         // no permission
         return query_response_factory_->createErrorQueryResponse(
             shared_model::interface::QueryResponseFactory::ErrorQueryType::
                 kStatefulFailed,
             notEnoughPermissionsResponse(perm_converter_, Role::kGetBlocks)(),
             2,
-            query_hash_);
+            query_hash);
       }
 
       auto ledger_height = block_store_.size();
@@ -522,7 +530,8 @@ namespace iroha {
             "requested height (" + std::to_string(q.height())
                 + ") is greater than the ledger's one ("
                 + std::to_string(ledger_height) + ")",
-            3);
+            3,
+            query_hash);
       }
 
       auto block_deserialization_msg = [height = q.height()] {
@@ -532,15 +541,19 @@ namespace iroha {
       auto block = block_store_.fetch(q.height());
       if (not block) {
         // for some reason, block with such height was not retrieved
-        return logAndReturnErrorResponse(
-            QueryErrorType::kStatefulFailed, block_deserialization_msg(), 1);
+        return logAndReturnErrorResponse(QueryErrorType::kStatefulFailed,
+                                         block_deserialization_msg(),
+                                         1,
+                                         query_hash);
       }
       return query_response_factory_->createBlockResponse(clone(**block),
-                                                          query_hash_);
+                                                          query_hash);
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetSignatories &q) {
+        const shared_model::interface::GetSignatories &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
@@ -552,7 +565,7 @@ namespace iroha {
       SELECT public_key, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
       )")
-                  % hasQueryPermission(creator_id_,
+                  % hasQueryPermission(creator_id,
                                        q.accountId(),
                                        Role::kGetMySignatories,
                                        Role::kGetAllSignatories,
@@ -561,11 +574,12 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
-          [this, &q](auto range, auto &) {
+          query_hash,
+          [this, &q, &query_hash](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
-                  QueryErrorType::kNoSignatories, q.accountId(), 0);
+                  QueryErrorType::kNoSignatories, q.accountId(), 0, query_hash);
             }
 
             auto pubkeys = boost::copy_range<
@@ -578,7 +592,7 @@ namespace iroha {
                 }));
 
             return query_response_factory_->createSignatoriesResponse(
-                pubkeys, query_hash_);
+                pubkeys, query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMySignatories,
@@ -587,7 +601,9 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAccountTransactions &q) {
+        const shared_model::interface::GetAccountTransactions &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       std::string related_txs = R"(SELECT DISTINCT height, index
       FROM tx_position_by_creator
       WHERE creator_id = :account_id
@@ -623,6 +639,8 @@ namespace iroha {
       };
 
       return executeTransactionsQuery(q,
+                                      creator_id,
+                                      query_hash,
                                       std::move(check_query),
                                       related_txs,
                                       apply_query,
@@ -632,7 +650,9 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetTransactions &q) {
+        const shared_model::interface::GetTransactions &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       auto escape = [](auto &hash) { return "'" + hash.hex() + "'"; };
       std::string hash_str = std::accumulate(
           std::next(q.transactionHashes().begin()),
@@ -660,8 +680,9 @@ namespace iroha {
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd, soci::use(creator_id_, "account_id"));
+            return (sql_.prepare << cmd, soci::use(creator_id, "account_id"));
           },
+          query_hash,
           [&](auto range, auto &my_perm, auto &all_perm) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             if (boost::size(range_without_nulls)
@@ -673,7 +694,8 @@ namespace iroha {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kStatefulFailed,
                   "At least one of the supplied hashes is incorrect",
-                  4);
+                  4,
+                  query_hash);
             }
             std::map<uint64_t, std::unordered_set<std::string>> index;
             for (const auto &t : range_without_nulls) {
@@ -694,21 +716,23 @@ namespace iroha {
                     return block.second.count(tx.hash().hex()) > 0
                         and (all_perm
                              or (my_perm
-                                 and tx.creatorAccountId() == creator_id_));
+                                 and tx.creatorAccountId() == creator_id));
                   });
               std::move(
                   txs.begin(), txs.end(), std::back_inserter(response_txs));
             }
 
             return query_response_factory_->createTransactionsResponse(
-                std::move(response_txs), query_hash_);
+                std::move(response_txs), query_hash);
           },
           notEnoughPermissionsResponse(
               perm_converter_, Role::kGetMyTxs, Role::kGetAllTxs));
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAccountAssetTransactions &q) {
+        const shared_model::interface::GetAccountAssetTransactions &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       std::string related_txs = R"(SELECT DISTINCT height, index
           FROM position_by_account_asset
           WHERE account_id = :account_id
@@ -753,6 +777,8 @@ namespace iroha {
       };
 
       return executeTransactionsQuery(q,
+                                      creator_id,
+                                      query_hash,
                                       std::move(check_query),
                                       related_txs,
                                       apply_query,
@@ -762,7 +788,9 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAccountAssets &q) {
+        const shared_model::interface::GetAccountAssets &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
           QueryType<shared_model::interface::types::AccountIdType,
                     shared_model::interface::types::AssetIdType,
@@ -808,7 +836,7 @@ namespace iroha {
               page_data
               right join has_perms on true
       )")
-                  % hasQueryPermission(creator_id_,
+                  % hasQueryPermission(creator_id,
                                        q.accountId(),
                                        Role::kGetMyAccAst,
                                        Role::kGetAllAccAst,
@@ -834,6 +862,7 @@ namespace iroha {
                     soci::use(req_first_asset_id, "first_asset_id"),
                     soci::use(req_page_size, "page_size"));
           },
+          query_hash,
           [&](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             std::vector<
@@ -858,7 +887,10 @@ namespace iroha {
             if (assets.empty() and req_first_asset_id) {
               // nonexistent first_asset_id provided in query request
               return this->logAndReturnErrorResponse(
-                  QueryErrorType::kStatefulFailed, q.accountId(), 4);
+                  QueryErrorType::kStatefulFailed,
+                  q.accountId(),
+                  4,
+                  query_hash);
             }
             assert(total_number >= assets.size());
             const bool is_last_page = not q.paginationMeta()
@@ -871,7 +903,7 @@ namespace iroha {
               assert(assets.size() == q.paginationMeta()->pageSize());
             }
             return query_response_factory_->createAccountAssetResponse(
-                assets, total_number, next_asset_id, query_hash_);
+                assets, total_number, next_asset_id, query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccAst,
@@ -880,7 +912,9 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAccountDetail &q) {
+        const shared_model::interface::GetAccountDetail &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
           QueryType<shared_model::interface::types::DetailType,
                     uint32_t,
@@ -964,7 +998,7 @@ namespace iroha {
       select detail.*, perm from detail
       right join has_perms on true
       )")
-                  % hasQueryPermission(creator_id_,
+                  % hasQueryPermission(creator_id,
                                        q.accountId(),
                                        Role::kGetMyAccDetail,
                                        Role::kGetAllAccDetail,
@@ -996,12 +1030,16 @@ namespace iroha {
                     soci::use(first_record_key, "first_record_key"),
                     soci::use(page_size, "page_size"));
           },
+          query_hash,
           [&, this](auto range, auto &) {
             if (range.empty()) {
               assert(not range.empty());
               log_->error("Empty response range in {}.", q);
               return this->logAndReturnErrorResponse(
-                  QueryErrorType::kNoAccountDetail, q.accountId(), 0);
+                  QueryErrorType::kNoAccountDetail,
+                  q.accountId(),
+                  0,
+                  query_hash);
             }
 
             return apply(
@@ -1015,7 +1053,10 @@ namespace iroha {
                     // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
                     // handling
                     return this->logAndReturnErrorResponse(
-                        QueryErrorType::kNoAccountDetail, q.accountId(), 0);
+                        QueryErrorType::kNoAccountDetail,
+                        q.accountId(),
+                        0,
+                        query_hash);
                   }
                   assert(target_account_exists.value() == 1);
                   if (json) {
@@ -1026,8 +1067,7 @@ namespace iroha {
                           "getAccountDetail query result {}.",
                           q);
                     }
-                    boost::optional<
-                        shared_model::interface::types::AccountDetailRecordId>
+                    boost::optional<shared_model::plain::AccountDetailRecordId>
                         next_record_id{[this, &next_writer, &next_key]()
                                            -> decltype(next_record_id) {
                           if (next_key or next_writer) {
@@ -1043,29 +1083,36 @@ namespace iroha {
                               assert(next_key);
                               return boost::none;
                             }
-                            return shared_model::interface::types::
-                                AccountDetailRecordId{next_writer.value(),
-                                                      next_key.value()};
+                            return shared_model::plain::AccountDetailRecordId{
+                                next_writer.value(), next_key.value()};
                           }
                           return boost::none;
                         }()};
                     return query_response_factory_->createAccountDetailResponse(
                         json.value(),
                         total_number.value_or(0),
-                        next_record_id,
-                        query_hash_);
+                        next_record_id |
+                            [](const auto &next_record_id) {
+                              return boost::optional<
+                                  const shared_model::interface::
+                                      AccountDetailRecordId &>(next_record_id);
+                            },
+                        query_hash);
                   }
                   if (total_number.value_or(0) > 0) {
                     // the only reason for it is nonexistent first record
                     assert(first_record_writer or first_record_key);
                     return this->logAndReturnErrorResponse(
-                        QueryErrorType::kStatefulFailed, q.accountId(), 4);
+                        QueryErrorType::kStatefulFailed,
+                        q.accountId(),
+                        4,
+                        query_hash);
                   } else {
                     // no account details matching query
                     // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
                     // handling
                     return query_response_factory_->createAccountDetailResponse(
-                        kEmptyDetailsResponse, 0, boost::none, query_hash_);
+                        kEmptyDetailsResponse, 0, boost::none, query_hash);
                   }
                 });
           },
@@ -1076,7 +1123,9 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetRoles &q) {
+        const shared_model::interface::GetRoles &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple = QueryType<shared_model::interface::types::RoleIdType>;
       using PermissionTuple = boost::tuple<int>;
 
@@ -1090,8 +1139,9 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(creator_id_, "role_account_id"));
+                    soci::use(creator_id, "role_account_id"));
           },
+          query_hash,
           [&](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             auto roles = boost::copy_range<
@@ -1101,13 +1151,15 @@ namespace iroha {
                 }));
 
             return query_response_factory_->createRolesResponse(roles,
-                                                                query_hash_);
+                                                                query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetRoles));
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetRolePermissions &q) {
+        const shared_model::interface::GetRolePermissions &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
@@ -1123,29 +1175,35 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(creator_id_, "role_account_id"),
+                    soci::use(creator_id, "role_account_id"),
                     soci::use(q.roleId(), "role_name"));
           },
-          [this, &q](auto range, auto &) {
+          query_hash,
+          [this, &q, &creator_id, &query_hash](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoRoles,
-                  "{" + q.roleId() + ", " + creator_id_ + "}",
-                  0);
+                  "{" + q.roleId() + ", " + creator_id + "}",
+                  0,
+                  query_hash);
             }
 
-            return apply(range_without_nulls.front(), [this](auto &permission) {
-              return query_response_factory_->createRolePermissionsResponse(
-                  shared_model::interface::RolePermissionSet(permission),
-                  query_hash_);
-            });
+            return apply(
+                range_without_nulls.front(),
+                [this, &query_hash](auto &permission) {
+                  return query_response_factory_->createRolePermissionsResponse(
+                      shared_model::interface::RolePermissionSet(permission),
+                      query_hash);
+                });
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetRoles));
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetAssetInfo &q) {
+        const shared_model::interface::GetAssetInfo &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
           QueryType<shared_model::interface::types::DomainIdType, uint32_t>;
       using PermissionTuple = boost::tuple<int>;
@@ -1162,38 +1220,43 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(creator_id_, "role_account_id"),
+                    soci::use(creator_id, "role_account_id"),
                     soci::use(q.assetId(), "asset_id"));
           },
-          [this, &q](auto range, auto &) {
+          query_hash,
+          [this, &q, &creator_id, &query_hash](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             if (range_without_nulls.empty()) {
               return this->logAndReturnErrorResponse(
                   QueryErrorType::kNoAsset,
-                  "{" + q.assetId() + ", " + creator_id_ + "}",
-                  0);
+                  "{" + q.assetId() + ", " + creator_id + "}",
+                  0,
+                  query_hash);
             }
 
-            return apply(range_without_nulls.front(),
-                         [this, &q](auto &domain_id, auto &precision) {
-                           return query_response_factory_->createAssetResponse(
-                               q.assetId(), domain_id, precision, query_hash_);
-                         });
+            return apply(
+                range_without_nulls.front(),
+                [this, &q, &query_hash](auto &domain_id, auto &precision) {
+                  return query_response_factory_->createAssetResponse(
+                      q.assetId(), domain_id, precision, query_hash);
+                });
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kReadAssets));
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetPendingTransactions &q) {
+        const shared_model::interface::GetPendingTransactions &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       std::vector<std::unique_ptr<shared_model::interface::Transaction>>
           response_txs;
       if (q.paginationMeta()) {
         return pending_txs_storage_
-            ->getPendingTransactions(creator_id_,
+            ->getPendingTransactions(creator_id,
                                      q.paginationMeta()->pageSize(),
                                      q.paginationMeta()->firstTxHash())
             .match(
-                [this, &response_txs](auto &&response) {
+                [this, &response_txs, &query_hash](auto &&response) {
                   auto &interface_txs = response.value.transactions;
                   response_txs.reserve(interface_txs.size());
                   // TODO igor-egorov 2019-06-06 IR-555 avoid use of clone()
@@ -1206,9 +1269,9 @@ namespace iroha {
                           std::move(response_txs),
                           response.value.all_transactions_size,
                           std::move(response.value.next_batch_info),
-                          query_hash_);
+                          query_hash);
                 },
-                [this, &q](auto &&error) {
+                [this, &q, &query_hash](auto &&error) {
                   switch (error.error) {
                     case iroha::PendingTransactionStorage::ErrorCode::kNotFound:
                       return query_response_factory_->createErrorQueryResponse(
@@ -1218,7 +1281,7 @@ namespace iroha {
                                       "transaction hash not found, the hash: ")
                               + q.paginationMeta()->firstTxHash()->toString(),
                           4,  // missing first tx hash error
-                          query_hash_);
+                          query_hash);
                     default:
                       BOOST_ASSERT_MSG(false,
                                        "Unknown and unhandled type of error "
@@ -1229,13 +1292,13 @@ namespace iroha {
                           std::string("Unknown type of error happened: ")
                               + std::to_string(error.error),
                           1,  // unknown internal error
-                          query_hash_);
+                          query_hash);
                   }
                 });
       } else {  // TODO 2019-06-06 igor-egorov IR-516 remove deprecated
                 // interface
         auto interface_txs =
-            pending_txs_storage_->getPendingTransactions(creator_id_);
+            pending_txs_storage_->getPendingTransactions(creator_id);
         response_txs.reserve(interface_txs.size());
 
         std::transform(interface_txs.begin(),
@@ -1243,12 +1306,14 @@ namespace iroha {
                        std::back_inserter(response_txs),
                        [](auto &tx) { return clone(*tx); });
         return query_response_factory_->createTransactionsResponse(
-            std::move(response_txs), query_hash_);
+            std::move(response_txs), query_hash);
       }
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetPeers &q) {
+        const shared_model::interface::GetPeers &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
           QueryType<std::string, shared_model::interface::types::AddressType>;
       using PermissionTuple = boost::tuple<int>;
@@ -1263,8 +1328,9 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(creator_id_, "role_account_id"));
+                    soci::use(creator_id, "role_account_id"));
           },
+          query_hash,
           [&](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             shared_model::interface::types::PeerList peers;
@@ -1277,7 +1343,7 @@ namespace iroha {
               });
             }
             return query_response_factory_->createPeersResponse(peers,
-                                                                query_hash_);
+                                                                query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
     }

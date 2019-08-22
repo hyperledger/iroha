@@ -61,10 +61,6 @@ namespace shared_model {
       return impl_->proto_;
     }
 
-    Proposal::ModelType *Proposal::clone() const {
-      return new Proposal(impl_->proto_);
-    }
-
     const interface::types::HashType &Proposal::hash() const {
       return impl_->hash_;
     }

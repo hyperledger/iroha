@@ -11,7 +11,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetTransactions::GetTransactions(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)),
+        : TrivialProto(std::forward<QueryType>(query)),
           get_transactions_{proto_->payload().get_transactions()},
           transaction_hashes_{boost::accumulate(
               get_transactions_.tx_hashes(),

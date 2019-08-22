@@ -12,16 +12,16 @@ namespace types = shared_model::interface::types;
 using namespace shared_model::proto;
 
 TxPaginationMeta::TxPaginationMeta(const TransportType &query)
-    : CopyableProto(query) {}
+    : TrivialProto(query) {}
 
 TxPaginationMeta::TxPaginationMeta(TransportType &&query)
-    : CopyableProto(std::move(query)) {}
+    : TrivialProto(std::move(query)) {}
 
 TxPaginationMeta::TxPaginationMeta(const TxPaginationMeta &o)
     : TxPaginationMeta(*o.proto_) {}
 
 TxPaginationMeta::TxPaginationMeta(TxPaginationMeta &&o) noexcept
-    : CopyableProto(std::move(*o.proto_)) {}
+    : TrivialProto(std::move(*o.proto_)) {}
 
 types::TransactionsNumberType TxPaginationMeta::pageSize() const {
   return proto_->page_size();

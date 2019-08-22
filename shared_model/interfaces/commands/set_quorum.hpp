@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_SET_QUORUM_HPP
 #define IROHA_SHARED_MODEL_SET_QUORUM_HPP
 
-#include "interfaces/base/noncopyable_model_primitive.hpp"
+#include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
 
@@ -15,7 +15,7 @@ namespace shared_model {
     /**
      * Set quorum of the account
      */
-    class SetQuorum : public NonCopyableModelPrimitive<SetQuorum> {
+    class SetQuorum : public ModelPrimitive<SetQuorum> {
      public:
       /**
        * @return Id of the account to set quorum

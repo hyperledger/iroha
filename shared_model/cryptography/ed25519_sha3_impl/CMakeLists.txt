@@ -5,12 +5,12 @@
 
 add_subdirectory(internal)
 
-add_library(shared_model_cryptography
+add_library(sha3_cryptography
     crypto_provider.cpp
     signer.cpp
     verifier.cpp
     )
-target_link_libraries(shared_model_cryptography
+target_link_libraries(sha3_cryptography
     ed25519_crypto
     shared_model_cryptography_model
     common

@@ -24,7 +24,16 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 
+namespace shared_model {
+  namespace interface {
+    class QueryResponseFactory;
+  }  // namespace interface
+}  // namespace shared_model
+
 namespace iroha {
+
+  class PendingTransactionStorage;
+
   namespace ametsuchi {
     class StorageImpl : public Storage {
      public:
@@ -33,16 +42,22 @@ namespace iroha {
           std::shared_ptr<PoolWrapper> pool_wrapper,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
+          std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
+          std::shared_ptr<shared_model::interface::QueryResponseFactory>
+              query_response_factory,
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           std::unique_ptr<BlockStorage> persistent_block_storage,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
-      expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
-      createTemporaryWsv() override;
+      expected::Result<std::unique_ptr<CommandExecutor>, std::string>
+      createCommandExecutor() override;
 
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage() override;
+      std::unique_ptr<TemporaryWsv> createTemporaryWsv(
+          std::shared_ptr<CommandExecutor> command_executor) override;
+
+      std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor) override;
 
       boost::optional<std::shared_ptr<PeerQuery>> createPeerQuery()
           const override;
@@ -61,8 +76,9 @@ namespace iroha {
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 
-      expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage(BlockStorageFactory &storage_factory) override;
+      std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor,
+          BlockStorageFactory &storage_factory) override;
 
       void reset() override;
 
@@ -102,6 +118,9 @@ namespace iroha {
           std::shared_ptr<PoolWrapper> pool_wrapper,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
+          std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
+          std::shared_ptr<shared_model::interface::QueryResponseFactory>
+              query_response_factory,
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
           size_t pool_size,
           logger::LoggerManagerTreePtr log_manager);
@@ -111,10 +130,6 @@ namespace iroha {
 
      private:
       using StoreBlockResult = iroha::expected::Result<void, std::string>;
-
-      /**
-       * revert prepared transaction
-       */
 
       /**
        * add block to block storage
@@ -141,6 +156,11 @@ namespace iroha {
 
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
+
+      std::shared_ptr<PendingTransactionStorage> pending_txs_storage_;
+
+      std::shared_ptr<shared_model::interface::QueryResponseFactory>
+          query_response_factory_;
 
       std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory_;
 

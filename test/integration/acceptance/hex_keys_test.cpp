@@ -14,6 +14,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 
 using namespace shared_model;
+using namespace shared_model::crypto;
 using namespace integration_framework;
 
 struct HexKeys : public AcceptanceFixture {
@@ -66,12 +67,32 @@ struct HexKeys : public AcceptanceFixture {
         crypto::PrivateKey(crypto::Blob::fromHexString(private_key)));
   }
 
-  const std::string kLowercasedKey =
-      "69d89f86bb0a00bb9123218303aead3ed1b377ae4b0dc20b37a8b5405a02a31d";
-  const std::string kUppercasedKey =
-      "69D89F86BB0A00BB9123218303AEAD3ED1B377AE4B0DC20B37A8B5405A02A31D";
-  const std::string kPrivateKey =
-      "44453ddcc65bc75f5a5acc32bb224e21915b73f543ce058d0dd50f56bfc6c812";
+  Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
+  Keypair anotherKeypair = DefaultCryptoAlgorithmType::generateKeypair();
+
+  const std::string kLowercasedPublicKey = [this]() {
+    std::string result = keypair.publicKey().hex();
+    std::transform(result.begin(), result.end(), result.begin(), [](char c) {
+      return std::tolower(c);
+    });
+
+    return result;
+  }();
+
+  const std::string kUppercasedPublicKey = [this]() {
+    std::string result = keypair.publicKey().hex();
+    std::transform(result.begin(), result.end(), result.begin(), [](char c) {
+      return std::toupper(c);
+    });
+
+    return result;
+  }();
+
+  const std::string kPrivateKey = keypair.privateKey().hex();
+
+  const std::string kAnotherPublicKey = anotherKeypair.publicKey().hex();
+  const std::string kAnotherPrivateKey = anotherKeypair.privateKey().hex();
+
   const interface::types::TimestampType kNow;
 };
 
@@ -81,8 +102,8 @@ struct HexKeys : public AcceptanceFixture {
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatory) {
-  auto tx1 = complete(addSignatory(kLowercasedKey, kNow));
-  auto tx2 = complete(addSignatory(kUppercasedKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kLowercasedPublicKey, kNow));
+  auto tx2 = complete(addSignatory(kUppercasedPublicKey, kNow + 1));
   auto hash1 = tx1.hash();
   auto hash2 = tx2.hash();
 
@@ -108,8 +129,8 @@ TEST_F(HexKeys, AddSignatory) {
  * @then only first attempt to add the key succeeds
  */
 TEST_F(HexKeys, AddSignatoryReverse) {
-  auto tx1 = complete(addSignatory(kUppercasedKey, kNow));
-  auto tx2 = complete(addSignatory(kLowercasedKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kUppercasedPublicKey, kNow));
+  auto tx2 = complete(addSignatory(kLowercasedPublicKey, kNow + 1));
   auto hash1 = tx1.hash();
   auto hash2 = tx2.hash();
 
@@ -131,8 +152,8 @@ TEST_F(HexKeys, AddSignatoryReverse) {
  * @then the signatory can be removed using lowercased key string
  */
 TEST_F(HexKeys, RemoveSignatoryUl) {
-  auto tx1 = complete(addSignatory(kUppercasedKey, kNow));
-  auto tx2 = complete(removeSignatory(kLowercasedKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kUppercasedPublicKey, kNow));
+  auto tx2 = complete(removeSignatory(kLowercasedPublicKey, kNow + 1));
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
@@ -149,8 +170,8 @@ TEST_F(HexKeys, RemoveSignatoryUl) {
  * @then the signatory can be removed using uppercased key string
  */
 TEST_F(HexKeys, RemoveSignatorylU) {
-  auto tx1 = complete(addSignatory(kLowercasedKey, kNow));
-  auto tx2 = complete(removeSignatory(kUppercasedKey, kNow + 1));
+  auto tx1 = complete(addSignatory(kLowercasedPublicKey, kNow));
+  auto tx2 = complete(removeSignatory(kUppercasedPublicKey, kNow + 1));
   auto hash2 = tx2.hash();
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
@@ -169,22 +190,22 @@ TEST_F(HexKeys, RemoveSignatorylU) {
  */
 TEST_F(HexKeys, CreateAccountUl) {
   auto user = common_constants::kSameDomainUserId;
-  auto keypair = composeKeypairFromHex(kLowercasedKey, kPrivateKey);
+  auto keypair = composeKeypairFromHex(kLowercasedPublicKey, kPrivateKey);
 
   // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
-  auto tx1 = complete(createAccount(kUppercasedKey, kNow)
+  auto tx1 = complete(createAccount(kUppercasedPublicKey, kNow)
                           .appendRole(user, common_constants::kRole));
 
   // kSameDomainUserId adds one more key to own account
-  auto tx2 =
-      complete(addSignatory(kPrivateKey, kNow + 1, user).creatorAccountId(user),
-               keypair);
+  auto tx2 = complete(
+      addSignatory(kAnotherPublicKey, kNow + 1, user).creatorAccountId(user),
+      keypair);
 
   // kSameDomainUserId removes the initial key specifing it in other font case
-  auto tx3 = complete(
-      removeSignatory(kLowercasedKey, kNow + 2, user).creatorAccountId(user),
-      keypair);
+  auto tx3 = complete(removeSignatory(kLowercasedPublicKey, kNow + 2, user)
+                          .creatorAccountId(user),
+                      keypair);
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
       .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1))
@@ -203,23 +224,23 @@ TEST_F(HexKeys, CreateAccountUl) {
  */
 TEST_F(HexKeys, CreateAccountlU) {
   auto user = common_constants::kSameDomainUserId;
-  auto keypair = composeKeypairFromHex(kUppercasedKey, kPrivateKey);
+  auto keypair = composeKeypairFromHex(kUppercasedPublicKey, kPrivateKey);
 
   // kUserId creates kSameDomainUserId and appends the role with test
   // permissions
-  auto tx1 = complete(createAccount(kLowercasedKey, kNow)
+  auto tx1 = complete(createAccount(kLowercasedPublicKey, kNow)
                           .appendRole(user, common_constants::kRole));
 
   // kSameDomainUserId adds one more key to own account
-  auto tx2 =
-      complete(addSignatory(kPrivateKey, kNow + 1, user).creatorAccountId(user),
-               keypair);
+  auto tx2 = complete(
+      addSignatory(kAnotherPublicKey, kNow + 1, user).creatorAccountId(user),
+      keypair);
 
   // kSameDomainUserId removes the initial key specifing it in other font
   // case
-  auto tx3 = complete(
-      removeSignatory(kUppercasedKey, kNow + 2, user).creatorAccountId(user),
-      keypair);
+  auto tx3 = complete(removeSignatory(kUppercasedPublicKey, kNow + 2, user)
+                          .creatorAccountId(user),
+                      keypair);
 
   itf.sendTxAwait(tx1, CHECK_TXS_QUANTITY(1))
       .sendTxAwait(tx2, CHECK_TXS_QUANTITY(1))

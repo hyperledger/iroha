@@ -20,13 +20,15 @@ namespace iroha {
 
   namespace ametsuchi {
     class BlockQueryFactory;
-  }
+    class CommandExecutor;
+  }  // namespace ametsuchi
 
   namespace synchronizer {
 
     class SynchronizerImpl : public Synchronizer {
      public:
       SynchronizerImpl(
+          std::unique_ptr<iroha::ametsuchi::CommandExecutor> command_executor,
           std::shared_ptr<network::ConsensusGate> consensus_gate,
           std::shared_ptr<validation::ChainValidator> validator,
           std::shared_ptr<ametsuchi::MutableFactory> mutable_factory,
@@ -71,7 +73,9 @@ namespace iroha {
       boost::optional<shared_model::interface::types::HeightType>
       getTopBlockHeight() const;
 
-      boost::optional<std::unique_ptr<ametsuchi::MutableStorage>> getStorage();
+      std::unique_ptr<ametsuchi::MutableStorage> getStorage();
+
+      std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
 
       std::shared_ptr<validation::ChainValidator> validator_;
       std::shared_ptr<ametsuchi::MutableFactory> mutable_factory_;

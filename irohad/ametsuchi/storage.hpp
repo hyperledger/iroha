@@ -53,6 +53,13 @@ namespace iroha {
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
 
       /**
+       * Create new command executor that holds a database session within.
+       * @return The command executor or string error message.
+       */
+      virtual expected::Result<std::unique_ptr<CommandExecutor>, std::string>
+      createCommandExecutor() = 0;
+
+      /**
        * Insert a peer into WSV
        * @param peer - peer to insert
        * @return error reason if not inserted
@@ -64,10 +71,11 @@ namespace iroha {
 
       /**
        * Creates a mutable storage from the current state
-       * @return Created Result with mutable storage or error string
+       * @return Created mutable storage.
        */
-      virtual expected::Result<std::unique_ptr<MutableStorage>, std::string>
-      createMutableStorage(BlockStorageFactory &storage_factory) = 0;
+      virtual std::unique_ptr<MutableStorage> createMutableStorage(
+          std::shared_ptr<CommandExecutor> command_executor,
+          BlockStorageFactory &storage_factory) = 0;
 
       /**
        * method called when block is written to the storage

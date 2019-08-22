@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryType>
     GetRoles::GetRoles(QueryType &&query)
-        : CopyableProto(std::forward<QueryType>(query)) {}
+        : TrivialProto(std::forward<QueryType>(query)) {}
 
     template GetRoles::GetRoles(GetRoles::TransportType &);
     template GetRoles::GetRoles(const GetRoles::TransportType &);

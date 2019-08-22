@@ -30,8 +30,7 @@ namespace iroha {
       /**
        * Execute stateful validation for given proposal
        */
-      virtual boost::optional<
-          std::shared_ptr<validation::VerifiedProposalAndErrors>>
+      virtual std::shared_ptr<validation::VerifiedProposalAndErrors>
       processProposal(const shared_model::interface::Proposal &proposal) = 0;
 
       /**

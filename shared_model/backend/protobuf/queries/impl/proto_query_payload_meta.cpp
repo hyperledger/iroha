@@ -10,7 +10,7 @@ namespace shared_model {
 
     template <typename QueryPayloadMetaType>
     QueryPayloadMeta::QueryPayloadMeta(QueryPayloadMetaType &&query)
-        : CopyableProto(std::forward<QueryPayloadMetaType>(query)) {}
+        : TrivialProto(std::forward<QueryPayloadMetaType>(query)) {}
 
     template QueryPayloadMeta::QueryPayloadMeta(
         QueryPayloadMeta::TransportType &);

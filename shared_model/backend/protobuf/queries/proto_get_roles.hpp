@@ -12,9 +12,8 @@
 
 namespace shared_model {
   namespace proto {
-    class GetRoles final : public CopyableProto<interface::GetRoles,
-                                                iroha::protocol::Query,
-                                                GetRoles> {
+    class GetRoles final
+        : public TrivialProto<interface::GetRoles, iroha::protocol::Query> {
      public:
       template <typename QueryType>
       explicit GetRoles(QueryType &&query);

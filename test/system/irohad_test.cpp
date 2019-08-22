@@ -18,10 +18,15 @@
 #include <boost/process.hpp>
 #include <boost/variant.hpp>
 
+#include "ametsuchi/impl/postgres_options.hpp"
+#include "backend/protobuf/proto_block_json_converter.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
+#include "builders/protobuf/transaction.hpp"
 #include "common/bind.hpp"
 #include "common/files.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/blob.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
@@ -30,6 +35,7 @@
 #include "main/impl/pg_connection_init.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
+#include "module/shared_model/builders/protobuf/block.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
@@ -62,14 +68,23 @@ class IrohadTest : public AcceptanceFixture {
         kPort(50051),
         kSecurePort(55552),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
-        keys_manager_(
+        keys_manager_node_(
+            "node0",
+            test_data_path_,
+            getIrohadTestLoggerManager()->getChild("KeysManager")->getLogger()),
+        keys_manager_admin_(
             kAdminId,
+            test_data_path_,
+            getIrohadTestLoggerManager()->getChild("KeysManager")->getLogger()),
+        keys_manager_testuser_(
+            "test@test",
             test_data_path_,
             getIrohadTestLoggerManager()->getChild("KeysManager")->getLogger()),
         log_(getIrohadTestLoggerManager()->getLogger()) {}
 
   void SetUp() override {
     setPaths();
+    root_ca_ = readFile(path_root_certificate_);
 
     rapidjson::Document doc;
     std::ifstream ifs_iroha(path_config_.string());
@@ -95,16 +110,15 @@ class IrohadTest : public AcceptanceFixture {
     std::string config_copy_string = sb.GetString();
     std::ofstream copy_file(config_copy_);
     copy_file.write(config_copy_string.data(), config_copy_string.size());
+
+    prepareTestData();
   }
 
   void launchIroha() {
     launchIroha(setDefaultParams());
   }
 
-  void launchIroha(const std::string &parameters) {
-    iroha_process_.emplace(irohad_executable.string() + parameters);
-    auto channel = grpc::CreateChannel(kAddress + ":" + std::to_string(kPort),
-                                       grpc::InsecureChannelCredentials());
+  void waitForChannelReady(std::shared_ptr<grpc::Channel> channel) {
     auto state = channel->GetState(true);
     auto deadline = std::chrono::system_clock::now() + kTimeout;
     while (state != grpc_connectivity_state::GRPC_CHANNEL_READY
@@ -113,6 +127,22 @@ class IrohadTest : public AcceptanceFixture {
       state = channel->GetState(true);
     }
     ASSERT_EQ(state, grpc_connectivity_state::GRPC_CHANNEL_READY);
+  }
+
+  void waitForServersReady() {
+    waitForChannelReady(
+        grpc::CreateChannel(kAddress + ":" + std::to_string(kPort),
+                            grpc::InsecureChannelCredentials()));
+    grpc::SslCredentialsOptions ssl_options;
+    ssl_options.pem_root_certs = root_ca_;
+    waitForChannelReady(
+        grpc::CreateChannel(kAddress + ":" + std::to_string(kSecurePort),
+                            grpc::SslCredentials(ssl_options)));
+  }
+
+  void launchIroha(const std::string &parameters) {
+    iroha_process_.emplace(irohad_executable.string() + parameters);
+    waitForServersReady();
     ASSERT_TRUE(iroha_process_->running());
   }
 
@@ -140,6 +170,8 @@ class IrohadTest : public AcceptanceFixture {
     framework::expected::assertResultValue(
         iroha::ametsuchi::PgConnectionInit::dropWorkingDatabase(
             iroha::ametsuchi::PostgresOptions{pgopts_, db_name_, log_}));
+
+    boost::filesystem::remove_all(test_data_path_);
     boost::filesystem::remove(config_copy_);
   }
 
@@ -157,7 +189,7 @@ class IrohadTest : public AcceptanceFixture {
 
   std::string setDefaultParams() {
     return params(
-        config_copy_, path_genesis_.string(), path_keypair_.string(), {});
+        config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
   }
 
   torii::CommandSyncClient createToriiClient(
@@ -167,13 +199,9 @@ class IrohadTest : public AcceptanceFixture {
 
     std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
     if (enable_tls) {
-      std::ifstream root_ca_file(path_root_certificate_.string());
-      std::stringstream ss;
-      ss << root_ca_file.rdbuf();
-      std::string root_ca_data = ss.str();
       stub = iroha::network::createSecureClient<
           iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port), root_ca_data);
+          kAddress + ":" + std::to_string(port), root_ca_);
     } else {
       stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
           kAddress + ":" + std::to_string(port));
@@ -186,6 +214,106 @@ class IrohadTest : public AcceptanceFixture {
 
   auto createDefaultTx(const shared_model::crypto::Keypair &key_pair) {
     return complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+  }
+
+  void prepareTestData() {
+    ASSERT_TRUE(boost::filesystem::create_directory(test_data_path_));
+
+    ASSERT_TRUE(keys_manager_admin_.createKeys());
+    ASSERT_TRUE(keys_manager_node_.createKeys());
+    ASSERT_TRUE(keys_manager_testuser_.createKeys());
+
+    auto admin_keys = keys_manager_admin_.loadKeys();
+    ASSERT_TRUE(admin_keys);
+
+    auto node0_keys = keys_manager_node_.loadKeys();
+    ASSERT_TRUE(node0_keys);
+
+    auto user_keys = keys_manager_testuser_.loadKeys();
+    ASSERT_TRUE(user_keys);
+
+    shared_model::interface::RolePermissionSet admin_perms{
+        shared_model::interface::permissions::Role::kAddPeer,
+        shared_model::interface::permissions::Role::kAddSignatory,
+        shared_model::interface::permissions::Role::kCreateAccount,
+        shared_model::interface::permissions::Role::kCreateDomain,
+        shared_model::interface::permissions::Role::kGetAllAccAst,
+        shared_model::interface::permissions::Role::kGetAllAccAstTxs,
+        shared_model::interface::permissions::Role::kGetAllAccDetail,
+        shared_model::interface::permissions::Role::kGetAllAccTxs,
+        shared_model::interface::permissions::Role::kGetAllAccounts,
+        shared_model::interface::permissions::Role::kGetAllSignatories,
+        shared_model::interface::permissions::Role::kGetAllTxs,
+        shared_model::interface::permissions::Role::kGetBlocks,
+        shared_model::interface::permissions::Role::kGetRoles,
+        shared_model::interface::permissions::Role::kReadAssets,
+        shared_model::interface::permissions::Role::kRemoveSignatory,
+        shared_model::interface::permissions::Role::kSetQuorum};
+
+    shared_model::interface::RolePermissionSet default_perms{
+        shared_model::interface::permissions::Role::kAddSignatory,
+        shared_model::interface::permissions::Role::kGetMyAccAst,
+        shared_model::interface::permissions::Role::kGetMyAccAstTxs,
+        shared_model::interface::permissions::Role::kGetMyAccDetail,
+        shared_model::interface::permissions::Role::kGetMyAccTxs,
+        shared_model::interface::permissions::Role::kGetMyAccount,
+        shared_model::interface::permissions::Role::kGetMySignatories,
+        shared_model::interface::permissions::Role::kGetMyTxs,
+        shared_model::interface::permissions::Role::kReceive,
+        shared_model::interface::permissions::Role::kRemoveSignatory,
+        shared_model::interface::permissions::Role::kSetQuorum,
+        shared_model::interface::permissions::Role::kTransfer};
+
+    shared_model::interface::RolePermissionSet money_perms{
+        shared_model::interface::permissions::Role::kAddAssetQty,
+        shared_model::interface::permissions::Role::kCreateAsset,
+        shared_model::interface::permissions::Role::kReceive,
+        shared_model::interface::permissions::Role::kTransfer};
+
+    auto genesis_tx =
+        shared_model::proto::TransactionBuilder()
+            .creatorAccountId(kAdminId)
+            .createdTime(iroha::time::now())
+            .addPeer("0.0.0.0:10001", node0_keys.get().publicKey())
+            .createRole(kAdminName, admin_perms)
+            .createRole(kDefaultRole, default_perms)
+            .createRole(kMoneyCreator, money_perms)
+            .createDomain(kDomain, kDefaultRole)
+            .createAsset(kAssetName, kDomain, 2)
+            .createAccount(kAdminName, kDomain, admin_keys.get().publicKey())
+            .createAccount(kUser, kDomain, user_keys.get().publicKey())
+            .appendRole(kAdminId, kAdminName)
+            .appendRole(kAdminId, kMoneyCreator)
+            .quorum(1)
+            .build()
+            .signAndAddSignature(node0_keys.get())
+            .finish();
+
+    auto genesis_block =
+        shared_model::proto::BlockBuilder()
+            .transactions(
+                std::vector<shared_model::proto::Transaction>{genesis_tx})
+            .height(1)
+            .prevHash(shared_model::crypto::DefaultHashProvider::makeHash(
+                shared_model::crypto::Blob("")))
+            .createdTime(iroha::time::now())
+            .build()
+            .signAndAddSignature(node0_keys.get())
+            .finish();
+
+    std::ofstream output_file(path_genesis_.string());
+    ASSERT_TRUE(output_file);
+
+    shared_model::proto::ProtoBlockJsonConverter()
+        .serialize(genesis_block)
+        .match([&output_file](
+                   auto &&json) { output_file << std::move(json.value); },
+               [](const auto &error) {
+                 // should not get here
+                 FAIL() << "Failed to write genesis block: " << error.error;
+               });
+
+    ASSERT_TRUE(output_file.good());
   }
 
   /**
@@ -236,13 +364,25 @@ class IrohadTest : public AcceptanceFixture {
   void setPaths() {
     path_irohad_ = boost::filesystem::path(PATHIROHAD);
     irohad_executable = path_irohad_ / "irohad";
-    path_config_ = test_data_path_ / "config.sample";
+    path_config_ = test_data_path_.parent_path() / "config.sample";
     path_genesis_ = test_data_path_ / "genesis.block";
-    path_keypair_ = test_data_path_ / "node0";
-    path_tls_keypair_ = test_data_path_ / "tls" / "correct";
+    path_keypair_node_ = test_data_path_ / "node0";
+    path_tls_keypair_ = test_data_path_.parent_path() / "tls" / "correct";
     // example certificate with CN=localhost and subjectAltName=IP:127.0.0.1
-    path_root_certificate_ = test_data_path_ / "tls" / "correct.crt";
+    path_root_certificate_ =
+        test_data_path_.parent_path() / "tls" / "correct.crt";
     config_copy_ = path_config_.string() + std::string(".copy");
+  }
+
+  std::string readFile(const boost::filesystem::path &path) {
+    std::ifstream file(path.string());
+    if (not file) {
+      throw std::runtime_error(std::string{"Can not read file '"}
+                               + path.string() + "'");
+    }
+    std::stringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
   }
 
  public:
@@ -272,13 +412,16 @@ class IrohadTest : public AcceptanceFixture {
   boost::filesystem::path test_data_path_;
   boost::filesystem::path path_config_;
   boost::filesystem::path path_genesis_;
-  boost::filesystem::path path_keypair_;
+  boost::filesystem::path path_keypair_node_;
   boost::filesystem::path path_tls_keypair_;
   boost::filesystem::path path_root_certificate_;
   std::string db_name_;
   std::string pgopts_;
   std::string config_copy_;
-  iroha::KeysManagerImpl keys_manager_;
+  iroha::KeysManagerImpl keys_manager_node_;
+  iroha::KeysManagerImpl keys_manager_admin_;
+  iroha::KeysManagerImpl keys_manager_testuser_;
+  std::string root_ca_;
 
   logger::LoggerPtr log_;
 };
@@ -302,7 +445,7 @@ TEST_F(IrohadTest, RunIrohad) {
 TEST_F(IrohadTest, SendTx) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   SCOPED_TRACE("From send transaction test");
@@ -320,7 +463,7 @@ TEST_F(IrohadTest, SendTx) {
 TEST_F(IrohadTest, SendTxSecure) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   SCOPED_TRACE("From secure send transaction test");
@@ -332,12 +475,12 @@ TEST_F(IrohadTest, SendTxSecure) {
  * data. (well you surely can, but it will not be processed)
  * @given running Iroha with an open TLS port
  * @when a client sends a transaction to Iroha without using TLS
- * @then the transaction is not committed AND client's connection fails
+ * @then client request fails with UNAVAILABLE status code
  */
 TEST_F(IrohadTest, SendTxInsecureWithTls) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   auto tx = createDefaultTx(*key_pair);
@@ -360,7 +503,7 @@ TEST_F(IrohadTest, SendTxInsecureWithTls) {
 TEST_F(IrohadTest, SendQuery) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   iroha::protocol::QueryResponse response;
@@ -386,7 +529,7 @@ TEST_F(IrohadTest, SendQuery) {
 TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   SCOPED_TRACE("From restart with --overwrite-ledger flag test");
@@ -396,7 +539,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
 
   launchIroha(config_copy_,
               path_genesis_.string(),
-              path_keypair_.string(),
+              path_keypair_node_.string(),
               std::string("--overwrite-ledger"));
 
   ASSERT_EQ(getBlockCount(), 1);
@@ -417,7 +560,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
 TEST_F(IrohadTest, RestartWithoutResetting) {
   launchIroha();
 
-  auto key_pair = keys_manager_.loadKeys();
+  auto key_pair = keys_manager_admin_.loadKeys();
   ASSERT_TRUE(key_pair);
 
   SCOPED_TRACE("From restart without resetting test");
@@ -427,7 +570,7 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
 
   iroha_process_->terminate();
 
-  launchIroha(config_copy_, {}, path_keypair_.string(), {});
+  launchIroha(config_copy_, {}, path_keypair_node_.string(), {});
 
   ASSERT_EQ(getBlockCount(), height);
 

@@ -29,6 +29,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/consensus_init.hpp"
+#include "main/impl/pending_transaction_storage_init.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy.hpp"
@@ -43,7 +44,6 @@
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
-#include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 #include "simulator/impl/simulator.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 #include "torii/impl/command_service_impl.hpp"
@@ -113,6 +113,8 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
+      pending_txs_storage_init(
+          std::make_unique<PendingTransactionStorageInit>()),
       keypair(keypair),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
@@ -126,12 +128,17 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
   block_validators_config_ =
       std::make_shared<shared_model::validation::ValidatorsConfig>(
           max_proposal_size_, true);
+  proposal_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, false, true);
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
-  if (auto e =
-          expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
+
+  if (auto e = expected::resultToOptionalError(initPendingTxsStorage() | [&] {
+        return initStorage(std::move(pg_opt));
+      })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
 }
@@ -173,7 +180,6 @@ Irohad::RunResult Irohad::init() {
   | [this]{ return initPeerCommunicationService();}
   | [this]{ return initStatusBus();}
   | [this]{ return initMstProcessor();}
-  | [this]{ return initPendingTxsStorage();}
 
   // Torii
   | [this]{ return initTransactionCommandService();}
@@ -193,6 +199,8 @@ void Irohad::dropStorage() {
  */
 Irohad::RunResult Irohad::initStorage(
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
+  query_response_factory_ =
+      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
   auto perm_converter =
       std::make_shared<shared_model::proto::ProtoPermissionToString>();
 
@@ -265,6 +273,8 @@ Irohad::RunResult Irohad::initStorage(
   return StorageImpl::create(std::move(pg_opt),
                              pool_wrapper_,
                              perm_converter,
+                             pending_txs_storage_,
+                             query_response_factory_,
                              std::move(temporary_block_storage_factory),
                              std::move(persistent_block_storage),
                              log_manager_->getChild("Storage"))
@@ -358,7 +368,7 @@ Irohad::RunResult Irohad::initFactories() {
       shared_model::interface::Proposal>>
       proposal_validator =
           std::make_unique<shared_model::validation::DefaultProposalValidator>(
-              validators_config_);
+              proposal_validators_config_);
   std::unique_ptr<
       shared_model::validation::AbstractValidator<iroha::protocol::Proposal>>
       proto_proposal_validator =
@@ -391,9 +401,6 @@ Irohad::RunResult Irohad::initFactories() {
           std::move(proto_transaction_validator));
 
   // query factories
-  query_response_factory_ =
-      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-
   std::unique_ptr<shared_model::validation::AbstractValidator<
       shared_model::interface::Query>>
       query_validator = std::make_unique<
@@ -529,26 +536,33 @@ Irohad::RunResult Irohad::initOrderingGate() {
  * Initializing iroha verified proposal creator and block creator
  */
 Irohad::RunResult Irohad::initSimulator() {
-  auto block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
-      //  Block factory in simulator uses UnsignedBlockValidator because
-      //  it is not required to check signatures of block here, as they
-      //  will be checked when supermajority of peers will sign the block.
-      //  It is also not required to validate signatures of transactions
-      //  here because they are validated in the ordering gate, where they
-      //  are received from the ordering service.
-      std::make_unique<shared_model::validation::DefaultUnsignedBlockValidator>(
-          block_validators_config_),
-      std::make_unique<shared_model::validation::ProtoBlockValidator>());
-  simulator = std::make_shared<Simulator>(
-      ordering_gate,
-      stateful_validator,
-      storage,
-      crypto_signer_,
-      std::move(block_factory),
-      log_manager_->getChild("Simulator")->getLogger());
+  return storage->createCommandExecutor() |
+             [this](auto &&command_executor) -> RunResult {
+    auto block_factory =
+        std::make_unique<shared_model::proto::ProtoBlockFactory>(
+            //  Block factory in simulator uses UnsignedBlockValidator because
+            //  it is not required to check signatures of block here, as they
+            //  will be checked when supermajority of peers will sign the block.
+            //  It is also not required to validate signatures of transactions
+            //  here because they are validated in the ordering gate, where they
+            //  are received from the ordering service.
+            std::make_unique<
+                shared_model::validation::DefaultUnsignedBlockValidator>(
+                block_validators_config_),
+            std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-  log_->info("[Init] => init simulator");
-  return {};
+    simulator = std::make_shared<Simulator>(
+        std::move(command_executor),
+        ordering_gate,
+        stateful_validator,
+        storage,
+        crypto_signer_,
+        std::move(block_factory),
+        log_manager_->getChild("Simulator")->getLogger());
+
+    log_->info("[Init] => init simulator");
+    return {};
+  };
 }
 
 /**
@@ -616,16 +630,20 @@ Irohad::RunResult Irohad::initConsensusGate() {
  * Initializing synchronizer
  */
 Irohad::RunResult Irohad::initSynchronizer() {
-  synchronizer = std::make_shared<SynchronizerImpl>(
-      consensus_gate,
-      chain_validator,
-      storage,
-      storage,
-      block_loader,
-      log_manager_->getChild("Synchronizer")->getLogger());
+  return storage->createCommandExecutor() |
+             [this](auto &&command_executor) -> RunResult {
+    synchronizer = std::make_shared<SynchronizerImpl>(
+        std::move(command_executor),
+        consensus_gate,
+        chain_validator,
+        storage,
+        storage,
+        block_loader,
+        log_manager_->getChild("Synchronizer")->getLogger());
 
-  log_->info("[Init] => synchronizer");
-  return {};
+    log_->info("[Init] => synchronizer");
+    return {};
+  };
 }
 
 /**
@@ -658,6 +676,8 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
         break;
     }
   });
+
+  pending_txs_storage_init->setSubscriptions(*pcs);
 
   log_->info("[Init] => pcs");
   return {};
@@ -706,31 +726,16 @@ Irohad::RunResult Irohad::initMstProcessor() {
       mst_logger_manager->getChild("Processor")->getLogger());
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
+
+  pending_txs_storage_init->setSubscriptions(*mst_processor);
+
   log_->info("[Init] => MST processor");
   return {};
 }
 
 Irohad::RunResult Irohad::initPendingTxsStorage() {
-  using PreparedTransactionDescriptor =
-      PendingTransactionStorageImpl::PreparedTransactionDescriptor;
-  pending_txs_storage_ = std::make_shared<PendingTransactionStorageImpl>(
-      mst_processor->onStateUpdate(),
-      mst_processor->onPreparedBatches(),
-      mst_processor->onExpiredBatches(),
-      pcs->onProposal().flat_map([](const OrderingEvent &event)
-                                     -> rxcpp::observable<
-                                         PreparedTransactionDescriptor> {
-        if (not event.proposal) {
-          return rxcpp::observable<>::empty<PreparedTransactionDescriptor>();
-        }
-        auto prepared_transactions =
-            event.proposal.get()->transactions()
-            | boost::adaptors::transformed(
-                  [](const auto &tx) -> PreparedTransactionDescriptor {
-                    return std::make_pair(tx.creatorAccountId(), tx.hash());
-                  });
-        return rxcpp::observable<>::iterate(prepared_transactions);
-      }));
+  pending_txs_storage_ =
+      pending_txs_storage_init->createPendingTransactionsStorage();
   log_->info("[Init] => pending transactions storage");
   return {};
 }
