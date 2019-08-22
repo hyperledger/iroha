@@ -196,14 +196,8 @@ Run in terminal:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  git clone https://github.com/Microsoft/vcpkg.git
-  cd vcpkg
-  git checkout $(cat ../iroha/vcpkg/VCPKG_COMMIT_SHA)
-  for i in ../iroha/vcpkg/patches/*.patch; do git apply $i; done;
-  ./bootstrap-vcpkg.sh
-  ./vcpkg install $(cat ../iroha/vcpkg/VCPKG_DEPS_LIST | cut -d':' -f1 | tr '\n' ' ')
-  ./vcpkg install --head $(cat ../iroha/vcpkg/VCPKG_HEAD_DEPS_LIST | cut -d':' -f1 | tr '\n' ' ')
-  ./vcpkg integrate install
+  iroha/vcpkg/build_iroha_deps.sh
+  vcpkg/vcpkg integrate install
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
