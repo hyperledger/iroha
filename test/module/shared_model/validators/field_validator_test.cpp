@@ -250,30 +250,75 @@ class FieldValidatorTest : public ValidatorsTest {
 
   /// Generate test cases for id types with name, separator, and domain
   template <typename F>
-  std::vector<FieldTestCase> idTestCases(const std::string &field_name,
-                                         F field,
-                                         char separator) {
-    auto f = [&](const auto &s) {
-      return (boost::format(s) % separator).str();
+  std::vector<FieldTestCase> idTestCases(
+      const std::string &field_name,
+      F field,
+      char separator,
+      std::initializer_list<char> illegal_name_chars,
+      size_t max_name_length) {
+    auto fc = [](const auto &s, char c) {
+      return (boost::format(s) % c).str();
     };
 
-    auto c = [&](const auto &n, const auto &v) {
-      return this->makeInvalidCase(n, field_name, field, v);
+    auto f = [&](const auto &s) { return fc(s, separator); };
+
+    std::vector<FieldTestCase> test_cases;
+
+    auto add_valid = [&](auto c) {
+      test_cases.emplace_back(makeValidCase(field, std::move(c)));
     };
 
-    return {makeValidCase(field, f("name%cdomain")),
-            c("domain_start_with_digit", f("abs%c3domain")),
-            c("empty_string", ""),
-            c("illegal_char", f("ab--s%cdo--main")),
-            c(f("missing_%c"), "absdomain"),
-            c("missing_name", f("%cdomain"))};
+    auto add_invalid = [&](const auto &name, auto c) {
+      test_cases.emplace_back(
+          this->makeInvalidCase(name, field_name, field, c));
+    };
+
+    // general cases
+    add_valid(f("name%cdomain"));
+    add_invalid("empty_string", "");
+    add_invalid(f("missing_%c"), "absdomain");
+    add_invalid(f("double_%c"), f("abs%1$cwhoops%1$cdomain"));
+
+    // name cases
+    add_invalid("missing_name", f("%cdomain"));
+    for (char i : illegal_name_chars) {
+      add_invalid(fc("illegal_char_%c_in_name", i),
+                  fc("ab%cs", i) + f("%cdomain"));
+    }
+    add_valid(std::string(max_name_length, 'a') + f("%cdomain"));
+    add_invalid("name_too_long",
+                std::string(max_name_length + 1, 'a') + f("%cdomain"));
+    add_invalid("name_way_too_long",
+                std::string(max_name_length * 2, 'a') + f("%cdomain"));
+
+    // domain cases
+    static const std::vector<char> kIllegalAssetNameChars{{'_', '@', ' ', '#'}};
+    static const size_t kMaxDomainLabelLength = 63;
+    add_invalid("missing_domain", f("name%c"));
+    for (char i : kIllegalAssetNameChars) {
+      add_invalid(fc("illegal_char_%c_in_domain", i),
+                  f("name%c") + fc("do%cmain", i));
+    }
+    add_valid(f("name%c") + std::string(kMaxDomainLabelLength, 'a'));
+    add_invalid("domain_label_too_long",
+                f("name%c") + std::string(kMaxDomainLabelLength + 1, 'a'));
+    add_invalid("domain_label_way_too_long",
+                f("name%c") + std::string(kMaxDomainLabelLength * 2, 'a'));
+    add_invalid("domain_starts_with_digit", f("abs%c3domain"));
+    add_invalid("domain_starts_with_dash", f("abs%c-domain"));
+    add_invalid("domain_ends_with_dash", f("abs%cdomain-"));
+    add_invalid("domain_label_starts_with_dash", f("abs%caa.-domain"));
+    add_invalid("domain_label_ends_with_dash", f("abs%cdomain-.aa"));
+    add_invalid("domain_double_dot", f("abs%cdomain..aa"));
+
+    return test_cases;
   }
 
-  std::vector<FieldTestCase> account_id_test_cases =
-      idTestCases("account_id", &FieldValidatorTest::account_id, '@');
+  std::vector<FieldTestCase> account_id_test_cases = idTestCases(
+      "account_id", &FieldValidatorTest::account_id, '@', {'A', '-', ' '}, 32);
 
-  std::vector<FieldTestCase> asset_id_test_cases =
-      idTestCases("asset_id", &FieldValidatorTest::asset_id, '#');
+  std::vector<FieldTestCase> asset_id_test_cases = idTestCases(
+      "asset_id", &FieldValidatorTest::asset_id, '#', {'A', '-', ' '}, 32);
 
   std::vector<FieldTestCase> amount_test_cases{
       {"valid_amount", [&] { amount = "100"; }, true, ""},
