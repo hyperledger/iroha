@@ -23,7 +23,7 @@ class CryptoUsageTest : public ::testing::Test {
 
     // initialize block
     block = std::make_unique<shared_model::proto::Block>(
-        TestBlockBuilder().build());
+        TestBlockBuilder().height(1).build());
 
     // initialize query
     query = std::make_unique<shared_model::proto::Query>(
