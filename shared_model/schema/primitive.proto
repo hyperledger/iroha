@@ -79,6 +79,9 @@ enum RolePermission {
   can_grant_can_remove_my_signatory = 39;
   can_grant_can_transfer_my_assets = 40;
   can_grant_can_set_my_account_detail = 41;
+
+  // Root Permission
+  root = 47;
 }
 
 enum GrantablePermission {
