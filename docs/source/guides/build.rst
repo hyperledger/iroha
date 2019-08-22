@@ -125,7 +125,7 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   libraries, please consider installing the
   `latest release <https://cmake.org/download/>`_ of CMake.
 
-Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
+Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
 .. _macos-pre:
 
@@ -144,7 +144,7 @@ to install all environment dependencies with Homebrew:
 
   ``ruby -e "$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)"``
 
-Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
+Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
 .. _windows-pre:
 
@@ -177,7 +177,7 @@ PostgreSQL is not a build dependency, but it is recommended to install it now fo
     choco install postgresql
     # Don't forget the password you set!
 
-Now you are ready to `install Iroha dependancies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
+Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
 Installing dependencies with Vcpkg Dependency Manager
 --------------------------------------------------------
