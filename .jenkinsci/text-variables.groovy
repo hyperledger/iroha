@@ -201,6 +201,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><span style="color: #ff0000;"><strong>build_shared_libs</strong></span> = false&nbsp;</p>
+      <ul>
+         <li>
+            <p>builds libraries as shared libraries</p>
+         </li>
+         <li>
+            <p>Ex:&nbsp;build_shared_libs = true; testList = '()'</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><span style="color: #ff0000;"><strong>packageBuild</strong></span> = false&nbsp;</p>
       <ul>
          <li>

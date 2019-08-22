@@ -3,15 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-add_subdirectory(internal)
-
-add_library(sha3_cryptography
+add_library(ursa_cryptography
     crypto_provider.cpp
-    signer.cpp
-    verifier.cpp
     )
-target_link_libraries(sha3_cryptography
-    ed25519_crypto
+
+target_link_libraries(ursa_cryptography
+    ursa
     shared_model_cryptography_model
     common
     )

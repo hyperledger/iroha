@@ -18,6 +18,7 @@ namespace common_constants {
 
   // role names
   const std::string kAdminRole = "admin_role";
+  const std::string kMoneyCreator = "money_creator";
   const std::string kDefaultRole = "default_role";
   const std::string kRole = "user_role";
 
