@@ -50,6 +50,9 @@ namespace {
   const std::string kPgTrue{"true"};
   const std::string kPgFalse{"false"};
 
+  const auto kRootRolePermStr =
+      shared_model::interface::RolePermissionSet({Role::kRoot}).toBitstring();
+
   std::string makeJsonString(std::string value) {
     return std::string{"\""} + value + "\"";
   }
@@ -166,19 +169,36 @@ namespace {
     return makeCommandError(std::move(command_name), 1, std::move(query_args));
   }
 
+  template <typename T>
+  std::string permissionSetToBitString(
+      const shared_model::interface::PermissionSet<T> &set) {
+    return (boost::format("'%s'") % set.toBitstring()).str();
+  }
+
+  std::string checkAccountRolePermission(
+      const std::string &permission_bitstring,
+      const shared_model::interface::types::AccountIdType &account_id) {
+    std::string query = (boost::format(R"(
+          SELECT
+              COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+              & (%2%::bit(%1%) | '%3%'::bit(%1%))
+              != '0'::bit(%1%)
+          FROM role_has_permissions AS rp
+              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+              WHERE ar.account_id = %4%)")
+                         % kRolePermissionSetSize % permission_bitstring
+                         % kRootRolePermStr % account_id)
+                            .str();
+    return query;
+  }
+
   std::string checkAccountRolePermission(
       Role permission,
       const shared_model::interface::types::AccountIdType &account_id) {
-    const auto perm_str =
-        shared_model::interface::RolePermissionSet({permission}).toBitstring();
-    std::string query = (boost::format(R"(
-          SELECT COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-          & '%2%' = '%2%' FROM role_has_permissions AS rp
-              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = %3%)")
-                         % kRolePermissionSetSize % perm_str % account_id)
-                            .str();
-    return query;
+    return checkAccountRolePermission(
+        permissionSetToBitString(
+            shared_model::interface::RolePermissionSet({permission})),
+        account_id);
   }
 
   std::string checkAccountGrantablePermission(
@@ -189,12 +209,16 @@ namespace {
         shared_model::interface::GrantablePermissionSet({permission})
             .toBitstring();
     std::string query = (boost::format(R"(
-          SELECT COALESCE(bit_or(permission), '0'::bit(%1%))
-          & '%2%' = '%2%' FROM account_has_grantable_permissions
-              WHERE account_id = %4% AND
-              permittee_account_id = %3%
+          SELECT
+              COALESCE(bit_or(permission), '0'::bit(%1%)) & '%2%' = '%2%'
+              or (%3%)
+          FROM account_has_grantable_permissions
+          WHERE account_id = %4% AND
+          permittee_account_id = %5%
           )") % kGrantablePermissionSetSize
-                         % perm_str % creator_id % account_id)
+                         % perm_str
+                         % checkAccountRolePermission(Role::kRoot, account_id)
+                         % account_id % creator_id)
                             .str();
     return query;
   }
@@ -234,32 +258,35 @@ namespace {
             .toBitstring();
 
     boost::format cmd(R"(
+    has_root_perm AS (%1%),
     has_indiv_perm AS (
-      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-      & '%3%') = '%3%' FROM role_has_permissions AS rp
-          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-          WHERE ar.account_id = %2%
-    ),
-    has_all_perm AS (
-      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
       & '%4%') = '%4%' FROM role_has_permissions AS rp
           JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-          WHERE ar.account_id = %2%
+          WHERE ar.account_id = %3%
     ),
-    has_domain_perm AS (
-      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+    has_all_perm AS (
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
       & '%5%') = '%5%' FROM role_has_permissions AS rp
           JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-          WHERE ar.account_id = %2%
+          WHERE ar.account_id = %3%
+    ),
+    has_domain_perm AS (
+      SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
+      & '%6%') = '%6%' FROM role_has_permissions AS rp
+          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+          WHERE ar.account_id = %3%
     ),
     has_query_perm AS (
-      SELECT (%2% = %6% AND (SELECT * FROM has_indiv_perm))
+      SELECT (SELECT * from has_root_perm)
+          OR (%3% = %7% AND (SELECT * FROM has_indiv_perm))
           OR (SELECT * FROM has_all_perm)
-          OR (%7% = %8% AND (SELECT * FROM has_domain_perm)) AS perm
+          OR (%8% = %9% AND (SELECT * FROM has_domain_perm)) AS perm
     )
     )");
 
-    return (cmd % bits % creator % perm_str % all_perm_str % domain_perm_str
+    return (cmd % checkAccountRolePermission(Role::kRoot, creator) % bits
+            % creator % perm_str % all_perm_str % domain_perm_str
             % target_account % creator_domain % target_account_domain)
         .str();
   }
@@ -601,6 +628,7 @@ namespace iroha {
           END AS result)",
           {(boost::format(R"(
             has_perm AS (%1%),
+            has_root_perm AS (%2%),
             role_permissions AS (
                 SELECT permission FROM role_has_permissions
                 WHERE role_id = :role
@@ -609,7 +637,7 @@ namespace iroha {
                 SELECT role_id FROM account_has_roles WHERE account_id = :creator
             ),
             account_has_role_permissions AS (
-                SELECT COALESCE(bit_or(rp.permission), '0'::bit(%2%)) &
+                SELECT COALESCE(bit_or(rp.permission), '0'::bit(%3%)) &
                     (SELECT * FROM role_permissions) =
                     (SELECT * FROM role_permissions)
                 FROM role_has_permissions AS rp
@@ -617,14 +645,18 @@ namespace iroha {
                 WHERE ar.account_id = :creator
             ),)")
             % checkAccountRolePermission(Role::kAppendRole, ":creator")
+            % checkAccountRolePermission(Role::kRoot, ":creator")
             % kRolePermissionSetSize)
                .str(),
            R"(WHERE
-              EXISTS (SELECT * FROM account_roles)
-              AND (SELECT * FROM account_has_role_permissions)
-              AND (SELECT * FROM has_perm))",
-           R"(WHEN NOT EXISTS (SELECT * FROM account_roles) THEN 2
-              WHEN NOT (SELECT * FROM account_has_role_permissions) THEN 2
+              (SELECT * FROM has_root_perm)
+              OR (EXISTS (SELECT * FROM account_roles) AND
+              (SELECT * FROM account_has_role_permissions)
+              AND (SELECT * FROM has_perm)))",
+           R"(WHEN NOT EXISTS (SELECT * FROM account_roles)
+                  AND NOT (SELECT * FROM has_root_perm) THEN 2
+              WHEN NOT (SELECT * FROM account_has_role_permissions)
+                  AND NOT (SELECT * FROM has_root_perm) THEN 2
               WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
 
       compare_and_set_account_detail_statements_ = makeCommandStatements(
@@ -855,15 +887,18 @@ namespace iroha {
                 FROM role_has_permissions AS rp
                 JOIN account_has_roles AS ar on ar.role_id = rp.role_id
                 WHERE ar.account_id = :creator),
-          has_perm AS (%s),)")
+          has_perm AS (%s),
+          has_root_perm AS (%s),)")
             % kRolePermissionSetSize
-            % checkAccountRolePermission(Role::kCreateRole, ":creator"))
+            % checkAccountRolePermission(Role::kCreateRole, ":creator")
+            % checkAccountRolePermission(Role::kRoot, ":creator"))
                .str(),
-           R"(WHERE (SELECT * FROM account_has_role_permissions)
-                          AND (SELECT * FROM has_perm))",
-           R"(WHEN NOT (SELECT * FROM
-                               account_has_role_permissions) THEN 2
-                        WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
+           R"(WHERE (SELECT * FROM has_root_perm) OR
+                    ((SELECT * FROM account_has_role_permissions)
+                     AND (SELECT * FROM has_perm)))",
+           R"(WHEN NOT (SELECT * FROM account_has_role_permissions)
+               AND NOT (SELECT * FROM has_root_perm) THEN 2
+              WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
 
       detach_role_statements_ = makeCommandStatements(
           sql_,
@@ -914,16 +949,8 @@ namespace iroha {
             ELSE 1
           END AS result)",
           {(boost::format(R"(
-            has_perm AS (
-                SELECT
-                    (
-                        COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-                        & :required_perm
-                    ) = :required_perm
-                FROM role_has_permissions AS rp
-                JOIN account_has_roles AS ar ON ar.role_id = rp.role_id
-                WHERE ar.account_id = :creator),)")
-            % kRolePermissionSetSize)
+            has_perm AS (%s),)")
+            % checkAccountRolePermission(":required_perm", ":creator"))
                .str(),
            R"( WHERE (SELECT * FROM has_perm))",
            R"(WHEN NOT (SELECT * FROM has_perm) THEN 2)"});
