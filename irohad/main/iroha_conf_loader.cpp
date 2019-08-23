@@ -71,14 +71,21 @@ class JsonDeserializerImpl {
   static constexpr bool IsIntegerLike =
       std::numeric_limits<T>::is_integer or std::is_enum<T>::value;
 
+  template <typename T>
+  static constexpr bool fitsType(int64_t i) {
+    return static_cast<int64_t>(std::numeric_limits<T>::min()) <= i
+        and i <= static_cast<int64_t>(std::numeric_limits<T>::max());
+  }
+
   template <typename TDest>
   typename std::enable_if<IsIntegerLike<TDest>>::type getVal(
       const std::string &path, TDest &dest, const rapidjson::Value &src) {
+    static_assert(fitsType<int64_t>(std::numeric_limits<TDest>::min())
+                      and fitsType<int64_t>(std::numeric_limits<TDest>::max()),
+                  "destination type does not fit int64_t");
     assert_fatal(src.IsInt64(), path + " must be an integer");
     const int64_t val = src.GetInt64();
-    assert_fatal(val >= std::numeric_limits<TDest>::min()
-                     && val <= std::numeric_limits<TDest>::max(),
-                 path + ": integer value out of range");
+    assert_fatal(fitsType<TDest>(val), path + ": integer value out of range");
     dest = val;
   }
 
@@ -263,6 +270,14 @@ class JsonDeserializerImpl {
 };
 
 // ------------ getVal(path, dst, src) specializations ------------
+
+template <>
+void JsonDeserializerImpl::getVal<uint64_t>(const std::string &path,
+                                            uint64_t &dest,
+                                            const rapidjson::Value &src) {
+  assert_fatal(src.IsUint64(), path + " must be an unsigned integer");
+  dest = src.GetUint64();
+}
 
 template <>
 inline void JsonDeserializerImpl::getVal<bool>(const std::string &path,
