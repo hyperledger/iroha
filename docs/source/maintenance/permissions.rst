@@ -31,6 +31,9 @@ List of Permissions
     * - Permission Name
       - Category
       - Type
+    * - `root`_ 
+      - All Categories
+      - Command and Query
     * - `can_create_account`_ 
       - Account
       - Command
@@ -187,6 +190,24 @@ List of Permissions
     * - `can_get_peers`_ 
       - Peer
       - Query
+
+Command and Query-related permissions
+=====================================
+
+All Categories
+--------------
+
+root
+^^^^
+
+Allows executing all `commands <../core_concepts/glossary.html#command>`__ and queries without other `permissions <../core_concepts/glossary.html#permission>`__.
+
+.. Note:: This permission allows you to create and assign any roles with any permissions.
+
+**Example**
+
+| Admin with root permission can create and assign a role with rights that he does not have.
+|
 
 Command-related permissions
 ===========================
