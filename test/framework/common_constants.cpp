@@ -35,6 +35,7 @@ namespace common_constants {
   const std::string kSameDomainUserId = kAnotherUser + "@" + kDomain;
   const std::string kAnotherDomainUserId = kAnotherUser + "@" + kSecondDomain;
   const std::string kAssetId = kAssetName + "#" + kDomain;
+  const std::string kSecondDomainAssetId = kAssetName + "#" + kSecondDomain;
 
   // keypairs
   const Keypair kAdminKeypair = DefaultCryptoAlgorithmType::generateKeypair();
