@@ -86,6 +86,7 @@ target_link_libraries(irohad
     keys_manager
     common
     iroha_conf_loader
+    irohad_utility
     logger
     logger_manager
     irohad_version

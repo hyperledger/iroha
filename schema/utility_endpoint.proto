@@ -1,0 +1,18 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+syntax = "proto3";
+
+package iroha.protocol;
+
+import "google/protobuf/empty.proto";
+
+message ShutdownRequest {
+    string shutdown_key = 1;
+}
+
+service UtilityService_v1 {
+    rpc Shutdown (ShutdownRequest) returns (google.protobuf.Empty);
+}
