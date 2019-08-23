@@ -47,6 +47,9 @@ namespace {
 
   using namespace iroha;
 
+  const auto kRootRolePermStr =
+      shared_model::interface::RolePermissionSet({Role::kRoot}).toBitstring();
+
   shared_model::interface::types::DomainIdType getDomainFromName(
       const shared_model::interface::types::AccountIdType &account_id) {
     // TODO 03.10.18 andrei: IR-1728 Move getDomainFromName to shared_model
@@ -57,17 +60,22 @@ namespace {
 
   std::string getAccountRolePermissionCheckSql(
       shared_model::interface::permissions::Role permission,
-      const std::string &account_alias = "role_account_id") {
+      const std::string &account_alias = ":role_account_id") {
     const auto perm_str =
         shared_model::interface::RolePermissionSet({permission}).toBitstring();
     const auto bits = shared_model::interface::RolePermissionSet::size();
     // TODO 14.09.18 andrei: IR-1708 Load SQL from separate files
     std::string query = (boost::format(R"(
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-          & '%2%') = '%2%' AS perm FROM role_has_permissions AS rp
-              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = :%3%)")
-                         % bits % perm_str % account_alias)
+          SELECT
+            (
+              COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+              & ('%2%'::bit(%1%) | '%3%'::bit(%1%))
+            ) != '0'::bit(%1%)
+            AS perm
+          FROM role_has_permissions AS rp
+          JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+          WHERE ar.account_id = %4%)")
+                         % bits % perm_str % kRootRolePermStr % account_alias)
                             .str();
     return query;
   }
@@ -95,32 +103,37 @@ namespace {
         shared_model::interface::RolePermissionSet({domain_permission_id})
             .toBitstring();
 
+    const std::string creator_quoted{(boost::format("'%s'") % creator).str()};
+
     boost::format cmd(R"(
     WITH
+        has_root_perm AS (%1%),
         has_indiv_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-          & '%3%') = '%3%' FROM role_has_permissions AS rp
-              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%2%'
-        ),
-        has_all_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
           & '%4%') = '%4%' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%2%'
+              WHERE ar.account_id = '%3%'
         ),
-        has_domain_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%1%))
+        has_all_perm AS (
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
           & '%5%') = '%5%' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%2%'
+              WHERE ar.account_id = '%3%'
+        ),
+        has_domain_perm AS (
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
+          & '%6%') = '%6%' FROM role_has_permissions AS rp
+              JOIN account_has_roles AS ar on ar.role_id = rp.role_id
+              WHERE ar.account_id = '%3%'
         )
-    SELECT ('%2%' = '%6%' AND (SELECT * FROM has_indiv_perm))
+    SELECT (SELECT * from has_root_perm)
+        OR ('%3%' = '%7%' AND (SELECT * FROM has_indiv_perm))
         OR (SELECT * FROM has_all_perm)
-        OR ('%7%' = '%8%' AND (SELECT * FROM has_domain_perm)) AS perm
+        OR ('%8%' = '%9%' AND (SELECT * FROM has_domain_perm)) AS perm
     )");
 
-    return (cmd % bits % creator % perm_str % all_perm_str % domain_perm_str
+    return (cmd % getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted)
+            % bits % creator % perm_str % all_perm_str % domain_perm_str
             % target_account % getDomainFromName(creator)
             % getDomainFromName(target_account))
         .str();
@@ -673,8 +686,8 @@ namespace iroha {
       SELECT height, hash, has_my_perm.perm, has_all_perm.perm FROM t
       RIGHT OUTER JOIN has_my_perm ON TRUE
       RIGHT OUTER JOIN has_all_perm ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kGetMyTxs, "account_id")
-           % getAccountRolePermissionCheckSql(Role::kGetAllTxs, "account_id")
+      )") % getAccountRolePermissionCheckSql(Role::kGetMyTxs, ":account_id")
+           % getAccountRolePermissionCheckSql(Role::kGetAllTxs, ":account_id")
            % hash_str)
               .str();
 

@@ -7,7 +7,6 @@ ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
-ENV PATH "/home/iroha-ci/.cargo/bin:${PATH}"
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
@@ -76,6 +75,7 @@ RUN set -e; \
 
 # OpenJRE 8
 RUN set -e; \
+    apt-get update; \
     apt-get -y install openjdk-8-jre; \
     java -version
 
@@ -92,6 +92,13 @@ RUN set -e; \
 # install lcov
 RUN set -e; \
     curl -L -o /tmp/lcov-1.13.tar.gz https://github.com/linux-test-project/lcov/releases/download/v1.13/lcov-1.13.tar.gz; cd /tmp; tar zxf lcov-1.13.tar.gz; cd lcov-1.13; make install
+
+# install rust
+RUN set -e; \
+    curl -L -o /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz https://static.rust-lang.org/dist/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz; \
+    tar xf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu.tar.gz -C /tmp; \
+    /tmp/rust-1.37.0-x86_64-unknown-linux-gnu/install.sh; \
+    rm -rf /tmp/rust-1.37.0-x86_64-unknown-linux-gnu*
 
 # non-interactive adduser
 #   -m = create home dir
@@ -110,10 +117,5 @@ RUN set -e; \
 
 
 USER iroha-ci
-
-# install rust for hyperledger ursa
-RUN set -e; \
-    curl https://sh.rustup.rs -sSf | sh -s -- -y
-
 ENV CMAKE_TOOLCHAIN_FILE /opt/dependencies/scripts/buildsystems/vcpkg.cmake
 CMD ["/bin/bash"]
