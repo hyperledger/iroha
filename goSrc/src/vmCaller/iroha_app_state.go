@@ -77,14 +77,33 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 		}
 		EvmBalance := stdBinary.BigEndian.Uint64(EvmBalanceBytes)
 
+		EvmCodeHash, err := ias.getIrohaAccountDetail(addr, "EVM_codehash")
+		if err != nil {
+			errHappened = true
+			fmt.Println("Failed to get EVM_codehash")
+		}
+
+		EvmForebearBytes, err := ias.getIrohaAccountDetail(addr, "EVM_forebear")
+		if err != nil {
+			errHappened = true
+			fmt.Println("Failed to get EVM_forebear")
+		}
+		EvmForebear, err := crypto.MaybeAddressFromBytes(EvmForebearBytes)
+		if err != nil {
+			errHappened = true
+			fmt.Println("Failed to convert EvmForebearBytes to Address")
+		}
+
 		if errHappened {
 			return &acm.Account{}, fmt.Errorf("Error happened in GetAccount for addr " + addr.String())
 		}
 
 		result := &acm.Account{
-			Address: addr,
-			Balance: EvmBalance,
-			EVMCode: EvmBytecode,
+			Address:  addr,
+			Balance:  EvmBalance,
+			CodeHash: EvmCodeHash,
+			EVMCode:  EvmBytecode,
+			Forebear: EvmForebear,
 		}
 		return result, nil
 	}
@@ -122,6 +141,23 @@ func (ias *IrohaAppState) UpdateAccount(account *acm.Account) error {
 	if err != nil {
 		errHappened = true
 		fmt.Println("Failed to set EVM_balance")
+	}
+
+	err = ias.setIrohaAccountDetail(account.Address, "EVM_codehash", account.CodeHash)
+	if err != nil {
+		errHappened = true
+		fmt.Println("Failed to set EVM_codehash")
+	}
+
+	ptrToOriginMetadata := account.Forebear
+	if ptrToOriginMetadata != nil {
+		err = ias.setIrohaAccountDetail(account.Address, "EVM_forebear", ptrToOriginMetadata.Bytes())
+	} else {
+		err = ias.setIrohaAccountDetail(account.Address, "EVM_forebear", []byte{})
+	}
+	if err != nil {
+		errHappened = true
+		fmt.Println("Failed to set EVM_forebear")
 	}
 
 	if errHappened {
@@ -177,8 +213,6 @@ func (ias *IrohaAppState) setIrohaAccountDetail(
 	addr crypto.Address, key string, value []byte) (err error) {
 
 	hexValue := hex.EncodeToString(value)
-	fmt.Println("val ", value)
-	fmt.Println("hexVal ", hexValue)
 	// Send SetAccountDetail to Iroha
 	command := &pb.Command{Command: &pb.Command_SetAccountDetail{&pb.SetAccountDetail{
 		AccountId: addr.String() + "@evm", Key: key, Value: hexValue}}}
