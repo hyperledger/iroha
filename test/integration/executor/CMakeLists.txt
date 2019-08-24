@@ -26,8 +26,22 @@ target_link_libraries(executor_fixture_param_provider
     executor_fixture_param_postgres
     )
 
+add_library(account_detail_checker account_detail_checker.cpp)
+target_link_libraries(account_detail_checker
+    gtest::main
+    rapidjson
+    )
+
 addtest(add_asset_qty_test add_asset_qty_test.cpp)
 target_link_libraries(add_asset_qty_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    )
+
+addtest(set_account_detail_test set_account_detail_test.cpp)
+target_link_libraries(set_account_detail_test
+    account_detail_checker
     executor_fixture
     executor_fixture_param_provider
     common_test_constants
