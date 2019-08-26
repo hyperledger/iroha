@@ -34,9 +34,10 @@ def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, s
       // because Dockerfile may contain apt-get entries that would try to update
       // from invalid (stale) addresses
       iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --no-cache -f ${currentDockerfile} .")
+    } else {
+      // Build using cache
+      iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --cache-from ${env.DOCKER_REGISTRY_BASENAME}:${imageName} -f ${currentDockerfile} .")
     }
-    // Build using cache
-    iC = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${randDir}-${BUILD_NUMBER}", "${buildOptions} --cache-from ${env.DOCKER_REGISTRY_BASENAME}:${imageName} -f ${currentDockerfile} .")
   }
   return iC
 }

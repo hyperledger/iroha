@@ -19,12 +19,6 @@ target_link_libraries(grantable_permissions_fixture
     integration_framework
     )
 
-addtest(add_asset_qty_test add_asset_qty_test.cpp)
-target_link_libraries(add_asset_qty_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(add_peer_test add_peer_test.cpp)
 target_link_libraries(add_peer_test
     acceptance_fixture
@@ -113,12 +107,6 @@ query_permission_test_ast.cpp;\
 query_permission_test_base.cpp"
     )
 target_link_libraries(get_account_assets_test
-    acceptance_fixture
-    integration_framework
-    )
-
-addtest(set_account_detail_test set_account_detail_test.cpp)
-target_link_libraries(set_account_detail_test
     acceptance_fixture
     integration_framework
     )
