@@ -1,22 +1,27 @@
+param (
+    [string]$vcpkg_path = "C:\vcpkg",
+    [string]$iroha_vcpkg_path = "C:\Windows\Temp\vcpkg"
+)
+
 $ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';
 
 echo "Cloning and setting up vcpkg"
-git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+git clone https://github.com/Microsoft/vcpkg.git $vcpkg_path
 
 echo "Checkout to commit"
-git -C C:\vcpkg checkout (Get-Content -Path c:\Windows\Temp\vcpkg\VCPKG_COMMIT_SHA)
+git -C $vcpkg_path checkout (Get-Content -Path $iroha_vcpkg_path\VCPKG_COMMIT_SHA)
 
 echo "Apply patches to vcpkg"
-foreach($file in Get-ChildItem c:\Windows\Temp\vcpkg\patches -Filter *.patch) { git -C C:\vcpkg apply $file.FullName }
+foreach($file in Get-ChildItem $iroha_vcpkg_path\patches -Filter *.patch) { git -C $vcpkg_path apply $file.FullName }
 
 echo "Run bootstrap-vcpkg.bat"
-C:\vcpkg\bootstrap-vcpkg.bat
+Invoke-Expression "$vcpkg_path\bootstrap-vcpkg.bat"
 
 echo "Installing vcpkg packages"
-C:\vcpkg\vcpkg.exe install (Get-Content -Path c:\Windows\Temp\vcpkg\VCPKG_DEPS_LIST).replace(":",":x64-windows")
+Invoke-Expression "$vcpkg_path\vcpkg.exe install (Get-Content -Path $iroha_vcpkg_path\VCPKG_DEPS_LIST).replace(`":`",`":x64-windows`")"
 
 echo "Installing rx-cpp"
-C:\vcpkg\vcpkg.exe install (Get-Content -Path c:\Windows\Temp\vcpkg\VCPKG_HEAD_DEPS_LIST).replace(":",":x64-windows")
+Invoke-Expression "$vcpkg_path\vcpkg.exe install --head (Get-Content -Path $iroha_vcpkg_path\VCPKG_HEAD_DEPS_LIST).replace(`":`",`":x64-windows`")"
 
 echo "Run vcpkg.exe integrate install"
-C:\vcpkg\vcpkg.exe integrate install
+Invoke-Expression "$vcpkg_path\vcpkg.exe integrate install"
