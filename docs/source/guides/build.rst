@@ -208,14 +208,7 @@ Execute from Power Shell:
 .. code-block:: shell
 
   git clone https://github.com/hyperledger/iroha.git
-  git clone https://github.com/Microsoft/vcpkg.git
-  cd vcpkg
-  git checkout (Get-Content -Path ..\iroha\vcpkg\VCPKG_COMMIT_SHA)
-  foreach($file in Get-ChildItem '..\iroha\vcpkg\patches\' -Filter *.patch) { git -C . apply $file.FullName }
-  .\bootstrap-vcpkg.bat
-  .\vcpkg.exe install (Get-Content -Path ..\iroha\vcpkg\VCPKG_DEPS_LIST).Replace(":",":x64-windows")
-  .\vcpkg.exe install (Get-Content -Path ..\iroha\vcpkg\VCPKG_HEAD_DEPS_LIST).Replace(":",":x64-windows")
-  .\vcpkg.exe integrate install
+  powershell -ExecutionPolicy ByPass -File .\iroha\.packer\win\scripts\vcpkg.ps1 .\vcpkg .\iroha\vcpkg
 
 After the installation of vcpkg you will be provided with a CMake build parameter like
 ``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``.
