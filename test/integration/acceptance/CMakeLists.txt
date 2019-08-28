@@ -31,12 +31,6 @@ target_link_libraries(remove_peer_test
     integration_framework
     )
 
-addtest(create_account_test create_account_test.cpp)
-target_link_libraries(create_account_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(create_domain_test create_domain_test.cpp)
 target_link_libraries(create_domain_test
     acceptance_fixture
