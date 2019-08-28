@@ -5,7 +5,6 @@
 
 #include "query_permission_fixture.hpp"
 #include "query_permission_test_acc_details.hpp"
-#include "query_permission_test_ast.hpp"
 #include "query_permission_test_ast_txs.hpp"
 #include "query_permission_test_signatories.hpp"
 #include "query_permission_test_txs.hpp"
@@ -13,7 +12,6 @@
 using namespace common_constants;
 using QueryPermissionTestingTypes =
     ::testing::Types<QueryPermissionAssetTxs,
-                     QueryPermissionAssets,
                      QueryPermissionAccDetails,
                      QueryPermissionTxs,
                      QueryPermissionSignatories>;
