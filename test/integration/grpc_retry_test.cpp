@@ -27,7 +27,7 @@ class MockQueryService : public iroha::protocol::QueryService_v1::Service {
                     iroha::protocol::QueryResponse *response) override {
     if (attempts_ < max_attempts_) {
       attempts_++;
-      return grpc::Status(grpc::StatusCode::UNAVAILABLE, kErrorMessage);
+      return grpc::Status(grpc::StatusCode::ABORTED, kErrorMessage);
     }
     return grpc::Status::OK;
   }
@@ -101,5 +101,5 @@ TEST(GrpcRetryTest, GrpcRetryFailureTest) {
   // the variable is not used in any way except keeping the server alive
   int port;
   auto server = makeServer(kAttemptsForFailure, port);
-  makeRequestAndCheckStatus(port, grpc::StatusCode::UNAVAILABLE, kErrorMessage);
+  makeRequestAndCheckStatus(port, grpc::StatusCode::ABORTED, kErrorMessage);
 }
