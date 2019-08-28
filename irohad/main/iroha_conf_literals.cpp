@@ -41,6 +41,5 @@ namespace config_members {
   const char *Address = "address";
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";
-  const char *Port = "port";
   const char *TlsCertificate = "tls_certificate";
 }  // namespace config_members
