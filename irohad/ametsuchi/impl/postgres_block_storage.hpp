@@ -39,12 +39,13 @@ namespace iroha {
       void forEach(FunctionType function) const override;
 
      private:
-      /**
-       * Executes given lambda of type F, catches exceptions if any, logs the
-       * message, and returns an optional rowset<T>
-       */
-      template <typename T, typename F>
-      boost::optional<soci::rowset<T>> execute(F &&f) const;
+      struct HeightRange {
+        shared_model::interface::types::HeightType min;
+        shared_model::interface::types::HeightType max;
+      };
+
+      /// Get the range of stored block heights.
+      boost::optional<HeightRange> getBlockHeightsRange() const;
 
      protected:
       std::shared_ptr<PoolWrapper> pool_wrapper_;
