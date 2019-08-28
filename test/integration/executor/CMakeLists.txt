@@ -45,6 +45,13 @@ target_link_libraries(create_account_test
     executor_fixture_param_provider
     )
 
+add_library(query_permission_test query_permission_test.cpp)
+target_link_libraries(query_permission_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    )
+
 addtest(set_account_detail_test set_account_detail_test.cpp)
 target_link_libraries(set_account_detail_test
     account_detail_checker
