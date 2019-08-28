@@ -1328,7 +1328,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
       using QueryTuple =
-          QueryType<std::string, shared_model::interface::types::AddressType>;
+          QueryType<std::string, shared_model::interface::types::AddressType, std::string>;
       using PermissionTuple = boost::tuple<int>;
 
       auto cmd = (boost::format(
@@ -1348,11 +1348,12 @@ namespace iroha {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             shared_model::interface::types::PeerList peers;
             for (const auto &row : range_without_nulls) {
-              apply(row, [&peers](auto &peer_key, auto &address) {
+              apply(row, [&peers](auto &peer_key, auto &address, auto &tls_certificate) {
                 peers.push_back(std::make_shared<shared_model::plain::Peer>(
                     address,
                     shared_model::interface::types::PubkeyType{
-                        shared_model::crypto::Blob::fromHexString(peer_key)}));
+                        shared_model::crypto::Blob::fromHexString(peer_key)},
+                        tls_certificate));
               });
             }
             return query_response_factory_->createPeersResponse(peers,

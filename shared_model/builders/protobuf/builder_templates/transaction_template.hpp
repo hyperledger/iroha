@@ -95,7 +95,7 @@ namespace shared_model {
       // used only in tests
       TemplateTransactionBuilder()
           : TemplateTransactionBuilder(
-                SV(iroha::test::kTestsValidatorsConfig)) {}
+              SV(iroha::test::kTestsValidatorsConfig)) {}
 
       auto creatorAccountId(const interface::types::AccountIdType &account_id)
           const {
@@ -142,19 +142,24 @@ namespace shared_model {
         });
       }
 
-      auto addPeerRaw(const interface::types::AddressType &address,
-                      const std::string &peer_key) const {
+      auto addPeerRaw(
+          const interface::types::AddressType &address,
+          const std::string &peer_key,
+          const interface::types::TLSCertificateType &tls_certificate) const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_add_peer();
           auto peer = command->mutable_peer();
           peer->set_address(address);
           peer->set_peer_key(peer_key);
+          peer->set_tls_certificate(tls_certificate);
         });
       }
 
       auto addPeer(const interface::types::AddressType &address,
-                   const interface::types::PubkeyType &peer_key) const {
-        return addPeerRaw(address, peer_key.hex());
+                   const interface::types::PubkeyType &peer_key,
+                   const interface::types::TLSCertificateType &tls_certificate)
+          const {
+        return addPeerRaw(address, peer_key.hex(), tls_certificate);
       }
 
       auto removePeer(const interface::types::PubkeyType &public_key) const {

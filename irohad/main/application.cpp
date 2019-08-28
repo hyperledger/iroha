@@ -842,11 +842,16 @@ Irohad::RunResult Irohad::run() {
       false);
 
   // Initializing internal server
+  boost::optional<TlsKeypair> p2p_tls_keypair;
+  if (p2p_tls_keypair_path_) {
+    p2p_tls_keypair = TlsKeypairFactory().readFromFiles(*p2p_tls_keypair_path_);
+  }
+
   internal_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(internal_port_),
       log_manager_->getChild("InternalServerRunner")->getLogger(),
       false,
-      p2p_tls_keypair_path_,
+      p2p_tls_keypair,
       peer_query);
 
   auto make_port_logger = [this](std::string server_name) {

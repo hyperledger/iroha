@@ -47,8 +47,13 @@ namespace iroha {
         std::shared_ptr<const shared_model::interface::Block> block,
         MutableStoragePredicate predicate) {
       auto execute_transaction = [this](auto &transaction) -> bool {
-        return expected::hasValue(
-            transaction_executor_->execute(transaction, false));
+        auto result = transaction_executor_->execute(transaction, false);
+        auto error = expected::resultToOptionalError(result);
+        if (error) {
+          log_->error(error->command_error.toString());
+        }
+        auto ok = !error;
+        return ok;
       };
 
       log_->info("Applying block: height {}, hash {}",

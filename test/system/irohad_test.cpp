@@ -36,8 +36,8 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
 #include "network/impl/client_factory.hpp"
+#include "network/impl/grpc_channel_builder.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -51,6 +51,34 @@ using namespace boost::filesystem;
 using namespace std::chrono_literals;
 using namespace common_constants;
 using iroha::operator|;
+
+namespace {
+  // example cert with CN=localhost subjectAltName=IP:127.0.0.1
+  constexpr auto example_tls_certificate = R""(
+-----BEGIN CERTIFICATE-----
+MIIDpDCCAoygAwIBAgIUXwQAtk7WnMb1Rb3hQvnNLGUUjxcwDQYJKoZIhvcNAQEL
+BQAwWTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MB4X
+DTE5MDgyODE1NDcyMVoXDTM5MDgyMzE1NDcyMVowWTELMAkGA1UEBhMCQVUxEzAR
+BgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoMGEludGVybmV0IFdpZGdpdHMgUHR5
+IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEA0+8KU9ZsYIoePPwHl/e1yPBKLW/mVv6XgjP2LVJ+4lq7j0+0KNGE
+0P1/W2MBA0kVIe5i2wNFo8ac22lP+s34aKSjcWWLlFEmBH7Tk17VHqetyRBmAVNO
+BLs/VCZA/eg5mG5EE2hsh/jS5A6KezZ7xDxlfvmCcjJ51qo7mZ3samZkwvG1ktdQ
+lYrWtX7ziTDyEP0XVYT3GfVhkN9L6d9yebCzcqlpC+E+JVSmtetussz56bGL+ycZ
+wko2BkGqZLekmegf5hxyQdVt2YN+LtoCODZMqYNgprBwdeqrapq0VtvfhWBeYCRl
+HemL2VR3iAdC2Q7cuAo2kbYVZXjNxTskpQIDAQABo2QwYjAdBgNVHQ4EFgQUujeO
+B1gunwsQi4Ua+F8GzEGJSaowHwYDVR0jBBgwFoAUujeOB1gunwsQi4Ua+F8GzEGJ
+SaowDwYDVR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMA0GCSqGSIb3DQEB
+CwUAA4IBAQAc7i5pXtY9iFX9OIOdUFl7o1CbA4DENLD7GIF+RiuL4whoPwHxj6g5
+2h287E+Vk+Mo2A/M+/Vi4guVhBbMROm72zPpnKRoQAqwRN6y/+FhZV4Zw1hf9fw6
+N1PgJiOdAcYdsoZtrrWFUQ8pcvrrmJpi8e4QNC0DmePCI5hKlB94PAQg81rL1fPs
+NhkvxwFwAUBCzHmisHPGDz8DNwdpu2KoMHtDIiTGa38ZxBTSw5BEnP2/5VhsI+2o
+1b540Kw9rtbHux+CHbCs7Cs3XIY5BLnAf3T7MOpA+a5/rWPkiWAdVCxguxy/OLZQ
+J6DR+swaKJJCJpwSShC2+YjrcPa9hdkc
+-----END CERTIFICATE-----
+  )"";
+}  // namespace
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
   static logger::LoggerManagerTreePtr irohad_test_logger_manager;
@@ -97,7 +125,7 @@ class IrohadTest : public AcceptanceFixture {
     db_name_ = integration_framework::getRandomDbName();
     pgopts_ = "dbname=" + db_name_ + " "
         + integration_framework::getPostgresCredsFromEnv().value_or(
-              doc[config_members::PgOpt].GetString());
+            doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
@@ -201,7 +229,7 @@ class IrohadTest : public AcceptanceFixture {
 
     if (enable_tls) {
       client_factory = std::make_shared<iroha::network::ClientFactory>(
-          (test_data_path_ / "tls" / "correct.crt").string());
+          path_root_certificate_.string());
     } else {
       client_factory = std::make_shared<iroha::network::ClientFactory>();
     }
@@ -276,7 +304,9 @@ class IrohadTest : public AcceptanceFixture {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer("0.0.0.0:10001", node0_keys.get().publicKey())
+            .addPeer("127.0.0.1:10001",
+                     node0_keys.get().publicKey(),
+                     example_tls_certificate)
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
             .createRole(kMoneyCreator, money_perms)
