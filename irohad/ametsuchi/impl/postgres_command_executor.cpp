@@ -323,8 +323,10 @@ namespace {
       const shared_model::interface::types::AccountIdType &account_id) {
     return (boost::format(R"(WITH
           has_role_perm AS (%s),
+          has_root_perm AS (%s),
           has_grantable_perm AS (%s)
           SELECT CASE
+                           WHEN (SELECT * FROM has_root_perm) THEN true
                            WHEN (SELECT * FROM has_grantable_perm) THEN true
                            WHEN (%s = %s) THEN
                                CASE
@@ -334,6 +336,7 @@ namespace {
                            ELSE false END
           )")
             % checkAccountRolePermission(role, creator_id)
+            % checkAccountRolePermission(Role::kRoot, creator_id)
             % checkAccountGrantablePermission(grantable, creator_id, account_id)
             % creator_id % account_id)
         .str();

@@ -4,20 +4,22 @@ x-common: &common
   image: iroha-locust
   env_file: config.env
   volumes:
-    - ./:/tests
+    - './:/tests'
   entrypoint:
     - /tests/docker_start.sh
+
 
 services:
   locust-master:
     <<: *common
     ports:
-      - 8089:8089
+      - '8089:8089'
     environment:
       LOCUST_MODE: master
-
   locust-slave:
     <<: *common
     environment:
       LOCUST_MODE: slave
       LOCUST_MASTER_HOST: locust-master
+
+

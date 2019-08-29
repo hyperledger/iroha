@@ -34,9 +34,16 @@ target_link_libraries(account_detail_checker
 
 addtest(add_asset_qty_test add_asset_qty_test.cpp)
 target_link_libraries(add_asset_qty_test
+    common_test_constants
     executor_fixture
     executor_fixture_param_provider
+    )
+
+addtest(add_signatory_test add_signatory_test.cpp)
+target_link_libraries(add_signatory_test
     common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
     )
 
 addtest(create_account_test create_account_test.cpp)
@@ -45,10 +52,17 @@ target_link_libraries(create_account_test
     executor_fixture_param_provider
     )
 
-addtest(set_account_detail_test set_account_detail_test.cpp)
-target_link_libraries(set_account_detail_test
-    account_detail_checker
+add_library(query_permission_test query_permission_test.cpp)
+target_link_libraries(query_permission_test
     executor_fixture
     executor_fixture_param_provider
     common_test_constants
+    )
+
+addtest(set_account_detail_test set_account_detail_test.cpp)
+target_link_libraries(set_account_detail_test
+    account_detail_checker
+    common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
     )
