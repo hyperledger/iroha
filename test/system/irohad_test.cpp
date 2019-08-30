@@ -54,7 +54,7 @@ using iroha::operator|;
 
 namespace {
   // example cert with CN=localhost subjectAltName=IP:127.0.0.1
-  constexpr auto example_tls_certificate = R""(
+  constexpr auto example_tls_certificate = R"(
 -----BEGIN CERTIFICATE-----
 MIIDpDCCAoygAwIBAgIUXwQAtk7WnMb1Rb3hQvnNLGUUjxcwDQYJKoZIhvcNAQEL
 BQAwWTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
@@ -77,7 +77,7 @@ NhkvxwFwAUBCzHmisHPGDz8DNwdpu2KoMHtDIiTGa38ZxBTSw5BEnP2/5VhsI+2o
 1b540Kw9rtbHux+CHbCs7Cs3XIY5BLnAf3T7MOpA+a5/rWPkiWAdVCxguxy/OLZQ
 J6DR+swaKJJCJpwSShC2+YjrcPa9hdkc
 -----END CERTIFICATE-----
-  )"";
+  )";
 }  // namespace
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {

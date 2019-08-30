@@ -105,12 +105,13 @@ namespace integration_framework {
               keypair_->publicKey(),
               mst_log_manager_->getChild("State")->getLogger(),
               mst_log_manager_->getChild("Transport")->getLogger())),
-          client_factory(std::make_shared<iroha::network::ClientFactory>()),
+          client_factory_(std::make_shared<iroha::network::ClientFactory>()),
           yac_transport_(std::make_shared<YacTransport>(
               async_call_,
-              [](const shared_model::interface::Peer &peer) {
-                return client_factory_->createClient<
-                    iroha::consensus::yac::proto::Yac>(peer.address());
+              [this](const shared_model::interface::Peer &peer) {
+                return client_factory_
+                    ->createClient<iroha::consensus::yac::proto::Yac>(
+                        peer.address());
               },
               consensus_log_manager_->getChild("Transport")->getLogger())),
           mst_network_notifier_(std::make_shared<MstNetworkNotifier>()),
@@ -373,8 +374,10 @@ namespace integration_framework {
                 ->getTransport();
       }
 
-      auto client = client_factory_->createClient<
-          iroha::ordering::proto::OnDemandOrdering>(real_peer_->address());
+      auto client =
+          client_factory_
+              ->createClient<iroha::ordering::proto::OnDemandOrdering>(
+                  real_peer_->address());
       grpc::ClientContext context;
       google::protobuf::Empty result;
       client->SendBatches(&context, request, &result);
