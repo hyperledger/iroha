@@ -55,6 +55,9 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	evmCaller := toEVMaddress(C.GoString(caller))
 	evmCallee := toEVMaddress(C.GoString(callee))
 
+	goByteCode := hex.MustDecodeString(C.GoString(code))
+	goInput := hex.MustDecodeString(C.GoString(input))
+
 	// Check if this accounts exists.
 	// If not — create them
 	if !evmState.Exists(evmCaller) {
@@ -65,11 +68,16 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 	if !evmState.Exists(evmCallee) {
 		shouldAddEvmCodeToCallee = true
 		evmState.CreateAccount(evmCallee)
+	} else {
+		EvmBytecode, err := appState.getIrohaAccountDetail(evmCallee, "EVM_bytecode")
+		if err != nil {
+			fmt.Println(err, "No code at callee addr: ", evmCallee.String())
+		}
+		goByteCode = EvmBytecode
 	}
 
 	var gas uint64 = 1000000
-	goByteCode := hex.MustDecodeString(C.GoString(code))
-	goInput := hex.MustDecodeString(C.GoString(input))
+
 	output, err := burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
 		goByteCode, goInput, 0, &gas)
 
