@@ -248,10 +248,7 @@ contract C {
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  // Save returned code from EVM by copying res.r0
-  const auto deployedCode = std::string(res.r0);
-
-  res = VmCall(const_cast<char *>(deployedCode.c_str()),
+  res = VmCall(empty,
                inputCallSetter,
                caller,
                callee,
@@ -260,7 +257,7 @@ contract C {
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(const_cast<char *>(deployedCode.c_str()),
+  res = VmCall(empty,
                inputCallGetter,
                caller,
                callee,
