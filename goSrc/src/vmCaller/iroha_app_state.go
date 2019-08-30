@@ -6,7 +6,6 @@ package main
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
-	stdBinary "encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,9 +18,6 @@ import (
 	"unsafe"
 	pb "vmCaller/iroha_protocol"
 )
-
-// Analogue of the following code, but without metadata:
-// https://github.com/hyperledger/burrow/blob/develop/acm/acmstate/memory_state.go
 
 type IrohaAppState struct {
 	commandExecutor unsafe.Pointer
@@ -60,52 +56,14 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 
 	} else {
 
-		// Save a fact of error occurence
-		errHappened := false
-
 		// Get data about account
-		EvmBytecode, err := ias.getIrohaAccountDetail(addr, "EVM_bytecode")
+		accountBytes, err := ias.getIrohaAccountDetail(addr, "EVM_marshalled_account_data")
 		if err != nil {
-			errHappened = true
-			fmt.Println("Failed to get EVM_bytecode")
+			fmt.Println("Error during GetAccount, addr", addr.String())
 		}
-
-		EvmBalanceBytes, err := ias.getIrohaAccountDetail(addr, "EVM_balance")
-		if err != nil {
-			errHappened = true
-			fmt.Println("Failed to get EVM_balance")
-		}
-		EvmBalance := stdBinary.BigEndian.Uint64(EvmBalanceBytes)
-
-		EvmCodeHash, err := ias.getIrohaAccountDetail(addr, "EVM_codehash")
-		if err != nil {
-			errHappened = true
-			fmt.Println("Failed to get EVM_codehash")
-		}
-
-		EvmForebearBytes, err := ias.getIrohaAccountDetail(addr, "EVM_forebear")
-		if err != nil {
-			errHappened = true
-			fmt.Println("Failed to get EVM_forebear")
-		}
-		EvmForebear, err := crypto.MaybeAddressFromBytes(EvmForebearBytes)
-		if err != nil {
-			errHappened = true
-			fmt.Println("Failed to convert EvmForebearBytes to Address")
-		}
-
-		if errHappened {
-			return &acm.Account{}, fmt.Errorf("Error happened in GetAccount for addr " + addr.String())
-		}
-
-		result := &acm.Account{
-			Address:  addr,
-			Balance:  EvmBalance,
-			CodeHash: EvmCodeHash,
-			EVMCode:  EvmBytecode,
-			Forebear: EvmForebear,
-		}
-		return result, nil
+		account := &acm.Account{}
+		err = account.Unmarshal(accountBytes)
+		return account, err
 	}
 }
 
@@ -127,44 +85,15 @@ func (ias *IrohaAppState) UpdateAccount(account *acm.Account) error {
 		return fmt.Errorf("UpdateAccount: got nil account")
 	}
 
-	errHappened := false
-
-	err := ias.setIrohaAccountDetail(account.Address, "EVM_bytecode", account.EVMCode)
+	marshalledData, err := account.Marshal()
 	if err != nil {
-		errHappened = true
-		fmt.Println("Failed to set EVM_bytecode")
+		fmt.Println("Error during account marshalling")
+		return err
 	}
 
-	uintByteSlice := make([]byte, 8)
-	stdBinary.BigEndian.PutUint64(uintByteSlice, account.Balance)
-	err = ias.setIrohaAccountDetail(account.Address, "EVM_balance", uintByteSlice)
-	if err != nil {
-		errHappened = true
-		fmt.Println("Failed to set EVM_balance")
-	}
+	err = ias.setIrohaAccountDetail(account.Address, "EVM_marshalled_account_data", marshalledData)
 
-	err = ias.setIrohaAccountDetail(account.Address, "EVM_codehash", account.CodeHash)
-	if err != nil {
-		errHappened = true
-		fmt.Println("Failed to set EVM_codehash")
-	}
-
-	ptrToOriginMetadata := account.Forebear
-	if ptrToOriginMetadata != nil {
-		err = ias.setIrohaAccountDetail(account.Address, "EVM_forebear", ptrToOriginMetadata.Bytes())
-	} else {
-		err = ias.setIrohaAccountDetail(account.Address, "EVM_forebear", []byte{})
-	}
-	if err != nil {
-		errHappened = true
-		fmt.Println("Failed to set EVM_forebear")
-	}
-
-	if errHappened {
-		return fmt.Errorf("Error happened in UpdateAccount for addr " + account.Address.String())
-	}
-
-	return nil
+	return err
 }
 
 func (ias *IrohaAppState) RemoveAccount(address crypto.Address) error {
