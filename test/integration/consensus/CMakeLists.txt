@@ -9,4 +9,5 @@ target_link_libraries(consensus_sunny_day
     yac_transport
     shared_model_stateless_validation
     test_logger
+    grpc_client_factory
     )

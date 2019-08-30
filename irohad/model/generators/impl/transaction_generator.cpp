@@ -38,7 +38,7 @@ namespace iroha {
           auto keypair = *std::unique_ptr<iroha::keypair_t>(
               makeOldModel(*manager.loadKeys()));
           tx.commands.push_back(command_generator.generateAddPeer(
-              Peer(peers_address[i], keypair.pubkey)));
+              Peer(peers_address[i], keypair.pubkey, "")));
         }
         // Create admin role
         tx.commands.push_back(

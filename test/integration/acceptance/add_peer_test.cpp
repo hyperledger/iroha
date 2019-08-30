@@ -48,7 +48,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   // ------------------------ WHEN -------------------------
   // send addPeer command
   itf.sendTxAwait(
-      complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_pubkey),
+      complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_pubkey, ""),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
@@ -116,9 +116,10 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
       kAdminKeypair));
 
   itf.sendTxAwait(
-      complete(baseTx(kAdminId).addPeer(new_peer->getAddress(),
-                                        new_peer->getKeypair().publicKey()),
-               kAdminKeypair),
+      complete(
+          baseTx(kAdminId).addPeer(
+              new_peer->getAddress(), new_peer->getKeypair().publicKey(), ""),
+          kAdminKeypair),
       checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
@@ -160,7 +161,8 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .creatorAccountId(kAdminId)
           .createdTime(iroha::time::now())
           .addPeer(initial_peer->getAddress(),
-                   initial_peer->getKeypair().publicKey())
+                   initial_peer->getKeypair().publicKey(),
+                   "")
           .createRole(kAdminRole, all_perms)
           .createRole(kDefaultRole, {})
           .createDomain(kDomain, kDefaultRole)
@@ -185,10 +187,10 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
 
   auto block_with_add_peer =
       proto::BlockBuilder()
-          .transactions(std::vector<shared_model::proto::Transaction>{
-              complete(baseTx(kAdminId).addPeer(itf_->getAddress(),
-                                                itf_->getThisPeer()->pubkey()),
-                       kAdminKeypair)})
+          .transactions(std::vector<shared_model::proto::Transaction>{complete(
+              baseTx(kAdminId).addPeer(
+                  itf_->getAddress(), itf_->getThisPeer()->pubkey(), ""),
+              kAdminKeypair)})
           .height(genesis_block.height() + 1)
           .prevHash(genesis_block.hash())
           .createdTime(iroha::time::now())

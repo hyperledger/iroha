@@ -17,8 +17,10 @@ namespace integration_framework {
 
     class LoaderGrpc : public iroha::network::proto::Loader::Service {
      public:
-      explicit LoaderGrpc(const std::shared_ptr<FakePeer> &fake_peer,
-                          logger::LoggerPtr log);
+      explicit LoaderGrpc(
+          const std::shared_ptr<FakePeer> &fake_peer,
+          logger::LoggerPtr log,
+          std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
       /**
        * Send a `retrieveBlock' request to the peer at given address.

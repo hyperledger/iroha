@@ -37,6 +37,7 @@ target_link_libraries(on_demand_ordering_service_transport_grpc
     logger
     ordering_grpc
     common
+    grpc_client_factory
     )
 
 add_library(on_demand_connection_manager

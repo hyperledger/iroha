@@ -313,9 +313,11 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertPeer(
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
-          << "INSERT INTO peer(public_key, address) VALUES (:pk, :address)";
+          << "INSERT INTO peer(public_key, address, tls_certificate)"
+             " VALUES (:pk, :address, :tls_certificate)";
       st.exchange(soci::use(peer.pubkey().hex()));
       st.exchange(soci::use(peer.address()));
+      st.exchange(soci::use(peer.tlsCertificate()));
 
       auto msg = [&] {
         return (boost::format(

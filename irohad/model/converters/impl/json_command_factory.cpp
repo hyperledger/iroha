@@ -36,6 +36,7 @@ namespace iroha {
           auto des = makeFieldDeserializer(std::forward<T>(x));
           auto address = des.String("address");
           auto pubkey = des.String("peer_key");
+          auto tls_certificate = des.String("tls_certificate");
 
           if (not address or not pubkey) {
             return boost::none;
@@ -44,7 +45,8 @@ namespace iroha {
           return boost::make_optional(Peer(
               address.value(),
               iroha::hexstringToArray<iroha::pubkey_t::size()>(pubkey.value())
-                  .value()));
+                  .value(),
+              tls_certificate.value()));
         }
       };
 

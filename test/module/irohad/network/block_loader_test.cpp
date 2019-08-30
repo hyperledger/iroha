@@ -15,6 +15,7 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "network/impl/client_factory.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
@@ -61,7 +62,8 @@ class BlockLoaderTest : public testing::Test {
         shared_model::proto::ProtoBlockFactory(
             std::move(validator_ptr),
             std::make_unique<MockValidator<iroha::protocol::Block>>()),
-        getTestLogger("BlockLoader"));
+        getTestLogger("BlockLoader"),
+        std::make_shared<ClientFactory>());
     service = std::make_shared<BlockLoaderService>(
         block_query_factory, block_cache, getTestLogger("BlockLoaderService"));
 

@@ -24,6 +24,7 @@ target_link_libraries(block_loader
     schema
     logger
     common
+    grpc_client_factory
     )
 
 add_library(block_loader_service
@@ -51,4 +52,5 @@ target_link_libraries(grpc_client_factory
     loader_grpc
     ordering_grpc
     yac_grpc
+    endpoint
     )

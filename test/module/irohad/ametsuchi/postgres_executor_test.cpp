@@ -223,10 +223,14 @@ namespace iroha {
         address =
             std::make_unique<shared_model::interface::types::AddressType>("");
         pk = std::make_unique<shared_model::interface::types::PubkeyType>("");
+        tls_certificate = std::make_unique<
+            shared_model::interface::types::TLSCertificateType>("");
         peer = std::make_unique<MockPeer>();
         EXPECT_CALL(*peer, address())
             .WillRepeatedly(testing::ReturnRef(*address));
         EXPECT_CALL(*peer, pubkey()).WillRepeatedly(testing::ReturnRef(*pk));
+        EXPECT_CALL(*peer, tlsCertificate())
+            .WillRepeatedly(testing::ReturnRef(*tls_certificate));
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
@@ -234,6 +238,8 @@ namespace iroha {
 
       std::unique_ptr<shared_model::interface::types::AddressType> address;
       std::unique_ptr<shared_model::interface::types::PubkeyType> pk;
+      std::unique_ptr<shared_model::interface::types::TLSCertificateType>
+          tls_certificate;
       std::unique_ptr<MockPeer> peer;
     };
 
@@ -256,8 +262,8 @@ namespace iroha {
     TEST_F(AddPeer, NoPerms) {
       auto cmd_result = execute(*mock_command_factory->constructAddPeer(*peer));
 
-      std::vector<std::string> query_args{peer->address(),
-                                          peer->pubkey().hex()};
+      std::vector<std::string> query_args{
+          peer->address(), peer->pubkey().hex(), peer->tlsCertificate()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 

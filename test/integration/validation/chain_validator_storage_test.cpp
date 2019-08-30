@@ -20,6 +20,34 @@
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
     iroha::consensus::yac::ConsistencyModel::kBft;
 
+namespace {
+  // example cert with CN=localhost subjectAltName=IP:127.0.0.1
+  constexpr auto example_tls_certificate = R"(
+-----BEGIN CERTIFICATE-----
+MIIDpDCCAoygAwIBAgIUXwQAtk7WnMb1Rb3hQvnNLGUUjxcwDQYJKoZIhvcNAQEL
+BQAwWTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MB4X
+DTE5MDgyODE1NDcyMVoXDTM5MDgyMzE1NDcyMVowWTELMAkGA1UEBhMCQVUxEzAR
+BgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoMGEludGVybmV0IFdpZGdpdHMgUHR5
+IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEA0+8KU9ZsYIoePPwHl/e1yPBKLW/mVv6XgjP2LVJ+4lq7j0+0KNGE
+0P1/W2MBA0kVIe5i2wNFo8ac22lP+s34aKSjcWWLlFEmBH7Tk17VHqetyRBmAVNO
+BLs/VCZA/eg5mG5EE2hsh/jS5A6KezZ7xDxlfvmCcjJ51qo7mZ3samZkwvG1ktdQ
+lYrWtX7ziTDyEP0XVYT3GfVhkN9L6d9yebCzcqlpC+E+JVSmtetussz56bGL+ycZ
+wko2BkGqZLekmegf5hxyQdVt2YN+LtoCODZMqYNgprBwdeqrapq0VtvfhWBeYCRl
+HemL2VR3iAdC2Q7cuAo2kbYVZXjNxTskpQIDAQABo2QwYjAdBgNVHQ4EFgQUujeO
+B1gunwsQi4Ua+F8GzEGJSaowHwYDVR0jBBgwFoAUujeOB1gunwsQi4Ua+F8GzEGJ
+SaowDwYDVR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMA0GCSqGSIb3DQEB
+CwUAA4IBAQAc7i5pXtY9iFX9OIOdUFl7o1CbA4DENLD7GIF+RiuL4whoPwHxj6g5
+2h287E+Vk+Mo2A/M+/Vi4guVhBbMROm72zPpnKRoQAqwRN6y/+FhZV4Zw1hf9fw6
+N1PgJiOdAcYdsoZtrrWFUQ8pcvrrmJpi8e4QNC0DmePCI5hKlB94PAQg81rL1fPs
+NhkvxwFwAUBCzHmisHPGDz8DNwdpu2KoMHtDIiTGa38ZxBTSw5BEnP2/5VhsI+2o
+1b540Kw9rtbHux+CHbCs7Cs3XIY5BLnAf3T7MOpA+a5/rWPkiWAdVCxguxy/OLZQ
+J6DR+swaKJJCJpwSShC2+YjrcPa9hdkc
+-----END CERTIFICATE-----
+  )";
+}  // namespace
+
 namespace iroha {
 
   class ChainValidatorStorageTest : public ametsuchi::AmetsuchiTest {
@@ -75,12 +103,19 @@ namespace iroha {
 
     /// Create first block with 4 peers, apply it to storage and return it
     auto generateAndApplyFirstBlock() {
-      auto tx =
-          completeTx(baseTx()
-                         .addPeer("0.0.0.0:50541", keys.at(0).publicKey())
-                         .addPeer("0.0.0.0:50542", keys.at(1).publicKey())
-                         .addPeer("0.0.0.0:50543", keys.at(2).publicKey())
-                         .addPeer("0.0.0.0:50544", keys.at(3).publicKey()));
+      auto tx = completeTx(baseTx()
+                               .addPeer("0.0.0.0:50541",
+                                        keys.at(0).publicKey(),
+                                        example_tls_certificate)
+                               .addPeer("0.0.0.0:50542",
+                                        keys.at(1).publicKey(),
+                                        example_tls_certificate)
+                               .addPeer("0.0.0.0:50543",
+                                        keys.at(2).publicKey(),
+                                        example_tls_certificate)
+                               .addPeer("0.0.0.0:50544",
+                                        keys.at(3).publicKey(),
+                                        example_tls_certificate));
 
       auto block = completeBlock(
           baseBlock({tx},
@@ -128,8 +163,8 @@ namespace iroha {
   TEST_F(ChainValidatorStorageTest, PeerAdded) {
     auto block1 = generateAndApplyFirstBlock();
 
-    auto add_peer =
-        completeTx(baseTx().addPeer("0.0.0.0:50545", keys.at(4).publicKey()));
+    auto add_peer = completeTx(baseTx().addPeer(
+        "0.0.0.0:50545", keys.at(4).publicKey(), example_tls_certificate));
     auto block2 = completeBlock(baseBlock({add_peer}, 2, block1->hash())
                                     .signAndAddSignature(keys.at(0))
                                     .signAndAddSignature(keys.at(1))

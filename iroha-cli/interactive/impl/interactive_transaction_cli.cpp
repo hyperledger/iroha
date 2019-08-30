@@ -334,9 +334,10 @@ namespace iroha_cli {
     InteractiveTransactionCli::parseAddPeer(std::vector<std::string> params) {
       auto address = params[0];
       auto key = params[1];
+      auto tls_certificate = params[2];
       iroha::pubkey_t pubkey;
       pubkey = iroha::hexstringToArray<iroha::pubkey_t::size()>(key).value();
-      return generator_.generateAddPeer(Peer(address, pubkey));
+      return generator_.generateAddPeer(Peer(address, pubkey, tls_certificate));
     }
 
     std::shared_ptr<iroha::model::Command>

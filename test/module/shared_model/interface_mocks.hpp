@@ -183,16 +183,22 @@ struct MockPeer : public shared_model::interface::Peer {
                      const shared_model::interface::types::AddressType &());
   MOCK_CONST_METHOD0(pubkey,
                      const shared_model::interface::types::PubkeyType &());
+  MOCK_CONST_METHOD0(
+      tlsCertificate,
+      const shared_model::interface::types::TLSCertificateType &());
   MOCK_CONST_METHOD0(clone, MockPeer *());
 };
 
 inline auto makePeer(const std::string &address,
-                     const shared_model::crypto::PublicKey &pub_key) {
+                     const shared_model::crypto::PublicKey &pub_key,
+                     const std::string &tls_certificate = "") {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
       .WillRepeatedly(testing::ReturnRefOfCopy(address));
   EXPECT_CALL(*peer, pubkey())
       .WillRepeatedly(testing::ReturnRefOfCopy(pub_key));
+  EXPECT_CALL(*peer, tlsCertificate())
+      .WillRepeatedly(testing::ReturnRefOfCopy(tls_certificate));
   return peer;
 }
 
@@ -207,10 +213,11 @@ struct MockUnsafeProposalFactory
 
 struct MockCommonObjectsFactory
     : public shared_model::interface::CommonObjectsFactory {
-  MOCK_METHOD2(createPeer,
+  MOCK_METHOD3(createPeer,
                FactoryResult<std::unique_ptr<shared_model::interface::Peer>>(
                    const shared_model::interface::types::AddressType &,
-                   const shared_model::interface::types::PubkeyType &));
+                   const shared_model::interface::types::PubkeyType &,
+                   const shared_model::interface::types::TLSCertificateType &));
 
   MOCK_METHOD4(createAccount,
                FactoryResult<std::unique_ptr<shared_model::interface::Account>>(

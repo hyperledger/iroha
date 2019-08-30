@@ -86,6 +86,7 @@ namespace iroha {
 
         pool_wrapper_ =
             std::move(expected::resultToOptionalValue(pool).value());
+        pool_wrapper_->enable_prepared_transactions_ = true;
 
         StorageImpl::create(std::move(options),
                             std::move(pool_wrapper_),

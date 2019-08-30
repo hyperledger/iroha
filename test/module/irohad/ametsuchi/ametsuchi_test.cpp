@@ -38,6 +38,34 @@ namespace shared_model {
   }  // namespace interface
 }  // namespace shared_model
 
+namespace {
+  // example cert with CN=localhost subjectAltName=IP:127.0.0.1
+  constexpr auto example_tls_certificate = R"(
+-----BEGIN CERTIFICATE-----
+MIIDpDCCAoygAwIBAgIUXwQAtk7WnMb1Rb3hQvnNLGUUjxcwDQYJKoZIhvcNAQEL
+BQAwWTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MB4X
+DTE5MDgyODE1NDcyMVoXDTM5MDgyMzE1NDcyMVowWTELMAkGA1UEBhMCQVUxEzAR
+BgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoMGEludGVybmV0IFdpZGdpdHMgUHR5
+IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEA0+8KU9ZsYIoePPwHl/e1yPBKLW/mVv6XgjP2LVJ+4lq7j0+0KNGE
+0P1/W2MBA0kVIe5i2wNFo8ac22lP+s34aKSjcWWLlFEmBH7Tk17VHqetyRBmAVNO
+BLs/VCZA/eg5mG5EE2hsh/jS5A6KezZ7xDxlfvmCcjJ51qo7mZ3samZkwvG1ktdQ
+lYrWtX7ziTDyEP0XVYT3GfVhkN9L6d9yebCzcqlpC+E+JVSmtetussz56bGL+ycZ
+wko2BkGqZLekmegf5hxyQdVt2YN+LtoCODZMqYNgprBwdeqrapq0VtvfhWBeYCRl
+HemL2VR3iAdC2Q7cuAo2kbYVZXjNxTskpQIDAQABo2QwYjAdBgNVHQ4EFgQUujeO
+B1gunwsQi4Ua+F8GzEGJSaowHwYDVR0jBBgwFoAUujeOB1gunwsQi4Ua+F8GzEGJ
+SaowDwYDVR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMA0GCSqGSIb3DQEB
+CwUAA4IBAQAc7i5pXtY9iFX9OIOdUFl7o1CbA4DENLD7GIF+RiuL4whoPwHxj6g5
+2h287E+Vk+Mo2A/M+/Vi4guVhBbMROm72zPpnKRoQAqwRN6y/+FhZV4Zw1hf9fw6
+N1PgJiOdAcYdsoZtrrWFUQ8pcvrrmJpi8e4QNC0DmePCI5hKlB94PAQg81rL1fPs
+NhkvxwFwAUBCzHmisHPGDz8DNwdpu2KoMHtDIiTGa38ZxBTSw5BEnP2/5VhsI+2o
+1b540Kw9rtbHux+CHbCs7Cs3XIY5BLnAf3T7MOpA+a5/rWPkiWAdVCxguxy/OLZQ
+J6DR+swaKJJCJpwSShC2+YjrcPa9hdkc
+-----END CERTIFICATE-----
+  )";
+}  // namespace
+
 /**
  * Validate getAccountAsset with given parameters
  * @tparam W WSV query type
@@ -151,7 +179,7 @@ TEST_F(AmetsuchiTest, PeerTest) {
 
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(TestTransactionBuilder()
-                    .addPeer("192.168.9.1:50051", fake_pubkey)
+                    .addPeer("192.168.9.1:50051", fake_pubkey, example_tls_certificate)
                     .build());
 
   auto block = createBlock(txs, 1, fake_hash);
@@ -334,7 +362,7 @@ std::shared_ptr<const shared_model::interface::Block> getBlock() {
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId("adminone")
-                    .addPeer("192.168.0.0:10001", fake_pubkey)
+                    .addPeer("192.168.0.0:10001", fake_pubkey, example_tls_certificate)
                     .build());
 
   auto block = createBlock(txs, 1, fake_hash);
