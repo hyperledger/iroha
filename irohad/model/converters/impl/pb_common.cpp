@@ -31,7 +31,7 @@ namespace iroha {
           return res;
         }
         std::copy(blob->begin(), blob->end(), res.pubkey.begin());
-        res.tls_certificate = pb_peer.tlsCertificate();
+        res.tls_certificate = pb_peer.tls_certificate();
         return res;
       }
 

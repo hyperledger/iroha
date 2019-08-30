@@ -52,4 +52,5 @@ target_link_libraries(grpc_client_factory
     loader_grpc
     ordering_grpc
     yac_grpc
+    endpoint
     )

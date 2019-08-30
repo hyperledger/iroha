@@ -157,7 +157,7 @@ namespace integration_framework {
                                             log_manager_->getChild("Irohad"),
                                             log_,
                                             dbname)),
-        client_factory_(std::make_shared<iroha::network::ClientFactory()),
+        client_factory_(std::make_shared<iroha::network::ClientFactory>()),
         command_client_(
             client_factory_->createClient<iroha::protocol::CommandService_v1>(
                 format_address(kLocalHost, torii_port_)),
@@ -205,7 +205,7 @@ namespace integration_framework {
         tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
         yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
             async_call_,
-            [](const shared_model::interface::Peer &peer) {
+            [this](const shared_model::interface::Peer &peer) {
               return client_factory_->createClient<
                   iroha::consensus::yac::proto::Yac>(peer.address());
             },
