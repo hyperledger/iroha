@@ -69,11 +69,11 @@ func VmCall(code, input, caller, callee *C.char, commandExecutor unsafe.Pointer,
 		shouldAddEvmCodeToCallee = true
 		evmState.CreateAccount(evmCallee)
 	} else {
-		EvmBytecode, err := appState.getIrohaAccountDetail(evmCallee, "EVM_bytecode")
+		calleeAcc, err := appState.GetAccount(evmCallee)
 		if err != nil {
-			fmt.Println(err, "No code at callee addr: ", evmCallee.String())
+			fmt.Println(err, "Error while getting account at callee addr: ", evmCallee.String())
 		}
-		goByteCode = EvmBytecode
+		goByteCode = calleeAcc.EVMCode
 	}
 
 	var gas uint64 = 1000000
