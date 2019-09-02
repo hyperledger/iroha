@@ -1,7 +1,8 @@
 .. _getting-started:
 
-Getting Started
-===============
+=================
+Quick Start Guide
+=================
 
 In this guide, we will create a very basic Iroha network, launch it, create a
 couple of transactions, and check the data written in the ledger.
@@ -139,7 +140,7 @@ Try other guides
 ----------------
 
 .. toctree::
-      :maxdepth: 1
+      :maxdepth: 2
 
       cli-guide.rst
       python-guide.rst

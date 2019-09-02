@@ -1,5 +1,6 @@
 .. _build-guide:
 
+==============
 Building Iroha
 ==============
 
@@ -19,7 +20,7 @@ There will be 3 steps:
   this process explained in details in the :ref:`getting-started` page of this documentation.
 
 Prerequisites
--------------
+=============
 
 In order to successfully build Iroha, we need to configure the environment.
 There are several ways to do it and we will describe all of them.
@@ -81,19 +82,13 @@ When it is done, you need to run the development environment. Run the
 
 After you execute this script, the following things will happen:
 
-#. The script will check whether you have containers with Iroha already running.
-Successful completion finishes with the new container shell.
+#. The script will check whether you have containers with Iroha already running. Successful completion finishes with the new container shell.
 
-#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images.
-``hyperledger/iroha:develop-build`` image contains all development dependencies and is
-based on top of ``ubuntu:16.04``. ``postgres`` image is required for starting
-and running Iroha.
+#. The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images. ``hyperledger/iroha:develop-build`` image contains all development dependencies and is based on top of ``ubuntu:16.04``. ``postgres`` image is required for starting and running Iroha.
 
 #. Two containers are created and launched.
 
-#. The user is attached to the interactive environment for development and
-testing with ``iroha`` folder mounted from the host machine. Iroha folder
-is mounted to ``/opt/iroha`` in Docker container.
+#. The user is attached to the interactive environment for development and testing with ``iroha`` folder mounted from the host machine. Iroha folder is mounted to ``/opt/iroha`` in Docker container.
 
 Now your are ready to build Iroha! Please go directly to `Building Iroha <#build-process>`_ section.
 
@@ -174,7 +169,7 @@ PostgreSQL is not a build dependency, but it is recommended to install it now fo
 Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_.
 
 Installing dependencies with Vcpkg Dependency Manager
---------------------------------------------------------
+=====================================================
 
 Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS.
 We use a fixed version of Vcpkg to ensure the patches we need will work.
@@ -216,7 +211,7 @@ Save it somewhere for later use and move to `Building Iroha <#build-process>`_ s
   prefixed with ``x86`` term instead of ``x64``.
 
 Build Process
--------------
+=============
 
 Cloning the Repository
 ^^^^^^^^^^^^^^^^^^^^^^

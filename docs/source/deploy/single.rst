@@ -1,14 +1,6 @@
-.. _deploy-guide:
-
-Deploying Iroha
-===============
-
-Hyperledger Iroha can be deployed in different ways, depending on the perspective and the purpose.
-There can be either a single node deployed, or multiple nodes running in several containers on a local machine or spread across the network — so pick any case you need.
-This page describes different scenarios and is intended to act as a how-to guide for users, primarily trying out Iroha for the first time.
-
-Running single instance  
-^^^^^^^^^^^^^^^^^^^^^^^
+=======================
+Running single instance
+=======================
 
 Generally, people want to run Iroha locally in order to try out the API and explore the capabilities.
 This can be done in local or container environment (Docker).
@@ -40,7 +32,7 @@ There is a list of preconditions which you should meet before proceeding:
  * A keypair for the peer is generated
  * This is the first time you run the Iroha on this peer and you want to create new chain
 
-.. Hint:: Have you got something that is not the same as in the list of assumptions? Please, refer to the section below the document, titled as `Dealing with troubles`_.
+.. Hint:: Have you got something that is not the same as in the list of assumptions? Please, refer to the section :ref:`deploy_troubles`.
 
 In case of valid assumptions, the only thing that remains is to launch the daemon process with following parameters:
 
@@ -58,7 +50,7 @@ In case of valid assumptions, the only thing that remains is to launch the daemo
 
 .. Attention:: Specifying a new genesis block using `--genesis_block` with blocks already present in ledger requires `--overwrite_ledger` flag to be set. The daemon will fail otherwise.
 
-An example of shell command, running Iroha daemon is 
+An example of shell command, running Iroha daemon is
 
 .. code-block:: shell
 
@@ -76,7 +68,7 @@ In order to run Iroha peer as a single instance in Docker, you should pull the i
 
     docker pull hyperledger/iroha:latest
 
-.. Hint:: Use *latest* tag for latest stable release, and *develop* for latest development version  
+.. Hint:: Use *latest* tag for latest stable release, and *develop* for latest development version
 
 Then, you have to create an enviroment for the image to run without problems:
 
@@ -144,51 +136,3 @@ If they are met, you can move forward with the following command:
     --network=iroha-network \
     hyperledger/iroha:latest
 
-Running multiple instances (peer network)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-In order to set up a peer network, one should follow routines, described in this section.
-In this version, we support manual deployment and automated by Ansible Playbook.
-Choose an option, that meets your security criteria and other needs.
-
-Manually
---------
-
-By manual deployment, we mean that Iroha peer network is set up without automated assistance.
-It is similar to the process of running a single local instance, although the difference is the genesis block includes more than a single peer.
-In order to form a block, which includes more than a single peer, or requires customization for your needs, please take a look at `Dealing with troubles`_ section.
-
-Automated
----------
-
-Follow `this guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__
-
-Dealing with troubles
-^^^^^^^^^^^^^^^^^^^^^
-
-—"Please, help me, because I…"
-
-Do not have Iroha daemon binary
--------------------------------
-
-You can build Iroha daemon binary from sources. You can get binaries `here <https://github.com/hyperledger/iroha/releases>`__
-
-Do not have a config file
--------------------------
-
-Check how to create a configuration file by following this `link <./configuration.html>`__
-
-Do not have a genesis block
----------------------------
-
-Create genesis block by generating it via `iroha-cli` or manually, using the `example <https://github.com/hyperledger/iroha/blob/master/example/genesis.block>`__ and checking out `permissions <https://iroha.readthedocs.io/en/latest/maintenance/permissions.html>`__
-
-Do not have a keypair for a peer
---------------------------------
-
-In order to create a keypair for an account or a peer, use iroha-cli binary by passing the name of the peer with `--new_account` option.
-For example: 
-
-.. code-block:: shell
-
-    ./iroha-cli --account_name newuser@test --new_account

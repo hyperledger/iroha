@@ -1,8 +1,7 @@
 .. _architecture:
 
-************
-Architecture
-************
+What's inside Iroha?
+====================
 
 HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below.
 
@@ -78,15 +77,15 @@ Block Consensus (YAC)
 
 *Consensus, as a component*
 
-    Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <../core_concepts/glossary.html#peer>`__ within a peer network.
-    Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC).
+Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <../core_concepts/glossary.html#peer>`__ within a peer network.
+Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC).
 
-    You can check out a video where HL Iroha maintainer thoroughly explains the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__.
+You can check out a video with a thorough explanation of the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__.
 
-    Distinctive features of YAC algorithm are its scalability, performance and `Byzantine fault tolerance <https://en.wikipedia.org/wiki/Byzantine_fault_tolerance>`_.
+Distinctive features of YAC algorithm are its scalability, performance and `Byzantine fault tolerance <https://en.wikipedia.org/wiki/Byzantine_fault_tolerance>`_.
 
-    To ensure consistency in the network, if there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__.
-    Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage.
+To ensure consistency in the network, if there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__.
+Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage.
 
 For general definition of the consensus, please check `this link <../core_concepts/glossary.html#consensus>`_.
 

@@ -93,7 +93,7 @@ def listing(compile_time_path, caption='', lines_range=None, lang='python'):
         print('File not found: {} (compile time path)'.format(path))
         return []
 
-    docs_time_path = [os.path.pardir] + list(compile_time_path)
+    docs_time_path = [os.path.pardir] * 2 + list(compile_time_path)
     path = os.path.join(*docs_time_path)
     result = [
         '.. literalinclude:: {}'.format(path),
@@ -143,7 +143,7 @@ def excerpt(permission):
     :param permission: name of permission to list, used as a part of filename
     :return: rst lines
     """
-    compile_time_path = [os.path.pardir, os.path.pardir, 'example', 'python', 'permissions', '{}.py'.format(permission)]
+    compile_time_path = [os.path.pardir] * 2 + ['example', 'python', 'permissions', '{}.py'.format(permission)]
     path = os.path.join(*compile_time_path)
     result = []
     if not os.path.isfile(path):

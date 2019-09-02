@@ -14,8 +14,9 @@ Client applications should follow described protocol and form transactions accor
     :maxdepth: 2
     :caption: Table of contents
 
-    commands.rst
-    queries.rst
+    api/commands.rst
+    api/queries.rst
+    api/permissions.rst
 
 Commands here are parts of `transaction <../core_concepts/glossary.html#transaction>`_ - a state-changing set of actions in the system. When a transaction passes validation and consensus stages, it is written in a `block <../core_concepts/glossary.html#block>`_ and saved in immutable block store (blockchain).
 

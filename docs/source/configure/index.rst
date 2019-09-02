@@ -1,7 +1,13 @@
 .. _configuration:
 
-Configuration
-=============
+=========
+Configure
+=========
+
+.. toctree::
+      :maxdepth: 1
+
+      torii-tls.rst
 
 In this section we will understand how to configure Iroha. Let's take a look
 at ``example/config.sample``
@@ -39,7 +45,7 @@ As you can see, configuration file is a valid ``json`` structure. Let's go
 line-by-line and understand what every parameter means.
 
 Deployment-specific parameters
-------------------------------
+==============================
 
 - ``block_store_path`` sets path to the folder where blocks are stored.
 - ``torii_port`` sets the port for external communications. Queries and
@@ -83,7 +89,7 @@ The ``database`` section fields:
   For example, when iroha needs to create or drop its working database, it must use another database to connect to PostgreSQL.
 
 Environment-specific parameters
--------------------------------
+===============================
 
 - ``max_proposal_size`` is the maximum amount of transactions that can be in
   one proposal, and as a result in a single block as well. So, by changing this
@@ -134,7 +140,7 @@ Environment-specific parameters
   "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"}]``
 
 Logging
--------
+=======
 
 In Iroha logging can be adjusted as granularly as you want.
 Each component has its own logging configuration with properties inherited from

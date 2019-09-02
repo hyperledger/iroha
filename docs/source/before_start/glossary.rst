@@ -65,7 +65,7 @@ Solving that issue -- known as the consensus problem -- is important in distribu
 
 *Consensus, as an algorithm*
 
-    An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
+An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
 
 For consensus as Iroha's component, please check `this link <../architecture/index.html#block-consensus-yac>`_.
 
@@ -163,11 +163,15 @@ Transaction Statuses
 --------------------
 
 Hyperledger Iroha supports both push and pull interaction mode with a client.
-A client that uses pull mode requests status updates about transactions from Iroha peer by sending transaction hashes and awaiting a response. 
+A client that uses pull mode requests status updates about transactions from Iroha peer by sending transaction hashes and awaiting a response.
 On the contrary, push interaction is performed by listening of an event stream for each transaction.
 In any of these modes, the set of transaction statuses is the same:
 
  .. image:: ./../../image_assets/tx_status.png
+
+.. note::
+    We've written a great Medium `article about Status streaming feature in Iroha <https://medium.com/iroha-contributors/status-streaming-in-hl-iroha-5503487ffcfd>`_.
+    Check it out and let us know what you think in the comments!
 
 Transaction Status Set
 ^^^^^^^^^^^^^^^^^^^^^^

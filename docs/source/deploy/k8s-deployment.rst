@@ -1,3 +1,4 @@
+=====================================
 Deploying Iroha on Kubernetes cluster
 =====================================
 .. TODO: Update the guide. https://soramitsu.atlassian.net/browse/DOPS-391
