@@ -240,15 +240,26 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 		accDetailAsBytes := []byte(getAccDetail.Detail)
 		var detailResponse interface{}
 		err = json.Unmarshal(accDetailAsBytes, &detailResponse)
-
-		// Some weird casts to get data from detail response
-		// {"evm@evm":{key:value}}, where all data types are strings
-		value := detailResponse.(map[string]interface{})["evm@evm"].(map[string]interface{})[key].(string)
 		if err != nil {
 			fmt.Println("Failed to unmarshal detail response")
 			return []byte{}, err
 		}
-		return hex.DecodeString(value)
+
+		// Some weird casts to get data from detail response
+		// {"evm@evm":{key:value}}, where all data types are strings
+		// {} if requested pair (author, detail)
+		switch response := detailResponse.(type) {
+		case map[string]interface{}:
+			value, exist := response["evm@evm"]
+			if !exist {
+				return []byte{}, nil
+			}
+			return hex.DecodeString(value.(map[string]interface{})[key].(string))
+
+		default:
+			return []byte{}, fmt.Errorf("unexpected get_account_detail response type from Iroha")
+		}
+
 	default:
 		panic("Wrong queryResponce for getIrohaAccountDetail")
 	}
