@@ -204,7 +204,7 @@ func (ias *IrohaAppState) getIrohaAccount(addr crypto.Address) (exist bool, err 
 		fmt.Println("Query result for address " + addr.String() + ": " + queryResponse.String())
 		return true, nil
 	default:
-		panic("Wrong queryResponce for getIrohaAccount")
+		return false, fmt.Errorf("wrong queryResponse for getIrohaAccount")
 	}
 }
 
@@ -261,7 +261,7 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 		}
 
 	default:
-		panic("Wrong queryResponce for getIrohaAccountDetail")
+		return []byte{}, fmt.Errorf("wrong queryResponse for getIrohaAccountDetail")
 	}
 }
 
