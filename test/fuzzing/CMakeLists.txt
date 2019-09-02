@@ -107,3 +107,15 @@ target_link_libraries(mst_fuzz
   ametsuchi
   ${fuzzing_engine}
   )
+
+add_custom_target(fuzzing DEPENDS
+  torii_fuzz
+  status_fuzz
+  find_fuzz
+  send_batches_fuzz
+  request_proposal_fuzz
+  retrieve_block_fuzz
+  retrieve_blocks_fuzz
+  consensus_fuzz
+  mst_fuzz
+  )
