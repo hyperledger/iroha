@@ -104,9 +104,7 @@ Linux
 
 To build Iroha, you will need the following packages:
 
-``build-essential`` ``automake`` ``libtool`` ``libssl-dev`` ``zlib1g-dev``
-``libc6-dbg`` ``golang`` ``git`` ``tar`` ``gzip`` ``ca-certificates``
-``wget`` ``curl`` ``file`` ``unzip`` ``python`` ``cmake``
+``build-essential`` ``git`` ``tar`` ``ninja-build`` ``curl`` ``unzip`` ``cmake``
 
 Use this code to install environment dependencies on Debian-based Linux distro.
 
@@ -114,12 +112,8 @@ Use this code to install environment dependencies on Debian-based Linux distro.
 
   apt-get update; \
   apt-get -y --no-install-recommends install \
-  build-essential automake libtool \
-  libssl-dev zlib1g-dev \
-  libc6-dbg golang ninja-build \
-  git tar gzip ca-certificates \
-  wget curl file unzip \
-  python cmake
+  build-essential ninja-build \
+  git tar curl unzip cmake
 
 .. note::  If you are willing to actively develop Iroha and to build shared
   libraries, please consider installing the
@@ -138,7 +132,7 @@ to install all environment dependencies with Homebrew:
 .. code-block:: shell
 
   xcode-select --install
-  brew install cmake autoconf automake libtool golang ninja
+  brew install cmake ninja git gcc@7
 
 .. hint:: To install the Homebrew itself please run
 
@@ -166,7 +160,7 @@ Install CMake, Git, Microsoft compilers via chocolatey being in Administrative m
 
 .. code-block:: shell
 
-  choco install cmake git visualstudio2019-workload-vctools
+  choco install cmake git visualstudio2019-workload-vctools ninja
   # visualstudio2017-workload-vctools should work as well
 
 
@@ -266,7 +260,7 @@ Now Iroha is built. Although, if you like, you can build it with additional para
 CMake Parameters
 ^^^^^^^^^^^^^^^^
 
-We use CMake to build platform-dependent build files.
+We use CMake to generate platform-dependent build files.
 It has numerous flags for configuring the final build.
 Note that besides the listed parameters cmake's variables can be useful as well.
 Also as long as this page can be deprecated (or just not complete) you can browse custom flags via ``cmake -L``, ``cmake-gui``, or ``ccmake``.
