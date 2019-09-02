@@ -603,7 +603,7 @@ Structure
 
 .. csv-table::
     :header: "Field", "Description", "Constraint", "Example"
-    :widths: 15, 30, 20, 15
+    :widths: auto
 
         "Account ID", "id of the account to which the rights are granted", "already existent", "makoto@soramitsu"
         "GrantablePermission name", "name of grantable permission", "permission was granted", "CanTransferAssets"

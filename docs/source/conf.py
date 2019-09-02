@@ -67,6 +67,9 @@ html_sidebars = {
         'searchbox.html',
     ]
 }
+html_theme_options = {
+    'navigation_depth': 3, #default is 4 - changed for better looks
+}
 
 # -- Options for HTMLHelp output ------------------------------------------
 
@@ -94,7 +97,7 @@ latex_elements = {
     # 'figure_align': 'htbp',
 }
 
-# Read variables for 
+# Read variables for
 # common settings and locale:
 with open('common.yaml', 'r') as stream:
     common = yaml.load(stream)
@@ -103,7 +106,7 @@ with open('common.yaml', 'r') as stream:
     description = common.get('description')
     copyright = common.get('copyright')
     author = common.get('author')
-with open('locale.yaml', 'r') as stream:    
+with open('locale.yaml', 'r') as stream:
     locale = yaml.load(stream)
     language = locale.get('language')
     if locale.get('locale_dirs'):

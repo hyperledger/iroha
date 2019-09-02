@@ -114,7 +114,7 @@ with open(MATRIX_PATH, newline='') as csvfile:
     commons_path = [os.path.pardir] * 2 + ['example', 'python', 'permissions', 'commons.py']
     result.extend(rst.listing(commons_path, 'commons.py'))
 
-with open('maintenance/permissions.rst', 'w') as output:
+with open('develop/api/permissions.rst', 'w') as output:
     content = "\n".join(result)
     output.write(content)
     output.flush()

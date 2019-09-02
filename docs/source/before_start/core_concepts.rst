@@ -7,9 +7,6 @@ Why Iroha runs in a network? How to understand the objects inside and outside th
 How peers in the network collaborate and decide which data to put into the blockchain?
 We will look through the basics of Iroha in this section.
 
-Sections
---------
-
 .. toctree::
     :maxdepth: 1
 

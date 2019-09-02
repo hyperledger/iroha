@@ -200,7 +200,7 @@ All Categories
 root
 ^^^^
 
-Allows executing all `commands <../core_concepts/glossary.html#command>`__ and queries without other `permissions <../core_concepts/glossary.html#permission>`__.
+Allows executing all `commands <../../before_start/glossary.html#command>`__ and queries without other `permissions <../../before_start/glossary.html#permission>`__.
 
 .. Note:: This permission allows you to create and assign any roles with any permissions.
 
@@ -218,7 +218,7 @@ Account
 can_create_account
 ^^^^^^^^^^^^^^^^^^
 
-Allows creating new `accounts <../core_concepts/glossary.html#account>`__.
+Allows creating new `accounts <../../before_start/glossary.html#account>`__.
 
 | Related API method: `Create Account <../api/commands.html#create-account>`__
 
@@ -227,7 +227,7 @@ Allows creating new `accounts <../core_concepts/glossary.html#account>`__.
 | Admin creates domain "test" that contains only can_create_account permission and Alice account in that domain. Alice can create Bob account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_create_account.py
+.. literalinclude:: ../../../../example/python/permissions/can_create_account.py
     :language: python
     :linenos:
     :lines: 10-31
@@ -235,9 +235,9 @@ Allows creating new `accounts <../core_concepts/glossary.html#account>`__.
 can_set_detail
 ^^^^^^^^^^^^^^
 
-Allows setting `account <../core_concepts/glossary.html#account>`__ detail.
+Allows setting `account <../../before_start/glossary.html#account>`__ detail.
 
-The `permission <../core_concepts/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../core_concepts/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission.
+The `permission <../../before_start/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../before_start/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission.
 
 .. Note:: Transaction creator can always set detail for own account even without that permission.
 
@@ -248,7 +248,7 @@ The `permission <../core_concepts/glossary.html#permission>`__ allows setting de
 | Admin creates domain "test" that contains only can_set_detail permission and Alice account in that domain. Alice can set detail for Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_set_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_set_detail.py
     :language: python
     :linenos:
     :lines: 10-30
@@ -258,7 +258,7 @@ can_set_my_account_detail
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../core_concepts/glossary.html#permission>`__ that allows a specified `account <../core_concepts/glossary.html#account>`__ to set details for the another specified account.
+`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set details for the another specified account.
 
 .. Note:: To grant the permission an account should already have a role with `can_grant_can_set_my_account_detail`_ permission.
 
@@ -269,7 +269,7 @@ can_set_my_account_detail
 | Admin creates domain "test" that contains only can_grant_can_set_my_account_detail permission and two accounts for Alice and Bob in that domain. Alice grants to Bob can_set_my_account_detail permission. Bob can set detail for Alice account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_set_my_account_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_set_my_account_detail.py
     :language: python
     :linenos:
     :lines: 10-44
@@ -280,7 +280,7 @@ Asset
 can_create_asset
 ^^^^^^^^^^^^^^^^
 
-Allows creating new `assets <../core_concepts/glossary.html#asset>`__.
+Allows creating new `assets <../../before_start/glossary.html#asset>`__.
 
 | Related API method: `Create Asset <../api/commands.html#create-asset>`__
 
@@ -289,7 +289,7 @@ Allows creating new `assets <../core_concepts/glossary.html#asset>`__.
 | Admin creates domain "test" that contains only can_create_asset permission and Alice account in that domain. Alice can create new assets.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_create_asset.py
+.. literalinclude:: ../../../../example/python/permissions/can_create_asset.py
     :language: python
     :linenos:
     :lines: 10-30
@@ -297,7 +297,7 @@ Allows creating new `assets <../core_concepts/glossary.html#asset>`__.
 can_receive
 ^^^^^^^^^^^
 
-Allows `account <../core_concepts/glossary.html#account>`__ receive `assets <../core_concepts/glossary.html#asset>`__.
+Allows `account <../../before_start/glossary.html#account>`__ receive `assets <../../before_start/glossary.html#asset>`__.
 
 | Related API method: `Transfer Asset <../api/commands.html#transfer-asset>`__
 
@@ -306,7 +306,7 @@ Allows `account <../core_concepts/glossary.html#account>`__ receive `assets <../
 | Admin creates domain "test" that contains can_receive and can_transfer permissions and two accounts for Alice and Bob. Admin creates "coin" asset, adds some quantity of it and transfers the asset to Alice. Alice can transfer assets to Bob (Alice has can_transfer permission and Bob has can_receive permission).
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_receive.py
+.. literalinclude:: ../../../../example/python/permissions/can_receive.py
     :language: python
     :linenos:
     :lines: 10-48
@@ -314,15 +314,15 @@ Allows `account <../core_concepts/glossary.html#account>`__ receive `assets <../
 can_transfer
 ^^^^^^^^^^^^
 
-Allows sending `assets <../core_concepts/glossary.html#asset>`__ from an `account <../core_concepts/glossary.html#account>`__ of `transaction <../core_concepts/glossary.html#transaction>`__ creator.
+Allows sending `assets <../../before_start/glossary.html#asset>`__ from an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator.
 
-You can transfer an asset from one `domain <../core_concepts/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name.
+You can transfer an asset from one `domain <../../before_start/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name.
 
 .. Note:: Destination account should have `can_receive`_ permission.
 
 | Related API method: `Transfer Asset <../api/commands.html#transfer-asset>`__
 
-.. literalinclude:: ../../../example/python/permissions/can_transfer.py
+.. literalinclude:: ../../../../example/python/permissions/can_transfer.py
     :language: python
     :linenos:
     :lines: 1-10
@@ -332,7 +332,7 @@ can_transfer_my_assets
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../core_concepts/glossary.html#permission>`__ that allows a specified `account <../core_concepts/glossary.html#account>`__ to transfer `assets <../core_concepts/glossary.html#asset>`__ of another specified account.
+`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to transfer `assets <../../before_start/glossary.html#asset>`__ of another specified account.
 
 See the example (to be done) for the usage details.
 
@@ -343,7 +343,7 @@ See the example (to be done) for the usage details.
 | Admin creates domain "test" that contains can_grant_can_transfer_my_assets, can_receive, can_transfer permissions and two accounts for Alice and Bob in that domain. Admin issues some amount of "coin" asset and transfers it to Alice. Alice grants to Bob can_transfer_my_assets permission. Bob can transfer Alice's assets to any account that has can_receive permission, for example, to Admin.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_transfer_my_assets.py
+.. literalinclude:: ../../../../example/python/permissions/can_transfer_my_assets.py
     :language: python
     :linenos:
     :lines: 10-61
@@ -354,9 +354,9 @@ Asset Quantity
 can_add_asset_qty
 ^^^^^^^^^^^^^^^^^
 
-Allows issuing `assets <../core_concepts/glossary.html#asset>`__.
+Allows issuing `assets <../../before_start/glossary.html#asset>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an `account <../core_concepts/glossary.html#account>`__ of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API method: `Add Asset Quantity <../api/commands.html#add-asset-quantity>`__
 
@@ -365,7 +365,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 | Admin creates domain "test" that contains only can_add_asset_qty permission and Alice account in that domain. Admin craetes "coin" asset. Alice can add to own account any amount of any asset (e.g. "coin" asset).
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_add_asset_qty.py
+.. literalinclude:: ../../../../example/python/permissions/can_add_asset_qty.py
     :language: python
     :linenos:
     :lines: 10-32
@@ -373,9 +373,9 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 can_subtract_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows burning `assets <../core_concepts/glossary.html#asset>`__.
+Allows burning `assets <../../before_start/glossary.html#asset>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an `account <../core_concepts/glossary.html#account>`__ of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API method: `Subtract Asset Quantity <../api/commands.html#subtract-asset-quantity>`__
 
@@ -384,7 +384,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 | Admin creates domain "test" that contains only can_subtract_asset_qty permission and Alice account in that domain. Admin issues some amount of "coin" asset and transfers some amount of "coin" asset to Alice. Alice can burn any amount of "coin" assets.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_subtract_asset_qty.py
+.. literalinclude:: ../../../../example/python/permissions/can_subtract_asset_qty.py
     :language: python
     :linenos:
     :lines: 10-40
@@ -392,13 +392,13 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 can_add_domain_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows issuing `assets <../core_concepts/glossary.html#asset>`__ only in own `domain <../core_concepts/glossary.html#domain>`__.
+Allows issuing `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an `account <../core_concepts/glossary.html#account>`__ of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__ and only for assets in creator’s domain.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain.
 
 | Related API method: `Add Asset Quantity <../api/commands.html#add-asset-quantity>`__
 
-.. literalinclude:: ../../../example/python/permissions/can_add_domain_asset_qty.py
+.. literalinclude:: ../../../../example/python/permissions/can_add_domain_asset_qty.py
     :language: python
     :linenos:
     :lines: 1-10
@@ -406,13 +406,13 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 can_subtract_domain_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows burning `assets <../core_concepts/glossary.html#asset>`__ only in own `domain <../core_concepts/glossary.html#domain>`__.
+Allows burning `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an `account <../core_concepts/glossary.html#account>`__ of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__ and only for assets in creator’s domain.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain.
 
 | Related API method: `Subtract Asset Quantity <../api/commands.html#subtract-asset-quantity>`__
 
-.. literalinclude:: ../../../example/python/permissions/can_subtract_domain_asset_qty.py
+.. literalinclude:: ../../../../example/python/permissions/can_subtract_domain_asset_qty.py
     :language: python
     :linenos:
     :lines: 1-10
@@ -423,7 +423,7 @@ Domain
 can_create_domain
 ^^^^^^^^^^^^^^^^^
 
-Allows creating new `domains <../core_concepts/glossary.html#domain>`__ within the system.
+Allows creating new `domains <../../before_start/glossary.html#domain>`__ within the system.
 
 | Related API method: `Create Domain <../api/commands.html#create-domain>`__
 
@@ -432,7 +432,7 @@ Allows creating new `domains <../core_concepts/glossary.html#domain>`__ within t
 | Admin creates domain that contains only can_create_domain permission and Alice account in that domain. Alice can create new domains.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_create_domain.py
+.. literalinclude:: ../../../../example/python/permissions/can_create_domain.py
     :language: python
     :linenos:
     :lines: 10-31
@@ -443,7 +443,7 @@ Grant
 can_grant_can_add_my_signatory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../core_concepts/glossary.html#permission>`__.
+Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -452,7 +452,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_add_my_s
 | Admin creates domain that contains only can_grant_can_add_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_add_my_signatory permission.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_grant_can_add_my_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_grant_can_add_my_signatory.py
     :language: python
     :linenos:
     :lines: 10-43
@@ -460,7 +460,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_add_my_s
 can_grant_can_remove_my_signatory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../core_concepts/glossary.html#permission>`__.
+Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -469,7 +469,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_remove_m
 | Admin creates domain that contains only can_grant_can_remove_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_remove_my_signatory permission.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_grant_can_remove_my_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_grant_can_remove_my_signatory.py
     :language: python
     :linenos:
     :lines: 10-43
@@ -477,7 +477,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_remove_m
 can_grant_can_set_my_account_detail
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../core_concepts/glossary.html#permission>`__.
+Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -486,7 +486,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_a
 | Admin creates domain that contains only can_grant_can_set_my_account_detail permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_set_my_account_detail permission.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_grant_can_set_my_account_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_grant_can_set_my_account_detail.py
     :language: python
     :linenos:
     :lines: 10-43
@@ -494,7 +494,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_a
 can_grant_can_set_my_quorum
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../core_concepts/glossary.html#permission>`__.
+Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -503,7 +503,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_q
 | Admin creates domain that contains only can_grant_can_set_my_quorum permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_set_my_quorum permission.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_grant_can_set_my_quorum.py
+.. literalinclude:: ../../../../example/python/permissions/can_grant_can_set_my_quorum.py
     :language: python
     :linenos:
     :lines: 10-44
@@ -511,7 +511,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_set_my_q
 can_grant_can_transfer_my_assets
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../core_concepts/glossary.html#permission>`__.
+Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -520,7 +520,7 @@ Allows `role <../core_concepts/glossary.html#role>`__ owners grant `can_transfer
 | Admin creates domain that contains only can_grant_can_transfer_my_assets permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_transfer_my_assets permission.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_grant_can_transfer_my_assets.py
+.. literalinclude:: ../../../../example/python/permissions/can_grant_can_transfer_my_assets.py
     :language: python
     :linenos:
     :lines: 10-56
@@ -531,9 +531,9 @@ Peer
 can_add_peer
 ^^^^^^^^^^^^
 
-Allows adding `peers <../core_concepts/glossary.html#peer>`__ to the network.
+Allows adding `peers <../../before_start/glossary.html#peer>`__ to the network.
 
-A new peer will be a valid participant in the next `consensus <../core_concepts/glossary.html#consensus>`__ round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "addPeer" `command <../core_concepts/glossary.html#command>`__.
+A new peer will be a valid participant in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing "addPeer" `command <../../before_start/glossary.html#command>`__.
 
 | Related API method: `Add Peer <../api/commands.html#add-peer>`__
 
@@ -542,7 +542,7 @@ A new peer will be a valid participant in the next `consensus <../core_concepts/
 | Admin creates domain that contains only can_add_peer permission and Alice account in that domain. Alice can add new peers.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_add_peer.py
+.. literalinclude:: ../../../../example/python/permissions/can_add_peer.py
     :language: python
     :linenos:
     :lines: 10-34
@@ -550,9 +550,9 @@ A new peer will be a valid participant in the next `consensus <../core_concepts/
 can_remove_peer
 ^^^^^^^^^^^^^^^
 
-Allows removing `peers <../core_concepts/glossary.html#peer>`__ from the network.
+Allows removing `peers <../../before_start/glossary.html#peer>`__ from the network.
 
-Removed peer will not participate in the next `consensus <../core_concepts/glossary.html#consensus>`__ round after an agreement on `transaction <../core_concepts/glossary.html#transaction>`__ containing "removePeer" `command <../core_concepts/glossary.html#command>`__.
+Removed peer will not participate in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing "removePeer" `command <../../before_start/glossary.html#command>`__.
 
 | Related API method: `Remove Peer <../api/commands.html#remove-peer>`__
 
@@ -561,7 +561,7 @@ Removed peer will not participate in the next `consensus <../core_concepts/gloss
 | Admin creates domain that contains only can_remove_peer permission and Alice account in that domain. Admin adds a second peer. Alice can remove existing peers.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_remove_peer.py
+.. literalinclude:: ../../../../example/python/permissions/can_remove_peer.py
     :language: python
     :linenos:
     :lines: 10-37
@@ -572,9 +572,9 @@ Role
 can_append_role
 ^^^^^^^^^^^^^^^
 
-Allows appending `roles <../core_concepts/glossary.html#role>`__ to another `account <../core_concepts/glossary.html#account>`__.
+Allows appending `roles <../../before_start/glossary.html#role>`__ to another `account <../../before_start/glossary.html#account>`__.
 
-You can append only that role that has lesser or the same set of privileges as `transaction <../core_concepts/glossary.html#transaction>`__ creator.
+You can append only that role that has lesser or the same set of privileges as `transaction <../../before_start/glossary.html#transaction>`__ creator.
 
 | Related API method: `Append Role <../api/commands.html#append-role>`__
 
@@ -583,7 +583,7 @@ You can append only that role that has lesser or the same set of privileges as `
 | Admin creates domian that contains can_append_role and can_add_peer permissions and two accounts for Alice and Bob in that domain. Admin creates the second role that contains only can_add_peer permission. Alice can append role to Bob.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_append_role.py
+.. literalinclude:: ../../../../example/python/permissions/can_append_role.py
     :language: python
     :linenos:
     :lines: 10-40
@@ -591,9 +591,9 @@ You can append only that role that has lesser or the same set of privileges as `
 can_create_role
 ^^^^^^^^^^^^^^^
 
-Allows creating a new `role <../core_concepts/glossary.html#role>`__ within a system.
+Allows creating a new `role <../../before_start/glossary.html#role>`__ within a system.
 
-Possible set of `permissions <../core_concepts/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../core_concepts/glossary.html#transaction>`__ creator has.
+Possible set of `permissions <../../before_start/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../before_start/glossary.html#transaction>`__ creator has.
 
 
 | Related API method: `Create Role <../api/commands.html#create-role>`__
@@ -603,7 +603,7 @@ Possible set of `permissions <../core_concepts/glossary.html#permission>`__ for 
 | Admin creates domain that contains only can_create_role permission and Alice account in that domain. Alice can create new roles.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_create_role.py
+.. literalinclude:: ../../../../example/python/permissions/can_create_role.py
     :language: python
     :linenos:
     :lines: 10-33
@@ -611,7 +611,7 @@ Possible set of `permissions <../core_concepts/glossary.html#permission>`__ for 
 can_detach_role
 ^^^^^^^^^^^^^^^
 
-Allows revoking a `role <../core_concepts/glossary.html#role>`__ from a user.
+Allows revoking a `role <../../before_start/glossary.html#role>`__ from a user.
 
 .. Note:: Due to a known issue the permission allows to detach any role without limitations https://soramitsu.atlassian.net/browse/IR-1468
 
@@ -622,7 +622,7 @@ Allows revoking a `role <../core_concepts/glossary.html#role>`__ from a user.
 | Admin creates domain that contains only can_detach_role permission and creates Alice account in that domain. Admin has two roles test_role and admin_role. Alice can detach test_role from Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_detach_role.py
+.. literalinclude:: ../../../../example/python/permissions/can_detach_role.py
     :language: python
     :linenos:
     :lines: 10-30
@@ -635,7 +635,7 @@ can_add_my_signatory
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../core_concepts/glossary.html#permission>`__ that allows a specified `account <../core_concepts/glossary.html#account>`__ to add an extra public key to the another specified account.
+`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to add an extra public key to the another specified account.
 
 | Related API method: `Add Signatory <../api/commands.html#add-signatory>`__
 
@@ -644,7 +644,7 @@ can_add_my_signatory
 | Admin creates domain that contains only can_grant_can_add_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob can_add_my_signatory permission. Bob can add an extra key to Alice account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_add_my_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_add_my_signatory.py
     :language: python
     :linenos:
     :lines: 10-45
@@ -652,9 +652,9 @@ can_add_my_signatory
 can_add_signatory
 ^^^^^^^^^^^^^^^^^
 
-Allows linking additional public keys to `account <../core_concepts/glossary.html#account>`__.
+Allows linking additional public keys to `account <../../before_start/glossary.html#account>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an account of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API method: `Add Signatory <../api/commands.html#add-signatory>`__
 
@@ -663,7 +663,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 | Admin creates domain that contains only can_add_signatory permission and Alice account in that domain. Alice can add to own account additional keys.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_add_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_add_signatory.py
     :language: python
     :linenos:
     :lines: 10-32
@@ -673,7 +673,7 @@ can_remove_my_signatory
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../core_concepts/glossary.html#permission>`__ that allows a specified `account <../core_concepts/glossary.html#account>`__ remove public key from the another specified account.
+`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ remove public key from the another specified account.
 
 See the example (to be done) for the usage details.
 
@@ -684,7 +684,7 @@ See the example (to be done) for the usage details.
 | Admin creates domain that contains can_add_signatory and can_grant_can_remove_my_signatory permissions and two accounts for Alice and Bob. Alice grants can_remove_my_signatory permission to Bob and adds additional key to own account. Bob can remove one of Alice's keys.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_remove_my_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_remove_my_signatory.py
     :language: python
     :linenos:
     :lines: 10-51
@@ -692,9 +692,9 @@ See the example (to be done) for the usage details.
 can_remove_signatory
 ^^^^^^^^^^^^^^^^^^^^
 
-Allows unlinking additional public keys from an `account <../core_concepts/glossary.html#account>`__.
+Allows unlinking additional public keys from an `account <../../before_start/glossary.html#account>`__.
 
-The corresponding `command <../core_concepts/glossary.html#command>`__ can be executed only for an account of `transaction <../core_concepts/glossary.html#transaction>`__ creator and only if that account has a `role <../core_concepts/glossary.html#role>`__ with the `permission <../core_concepts/glossary.html#permission>`__.
+The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
 
 | Related API method: `Remove Signatory <../api/commands.html#remove-signatory>`__
 
@@ -703,7 +703,7 @@ The corresponding `command <../core_concepts/glossary.html#command>`__ can be ex
 | Admin creates domian that contains can_remove_signatory permission and Alice account in that domain. Admin adds an extra key to Alice account. Alice can remove one of the keys.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_remove_signatory.py
+.. literalinclude:: ../../../../example/python/permissions/can_remove_signatory.py
     :language: python
     :linenos:
     :lines: 10-36
@@ -713,7 +713,7 @@ can_set_my_quorum
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../core_concepts/glossary.html#permission>`__ that allows a specified `account <../core_concepts/glossary.html#account>`__ to set `quorum <../core_concepts/glossary.html#quorum>`__ for the another specified account.
+`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set `quorum <../../before_start/glossary.html#quorum>`__ for the another specified account.
 
 Account should have greater or equal amount of keys than quorum.
 
@@ -724,7 +724,7 @@ Account should have greater or equal amount of keys than quorum.
 | Admin creates domain that contains can_grant_can_set_my_quorum and can_add_signatory permissions and create two accounts for Alice and Bob in that domain. Alice grants to Bob can_set_my_qourum permission and adds an extra key to account. Bob can set quorum for Alice.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_set_my_quorum.py
+.. literalinclude:: ../../../../example/python/permissions/can_set_my_quorum.py
     :language: python
     :linenos:
     :lines: 10-50
@@ -732,9 +732,9 @@ Account should have greater or equal amount of keys than quorum.
 can_set_quorum
 ^^^^^^^^^^^^^^
 
-Allows setting `quorum <../core_concepts/glossary.html#quorum>`__.
+Allows setting `quorum <../../before_start/glossary.html#quorum>`__.
 
-At least the same number (or more) of public keys should be already linked to an `account <../core_concepts/glossary.html#account>`__.
+At least the same number (or more) of public keys should be already linked to an `account <../../before_start/glossary.html#account>`__.
 
 | Related API method: `Set Account Quorum <../api/commands.html#set-account-quorum>`__
 
@@ -743,7 +743,7 @@ At least the same number (or more) of public keys should be already linked to an
 | Admin creates domain that contains only can_set_quorum permission and creates Alice account in that domain. Admin adds an extra key for Alice account. Alice can set quorum equals two.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_set_quorum.py
+.. literalinclude:: ../../../../example/python/permissions/can_set_quorum.py
     :language: python
     :linenos:
     :lines: 10-36
@@ -757,7 +757,7 @@ Account
 can_get_all_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to any `account <../core_concepts/glossary.html#account>`__ within the system.
+Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the system.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -766,7 +766,7 @@ Allows getting all the details set to any `account <../core_concepts/glossary.ht
 | Admin creates Alice account in a diffrerent domain that has only can_get_all_acc_detail permission. Alice can access details set to Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_acc_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_acc_detail.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -774,9 +774,9 @@ Allows getting all the details set to any `account <../core_concepts/glossary.ht
 can_get_all_accounts
 ^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../core_concepts/glossary.html#account>`__ information: `quorum <../core_concepts/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../core_concepts/glossary.html#permission>`__, `query <../core_concepts/glossary.html#query>`__ creator can get information about any account within a system.
+With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information about any account within a system.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -787,7 +787,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 | Admin creates Alice account in a different domain that has only can_get_all_accounts permission. Alice can access account information of Admin.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_accounts.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_accounts.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -795,7 +795,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 can_get_domain_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to any `account <../core_concepts/glossary.html#account>`__ within the same `domain <../core_concepts/glossary.html#domain>`__ as a domain of `query <../core_concepts/glossary.html#query>`__ creator account.
+Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -804,7 +804,7 @@ Allows getting all the details set to any `account <../core_concepts/glossary.ht
 | Admin creates Alice account in the same domain that has only can_get_domain_acc_detail permission. Alice can get details set to Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_acc_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_acc_detail.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -812,9 +812,9 @@ Allows getting all the details set to any `account <../core_concepts/glossary.ht
 can_get_domain_accounts
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../core_concepts/glossary.html#account>`__ information: `quorum <../core_concepts/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../core_concepts/glossary.html#permission>`__, `query <../core_concepts/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../core_concepts/glossary.html#domain>`__.
+With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../before_start/glossary.html#domain>`__.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -825,7 +825,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 | Admin creates Alice account in the same domain that has only can_get_domain_accounts. Alice can access account information of Admin.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_accounts.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_accounts.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -833,7 +833,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 can_get_my_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to the `account <../core_concepts/glossary.html#account>`__ of `query <../core_concepts/glossary.html#query>`__ creator.
+Allows getting all the details set to the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -842,7 +842,7 @@ Allows getting all the details set to the `account <../core_concepts/glossary.ht
 | Admin creates Alice account in the domain that has only can_get_my_acc_detail permission. Alice can get details set to own account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_acc_detail.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_acc_detail.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -850,9 +850,9 @@ Allows getting all the details set to the `account <../core_concepts/glossary.ht
 can_get_my_account
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../core_concepts/glossary.html#account>`__ information: `quorum <../core_concepts/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../core_concepts/glossary.html#permission>`__, `query <../core_concepts/glossary.html#query>`__ creator can get information only about own account.
+With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about own account.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -863,7 +863,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 | Admin creates Alice account in the domain that has only can_get_my_account permission. Alice can access own account information.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_account.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_account.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -874,9 +874,9 @@ Account Asset
 can_get_all_acc_ast
 ^^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of `assets <../core_concepts/glossary.html#asset>`__ on any `account <../core_concepts/glossary.html#account>`__ within the system.
+Allows getting a balance of `assets <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the system.
 
-`Query <../core_concepts/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account.
+`Query <../../before_start/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account.
 
 | Related API method: `Get Account Assets <../api/queries.html#get-account-assets>`__
 
@@ -885,7 +885,7 @@ Allows getting a balance of `assets <../core_concepts/glossary.html#asset>`__ on
 | Admin creates Alice account in a different domain that has only can_get_all_acc_ast permission. Alice can access assets balance on Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_acc_ast.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_acc_ast.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -893,7 +893,7 @@ Allows getting a balance of `assets <../core_concepts/glossary.html#asset>`__ on
 can_get_domain_acc_ast
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of specified `asset <../core_concepts/glossary.html#asset>`__ on any `account <../core_concepts/glossary.html#account>`__ within the same `domain <../core_concepts/glossary.html#domain>`__ as a domain of `query <../core_concepts/glossary.html#query>`__ creator account.
+Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account.
 
 Query response will contain information about all the assets that ever been assigned to an account.
 
@@ -904,7 +904,7 @@ Query response will contain information about all the assets that ever been assi
 | Admin creates Alice account in the same domain that has only can_get_domain_acc_ast permission. Alice can access assets balance on Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_acc_ast.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_acc_ast.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -912,7 +912,7 @@ Query response will contain information about all the assets that ever been assi
 can_get_my_acc_ast
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of specified `asset <../core_concepts/glossary.html#asset>`__ on `account <../core_concepts/glossary.html#account>`__ of `query <../core_concepts/glossary.html#query>`__ creator.
+Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
 
 Query response will contain information about all the assets that ever been assigned to an account.
 
@@ -923,7 +923,7 @@ Query response will contain information about all the assets that ever been assi
 | Admin creates Alice account in a domain that has only can_get_my_acc_ast permission. Alice can access assets balance on own account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_acc_ast.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_acc_ast.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -934,7 +934,7 @@ Account Asset Transaction
 can_get_all_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ associated with a specified `asset <../core_concepts/glossary.html#asset>`__ and any `account <../core_concepts/glossary.html#account>`__ within the system.
+Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and any `account <../../before_start/glossary.html#account>`__ within the system.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -945,7 +945,7 @@ Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ ass
 | Admin creates Alice account in a different domain that has can_get_all_acc_ast_txs, can_receive and can_transfer permissions. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_acc_ast_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_acc_ast_txs.py
     :language: python
     :linenos:
     :lines: 10-43
@@ -953,7 +953,7 @@ Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ ass
 can_get_domain_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ associated with a specified `asset <../core_concepts/glossary.html#asset>`__ and an `account <../core_concepts/glossary.html#account>`__ from the same `domain <../core_concepts/glossary.html#domain>`__ as `query <../core_concepts/glossary.html#query>`__ creator.
+Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and an `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -964,7 +964,7 @@ Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ ass
 | Admin creates Alice in the same domain that has only can_get_domain_acc_ast_txs permission. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_acc_ast_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_acc_ast_txs.py
     :language: python
     :linenos:
     :lines: 10-39
@@ -972,7 +972,7 @@ Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ ass
 can_get_my_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ associated with the `account <../core_concepts/glossary.html#account>`__ of `query <../core_concepts/glossary.html#query>`__ creator and specified `asset <../core_concepts/glossary.html#asset>`__.
+Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator and specified `asset <../../before_start/glossary.html#asset>`__.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -983,7 +983,7 @@ Allows getting `transactions <../core_concepts/glossary.html#transaction>`__ ass
 | Admin creates Alice account in a domain that has only can_get_my_acc_ast_txs permission. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and own account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_acc_ast_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_acc_ast_txs.py
     :language: python
     :linenos:
     :lines: 10-39
@@ -994,7 +994,7 @@ Account Transaction
 can_get_all_acc_txs
 ^^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__ issued by any `account <../core_concepts/glossary.html#account>`__ within the system.
+Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ within the system.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1005,7 +1005,7 @@ Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__
 | Admin creates Alice account in a different domain that has only can_get_all_acc_txs permiison. Alice can request all the transactions issues by Admin.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_acc_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_acc_txs.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1013,7 +1013,7 @@ Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__
 can_get_domain_acc_txs
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__ issued by any `account <../core_concepts/glossary.html#account>`__ from the same `domain <../core_concepts/glossary.html#domain>`__ as `query <../core_concepts/glossary.html#query>`__ creator.
+Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1024,7 +1024,7 @@ Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__
 | Admin creates Alice account in the same domain that has only can_get_domain_acc_txs permission. Alice can request all the transactions issued by Admin.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_acc_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_acc_txs.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1032,7 +1032,7 @@ Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__
 can_get_my_acc_txs
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__ issued by an `account <../core_concepts/glossary.html#account>`__ of `query <../core_concepts/glossary.html#query>`__ creator.
+Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by an `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1043,7 +1043,7 @@ Allows getting all `transactions <../core_concepts/glossary.html#transaction>`__
 | Admin creates Alice account in a domain that has only can_get_my_acc_txs permission. Alice can get all transactions issued by own account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_acc_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_acc_txs.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1054,7 +1054,7 @@ Asset
 can_read_assets
 ^^^^^^^^^^^^^^^
 
-Allows getting information about `asset <../core_concepts/glossary.html#asset>`__ precision.
+Allows getting information about `asset <../../before_start/glossary.html#asset>`__ precision.
 
 | Related API method: `Get Asset Info <../api/queries.html#get-asset-info>`__
 
@@ -1063,7 +1063,7 @@ Allows getting information about `asset <../core_concepts/glossary.html#asset>`_
 | Admin creates Alice account in a domain that has can_read_assets permissions. Alice can query information about any asset.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_read_assets.py
+.. literalinclude:: ../../../../example/python/permissions/can_read_assets.py
     :language: python
     :linenos:
     :lines: 10-31
@@ -1074,7 +1074,7 @@ Block Stream
 can_get_blocks
 ^^^^^^^^^^^^^^
 
-Allows reading `blocks <../core_concepts/glossary.html#block>`__.
+Allows reading `blocks <../../before_start/glossary.html#block>`__.
 Allows subscription to the stream of accepted blocks.
 
 | Related API methods: `Get Block <../api/queries.html#get-block>`__, `Fetchcommits <../api/queries.html#fetchcommits>`__
@@ -1085,8 +1085,8 @@ Role
 can_get_roles
 ^^^^^^^^^^^^^
 
-Allows getting a list of `roles <../core_concepts/glossary.html#role>`__ within the system.
-Allows getting a list of `permissions <../core_concepts/glossary.html#permission>`__ associated with a role.
+Allows getting a list of `roles <../../before_start/glossary.html#role>`__ within the system.
+Allows getting a list of `permissions <../../before_start/glossary.html#permission>`__ associated with a role.
 
 | Related API methods: `Get Roles <../api/queries.html#get-roles>`__, `Get Role Permissions <../api/queries.html#get-role-permissions>`__
 
@@ -1095,7 +1095,7 @@ Allows getting a list of `permissions <../core_concepts/glossary.html#permission
 | Admin creates Alice account in a domain that has can_get_roles permission. Alice can query list of all existing roles. Alice can query list of permissions contained in any role.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_roles.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_roles.py
     :language: python
     :linenos:
     :lines: 10-35
@@ -1106,7 +1106,7 @@ Signatory
 can_get_all_signatories
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys linked to an `account <../core_concepts/glossary.html#account>`__ within the system.
+Allows getting a list of public keys linked to an `account <../../before_start/glossary.html#account>`__ within the system.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1115,7 +1115,7 @@ Allows getting a list of public keys linked to an `account <../core_concepts/glo
 | Admin creates Alice account in a different domain that has only can_get_all_signatories permission. Alice can query a list of public keys related to Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_signatories.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_signatories.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1123,7 +1123,7 @@ Allows getting a list of public keys linked to an `account <../core_concepts/glo
 can_get_domain_signatories
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys of any `account <../core_concepts/glossary.html#account>`__ within the same `domain <../core_concepts/glossary.html#domain>`__ as the domain of `query <../core_concepts/glossary.html#query>`__ creator account.
+Allows getting a list of public keys of any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as the domain of `query <../../before_start/glossary.html#query>`__ creator account.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1132,7 +1132,7 @@ Allows getting a list of public keys of any `account <../core_concepts/glossary.
 | Admin creates Alice account in the same domain that has only can_get_domain_signatories permission. Alice can query a list of public keys related to Admin account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_domain_signatories.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_domain_signatories.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1140,7 +1140,7 @@ Allows getting a list of public keys of any `account <../core_concepts/glossary.
 can_get_my_signatories
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys of `query <../core_concepts/glossary.html#query>`__ creator `account <../core_concepts/glossary.html#account>`__.
+Allows getting a list of public keys of `query <../../before_start/glossary.html#query>`__ creator `account <../../before_start/glossary.html#account>`__.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1149,7 +1149,7 @@ Allows getting a list of public keys of `query <../core_concepts/glossary.html#q
 | Admin creates Alice account in a domain that has only can_get_my_signatories permission. Alice can query a list of public keys related to own account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_signatories.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_signatories.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1160,7 +1160,7 @@ Transaction
 can_get_all_txs
 ^^^^^^^^^^^^^^^
 
-Allows getting any `transaction <../core_concepts/glossary.html#transaction>`__ by hash.
+Allows getting any `transaction <../../before_start/glossary.html#transaction>`__ by hash.
 
 | Related API method: `Get Transactions <../api/queries.html#get-transactions>`__
 
@@ -1169,7 +1169,7 @@ Allows getting any `transaction <../core_concepts/glossary.html#transaction>`__ 
 | Admin issues several transactions and creates Alice account in a different domain that has only can_get_all_txs permission. Alice (knowing transactions hashes) can query transactions issued by Admin Account.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_all_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_all_txs.py
     :language: python
     :linenos:
     :lines: 11-58
@@ -1177,7 +1177,7 @@ Allows getting any `transaction <../core_concepts/glossary.html#transaction>`__ 
 can_get_my_txs
 ^^^^^^^^^^^^^^
 
-Allows getting `transaction <../core_concepts/glossary.html#transaction>`__ (that was issued by `query <../core_concepts/glossary.html#query>`__ creator) by hash.
+Allows getting `transaction <../../before_start/glossary.html#transaction>`__ (that was issued by `query <../../before_start/glossary.html#query>`__ creator) by hash.
 
 | Related API method: `Get Transactions <../api/queries.html#get-transactions>`__
 
@@ -1186,7 +1186,7 @@ Allows getting `transaction <../core_concepts/glossary.html#transaction>`__ (tha
 | Admin creates Alice account in a different domain. Alice (knowing transactions hashes) issues several transactions. Alice can query own transactions.
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_my_txs.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_my_txs.py
     :language: python
     :linenos:
     :lines: 11-62
@@ -1197,7 +1197,7 @@ Peer
 can_get_peers
 ^^^^^^^^^^^^^
 
-Allows to request the list of `peers <../core_concepts/glossary.html#peer>`__ in the Iroha network.
+Allows to request the list of `peers <../../before_start/glossary.html#peer>`__ in the Iroha network.
 
 | Related API method: `Get Peers <../api/queries.html#get-peers>`__
 
@@ -1206,7 +1206,7 @@ Allows to request the list of `peers <../core_concepts/glossary.html#peer>`__ in
 | Admin creates Alice account in any domain that has can_get_peers. Alice can now request the list of peers in the system. 
 |
 
-.. literalinclude:: ../../../example/python/permissions/can_get_peers.py
+.. literalinclude:: ../../../../example/python/permissions/can_get_peers.py
     :language: python
     :linenos:
     :lines: 10-28
@@ -1214,7 +1214,7 @@ Allows to request the list of `peers <../core_concepts/glossary.html#peer>`__ in
 Supplementary Sources
 =====================
 
-.. literalinclude:: ../../../example/python/permissions/commons.py
+.. literalinclude:: ../../../../example/python/permissions/commons.py
     :language: python
     :linenos:
     :caption: commons.py

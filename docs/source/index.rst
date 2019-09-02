@@ -1,4 +1,5 @@
-Hyperledger Iroha documentation 
+*******************************
+Hyperledger Iroha documentation
 *******************************
 
 .. image:: ../image_assets/iroha_logo.png
@@ -17,11 +18,12 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     :caption: Table of contents
 
     overview.rst
+    before_start/index.rst
     getting_started/index.rst
-    use_cases/index.rst
-    core_concepts/index.rst
-    architecture/index.rst
-    guides/index.rst
-    api/index.rst
+    build/index.rst
+    configure/index.rst
+    deploy/index.rst
     maintenance/index.rst
-    contribution/index.rst
+    develop/index.rst
+    community/index.rst
+    faq/index.rst
