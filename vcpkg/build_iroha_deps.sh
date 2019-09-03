@@ -1,18 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-if [ -z "$1" ]
-  then
-    vcpkg_path="$(pwd)/vcpkg"
-  else
-    vcpkg_path="$1"
-fi
-if [ -z "$2" ]
-  then
-    iroha_vcpkg_path="$(pwd)/iroha/vcpkg"
-  else
-    iroha_vcpkg_path="$2"
-fi
+vcpkg_path="${1:-$(pwd)/vcpkg}"
+iroha_vcpkg_path="${2:-$(pwd)/iroha/vcpkg}"
 
 git clone https://github.com/microsoft/vcpkg $vcpkg_path
 git -C $vcpkg_path checkout $(cat "$iroha_vcpkg_path"/VCPKG_COMMIT_SHA)
