@@ -41,6 +41,7 @@ namespace common_constants {
   extern const std::string kSameDomainUserId;
   extern const std::string kAnotherDomainUserId;
   extern const std::string kAssetId;
+  extern const std::string kSecondDomainAssetId;
 
   /// keypairs
   extern const Keypair kAdminKeypair;

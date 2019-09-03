@@ -5,6 +5,8 @@
 
 #include "main/server_runner.hpp"
 
+#include <chrono>
+
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
@@ -19,6 +21,10 @@ ServerRunner::ServerRunner(const std::string &address,
       server_address_(address),
       reuse_(reuse),
       tls_keypair_(tls_keypair) {}
+
+ServerRunner::~ServerRunner() {
+  shutdown(std::chrono::system_clock::now());
+}
 
 ServerRunner &ServerRunner::append(std::shared_ptr<grpc::Service> service) {
   services_.push_back(service);

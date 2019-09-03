@@ -7,4 +7,4 @@ EXPOSE 8089 5557 5558
 
 ENTRYPOINT ["/usr/local/bin/locust"]
 
-RUN pip install grpcio-tools iroha influxdb
+RUN pip install grpcio==1.19.0 grpcio-tools==1.19.0 iroha influxdb

@@ -118,8 +118,9 @@ namespace executor_testing {
 
     /// A plain representation of an asset quantity.
     struct AssetQuantity {
-      AssetQuantity(std::string asset_id, const std::string &balance)
-          : asset_id(std::move(asset_id)), balance(balance) {}
+      AssetQuantity(std::string asset_id,
+                    shared_model::interface::Amount balance)
+          : asset_id(std::move(asset_id)), balance(std::move(balance)) {}
       std::string asset_id;
       shared_model::interface::Amount balance;
     };

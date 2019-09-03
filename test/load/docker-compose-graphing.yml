@@ -8,6 +8,8 @@ services:
       INFLUXDB_UDP_ENABLED: "true"
       INFLUXDB_UDP_BIND_ADDRESS: ":4444"
       INFLUXDB_UDP_DATABASE: "influxdb"
+    ports:
+      - 8086:8086
     volumes:
       - influxdb_data:/var/lib/influxdb
   grafana:

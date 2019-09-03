@@ -15,7 +15,7 @@ class InfluxDBWriter(object):
     def hatch_complete(self, user_count, **kw):
         self._user_count = user_count
 
-    def request_success(self, request_type, name, response_time, response_length, **kw):
+    def request_success(self, request_type, name, response_time, response_length, tx_hash=None, sent=None, committed=None, **kw):
         now = datetime.now().isoformat()
         points = [{
             "measurement": "request_success_duration",
@@ -25,7 +25,10 @@ class InfluxDBWriter(object):
             },
             "time": now,
             "fields": {
-                "value": response_time
+                "value": response_time,
+                "tx_hash": tx_hash,
+                "sent": sent,
+                "committed": committed
             }
         },
         {
@@ -37,7 +40,7 @@ class InfluxDBWriter(object):
         }]
         self._client.write_points(points)
 
-    def request_failure(self, request_type, name, response_time, exception, **kw):
+    def request_failure(self, request_type, name, response_time, exception, tx_hash=None, **kw):
         now = datetime.now().isoformat()
         points = [{
             "measurement": "request_failure_duration",
@@ -47,7 +50,8 @@ class InfluxDBWriter(object):
             },
             "time": now,
             "fields": {
-                "value": response_time
+                "value": response_time,
+                "tx_hash": tx_hash
             }
         },
         {
