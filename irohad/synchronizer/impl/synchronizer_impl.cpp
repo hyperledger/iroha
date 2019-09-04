@@ -63,25 +63,24 @@ namespace iroha {
         const shared_model::interface::types::HeightType start_height,
         const shared_model::interface::types::HeightType target_height,
         const PublicKeysRange &public_keys) {
-      // TODO mboldyrev 21.03.2019 IR-423 Allow consensus outcome update
-      while (true) {
-        // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
-        for (const auto &public_key : public_keys) {
-          auto storage = getStorage();
+      // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
+      for (const auto &public_key : public_keys) {
+        auto storage = getStorage();
 
-          shared_model::interface::types::HeightType my_height = start_height;
-          auto network_chain =
-              block_loader_->retrieveBlocks(start_height, public_key)
-                  .tap([&my_height](
-                           const std::shared_ptr<shared_model::interface::Block>
-                               &block) { my_height = block->height(); });
+        shared_model::interface::types::HeightType my_height = start_height;
+        auto network_chain =
+            block_loader_->retrieveBlocks(start_height, public_key)
+                .tap([&my_height](
+                         const std::shared_ptr<shared_model::interface::Block>
+                             &block) { my_height = block->height(); });
 
-          if (validator_->validateAndApply(network_chain, *storage)
-              and my_height >= target_height) {
-            return mutable_factory_->commit(std::move(storage));
-          }
+        if (validator_->validateAndApply(network_chain, *storage)
+            and my_height >= target_height) {
+          return mutable_factory_->commit(std::move(storage));
         }
       }
+      return expected::makeError(
+          "Failed to download and commit blocks from given peers");
     }
 
     std::unique_ptr<ametsuchi::MutableStorage> SynchronizerImpl::getStorage() {
@@ -163,6 +162,7 @@ namespace iroha {
       }
 
       if (height_diff == 0) {
+        assert(alternative_outcome != SynchronizationOutcomeType::kCommit);
         notifier_.get_subscriber().on_next(SynchronizationEvent{
             alternative_outcome, msg.round, msg.ledger_state});
         return;
@@ -174,18 +174,14 @@ namespace iroha {
           *top_block_height, required_height, msg.public_keys);
 
       commit_result.match(
-          [this, required_height, alternative_outcome, &msg](auto &value) {
+          [this](auto &value) {
             auto &ledger_state = value.value;
             assert(ledger_state);
-            shared_model::interface::types::HeightType new_height =
-                ledger_state->top_block_info.height;
-            const bool higher_than_expected = new_height > required_height;
-            notifier_.get_subscriber().on_next(SynchronizationEvent{
-                higher_than_expected ? SynchronizationOutcomeType::kCommit
-                                     : alternative_outcome,
-                higher_than_expected ? consensus::Round{new_height, 0}
-                                     : msg.round,
-                std::move(ledger_state)});
+            auto new_height = ledger_state->top_block_info.height;
+            notifier_.get_subscriber().on_next(
+                SynchronizationEvent{SynchronizationOutcomeType::kCommit,
+                                     consensus::Round{new_height, 0},
+                                     std::move(ledger_state)});
           },
           [this](const auto &error) {
             log_->error("Synchronization failed: {}", error.error);
