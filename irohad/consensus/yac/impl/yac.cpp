@@ -199,6 +199,34 @@ namespace iroha {
       void Yac::applyState(const std::vector<VoteMessage> &state,
                            std::unique_lock<std::mutex> &lock) {
         assert(lock.owns_lock());
+
+        auto &proposal_round = getRound(state);
+
+        if (proposal_round.block_round > round_.block_round) {
+          lock.unlock();
+          auto same_hashes =
+              std::all_of(std::next(state.begin()),
+                          state.end(),
+                          [first = state.begin()](const auto &current) {
+                            return first->hash == current.hash;
+                          });
+          auto answer = same_hashes ? Answer(CommitMessage(state))
+                                    : Answer(RejectMessage(state));
+          log_->info("Pass {} state from future for {} to pipeline",
+                     same_hashes ? "commit" : "reject",
+                     proposal_round);
+          notifier_.get_subscriber().on_next(std::move(answer));
+          return;
+        }
+
+        if (proposal_round.block_round < round_.block_round) {
+          log_->info("Received state from past for {}, try to propagate back",
+                     proposal_round);
+          tryPropagateBack(state);
+          lock.unlock();
+          return;
+        }
+
         auto answer =
             vote_storage_.store(state, cluster_order_.getNumberOfPeers());
 
@@ -208,8 +236,6 @@ namespace iroha {
         iroha::match_in_place(
             answer,
             [&](const auto &answer) {
-              auto &proposal_round = getRound(state);
-
               /*
                * It is possible that a new peer with an outdated peers list may
                * collect an outcome from a smaller number of peers which are

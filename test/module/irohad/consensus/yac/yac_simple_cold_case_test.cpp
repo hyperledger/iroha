@@ -207,3 +207,54 @@ TEST_F(YacTest, PropagateCommitBeforeNotifyingSubscribersApplyReject) {
   // verify that on_commit subscribers are notified
   ASSERT_EQ(1, messages.size());
 }
+
+/**
+ * @given initialized yac
+ * @when receive state with same hashes from future
+ * @then commit for synchronization is emitted
+ */
+TEST_F(YacTest, PossibleCommitFromFuture) {
+  YacHash hash({initial_round.block_round + 1, 0}, "my_proposal", "my_block");
+
+  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
+  wrapper.subscribe([hash](auto message) {
+    auto commit_message = boost::get<CommitMessage>(message);
+    ASSERT_EQ(hash, commit_message.votes.at(0).hash);
+    ASSERT_EQ(hash, commit_message.votes.at(1).hash);
+  });
+
+  EXPECT_CALL(*network, sendState(_, _)).Times(0);
+
+  EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
+
+  network->notification->onState(
+      {createVote(hash, "1"), createVote(hash, "2")});
+
+  ASSERT_TRUE(wrapper.validate());
+}
+
+/**
+ * @given initialized yac
+ * @when receive state with different hashes from future
+ * @then reject for synchronization is emitted
+ */
+TEST_F(YacTest, PossibleRejectFromFuture) {
+  YacHash hash({initial_round.block_round + 1, 0}, "my_proposal", "my_block"),
+      hash2({initial_round.block_round + 1, 0}, "my_proposal", "my_block2");
+
+  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
+  wrapper.subscribe([hash, hash2](auto message) {
+    auto reject_message = boost::get<RejectMessage>(message);
+    ASSERT_EQ(hash, reject_message.votes.at(0).hash);
+    ASSERT_EQ(hash2, reject_message.votes.at(1).hash);
+  });
+
+  EXPECT_CALL(*network, sendState(_, _)).Times(0);
+
+  EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
+
+  network->notification->onState(
+      {createVote(hash, "1"), createVote(hash2, "2")});
+
+  ASSERT_TRUE(wrapper.validate());
+}
