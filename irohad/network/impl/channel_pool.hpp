@@ -59,6 +59,7 @@ namespace iroha {
           const std::string &address);
 
       std::unordered_map<std::string, std::shared_ptr<grpc::Channel>> channels_;
+      std::mutex channels_lock_;
 
       bool tls_enabled_ = false;
       boost::optional<std::shared_ptr<ametsuchi::PeerQuery>> peer_query_ =

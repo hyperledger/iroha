@@ -39,6 +39,7 @@ namespace iroha {
 
     std::shared_ptr<grpc::Channel> ChannelPool::getChannel(
         const std::string &address) {
+      std::lock_guard<std::mutex> lock(channels_lock_);
       if (channels_.find(address) == channels_.end()) {
         channels_[address] = createChannel(address);
       }
