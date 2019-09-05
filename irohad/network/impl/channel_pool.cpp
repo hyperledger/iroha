@@ -94,5 +94,5 @@ namespace iroha {
         certificate_ = readFile(*path + ".crt");
       }
     }
-  };  // namespace network
-};    // namespace iroha
+  }  // namespace network
+}  // namespace iroha
