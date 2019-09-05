@@ -18,7 +18,6 @@ class EngineCall : public AcceptanceFixture {
   const crypto::Keypair kEvmKeypair =
       crypto::DefaultCryptoAlgorithmType::generateKeypair();
 
-  std::string caller = "caller";
   std::string callee = "callee";
 
   /*
@@ -124,15 +123,15 @@ TEST_F(EngineCall, Basic) {
       .skipProposal()
       .skipBlock()
       .sendTxAwait(
-          complete(baseTx().addSmartContract(caller, callee, code, "")),
+          complete(baseTx().addSmartContract(callee, code)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
           complete(baseTx().addSmartContract(
-              caller, callee, "", inputCallSetter)),
+              callee, inputCallSetter)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
           complete(baseTx().addSmartContract(
-              caller, callee, "", inputCallGetter)),
+              callee,inputCallGetter)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
 

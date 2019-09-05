@@ -18,11 +18,7 @@ namespace shared_model {
 
       EngineCall(EngineCall &&o) noexcept;
 
-      const interface::types::AccountIdType &caller() const override;
-
       const interface::types::AccountIdType &callee() const override;
-
-      const interface::types::SmartContractCodeType &code() const override;
 
       const interface::types::SmartContractCodeType &input() const override;
 

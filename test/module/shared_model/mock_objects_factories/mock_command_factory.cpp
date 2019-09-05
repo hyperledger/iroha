@@ -74,19 +74,13 @@ namespace shared_model {
 
     MockCommandFactory::FactoryResult<MockEngineCall>
     MockCommandFactory::constructEngineCall(
-        const types::AccountIdType &caller,
         const types::AccountIdType &callee,
-        const types::SmartContractCodeType &code,
         const types::SmartContractCodeType &input) const {
       return createFactoryResult<MockEngineCall>(
-          [&caller, &callee, &code, &input]
+          [&callee, &input]
           (FactoryResult<MockEngineCall> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, caller())
-                .WillByDefault(ReturnRefOfCopy(caller));
             ON_CALL(*specific_cmd_mock, callee())
                 .WillByDefault(ReturnRefOfCopy(callee));
-            ON_CALL(*specific_cmd_mock, code())
-                .WillByDefault(ReturnRefOfCopy(code));
             ON_CALL(*specific_cmd_mock, input())
                 .WillByDefault(ReturnRefOfCopy(input));
             return specific_cmd_mock;
