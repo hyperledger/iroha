@@ -100,11 +100,11 @@ class ConsensusSunnyDayTest : public ::testing::Test {
     auto async_call = std::make_shared<
         iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
         getTestLogger("AsyncCall"));
-    iroha::network::ClientFactory client_factory;
     network = std::make_shared<NetworkImpl>(
         async_call,
-        [&client_factory](const shared_model::interface::Peer &peer) {
-          return client_factory.createClient<proto::Yac>(peer.address());
+        [](const shared_model::interface::Peer &peer) {
+          return iroha::network::ClientFactory().createClient<proto::Yac>(
+              peer.address());
         },
         getTestLogger("YacNetwork"));
     crypto = std::make_shared<FixedCryptoProvider>(my_pub_key);

@@ -142,6 +142,8 @@ namespace iroha {
         peer.AddMember("address", add_peer->peer.address, allocator);
         peer.AddMember(
             "peer_key", add_peer->peer.pubkey.to_hexstring(), allocator);
+        peer.AddMember(
+            "tls_certificate", add_peer->peer.tls_certificate, allocator);
 
         document.AddMember("peer", peer, allocator);
 

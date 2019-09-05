@@ -1333,7 +1333,7 @@ namespace iroha {
 
       auto cmd = (boost::format(
                       R"(WITH has_perms AS (%s)
-      SELECT public_key, address, perm FROM peer
+      SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
       )") % getAccountRolePermissionCheckSql(Role::kGetPeers))
                      .str();

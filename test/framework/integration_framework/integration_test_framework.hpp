@@ -475,6 +475,8 @@ namespace integration_framework {
     size_t torii_port_;
     size_t internal_port_;
     std::shared_ptr<IrohaInstance> iroha_instance_;
+
+    std::shared_ptr<iroha::network::ClientFactory> client_factory_;
     torii::CommandSyncClient command_client_;
     torii_utils::QuerySyncClient query_client_;
 
@@ -509,8 +511,6 @@ namespace integration_framework {
 
     boost::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
-
-    std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 
    private:
     bool cleanup_on_exit_;
