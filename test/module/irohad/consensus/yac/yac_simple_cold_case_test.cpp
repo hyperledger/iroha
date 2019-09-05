@@ -12,6 +12,7 @@
 #include "consensus/yac/impl/supermajority_checker_bft.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 
+#include "backend/plain/peer.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
@@ -19,6 +20,7 @@ using ::testing::_;
 using ::testing::An;
 using ::testing::AtLeast;
 using ::testing::Invoke;
+using ::testing::Ref;
 using ::testing::Return;
 
 using namespace iroha::consensus::yac;
@@ -257,4 +259,68 @@ TEST_F(YacTest, PossibleRejectFromFuture) {
       {createVote(hash, "1"), createVote(hash2, "2")});
 
   ASSERT_TRUE(wrapper.validate());
+}
+
+class YacAlternativeOrderTest : public YacTest {
+ public:
+  ClusterOrdering order = *ClusterOrdering::create({makePeer("default_peer")});
+  YacHash my_hash{initial_round, "my_proposal_hash", "my_block_hash"};
+
+  std::string peer_id{"alternative_peer"};
+  std::shared_ptr<shared_model::interface::Peer> peer = makePeer(peer_id);
+  ClusterOrdering alternative_order = *ClusterOrdering::create({peer});
+};
+
+/**
+ * @given yac
+ * @when vote is called with alternative order
+ * @then alternative order is used for sending votes
+ */
+TEST_F(YacAlternativeOrderTest, Voting) {
+  EXPECT_CALL(*network, sendState(Ref(*peer), _)).Times(1);
+
+  yac->vote(my_hash, order, alternative_order);
+}
+
+/**
+ * @given yac, vote called with alternative order
+ * @when alternative peer state with vote from future is received from the
+ *       network
+ * @then peers from alternative order are used to filter out the votes
+ *       and an outcome for synchronization is emitted
+ */
+TEST_F(YacAlternativeOrderTest, OnState) {
+  yac->vote(my_hash, order, alternative_order);
+
+  auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
+  wrapper.subscribe();
+
+  EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
+
+  YacHash received_hash(
+      {initial_round.block_round + 1, 0}, "my_proposal", "my_block");
+  // assume that our peer receive message
+  network->notification->onState({createVote(received_hash, peer_id)});
+
+  ASSERT_TRUE(wrapper.validate());
+}
+
+/**
+ * @given yac, vote called with alternative order, which does not contain peers
+ *        from cluster order
+ * @when alternative peer state with vote for the same round is received from
+ *       the network
+ * @then peers from cluster order are used to filter out the votes and
+ *       kNotSentNotProcessed action is not executed
+ */
+TEST_F(YacAlternativeOrderTest, OnStateCurrentRoundAlternativePeer) {
+  yac->vote(my_hash, order, alternative_order);
+
+  EXPECT_CALL(*network, sendState(_, _)).Times(0);
+
+  EXPECT_CALL(*crypto, verify(_)).Times(1).WillRepeatedly(Return(true));
+
+  YacHash received_hash(initial_round, "my_proposal", "my_block");
+  // assume that our peer receive message
+  network->notification->onState({createVote(received_hash, peer_id)});
 }
