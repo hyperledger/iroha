@@ -84,7 +84,7 @@ class TestAccount {
 TEST(VmCallTest, UsageTest) {
   /*
 
-code is bytecode from the following Solidity code using online Remix IDE with
+deploySCdata is bytecode from the following Solidity code using online Remix IDE with
 compiler version 0.4.0
 
 pragma solidity ^0.4.0;
@@ -102,7 +102,7 @@ contract C {
 
 */
 
-  char *code = const_cast<char *>(
+  char *deploySCdata = const_cast<char *>(
       "606060405260a18060106000396000f360606040526000357c0100000000000000000000"
       "00000000000000000000000000000000000090048063d46300fd146043578063ee919d50"
       "14606857603f565b6002565b34600257605260048050506082565b604051808281526020"
@@ -115,8 +115,8 @@ contract C {
   */
 
   char *inputCallSetter = const_cast<char *>(
-      "ee919d50000000000000000000000000000000000000000000000000000000000000000"
-      "1");
+      "ee919d50"
+      "0000000000000000000000000000000000000000000000000000000000000001");
 
   /*
     calling getA(), bytes4(keccak256(getA())) == d46300fd
@@ -125,7 +125,7 @@ contract C {
   char *inputCallGetter = const_cast<char *>("d46300fd");
 
   char *caller = const_cast<char *>("caller"),
-       *callee = const_cast<char *>("Callee"), *empty = const_cast<char *>("");
+       *callee = const_cast<char *>("Callee");
 
   // Emulate accounts' storages for the smart contract engine
   std::unordered_map<AccountName, TestAccount> testAccounts;
@@ -244,12 +244,11 @@ contract C {
       });
 
   auto res = VmCall(
-      code, empty, caller, callee, &command_executor, &specific_query_executor);
+      deploySCdata, caller, callee, &command_executor, &specific_query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty,
-               inputCallSetter,
+  res = VmCall(inputCallSetter,
                caller,
                callee,
                &command_executor,
@@ -257,8 +256,7 @@ contract C {
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
-  res = VmCall(empty,
-               inputCallGetter,
+  res = VmCall(inputCallGetter,
                caller,
                callee,
                &command_executor,
