@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "shared_model/backend/protobuf/common_objects/peer.hpp"
+#include "backend/protobuf/common_objects/peer.hpp"
 
 namespace iroha {
   namespace network {
