@@ -63,7 +63,7 @@ namespace shared_model {
       }()};
 
       interface::types::HashType hash_{makeHash(payload_blob_)};
-    };  // namespace proto
+    };
 
     Transaction::Transaction(const TransportType &transaction) {
       impl_ = std::make_unique<Transaction::Impl>(transaction);

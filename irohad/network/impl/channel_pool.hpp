@@ -70,7 +70,7 @@ namespace iroha {
       static std::string readFile(const std::string &path);
       void readKeypair(const boost::optional<std::string> &path);
     };
-  };  // namespace network
-};    // namespace iroha
+  }  // namespace network
+}  // namespace iroha
 
 #endif
