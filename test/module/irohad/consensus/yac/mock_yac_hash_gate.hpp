@@ -16,7 +16,10 @@ namespace iroha {
 
       class MockHashGate : public HashGate {
        public:
-        MOCK_METHOD2(vote, void(YacHash, ClusterOrdering));
+        MOCK_METHOD3(vote,
+                     void(YacHash,
+                          ClusterOrdering,
+                          boost::optional<ClusterOrdering>));
 
         MOCK_METHOD0(onOutcome, rxcpp::observable<Answer>());
 

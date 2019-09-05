@@ -25,6 +25,7 @@ namespace iroha {
       YacGateImpl::YacGateImpl(
           std::shared_ptr<HashGate> hash_gate,
           std::shared_ptr<YacPeerOrderer> orderer,
+          boost::optional<ClusterOrdering> alternative_order,
           std::shared_ptr<YacHashProvider> hash_provider,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
@@ -32,6 +33,7 @@ namespace iroha {
           logger::LoggerPtr log)
           : log_(std::move(log)),
             current_hash_(),
+            alternative_order_(std::move(alternative_order)),
             published_events_(hash_gate->onOutcome()
                                   .flat_map([this](auto message) {
                                     return visit_in_place(
@@ -92,7 +94,8 @@ namespace iroha {
           return;
         }
 
-        hash_gate_->vote(current_hash_, *order);
+        hash_gate_->vote(current_hash_, *order, std::move(alternative_order_));
+        alternative_order_.reset();
       }
 
       rxcpp::observable<YacGateImpl::GateObject> YacGateImpl::onOutcome() {

@@ -152,19 +152,10 @@ Irohad::~Irohad() {
  * Initializing iroha daemon
  */
 Irohad::RunResult Irohad::init() {
-  auto peers_updater = [&]() -> RunResult {
-    if (opt_alternative_peers_) {
-      return resetPeers(*opt_alternative_peers_);
-    } else {
-      return {};
-    }
-  };
-
   // clang-format off
   return initWsvRestorer() // Recover WSV from the existing ledger
                            // to be sure it is consistent
   | [this]{ return restoreWsv();}
-  | peers_updater
   | [this]{ return initCryptoProvider();}
   | [this]{ return initBatchParser();}
   | [this]{ return initValidators();}
@@ -295,19 +286,6 @@ Irohad::RunResult Irohad::restoreWsv() {
     }
     return {};
   };
-}
-
-Irohad::RunResult Irohad::resetPeers(
-    const shared_model::interface::types::PeerList &alternative_peers) {
-  storage->resetPeers();
-
-  for (const auto &peer : alternative_peers) {
-    auto result = storage->insertPeer(*peer);
-    if (boost::get<expected::Error<std::string>>(&result)) {
-      return result;
-    }
-  }
-  return {};
 }
 
 /**
@@ -611,6 +589,7 @@ Irohad::RunResult Irohad::initConsensusGate() {
   consensus_gate = yac_init->initConsensusGate(
       {block->height(), ordering::kFirstRejectRound},
       storage,
+      opt_alternative_peers_,
       simulator,
       block_loader,
       keypair,

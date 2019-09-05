@@ -138,14 +138,6 @@ class Irohad {
   RunResult restoreWsv();
 
   /**
-   * Replaces peers in WSV with an externally provided peers list
-   * @param alternative_peers - the peers to place into WSV
-   * @return void on success, error otherwise
-   */
-  Irohad::RunResult resetPeers(
-      const shared_model::interface::types::PeerList &alternative_peers);
-
-  /**
    * Drop wsv and block store
    */
   virtual void dropStorage();
