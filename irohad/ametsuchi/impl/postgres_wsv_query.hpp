@@ -28,6 +28,10 @@ namespace iroha {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() override;
 
+      boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+      getPeerByAddress(
+          const shared_model::interface::types::AddressType &address) override;
+
      private:
       /**
        * Executes given lambda of type F, catches exceptions if any, logs the

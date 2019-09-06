@@ -811,14 +811,40 @@ Irohad::RunResult Irohad::initQueryService() {
 }
 
 Irohad::RunResult Irohad::initClientFactory() {
-  if (p2p_tls_keypair_path_) {
-    auto peer_query = storage->createPeerQuery();
-    client_factory = std::make_shared<iroha::network::ClientFactory>(
-        *peer_query, *p2p_tls_keypair_path_);
-  } else {
-    client_factory = std::make_shared<iroha::network::ClientFactory>();
-  }
-  return {};
+  using namespace iroha::expected;
+  using namespace iroha::network;
+  using ChannelFactoryCreationResult =
+      Result<std::unique_ptr<ChannelFactoryTls>, std::string>;
+
+  const auto create_channel_factory = [this]() -> ChannelFactoryCreationResult {
+    const create_tls_channel_factory =
+        [this](const auto &credentials_path) -> ChannelFactoryCreationResult {
+      auto opt_peer_query = this->storage->createPeerQuery();
+      if (not opt_peer_query) {
+        return makeError(std::string{"Failed to get peer query."});
+      }
+      return ChannelFactoryTls::create(
+          this->grpc_channel_params_,
+          std::make_unique<PeerTlsCertificatesProviderWsv>(
+              std::move(opt_peer_query).value()),
+          credentials_path);
+    };
+    const create_insecure_channel_factory =
+        [this]() -> ChannelFactoryCreationResult {
+      return makeValue(
+          std::make_unique<ChannelFactory>(this->grpc_channel_params_));
+    };
+    return this->p2p_tls_keypair_path_
+        ? create_tls_client_factory(this->p2p_tls_keypair_path_.value())
+        : create_insecure_client_factory();
+  };
+
+  return create_channel_factory() |
+             [this](auto &&channel_factory) -> RunResult {
+    this->client_factory_ = std::make_unique<ClientFactory>(
+        std::make_unique<ChannelPool>(std::move(channel_factory)));
+    return {};
+  };
 }
 
 Irohad::RunResult Irohad::initWsvRestorer() {

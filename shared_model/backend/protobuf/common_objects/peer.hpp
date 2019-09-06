@@ -6,10 +6,11 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_PEER_HPP
 #define IROHA_SHARED_MODEL_PROTO_PEER_HPP
 
+#include "interfaces/common_objects/peer.hpp"
+
 #include "backend/protobuf/util.hpp"
 #include "cryptography/hash.hpp"
 #include "cryptography/public_key.hpp"
-#include "interfaces/common_objects/peer.hpp"
 #include "primitive.pb.h"
 #include "utils/reference_holder.hpp"
 
@@ -28,7 +29,8 @@ namespace shared_model {
         return proto_->address();
       }
 
-      const interface::types::TLSCertificateType &tlsCertificate() const override {
+      const interface::types::TLSCertificateType &tlsCertificate()
+          const override {
         return proto_->tls_certificate();
       }
 

@@ -31,12 +31,20 @@ namespace iroha {
           const shared_model::interface::types::AccountIdType &account_id) = 0;
 
       /**
-       *
-       * @return
+       * Fetch peers stored in ledger
+       * @return list of peers in insertion to ledger order
        */
       virtual boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() = 0;
+
+      /**
+       * Fetch peer with given address from ledger
+       * @return the peer if found, none otherwise
+       */
+      virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+      getPeerByAddress(
+          const shared_model::interface::types::AddressType &address) = 0;
     };
 
   }  // namespace ametsuchi

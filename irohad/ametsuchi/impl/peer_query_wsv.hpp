@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 
+#include "interfaces/common_objects/types.hpp"
+
 namespace iroha {
   namespace ametsuchi {
 
@@ -28,6 +30,13 @@ namespace iroha {
        * @return list of peers in insertion to ledger order
        */
       boost::optional<std::vector<wPeer>> getLedgerPeers() override;
+
+      /**
+       * Fetch peer with given address from ledger
+       * @return the peer if found, none otherwise
+       */
+      boost::optional<PeerQuery::wPeer> getLedgerPeerByAddress(
+          const shared_model::interface::types::AddressType &address) override;
 
      private:
       std::shared_ptr<WsvQuery> wsv_;

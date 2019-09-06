@@ -49,6 +49,9 @@ add_library(application
     )
 target_link_libraries(application
     PRIVATE
+    grpc_channel_factory
+    grpc_channel_factory_tls
+    grpc_client_factory
     yac
     yac_transport
     PUBLIC

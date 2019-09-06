@@ -12,6 +12,24 @@
 #include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 
+namespace {
+  template <typename T>
+  boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+  getPeersFromSociRowSet(T &&rowset) {
+    return iroha::ametsuchi::flatMapValues<
+        std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
+        std::forward<T>(rowset),
+        [&](auto &public_key, auto &address, auto &tls_certificate) {
+          return boost::make_optional(
+              std::make_shared<shared_model::plain::Peer>(
+                  address,
+                  shared_model::crypto::PublicKey{
+                      shared_model::crypto::Blob::fromHexString(public_key)},
+                  tls_certificate));
+        });
+  }
+}  // namespace
+
 namespace iroha {
   namespace ametsuchi {
 
@@ -62,16 +80,31 @@ namespace iroha {
                 << "SELECT public_key, address, tls_certificate FROM peer");
       });
 
-      return flatMapValues<
-          std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
-          result, [&](auto &public_key, auto &address, auto &tls_certificate) {
-            return boost::make_optional(
-                std::make_shared<shared_model::plain::Peer>(
-                    address,
-                    shared_model::crypto::PublicKey{
-                        shared_model::crypto::Blob::fromHexString(public_key)},
-                    tls_certificate));
-          });
+      return getPeersFromSociRowSet(result);
+    }
+
+    boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+    PostgresWsvQuery::getPeerByAddress(const AddressType &address) {
+      using T = boost::tuple<std::string, AddressType, TLSCertificateType>;
+      auto result = execute<T>([&] {
+        return (sql_.prepare << R"(
+            SELECT public_key, address, tls_certificate
+            FROM peer
+            WHERE address = :address)",
+                soci::use(address, "address"));
+      });
+
+      return getPeersFromSociRowSet(result) | [](auto &&peers) {
+        return boost::make_optional(std::move(peers.front()));
+      };
+
+      /*
+      peers = getPeers(result);
+      if (peers.empty()) {
+        return boost::none;
+      }
+      return peers.front();
+      */
     }
   }  // namespace ametsuchi
 }  // namespace iroha

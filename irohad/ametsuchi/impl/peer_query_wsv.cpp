@@ -20,5 +20,10 @@ namespace iroha {
       return wsv_->getPeers();
     }
 
+    boost::optional<PeerQuery::wPeer> PeerQueryWsv::getLedgerPeerByAddress(
+        const shared_model::interface::types::AddressType &address) {
+      return wsv_->getPeerByAddress(address);
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha
