@@ -1,4 +1,5 @@
-.. _architecture: 
+.. _architecture:
+
 ************
 Architecture
 ************

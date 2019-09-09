@@ -24,6 +24,7 @@ You can use any algorithm you want instead of ``rsa``, as long as your
 To find out which are supported, you can use
 
 .. code:: sh
+
     $ openssl list-public-key-algorithms
 
 If you need to use plain IP addresses to connect to the node, you need to
