@@ -103,9 +103,7 @@ namespace iroha {
 
         consensus_network_ = std::make_shared<NetworkImpl>(
             async_call,
-            [&client_factory](const shared_model::interface::Peer &peer) {
-              return client_factory->createClient<proto::Yac>(peer.address());
-            },
+            std::move(client_factory),
             consensus_log_manager->getChild("Network")->getLogger());
 
         auto yac = createYac(*ClusterOrdering::create(peers.value()),

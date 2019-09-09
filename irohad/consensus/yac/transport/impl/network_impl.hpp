@@ -20,6 +20,11 @@
 #include "network/impl/async_grpc_client.hpp"
 
 namespace iroha {
+  namespace network {
+    template <typename Service>
+    class ClientFactory;
+  }
+
   namespace consensus {
     namespace yac {
 
@@ -32,8 +37,8 @@ namespace iroha {
         explicit NetworkImpl(
             std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
                 async_call,
-            std::function<std::unique_ptr<proto::Yac::StubInterface>(
-                const shared_model::interface::Peer &)> client_creator,
+            std::unique_ptr<iroha::network::ClientFactory<proto::Yac>>
+                client_factory,
             logger::LoggerPtr log);
 
         void subscribe(
@@ -54,20 +59,6 @@ namespace iroha {
 
        private:
         /**
-         * Create GRPC connection for given peer if it does not exist in
-         * peers map
-         * @param peer to instantiate connection with
-         */
-        void createPeerConnection(const shared_model::interface::Peer &peer);
-
-        /**
-         * Mapping of peer objects to connections
-         */
-        std::unordered_map<shared_model::interface::types::AddressType,
-                           std::unique_ptr<proto::Yac::StubInterface>>
-            peers_;
-
-        /**
          * Subscriber of network messages
          */
         std::weak_ptr<YacNetworkNotifications> handler_;
@@ -81,9 +72,8 @@ namespace iroha {
         /**
          * Yac stub creator
          */
-        std::function<std::unique_ptr<proto::Yac::StubInterface>(
-            const shared_model::interface::Peer &)>
-            client_creator_;
+        std::unique_ptr<iroha::network::ClientFactory<proto::Yac>>
+            client_factory_;
 
         logger::LoggerPtr log_;
       };

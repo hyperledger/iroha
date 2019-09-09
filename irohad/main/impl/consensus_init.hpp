@@ -25,6 +25,9 @@
 #include "simulator/block_creator.hpp"
 
 namespace iroha {
+  namespace network {
+    class ClientFactoryCreator;
+  }
   namespace consensus {
     namespace yac {
 
@@ -44,8 +47,7 @@ namespace iroha {
                 async_call,
             ConsistencyModel consistency_model,
             const logger::LoggerManagerTreePtr &consensus_log_manager,
-            const std::shared_ptr<iroha::network::ClientFactory>
-                &client_factory);
+            std::shared_ptr<iroha::network::ClientFactory> client_factory);
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 

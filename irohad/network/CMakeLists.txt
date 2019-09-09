@@ -15,6 +15,15 @@ target_link_libraries(networking
 add_library(block_loader
     impl/block_loader_impl.cpp
     )
+target_link_libraries(block_loader
+    grpc_client_factory
+    )
+
+#add_library(grpc_client_factory impl/grpc_client_factory.cpp)
+#target_link_libraries(grpc_client_factory
+#    common
+#    grpc++
+#    )
 
 target_link_libraries(block_loader
     loader_grpc
@@ -46,12 +55,20 @@ add_library(grpc_client_factory
     #impl/client_factory.cpp
     impl/channel_pool.cpp
     )
+target_link_libraries(grpc_client_factory
+    common
+    grpc++
+    )
 
 add_library(grpc_channel_factory
     impl/channel_factory.cpp
     )
 target_link_libraries(grpc_channel_factory
     grpc++
+    )
+
+add_library(tls_credentials
+    impl/tls_credentials.cpp
     )
 
 add_library(grpc_channel_factory_tls

@@ -10,14 +10,14 @@
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/grpc_client_factory.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
 
 OnDemandOsClientGrpc::OnDemandOsClientGrpc(
-    std::unique_ptr<proto::OnDemandOrdering::StubInterface> stub,
+    std::shared_ptr<proto::OnDemandOrdering::StubInterface> stub,
     std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
         async_call,
     std::shared_ptr<TransportFactoryType> proposal_factory,

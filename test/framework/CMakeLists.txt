@@ -8,6 +8,11 @@ target_link_libraries(test_subscriber_testing
     rxcpp
     )
 
+add_library(test_grpc_channel_builder test_grpc_channel_builder.cpp)
+target_link_libraries(test_grpc_channel_builder
+    grpc_channel_builder
+    )
+
 add_library(test_logger test_logger.cpp)
 target_link_libraries(test_logger
     logger
@@ -33,6 +38,7 @@ add_library(integration_framework
     )
 target_link_libraries(integration_framework
     PRIVATE
+    test_grpc_channel_builder
     yac_transport
     PUBLIC
     application

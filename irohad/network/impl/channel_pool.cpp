@@ -8,7 +8,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "backend/protobuf/common_objects/peer.hpp"
+#include "interfaces/common_objects/peer.hpp"
 #include "network/impl/channel_factory.hpp"
 
 using namespace iroha::network;
@@ -20,7 +20,10 @@ std::shared_ptr<grpc::Channel> ChannelPool::getChannel(
     const std::string &service_full_name, const std::string &address) {
   if (channels_.find(address) == channels_.end()) {
     channels_[address] =
-        channel_factory_->createChannel(service_full_name, address);
+        // WORKAROUND
+        iroha::expected::resultToOptionalValue(
+            channel_factory_->createChannel(service_full_name, address))
+            .value();
   }
   return channels_[address];
 }

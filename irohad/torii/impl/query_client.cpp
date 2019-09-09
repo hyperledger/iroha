@@ -7,35 +7,15 @@
 
 #include <grpc++/channel.h>
 #include <grpc++/grpc++.h>
-#include "network/impl/grpc_channel_builder.hpp"
 
 namespace torii_utils {
 
   using iroha::protocol::Query;
   using iroha::protocol::QueryResponse;
 
-  QuerySyncClient::QuerySyncClient(const std::string &ip, size_t port)
-      : ip_(ip),
-        port_(port),
-        stub_(iroha::network::createClient<iroha::protocol::QueryService_v1>(
-            ip + ":" + std::to_string(port))) {}
-
-  QuerySyncClient::QuerySyncClient(const QuerySyncClient &rhs)
-      : QuerySyncClient(rhs.ip_, rhs.port_) {}
-
-  QuerySyncClient &QuerySyncClient::operator=(QuerySyncClient rhs) {
-    swap(*this, rhs);
-    return *this;
-  }
-
-  QuerySyncClient::QuerySyncClient(QuerySyncClient &&rhs) noexcept {
-    swap(*this, rhs);
-  }
-
-  QuerySyncClient &QuerySyncClient::operator=(QuerySyncClient &&rhs) noexcept {
-    swap(*this, rhs);
-    return *this;
-  }
+  QuerySyncClient::QuerySyncClient(
+      std::unique_ptr<iroha::protocol::QueryService_v1::StubInterface> stub)
+      : stub_(std::move(stub)) {}
 
   /**
    * requests query to a torii server and returns response (blocking, sync)
@@ -61,13 +41,6 @@ namespace torii_utils {
     }
     reader->Finish();
     return responses;
-  }
-
-  void QuerySyncClient::swap(QuerySyncClient &lhs, QuerySyncClient &rhs) {
-    using std::swap;
-    swap(lhs.ip_, rhs.ip_);
-    swap(lhs.port_, rhs.port_);
-    swap(lhs.stub_, rhs.stub_);
   }
 
 }  // namespace torii_utils

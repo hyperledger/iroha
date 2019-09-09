@@ -12,29 +12,19 @@
 
 #include "ametsuchi/peer_query.hpp"
 #include "common/result.hpp"
+#include "network/impl/tls_credentials.hpp"
 
 namespace iroha {
   namespace network {
 
     class PeerTlsCertificatesProvider;
 
-    struct ClientTlsCredentials {
-      std::string private_key;
-      std::string certificate;
-    };
-
     class ChannelFactoryTls : public ChannelFactory {
      public:
       ChannelFactoryTls(
           std::shared_ptr<GrpcChannelParams> params,
           std::unique_ptr<PeerTlsCertificatesProvider> peer_cert_provider,
-          boost::optional<ClientTlsCredentials> my_creds);
-
-      static iroha::expected::Result<std::unique_ptr<ChannelFactoryTls>,
-                                     std::string>
-      create(std::shared_ptr<GrpcChannelParams> params,
-             std::unique_ptr<PeerTlsCertificatesProvider> peer_cert_provider,
-             const boost::optional<std::string> &my_creds_path);
+          boost::optional<TlsCredentials> my_creds);
 
      protected:
       iroha::expected::Result<std::shared_ptr<grpc::ChannelCredentials>,
@@ -46,7 +36,7 @@ namespace iroha {
 
      private:
       std::unique_ptr<PeerTlsCertificatesProvider> peer_cert_provider_;
-      boost::optional<ClientTlsCredentials> my_creds_;
+      boost::optional<TlsCredentials> my_creds_;
     };
 
   };  // namespace network

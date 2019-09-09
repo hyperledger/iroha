@@ -15,6 +15,7 @@
 #include "consensus/yac/yac.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 
+#include "framework/test_grpc_channel_builder.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "logger/logger_manager.hpp"

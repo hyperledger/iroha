@@ -13,6 +13,7 @@
 #include "consensus/yac/vote_message.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
+#include "network/impl/grpc_client_factory.hpp"
 #include "yac.pb.h"
 
 namespace iroha {
@@ -23,11 +24,11 @@ namespace iroha {
       NetworkImpl::NetworkImpl(
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
-          std::function<std::unique_ptr<proto::Yac::StubInterface>(
-              const shared_model::interface::Peer &)> client_creator,
+          std::unique_ptr<iroha::network::ClientFactory<proto::Yac>>
+              client_factory,
           logger::LoggerPtr log)
           : async_call_(async_call),
-            client_creator_(client_creator),
+            client_factory_(std::move(client_factory)),
             log_(std::move(log)) {}
 
       void NetworkImpl::subscribe(
@@ -37,8 +38,6 @@ namespace iroha {
 
       void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                   const std::vector<VoteMessage> &state) {
-        createPeerConnection(to);
-
         proto::State request;
         for (const auto &vote : state) {
           auto pb_vote = request.add_votes();
@@ -46,7 +45,8 @@ namespace iroha {
         }
 
         async_call_->Call([&](auto context, auto cq) {
-          return peers_.at(to.address())->AsyncSendState(context, request, cq);
+          return client_factory_->getClient(to.address())
+              ->AsyncSendState(context, request, cq);
         });
 
         log_->info(
@@ -82,13 +82,6 @@ namespace iroha {
           log_->error("Unable to lock the subscriber");
         }
         return grpc::Status::OK;
-      }
-
-      void NetworkImpl::createPeerConnection(
-          const shared_model::interface::Peer &peer) {
-        if (peers_.count(peer.address()) == 0) {
-          peers_[peer.address()] = client_creator_(peer);
-        }
       }
 
     }  // namespace yac

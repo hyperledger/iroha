@@ -15,6 +15,7 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
+#include "main/impl/client_factory_lru_creator.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
@@ -39,11 +40,13 @@ namespace iroha {
   }    // namespace consensus
   namespace network {
     class BlockLoader;
+    class ClientFactory;
     class ConsensusGate;
     class PeerCommunicationService;
     class MstTransport;
     class OrderingGate;
-    class ClientFactory;
+    class TlsCredentials;
+    struct GrpcClientParams;
   }  // namespace network
   namespace simulator {
     class Simulator;
@@ -101,6 +104,7 @@ class Irohad {
    * consecutive status emissions
    * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
+   * @param grpc_client_params - parameters for all grpc clients
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
@@ -108,27 +112,27 @@ class Irohad {
    * @see iroha::torii::TlsParams
    * @param enable_p2p_tls - enable TLS in peer-to-peer communication
    */
-  Irohad(
-      const boost::optional<std::string> &block_store_dir,
-      std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
-      const std::string &listen_ip,
-      size_t torii_port,
-      size_t internal_port,
-      size_t max_proposal_size,
-      std::chrono::milliseconds proposal_delay,
-      std::chrono::milliseconds vote_delay,
-      std::chrono::minutes mst_expiration_time,
-      const shared_model::crypto::Keypair &keypair,
-      std::chrono::milliseconds max_rounds_delay,
-      size_t stale_stream_max_rounds,
-      boost::optional<shared_model::interface::types::PeerList>
-          opt_alternative_peers,
-      logger::LoggerManagerTreePtr logger_manager,
-      const boost::optional<iroha::GossipPropagationStrategyParams>
-          &opt_mst_gossip_params = boost::none,
-      const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
-          boost::none,
-      const boost::optional<std::string> &p2p_tls_keypair_path = boost::none);
+  Irohad(const boost::optional<std::string> &block_store_dir,
+         std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+         const std::string &listen_ip,
+         size_t torii_port,
+         size_t internal_port,
+         size_t max_proposal_size,
+         std::chrono::milliseconds proposal_delay,
+         std::chrono::milliseconds vote_delay,
+         std::chrono::minutes mst_expiration_time,
+         const shared_model::crypto::Keypair &keypair,
+         std::chrono::milliseconds max_rounds_delay,
+         size_t stale_stream_max_rounds,
+         boost::optional<shared_model::interface::types::PeerList>
+             opt_alternative_peers,
+         logger::LoggerManagerTreePtr logger_manager,
+         std::unique_ptr<iroha::network::GrpcClientParams> grpc_client_params,
+         const boost::optional<iroha::GossipPropagationStrategyParams>
+             &opt_mst_gossip_params = boost::none,
+         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+             boost::none,
+         boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config);
 
   /**
    * Initialization of whole objects in system
@@ -166,6 +170,12 @@ class Irohad {
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
       std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
+
+  RunResult Irohad::initTlsCredentials();
+
+  RunResult Irohad::initPeerCertProvider();
+
+  RunResult Irohad::initChannelPool();
 
   virtual RunResult initCryptoProvider();
 
@@ -227,7 +237,14 @@ class Irohad {
       opt_alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
-  boost::optional<std::string> p2p_tls_keypair_path_;
+  boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
+
+  boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
+      my_inter_peer_tls_creds_;
+  boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
+      torii_tls_creds_;
+  boost::optional<std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>>
+      peer_tls_certificates_provider_;
 
   std::unique_ptr<iroha::PendingTransactionStorageInit>
       pending_txs_storage_init;
@@ -246,7 +263,7 @@ class Irohad {
 
  protected:
   // initialization objects
-  iroha::network::OnDemandOrderingInit ordering_init;
+  iroha::ordering::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
   iroha::network::BlockLoaderInit loader_init;
 
@@ -348,9 +365,10 @@ class Irohad {
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
-  std::unique_ptr<ServerRunner> torii_server;
-  boost::optional<std::unique_ptr<ServerRunner>> torii_tls_server = boost::none;
-  std::unique_ptr<ServerRunner> internal_server;
+  std::unique_ptr<iroha::network::ServerRunner> torii_server;
+  boost::optional<std::unique_ptr<iroha::network::ServerRunner>>
+      torii_tls_server = boost::none;
+  std::unique_ptr<iroha::network::ServerRunner> internal_server;
 
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 

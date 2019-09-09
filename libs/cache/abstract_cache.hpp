@@ -78,6 +78,13 @@ namespace iroha {
         return constUnderlying().findItemImpl(key);
       }
 
+      using ValueCreator = std::function<ValueType()>;
+      /*
+      ValueType getOrCreate(const KeyType &key, ValueCreator creator) {
+        return underlying().getOrCreateImpl(key, std::move(creator));
+      }
+      */
+
      private:
       const T &constUnderlying() const {
         return static_cast<const T &>(*this);

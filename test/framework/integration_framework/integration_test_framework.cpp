@@ -31,6 +31,7 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/test_grpc_channel_builder.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -46,7 +47,6 @@
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/consensus_gate.hpp"
 #include "network/impl/async_grpc_client.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "synchronizer/synchronizer_common.hpp"
 #include "torii/status_bus.hpp"
@@ -157,11 +157,10 @@ namespace integration_framework {
                                             log_manager_->getChild("Irohad"),
                                             log_,
                                             dbname)),
-        client_factory_(std::make_shared<iroha::network::ClientFactory>()),
-        command_client_(
-            client_factory_->createClient<iroha::protocol::CommandService_v1>(
-                format_address(kLocalHost, torii_port_)),
-            log_manager_->getChild("CommandClient")->getLogger()),
+        command_client_(iroha::network::createTestClient<
+                            iroha::protocol::CommandService_v1>(
+                            format_address(kLocalHost, torii_port_)),
+                        log_manager_->getChild("CommandClient")->getLogger()),
         query_client_(kLocalHost, torii_port_),
         async_call_(std::make_shared<AsyncCall>(
             log_manager_->getChild("AsyncCall")->getLogger())),
@@ -205,8 +204,8 @@ namespace integration_framework {
         tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
         yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
             async_call_,
-            [this](const shared_model::interface::Peer &peer) {
-              return client_factory_->createClient<
+            [](const shared_model::interface::Peer &peer) {
+              return iroha::network::createTestClient<
                   iroha::consensus::yac::proto::Yac>(peer.address());
             },
             log_manager_->getChild("ConsensusTransport")->getLogger())),
@@ -679,7 +678,8 @@ namespace integration_framework {
       const shared_model::crypto::PublicKey &src_key,
       const iroha::MstState &mst_state) {
     iroha::network::sendStateAsync(
-        *this_peer_, mst_state, src_key, *async_call_);
+        *this_peer_, mst_state, src_key, *async_call_,
+        /* todo_client_params */);
     return *this;
   }
 

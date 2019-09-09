@@ -10,13 +10,18 @@
 
 #include "grpc++/security/auth_metadata_processor.h"
 
-#include "ametsuchi/peer_query.hpp"
+namespace iroha {
+  namespace network {
+    class PeerTlsCertificatesProvider;
+  }
+}  // namespace iroha
 
 class PeerCertificateAuthMetadataProcessor
     : public grpc::AuthMetadataProcessor {
  public:
   explicit PeerCertificateAuthMetadataProcessor(
-      std::shared_ptr<iroha::ametsuchi::PeerQuery> peer_query);
+      std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>
+          peer_tls_certificates_provider);
 
   grpc::Status Process(const InputMetadata &auth_metadata,
                        grpc::AuthContext *context,
@@ -24,7 +29,8 @@ class PeerCertificateAuthMetadataProcessor
                        OutputMetadata *response_metadata) final;
 
  private:
-  std::shared_ptr<iroha::ametsuchi::PeerQuery> peer_query_;
+  std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>
+      peer_tls_certificates_provider_;
 };
 
 #endif  // MAIN_SERVER_RUNNER_AUTH_HPP

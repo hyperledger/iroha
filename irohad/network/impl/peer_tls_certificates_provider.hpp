@@ -10,6 +10,7 @@
 #include <string>
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
   namespace network {
@@ -18,8 +19,13 @@ namespace iroha {
      public:
       virtual ~PeerTlsCertificatesProvider() = default;
 
+      // REMOVE
       virtual iroha::expected::Result<std::string, std::string> get(
           const std::string &address) const = 0;
+
+      /*virtual*/ iroha::expected::Result<std::string, std::string> get(
+          const shared_model::interface::types::PubkeyType &address) const
+          /*= 0*/;
     };
 
   };  // namespace network

@@ -125,7 +125,7 @@ class IrohadTest : public AcceptanceFixture {
     db_name_ = integration_framework::getRandomDbName();
     pgopts_ = "dbname=" + db_name_ + " "
         + integration_framework::getPostgresCredsFromEnv().value_or(
-            doc[config_members::PgOpt].GetString());
+              doc[config_members::PgOpt].GetString());
     // we need a separate file here in case if target environment
     // has custom database connection options set
     // via environment variables
@@ -220,6 +220,18 @@ class IrohadTest : public AcceptanceFixture {
   std::string setDefaultParams() {
     return params(
         config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
+  }
+
+  static iroha::network::GrpcClientParams getChannelParams() {
+    static const GrpcClientParams params = [] {
+      GrpcClientParams params = getDefaultTestChannelParams();
+      params.retry_policy.max_attempts = 3u;
+      params.retry_policy.initial_backoff = 1s;
+      params.retry_policy.max_backoff = 1s;
+      params.retry_policy.backoff_multiplier = 1f;
+      return params;
+    }();
+    return params;
   }
 
   torii::CommandSyncClient createToriiClient(

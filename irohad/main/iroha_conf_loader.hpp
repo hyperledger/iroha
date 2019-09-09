@@ -24,6 +24,16 @@ struct IrohadConfig {
     std::string maintenance_dbname;
   };
 
+  struct InterPeerTls {
+    struct RootCert {
+      std::string path;
+    };
+    struct FromLedger {};
+    struct None {};
+
+    boost::optional<std::string> my_tls_creds_path;
+  };
+
   // TODO: block_store_path is now optional, change docs IR-576
   // luckychess 29.06.2019
   boost::optional<std::string> block_store_path;

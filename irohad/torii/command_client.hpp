@@ -21,7 +21,7 @@ namespace torii {
   class CommandSyncClient {
    public:
     CommandSyncClient(
-        std::unique_ptr<iroha::protocol::CommandService_v1::StubInterface> stub,
+        std::shared_ptr<iroha::protocol::CommandService_v1::StubInterface> stub,
         logger::LoggerPtr log);
 
     /**
@@ -57,7 +57,7 @@ namespace torii {
         std::vector<iroha::protocol::ToriiResponse> &response) const;
 
    private:
-    std::unique_ptr<iroha::protocol::CommandService_v1::StubInterface> stub_;
+    std::shared_ptr<iroha::protocol::CommandService_v1::StubInterface> stub_;
     logger::LoggerPtr log_;
   };
 
