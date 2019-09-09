@@ -23,7 +23,7 @@ You can use any algorithm you want instead of ``rsa``, as long as your
 ``openssl`` supports it.
 To find out which are supported, you can use
 
-.. code:: sh
+.. code-block:: sh
 
     $ openssl list-public-key-algorithms
 
