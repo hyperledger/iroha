@@ -21,7 +21,6 @@
 
 namespace iroha {
   namespace network {
-    template <typename Service>
     class ClientFactory;
   }
 
@@ -37,8 +36,7 @@ namespace iroha {
         explicit NetworkImpl(
             std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
                 async_call,
-            std::unique_ptr<iroha::network::ClientFactory<proto::Yac>>
-                client_factory,
+            std::shared_ptr<iroha::network::ClientFactory> client_factory,
             logger::LoggerPtr log);
 
         void subscribe(
@@ -72,8 +70,7 @@ namespace iroha {
         /**
          * Yac stub creator
          */
-        std::unique_ptr<iroha::network::ClientFactory<proto::Yac>>
-            client_factory_;
+        std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 
         logger::LoggerPtr log_;
       };

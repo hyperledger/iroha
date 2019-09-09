@@ -6,7 +6,8 @@
 #ifndef TEST_GRPC_CHANNEL_BUILDER_HPP
 #define TEST_GRPC_CHANNEL_BUILDER_HPP
 
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/grpc_channel_builder_params.hpp"
+#include "network/impl/grpc_client_factory.hpp"
 
 namespace iroha {
   namespace network {
@@ -19,10 +20,10 @@ namespace iroha {
      * @param args @see createClient
      * @return gRPC stub of parametrized type
      */
-    template <typename T, typename... Types>
-    auto createTestClient(Types &&... args) {
-      return createClient<T>(std::forward<Types>(args)...,
-                             getDefaultTestChannelParams());
+    template <typename T>
+    auto createTestClient(const grpc::string &address) {
+      return ClientFactory<T>(std::forward<Types>(args)...,
+                              getDefaultTestChannelParams());
     }
 
     /**
@@ -32,7 +33,7 @@ namespace iroha {
      * @return gRPC stub of parametrized type
      */
     template <typename T, typename... Types>
-    std::unique_ptr<typename T::Stub> createTestSecureClient(Types &&... args) {
+    auto createTestSecureClient(Types &&... args) {
       return createSecureClient<T>(std::forward<Types>(args)...,
                                    getDefaultTestChannelParams());
     }

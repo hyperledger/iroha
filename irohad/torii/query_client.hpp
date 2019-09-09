@@ -19,7 +19,7 @@ namespace torii_utils {
   class QuerySyncClient {
    public:
     QuerySyncClient(
-        std::unique_ptr<iroha::protocol::QueryService_v1::StubInterface> stub);
+        std::shared_ptr<iroha::protocol::QueryService_v1::StubInterface> stub);
 
     /**
      * requests query to a torii server and returns response (blocking, sync)
@@ -36,7 +36,7 @@ namespace torii_utils {
    private:
     void swap(QuerySyncClient &lhs, QuerySyncClient &rhs);
 
-    std::unique_ptr<iroha::protocol::QueryService_v1::StubInterface> stub_;
+    std::shared_ptr<iroha::protocol::QueryService_v1::StubInterface> stub_;
   };
 
   /**

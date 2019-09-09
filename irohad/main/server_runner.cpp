@@ -11,6 +11,7 @@
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
 #include "main/server_runner_auth.hpp"
+#include "network/impl/peer_tls_certificates_provider.hpp"
 #include "network/impl/tls_credentials.hpp"
 
 namespace {

@@ -13,6 +13,7 @@
 
 namespace iroha {
   namespace network {
+    class PeerTlsCertificatesProvider;
     class TlsCredentials;
 
     /**

@@ -13,7 +13,6 @@
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
-#include "main/impl/client_factory_lru_creator.hpp"
 #include "network/impl/grpc_client_factory.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_connection_manager.hpp"
@@ -350,7 +349,7 @@ OnDemandOrderingInit::initOrderingGate(
                               std::move(proposal_transport_factory),
                               delay,
                               std::move(initial_hashes),
-                              client_factory_creator,
+                              std::move(client_factory),
                               ordering_log_manager),
       std::make_shared<cache::OnDemandCache>(),
       std::move(proposal_factory),

@@ -15,7 +15,7 @@ namespace iroha {
       std::string private_key;
       std::string certificate;
 
-      static iroha::expected::Result<ChannelFactoryTls, std::string> load(
+      static iroha::expected::Result<TlsCredentials, std::string> load(
           const std::string &path);
     };
 

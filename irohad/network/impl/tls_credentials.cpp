@@ -15,7 +15,7 @@ using namespace iroha::network;
 
 using iroha::operator|;
 
-Result<ChannelFactoryTls, std::string> TlsCredentials::load(
+Result<TlsCredentials, std::string> TlsCredentials::load(
     const std::string &path) {
   static const auto read_file = [](const std::string &path) {
     std::ifstream certificate_file(path);

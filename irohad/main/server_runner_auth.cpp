@@ -45,7 +45,7 @@ namespace {
     return boost::copy_range<std::vector<PubkeyType>>(
         context->FindPropertyValues("x509_subject_alternative_name")
         | boost::adaptors::filtered([](const grpc::string_ref &name) {
-            return name.starts_with("");  // RFC 8410 { 1 3 101 112 }
+            return name.starts_with("");  // RFC 5280, RFC 8410 { 1 3 101 112 }
           })
         | boost::adaptors::transformed([](const grpc::string_ref &name) {
             return PubkeyType{name.data()};

@@ -25,7 +25,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactoryCreator;
+    class ClientFactory;
   }
   namespace ordering {
 
@@ -113,7 +113,7 @@ namespace iroha {
        * proposals
        * @param creation_strategy - provides a strategy for creating proposals
        * in OS
-       * @param client_factory_creator - a creator of a factory of client stubs
+       * @param client_factory - a factory of client stubs
        * @return initialized ordering gate
        */
       std::shared_ptr<network::OrderingGate> initOrderingGate(

@@ -26,7 +26,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactoryCreator;
+    class ClientFactory;
   }
   namespace consensus {
     namespace yac {

@@ -60,7 +60,8 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         // request next block to our top
         request.set_height(height + 1);
 
-        auto reader = this->client_factory_->getClient(peer.value()->address())
+        auto reader = this->client_factory_
+                          ->getClient<proto::Loader>(peer.value()->address())
                           ->retrieveBlocks(&context, request);
         while (subscriber.is_subscribed() and reader->Read(&block)) {
           block_factory_.createBlock(std::move(block))
@@ -93,8 +94,9 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
   // request block with specified height
   request.set_height(block_height);
 
-  auto status = this->client_factory_->getClient(peer.value()->address())
-                    ->retrieveBlock(&context, request, &block);
+  auto status =
+      this->client_factory_->getClient<proto::Loader>(peer.value()->address())
+          ->retrieveBlock(&context, request, &block);
   if (not status.ok()) {
     log_->warn("{}", status.error_message());
     return boost::none;

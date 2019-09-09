@@ -18,7 +18,6 @@
 
 namespace iroha {
   namespace network {
-    template <typename Service>
     class ClientFactory;
 
     class BlockLoaderImpl : public BlockLoader {
@@ -52,7 +51,6 @@ namespace iroha {
 
       std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory_;
       shared_model::proto::ProtoBlockFactory block_factory_;
-      std::unique_ptr<ClientFactory<proto::Loader>> client_factory_;
 
       std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 

@@ -25,7 +25,6 @@ namespace iroha {
   }
 
   namespace network {
-    template <typename Service>
     class ClientFactory;
 
     class MstTransportGrpc : public MstTransport,
@@ -49,8 +48,7 @@ namespace iroha {
           shared_model::crypto::PublicKey my_key,
           logger::LoggerPtr mst_state_logger,
           logger::LoggerPtr log,
-          std::unique_ptr<ClientFactory<transport::MstTransportGrpc>>
-              client_factory);
+          std::shared_ptr<ClientFactory> client_factory);
 
       /**
        * Server part of grpc SendState method call
@@ -94,8 +92,7 @@ namespace iroha {
                                             ///< objects.
       logger::LoggerPtr log_;               ///< Logger for local use.
 
-      std::unique_ptr<ClientFactory<transport::MstTransportGrpc>>
-          client_factory_;
+      std::shared_ptr<ClientFactory> client_factory_;
     };
 
     void sendStateAsync(ConstRefState state,

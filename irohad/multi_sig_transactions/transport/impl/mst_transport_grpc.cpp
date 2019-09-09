@@ -34,7 +34,7 @@ MstTransportGrpc::MstTransportGrpc(
     shared_model::crypto::PublicKey my_key,
     logger::LoggerPtr mst_state_logger,
     logger::LoggerPtr log,
-    std::unique_ptr<ClientFactory<transport::MstTransportGrpc>> client_factory)
+    std::shared_ptr<ClientFactory> client_factory)
     : async_call_(std::move(async_call)),
       transaction_factory_(std::move(transaction_factory)),
       batch_parser_(std::move(batch_parser)),
@@ -147,7 +147,8 @@ void MstTransportGrpc::subscribe(
 void MstTransportGrpc::sendState(const shared_model::interface::Peer &to,
                                  ConstRefState providing_state) {
   log_->info("Propagate MstState to peer {}", to.address());
-  const auto client = client_factory_->getClient(to.address());
+  const auto client =
+      client_factory_->getClient<transport::MstTransportGrpc>(to.address());
   sendStateAsync(providing_state, my_key_, *client, *async_call_);
 }
 

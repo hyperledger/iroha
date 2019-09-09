@@ -16,7 +16,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactoryCreator;
+    class ClientFactory;
 
     /**
      * Initialization context of Block loader: loader itself and service

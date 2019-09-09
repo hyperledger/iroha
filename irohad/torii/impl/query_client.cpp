@@ -14,7 +14,7 @@ namespace torii_utils {
   using iroha::protocol::QueryResponse;
 
   QuerySyncClient::QuerySyncClient(
-      std::unique_ptr<iroha::protocol::QueryService_v1::StubInterface> stub)
+      std::shared_ptr<iroha::protocol::QueryService_v1::StubInterface> stub)
       : stub_(std::move(stub)) {}
 
   /**
