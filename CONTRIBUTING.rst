@@ -1,5 +1,5 @@
 .. contents:: **Table of Contents**
-   :depth: 3
+  :depth: 3
 
 First off, thanks for taking the time to contribute!
 
@@ -213,4 +213,3 @@ Our community members are active at:
 --------------
 
 Thank you for reading the document!
-
