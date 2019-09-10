@@ -88,7 +88,7 @@ TEST_P(SetAccountDetailTest, NonExistentUser) {
 TEST_P(SetAccountDetailTest, NoPerms) {
   getItf().createUserWithPerms(kUser, kDomain, kUserKeypair.publicKey(), {});
   getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
   assertResultError(setDetail(kSameDomainUserId, kKey, kVal, kUserId));
   checkDetails(kSameDomainUserId, DetailsByKeyByWriter{});
 }
@@ -102,7 +102,7 @@ TEST_P(SetAccountDetailTest, ValidRolePerm) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetDetail});
   getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
   assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
@@ -117,7 +117,7 @@ TEST_P(SetAccountDetailTest, ValidGrantablePerm) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail});
   getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
   assertResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructGrantPermission(
           kSameDomainUserId, Grantable::kSetMyAccountDetail),
@@ -136,7 +136,7 @@ TEST_P(SetAccountDetailTest, RootPermission) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot});
   getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
   assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }

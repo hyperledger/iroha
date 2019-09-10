@@ -57,7 +57,7 @@ TEST_P(AddSignatoryBasicTest, NoPermission) {
   assertResultValue(getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {}));
   assertResultValue(getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
 
   checkCommandError(
       getItf().executeCommandAsAccount(
@@ -84,16 +84,16 @@ TEST_P(AddSignatoryBasicTest, GrantedPermission) {
   assertResultValue(getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kAddMySignatory}));
   assertResultValue(getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
 
-  // kUser grants kAnotherUser permission to add him a signatory
+  // kUser grants kSecondUser permission to add him a signatory
   assertResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructGrantPermission(
           kSameDomainUserId, Grantable::kAddMySignatory),
       kUserId,
       true));
 
-  // kAnotherUser adds kUser a signatory
+  // kSecondUser adds kUser a signatory
   expectResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructAddSignatory(
           new_keypair_.publicKey(), kUserId),
@@ -114,7 +114,7 @@ TEST_P(AddSignatoryBasicTest, RootPermission) {
   assertResultValue(getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot}));
   assertResultValue(getItf().createUserWithPerms(
-      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
+      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {}));
 
   assertResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructAddSignatory(
