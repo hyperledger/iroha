@@ -15,26 +15,43 @@ namespace iroha {
   namespace consensus {
     namespace yac {
 
-      /**
-       * CommitMsg means consensus on cluster achieved.
-       * All nodes deals on some solution
-       */
-      struct CommitMessage {
-        explicit CommitMessage(std::vector<VoteMessage> votes)
+      template <typename>
+      struct OutcomeMessage {
+        explicit OutcomeMessage(std::vector<VoteMessage> votes)
             : votes(std::move(votes)) {}
+
+        OutcomeMessage(std::initializer_list<VoteMessage> votes)
+            : votes(votes) {}
 
         std::vector<VoteMessage> votes;
 
-        bool operator==(const CommitMessage &rhs) const {
+        bool operator==(const OutcomeMessage &rhs) const {
           return votes == rhs.votes;
         }
 
         std::string toString() const {
           return shared_model::detail::PrettyStringBuilder()
-              .init("CommitMessage")
+              .init(typeName())
               .appendAll(
                   "votes", votes, [](auto vote) { return vote.toString(); })
               .finalize();
+        }
+
+        virtual const std::string &typeName() const = 0;
+
+       protected:
+        ~OutcomeMessage() = default;
+      };
+
+      /**
+       * CommitMsg means consensus on cluster achieved.
+       * All nodes deals on some solution
+       */
+      struct CommitMessage final : OutcomeMessage<CommitMessage> {
+        using OutcomeMessage::OutcomeMessage;
+        const std::string &typeName() const override {
+          const static std::string name{"CommitMessage"};
+          return name;
         }
       };
 
@@ -42,22 +59,23 @@ namespace iroha {
        * Reject means that there is impossible
        * to collect supermajority for any block
        */
-      struct RejectMessage {
-        explicit RejectMessage(std::vector<VoteMessage> votes)
-            : votes(std::move(votes)) {}
-
-        std::vector<VoteMessage> votes;
-
-        bool operator==(const RejectMessage &rhs) const {
-          return votes == rhs.votes;
+      struct RejectMessage final : OutcomeMessage<RejectMessage> {
+        using OutcomeMessage::OutcomeMessage;
+        const std::string &typeName() const override {
+          const static std::string name{"RejectMessage"};
+          return name;
         }
+      };
 
-        std::string toString() const {
-          return shared_model::detail::PrettyStringBuilder()
-              .init("RejectMessage")
-              .appendAll(
-                  "votes", votes, [](auto vote) { return vote.toString(); })
-              .finalize();
+      /**
+       * Represents the case when the round number is greater than the current,
+       * and the quorum is unknown
+       */
+      struct FutureMessage final : OutcomeMessage<FutureMessage> {
+        using OutcomeMessage::OutcomeMessage;
+        const std::string &typeName() const override {
+          const static std::string name{"FutureMessage"};
+          return name;
         }
       };
     }  // namespace yac

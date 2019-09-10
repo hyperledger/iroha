@@ -53,6 +53,7 @@ namespace iroha {
 
         rxcpp::observable<GateObject> handleCommit(const CommitMessage &msg);
         rxcpp::observable<GateObject> handleReject(const RejectMessage &msg);
+        rxcpp::observable<GateObject> handleFuture(const FutureMessage &msg);
 
         logger::LoggerPtr log_;
 

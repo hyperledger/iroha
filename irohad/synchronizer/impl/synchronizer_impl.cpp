@@ -42,21 +42,44 @@ namespace iroha {
     void SynchronizerImpl::processOutcome(consensus::GateObject object) {
       log_->info("processing consensus outcome");
 
-      visit_in_place(
-          object,
-          [this](const consensus::PairValid &msg) { this->processNext(msg); },
-          [this](const consensus::VoteOther &msg) {
-            this->processDifferent(msg, SynchronizationOutcomeType::kCommit);
-          },
-          [this](const consensus::ProposalReject &msg) {
-            this->processDifferent(msg, SynchronizationOutcomeType::kReject);
-          },
-          [this](const consensus::BlockReject &msg) {
-            this->processDifferent(msg, SynchronizationOutcomeType::kReject);
-          },
-          [this](const consensus::AgreementOnNone &msg) {
-            this->processDifferent(msg, SynchronizationOutcomeType::kNothing);
-          });
+      auto process_reject = [this](auto outcome_type, const auto &msg) {
+        assert(msg.ledger_state->top_block_info.height + 1
+               == msg.round.block_round);
+        notifier_.get_subscriber().on_next(
+            SynchronizationEvent{outcome_type, msg.round, msg.ledger_state});
+      };
+
+      visit_in_place(object,
+                     [this](const consensus::PairValid &msg) {
+                       assert(msg.ledger_state->top_block_info.height + 1
+                              == msg.round.block_round);
+                       this->processNext(msg);
+                     },
+                     [this](const consensus::VoteOther &msg) {
+                       assert(msg.ledger_state->top_block_info.height + 1
+                              == msg.round.block_round);
+                       this->processDifferent(msg, msg.round.block_round);
+                     },
+                     [&](const consensus::ProposalReject &msg) {
+                       process_reject(SynchronizationOutcomeType::kReject, msg);
+                     },
+                     [&](const consensus::BlockReject &msg) {
+                       process_reject(SynchronizationOutcomeType::kReject, msg);
+                     },
+                     [&](const consensus::AgreementOnNone &msg) {
+                       process_reject(SynchronizationOutcomeType::kNothing,
+                                      msg);
+                     },
+                     [this](const consensus::Future &msg) {
+                       assert(msg.ledger_state->top_block_info.height + 1
+                              < msg.round.block_round);
+                       // we do not know the ledger state for round n, so we
+                       // cannot claim that the bunch of votes we got is a
+                       // commit certificate and hence we do not know if the
+                       // block n is committed and cannot require its
+                       // acquisition.
+                       this->processDifferent(msg, msg.round.block_round - 1);
+                     });
     }
 
     ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
@@ -124,54 +147,15 @@ namespace iroha {
       }
     }
 
-    boost::optional<shared_model::interface::types::HeightType>
-    SynchronizerImpl::getTopBlockHeight() const {
-      decltype(getTopBlockHeight()) top_block_height;
-      if (auto block_query = block_query_factory_->createBlockQuery()) {
-        top_block_height = (*block_query)->getTopBlockHeight();
-      } else {
-        log_->error(
-            "Unable to create block query and retrieve top block height");
-      }
-      return top_block_height;
-    }
-
     void SynchronizerImpl::processDifferent(
         const consensus::Synchronizable &msg,
-        SynchronizationOutcomeType alternative_outcome) {
+        shared_model::interface::types::HeightType required_height) {
       log_->info("at handleDifferent");
 
-      auto top_block_height = getTopBlockHeight();
-      if (not top_block_height) {
-        log_->error(
-            "Failed to synchronize: could not get my top block height.");
-        return;
-      }
-
-      const shared_model::interface::types::HeightType required_height =
-          SynchronizationOutcomeType::kCommit == alternative_outcome
-          ? msg.round.block_round
-          : msg.round.block_round - 1;
-      int64_t height_diff = required_height - *top_block_height;
-
-      if (height_diff < 0) {
-        log_->info(
-            "Storage is already in synchronized state. Top block height is {}",
-            *top_block_height);
-        return;
-      }
-
-      if (height_diff == 0) {
-        assert(alternative_outcome != SynchronizationOutcomeType::kCommit);
-        notifier_.get_subscriber().on_next(SynchronizationEvent{
-            alternative_outcome, msg.round, msg.ledger_state});
-        return;
-      }
-
-      assert(height_diff > 0);
-
       auto commit_result = downloadAndCommitMissingBlocks(
-          *top_block_height, required_height, msg.public_keys);
+          msg.ledger_state->top_block_info.height,
+          required_height,
+          msg.public_keys);
 
       commit_result.match(
           [this](auto &value) {

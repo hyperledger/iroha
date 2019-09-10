@@ -14,11 +14,13 @@ namespace iroha {
 
       struct CommitMessage;
       struct RejectMessage;
+      struct FutureMessage;
 
       /**
        * Contains proof of supermajority for all purposes;
        */
-      using Answer = boost::variant<CommitMessage, RejectMessage>;
+      using Answer =
+          boost::variant<CommitMessage, RejectMessage, FutureMessage>;
 
     }  // namespace yac
   }    // namespace consensus

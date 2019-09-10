@@ -573,7 +573,7 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
 
 /**
  * @given Peers top block height is kHeight - 1
- * @when arrives AgreementOnNone with kHeight + 1 round
+ * @when arrives Future with kHeight + 1 round
  * @then synchronizer has to download missing block with height = kHeight
  */
 TEST_F(SynchronizerTest, OneRoundDifference) {
@@ -594,7 +594,7 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
     ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
   });
 
-  gate_outcome.get_subscriber().on_next(consensus::AgreementOnNone(
+  gate_outcome.get_subscriber().on_next(consensus::Future(
       consensus::Round{kHeight + 1, 1}, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
