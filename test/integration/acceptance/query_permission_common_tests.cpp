@@ -180,7 +180,7 @@ TYPED_TEST(QueryPermissionFixture,
            AnothersFromDifferentDomainWithoutAnyPermission) {
   this->impl_.prepareState(*this, {}).sendQuery(
       this->impl_.makeQuery(
-          *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+          *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
       getQueryStatefullyInvalidChecker());
 }
 
@@ -196,7 +196,7 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryMyself})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           getQueryStatefullyInvalidChecker());
 }
 
@@ -213,7 +213,7 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryMyDomain})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           getQueryStatefullyInvalidChecker());
 }
 
@@ -229,6 +229,6 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryEveryone})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           this->impl_.getGeneralResponseChecker());
 }

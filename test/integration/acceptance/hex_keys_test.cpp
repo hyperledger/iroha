@@ -52,7 +52,7 @@ struct HexKeys : public AcceptanceFixture {
 
   auto createAccount(std::string key, interface::types::TimestampType time) {
     return AcceptanceFixture::baseTx().createdTime(time).createAccountRaw(
-        common_constants::kAnotherUser, common_constants::kDomain, key);
+        common_constants::kSecondUser, common_constants::kDomain, key);
   }
 
   auto addPeer(std::string key, interface::types::TimestampType time) {
