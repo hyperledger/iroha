@@ -84,8 +84,8 @@ namespace iroha {
 
               log_->trace("VerifiedProposalCreatorEvent StatefulValid: [ {} ]",
                           shared_model::interface::makeTxHashesPrinter(
-                              {proposal_and_errors->verified_proposal
-                                   ->transactions()}));
+                              proposal_and_errors->verified_proposal
+                                   ->transactions()));
 
               this->publishStatus(TxStatusType::kStatefulValid,
                                   successful_tx.hash());
