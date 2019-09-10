@@ -74,3 +74,11 @@ target_link_libraries(set_account_detail_test
     executor_fixture
     executor_fixture_param_provider
     )
+
+addtest(get_signatories_test get_signatories_test.cpp)
+target_link_libraries(get_signatories_test
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    query_permission_test
+    )
