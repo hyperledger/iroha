@@ -154,18 +154,9 @@ namespace iroha {
 
           if (proposal_round.block_round > round_.block_round) {
             guard.unlock();
-            auto same_hashes =
-                std::all_of(std::next(state.begin()),
-                            state.end(),
-                            [first = state.begin()](const auto &current) {
-                              return first->hash == current.hash;
-                            });
-            auto answer = same_hashes ? Answer(CommitMessage(state))
-                                      : Answer(RejectMessage(state));
-            log_->info("Pass {} state from future for {} to pipeline",
-                       same_hashes ? "commit" : "reject",
+            log_->info("Pass state from future for {} to pipeline",
                        proposal_round);
-            notifier_.get_subscriber().on_next(std::move(answer));
+            notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
             return;
           }
 
@@ -177,12 +168,14 @@ namespace iroha {
             return;
           }
 
-          // filter votes with peers from cluster order to avoid the case when
-          // alternative peer is not present in cluster order
-          removeUnknownPeersVotes(state, cluster_order_);
-          if (state.empty()) {
-            log_->debug("No votes left in the message.");
-            return;
+          if (alternative_order_) {
+            // filter votes with peers from cluster order to avoid the case when
+            // alternative peer is not present in cluster order
+            removeUnknownPeersVotes(state, cluster_order_);
+            if (state.empty()) {
+              log_->debug("No votes left in the message.");
+              return;
+            }
           }
 
           applyState(state, guard);
@@ -244,7 +237,6 @@ namespace iroha {
       void Yac::applyState(const std::vector<VoteMessage> &state,
                            std::unique_lock<std::mutex> &lock) {
         assert(lock.owns_lock());
-
         auto answer =
             vote_storage_.store(state, cluster_order_.getNumberOfPeers());
 
