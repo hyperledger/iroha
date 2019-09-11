@@ -63,41 +63,52 @@ class EngineCall : public AcceptanceFixture {
 
   std::string inputCallGetter = "d46300fd";
 
-/*
-pragma solidity^0.5.10;
+  /*
+  pragma solidity^0.5.10;
 
-contract test {
-    address creator;
+  contract test {
+      address creator;
 
-    constructor() public {
-        creator = msg.sender;
-    }
+      constructor() public {
+          creator = msg.sender;
+      }
 
-    function getCreator() public view returns (address) {
-        return creator;
-    }
+      function getCreator() public view returns (address) {
+          return creator;
+      }
 
-    function getMsgSender() public view returns (address) {
-        return msg.sender;
-    }
-}
-*/
-  std::string creatorStorageCode =  "608060405234801561001057600080fd5b50336000"
-    "806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffff"
-    "ffffffffffffffffffffffffffffffffffff16021790555061012d806100606000396000f3"
-    "fe6080604052348015600f57600080fd5b506004361060325760003560e01c80630ee2cb10"
-    "1460375780637a6ce2e114607f575b600080fd5b603d60c7565b604051808273ffffffffff"
-    "ffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff"
-    "16815260200191505060405180910390f35b608560f0565b604051808273ffffffffffffff"
-    "ffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1681"
-    "5260200191505060405180910390f35b60008060009054906101000a900473ffffffffffff"
-    "ffffffffffffffffffffffffffff16905090565b60003390509056fea265627a7a72315820"
-    "336325bf5922e2c7c3f12efcc8283ba81942be490be9e05c0414d5b028b279b464736f6c63"
-    "4300050b0032";
+      function getMsgSender() public view returns (address) {
+          return msg.sender;
+      }
+  }
+  */
+  std::string creatorStorageCode =
+      "608060405234801561001057600080fd5b50336000"
+      "806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ff"
+      "ff"
+      "ffffffffffffffffffffffffffffffffffff16021790555061012d806100606000396000"
+      "f3"
+      "fe6080604052348015600f57600080fd5b506004361060325760003560e01c80630ee2cb"
+      "10"
+      "1460375780637a6ce2e114607f575b600080fd5b603d60c7565b604051808273ffffffff"
+      "ff"
+      "ffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffff"
+      "ff"
+      "16815260200191505060405180910390f35b608560f0565b604051808273ffffffffffff"
+      "ff"
+      "ffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16"
+      "81"
+      "5260200191505060405180910390f35b60008060009054906101000a900473ffffffffff"
+      "ff"
+      "ffffffffffffffffffffffffffff16905090565b60003390509056fea265627a7a723158"
+      "20"
+      "336325bf5922e2c7c3f12efcc8283ba81942be490be9e05c0414d5b028b279b464736f6c"
+      "63"
+      "4300050b0032";
 
-// getCreator()
+  // getCreator()
   std::string getCreator = "0ee2cb10";
-// getMsgSender()
+  // getMsgSender()
   std::string getMsgSender = "7a6ce2e1";
 };
 
@@ -126,15 +137,12 @@ TEST_F(EngineCall, Basic) {
           complete(baseTx().addSmartContract(callee, code)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          complete(baseTx().addSmartContract(
-              callee, inputCallSetter)),
+          complete(baseTx().addSmartContract(callee, inputCallSetter)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          complete(baseTx().addSmartContract(
-              callee,inputCallGetter)),
+          complete(baseTx().addSmartContract(callee, inputCallGetter)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
-
 
 TEST_F(EngineCall, CreatorStorageSmartContract) {
   IntegrationTestFramework(1)
@@ -153,14 +161,19 @@ TEST_F(EngineCall, CreatorStorageSmartContract) {
       .skipProposal()
       .skipBlock()
       .sendTxAwait(
-          complete(baseTx().addSmartContract(caller, callee, creatorStorageCode, "")),
+          complete(baseTx().addSmartContract(callee, creatorStorageCode)),
+
+          //   complete(baseTx().addSmartContract(
+          //       caller, callee, creatorStorageCode, "")),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          complete(baseTx().addSmartContract(
-              caller, callee, "", getCreator)),
+          complete(baseTx().addSmartContract(callee, getCreator)),
+          //   complete(baseTx().addSmartContract(caller, callee, "",
+          //   getCreator)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          complete(baseTx().addSmartContract(
-              caller, callee, "", getMsgSender)),
+          complete(baseTx().addSmartContract(callee, getMsgSender)),
+          //   complete(baseTx().addSmartContract(caller, callee, "",
+          //   getMsgSender)),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
 }
