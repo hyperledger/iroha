@@ -92,6 +92,16 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
   return args;
 }
 
+std::shared_ptr<grpc::Channel> iroha::network::createInsecureChannel(
+    const shared_model::interface::types::AddressType &address,
+    const std::string &service_full_name,
+    const GrpcChannelParams &params) {
+  return grpc::CreateCustomChannel(
+      address,
+      grpc::InsecureChannelCredentials(),
+      makeChannelArguments({service_full_name}, params));
+}
+
 class ChannelFactory::ChannelArgumentsProvider {
  public:
   ChannelArgumentsProvider(std::shared_ptr<const GrpcChannelParams> params)

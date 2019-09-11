@@ -89,8 +89,6 @@ int main(int argc, char *argv[]) {
       log_manager->getChild("JsonQueryFactory")->getLogger();
   const auto keys_manager_log =
       log_manager->getChild("KeysManager")->getLogger();
-  const auto client_factory =
-      std::make_shared<iroha::network::ClientFactory>();
   // Generate new genesis block now Iroha network
   if (FLAGS_genesis_block) {
     BlockGenerator generator;
@@ -162,7 +160,7 @@ int main(int argc, char *argv[]) {
   // Send to Iroha Peer json transaction/query
   else if (not FLAGS_json_transaction.empty() or not FLAGS_json_query.empty()) {
     iroha_cli::CliClient client(
-        FLAGS_peer_ip, FLAGS_torii_port, pb_qry_factory_log, client_factory);
+        FLAGS_peer_ip, FLAGS_torii_port, pb_qry_factory_log);
     iroha_cli::GrpcResponseHandler response_handler(
         response_handler_log_manager);
     if (not FLAGS_json_transaction.empty()) {
@@ -247,8 +245,7 @@ int main(int argc, char *argv[]) {
         response_handler_log_manager,
         pb_qry_factory_log,
         json_qry_factory_log,
-        log_manager->getChild("InteractiveCli"),
-        client_factory);
+        log_manager->getChild("InteractiveCli"));
     interactiveCli.run();
   } else {
     logger->error("Invalid flags");

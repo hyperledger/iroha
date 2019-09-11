@@ -37,8 +37,7 @@ namespace iroha_cli {
           logger::LoggerManagerTreePtr response_handler_log_manager,
           logger::LoggerPtr pb_qry_factory_log,
           logger::LoggerPtr json_qry_factory_log,
-          logger::LoggerManagerTreePtr log_manager,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          logger::LoggerManagerTreePtr log_manager);
       /**
        * Run interactive cli. Print menu and parse commands
        */

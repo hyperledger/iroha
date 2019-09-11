@@ -23,6 +23,7 @@ add_library(client
     )
 target_link_libraries(client
     ed25519_crypto
+    grpc_channel_factory
     logger
     rapidjson
     pb_model_converters
@@ -33,7 +34,6 @@ target_link_libraries(client
     model_generators
     parser
     model
-    grpc_client_factory
     )
 target_include_directories(client PUBLIC
     ${PROJECT_SOURCE_DIR}/iroha-cli
@@ -53,7 +53,6 @@ target_link_libraries(iroha-cli
     boost
     logger
     logger_manager
-    grpc_client_factory
     )
 
 add_install_step_for_bin(iroha-cli)

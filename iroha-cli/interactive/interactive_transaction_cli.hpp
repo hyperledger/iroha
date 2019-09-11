@@ -12,7 +12,6 @@
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "model/generators/transaction_generator.hpp"
-#include "network/impl/client_factory.hpp"
 
 namespace iroha {
   namespace model {
@@ -42,8 +41,7 @@ namespace iroha_cli {
           const std::shared_ptr<iroha::model::ModelCryptoProvider> &provider,
           logger::LoggerManagerTreePtr response_handler_log_manager,
           logger::LoggerPtr pb_qry_factory_log,
-          logger::LoggerPtr log,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          logger::LoggerPtr log);
       /**
        * Run interactive query command line
        */
@@ -195,9 +193,6 @@ namespace iroha_cli {
 
       /// Internal logger
       logger::LoggerPtr log_;
-
-      /// Client provider
-      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
     };
   }  // namespace interactive
 }  // namespace iroha_cli

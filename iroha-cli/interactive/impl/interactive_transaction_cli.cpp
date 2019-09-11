@@ -173,8 +173,7 @@ namespace iroha_cli {
         const std::shared_ptr<iroha::model::ModelCryptoProvider> &provider,
         logger::LoggerManagerTreePtr response_handler_log_manager,
         logger::LoggerPtr pb_qry_factory_log,
-        logger::LoggerPtr log,
-        std::shared_ptr<iroha::network::ClientFactory> client_factory)
+        logger::LoggerPtr log)
         : current_context_(MAIN),
           creator_(creator_account),
           default_peer_ip_(default_peer_ip),
@@ -183,8 +182,7 @@ namespace iroha_cli {
           response_handler_log_manager_(
               std::move(response_handler_log_manager)),
           pb_qry_factory_log_(std::move(pb_qry_factory_log)),
-          log_(std::move(log)),
-          client_factory_(client_factory) {
+          log_(std::move(log)) {
       createCommandMenu();
       createResultMenu();
     }
@@ -461,8 +459,7 @@ namespace iroha_cli {
           iroha::model::converters::PbTransactionFactory().serialize(tx));
       response_handler.handle(CliClient(address.value().first,
                                         address.value().second,
-                                        pb_qry_factory_log_,
-                                        client_factory_)
+                                        pb_qry_factory_log_)
                                   .sendTx(shared_tx));
 
       printTxHash(tx);

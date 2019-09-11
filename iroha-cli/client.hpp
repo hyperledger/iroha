@@ -9,7 +9,6 @@
 #include <string>
 
 #include "logger/logger_fwd.hpp"
-#include "network/impl/client_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -33,11 +32,10 @@ namespace iroha_cli {
     // TODO 13/09/17 luckychess: check if we need more status codes IR-494
     enum TxStatus { OK };
 
-    CliClient(
-        std::string target_ip,
-        int port,
-        logger::LoggerPtr pb_qry_factory_log,
-        const std::shared_ptr<iroha::network::ClientFactory> &client_factory);
+    CliClient(std::string target_ip,
+              int port,
+              logger::LoggerPtr pb_qry_factory_log);
+
     /**
      * Send Transaction to Iroha Peer, i.e. target_ip:port
      * @param tx

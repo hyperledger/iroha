@@ -11,15 +11,17 @@
 #include "model/converters/json_transaction_factory.hpp"
 #include "model/converters/pb_query_factory.hpp"
 #include "model/converters/pb_transaction_factory.hpp"
-#include "network/impl/client_factory.hpp"
+#include "network/impl/channel_factory.hpp"
 
 template <typename Service>
 std::shared_ptr<typename Service::StubInterface> makeStub(std::string target_ip,
                                                           int port) {
-  static const auto kChannelParams = iroha::network::getDefaultChannelParams();
-  iroha::network::ClientFactory client_factory(*kChannelParams);
+  using namespace iroha::network;
+  static const auto kChannelParams = getDefaultChannelParams();
   const auto target_address = target_ip + ":" + std::to_string(port);
-  return client_factory.getClient(target_address);
+  auto channel = createInsecureChannel(
+      target_address, Service::service_full_name(), *kChannelParams);
+  return Service::NewStub(std::move(channel));
 }
 
 namespace iroha_cli {

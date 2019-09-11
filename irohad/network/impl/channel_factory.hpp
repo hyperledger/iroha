@@ -46,6 +46,11 @@ namespace iroha {
       return makeChannelArguments(T::service_full_name(), params);
     }
 
+    std::shared_ptr<grpc::Channel> createInsecureChannel(
+        const shared_model::interface::types::AddressType &address,
+        const std::string &service_full_name,
+        const GrpcChannelParams &params);
+
     class ChannelFactory {
      public:
       ChannelFactory(std::shared_ptr<const GrpcChannelParams> params);
