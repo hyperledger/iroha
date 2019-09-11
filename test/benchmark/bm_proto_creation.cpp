@@ -206,21 +206,8 @@ BENCHMARK_DEFINE_F(ProposalBenchmark, MoveTest)(benchmark::State &st) {
     auto proposal = complete_builder.build();
 
     runBenchmark(st, [&] {
-      shared_model::proto::Proposal copy(std::move(proposal.getTransport()));
+      shared_model::proto::Proposal copy(std::move(proposal));
       checkLoop(copy);
-    });
-  }
-}
-
-/**
- * Benchmark proposal creation by cloning another proposal
- */
-BENCHMARK_DEFINE_F(ProposalBenchmark, CloneTest)(benchmark::State &st) {
-  while (st.KeepRunning()) {
-    auto proposal = complete_builder.build();
-
-    runBenchmark(st, [&proposal] {
-      checkLoop(proposal);
     });
   }
 }
@@ -230,7 +217,6 @@ BENCHMARK_REGISTER_F(BlockBenchmark, CloneTest)->UseManualTime();
 BENCHMARK_REGISTER_F(BlockBenchmark, TransportMoveTest)->UseManualTime();
 BENCHMARK_REGISTER_F(BlockBenchmark, TransportCopyTest)->UseManualTime();
 BENCHMARK_REGISTER_F(ProposalBenchmark, MoveTest)->UseManualTime();
-BENCHMARK_REGISTER_F(ProposalBenchmark, CloneTest)->UseManualTime();
 BENCHMARK_REGISTER_F(ProposalBenchmark, TransportMoveTest)->UseManualTime();
 BENCHMARK_REGISTER_F(ProposalBenchmark, TransportCopyTest)->UseManualTime();
 
