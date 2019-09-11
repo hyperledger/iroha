@@ -30,6 +30,7 @@ target_link_libraries(bm_proto_creation
     gtest::gtest
     gmock::gmock
     shared_model_proto_backend
+    shared_model_stateless_validation
     )
 
 add_executable(bm_query
