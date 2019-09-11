@@ -14,7 +14,7 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_client_factory.hpp"
+#include "network/impl/client_factory.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace iroha;
@@ -148,7 +148,7 @@ void MstTransportGrpc::sendState(const shared_model::interface::Peer &to,
                                  ConstRefState providing_state) {
   log_->info("Propagate MstState to peer {}", to.address());
   const auto client =
-      client_factory_->getClient<transport::MstTransportGrpc>(to.address());
+      client_factory_->createClient<transport::MstTransportGrpc>(to);
   sendStateAsync(providing_state, my_key_, *client, *async_call_);
 }
 

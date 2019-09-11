@@ -30,8 +30,10 @@ struct IrohadConfig {
     };
     struct FromLedger {};
     struct None {};
+    using PeerCertProvider = boost::variant<RootCert, FromLedger, None>;
 
     boost::optional<std::string> my_tls_creds_path;
+    PeerCertProvider peer_certificates;
   };
 
   // TODO: block_store_path is now optional, change docs IR-576
@@ -39,7 +41,7 @@ struct IrohadConfig {
   boost::optional<std::string> block_store_path;
   uint16_t torii_port;
   boost::optional<iroha::torii::TlsParams> torii_tls_params;
-  boost::optional<std::string> p2p_tls_keypair_path;
+  boost::optional<InterPeerTls> inter_peer_tls;
   uint16_t internal_port;
   boost::optional<std::string>
       pg_opt;  // TODO 2019.06.26 mboldyrev IR-556 remove

@@ -13,11 +13,17 @@
 #include <grpc++/grpc++.h>
 
 #include "ametsuchi/peer_query.hpp"
-#include "common/result.hpp"
+#include "interfaces/common_objects/types.hpp"
+#include "network/impl/grpc_channel_params.hpp"
+
+namespace shared_model {
+  namespace interface {
+    class Peer;
+  }
+}  // namespace shared_model
 
 namespace iroha {
   namespace network {
-    struct GrpcChannelParams;
 
     /**
      * Creates client params which enable sending and receiving messages of
@@ -42,7 +48,7 @@ namespace iroha {
 
     class ChannelFactory {
      public:
-      ChannelFactory(std::shared_ptr<GrpcChannelParams> params);
+      ChannelFactory(std::shared_ptr<const GrpcChannelParams> params);
 
       virtual ~ChannelFactory();
 
@@ -55,14 +61,13 @@ namespace iroha {
        *
        * @note the return type has shared_ptr due to the grpc interface
        */
-      iroha::expected::Result<std::shared_ptr<grpc::Channel>, std::string>
-      createChannel(const std::string &service_full_name,
-                    const std::string &address) const;
+      std::shared_ptr<grpc::Channel> createChannel(
+          const std::string &service_full_name,
+          const shared_model::interface::Peer &peer) const;
 
      protected:
-      virtual iroha::expected::Result<std::shared_ptr<grpc::ChannelCredentials>,
-                                      std::string>
-      getChannelCredentials(const std::string &address) const;
+      virtual std::shared_ptr<grpc::ChannelCredentials> getChannelCredentials(
+          const shared_model::interface::Peer &) const;
 
      private:
       class ChannelArgumentsProvider;

@@ -51,7 +51,6 @@ namespace iroha {
 
       std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory_;
       shared_model::proto::ProtoBlockFactory block_factory_;
-
       std::shared_ptr<iroha::network::ClientFactory> client_factory_;
 
       logger::LoggerPtr log_;

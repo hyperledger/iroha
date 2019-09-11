@@ -13,7 +13,7 @@
 #include "consensus/yac/vote_message.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_client_factory.hpp"
+#include "network/impl/client_factory.hpp"
 #include "yac.pb.h"
 
 namespace iroha {
@@ -44,8 +44,8 @@ namespace iroha {
         }
 
         async_call_->Call([&](auto context, auto cq) {
-          return client_factory_->getClient<proto::Yac>(to.address())
-              ->AsyncSendState(context, request, cq);
+          return client_factory_->createClient<proto::Yac>(to)->AsyncSendState(
+              context, request, cq);
         });
 
         log_->info(

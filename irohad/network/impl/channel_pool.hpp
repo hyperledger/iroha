@@ -12,6 +12,15 @@
 #include <grpc++/grpc++.h>
 
 #include "ametsuchi/peer_query.hpp"
+#include "cryptography/blob_hasher.hpp"
+#include "cryptography/public_key.hpp"
+#include "interfaces/common_objects/types.hpp"
+
+namespace shared_model {
+  namespace interface {
+    class Peer;
+  }
+}  // namespace shared_model
 
 namespace iroha {
   namespace network {
@@ -27,6 +36,8 @@ namespace iroha {
        */
       explicit ChannelPool(std::unique_ptr<ChannelFactory> channel_factory);
 
+      ~ChannelPool();
+
       /**
        * Get or create a grpc::Channel (from a pool of channels)
        * @param address address to connect to (ip:port)
@@ -35,11 +46,15 @@ namespace iroha {
        * @return std::shared_ptr<grpc::Channel> to that address
        */
       std::shared_ptr<grpc::Channel> getChannel(
-          const std::string &service_full_name, const std::string &address);
+          const std::string &service_full_name,
+          const shared_model::interface::Peer &peer);
 
      private:
       std::unique_ptr<ChannelFactory> channel_factory_;
-      std::unordered_map<std::string, std::shared_ptr<grpc::Channel>> channels_;
+      std::unordered_map<shared_model::crypto::PublicKey,
+                         std::shared_ptr<grpc::Channel>,
+                         shared_model::crypto::BlobHasher>
+          channels_;
     };
 
   }  // namespace network

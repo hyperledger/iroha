@@ -6,6 +6,8 @@
 #ifndef CLIENT_TLS_CREDENTIALS_HPP
 #define CLIENT_TLS_CREDENTIALS_HPP
 
+#include <memory>
+
 #include "common/result.hpp"
 
 namespace iroha {
@@ -15,8 +17,9 @@ namespace iroha {
       std::string private_key;
       std::string certificate;
 
-      static iroha::expected::Result<TlsCredentials, std::string> load(
-          const std::string &path);
+      static iroha::expected::Result<std::unique_ptr<TlsCredentials>,
+                                     std::string>
+      load(const std::string &path);
     };
 
   };  // namespace network

@@ -10,6 +10,12 @@
 
 #include "network/impl/channel_pool.hpp"
 
+namespace shared_model {
+  namespace interface {
+    class Peer;
+  }
+}  // namespace shared_model
+
 namespace iroha {
   namespace network {
     class ChannelPool;
@@ -27,9 +33,8 @@ namespace iroha {
        */
       template <typename T>
       std::unique_ptr<typename T::StubInterface> createClient(
-          const std::string &address) {
-        auto channel =
-            channel_pool_->getChannel(T::service_full_name(), address);
+          const shared_model::interface::Peer &peer) {
+        auto channel = channel_pool_->getChannel(T::service_full_name(), peer);
         return T::NewStub(channel);
       }
 

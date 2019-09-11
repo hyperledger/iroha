@@ -22,7 +22,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
-#include "network/impl/grpc_client_factory.hpp"
+#include "network/impl/channel_factory.hpp"  // for getDefaultChannelParams()
 #include "validators/field_validator.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
       config.torii_tls_params,
-      config.p2p_tls_keypair_path);
+      config.inter_peer_tls);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {

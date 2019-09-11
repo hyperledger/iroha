@@ -10,7 +10,7 @@
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_client_factory.hpp"
+#include "network/impl/client_factory.hpp"
 
 using namespace iroha;
 using namespace iroha::ordering;
@@ -96,7 +96,7 @@ OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
 std::unique_ptr<OdOsNotification> OnDemandOsClientGrpcFactory::create(
     const shared_model::interface::Peer &to) {
   return std::make_unique<OnDemandOsClientGrpc>(
-      client_factory_->createClient<proto::OnDemandOrdering>(to.address()),
+      client_factory_->createClient<proto::OnDemandOrdering>(to),
       async_call_,
       proposal_factory_,
       time_provider_,

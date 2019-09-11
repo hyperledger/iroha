@@ -34,8 +34,8 @@ BlockLoaderImpl::BlockLoaderImpl(
     std::shared_ptr<iroha::network::ClientFactory> client_factory)
     : peer_query_factory_(std::move(peer_query_factory)),
       block_factory_(std::move(factory)),
-      log_(std::move(log)),
-      client_factory_(client_factory) {}
+      client_factory_(std::move(client_factory)),
+      log_(std::move(log)) {}
 
 rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
@@ -60,9 +60,9 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         // request next block to our top
         request.set_height(height + 1);
 
-        auto reader = this->client_factory_
-                          ->getClient<proto::Loader>(peer.value()->address())
-                          ->retrieveBlocks(&context, request);
+        auto reader =
+            this->client_factory_->createClient<proto::Loader>(*peer.value())
+                ->retrieveBlocks(&context, request);
         while (subscriber.is_subscribed() and reader->Read(&block)) {
           block_factory_.createBlock(std::move(block))
               .match(
@@ -95,7 +95,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
   request.set_height(block_height);
 
   auto status =
-      this->client_factory_->getClient<proto::Loader>(peer.value()->address())
+      this->client_factory_->createClient<proto::Loader>(*peer.value())
           ->retrieveBlock(&context, request, &block);
   if (not status.ok()) {
     log_->warn("{}", status.error_message());

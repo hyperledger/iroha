@@ -6,8 +6,8 @@
 #ifndef TEST_GRPC_CHANNEL_BUILDER_HPP
 #define TEST_GRPC_CHANNEL_BUILDER_HPP
 
+#include "network/impl/client_factory.hpp"
 #include "network/impl/grpc_channel_builder_params.hpp"
-#include "network/impl/grpc_client_factory.hpp"
 
 namespace iroha {
   namespace network {

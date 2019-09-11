@@ -9,7 +9,12 @@ namespace config_members {
   const char *BlockStorePath = "block_store_path";
   const char *ToriiPort = "torii_port";
   const char *ToriiTlsParams = "torii_tls_params";
-  const char *P2PTlsKeyPairPath = "p2p_tls_key_pair_path";
+  const char *InterPeerTls = "inter_peer_tls";
+  const char *PeerCertProvider = "peer_certificates";
+  const char *RootCert = "root_certificate";
+  const char *InLengerCerts = "from_ledger";
+  const char *Type = "type";
+  const char *Path = "path";
   const char *InternalPort = "internal_port";
   const char *KeyPairPath = "key_pair_path";
   const char *PgOpt = "pg_opt";

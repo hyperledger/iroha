@@ -14,25 +14,26 @@
 #include "network/impl/peer_tls_certificates_provider.hpp"
 #include "network/impl/tls_credentials.hpp"
 
+using namespace iroha::network;
+
 namespace {
 
   const auto kPortBindError = "Cannot bind server to address %s";
 
-  std::shared_ptr<grpc::ServerCredentials> ServerRunner::createCredentials(
-      const boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
+  std::shared_ptr<grpc::ServerCredentials> createCredentials(
+      const boost::optional<std::shared_ptr<const TlsCredentials>>
           &my_tls_creds,
-      const boost::optional<
-          std::unique_ptr<iroha::network::PeerTlsCertificatesProvider>>
+      const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
           &peer_tls_certificates_provider) {
     std::shared_ptr<grpc::ServerCredentials> credentials;
     if (my_tls_creds) {
       grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
-          my_tls_creds->private_key, my_tls_creds->certificate};
-      auto options = grpc::SslServerCredentialsOptions();
+          my_tls_creds.value()->private_key, my_tls_creds.value()->certificate};
+      auto options = grpc::SslServerCredentialsOptions(
+          peer_tls_certificates_provider
+              ? GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY
+              : GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE);
       options.pem_key_cert_pairs.push_back(keypair);
-      // options.pem_root_certs = my_tls_creds->certificate;  // dummy value
-      options.client_certificate_request =
-          GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY;
       credentials = grpc::SslServerCredentials(options);
     } else {
       credentials = grpc::InsecureServerCredentials();
@@ -51,15 +52,14 @@ ServerRunner::ServerRunner(
     const std::string &address,
     logger::LoggerPtr log,
     bool reuse,
-    const boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
-        &my_tls_creds,
-    const boost::optional<
-        std::unique_ptr<iroha::network::PeerTlsCertificatesProvider>>
+    const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds,
+    const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
         &peer_tls_certificates_provider)
     : log_(std::move(log)),
       server_address_(address),
-      reuse_(reuse),
-      credentials_(my_tls_creds, peer_tls_certificates_provider) {}
+      credentials_(
+          createCredentials(my_tls_creds, peer_tls_certificates_provider)),
+      reuse_(reuse) {}
 
 ServerRunner::~ServerRunner() {
   shutdown(std::chrono::system_clock::now());
@@ -78,7 +78,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
     builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
   }
 
-  builder.AddListeningPort(server_address_, credentials_, selected_port);
+  builder.AddListeningPort(server_address_, credentials_, &selected_port);
 
   for (auto &service : services_) {
     builder.RegisterService(service.get());

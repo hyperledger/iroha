@@ -11,7 +11,7 @@
 #include <memory>
 
 #include "ametsuchi/peer_query.hpp"
-#include "common/result.hpp"
+#include "logger/logger_fwd.hpp"
 #include "network/impl/tls_credentials.hpp"
 
 namespace iroha {
@@ -22,21 +22,21 @@ namespace iroha {
     class ChannelFactoryTls : public ChannelFactory {
      public:
       ChannelFactoryTls(
-          std::shared_ptr<GrpcChannelParams> params,
-          std::unique_ptr<PeerTlsCertificatesProvider> peer_cert_provider,
-          boost::optional<TlsCredentials> my_creds);
+          std::shared_ptr<const GrpcChannelParams> params,
+          boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+              peer_cert_provider,
+          boost::optional<std::shared_ptr<const TlsCredentials>> my_creds,
+          logger::LoggerPtr log);
 
      protected:
-      iroha::expected::Result<std::shared_ptr<grpc::ChannelCredentials>,
-                              std::string>
-      getChannelCredentials(const std::string &address) const override;
-
-      boost::optional<std::string> getCertificate(
-          const std::string &address) const;
+      std::shared_ptr<grpc::ChannelCredentials> getChannelCredentials(
+          const shared_model::interface::Peer &peer) const override;
 
      private:
-      std::unique_ptr<PeerTlsCertificatesProvider> peer_cert_provider_;
-      boost::optional<TlsCredentials> my_creds_;
+      boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+          peer_cert_provider_;
+      boost::optional<std::shared_ptr<const TlsCredentials>> my_creds_;
+      logger::LoggerPtr log_;
     };
 
   };  // namespace network

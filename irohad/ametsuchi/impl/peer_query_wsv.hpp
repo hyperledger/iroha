@@ -32,11 +32,12 @@ namespace iroha {
       boost::optional<std::vector<wPeer>> getLedgerPeers() override;
 
       /**
-       * Fetch peer with given address from ledger
+       * Fetch peer with given public key from ledger
        * @return the peer if found, none otherwise
        */
-      boost::optional<PeerQuery::wPeer> getLedgerPeerByAddress(
-          const shared_model::interface::types::AddressType &address) override;
+      boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
+          const shared_model::interface::types::PubkeyType &public_key)
+          override;
 
      private:
       std::shared_ptr<WsvQuery> wsv_;

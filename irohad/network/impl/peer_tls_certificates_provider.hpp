@@ -12,6 +12,12 @@
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 
+namespace shared_model {
+  namespace interface {
+    class Peer;
+  }
+}  // namespace shared_model
+
 namespace iroha {
   namespace network {
 
@@ -19,16 +25,19 @@ namespace iroha {
      public:
       virtual ~PeerTlsCertificatesProvider() = default;
 
-      // REMOVE
-      virtual iroha::expected::Result<std::string, std::string> get(
-          const std::string &address) const = 0;
+      virtual iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::Peer &peer) const = 0;
 
-      /*virtual*/ iroha::expected::Result<std::string, std::string> get(
-          const shared_model::interface::types::PubkeyType &address) const
-          /*= 0*/;
+      virtual iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::types::PubkeyType &public_key)
+          const = 0;
     };
 
-  };  // namespace network
-};    // namespace iroha
+  }  // namespace network
+}  // namespace iroha
 
 #endif

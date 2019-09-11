@@ -13,13 +13,21 @@ namespace iroha {
 
     class PeerTlsCertificatesProviderRoot : public PeerTlsCertificatesProvider {
      public:
-      PeerTlsCertificatesProviderRoot(std::string root_certificate);
+      PeerTlsCertificatesProviderRoot(
+          shared_model::interface::types::TLSCertificateType root_certificate);
 
-      iroha::expected::Result<std::string, std::string> get(
-          const std::string &address) const override;
+      iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::Peer &) const override;
+
+      iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::types::PubkeyType &) const override;
 
      private:
-      std::string root_certificate_;
+      shared_model::interface::types::TLSCertificateType root_certificate_;
     };
 
   };  // namespace network

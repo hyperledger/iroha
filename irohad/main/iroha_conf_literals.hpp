@@ -15,7 +15,12 @@ namespace config_members {
   extern const char *BlockStorePath;
   extern const char *ToriiPort;
   extern const char *ToriiTlsParams;
-  extern const char *P2PTlsKeyPairPath;
+  extern const char *InterPeerTls;
+  extern const char *PeerCertProvider;
+  extern const char *RootCert;
+  extern const char *InLengerCerts;
+  extern const char *Type;
+  extern const char *Path;
   extern const char *InternalPort;
   extern const char *KeyPairPath;
   extern const char *PgOpt;

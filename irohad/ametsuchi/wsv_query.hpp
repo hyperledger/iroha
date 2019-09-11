@@ -39,12 +39,12 @@ namespace iroha {
       getPeers() = 0;
 
       /**
-       * Fetch peer with given address from ledger
+       * Fetch peer with given public key from ledger
        * @return the peer if found, none otherwise
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-      getPeerByAddress(
-          const shared_model::interface::types::AddressType &address) = 0;
+      getPeerByPublicKey(
+          const shared_model::interface::types::PubkeyType &public_key) = 0;
     };
 
   }  // namespace ametsuchi

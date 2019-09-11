@@ -363,6 +363,40 @@ inline void JsonDeserializerImpl::getVal<iroha::torii::TlsParams>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls>(
+    const std::string &path,
+    IrohadConfig::InterPeerTls &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.my_tls_creds_path, obj, config_members::KeyPairPath);
+  getValByKey(
+      path, dest.peer_certificates, obj, config_members::PeerCertProvider);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls::PeerCertProvider>(
+    const std::string &path,
+    IrohadConfig::InterPeerTls::PeerCertProvider &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::RootCert) {
+    IrohadConfig::InterPeerTls::RootCert root_cert;
+    getValByKey(path, root_cert.path, obj, config_members::Path);
+    dest = std::move(root_cert);
+  } else if (type == config_members::InLengerCerts) {
+    dest = IrohadConfig::InterPeerTls::FromLedger{};
+  } else {
+    throw std::runtime_error{std::string{
+        "Unimplemented peer certificate provider type: '" + type + "'"}};
+  }
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig::DbConfig>(
     const std::string &path,
     IrohadConfig::DbConfig &dest,
@@ -388,8 +422,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
   getValByKey(path, dest.torii_tls_params, obj, config_members::ToriiTlsParams);
-  getValByKey(
-      path, dest.p2p_tls_keypair_path, obj, config_members::P2PTlsKeyPairPath);
+  getValByKey(path, dest.inter_peer_tls, obj, config_members::InterPeerTls);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
   getValByKey(path, dest.database_config, obj, config_members::DbConfig);

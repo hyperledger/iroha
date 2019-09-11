@@ -52,12 +52,14 @@ target_link_libraries(ordering_gate_common
     )
 
 add_library(grpc_client_factory
-    #impl/client_factory.cpp
+    impl/client_factory.cpp
     impl/channel_pool.cpp
     )
 target_link_libraries(grpc_client_factory
     common
+    crypto_blob_hasher
     grpc++
+    shared_model_interfaces
     )
 
 add_library(grpc_channel_factory
@@ -70,6 +72,9 @@ target_link_libraries(grpc_channel_factory
 add_library(tls_credentials
     impl/tls_credentials.cpp
     )
+target_link_libraries(tls_credentials
+    common
+    )
 
 add_library(grpc_channel_factory_tls
     impl/channel_factory_tls.cpp
@@ -79,4 +84,6 @@ add_library(grpc_channel_factory_tls
 target_link_libraries(grpc_channel_factory_tls
     grpc_channel_factory
     grpc++
+    logger
+    shared_model_interfaces
     )

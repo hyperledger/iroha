@@ -21,16 +21,6 @@ using shared_model::interface::types::PubkeyType;
 
 namespace {
 
-  /**
-   * Removes all space-symbols from PEM-encoded certificate
-   * Probably should be enough to verify equality
-   * @param certificate PEM-encoded certificate
-   */
-  void normalizeCertificate(std::string &certificate) {
-    boost::replace_all(certificate, " ", "");
-    boost::replace_all(certificate, "\n", "");
-  }
-
   boost::optional<grpc::string_ref> getRequestCertificate(
       grpc::AuthContext const *context) {
     auto pem_cert_values = context->FindPropertyValues("x509_pem_cert");

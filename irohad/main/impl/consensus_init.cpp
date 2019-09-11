@@ -95,8 +95,7 @@ namespace iroha {
               async_call,
           ConsistencyModel consistency_model,
           const logger::LoggerManagerTreePtr &consensus_log_manager,
-          const std::shared_ptr<iroha::network::ClientFactory>
-              &client_factory) {
+          std::shared_ptr<iroha::network::ClientFactory> client_factory) {
         auto peer_orderer = createPeerOrderer(peer_query_factory);
         auto peers = peer_query_factory->createPeerQuery() |
             [](auto &&peer_query) { return peer_query->getLedgerPeers(); };

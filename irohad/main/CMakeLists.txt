@@ -51,6 +51,7 @@ target_link_libraries(application
     grpc_channel_factory
     grpc_channel_factory_tls
     grpc_client_factory
+    tls_credentials
     yac
     yac_transport
     PUBLIC

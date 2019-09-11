@@ -15,7 +15,7 @@ using namespace iroha::network;
 
 using iroha::operator|;
 
-Result<TlsCredentials, std::string> TlsCredentials::load(
+Result<std::unique_ptr<TlsCredentials>, std::string> TlsCredentials::load(
     const std::string &path) {
   static const auto read_file = [](const std::string &path) {
     std::ifstream certificate_file(path);
@@ -23,10 +23,10 @@ Result<TlsCredentials, std::string> TlsCredentials::load(
     ss << certificate_file.rdbuf();
     return ss.str();
   };
-  TlsCredentials creds;
+  auto creds = std::make_unique<TlsCredentials>();
   try {
-    creds.private_key = read_file(path + ".key");
-    creds.certificate = read_file(path + ".crt");
+    creds->private_key = read_file(path + ".key");
+    creds->certificate = read_file(path + ".crt");
   } catch (std::exception e) {
     return makeError(e.what());
   }

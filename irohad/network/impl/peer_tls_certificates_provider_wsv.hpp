@@ -10,6 +10,14 @@
 
 #include <memory>
 
+#include "interfaces/common_objects/types.hpp"
+
+namespace shared_model {
+  namespace interface {
+    class Peer;
+  }
+}  // namespace shared_model
+
 namespace iroha {
   namespace ametsuchi {
     class PeerQuery;
@@ -21,8 +29,16 @@ namespace iroha {
       PeerTlsCertificatesProviderWsv(
           std::shared_ptr<iroha::ametsuchi::PeerQuery> peer_query);
 
-      iroha::expected::Result<std::string, std::string> get(
-          const std::string &address) const override;
+      iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::Peer &peer) const override;
+
+      iroha::expected::Result<
+          shared_model::interface::types::TLSCertificateType,
+          std::string>
+      get(const shared_model::interface::types::PubkeyType &public_key)
+          const override;
 
      private:
       std::shared_ptr<iroha::ametsuchi::PeerQuery> peer_query_;

@@ -6,7 +6,7 @@
 #include "main/impl/block_loader_init.hpp"
 
 #include "logger/logger_manager.hpp"
-#include "network/impl/grpc_client_factory.hpp"
+#include "network/impl/client_factory.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 
@@ -47,14 +47,14 @@ namespace {
                         validators_config,
                     logger::LoggerPtr loader_log,
                     std::shared_ptr<ClientFactory> client_factory) {
-    shared_model::proto::ProtoBlockFactory factory(
+    shared_model::proto::ProtoBlockFactory block_factory(
         std::make_unique<shared_model::validation::DefaultSignedBlockValidator>(
             validators_config),
         std::make_unique<shared_model::validation::ProtoBlockValidator>());
     return std::make_shared<BlockLoaderImpl>(std::move(peer_query_factory),
                                              std::move(block_factory),
-                                             std::move(client_factory),
-                                             std::move(loader_log));
+                                             std::move(loader_log),
+                                             std::move(client_factory));
   }
 
 }  // namespace

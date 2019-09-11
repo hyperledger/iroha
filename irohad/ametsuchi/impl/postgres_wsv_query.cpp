@@ -84,14 +84,14 @@ namespace iroha {
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-    PostgresWsvQuery::getPeerByAddress(const AddressType &address) {
+    PostgresWsvQuery::getPeerByPublicKey(const PubkeyType &public_key) {
       using T = boost::tuple<std::string, AddressType, TLSCertificateType>;
       auto result = execute<T>([&] {
         return (sql_.prepare << R"(
             SELECT public_key, address, tls_certificate
             FROM peer
-            WHERE address = :address)",
-                soci::use(address, "address"));
+            WHERE public_key = :public_key)",
+                soci::use(public_key.hex(), "public_key"));
       });
 
       return getPeersFromSociRowSet(result) | [](auto &&peers) {

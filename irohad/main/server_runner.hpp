@@ -14,7 +14,7 @@
 namespace iroha {
   namespace network {
     class PeerTlsCertificatesProvider;
-    class TlsCredentials;
+    struct TlsCredentials;
 
     /**
      * Class runs Torii server for handling queries and commands.
@@ -35,9 +35,10 @@ namespace iroha {
           const std::string &address,
           logger::LoggerPtr log,
           bool reuse = true,
-          const boost::optional<std::shared_ptr<TlsCredentials>> &my_tls_creds,
-          const boost::optional<std::unique_ptr<PeerTlsCertificatesProvider>>
-              &peer_tls_certificates_provider);
+          const boost::optional<std::shared_ptr<const TlsCredentials>>
+              &my_tls_creds = boost::none,
+          const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+              &peer_tls_certificates_provider = boost::none);
 
       ~ServerRunner();
 
@@ -70,12 +71,6 @@ namespace iroha {
       void shutdown(const std::chrono::system_clock::time_point &deadline);
 
      private:
-      /**
-       * Construct server credentials.
-       * @return Result with server credentials.
-       */
-      std::shared_ptr<grpc::ServerCredentials> createCredentials();
-
       logger::LoggerPtr log_;
 
       std::unique_ptr<grpc::Server> server_instance_;
@@ -83,8 +78,9 @@ namespace iroha {
       std::condition_variable server_instance_cv_;
 
       std::string server_address_;
-      boost::optional<std::shared_ptr<TlsCredentials>> my_tls_creds_;
+      boost::optional<std::shared_ptr<const TlsCredentials>> my_tls_creds_;
       std::shared_ptr<grpc::ServerCredentials> credentials_;
+
       bool reuse_;
 
       std::vector<std::shared_ptr<grpc::Service>> services_;

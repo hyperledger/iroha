@@ -16,6 +16,7 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
+#include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
@@ -39,13 +40,14 @@ namespace iroha {
   }    // namespace consensus
   namespace network {
     class BlockLoader;
+    class ChannelPool;
     class ClientFactory;
     class ConsensusGate;
     class PeerCommunicationService;
     class MstTransport;
     class OrderingGate;
-    class TlsCredentials;
-    struct GrpcClientParams;
+    struct GrpcChannelParams;
+    struct TlsCredentials;
   }  // namespace network
   namespace simulator {
     class Simulator;
@@ -103,7 +105,7 @@ class Irohad {
    * consecutive status emissions
    * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
-   * @param grpc_client_params - parameters for all grpc clients
+   * @param grpc_channel_params - parameters for all grpc clients
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
@@ -126,12 +128,14 @@ class Irohad {
          boost::optional<shared_model::interface::types::PeerList>
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
-         std::unique_ptr<iroha::network::GrpcClientParams> grpc_client_params,
+         std::shared_ptr<const iroha::network::GrpcChannelParams>
+             grpc_channel_params,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none,
          const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
              boost::none,
-         boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config);
+         boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
+             boost::none);
 
   /**
    * Initialization of whole objects in system
@@ -170,11 +174,11 @@ class Irohad {
   virtual RunResult initStorage(
       std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
 
-  RunResult Irohad::initTlsCredentials();
+  RunResult initTlsCredentials();
 
-  RunResult Irohad::initPeerCertProvider();
+  RunResult initPeerCertProvider();
 
-  RunResult Irohad::initChannelPool();
+  RunResult initClientFactory();
 
   virtual RunResult initCryptoProvider();
 
@@ -212,8 +216,6 @@ class Irohad {
 
   virtual RunResult initQueryService();
 
-  virtual RunResult initClientFactory();
-
   /**
    * Initialize WSV restorer
    */
@@ -234,13 +236,14 @@ class Irohad {
   size_t stale_stream_max_rounds_;
   const boost::optional<shared_model::interface::types::PeerList>
       opt_alternative_peers_;
+  std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
   boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
 
-  boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
+  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
       my_inter_peer_tls_creds_;
-  boost::optional<std::shared_ptr<iroha::network::TlsCredentials>>
+  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
       torii_tls_creds_;
   boost::optional<std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>>
       peer_tls_certificates_provider_;
@@ -267,6 +270,9 @@ class Irohad {
   iroha::network::BlockLoaderInit loader_init;
 
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
+  // std::shared_ptr<iroha::network::ChannelPool> inter_peer_channel_pool_;
+  std::shared_ptr<iroha::network::ClientFactory> inter_peer_client_factory_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
@@ -372,8 +378,6 @@ class Irohad {
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 
   logger::LoggerPtr log_;  ///< log for local messages
-
-  std::shared_ptr<iroha::network::ClientFactory> client_factory;
 };
 
 #endif  // IROHA_APPLICATION_HPP

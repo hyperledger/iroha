@@ -11,9 +11,8 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "common/bind.hpp"
-#include "network/impl/grpc_channel_params.hpp"
+#include "interfaces/common_objects/peer.hpp"
 
-using namespace iroha::expected;
 using namespace iroha::network;
 using namespace std::literals::chrono_literals;
 
@@ -95,7 +94,7 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
 
 class ChannelFactory::ChannelArgumentsProvider {
  public:
-  ChannelArgumentsProvider(std::shared_ptr<GrpcChannelParams> params)
+  ChannelArgumentsProvider(std::shared_ptr<const GrpcChannelParams> params)
       : params_(std::move(params)) {}
 
   const grpc::ChannelArguments &get(const std::string &service_full_name) {
@@ -107,26 +106,25 @@ class ChannelFactory::ChannelArgumentsProvider {
   }
 
  private:
-  std::shared_ptr<GrpcChannelParams> params_;
+  std::shared_ptr<const GrpcChannelParams> params_;
   std::set<std::string> service_names_;
   grpc::ChannelArguments args_;
 };
 
-ChannelFactory::ChannelFactory(std::shared_ptr<GrpcChannelParams> params)
+ChannelFactory::ChannelFactory(std::shared_ptr<const GrpcChannelParams> params)
     : args_(std::make_unique<ChannelArgumentsProvider>(std::move(params))) {}
 
 ChannelFactory::~ChannelFactory() = default;
 
-Result<std::shared_ptr<grpc::Channel>, std::string>
-ChannelFactory::createChannel(const std::string &service_full_name,
-                              const std::string &address) const {
-  return getChannelCredentials(address) | [&, this](auto &&credentials) {
-    return grpc::CreateCustomChannel(
-        address, std::move(credentials), args_->get(service_full_name));
-  };
+std::shared_ptr<grpc::Channel> ChannelFactory::createChannel(
+    const std::string &service_full_name,
+    const shared_model::interface::Peer &peer) const {
+  return grpc::CreateCustomChannel(peer.address(),
+                                   getChannelCredentials(peer),
+                                   args_->get(service_full_name));
 }
 
-Result<std::shared_ptr<grpc::ChannelCredentials>, std::string>
-ChannelFactory::getChannelCredentials(const std::string & /* address */) const {
+std::shared_ptr<grpc::ChannelCredentials> ChannelFactory::getChannelCredentials(
+    const shared_model::interface::Peer &) const {
   return grpc::InsecureChannelCredentials();
 }
