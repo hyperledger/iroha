@@ -25,7 +25,8 @@ namespace shared_model {
       if (!ursa_ed25519_sign(&kMessage, &kPrivateKey, &signature, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-      };
+        return Signed{""};
+      }
 
       Signed result(std::string((const std::string::value_type *)signature.data,
                                 signature.len));
@@ -67,7 +68,8 @@ namespace shared_model {
       if (!ursa_ed25519_keypair_new(&public_key, &private_key, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-      };
+        return Keypair{PublicKey{""}, PrivateKey{""}};
+      }
 
       Keypair result(PublicKey(std::string(
                          (const std::string::value_type *)public_key.data,
@@ -94,7 +96,8 @@ namespace shared_model {
               &kSeed, &public_key, &private_key, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-      };
+        return Keypair{PublicKey{""}, PrivateKey{""}};
+      }
 
       Keypair result(PublicKey(std::string(
                          (const std::string::value_type *)public_key.data,
