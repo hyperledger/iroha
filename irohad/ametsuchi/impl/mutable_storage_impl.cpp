@@ -53,9 +53,9 @@ namespace iroha {
                  block->height(),
                  block->hash().hex());
 
-      log_->trace("Applying block: [ {} ]",
-                  shared_model::interface::TxHashesPrinter<decltype(
-                      block->transactions())>(block->transactions()));
+      log_->trace(
+          "Applying block: [ {} ]",
+          shared_model::interface::makeTxHashesPrinter(block->transactions()));
 
       auto block_applied =
           (not ledger_state_ or predicate(block, *ledger_state_.value()))
