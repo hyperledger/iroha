@@ -133,6 +133,15 @@ namespace framework {
           const shared_model::interface::types::AccountDetailKeyType &key = "",
           const shared_model::interface::types::AccountIdType &writer = "");
 
+      /**
+       * Get setting value by its key
+       * @param setting_key
+       * @return if key exist then value otherwise none
+       */
+      boost::optional<shared_model::interface::types::SettingValueType>
+      getSettingValue(
+          const shared_model::interface::types::SettingKeyType &setting_key);
+
      private:
       soci::session &sql_;
       std::shared_ptr<shared_model::interface::CommonObjectsFactory> factory_;

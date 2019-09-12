@@ -20,6 +20,10 @@ class TransactionValidatorTest : public ValidatorsTest {
   TransactionValidatorTest()
       : transaction_validator(iroha::test::kTestsValidatorsConfig) {}
 
+  auto getCountIgnoredFields() {
+    return ignored_fields_.size();
+  }
+
  protected:
   iroha::protocol::Transaction generateEmptyTransaction() {
     std::string creator_account_id = "admin@test";
@@ -138,7 +142,7 @@ TEST_F(TransactionValidatorTest, StatelessInvalidTest) {
 
   // in total there should be number_of_commands + 1 reasons of bad answer:
   // number_of_commands for each command + 1 for transaction metadata
-  ASSERT_EQ(answer.getReasonsMap().size(),
+  ASSERT_EQ(answer.getReasonsMap().size() + getCountIgnoredFields(),
             iroha::protocol::Command::descriptor()->field_count() + 1);
 }
 /**

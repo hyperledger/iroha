@@ -75,6 +75,14 @@ target_link_libraries(tx_presence_cache_test
     shared_model_interfaces_factories
     )
 
+addtest(settings_test settings_test.cpp)
+target_link_libraries(settings_test
+        ametsuchi
+        ametsuchi_fixture
+        test_logger
+        commands_mocks_factory
+        )
+
 addtest(in_memory_block_storage_test in_memory_block_storage_test.cpp)
 target_link_libraries(in_memory_block_storage_test
     ametsuchi

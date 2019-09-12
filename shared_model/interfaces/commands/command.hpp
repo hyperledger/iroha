@@ -31,6 +31,7 @@ namespace shared_model {
     class SubtractAssetQuantity;
     class TransferAsset;
     class CompareAndSetAccountDetail;
+    class SetSettingValue;
 
     /**
      * Class provides commands container for all commands in system.
@@ -61,7 +62,8 @@ namespace shared_model {
                                       SubtractAssetQuantity,
                                       TransferAsset,
                                       RemovePeer,
-                                      CompareAndSetAccountDetail>;
+                                      CompareAndSetAccountDetail,
+                                      SetSettingValue>;
 
       /**
        * @return reference to const variant with concrete command
