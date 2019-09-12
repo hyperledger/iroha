@@ -11,3 +11,13 @@ target_link_libraries(block_loader_test
     shared_model_default_builders
     test_logger
     )
+
+addtest(client_factory_test client_factory_test.cpp)
+target_link_libraries(client_factory_test
+    test_client_factory
+    shared_model_cryptography
+    shared_model_default_builders
+    server_runner
+    endpoint
+    test_logger
+    )
