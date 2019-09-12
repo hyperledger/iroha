@@ -41,7 +41,7 @@ namespace iroha {
   namespace network {
     class BlockLoader;
     class ChannelPool;
-    class ClientFactory;
+    class GenericClientFactory;
     class ConsensusGate;
     class PeerCommunicationService;
     class MstTransport;
@@ -273,7 +273,8 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
   // std::shared_ptr<iroha::network::ChannelPool> inter_peer_channel_pool_;
-  std::shared_ptr<iroha::network::ClientFactory> inter_peer_client_factory_;
+  std::shared_ptr<iroha::network::GenericClientFactory>
+      inter_peer_client_factory_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;

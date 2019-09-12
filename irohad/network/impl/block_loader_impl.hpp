@@ -18,16 +18,20 @@
 
 namespace iroha {
   namespace network {
+    template <typename Service>
     class ClientFactory;
 
     class BlockLoaderImpl : public BlockLoader {
      public:
+      using Service = proto::Loader;
+      using ClientFactory = iroha::network::ClientFactory<Service>;
+
       // TODO 30.01.2019 lebdron: IR-264 Remove PeerQueryFactory
       BlockLoaderImpl(
           std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
           shared_model::proto::ProtoBlockFactory factory,
           logger::LoggerPtr log,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          std::unique_ptr<ClientFactory> client_factory);
 
       rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlocks(
@@ -51,7 +55,7 @@ namespace iroha {
 
       std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory_;
       shared_model::proto::ProtoBlockFactory block_factory_;
-      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+      std::unique_ptr<ClientFactory> client_factory_;
 
       logger::LoggerPtr log_;
     };

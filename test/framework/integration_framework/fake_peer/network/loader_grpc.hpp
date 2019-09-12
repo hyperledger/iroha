@@ -20,7 +20,7 @@ namespace integration_framework {
       explicit LoaderGrpc(
           const std::shared_ptr<FakePeer> &fake_peer,
           logger::LoggerPtr log,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /**
        * Send a `retrieveBlock' request to the peer at given address.
@@ -64,7 +64,7 @@ namespace integration_framework {
 
      private:
       std::weak_ptr<FakePeer> fake_peer_wptr_;
-      std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+      std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
       rxcpp::subjects::subject<LoaderBlockRequest> block_requests_subject_;
       rxcpp::subjects::subject<LoaderBlocksRequest> blocks_requests_subject_;

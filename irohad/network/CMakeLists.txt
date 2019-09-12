@@ -44,6 +44,10 @@ target_link_libraries(ordering_gate_common
 add_library(grpc_client_factory
     impl/client_factory.cpp
     )
+target_link_libraries(grpc_client_factory
+    PUBLIC
+    grpc++
+    )
 
 add_library(grpc_channel_pool
     impl/channel_pool.cpp
@@ -54,7 +58,7 @@ target_link_libraries(grpc_channel_pool
     crypto_blob_hasher
     grpc_channel_factory
     shared_model_interfaces
-    INTERFACE
+    PUBLIC
     grpc++
     )
 
@@ -62,7 +66,7 @@ add_library(grpc_channel_factory
     impl/channel_factory.cpp
     )
 target_link_libraries(grpc_channel_factory
-    INTERFACE
+    PUBLIC
     grpc++
     )
 

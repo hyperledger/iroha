@@ -7,5 +7,6 @@
 
 using namespace iroha::network;
 
-ClientFactory::ClientFactory(std::unique_ptr<ChannelProvider> channel_provider)
+GenericClientFactory::GenericClientFactory(
+    std::unique_ptr<ChannelProvider> channel_provider)
     : channel_provider_(std::move(channel_provider)) {}

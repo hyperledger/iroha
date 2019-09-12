@@ -11,9 +11,6 @@
 #include <string>
 #include <unordered_map>
 
-#include <grpc++/grpc++.h>
-
-#include "ametsuchi/peer_query.hpp"
 #include "cryptography/blob_hasher.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -36,7 +33,7 @@ namespace iroha {
        * @param keypair_path optional path to a pair of PEM-encoded key and
        *        certificate for client authentication
        */
-      explicit ChannelPool(std::unique_ptr<ChannelFactory> channel_factory);
+      explicit ChannelPool(std::unique_ptr<ChannelProvider> channel_provider);
 
       ~ChannelPool();
 
@@ -52,7 +49,7 @@ namespace iroha {
           const shared_model::interface::Peer &peer) override;
 
      private:
-      std::unique_ptr<ChannelFactory> channel_factory_;
+      std::unique_ptr<ChannelProvider> channel_provider_;
       std::unordered_map<shared_model::crypto::PublicKey,
                          std::shared_ptr<grpc::Channel>,
                          shared_model::crypto::BlobHasher>

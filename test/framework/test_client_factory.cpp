@@ -10,7 +10,7 @@
 #include "logger/logger_manager.hpp"
 #include "network/impl/channel_factory.hpp"
 #include "network/impl/channel_factory_tls.hpp"
-#include "network/impl/grpc_channel_params.hpp"
+#include "network/impl/channel_pool.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 #include "network/impl/tls_credentials.hpp"
 
@@ -22,7 +22,7 @@ void remove_elem(Collection &collection, const Elem &elem) {
 }
 
 static const auto log_manager =
-    getTestLoggerManager() -> getChild("ClientFactory");
+    getTestLoggerManager() -> getChild("GenericClientFactory");
 
 namespace iroha {
   namespace network {
@@ -43,16 +43,16 @@ namespace iroha {
       return params;
     }
 
-    std::unique_ptr<ClientFactory> getTestInsecureClientFactory(
+    std::unique_ptr<GenericClientFactory> getTestInsecureClientFactory(
         std::shared_ptr<const GrpcChannelParams> params) {
       std::unique_ptr<ChannelFactory> channel_factory =
           std::make_unique<ChannelFactory>(params);
 
-      return std::make_unique<ClientFactory>(
+      return std::make_unique<GenericClientFactory>(
           std::make_unique<ChannelPool>(std::move(channel_factory)));
     }
 
-    std::unique_ptr<ClientFactory> getTestTlsClientFactory(
+    std::unique_ptr<GenericClientFactory> getTestTlsClientFactory(
         boost::optional<shared_model::interface::types::TLSCertificateType>
             certificate,
         boost::optional<std::shared_ptr<const TlsCredentials>> my_creds,
@@ -60,7 +60,7 @@ namespace iroha {
       auto peer_cert_provider =
           std::move(certificate) | [](auto &&certificate) {
             return boost::make_optional(
-                std::unique_ptr<const PeerTlsCertificatesProvider>(
+                std::shared_ptr<const PeerTlsCertificatesProvider>(
                     std::make_unique<PeerTlsCertificatesProviderRoot>(
                         std::move(certificate))));
           };
@@ -72,7 +72,7 @@ namespace iroha {
               my_creds,
               log_manager->getChild("ChannelFactoryTls")->getLogger());
 
-      return std::make_unique<ClientFactory>(
+      return std::make_unique<GenericClientFactory>(
           std::make_unique<ChannelPool>(std::move(channel_factory)));
     }
 

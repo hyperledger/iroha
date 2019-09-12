@@ -25,7 +25,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactory;
+    class GenericClientFactory;
   }
   namespace ordering {
 
@@ -52,7 +52,7 @@ namespace iroha {
           std::chrono::milliseconds delay,
           std::vector<shared_model::interface::types::HashType> initial_hashes,
           const logger::LoggerManagerTreePtr &ordering_log_manager,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /**
        * Creates on-demand ordering gate. \see initOrderingGate for parameters
@@ -136,7 +136,7 @@ namespace iroha {
           std::function<std::chrono::milliseconds(
               const synchronizer::SynchronizationEvent &)> delay_func,
           logger::LoggerManagerTreePtr ordering_log_manager,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /// gRPC service for ordering service
       std::shared_ptr<proto::OnDemandOrdering::Service> service;

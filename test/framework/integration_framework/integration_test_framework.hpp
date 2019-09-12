@@ -512,7 +512,7 @@ namespace integration_framework {
     boost::optional<shared_model::crypto::Keypair> my_key_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
-    std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
    private:
     bool cleanup_on_exit_;

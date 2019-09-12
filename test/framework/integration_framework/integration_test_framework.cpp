@@ -651,7 +651,7 @@ namespace integration_framework {
                                            // for a proposal request, which our
                                            // client does not do
             log_manager_->getChild("OrderingClientTransport")->getLogger(),
-            std::make_shared<iroha::network::ClientFactory>())
+            std::make_shared<iroha::network::GenericClientFactory>())
             .create(*this_peer_);
     on_demand_os_transport->onBatches(batches);
     return *this;
@@ -667,7 +667,7 @@ namespace integration_framework {
             [] { return std::chrono::system_clock::now(); },
             timeout,
             log_manager_->getChild("OrderingClientTransport")->getLogger(),
-            std::make_shared<iroha::network::ClientFactory>())
+            std::make_shared<iroha::network::GenericClientFactory>())
             .create(*this_peer_);
     return on_demand_os_transport->onRequestProposal(round);
   }

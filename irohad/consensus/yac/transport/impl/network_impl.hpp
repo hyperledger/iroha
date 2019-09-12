@@ -18,11 +18,15 @@
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/impl/async_grpc_client.hpp"
+#include "network/impl/client_factory.hpp"
 
 namespace iroha {
+  /*
   namespace network {
+    template <typename Service>
     class ClientFactory;
   }
+  */
 
   namespace consensus {
     namespace yac {
@@ -33,10 +37,14 @@ namespace iroha {
        */
       class NetworkImpl : public YacNetwork, public proto::Yac::Service {
        public:
+        using Service = proto::Yac;
+        using ClientFactory = iroha::network::ClientFactory<Service>;
+
         explicit NetworkImpl(
             std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
                 async_call,
-            std::shared_ptr<iroha::network::ClientFactory> client_factory,
+            std::unique_ptr<iroha::network::ClientFactory<
+                ::iroha::consensus::yac::proto::Yac>> client_factory,
             logger::LoggerPtr log);
 
         void subscribe(
@@ -70,7 +78,7 @@ namespace iroha {
         /**
          * Yac stub creator
          */
-        std::shared_ptr<iroha::network::ClientFactory> client_factory_;
+        std::unique_ptr<ClientFactory> client_factory_;
 
         logger::LoggerPtr log_;
       };

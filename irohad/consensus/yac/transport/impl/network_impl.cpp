@@ -24,7 +24,7 @@ namespace iroha {
       NetworkImpl::NetworkImpl(
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory,
+          std::unique_ptr<ClientFactory> client_factory,
           logger::LoggerPtr log)
           : async_call_(async_call),
             client_factory_(std::move(client_factory)),
@@ -44,7 +44,7 @@ namespace iroha {
         }
 
         async_call_->Call([&](auto context, auto cq) {
-          return client_factory_->createClient<proto::Yac>(to)->AsyncSendState(
+          return client_factory_->createClient(to)->AsyncSendState(
               context, request, cq);
         });
 

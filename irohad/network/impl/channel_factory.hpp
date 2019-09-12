@@ -81,7 +81,7 @@ namespace iroha {
        *
        * @note the return type has shared_ptr due to the grpc interface
        */
-      std::shared_ptr<grpc::Channel> createChannel(
+      std::shared_ptr<grpc::Channel> getChannel(
           const std::string &service_full_name,
           const shared_model::interface::Peer &peer) override;
 

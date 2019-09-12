@@ -46,15 +46,17 @@ namespace {
                     std::shared_ptr<shared_model::validation::ValidatorsConfig>
                         validators_config,
                     logger::LoggerPtr loader_log,
-                    std::shared_ptr<ClientFactory> client_factory) {
+                    std::shared_ptr<GenericClientFactory> client_factory) {
     shared_model::proto::ProtoBlockFactory block_factory(
         std::make_unique<shared_model::validation::DefaultSignedBlockValidator>(
             validators_config),
         std::make_unique<shared_model::validation::ProtoBlockValidator>());
-    return std::make_shared<BlockLoaderImpl>(std::move(peer_query_factory),
-                                             std::move(block_factory),
-                                             std::move(loader_log),
-                                             std::move(client_factory));
+    return std::make_shared<BlockLoaderImpl>(
+        std::move(peer_query_factory),
+        std::move(block_factory),
+        std::move(loader_log),
+        std::make_unique<ClientFactoryImpl<BlockLoaderImpl::Service>>(
+            std::move(client_factory)));
   }
 
 }  // namespace
@@ -66,7 +68,7 @@ std::shared_ptr<BlockLoader> BlockLoaderInit::initBlockLoader(
     std::shared_ptr<shared_model::validation::ValidatorsConfig>
         validators_config,
     const logger::LoggerManagerTreePtr &loader_log_manager,
-    std::shared_ptr<iroha::network::ClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   service = createService(std::move(block_query_factory),
                           std::move(consensus_result_cache),
                           loader_log_manager);

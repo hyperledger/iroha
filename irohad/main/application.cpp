@@ -41,6 +41,7 @@
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/channel_factory_tls.hpp"
+#include "network/impl/channel_pool.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 #include "network/impl/peer_tls_certificates_provider_wsv.hpp"
@@ -370,7 +371,7 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
       std::stringstream ss;
       ss << certificate_file.rdbuf();
       return makeValue(ss.str());
-    } catch (std::exception e) {
+    } catch (const std::exception &e) {
       return makeError(e.what());
     }
   };
@@ -446,7 +447,7 @@ Irohad::RunResult Irohad::initClientFactory() {
 
   return create_channel_factory() |
              [this](auto &&channel_factory) -> RunResult {
-    this->inter_peer_client_factory_ = std::make_unique<ClientFactory>(
+    this->inter_peer_client_factory_ = std::make_unique<GenericClientFactory>(
         std::make_unique<ChannelPool>(std::move(channel_factory)));
     return {};
   };
@@ -855,7 +856,9 @@ Irohad::RunResult Irohad::initMstProcessor() {
         keypair.publicKey(),
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger(),
-        inter_peer_client_factory_);
+        std::make_unique<iroha::network::ClientFactoryImpl<
+            iroha::network::MstTransportGrpc::Service>>(
+            inter_peer_client_factory_));
     mst_propagation = std::make_shared<GossipPropagationStrategy>(
         storage, rxcpp::observe_on_new_thread(), *opt_mst_gossip_params_);
   } else {

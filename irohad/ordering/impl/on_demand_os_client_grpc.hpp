@@ -16,6 +16,7 @@
 
 namespace iroha {
   namespace network {
+    template <typename Service>
     class ClientFactory;
   }
   namespace ordering {
@@ -63,6 +64,9 @@ namespace iroha {
 
       class OnDemandOsClientGrpcFactory : public OdOsNotificationFactory {
        public:
+        using Service = proto::OnDemandOrdering;
+        using ClientFactory = iroha::network::ClientFactory<Service>;
+
         using TransportFactoryType = OnDemandOsClientGrpc::TransportFactoryType;
         OnDemandOsClientGrpcFactory(
             std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
@@ -71,7 +75,7 @@ namespace iroha {
             std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
             OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
             logger::LoggerPtr client_log,
-            std::shared_ptr<iroha::network::ClientFactory> client_factory);
+            std::unique_ptr<ClientFactory> client_factory);
 
         /**
          * Create connection with insecure gRPC channel.
@@ -87,7 +91,7 @@ namespace iroha {
         std::function<OnDemandOsClientGrpc::TimepointType()> time_provider_;
         std::chrono::milliseconds proposal_request_timeout_;
         logger::LoggerPtr client_log_;
-        std::shared_ptr<network::ClientFactory> client_factory_;
+        std::unique_ptr<ClientFactory> client_factory_;
       };
 
     }  // namespace transport

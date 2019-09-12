@@ -18,7 +18,7 @@ namespace integration_framework {
     LoaderGrpc::LoaderGrpc(
         const std::shared_ptr<FakePeer> &fake_peer,
         logger::LoggerPtr log,
-        std::shared_ptr<iroha::network::ClientFactory> client_factory)
+        std::shared_ptr<iroha::network::GenericClientFactory> client_factory)
         : fake_peer_wptr_(fake_peer),
           log_(std::move(log)),
           client_factory_(client_factory) {}

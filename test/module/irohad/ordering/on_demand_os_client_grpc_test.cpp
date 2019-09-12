@@ -43,8 +43,6 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
       shared_model::validation::MockValidator<iroha::protocol::Proposal>;
 
   void SetUp() override {
-    auto ustub = std::make_unique<proto::MockOnDemandOrderingStub>();
-    stub = ustub.get();
     async_call =
         std::make_shared<network::AsyncGrpcClient<google::protobuf::Empty>>(
             getTestLogger("AsyncCall"));
@@ -63,7 +61,18 @@ class OnDemandOsClientGrpcTest : public ::testing::Test {
                                                getTestLogger("OdOsClientGrpc"));
   }
 
-  proto::MockOnDemandOrderingStub *stub;
+  template <typename ExpectationsSetter>
+  auto expectConnection(
+      boost::optional<const shared_model::interface::Peer &> peer,
+      ExpectationsSetter &&set_expectations) {
+    using PeerType = const shared_model::interface::Peer &;
+    auto stub = std::make_unique<proto::MockOnDemandOrderingStub>();
+    std::forward<ExpectationsSetter>(set_expectations)(*stub);
+    EXPECT_CALL(*mock_client_factory_,
+                createClient(peer ? Eq(ByRef(*peer)) : A<PeerType>()))
+        .WillOnce(Return(ByMove(std::move(stub))));
+  }
+
   std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>> async_call;
   OnDemandOsClientGrpc::TimepointType timepoint;
   std::chrono::milliseconds timeout{1};
@@ -84,8 +93,10 @@ TEST_F(OnDemandOsClientGrpcTest, onBatches) {
   proto::BatchesRequest request;
   auto r = std::make_unique<
       MockClientAsyncResponseReader<google::protobuf::Empty>>();
-  EXPECT_CALL(*stub, AsyncSendBatchesRaw(_, _, _))
-      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  expectConnection(boost::none, [&request, &r](auto &stub) {
+    EXPECT_CALL(stub, AsyncSendBatchesRaw(_, _, _))
+        .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  });
 
   OdOsNotification::CollectionType collection;
   auto creator = "test";
@@ -130,11 +141,13 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposal) {
       ->mutable_payload()
       ->mutable_reduced_payload()
       ->set_creator_account_id(creator);
-  EXPECT_CALL(*stub, RequestProposal(_, _, _))
-      .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
-                      SaveArg<1>(&request),
-                      SetArgPointee<2>(response),
-                      Return(grpc::Status::OK)));
+  expectConnection(boost::none, [&](auto &stub) {
+    EXPECT_CALL(stub, RequestProposal(_, _, _))
+        .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
+                        SaveArg<1>(&request),
+                        SetArgPointee<2>(response),
+                        Return(grpc::Status::OK)));
+  });
 
   auto proposal = client->onRequestProposal(round);
 
@@ -156,11 +169,13 @@ TEST_F(OnDemandOsClientGrpcTest, onRequestProposalNone) {
   std::chrono::system_clock::time_point deadline;
   proto::ProposalRequest request;
   proto::ProposalResponse response;
-  EXPECT_CALL(*stub, RequestProposal(_, _, _))
-      .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
-                      SaveArg<1>(&request),
-                      SetArgPointee<2>(response),
-                      Return(grpc::Status::OK)));
+  expectConnection(boost::none, [&](auto &stub) {
+    EXPECT_CALL(*stub, RequestProposal(_, _, _))
+        .WillOnce(DoAll(SaveClientContextDeadline(&deadline),
+                        SaveArg<1>(&request),
+                        SetArgPointee<2>(response),
+                        Return(grpc::Status::OK)));
+  });
 
   auto proposal = client->onRequestProposal(round);
 

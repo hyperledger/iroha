@@ -36,9 +36,7 @@ using ::testing::SaveArg;
 
 class TransportTest : public ::testing::Test {
  public:
-  TransportTest()
-      : my_key_(makeKey()),
-        stub(new iroha::network::transport::MockMstTransportGrpcStub()) {}
+  TransportTest() : my_key_(makeKey()) {}
   void SetUp() override {
     async_call_ = std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
         getTestLogger("AsyncClient"));
@@ -64,13 +62,6 @@ class TransportTest : public ::testing::Test {
         shared_model::interface::Transaction,
         shared_model::proto::Transaction>>(std::move(interface_tx_validator),
                                            std::move(proto_tx_validator));
-    // TODO 18.06.19 (@alex9430) fix the test so that neither boost::none, nor
-    // nullptr is in use with sender_factory
-    MstTransportGrpc::SenderFactory sender_factory_(
-        [this](const shared_model::interface::Peer &peer) {
-          return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-              stub);
-        });
     transport =
         std::make_shared<MstTransportGrpc>(async_call_,
                                            tx_factory,
@@ -88,6 +79,18 @@ class TransportTest : public ::testing::Test {
         shared_model::crypto::Hash::fromHexString(
             "abcdabcdabcdabcdabcdabcdabcdabcd"));
     peer = makePeer("localhost:0", pk);
+  }
+
+  template <typename ExpectationsSetter>
+  auto expectConnection(
+      boost::optional<const shared_model::interface::Peer &> peer,
+      ExpectationsSetter &&set_expectations) {
+    using PeerType = const shared_model::interface::Peer &;
+    auto stub = std::make_unique<transport::MockMstTransportGrpcStub>();
+    std::forward<ExpectationsSetter>(set_expectations)(*stub);
+    EXPECT_CALL(*mock_client_factory_,
+                createClient(peer ? Eq(ByRef(*peer)) : A<PeerType>()))
+        .WillOnce(Return(ByMove(std::move(stub))));
   }
 
   std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call_;
@@ -113,8 +116,6 @@ class TransportTest : public ::testing::Test {
       tx_factory;
   std::shared_ptr<MstTransportGrpc> transport;
   std::shared_ptr<shared_model::interface::Peer> peer;
-  // stub will be deleted by unique_ptr created in client_creator
-  iroha::network::transport::MockMstTransportGrpcStub *stub;
 };
 
 static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
@@ -171,8 +172,10 @@ TEST_F(TransportTest, SendAndReceive) {
   ::iroha::network::transport::MstState request;
   auto r = std::make_unique<
       grpc::testing::MockClientAsyncResponseReader<google::protobuf::Empty>>();
-  EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
-      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  expectConnection(*peer, [request, r](auto &stub) {
+    EXPECT_CALL(stub, AsyncSendStateRaw(_, _, _))
+        .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  });
   transport->sendState(*peer, state);
   auto response = transport->SendState(&context, &request, nullptr);
   ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);

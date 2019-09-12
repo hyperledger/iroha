@@ -9,12 +9,12 @@
 #include <sstream>
 
 #include "interfaces/common_objects/peer.hpp"
-#include "network/impl/channel_factory.hpp"
+#include "network/impl/channel_provider.hpp"
 
 using namespace iroha::network;
 
-ChannelPool::ChannelPool(std::unique_ptr<ChannelFactory> channel_factory)
-    : channel_factory_(std::move(channel_factory)) {}
+ChannelPool::ChannelPool(std::unique_ptr<ChannelProvider> channel_provider)
+    : channel_provider_(std::move(channel_provider)) {}
 
 ChannelPool::~ChannelPool() = default;
 
@@ -23,7 +23,7 @@ std::shared_ptr<grpc::Channel> ChannelPool::getChannel(
     const shared_model::interface::Peer &peer) {
   if (channels_.find(peer.pubkey()) == channels_.end()) {
     channels_[peer.pubkey()] =
-        channel_factory_->createChannel(service_full_name, peer);
+        channel_provider_->getChannel(service_full_name, peer);
   }
   return channels_[peer.pubkey()];
 }

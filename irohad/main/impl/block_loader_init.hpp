@@ -16,7 +16,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactory;
+    class GenericClientFactory;
 
     /**
      * Initialization context of Block loader: loader itself and service
@@ -41,7 +41,7 @@ namespace iroha {
           std::shared_ptr<shared_model::validation::ValidatorsConfig>
               validators_config,
           const logger::LoggerManagerTreePtr &loader_log_manager,
-          std::shared_ptr<iroha::network::ClientFactory> client_factory);
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       std::shared_ptr<BlockLoaderImpl> loader;
       std::shared_ptr<BlockLoaderService> service;

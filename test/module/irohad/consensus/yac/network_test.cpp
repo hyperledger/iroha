@@ -10,14 +10,20 @@
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
+#include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "yac_mock.grpc.pb.h"
 
 using ::testing::_;
+using ::testing::A;
+using ::testing::ByMove;
+using ::testing::ByRef;
 using ::testing::DoAll;
+using ::testing::Eq;
 using ::testing::InvokeWithoutArgs;
+using ::testing::Matcher;
 using ::testing::Return;
 using ::testing::SaveArg;
 
@@ -28,21 +34,31 @@ namespace iroha {
        public:
         static constexpr auto default_ip = "0.0.0.0";
         static constexpr auto default_address = "0.0.0.0:0";
+
+        template <typename ExpectationsSetter>
+        auto expectConnection(
+            boost::optional<const shared_model::interface::Peer &> peer,
+            ExpectationsSetter &&set_expectations) {
+          using PeerType = const shared_model::interface::Peer &;
+          auto stub =
+              std::make_unique<iroha::consensus::yac::proto::MockYacStub>();
+          std::forward<ExpectationsSetter>(set_expectations)(*stub);
+          EXPECT_CALL(*mock_client_factory_,
+                      createClient(peer ? Eq(ByRef(*peer)) : A<PeerType>()))
+              .WillOnce(Return(ByMove(std::move(stub))));
+        }
+
         void SetUp() override {
           notifications = std::make_shared<MockYacNetworkNotifications>();
           async_call = std::make_shared<
               network::AsyncGrpcClient<google::protobuf::Empty>>(
               getTestLogger("AsyncCall"));
-          // stub will be deleted by unique_ptr created in client_creator
-          stub = new iroha::consensus::yac::proto::MockYacStub();
-          std::function<std::unique_ptr<proto::Yac::StubInterface>(
-              const shared_model::interface::Peer &)>
-              client_creator([this](const shared_model::interface::Peer &peer) {
-                return std::unique_ptr<
-                    iroha::consensus::yac::proto::MockYacStub>(stub);
-              });
+          mock_client_factory_ =
+              new iroha::network::MockClientFactory<proto::Yac>();
           network = std::make_shared<NetworkImpl>(
-              async_call, client_creator, getTestLogger("YacNetwork"));
+              async_call,
+              std::unique_ptr<NetworkImpl::ClientFactory>(mock_client_factory_),
+              getTestLogger("YacNetwork"));
 
           message.hash.vote_hashes.proposal_hash = "proposal";
           message.hash.vote_hashes.block_hash = "block";
@@ -58,13 +74,13 @@ namespace iroha {
           peer = makePeer(std::string(default_ip) + ":" + std::to_string(port));
         }
 
+        iroha::network::MockClientFactory<proto::Yac> *mock_client_factory_;
         std::shared_ptr<MockYacNetworkNotifications> notifications;
         std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
             async_call;
         std::shared_ptr<NetworkImpl> network;
         std::shared_ptr<shared_model::interface::Peer> peer;
         VoteMessage message;
-        iroha::consensus::yac::proto::MockYacStub *stub;
       };
 
       /**
@@ -76,8 +92,10 @@ namespace iroha {
         proto::State request;
         auto r = std::make_unique<grpc::testing::MockClientAsyncResponseReader<
             google::protobuf::Empty>>();
-        EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
-            .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+        expectConnection(*peer, [&request, &r](auto &stub) {
+          EXPECT_CALL(stub, AsyncSendStateRaw(_, _, _))
+              .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+        });
 
         network->sendState(*peer, {message});
 

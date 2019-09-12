@@ -59,14 +59,16 @@ auto createNotificationFactory(
         proposal_transport_factory,
     std::chrono::milliseconds delay,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
-    std::shared_ptr<iroha::network::ClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   return std::make_shared<transport::OnDemandOsClientGrpcFactory>(
       std::move(async_call),
       std::move(proposal_transport_factory),
       [] { return std::chrono::system_clock::now(); },
       delay,
       ordering_log_manager->getChild("NetworkClient")->getLogger(),
-      std::move(client_factory));
+      std::make_unique<iroha::network::ClientFactoryImpl<
+          transport::OnDemandOsClientGrpcFactory::Service>>(
+          std::move(client_factory)));
 }
 
 auto OnDemandOrderingInit::createConnectionManager(
@@ -76,7 +78,7 @@ auto OnDemandOrderingInit::createConnectionManager(
     std::chrono::milliseconds delay,
     std::vector<shared_model::interface::types::HashType> initial_hashes,
     const logger::LoggerManagerTreePtr &ordering_log_manager,
-    std::shared_ptr<iroha::network::ClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   // since top block will be the first in commit_notifier observable,
   // hashes of two previous blocks are prepended
   const size_t kBeforePreviousTop = 0, kPreviousTop = 1;
@@ -331,7 +333,7 @@ OnDemandOrderingInit::initOrderingGate(
     std::function<std::chrono::milliseconds(
         const synchronizer::SynchronizationEvent &)> delay_func,
     logger::LoggerManagerTreePtr ordering_log_manager,
-    std::shared_ptr<iroha::network::ClientFactory> client_factory) {
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   auto ordering_service = createService(max_number_of_transactions,
                                         proposal_factory,
                                         tx_cache,

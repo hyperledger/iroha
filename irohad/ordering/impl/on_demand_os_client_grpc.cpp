@@ -85,18 +85,18 @@ OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
     std::function<OnDemandOsClientGrpc::TimepointType()> time_provider,
     OnDemandOsClientGrpc::TimeoutType proposal_request_timeout,
     logger::LoggerPtr client_log,
-    std::shared_ptr<iroha::network::ClientFactory> client_factory)
+    std::unique_ptr<ClientFactory> client_factory)
     : async_call_(std::move(async_call)),
       proposal_factory_(std::move(proposal_factory)),
       time_provider_(time_provider),
       proposal_request_timeout_(proposal_request_timeout),
       client_log_(std::move(client_log)),
-      client_factory_(client_factory) {}
+      client_factory_(std::move(client_factory)) {}
 
 std::unique_ptr<OdOsNotification> OnDemandOsClientGrpcFactory::create(
     const shared_model::interface::Peer &to) {
   return std::make_unique<OnDemandOsClientGrpc>(
-      client_factory_->createClient<proto::OnDemandOrdering>(to),
+      client_factory_->createClient(to),
       async_call_,
       proposal_factory_,
       time_provider_,

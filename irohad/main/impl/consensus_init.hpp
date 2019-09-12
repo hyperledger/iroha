@@ -26,7 +26,7 @@
 
 namespace iroha {
   namespace network {
-    class ClientFactory;
+    class GenericClientFactory;
   }
   namespace consensus {
     namespace yac {
@@ -47,7 +47,8 @@ namespace iroha {
                 async_call,
             ConsistencyModel consistency_model,
             const logger::LoggerManagerTreePtr &consensus_log_manager,
-            std::shared_ptr<iroha::network::ClientFactory> client_factory);
+            std::shared_ptr<iroha::network::GenericClientFactory>
+                client_factory);
 
         std::shared_ptr<NetworkImpl> getConsensusNetwork() const;
 
