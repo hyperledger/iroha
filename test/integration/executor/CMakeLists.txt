@@ -60,6 +60,15 @@ target_link_libraries(get_account_assets_test
     query_permission_test
     )
 
+addtest(get_account_detail_test get_account_detail_test.cpp)
+target_link_libraries(get_account_detail_test
+    account_detail_checker
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    query_permission_test
+    )
+
 add_library(query_permission_test query_permission_test.cpp)
 target_link_libraries(query_permission_test
     executor_fixture
