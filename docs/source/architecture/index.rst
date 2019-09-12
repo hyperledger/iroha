@@ -88,7 +88,7 @@ Block Consensus (YAC)
 
     You can check out a video where HL Iroha maintainer thoroughly explains the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__.
 
-    Distinctive features of YAC algorithm are its scalability, performance and `Byzantine fault tolerance <https://en.wikipedia.org/wiki/Byzantine_fault_tolerance>`_.
+    Distinctive features of YAC algorithm are its scalability, performance and Crash fault tolerance.
 
     To ensure consistency in the network, if there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__.
     Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage.
