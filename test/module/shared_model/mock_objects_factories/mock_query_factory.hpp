@@ -30,6 +30,11 @@ namespace shared_model {
           const types::AccountIdType &asset_id,
           const TxPaginationMeta &pagination_meta) const;
 
+      FactoryResult<MockAccountDetailPaginationMeta>
+      constructAccountDetailPaginationMeta(
+          size_t page_size,
+          boost::optional<const AccountDetailRecordId &> first_record_id) const;
+
       FactoryResult<MockGetAccountDetail> constructGetAccountDetail(
           const types::AccountIdType &account_id,
           boost::optional<types::AccountDetailKeyType> key,
