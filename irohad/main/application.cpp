@@ -76,7 +76,7 @@ using namespace std::chrono_literals;
 
 /// Consensus consistency model type.
 static constexpr iroha::consensus::yac::ConsistencyModel
-    kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kBft;
+    kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
 
 /**
  * Configuring iroha daemon
