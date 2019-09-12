@@ -104,18 +104,20 @@ namespace iroha {
         return boost::make_tuple(*std::forward<decltype(vals)>(vals)...);
       };
 
-      using ReturnType =
-          decltype(boost::make_optional(apply(std::forward<T>(t), transform)));
+      using ReturnType = decltype(boost::make_optional(
+          iroha::ametsuchi::apply(std::forward<T>(t), transform)));
 
-      return apply(std::forward<T>(t),
-                   [&](auto &&... vals) {
-                     bool temp[] = {static_cast<bool>(
-                         std::forward<decltype(vals)>(vals))...};
-                     return std::all_of(std::begin(temp),
-                                        std::end(temp),
-                                        [](auto b) { return b; });
-                   })
-          ? boost::make_optional(apply(std::forward<T>(t), transform))
+      return iroha::ametsuchi::apply(
+                 std::forward<T>(t),
+                 [&](auto &&... vals) {
+                   bool temp[] = {static_cast<bool>(
+                       std::forward<decltype(vals)>(vals))...};
+                   return std::all_of(std::begin(temp),
+                                      std::end(temp),
+                                      [](auto b) { return b; });
+                 })
+          ? boost::make_optional(
+                iroha::ametsuchi::apply(std::forward<T>(t), transform))
           : ReturnType{};
     }
 
@@ -124,7 +126,7 @@ namespace iroha {
       return t | [&](auto &st) -> boost::optional<C> {
         return boost::copy_range<C>(
             st | boost::adaptors::transformed([&](auto &t) {
-              return apply(t, std::forward<F>(f));
+              return iroha::ametsuchi::apply(t, std::forward<F>(f));
             }));
       };
     }
@@ -134,7 +136,7 @@ namespace iroha {
       if (t) {
         C map_result;
         for (auto &inp_el : *t) {
-          apply(inp_el, std::forward<F>(f)) |
+          iroha::ametsuchi::apply(inp_el, std::forward<F>(f)) |
               [&map_result](auto &&transformed_el) {
                 map_result.emplace_back(std::move(transformed_el));
               };
@@ -153,7 +155,7 @@ namespace iroha {
           return boost::none;
         }
 
-        return apply(range.front(), std::forward<F>(f));
+        return iroha::ametsuchi::apply(range.front(), std::forward<F>(f));
       };
     }
 
