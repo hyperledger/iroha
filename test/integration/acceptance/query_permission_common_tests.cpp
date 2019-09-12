@@ -6,15 +6,12 @@
 #include "query_permission_fixture.hpp"
 #include "query_permission_test_acc_details.hpp"
 #include "query_permission_test_ast_txs.hpp"
-#include "query_permission_test_signatories.hpp"
 #include "query_permission_test_txs.hpp"
 
 using namespace common_constants;
-using QueryPermissionTestingTypes =
-    ::testing::Types<QueryPermissionAssetTxs,
-                     QueryPermissionAccDetails,
-                     QueryPermissionTxs,
-                     QueryPermissionSignatories>;
+using QueryPermissionTestingTypes = ::testing::Types<QueryPermissionAssetTxs,
+                                                     QueryPermissionAccDetails,
+                                                     QueryPermissionTxs>;
 TYPED_TEST_CASE(QueryPermissionFixture, QueryPermissionTestingTypes, );
 
 /**

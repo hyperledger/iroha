@@ -15,8 +15,7 @@ boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
   using OptRefRoundType = boost::optional<RoundType> &;
   auto &target_round = iroha::visit_in_place(
       answer,
-      [this](
-          const iroha::consensus::yac::CommitMessage &msg) -> OptRefRoundType {
+      [this](const iroha::consensus::yac::CommitMessage &) -> OptRefRoundType {
         // greater commit removes last reject because previous rejects are not
         // required anymore for the consensus
         if (last_commit_round_ and last_reject_round_
@@ -25,8 +24,7 @@ boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
         }
         return last_commit_round_;
       },
-      [this](const iroha::consensus::yac::RejectMessage &msg)
-          -> OptRefRoundType { return last_reject_round_; });
+      [this](const auto &) -> OptRefRoundType { return last_reject_round_; });
 
   if (not target_round or *target_round < consensus_round) {
     target_round = consensus_round;

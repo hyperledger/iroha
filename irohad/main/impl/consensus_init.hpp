@@ -33,6 +33,8 @@ namespace iroha {
             Round initial_round,
             // TODO 30.01.2019 lebdron: IR-262 Remove PeerQueryFactory
             std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
+            boost::optional<shared_model::interface::types::PeerList>
+                alternative_peers,
             std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<network::BlockLoader> block_loader,
             const shared_model::crypto::Keypair &keypair,

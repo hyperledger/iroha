@@ -128,8 +128,7 @@ addtest(query_permissions_common_test
 query_permission_test_ast_txs.cpp;\
 query_permission_test_base.cpp;\
 query_permission_test_acc_details.cpp;\
-query_permission_test_txs.cpp;\
-query_permission_test_signatories.cpp"
+query_permission_test_txs.cpp"
     )
 target_link_libraries(query_permissions_common_test
     acceptance_fixture

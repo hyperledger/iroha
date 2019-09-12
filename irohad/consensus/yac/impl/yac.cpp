@@ -87,13 +87,16 @@ namespace iroha {
 
       // ------|Hash gate|------
 
-      void Yac::vote(YacHash hash, ClusterOrdering order) {
+      void Yac::vote(YacHash hash,
+                     ClusterOrdering order,
+                     boost::optional<ClusterOrdering> alternative_order) {
         log_->info("Order for voting: {}",
                    logger::to_string(order.getPeers(),
                                      [](auto val) { return val->address(); }));
 
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
+        alternative_order_ = std::move(alternative_order);
         round_ = hash.vote_round;
         lock.unlock();
         auto vote = crypto_->getVote(hash);
@@ -121,8 +124,9 @@ namespace iroha {
       }
 
       /// moves the votes not present in known_keys from votes to return value
-      void Yac::removeUnknownPeersVotes(std::vector<VoteMessage> &votes) {
-        auto known_keys = cluster_order_.getPeers()
+      void Yac::removeUnknownPeersVotes(std::vector<VoteMessage> &votes,
+                                        ClusterOrdering &order) {
+        auto known_keys = order.getPeers()
             | boost::adaptors::transformed(
                               [](const auto &peer) { return peer->pubkey(); });
         removeMatching(
@@ -139,13 +143,41 @@ namespace iroha {
       void Yac::onState(std::vector<VoteMessage> state) {
         std::unique_lock<std::mutex> guard(mutex_);
 
-        removeUnknownPeersVotes(state);
+        removeUnknownPeersVotes(state, getCurrentOrder());
         if (state.empty()) {
           log_->debug("No votes left in the message.");
           return;
         }
 
         if (crypto_->verify(state)) {
+          auto &proposal_round = getRound(state);
+
+          if (proposal_round.block_round > round_.block_round) {
+            guard.unlock();
+            log_->info("Pass state from future for {} to pipeline",
+                       proposal_round);
+            notifier_.get_subscriber().on_next(FutureMessage{std::move(state)});
+            return;
+          }
+
+          if (proposal_round.block_round < round_.block_round) {
+            log_->info("Received state from past for {}, try to propagate back",
+                       proposal_round);
+            tryPropagateBack(state);
+            guard.unlock();
+            return;
+          }
+
+          if (alternative_order_) {
+            // filter votes with peers from cluster order to avoid the case when
+            // alternative peer is not present in cluster order
+            removeUnknownPeersVotes(state, cluster_order_);
+            if (state.empty()) {
+              log_->debug("No votes left in the message.");
+              return;
+            }
+          }
+
           applyState(state, guard);
         } else {
           log_->warn("{}", cryptoError(state));
@@ -162,7 +194,9 @@ namespace iroha {
           return;
         }
 
-        const auto &current_leader = cluster_order_.currentLeader();
+        auto &cluster_order = getCurrentOrder();
+
+        const auto &current_leader = cluster_order.currentLeader();
 
         log_->info("Vote for round {}, hash ({}, {}) to peer {}",
                    vote.hash.vote_round,
@@ -171,8 +205,8 @@ namespace iroha {
                    current_leader);
 
         network_->sendState(current_leader, {vote});
-        cluster_order_.switchToNext();
-        auto has_next = cluster_order_.hasNext();
+        cluster_order.switchToNext();
+        auto has_next = cluster_order.hasNext();
         lock.unlock();
         if (has_next) {
           timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
@@ -181,6 +215,10 @@ namespace iroha {
 
       void Yac::closeRound() {
         timer_->deny();
+      }
+
+      ClusterOrdering &Yac::getCurrentOrder() {
+        return alternative_order_ ? *alternative_order_ : cluster_order_;
       }
 
       boost::optional<std::shared_ptr<shared_model::interface::Peer>>
