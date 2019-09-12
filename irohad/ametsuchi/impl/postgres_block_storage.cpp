@@ -68,7 +68,7 @@ PostgresBlockStorage::fetch(HeightType height) const {
     return boost::none;
   }
   return rebind(viewQuery<QueryTuple>(row)) | [&, this](auto row) {
-    return apply(row, [&, this](auto &block_data) {
+    return iroha::ametsuchi::apply(row, [&, this](auto &block_data) {
       log_->debug("fetched: {}", block_data);
       return iroha::hexstringToBytestring(block_data) |
           [&, this](auto byte_block) {
@@ -140,7 +140,7 @@ PostgresBlockStorage::getBlockHeightsRange() const {
     return boost::none;
   }
   return rebind(viewQuery<QueryTuple>(row)) | [](auto row) {
-    return apply(row, [](size_t min, size_t max) {
+    return iroha::ametsuchi::apply(row, [](size_t min, size_t max) {
       assert(max >= min);
       return boost::make_optional(HeightRange{min, max});
     });
