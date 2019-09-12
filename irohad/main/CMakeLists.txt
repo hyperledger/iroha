@@ -14,6 +14,7 @@ target_link_libraries(server_runner
     grpc++
     boost
     common
+    shared_model_cryptography_model
     )
 
 add_library(raw_block_loader impl/raw_block_loader.cpp)
@@ -50,6 +51,7 @@ target_link_libraries(application
     PRIVATE
     grpc_channel_factory
     grpc_channel_factory_tls
+    grpc_channel_pool
     grpc_client_factory
     tls_credentials
     yac
@@ -92,7 +94,6 @@ target_link_libraries(irohad
     logger_manager
     irohad_version
     pg_connection_init
-    grpc_client_factory
     )
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)

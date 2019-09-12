@@ -20,7 +20,7 @@ class PeerCertificateAuthMetadataProcessor
     : public grpc::AuthMetadataProcessor {
  public:
   explicit PeerCertificateAuthMetadataProcessor(
-      std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>
+      std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>
           peer_tls_certificates_provider);
 
   grpc::Status Process(const InputMetadata &auth_metadata,
@@ -29,7 +29,7 @@ class PeerCertificateAuthMetadataProcessor
                        OutputMetadata *response_metadata) final;
 
  private:
-  std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>
+  std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>
       peer_tls_certificates_provider_;
 };
 

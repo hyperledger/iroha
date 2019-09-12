@@ -28,6 +28,7 @@
 #include "cryptography/blob.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
+#include "framework/test_client_factory.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "logger/logger.hpp"
@@ -37,7 +38,6 @@
 #include "main/iroha_conf_loader.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "network/impl/client_factory.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -96,7 +96,6 @@ class IrohadTest : public AcceptanceFixture {
       : kAddress("127.0.0.1"),
         kPort(50051),
         kSecurePort(55552),
-        client_factory(std::make_shared<iroha::network::ClientFactory>()),
         test_data_path_(boost::filesystem::path(PATHTESTDATA)),
         keys_manager_node_(
             "node0",
@@ -222,9 +221,9 @@ class IrohadTest : public AcceptanceFixture {
         config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
   }
 
-  static iroha::network::GrpcClientParams getChannelParams() {
-    static const GrpcClientParams params = [] {
-      GrpcClientParams params = getDefaultTestChannelParams();
+  static iroha::network::GrpcChannelParams getChannelParams() {
+    static const GrpcChannelParams params = [] {
+      GrpcChannelParams params = getDefaultTestChannelParams();
       params.retry_policy.max_attempts = 3u;
       params.retry_policy.initial_backoff = 1s;
       params.retry_policy.max_backoff = 1s;
@@ -237,20 +236,16 @@ class IrohadTest : public AcceptanceFixture {
   torii::CommandSyncClient createToriiClient(
       bool enable_tls = false,
       const boost::optional<uint16_t> override_port = {}) {
-    uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
+    using namespace iroha::network;
 
-    if (enable_tls) {
-      client_factory = std::make_shared<iroha::network::ClientFactory>(
-          path_root_certificate_.string());
-    } else {
-      client_factory = std::make_shared<iroha::network::ClientFactory>();
-    }
-    auto stub =
-        client_factory->createClient<iroha::protocol::CommandService_v1>(
-            kAddress + ":" + std::to_string(port));
+    const auto port = override_port.value_or(enable_tls ? kSecurePort : kPort);
+    const auto target_address = kAddress + ":" + std::to_string(port);
+
+    auto client_factory = enable_tls ? getTestTlsClientFactory(root_ca_)
+                                     : getTestInsecureClientFactory();
 
     return torii::CommandSyncClient(
-        std::move(stub),
+        client_factory->createClient<iroha::protocol::CommandService_v1>(),
         getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
   }
 
@@ -435,7 +430,6 @@ class IrohadTest : public AcceptanceFixture {
   const std::string kAddress;
   const uint16_t kPort;
   const uint16_t kSecurePort;
-  std::shared_ptr<iroha::network::ClientFactory> client_factory;
 
   boost::optional<child> iroha_process_;
 

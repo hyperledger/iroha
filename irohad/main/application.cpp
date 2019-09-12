@@ -376,7 +376,7 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
   };
 
   using OptionalPeerCertProvider =
-      boost::optional<std::unique_ptr<PeerTlsCertificatesProvider>>;
+      boost::optional<std::unique_ptr<const PeerTlsCertificatesProvider>>;
   using PeerCertProviderResult = Result<OptionalPeerCertProvider, std::string>;
 
   return iroha::visit_in_place(

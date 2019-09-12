@@ -128,7 +128,7 @@ ChannelFactory::~ChannelFactory() = default;
 
 std::shared_ptr<grpc::Channel> ChannelFactory::createChannel(
     const std::string &service_full_name,
-    const shared_model::interface::Peer &peer) const {
+    const shared_model::interface::Peer &peer) {
   return grpc::CreateCustomChannel(peer.address(),
                                    getChannelCredentials(peer),
                                    args_->get(service_full_name));

@@ -37,7 +37,8 @@ namespace iroha {
           bool reuse = true,
           const boost::optional<std::shared_ptr<const TlsCredentials>>
               &my_tls_creds = boost::none,
-          const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+          const boost::optional<
+              std::shared_ptr<const PeerTlsCertificatesProvider>>
               &peer_tls_certificates_provider = boost::none);
 
       ~ServerRunner();

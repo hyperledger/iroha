@@ -6,6 +6,8 @@
 #ifndef IROHA_CHANNEL_FACTORY_HPP
 #define IROHA_CHANNEL_FACTORY_HPP
 
+#include "network/impl/channel_provider.hpp"
+
 #include <memory>
 #include <set>
 #include <string>
@@ -46,12 +48,25 @@ namespace iroha {
       return makeChannelArguments(T::service_full_name(), params);
     }
 
+    /**
+     * Creates client
+     * @tparam Service type for gRPC stub, e.g. proto::Yac
+     * @param address ip address and port for connection, ipv4:port
+     * @return gRPC stub of parametrized type
+     */
+    template <typename Service>
+    std::unique_ptr<typename Service::StubInterface> createInsecureClient(
+        const std::string &address, const GrpcChannelParams &params) {
+      auto channel =
+          createInsecureChannel(address, Service::service_full_name(), params);
+    }
+
     std::shared_ptr<grpc::Channel> createInsecureChannel(
         const shared_model::interface::types::AddressType &address,
         const std::string &service_full_name,
         const GrpcChannelParams &params);
 
-    class ChannelFactory {
+    class ChannelFactory : public ChannelProvider {
      public:
       ChannelFactory(std::shared_ptr<const GrpcChannelParams> params);
 
@@ -68,7 +83,7 @@ namespace iroha {
        */
       std::shared_ptr<grpc::Channel> createChannel(
           const std::string &service_full_name,
-          const shared_model::interface::Peer &peer) const;
+          const shared_model::interface::Peer &peer) override;
 
      protected:
       virtual std::shared_ptr<grpc::ChannelCredentials> getChannelCredentials(

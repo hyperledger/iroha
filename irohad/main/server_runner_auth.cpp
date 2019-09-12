@@ -58,7 +58,7 @@ namespace {
 }  // namespace
 
 PeerCertificateAuthMetadataProcessor::PeerCertificateAuthMetadataProcessor(
-    std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>
+    std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>
         peer_tls_certificates_provider)
     : peer_tls_certificates_provider_(
           std::move(peer_tls_certificates_provider)) {}

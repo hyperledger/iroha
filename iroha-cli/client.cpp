@@ -19,9 +19,7 @@ std::shared_ptr<typename Service::StubInterface> makeStub(std::string target_ip,
   using namespace iroha::network;
   static const auto kChannelParams = getDefaultChannelParams();
   const auto target_address = target_ip + ":" + std::to_string(port);
-  auto channel = createInsecureChannel(
-      target_address, Service::service_full_name(), *kChannelParams);
-  return Service::NewStub(std::move(channel));
+  return createInsecureClient(target_address, *kChannelParams);
 }
 
 namespace iroha_cli {

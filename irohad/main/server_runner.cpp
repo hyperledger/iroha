@@ -23,7 +23,7 @@ namespace {
   std::shared_ptr<grpc::ServerCredentials> createCredentials(
       const boost::optional<std::shared_ptr<const TlsCredentials>>
           &my_tls_creds,
-      const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+      const boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
           &peer_tls_certificates_provider) {
     std::shared_ptr<grpc::ServerCredentials> credentials;
     if (my_tls_creds) {
@@ -53,7 +53,7 @@ ServerRunner::ServerRunner(
     logger::LoggerPtr log,
     bool reuse,
     const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds,
-    const boost::optional<std::shared_ptr<PeerTlsCertificatesProvider>>
+    const boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
         &peer_tls_certificates_provider)
     : log_(std::move(log)),
       server_address_(address),

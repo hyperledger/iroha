@@ -6,6 +6,8 @@
 #ifndef IROHA_CHANNEL_POOL_HPP
 #define IROHA_CHANNEL_POOL_HPP
 
+#include "network/impl/channel_provider.hpp"
+
 #include <string>
 #include <unordered_map>
 
@@ -26,7 +28,7 @@ namespace iroha {
   namespace network {
     class ChannelFactory;
 
-    class ChannelPool {
+    class ChannelPool : public ChannelProvider {
      public:
       /**
        * Constructor with TLS, fetching certificates from peers
@@ -47,7 +49,7 @@ namespace iroha {
        */
       std::shared_ptr<grpc::Channel> getChannel(
           const std::string &service_full_name,
-          const shared_model::interface::Peer &peer);
+          const shared_model::interface::Peer &peer) override;
 
      private:
       std::unique_ptr<ChannelFactory> channel_factory_;

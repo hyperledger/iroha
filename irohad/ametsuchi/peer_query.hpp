@@ -41,7 +41,8 @@ namespace iroha {
        * @return the peer if found, none otherwise
        */
       virtual boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
-          const shared_model::interface::types::PubkeyType &public_key) = 0;
+          const shared_model::interface::types::PubkeyType &public_key)
+          const = 0;
 
       virtual ~PeerQuery() = default;
     };

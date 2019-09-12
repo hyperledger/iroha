@@ -7,7 +7,6 @@ add_library(mst_transport
     )
 
 target_link_libraries(mst_transport
-    grpc_client_factory
     mst_grpc
     mst_state
     boost

@@ -37,7 +37,7 @@ namespace iroha {
        */
       boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
           const shared_model::interface::types::PubkeyType &public_key)
-          override;
+          const override;
 
      private:
       std::shared_ptr<WsvQuery> wsv_;

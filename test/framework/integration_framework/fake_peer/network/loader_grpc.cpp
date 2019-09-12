@@ -8,7 +8,7 @@
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
-#include "framework/test_grpc_channel_builder.hpp"
+#include "framework/test_client_factory.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger.hpp"
 

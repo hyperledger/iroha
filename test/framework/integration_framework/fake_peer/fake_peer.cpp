@@ -26,7 +26,7 @@
 #include "framework/integration_framework/fake_peer/network/yac_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/result_fixture.hpp"
-#include "framework/test_grpc_channel_builder.hpp"
+#include "framework/test_client_factory.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -94,6 +94,7 @@ namespace integration_framework {
           real_peer_(std::move(real_peer)),
           async_call_(std::make_shared<AsyncCall>(
               log_manager_->getChild("AsyncNetworkClient")->getLogger())),
+          client_factory_(iroha::network::getTestInsecureClientFactory()),
           mst_transport_(std::make_shared<MstTransport>(
               async_call_,
               transaction_factory,
@@ -104,16 +105,12 @@ namespace integration_framework {
                   std::chrono::minutes(0)),
               keypair_->publicKey(),
               mst_log_manager_->getChild("State")->getLogger(),
-              mst_log_manager_->getChild("Transport")->getLogger())),
-          client_factory_(std::make_shared<iroha::network::ClientFactory>()),
-          yac_transport_(std::make_shared<YacTransport>(
+              mst_log_manager_->getChild("Transport")->getLogger(),
+              client_factory_)),
+          yac_transport_(
               async_call_,
-              [this](const shared_model::interface::Peer &peer) {
-                return client_factory_
-                    ->createClient<iroha::consensus::yac::proto::Yac>(
-                        peer.address());
-              },
-              consensus_log_manager_->getChild("Transport")->getLogger())),
+              client_factory_,
+              consensus_log_manager_->getChild("Transport")->getLogger()),
           mst_network_notifier_(std::make_shared<MstNetworkNotifier>()),
           yac_network_notifier_(std::make_shared<YacNetworkNotifier>()),
           os_network_notifier_(std::make_shared<OsNetworkNotifier>()),
@@ -135,12 +132,12 @@ namespace integration_framework {
     FakePeer &FakePeer::initialize() {
       BOOST_VERIFY_MSG(not initialized_, "Already initialized!");
       // here comes the initialization of members requiring shared_from_this()
-      synchronizer_transport_ = std::make_shared<LoaderGrpc>(
-          shared_from_this(),
-          log_manager_->getChild("Synchronizer")
-              ->getChild("Transport")
-              ->getLogger(),
-          std::make_shared<iroha::network::ClientFactory>());
+      synchronizer_transport_ =
+          std::make_shared<LoaderGrpc>(shared_from_this(),
+                                       log_manager_->getChild("Synchronizer")
+                                           ->getChild("Transport")
+                                           ->getLogger(),
+                                       client_factory_);
       od_os_network_notifier_ =
           std::make_shared<OnDemandOsNetworkNotifier>(shared_from_this());
       od_os_transport_ = std::make_shared<OdOsTransport>(
@@ -377,7 +374,7 @@ namespace integration_framework {
       auto client =
           client_factory_
               ->createClient<iroha::ordering::proto::OnDemandOrdering>(
-                  real_peer_->address());
+                  real_peer_);
       grpc::ClientContext context;
       google::protobuf::Empty result;
       client->SendBatches(&context, request, &result);
@@ -393,7 +390,7 @@ namespace integration_framework {
               [] { return std::chrono::system_clock::now(); },
               timeout,
               ordering_log_manager_->getChild("NetworkClient")->getLogger(),
-              std::make_shared<iroha::network::ClientFactory>())
+              client_factory_)
               .create(*real_peer_);
       return on_demand_os_transport->onRequestProposal(round);
     }

@@ -245,7 +245,8 @@ class Irohad {
       my_inter_peer_tls_creds_;
   boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
       torii_tls_creds_;
-  boost::optional<std::shared_ptr<iroha::network::PeerTlsCertificatesProvider>>
+  boost::optional<
+      std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>>
       peer_tls_certificates_provider_;
 
   std::unique_ptr<iroha::PendingTransactionStorageInit>

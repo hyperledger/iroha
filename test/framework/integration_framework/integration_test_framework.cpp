@@ -31,7 +31,7 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
-#include "framework/test_grpc_channel_builder.hpp"
+#include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -157,10 +157,11 @@ namespace integration_framework {
                                             log_manager_->getChild("Irohad"),
                                             log_,
                                             dbname)),
-        command_client_(iroha::network::createTestClient<
-                            iroha::protocol::CommandService_v1>(
-                            format_address(kLocalHost, torii_port_)),
-                        log_manager_->getChild("CommandClient")->getLogger()),
+        client_factory_(iroha::network::getTestInsecureClientFactory()),
+        command_client_(
+            client_factory_->createClient<iroha::protocol::CommandService_v1>(
+                format_address(kLocalHost, torii_port_)),
+            log_manager_->getChild("CommandClient")->getLogger()),
         query_client_(kLocalHost, torii_port_),
         async_call_(std::make_shared<AsyncCall>(
             log_manager_->getChild("AsyncCall")->getLogger())),
@@ -204,10 +205,7 @@ namespace integration_framework {
         tx_presence_cache_(std::make_shared<AlwaysMissingTxPresenceCache>()),
         yac_transport_(std::make_shared<iroha::consensus::yac::NetworkImpl>(
             async_call_,
-            [](const shared_model::interface::Peer &peer) {
-              return iroha::network::createTestClient<
-                  iroha::consensus::yac::proto::Yac>(peer.address());
-            },
+            client_factory_,
             log_manager_->getChild("ConsensusTransport")->getLogger())),
         cleanup_on_exit_(cleanup_on_exit) {}
 

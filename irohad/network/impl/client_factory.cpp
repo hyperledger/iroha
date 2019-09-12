@@ -7,5 +7,5 @@
 
 using namespace iroha::network;
 
-ClientFactory::ClientFactory(std::unique_ptr<ChannelPool> channel_pool)
-    : channel_pool_(std::move(channel_pool)) {}
+ClientFactory::ClientFactory(std::unique_ptr<ChannelProvider> channel_provider)
+    : channel_provider_(std::move(channel_provider)) {}
