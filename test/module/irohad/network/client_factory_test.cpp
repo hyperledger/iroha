@@ -16,10 +16,12 @@
 
 namespace {
   // two key/cert pairs:
-  // one with CN=public_key_1,
-  // subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:public_key_1
-  // another with CN=public_key_2,
-  // subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:public_key_2
+  // * one with CN=public_key_1,
+  //   subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:public_key_1
+  // * another with CN=public_key_2,
+  //   subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:public_key_2
+  // * third one with CN=another_public_key
+  //   subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:another_public_key
 
   constexpr auto kPeer1Certificate = R"(-----BEGIN CERTIFICATE-----
 MIIDwzCCAqugAwIBAgIUOof8D8aUplguIv1iFTIYSPv9fywwDQYJKoZIhvcNAQEL
@@ -44,8 +46,7 @@ tyChhV7Xa8L8T2Gyj3KJkEXdyTMXtnfsAra+S0MlDdqa2lBGgebZ52lVzqpZxeqC
 cuR+sOOdKepbQGtGIsGzA1ZX35Sv+UunmMJOQgCUtGsKFIfyROEMz5nfOhE8hglo
 B/dYqhQqAQ==
 -----END CERTIFICATE-----)";
-  constexpr auto kPeer1Key =
-      R"(-----BEGIN PRIVATE KEY-----
+  constexpr auto kPeer1Key = R"(-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQL3vZftv/Ajzh
 drWM/NIwDZ8DasBbLPWbjNuwELED2hMySiT0+kKpEUzlkPqGcfIzvxeUy4sBzQfj
 FCILQJ2ATcLKeYJ42rh6UzdJyqL1iBUAxQnEq5fU+w4DEznA6j/PI4Unl16721Kg
@@ -124,6 +125,57 @@ uhN5ls5koFWPU8bzGWGvAJcb0vGEKoqfaETgVslt7uk6RzN0UkOwvZ0WgilKlZtO
 0IBXlLIQNZhodyWpBoPsIV7aLZeGmJq0Mysd9le417QjpXtFgvNjAKpNMAOuT2qt
 b+PKVx014xoU/gTAWXHHx7AZ
 -----END PRIVATE KEY-----)";
+  constexpr auto kAnotherCertificate = R"(-----BEGIN CERTIFICATE-----
+MIID1jCCAr6gAwIBAgIUAZ8EJdwjrCxvarW0rgb601yL/ZQwDQYJKoZIhvcNAQEL
+BQAwYjELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDEbMBkGA1UEAwwSYW5vdGhlcl9wdWJs
+aWNfa2V5MCAXDTE5MDkxMzA5MzY1OFoYDzIxMTkwODIwMDkzNjU4WjBiMQswCQYD
+VQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50ZXJuZXQg
+V2lkZ2l0cyBQdHkgTHRkMRswGQYDVQQDDBJhbm90aGVyX3B1YmxpY19rZXkwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCuY/Vn5+TZB9vo19/QwmFhniZH
+JfvXwThSwMdnTtU+PKUY/rP5pUSq7ULE2xnqX0hB51cadgyrX2TNRqLvjeABYdFD
+1gzF9bJBCHGaty3I4Zgue/lIdTHzGHqgZly6kJ3CPVdz2p7noCQtE02a6pOP0+30
+BntqiW2WGO1NlBvr0x1DFxK/cV+dN/LLkTGiz8mzr56uPOjzRW/oxaUJvelhcKQH
+tfgYtMrC6L9/0DyilIGJuOfxBIpdb4DSH1hy/OToyp/mbSYNx85PN6czNVrFVqc9
+UzuIBA5qcbeQtbXuRaf/7qVGga7VaUYtZ/bIzJPI9tjnsCQhEEehgV/0mb5xAgMB
+AAGjgYEwfzAdBgNVHQ4EFgQU9jPh5zkQldgMLQWrf9thRLN+GBowHwYDVR0jBBgw
+FoAU9jPh5zkQldgMLQWrf9thRLN+GBowDwYDVR0TAQH/BAUwAwEB/zAsBgNVHREE
+JTAjhwR/AAABoBsGAytlcKAUDBJhbm90aGVyX3B1YmxpY19rZXkwDQYJKoZIhvcN
+AQELBQADggEBAC6QTFijCgv0rlsZo62P/uLvNErGImYsMOI0W3+MKQ6RuOdb16GF
+U9VmbFB7FNX7STuWR4uuP/wBqVTS9nCHwwubVKvNODSlhhKudGHfdjIyl/pD8Njw
+tgXycVag/ilIzdxZczuJ9RzYvvPlESSBZFtE8gyPMCs98DPloGhU9vE5VLo81QTU
+H1NF8Dckmd71Dh6oXPostUxidhHFLMvJKq+1OMGf+4BMcTXxHeOQLc84hPvloD/P
+3IKguXUBLh215uCET3kbiRV5EV75yITN7AEu9Cn7NCwsyt5cFvlhkWxPVGtUuMv5
+Lun3x17YAF2exWbcBSbDlcUz28RawAtlc/M=
+-----END CERTIFICATE-----)";
+  constexpr auto kAnotherKey = R"(-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCuY/Vn5+TZB9vo
+19/QwmFhniZHJfvXwThSwMdnTtU+PKUY/rP5pUSq7ULE2xnqX0hB51cadgyrX2TN
+RqLvjeABYdFD1gzF9bJBCHGaty3I4Zgue/lIdTHzGHqgZly6kJ3CPVdz2p7noCQt
+E02a6pOP0+30BntqiW2WGO1NlBvr0x1DFxK/cV+dN/LLkTGiz8mzr56uPOjzRW/o
+xaUJvelhcKQHtfgYtMrC6L9/0DyilIGJuOfxBIpdb4DSH1hy/OToyp/mbSYNx85P
+N6czNVrFVqc9UzuIBA5qcbeQtbXuRaf/7qVGga7VaUYtZ/bIzJPI9tjnsCQhEEeh
+gV/0mb5xAgMBAAECggEAQbsPfrCbQ2qA6wyjIc6CYgb4Ko0YlcQQdLCQ+FFwctrs
+57TpJUmzzjFLn2NuKzbqx1xpKmIgeF+mYPEk7OIu8pZqCAWgHuVy4KxMFaLBsRvG
+/o5f8X2q7BPn9JlgjjmAHPx9//8BMhDcUdkawS91mxqob/gZgJh4I8EVgM44j/QN
+o/8pzjjdt2VPTYWuCpv73tDMUSFLkTsIwzdHV8d6ZGukQpe0OWvYkFZP+7kn4CuF
+5NsPOObbSYXXx9CGNmUsnwfkvYXcVLdz1v0RAMfW5usRi/hXszCz4cW3OudXX0I3
+kFVLoacQH02UehCkfDSS8xcO78+DWe/z0NNBubEIGQKBgQDVLl7Z+qFu2bdwBeaO
+zUvQYfWlg701Chfrxar8VlunGv3vtIKG3fs7ZP3FSUrvQsKQgKY0N2reZ6Uw2qpw
+ATVWa+ijuvEHXcpk1aeqiCbfMQ/HFyCqvRmj6nA6G2SNyp33LyuYn0n8qpcZu+dn
+HSk0tYLEGAuj1/hKsKRZ+51JOwKBgQDRav+BEjiM9cvDeTG4COsbWETvwbTxgZkx
+fudlKTVsqcBHXEJQ3N84pJaNf8dyS9MfUKeK1LXhGbLV+H1n4rpH3ltYKaJHqKzs
+TK3QNdDIEzBhw/kdFAlfAyZvoHxOxLAY6/0F/W9ZuJji4v30SqUu84NQvqmWgrjf
+xROiKXV8QwKBgQDAaxRuSA0CUz2BvbG3X5J4ypLBDMHxZ+TjiQ2mqgQcNv7SJ+pQ
+9XhYyfVM57TddTLM33IlW4f4qzCtghGo+047bTcU4h3AemW+0iJ+iFodxtjo6PUx
+Z3IHRAp8SFFgsmwWutrs7YoIp6mvLq3VorqYuuUHPnTzNHMGZ55RIg18FQKBgDZg
+WxGvooFvfUY3XOKVZj7Gb7f1iz8+UIHamsjYp2ecuDGPUiTfBRMXIYSCTk5uQ9aY
+wbg5vTRC0P3gNOfZplbs9LjyrpF+yc/dpTAwGRMqcGCiWzfisQA7uCo5+K0XQ0Zl
+WGDKyrP4S7J2EEzzaOrFDi7UIwLS1KA98vgjXb8zAoGBAJRevc7w6r4nvq1lnQNr
+Ky4HRZH8jk4Ta4VriPImD86PnVoUstWfZXkBGXOh07GOR4WIdEk57e6cMWxTF8LN
+8a3fY9wjbmVS0Cd0ZYWJ/w5WKDR+vJn2abSz6d2zMZvw+3m/yhDTTNftYH8BKppn
+EenS0kb2FX1eKsVd3N2WB+it
+-----END PRIVATE KEY-----)";
 
   constexpr auto kLocalhost = "127.0.0.1";
   constexpr auto kLocalhostAnyPort = "127.0.0.1:0";
@@ -184,6 +236,16 @@ class ClientFactoryTest : public ::testing::Test {
     ASSERT_TRUE(tls_port_optional) << "Could not create TLS server";
     tls_address_ =
         std::string(kLocalhost) + ":" + std::to_string(*tls_port_optional);
+
+    auto outside_credentials =
+        std::make_shared<iroha::network::TlsCredentials>();
+    outside_credentials->private_key = kAnotherKey;
+    outside_credentials->certificate = kAnotherCertificate;
+    outside_client_factory_ = iroha::network::getTestTlsClientFactory(
+        std::string(kPeer2Certificate),
+        boost::make_optional<
+            std::shared_ptr<const iroha::network::TlsCredentials>>(
+            outside_credentials));
   }
 
   auto makeRequestAndCheckStatus(
@@ -200,14 +262,11 @@ class ClientFactoryTest : public ::testing::Test {
     ASSERT_EQ(status.error_code(), code) << status.error_message();
   }
 
-  auto makeClient(bool secure_client,
-                  bool secure_server,
-                  const std::string &tls_certificate = kPeer2Certificate) {
-    return (secure_client ? tls_client_factory_ : insecure_client_factory_)
-        ->createClient<iroha::protocol::QueryService_v1>(
-            *makePeer(secure_server ? tls_address_ : insecure_address_,
-                      shared_model::crypto::PublicKey(""),
-                      tls_certificate));
+  auto makeClient(
+      const std::unique_ptr<iroha::network::GenericClientFactory> &factory,
+      const std::string &address) {
+    return factory->createClient<iroha::protocol::QueryService_v1>(*makePeer(
+        address, shared_model::crypto::PublicKey(""), kPeer2Certificate));
   }
 
   std::string insecure_address_;
@@ -218,22 +277,31 @@ class ClientFactoryTest : public ::testing::Test {
   std::string tls_address_;
   std::unique_ptr<iroha::network::ServerRunner> tls_server_runner_;
   std::unique_ptr<iroha::network::GenericClientFactory> tls_client_factory_;
+
+  std::unique_ptr<iroha::network::GenericClientFactory> outside_client_factory_;
 };
 
 TEST_F(ClientFactoryTest, InsecureConnectionToInsecureServer) {
-  makeRequestAndCheckStatus(makeClient(false, false), grpc::OK);
+  makeRequestAndCheckStatus(
+      makeClient(insecure_client_factory_, insecure_address_), grpc::OK);
 }
 
 TEST_F(ClientFactoryTest, SecureConnectionToInsecureServer) {
-  makeRequestAndCheckStatus(makeClient(true, false), grpc::UNAVAILABLE);
+  makeRequestAndCheckStatus(makeClient(tls_client_factory_, insecure_address_),
+                            grpc::UNAVAILABLE);
 }
 
 TEST_F(ClientFactoryTest, InsecureConnectionToSecureServer) {
-  makeRequestAndCheckStatus(makeClient(false, true), grpc::UNAVAILABLE);
+  makeRequestAndCheckStatus(makeClient(insecure_client_factory_, tls_address_),
+                            grpc::UNAVAILABLE);
 }
 
 TEST_F(ClientFactoryTest, SecureConnectionToSecureServer) {
-  makeRequestAndCheckStatus(makeClient(true, true), grpc::OK);
+  makeRequestAndCheckStatus(makeClient(tls_client_factory_, tls_address_),
+                            grpc::OK);
 }
 
-// TODO: mix & match wrong certificates and keys
+TEST_F(ClientFactoryTest, SecureConnectionToSecureServerWrongClientPublicKey) {
+  makeRequestAndCheckStatus(makeClient(outside_client_factory_, tls_address_),
+                            grpc::CANCELLED);
+}
