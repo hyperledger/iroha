@@ -2290,5 +2290,48 @@ namespace iroha {
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
     }
 
+    class SetSettingValueTest : public CommandExecutorTest {};
+
+    /**
+     * @given command
+     * @when trying to insert the setting value by the key
+     * @then record with the key has the value
+     */
+    TEST_F(SetSettingValueTest, InsertSettingValue) {
+      std::string key = "maxDesc";
+      std::string value = "255";
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructSetSettingValue(key, value), true));
+
+      auto setting_value = sql_query->getSettingValue(key);
+      ASSERT_TRUE(setting_value);
+      ASSERT_EQ(setting_value.get(), value);
+    }
+
+    /**
+     * @given command
+     * @when trying to update the setting value by the key
+     * @then record with the key has the new value
+     */
+    TEST_F(SetSettingValueTest, UpdateSettingValue) {
+      std::string key = "maxDesc";
+      std::string value = "255";
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructSetSettingValue(key, value), true));
+
+      auto setting_value = sql_query->getSettingValue(key);
+      ASSERT_TRUE(setting_value);
+      ASSERT_EQ(setting_value.get(), value);
+
+      value = "512";
+      ASSERT_NE(setting_value.get(), value);
+      CHECK_SUCCESSFUL_RESULT(execute(
+          *mock_command_factory->constructSetSettingValue(key, value), true));
+
+      setting_value = sql_query->getSettingValue(key);
+      ASSERT_TRUE(setting_value);
+      ASSERT_EQ(setting_value.get(), value);
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha

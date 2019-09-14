@@ -807,7 +807,7 @@ Structure
     "Source account ID", "ID of the account to withdraw the asset from", "already existent", "makoto@soramitsu"
     "Destination account ID", "ID of the account to send the asset to", "already existent", "alex@california"
     "Asset ID", "ID of the asset to transfer", "already existent", "usd#usa"
-    "Description", "Message to attach to the transfer", "Max length is 64", "here's my money take it"
+    "Description", "Message to attach to the transfer", "Max length of description (set in genesis block, by default is 64)", "here's my money take it"
     "Amount", "amount of the asset to transfer", "0 <= precision <= 255", "200.20"
 
 Validation
@@ -894,3 +894,46 @@ Possible Stateful Validation Errors
     "2", "No such permissions", "Command's creator does not have permission to set and read account detail for this account", "Grant the necessary permission"
     "3", "No such account", "Cannot find account to set account detail to", "Make sure account id is correct"
     "4", "No match values", "Old values do not match", "Make sure old value is correct"
+
+Set setting value
+-----------------
+
+Purpose
+^^^^^^^
+
+The purpose of set setting value command is to enable customization to your needs.
+
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message SetSettingValue {
+        string key = 1;
+        string value = 2;
+    }
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Key", "Key of the setting", "list of possible settings", "MaxDescriptionSize"
+    "Value", "Value of the setting", "type of setting", "255"
+
+
+Validation
+^^^^^^^^^^
+
+1. Command can be executed only from genesis block
+
+List of possible settings
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Key", "Value constraint", "Description"
+
+    "MaxDescriptionSize", "Unsigned integer, 0 <= MaxDescriptionSize < 2^32", "Maximum transaction description length"

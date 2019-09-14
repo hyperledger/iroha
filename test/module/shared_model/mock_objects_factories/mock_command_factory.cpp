@@ -332,8 +332,23 @@ namespace shared_model {
                 .WillRepeatedly(ReturnRefOfCopy(cmd_value));
             EXPECT_CALL(*specific_cmd_mock, oldValue())
                 .WillRepeatedly(Return(cmd_old_value));
+
             return specific_cmd_mock;
           });
-    }
+    };
+
+    MockCommandFactory::FactoryResult<MockSetSettingValue>
+    MockCommandFactory::constructSetSettingValue(
+        const types::SettingKeyType &key,
+        const types::SettingValueType &value) const {
+      return createFactoryResult<MockSetSettingValue>(
+          [&key, &value](FactoryResult<MockSetSettingValue> specific_cmd_mock) {
+            ON_CALL(*specific_cmd_mock, key())
+                .WillByDefault(ReturnRefOfCopy(key));
+            ON_CALL(*specific_cmd_mock, value())
+                .WillByDefault(ReturnRefOfCopy(value));
+            return specific_cmd_mock;
+          });
+    };
   }  // namespace interface
 }  // namespace shared_model

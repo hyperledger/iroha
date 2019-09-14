@@ -37,8 +37,6 @@ namespace shared_model {
       using TimeFunction = std::function<iroha::ts64_t()>;
 
      public:
-      // todo igor-egorov 05.04.2018 IR-439 Remove ValidatorsConfig from
-      // FieldValidator
       FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                      time_t future_gap = kDefaultFutureGap,
                      TimeFunction time_provider = [] {
@@ -223,7 +221,7 @@ namespace shared_model {
       static const size_t signature_size;
       static const size_t hash_size;
       static const size_t value_size;
-      static const size_t description_size;
+      size_t max_description_size;
     };
 
     boost::optional<ConcreteReasonType> validatePubkey(
