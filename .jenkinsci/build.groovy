@@ -49,7 +49,6 @@ def sonarScanner(scmVars, environment) {
         sonar-scanner \
           -Dsonar.github.disableInlineComments=true \
           -Dsonar.github.repository='${env.DOCKER_REGISTRY_BASENAME}' \
-          -Dsonar.analysis.mode=preview \
           -Dsonar.login=${SONAR_TOKEN} \
           -Dsonar.projectVersion=${BUILD_TAG} \
           -Dsonar.github.oauth=${SORABOT_TOKEN}  ${sonar_option}
