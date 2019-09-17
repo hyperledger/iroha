@@ -191,6 +191,10 @@ class Irohad {
 
   virtual RunResult initQueryService();
 
+  virtual RunResult initSettings();
+
+  virtual RunResult initValidatorsConfigs();
+
   /**
    * Initialize WSV restorer
    */
@@ -236,6 +240,9 @@ class Irohad {
   iroha::network::BlockLoaderInit loader_init;
 
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
+  // Settings
+  std::shared_ptr<const shared_model::validation::Settings> settings_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
