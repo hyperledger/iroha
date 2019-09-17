@@ -32,6 +32,7 @@ add_library(shared_model_proto_backend
     commands/impl/proto_subtract_asset_quantity.cpp
     commands/impl/proto_transfer_asset.cpp
     commands/impl/proto_compare_and_set_account_detail.cpp
+    commands/impl/proto_set_setting_value.cpp
     queries/impl/proto_query.cpp
     queries/impl/proto_get_account.cpp
     queries/impl/proto_get_account_asset_transactions.cpp

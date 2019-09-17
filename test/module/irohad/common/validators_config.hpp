@@ -5,6 +5,7 @@
 #ifndef IROHA_VALIDATORS_CONFIG_HPP
 #define IROHA_VALIDATORS_CONFIG_HPP
 
+#include "validators/settings.hpp"
 #include "validators/validators_common.hpp"
 
 namespace iroha {
@@ -22,7 +23,10 @@ namespace iroha {
     static const std::shared_ptr<shared_model::validation::ValidatorsConfig>
         kProposalTestsValidatorsConfig(
             std::make_shared<shared_model::validation::ValidatorsConfig>(
-                getTestsMaxBatchSize(), false, true));
+                getTestsMaxBatchSize(),
+                shared_model::validation::getDefaultSettings(),
+                false,
+                true));
 
   }  // namespace test
 }  // namespace iroha

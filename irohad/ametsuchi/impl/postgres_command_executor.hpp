@@ -35,6 +35,7 @@ namespace shared_model {
     class SetQuorum;
     class SubtractAssetQuantity;
     class TransferAsset;
+    class SetSettingValue;
   }  // namespace interface
 }  // namespace shared_model
 
@@ -165,6 +166,12 @@ namespace iroha {
               &creator_account_id,
           bool do_validation);
 
+      CommandResult operator()(
+          const shared_model::interface::SetSettingValue &command,
+          const shared_model::interface::types::AccountIdType
+              &creator_account_id,
+          bool do_validation);
+
      private:
       class CommandStatements;
       class StatementExecutor;
@@ -200,6 +207,7 @@ namespace iroha {
       std::unique_ptr<CommandStatements> set_quorum_statements_;
       std::unique_ptr<CommandStatements> subtract_asset_quantity_statements_;
       std::unique_ptr<CommandStatements> transfer_asset_statements_;
+      std::unique_ptr<CommandStatements> set_setting_value_statements_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha
