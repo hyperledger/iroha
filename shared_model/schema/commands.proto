@@ -17,7 +17,7 @@ message AddPeer {
 }
 
 message RemovePeer {
-    string public_key = 1; // hex string
+    string public_key = 1;  // hex string
 }
 
 message AddSignatory {
@@ -96,13 +96,18 @@ message SubtractAssetQuantity {
     string amount = 2;
 }
 
-message CompareAndSetAccountDetail{
+message CompareAndSetAccountDetail {
     string account_id = 1;
     string key = 2;
     string value = 3;
     oneof opt_old_value {
         string old_value = 4;
     }
+}
+
+message SetSettingValue {
+    string key = 1;
+    string value = 2;
 }
 
 message Command {
@@ -125,5 +130,6 @@ message Command {
         TransferAsset transfer_asset = 16;
         RemovePeer remove_peer = 17;
         CompareAndSetAccountDetail compare_and_set_account_detail = 18;
+        SetSettingValue set_setting_value = 19;
     }
 }

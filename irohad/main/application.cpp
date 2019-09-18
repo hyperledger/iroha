@@ -76,7 +76,7 @@ using namespace std::chrono_literals;
 
 /// Consensus consistency model type.
 static constexpr iroha::consensus::yac::ConsistencyModel
-    kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kBft;
+    kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
 
 /**
  * Configuring iroha daemon
@@ -122,15 +122,6 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       log_manager_(std::move(logger_manager)),
       log_(log_manager_->getLogger()) {
   log_->info("created");
-  validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_);
-  block_validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, true);
-  proposal_validators_config_ =
-      std::make_shared<shared_model::validation::ValidatorsConfig>(
-          max_proposal_size_, false, true);
   // TODO: rework in a more C++11+ - ish way luckychess 29.06.2019 IR-575
   std::srand(std::time(0));
   // Initializing storage at this point in order to insert genesis block before
@@ -153,8 +144,11 @@ Irohad::~Irohad() {
  */
 Irohad::RunResult Irohad::init() {
   // clang-format off
-  return initWsvRestorer() // Recover WSV from the existing ledger
-                           // to be sure it is consistent
+  return initSettings()
+  | [this]{ return initValidatorsConfigs();}
+  | [this]{ return initWsvRestorer(); // Recover WSV from the existing ledger
+                                      // to be sure it is consistent
+  }
   | [this]{ return restoreWsv();}
   | [this]{ return initCryptoProvider();}
   | [this]{ return initBatchParser();}
@@ -186,6 +180,40 @@ void Irohad::dropStorage() {
 }
 
 /**
+ * Initializing setting query
+ */
+Irohad::RunResult Irohad::initSettings() {
+  auto settingsQuery = storage->createSettingQuery();
+  if (not settingsQuery) {
+    return expected::makeError("Unable to create Settings");
+  }
+
+  return settingsQuery.get()->get() | [this](auto &&settings) -> RunResult {
+    this->settings_ = std::move(settings);
+
+    log_->info("[Init] => settings");
+    return {};
+  };
+}
+
+/**
+ * Initializing validators' configs
+ */
+Irohad::RunResult Irohad::initValidatorsConfigs() {
+  validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, settings_);
+  block_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, settings_, true);
+  proposal_validators_config_ =
+      std::make_shared<shared_model::validation::ValidatorsConfig>(
+          max_proposal_size_, settings_, false, true);
+  log_->info("[Init] => validators configs");
+  return {};
+}
+
+/**
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
@@ -199,7 +227,7 @@ Irohad::RunResult Irohad::initStorage(
   auto block_transport_factory =
       std::make_shared<shared_model::proto::ProtoBlockFactory>(
           std::make_unique<shared_model::validation::AlwaysValidValidator<
-              shared_model::interface::Block>>(block_validators_config_),
+              shared_model::interface::Block>>(),
           std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
   boost::optional<std::string> string_res = boost::none;

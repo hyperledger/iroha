@@ -30,6 +30,7 @@
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
 #include "interfaces/commands/set_quorum.hpp"
+#include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -1333,6 +1334,19 @@ namespace iroha {
            R"( AND (SELECT * FROM has_perm))",
            R"( AND (SELECT * FROM has_perm))",
            R"( WHEN NOT (SELECT * FROM has_perm) THEN 2 )"});
+
+      set_setting_value_statements_ = makeCommandStatements(
+          sql_,
+          R"(INSERT INTO setting(setting_key, setting_value)
+             VALUES
+             (
+                 :setting_key,
+                 :setting_value
+             )
+             ON CONFLICT (setting_key)
+                 DO UPDATE SET setting_value = EXCLUDED.setting_value
+             RETURNING 0)",
+          {});
     }
 
     std::string CommandError::toString() const {
@@ -1715,6 +1729,24 @@ namespace iroha {
       executor.use("asset_id", asset_id);
       executor.use("quantity", quantity);
       executor.use("precision", precision);
+
+      return executor.execute();
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::SetSettingValue &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
+      auto &key = command.key();
+      auto &value = command.value();
+
+      StatementExecutor executor(set_setting_value_statements_,
+                                 do_validation,
+                                 "SetSettingValue",
+                                 perm_converter_);
+
+      executor.use("setting_key", key);
+      executor.use("setting_value", value);
 
       return executor.execute();
     }
