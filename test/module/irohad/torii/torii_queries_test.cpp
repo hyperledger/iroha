@@ -26,6 +26,7 @@
 #include "module/shared_model/builders/protobuf/queries.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 
 #include "framework/common_constants.hpp"

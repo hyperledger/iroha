@@ -5,6 +5,7 @@
 
 #include <gmock/gmock.h>
 
+#include "datetime/time.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"

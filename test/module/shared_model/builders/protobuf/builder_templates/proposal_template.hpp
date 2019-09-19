@@ -8,8 +8,6 @@
 
 #include "backend/protobuf/proposal.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "module/irohad/common/validators_config.hpp"
-#include "validators/default_validator.hpp"
 
 #include "proposal.pb.h"
 
@@ -19,15 +17,12 @@ namespace shared_model {
     /**
      * Template proposal builder for creating new types of proposal builders by
      * means of replacing template parameters
-     * @tparam SV -- stateless validator called when build method is invoked
      */
-    template <typename SV = validation::DefaultProposalValidator>
     class [[deprecated]] TemplateProposalBuilder {
      private:
-      using NextBuilder = TemplateProposalBuilder<SV>;
+      using NextBuilder = TemplateProposalBuilder;
 
       iroha::protocol::Proposal proposal_;
-      SV stateless_validator_;
 
       /**
        * Make transformation on copied content
@@ -45,17 +40,10 @@ namespace shared_model {
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateProposalBuilder(bool transport_proposal = false)
-          : TemplateProposalBuilder(SV(
-                transport_proposal ? iroha::test::kProposalTestsValidatorsConfig
-                                   : iroha::test::kTestsValidatorsConfig)) {}
+      TemplateProposalBuilder() = default;
 
-      TemplateProposalBuilder(const SV &validator)
-          : stateless_validator_(validator) {}
-
-      TemplateProposalBuilder(const TemplateProposalBuilder<SV> &o)
-          : proposal_(o.proposal_),
-            stateless_validator_(o.stateless_validator_) {}
+      TemplateProposalBuilder(const TemplateProposalBuilder &o)
+          : proposal_(o.proposal_) {}
 
       auto height(const interface::types::HeightType height) const {
         return transform([&](auto &proposal) { proposal.set_height(height); });
@@ -79,10 +67,7 @@ namespace shared_model {
 
       Proposal build() {
         auto result = Proposal(iroha::protocol::Proposal(proposal_));
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
-        }
+
         return result;
       }
     };

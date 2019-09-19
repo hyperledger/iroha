@@ -5,6 +5,7 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "module/irohad/common/validators_config.hpp"

@@ -14,9 +14,7 @@
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/transaction.hpp"
-#include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
-#include "validators/default_validator.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -24,17 +22,14 @@ namespace shared_model {
     /**
      * Template block builder for creating new types of block builders by
      * means of replacing template parameters
-     * @tparam SV -- stateless validator called when build method is invoked
      * @tparam BT -- build type of built object returned by build method
      */
-    template <typename SV = validation::DefaultUnsignedBlockValidator,
-              typename BT = UnsignedWrapper<Block>>
+    template <typename BT = UnsignedWrapper<Block>>
     class [[deprecated]] TemplateBlockBuilder {
      private:
-      using NextBuilder = TemplateBlockBuilder<SV, BT>;
+      using NextBuilder = TemplateBlockBuilder<BT>;
 
       iroha::protocol::Block_v1 block_;
-      SV stateless_validator_;
 
       /**
        * Make transformation on copied content
@@ -52,14 +47,10 @@ namespace shared_model {
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateBlockBuilder()
-          : TemplateBlockBuilder(SV(iroha::test::kTestsValidatorsConfig)) {}
+      TemplateBlockBuilder() = default;
 
-      TemplateBlockBuilder(const SV &validator)
-          : stateless_validator_(validator){};
-
-      TemplateBlockBuilder(const TemplateBlockBuilder<SV, BT> &o)
-          : block_(o.block_), stateless_validator_(o.stateless_validator_) {}
+      TemplateBlockBuilder(const TemplateBlockBuilder<BT> &o)
+          : block_(o.block_) {}
 
       template <class T>
       auto transactions(const T &transactions) const {
@@ -104,11 +95,7 @@ namespace shared_model {
         block_.mutable_payload()->set_tx_number(tx_number);
 
         auto result = Block(iroha::protocol::Block_v1(block_));
-        auto answer = stateless_validator_.validate(result);
 
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
-        }
         return BT(std::move(result));
       }
     };

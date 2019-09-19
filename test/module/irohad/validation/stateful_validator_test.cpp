@@ -21,6 +21,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "validation/utils.hpp"
+#include "validators/default_validator.hpp"
 
 using namespace iroha::validation;
 using namespace shared_model::crypto;

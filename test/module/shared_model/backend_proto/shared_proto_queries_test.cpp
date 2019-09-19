@@ -12,6 +12,7 @@
 
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
+#include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 
 /**

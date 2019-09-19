@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 #include "cryptography/keypair.hpp"
+#include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/query_response.hpp"

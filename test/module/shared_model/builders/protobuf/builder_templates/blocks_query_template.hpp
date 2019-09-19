@@ -9,11 +9,8 @@
 #include "backend/protobuf/queries/proto_blocks_query.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/blocks_query.hpp"
-#include "interfaces/transaction.hpp"
-#include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
 #include "queries.pb.h"
-#include "validators/default_validator.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -21,14 +18,12 @@ namespace shared_model {
     /**
      * Template blocks query builder for creating new types of builders by
      * means of replacing template parameters
-     * @tparam SV -- stateless validator called when build method is invoked
      * @tparam BT -- build type of built object returned by build method
      */
-    template <typename SV = validation::DefaultUnsignedBlocksQueryValidator,
-              typename BT = UnsignedWrapper<BlocksQuery>>
+    template <typename BT = UnsignedWrapper<BlocksQuery>>
     class [[deprecated]] TemplateBlocksQueryBuilder {
      private:
-      using NextBuilder = TemplateBlocksQueryBuilder<SV, BT>;
+      using NextBuilder = TemplateBlocksQueryBuilder<BT>;
 
       using ProtoBlocksQuery = iroha::protocol::BlocksQuery;
 
@@ -48,15 +43,10 @@ namespace shared_model {
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateBlocksQueryBuilder()
-          : TemplateBlocksQueryBuilder(
-                SV(iroha::test::kTestsValidatorsConfig)) {}
+      TemplateBlocksQueryBuilder() = default;
 
-      TemplateBlocksQueryBuilder(const SV &validator)
-          : stateless_validator_(validator) {}
-
-      TemplateBlocksQueryBuilder(const TemplateBlocksQueryBuilder<SV, BT> &o)
-          : query_(o.query_), stateless_validator_(o.stateless_validator_) {}
+      TemplateBlocksQueryBuilder(const TemplateBlocksQueryBuilder<BT> &o)
+          : query_(o.query_) {}
 
       auto createdTime(interface::types::TimestampType created_time) const {
         return transform([&](auto &qry) {
@@ -82,16 +72,12 @@ namespace shared_model {
 
       auto build() const {
         auto result = BlocksQuery(iroha::protocol::BlocksQuery(query_));
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
-        }
+
         return BT(std::move(result));
       }
 
      private:
       ProtoBlocksQuery query_;
-      SV stateless_validator_;
     };
   }  // namespace proto
 }  // namespace shared_model

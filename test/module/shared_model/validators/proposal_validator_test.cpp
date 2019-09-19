@@ -43,17 +43,15 @@ class ProposalValidatorTest : public ValidatorsTest {
   }
 
   template <typename ProposalBuilder>
-  auto getBaseProposalBuilder(bool transport_proposal) {
-    return ProposalBuilder(transport_proposal)
-        .createdTime(created_time)
-        .height(1);
+  auto getBaseProposalBuilder() {
+    return ProposalBuilder().createdTime(created_time).height(1);
   }
 
   auto createProposalWithDuplicateTransactions() {
     std::vector<shared_model::proto::Transaction> txs;
     txs.push_back(createTransaction());
     txs.push_back(createTransaction());
-    return getBaseProposalBuilder<shared_model::proto::ProposalBuilder>(true)
+    return getBaseProposalBuilder<shared_model::proto::ProposalBuilder>()
         .transactions(txs)
         .build();
   }

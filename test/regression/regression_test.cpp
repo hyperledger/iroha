@@ -7,6 +7,7 @@
 #include <boost/variant.hpp>
 #include "common/files.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"

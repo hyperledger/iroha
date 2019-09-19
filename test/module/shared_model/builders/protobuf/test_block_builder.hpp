@@ -6,23 +6,21 @@
 #ifndef IROHA_TEST_BLOCK_BUILDER_HPP
 #define IROHA_TEST_BLOCK_BUILDER_HPP
 
+#include "datetime/time.hpp"
 #include "module/shared_model/builders/protobuf/builder_templates/block_template.hpp"
-#include "module/shared_model/validators/validators.hpp"
 
 /**
  * Builder alias, to build shared model proto block object avoiding validation
  * and "required fields" check
  */
-using TestBlockBuilder = shared_model::proto::TemplateBlockBuilder<
-    shared_model::validation::AlwaysValidValidator,
-    shared_model::proto::Block>;
+using TestBlockBuilder =
+    shared_model::proto::TemplateBlockBuilder<shared_model::proto::Block>;
 
 /**
  * Builder alias, which allows to build proto block object without validation,
  * "required fields" and signs checks
  */
 using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<
-    shared_model::validation::AlwaysValidValidator,
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block>>;
 
 std::shared_ptr<const shared_model::interface::Block> createBlock(

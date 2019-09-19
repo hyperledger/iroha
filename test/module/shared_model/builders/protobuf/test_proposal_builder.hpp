@@ -7,13 +7,11 @@
 #define IROHA_TEST_PROPOSAL_BUILDER_HPP
 
 #include "module/shared_model/builders/protobuf/builder_templates/proposal_template.hpp"
-#include "module/shared_model/validators/validators.hpp"
 
 /**
  * Builder alias, to build shared model proto proposal object avoiding "required
  * fields" check
  */
-using TestProposalBuilder = shared_model::proto::TemplateProposalBuilder<
-    shared_model::validation::AlwaysValidValidator>;
+using TestProposalBuilder = shared_model::proto::TemplateProposalBuilder;
 
 #endif  // IROHA_TEST_PROPOSAL_BUILDER_HPP

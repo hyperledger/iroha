@@ -8,6 +8,7 @@
 
 #include <boost/range/irange.hpp>
 
+#include "datetime/time.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include "logger/logger.hpp"
 
+#include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"
 

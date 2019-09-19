@@ -11,7 +11,7 @@
 namespace shared_model {
   namespace proto {
 
-    using ProposalBuilder = TemplateProposalBuilder<>;
+    using ProposalBuilder = TemplateProposalBuilder;
   }
 }  // namespace shared_model
 

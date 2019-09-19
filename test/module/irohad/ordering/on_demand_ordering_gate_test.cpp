@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/indirected.hpp>
+#include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"

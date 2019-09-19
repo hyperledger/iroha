@@ -20,6 +20,7 @@
 #include "backend/protobuf/permissions.hpp"
 #include "backend/protobuf/queries/proto_query_payload_meta.hpp"
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
+#include "interfaces/common_objects/amount.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/queries.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"

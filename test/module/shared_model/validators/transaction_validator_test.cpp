@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "validators/default_validator.hpp"
+
 #include "module/shared_model/validators/validators_fixture.hpp"
 
 #include <type_traits>

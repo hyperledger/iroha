@@ -7,6 +7,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "datetime/time.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"
 
 // common data for tests
@@ -80,24 +81,4 @@ TEST(ProtoTransaction, Builder) {
   auto &proto = signedTx.getTransport();
 
   ASSERT_EQ(proto_tx.SerializeAsString(), proto.SerializeAsString());
-}
-
-/**
- * @given transaction field values and sample command values with wrongly set
- * values
- * @when create transaction with sample command using transaction builder
- * @then transaction throws exception due to badly formed fields in commands
- */
-TEST(ProtoTransaction, BuilderWithInvalidTx) {
-  std::string invalid_account_id = "admintest";  // invalid account_id without @
-  std::string invalid_asset_id = "cointest",     // invalid asset_id without #
-      amount = "10.00";
-
-  ASSERT_THROW(shared_model::proto::TransactionBuilder()
-                   .creatorAccountId(invalid_account_id)
-                   .addAssetQuantity(invalid_asset_id, amount)
-                   .createdTime(created_time)
-                   .quorum(1)
-                   .build(),
-               std::invalid_argument);
 }

@@ -17,6 +17,7 @@
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 
 using ::testing::_;

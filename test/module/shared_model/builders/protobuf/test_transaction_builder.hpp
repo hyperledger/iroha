@@ -9,7 +9,6 @@
 #include <memory>
 
 #include "module/shared_model/builders/protobuf/builder_templates/transaction_template.hpp"
-#include "module/shared_model/validators/validators.hpp"
 
 using ProtoTxType = shared_model::proto::Transaction;
 
@@ -17,9 +16,8 @@ using ProtoTxType = shared_model::proto::Transaction;
  * Builder alias, to build shared model proto transaction object avoiding
  * validation and "required fields" check
  */
-using TestTransactionBuilder = shared_model::proto::TemplateTransactionBuilder<
-    shared_model::validation::AlwaysValidValidator,
-    ProtoTxType>;
+using TestTransactionBuilder =
+    shared_model::proto::TemplateTransactionBuilder<ProtoTxType>;
 
 /**
  * Builder for creating \class shared_model::proto::UnsignedWrapper of \class
@@ -27,7 +25,6 @@ using TestTransactionBuilder = shared_model::proto::TemplateTransactionBuilder<
  */
 using TestUnsignedTransactionBuilder =
     shared_model::proto::TemplateTransactionBuilder<
-        shared_model::validation::AlwaysValidValidator,
         shared_model::proto::UnsignedWrapper<ProtoTxType>>;
 
 /**

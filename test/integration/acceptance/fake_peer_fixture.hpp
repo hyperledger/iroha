@@ -8,6 +8,7 @@
 
 #include "integration/acceptance/acceptance_fixture.hpp"
 
+#include <gmock/gmock.h>
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"

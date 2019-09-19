@@ -17,9 +17,7 @@
 #include "backend/protobuf/permissions.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
-#include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
-#include "validators/default_validator.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -27,14 +25,12 @@ namespace shared_model {
     /**
      * Template tx builder for creating new types of transaction builders by
      * means of replacing template parameters
-     * @tparam SV -- stateless validator called when build method is invoked
      * @tparam BT -- build type of built object returned by build method
      */
-    template <typename SV = validation::DefaultUnsignedTransactionValidator,
-              typename BT = UnsignedWrapper<Transaction>>
+    template <typename BT = UnsignedWrapper<Transaction>>
     class [[deprecated]] TemplateTransactionBuilder {
      private:
-      using NextBuilder = TemplateTransactionBuilder<SV, BT>;
+      using NextBuilder = TemplateTransactionBuilder<BT>;
 
       using ProtoTx = iroha::protocol::Transaction;
       using ProtoCommand = iroha::protocol::Command;
@@ -70,16 +66,10 @@ namespace shared_model {
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateTransactionBuilder()
-          : TemplateTransactionBuilder(
-                SV(iroha::test::kTestsValidatorsConfig)) {}
+      TemplateTransactionBuilder() = default;
 
-      TemplateTransactionBuilder(const SV &validator)
-          : stateless_validator_(validator) {}
-
-      TemplateTransactionBuilder(const TemplateTransactionBuilder<SV, BT> &o)
-          : transaction_(o.transaction_),
-            stateless_validator_(o.stateless_validator_) {}
+      TemplateTransactionBuilder(const TemplateTransactionBuilder<BT> &o)
+          : transaction_(o.transaction_) {}
 
       auto creatorAccountId(const interface::types::AccountIdType &account_id)
           const {
@@ -315,16 +305,12 @@ namespace shared_model {
 
       auto build() const {
         auto result = Transaction(iroha::protocol::Transaction(transaction_));
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
-        }
+
         return BT(std::move(result));
       }
 
      private:
       ProtoTx transaction_;
-      SV stateless_validator_;
     };
 
   }  // namespace proto

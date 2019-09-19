@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "datetime/time.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 

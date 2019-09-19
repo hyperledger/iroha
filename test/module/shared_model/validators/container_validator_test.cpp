@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "cryptography/default_hash_provider.hpp"
 #include "module/irohad/common/validators_config.hpp"
