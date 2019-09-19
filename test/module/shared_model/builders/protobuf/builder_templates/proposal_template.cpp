@@ -10,11 +10,9 @@
 using namespace shared_model;
 using namespace shared_model::proto;
 
-using NextBuilder = TemplateProposalBuilder;
-
 template <typename Transformation>
 auto TemplateProposalBuilder::transform(Transformation t) const {
-  NextBuilder copy = *this;
+  TemplateProposalBuilder copy = *this;
   t(*copy.proposal_);
   return copy;
 }

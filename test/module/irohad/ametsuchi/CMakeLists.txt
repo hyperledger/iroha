@@ -7,6 +7,7 @@ addtest(ametsuchi_test ametsuchi_test.cpp)
 target_link_libraries(ametsuchi_test
     ametsuchi
     ametsuchi_fixture
+    shared_model_proto_builders
     shared_model_stateless_validation
     test_logger
     )
@@ -28,6 +29,7 @@ addtest(block_query_test block_query_test.cpp)
 target_link_libraries(block_query_test
     ametsuchi
     ametsuchi_fixture
+    shared_model_proto_builders
     shared_model_stateless_validation
     )
 
@@ -62,6 +64,7 @@ addtest(postgres_query_executor_test postgres_query_executor_test.cpp)
 target_link_libraries(postgres_query_executor_test
     shared_model_plain_backend
     shared_model_proto_backend
+    shared_model_proto_builders
     ametsuchi_fixture
     ametsuchi
     commands_mocks_factory
@@ -101,6 +104,7 @@ target_link_libraries(postgres_block_storage_test
      test_logger
      integration_framework_config_helper
      pg_connection_init
+     shared_model_proto_builders
      )
 
 add_library(ametsuchi_fixture INTERFACE)

@@ -110,6 +110,7 @@ if (IROHA_ROOT_PROJECT)
   target_link_libraries(proto_query_response_factory_test
       shared_model_plain_backend
       shared_model_proto_backend
+      shared_model_proto_builders
       shared_model_stateless_validation
       )
 endif()

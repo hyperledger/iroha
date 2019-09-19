@@ -9,6 +9,7 @@
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/util.hpp"
+#include "block.pb.h"
 #include "common/byteutils.hpp"
 
 namespace shared_model {

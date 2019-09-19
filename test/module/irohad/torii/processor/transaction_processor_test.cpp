@@ -404,12 +404,11 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
         invalid_txs);
   }
 
+  auto hashes = invalid_txs
+      | boost::adaptors::transformed([](auto &tx) { return tx.hash(); });
   auto block = TestBlockBuilder()
                    .transactions(block_txs)
-                   .rejectedTransactions(
-                       invalid_txs | boost::adaptors::transformed([](auto &tx) {
-                         return tx.hash();
-                       }))
+                   .rejectedTransactions({hashes.begin(), hashes.end()})
                    .build();
 
   commit_notifier.get_subscriber().on_next(

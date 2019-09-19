@@ -6,9 +6,10 @@
 #ifndef IROHA_PROTO_TEMPLATE_BLOCK_BUILDER_HPP
 #define IROHA_PROTO_TEMPLATE_BLOCK_BUILDER_HPP
 
+#include <memory>
+
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/transaction.hpp"
-#include "block.pb.h"
 
 #include "interfaces/base/signable.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -27,9 +28,7 @@ namespace shared_model {
     template <typename BT = UnsignedWrapper<Block>>
     class [[deprecated]] TemplateBlockBuilder {
      private:
-      using NextBuilder = TemplateBlockBuilder<BT>;
-
-      iroha::protocol::Block_v1 block_;
+      std::unique_ptr<iroha::protocol::Block_v1> block_;
 
       /**
        * Make transformation on copied content
@@ -38,67 +37,38 @@ namespace shared_model {
        * @return new builder with updated state
        */
       template <typename Transformation>
-      auto transform(Transformation t) const {
-        NextBuilder copy = *this;
-        t(copy.block_);
-        return copy;
-      }
+      TemplateBlockBuilder<BT> transform(Transformation t) const;
 
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateBlockBuilder() = default;
+      TemplateBlockBuilder();
 
-      TemplateBlockBuilder(const TemplateBlockBuilder<BT> &o)
-          : block_(o.block_) {}
+      TemplateBlockBuilder(const TemplateBlockBuilder<BT> &o);
 
-      template <class T>
-      auto transactions(const T &transactions) const {
-        return transform([&](auto &block) {
-          for (const auto &tx : transactions) {
-            new (block.mutable_payload()->add_transactions())
-                iroha::protocol::Transaction(tx.getTransport());
-          }
-        });
-      }
+      TemplateBlockBuilder<BT> transactions(
+          const std::vector<shared_model::proto::Transaction> &transactions)
+          const;
 
-      template <class T>
-      auto rejectedTransactions(const T &rejected_transactions_hashes) const {
-        return transform([&](auto &block) {
-          for (const auto &hash : rejected_transactions_hashes) {
-            auto *next_hash =
-                block.mutable_payload()->add_rejected_transactions_hashes();
-            (*next_hash) = hash.hex();
-          }
-        });
-      }
+      TemplateBlockBuilder<BT> rejectedTransactions(
+          const std::vector<shared_model::crypto::Hash>
+              &rejected_transactions_hashes) const;
 
-      auto height(interface::types::HeightType height) const {
-        return transform(
-            [&](auto &block) { block.mutable_payload()->set_height(height); });
-      }
+      TemplateBlockBuilder<BT> height(interface::types::HeightType height)
+          const;
 
-      auto prevHash(crypto::Hash hash) const {
-        return transform([&](auto &block) {
-          block.mutable_payload()->set_prev_block_hash(hash.hex());
-        });
-      }
+      TemplateBlockBuilder<BT> prevHash(crypto::Hash hash) const;
 
-      auto createdTime(interface::types::TimestampType time) const {
-        return transform([&](auto &block) {
-          block.mutable_payload()->set_created_time(time);
-        });
-      }
+      TemplateBlockBuilder<BT> createdTime(interface::types::TimestampType time)
+          const;
 
-      BT build() {
-        auto tx_number = block_.payload().transactions().size();
-        block_.mutable_payload()->set_tx_number(tx_number);
+      BT build();
 
-        auto result = Block(iroha::protocol::Block_v1(block_));
-
-        return BT(std::move(result));
-      }
+      ~TemplateBlockBuilder();
     };
+
+    extern template class TemplateBlockBuilder<Block>;
+    extern template class TemplateBlockBuilder<UnsignedWrapper<Block>>;
   }  // namespace proto
 }  // namespace shared_model
 

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "backend/protobuf/transaction.hpp"
+#include "block.pb.h"
 #include "converters/protobuf/json_proto_converter.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"

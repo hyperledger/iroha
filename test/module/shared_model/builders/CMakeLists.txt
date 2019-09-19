@@ -5,6 +5,7 @@
 
 add_library(shared_model_proto_builders
 	protobuf/builder_templates/proposal_template.cpp
+	protobuf/builder_templates/block_template.cpp
 	)
 target_link_libraries(shared_model_proto_builders
     shared_model_proto_backend

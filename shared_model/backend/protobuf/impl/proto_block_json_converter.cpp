@@ -9,6 +9,7 @@
 #include <string>
 
 #include "backend/protobuf/block.hpp"
+#include "block.pb.h"
 
 using namespace shared_model;
 using namespace shared_model::proto;

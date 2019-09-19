@@ -8,6 +8,7 @@
 #include <fstream>
 
 #include "backend/protobuf/block.hpp"
+#include "block.pb.h"
 #include "common/bind.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
 #include "logger/logger.hpp"

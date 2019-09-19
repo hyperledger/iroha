@@ -9,5 +9,6 @@ AddTest(json_proto_converter_test
 
 target_link_libraries(json_proto_converter_test
     shared_model_proto_backend
+    shared_model_proto_builders
     shared_model_stateless_validation
     )

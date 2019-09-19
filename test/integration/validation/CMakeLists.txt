@@ -5,6 +5,7 @@ addtest(chain_validator_storage_test chain_validator_storage_test.cpp)
 target_link_libraries(chain_validator_storage_test
     ametsuchi
     ametsuchi_fixture
+    shared_model_proto_builders
     yac
     chain_validator
     test_logger

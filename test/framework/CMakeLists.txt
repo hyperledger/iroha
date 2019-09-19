@@ -41,6 +41,7 @@ target_link_libraries(integration_framework
     common_test_constants
     query_client
     ordering_gate_common
+    shared_model_proto_builders
     shared_model_cryptography_model
     server_runner
     mst_transport
