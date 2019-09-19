@@ -11,7 +11,6 @@
 #include "framework/batch_helper.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
@@ -21,21 +20,14 @@
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"
-#include "module/shared_model/builders/protobuf/transaction_sequence_builder.hpp"
 #include "module/shared_model/builders/protobuf/transport_builder.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/transactions_collection/batch_order_validator.hpp"
 
 using namespace shared_model;
 using namespace shared_model::proto;
 using namespace iroha::expected;
 using iroha::operator|;
-
-using TransactionSequenceBuilder = TransportBuilder<
-    interface::TransactionSequence,
-    validation::TransactionsCollectionValidator<
-        validation::TransactionValidator<
-            validation::FieldValidator,
-            validation::CommandValidatorVisitor<validation::FieldValidator>>>>;
 
 class TransportBuilderTest : public ::testing::Test {
  protected:
@@ -328,122 +320,4 @@ TEST_F(TransportBuilderTest, DISABLED_EmptyProposalCreationTest) {
       [](const Value<decltype(orig_model)> &) { FAIL(); },
       [](const Error<std::string> &) { SUCCEED(); },
       true);
-}
-
-//---------------------------Transaction Sequence-------------------------------
-
-/**
- * @given empty range of transactions
- * @when TransportBuilder tries to build TransactionSequence object
- * @then built object contains TransactionSequence shared model object
- * AND object will not created
- */
-TEST_F(TransportBuilderTest, TransactionSequenceEmpty) {
-  iroha::protocol::TxList tx_list;
-  auto val = framework::expected::val(
-      TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
-          .build(tx_list));
-  ASSERT_FALSE(val);
-}
-
-struct getProtocolTx {
-  iroha::protocol::Transaction operator()(
-      const std::shared_ptr<interface::Transaction> tx) const {
-    return std::static_pointer_cast<proto::Transaction>(tx)->getTransport();
-  }
-};
-
-/**
- * @given sequence of transaction with a right order
- * @when TransportBuilder tries to build TransactionSequence object
- * @then  built object contains TransactionSequence shared model object
- */
-TEST_F(TransportBuilderTest, TransactionSequenceCorrect) {
-  iroha::protocol::TxList tx_list;
-  auto now = iroha::time::now();
-  auto batch1 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 10, now);
-  auto batch2 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 5, now + 1);
-  auto batch3 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 5, now + 2);
-  std::for_each(std::begin(batch1), std::end(batch1), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-
-  std::for_each(std::begin(batch2), std::end(batch2), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-
-  new (tx_list.add_transactions())
-      iroha::protocol::Transaction(createTransaction().getTransport());
-  new (tx_list.add_transactions())
-      iroha::protocol::Transaction(createTransaction().getTransport());
-  new (tx_list.add_transactions())
-      iroha::protocol::Transaction(createTransaction().getTransport());
-  std::for_each(std::begin(batch3), std::end(batch3), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-  new (tx_list.add_transactions())
-      iroha::protocol::Transaction(createTransaction().getTransport());
-
-  auto val = framework::expected::val(
-      TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
-          .build(tx_list));
-
-  val | [](auto &seq) { EXPECT_EQ(boost::size(seq.value.transactions()), 24); };
-}
-/**
- * @given batch of transaction with transaction in the middle
- * @when TransportBuilder tries to build TransactionSequence object
- * @then  built an error
- * @note disabled because current algorithm of creating batches can process list
- * of transaction where in the middle of the batch can appear single independent
- * transaction
- */
-TEST_F(TransportBuilderTest, DISABLED_TransactionInteraptedBatch) {
-  iroha::protocol::TxList tx_list;
-  auto batch = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 10);
-  std::for_each(std::begin(batch), std::begin(batch) + 3, [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-  new (tx_list.add_transactions())
-      iroha::protocol::Transaction(createTransaction().getTransport());
-  std::for_each(std::begin(batch) + 3, std::end(batch), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-
-  auto error = framework::expected::err(
-      TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
-          .build(tx_list));
-  ASSERT_TRUE(error);
-}
-
-/**
- * @given batch of transaction with wrong order
- * @when TransportBuilder tries to build TransactionSequence object
- * @then  built an error
- */
-TEST_F(TransportBuilderTest, BatchWrongOrder) {
-  iroha::protocol::TxList tx_list;
-  auto batch = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 10);
-  std::for_each(std::begin(batch) + 3, std::end(batch), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-  std::for_each(std::begin(batch), std::begin(batch) + 3, [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
-  auto error = framework::expected::err(
-      TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
-          .build(tx_list));
-  ASSERT_TRUE(error);
 }

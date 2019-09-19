@@ -40,7 +40,6 @@
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"
-#include "module/shared_model/builders/protobuf/transaction_sequence_builder.hpp"
 #include "module/shared_model/validators/always_valid_validators.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
