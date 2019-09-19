@@ -7,7 +7,7 @@
 [![Build Status](https://jenkins.soramitsu.co.jp/buildStatus/icon?job=iroha/iroha-hyperledger/master)](https://jenkins.soramitsu.co.jp/job/iroha/job/iroha-hyperledger/job/master/)
 
 Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri). 
-Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy byzantine fault-tolerant tool for your enterprise needs. 
+Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs. 
 
 Check the [overview](http://iroha.readthedocs.io/en/latest/overview.html) page of our documentation.
 [Here](https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww) is a YouTube channel where we upload meetings and explanatory videos - check them out! 
@@ -23,7 +23,7 @@ Iroha has the following features:
 5. Validation of business rules for transactions and queries in the system
 6. Multisignature transactions
 
-Iroha is _Byzantine Fault Tolerant_ and has its own consensus algorithm - [YAC](https://arxiv.org/pdf/1809.00554.pdf) 
+Iroha is _Crash Fault Tolerant_ and has its own consensus algorithm - [YAC](https://arxiv.org/pdf/1809.00554.pdf) 
 
 ## Documentation
 
