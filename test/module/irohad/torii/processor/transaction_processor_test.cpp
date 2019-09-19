@@ -375,9 +375,10 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
         status_map[response->transactionHash()] = response;
       }));
 
+  auto all_txs = boost::join(block_txs, invalid_txs);
   auto proposal = std::make_shared<shared_model::proto::Proposal>(
       TestProposalBuilder()
-          .transactions(boost::join(block_txs, invalid_txs))
+          .transactions({all_txs.begin(), all_txs.end()})
           .build());
 
   // trigger the verified event with txs, which we want to fail, as errors

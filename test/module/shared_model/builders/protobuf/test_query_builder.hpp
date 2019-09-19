@@ -16,14 +16,12 @@
 using TestQueryBuilder =
     shared_model::proto::TemplateQueryBuilder<shared_model::proto::Query>;
 
-using TestUnsignedQueryBuilder = shared_model::proto::TemplateQueryBuilder<
-    shared_model::proto::UnsignedWrapper<shared_model::proto::Query>>;
+using TestUnsignedQueryBuilder = shared_model::proto::TemplateQueryBuilder<>;
 
 using TestBlocksQueryBuilder = shared_model::proto::TemplateBlocksQueryBuilder<
     shared_model::proto::BlocksQuery>;
 
 using TestUnsignedBlocksQueryBuilder =
-    shared_model::proto::TemplateBlocksQueryBuilder<
-        shared_model::proto::UnsignedWrapper<shared_model::proto::BlocksQuery>>;
+    shared_model::proto::TemplateBlocksQueryBuilder<>;
 
 #endif  // IROHA_TEST_QUERY_BUILDER_HPP

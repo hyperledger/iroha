@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/util.hpp"
+#include "proposal.pb.h"
 
 namespace shared_model {
   namespace proto {

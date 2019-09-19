@@ -8,7 +8,12 @@
 
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
-#include "proposal.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class Proposal;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

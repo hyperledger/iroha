@@ -6,6 +6,8 @@
 #ifndef IROHA_BATCH_HELPER_HPP
 #define IROHA_BATCH_HELPER_HPP
 
+#include <memory>
+
 #include <boost/range/irange.hpp>
 
 #include "datetime/time.hpp"
@@ -299,6 +301,16 @@ namespace framework {
         return shared_model::interface::types::SharedTxsCollectionType();
       }
 
+      template <typename Builder>
+      auto completeUnsignedTxBuilder(Builder &&builder) {
+        return std::make_shared<shared_model::proto::Transaction>(
+            builder.build()
+                .signAndAddSignature(
+                    shared_model::crypto::DefaultCryptoAlgorithmType::
+                        generateKeypair())
+                .finish());
+      }
+
       /**
        * Creates a vector containing single signed transaction
        * @tparam TxBuilder is any builder which creates
@@ -315,13 +327,25 @@ namespace framework {
       auto makeTxBatchCollection(const BatchMeta &batch_meta,
                                  TxBuilder &&builder) ->
           typename std::enable_if_t<
-              std::is_same<
-                  decltype(builder.build()),
-                  shared_model::proto::UnsignedWrapper<ProtoTxType>>::value,
+              std::is_same<decltype(builder.build()),
+                           shared_model::proto::UnsignedWrapper<
+                               shared_model::proto::Transaction>>::value,
               shared_model::interface::types::SharedTxsCollectionType> {
         return shared_model::interface::types::SharedTxsCollectionType{
             completeUnsignedTxBuilder(builder.batchMeta(
                 batch_meta.batch_type, batch_meta.reduced_hashes))};
+      }
+
+      /**
+       * Wrapper for making shared_ptr on transaction from the passed builder
+       * @tparam Builder - universal reference type of the passed builder
+       * @param builder - instance of the passed builder
+       * @return shared_ptr to completed object
+       */
+      template <typename Builder>
+      auto makePolyTxFromBuilder(Builder &&builder) {
+        return std::make_shared<shared_model::proto::Transaction>(
+            builder.build());
       }
 
       /**
@@ -338,7 +362,8 @@ namespace framework {
       auto makeTxBatchCollection(const BatchMeta &batch_meta,
                                  TxBuilder &&builder) ->
           typename std::enable_if<
-              std::is_same<decltype(builder.build()), ProtoTxType>::value,
+              std::is_same<decltype(builder.build()),
+                           shared_model::proto::Transaction>::value,
               shared_model::interface::types::SharedTxsCollectionType>::type {
         return shared_model::interface::types::SharedTxsCollectionType{
             makePolyTxFromBuilder(builder.batchMeta(

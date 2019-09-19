@@ -8,6 +8,7 @@ addtest(transaction_processor_test transaction_processor_test.cpp)
 target_link_libraries(transaction_processor_test
     consensus_round
     processors
+    shared_model_proto_builders
     shared_model_stateless_validation
     test_logger
     )

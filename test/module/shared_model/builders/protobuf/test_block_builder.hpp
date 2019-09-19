@@ -20,8 +20,7 @@ using TestBlockBuilder =
  * Builder alias, which allows to build proto block object without validation,
  * "required fields" and signs checks
  */
-using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<
-    shared_model::proto::UnsignedWrapper<shared_model::proto::Block>>;
+using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<>;
 
 std::shared_ptr<const shared_model::interface::Block> createBlock(
     std::vector<shared_model::proto::Transaction> txs,

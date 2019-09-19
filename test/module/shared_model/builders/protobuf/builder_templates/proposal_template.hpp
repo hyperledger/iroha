@@ -6,10 +6,11 @@
 #ifndef IROHA_PROTO_TEMPLATE_PROPOSAL_BUILDER_HPP
 #define IROHA_PROTO_TEMPLATE_PROPOSAL_BUILDER_HPP
 
-#include "backend/protobuf/proposal.hpp"
-#include "interfaces/common_objects/types.hpp"
+#include <memory>
 
-#include "proposal.pb.h"
+#include "backend/protobuf/proposal.hpp"
+#include "backend/protobuf/transaction.hpp"
+#include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -20,9 +21,7 @@ namespace shared_model {
      */
     class [[deprecated]] TemplateProposalBuilder {
      private:
-      using NextBuilder = TemplateProposalBuilder;
-
-      iroha::protocol::Proposal proposal_;
+      std::unique_ptr<iroha::protocol::Proposal> proposal_;
 
       /**
        * Make transformation on copied content
@@ -31,45 +30,28 @@ namespace shared_model {
        * @return new builder with updated state
        */
       template <typename Transformation>
-      auto transform(Transformation t) const {
-        NextBuilder copy = *this;
-        t(copy.proposal_);
-        return copy;
-      }
+      auto transform(Transformation t) const;
 
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateProposalBuilder() = default;
+      TemplateProposalBuilder();
 
-      TemplateProposalBuilder(const TemplateProposalBuilder &o)
-          : proposal_(o.proposal_) {}
+      TemplateProposalBuilder(const TemplateProposalBuilder &o);
 
-      auto height(const interface::types::HeightType height) const {
-        return transform([&](auto &proposal) { proposal.set_height(height); });
-      }
+      TemplateProposalBuilder height(const interface::types::HeightType height)
+          const;
 
-      template <class T>
-      auto transactions(const T &transactions) const {
-        return transform([&](auto &proposal) {
-          for (const auto &tx : transactions) {
-            new (proposal.add_transactions())
-                iroha::protocol::Transaction(tx.getTransport());
-          }
-        });
-      }
+      TemplateProposalBuilder transactions(
+          const std::vector<shared_model::proto::Transaction> &transactions)
+          const;
 
-      auto createdTime(const interface::types::TimestampType created_time)
-          const {
-        return transform(
-            [&](auto &proposal) { proposal.set_created_time(created_time); });
-      }
+      TemplateProposalBuilder createdTime(
+          const interface::types::TimestampType created_time) const;
 
-      Proposal build() {
-        auto result = Proposal(iroha::protocol::Proposal(proposal_));
+      Proposal build();
 
-        return result;
-      }
+      ~TemplateProposalBuilder();
     };
   }  // namespace proto
 }  // namespace shared_model
