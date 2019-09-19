@@ -38,7 +38,8 @@ namespace iroha {
                     "UNKNOWN",
                     "DEADLINE_EXCEEDED",
                     "ABORTED",
-                    "INTERNAL"
+                    "INTERNAL",
+                    "UNAVAILABLE"
                   ]
                 },
                 "maxRequestMessageBytes": %2%,
