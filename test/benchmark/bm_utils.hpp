@@ -6,11 +6,11 @@
 #ifndef IROHA_BM_UTILS_HPP
 #define IROHA_BM_UTILS_HPP
 
-#include "builders/protobuf/unsigned_proto.hpp"
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
 
 namespace benchmark {
   namespace utils {

@@ -4,10 +4,10 @@
  */
 
 #include <gtest/gtest.h>
-#include "builders/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;

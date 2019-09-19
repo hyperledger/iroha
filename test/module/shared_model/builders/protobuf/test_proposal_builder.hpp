@@ -14,7 +14,6 @@
  * fields" check
  */
 using TestProposalBuilder = shared_model::proto::TemplateProposalBuilder<
-    (1 << shared_model::proto::TemplateProposalBuilder<>::total) - 1,
     shared_model::validation::AlwaysValidValidator>;
 
 #endif  // IROHA_TEST_PROPOSAL_BUILDER_HPP

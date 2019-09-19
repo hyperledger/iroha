@@ -8,13 +8,13 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
-#include "builders/protobuf/queries.hpp"
-#include "builders/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
+#include "module/shared_model/builders/protobuf/queries.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 class GrantablePermissionsFixture : public AcceptanceFixture {
  public:

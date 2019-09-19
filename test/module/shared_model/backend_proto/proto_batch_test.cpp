@@ -5,12 +5,12 @@
 
 #include <gmock/gmock.h>
 
-#include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 using namespace shared_model;
 using ::testing::_;

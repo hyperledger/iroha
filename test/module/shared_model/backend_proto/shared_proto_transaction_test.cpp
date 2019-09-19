@@ -5,9 +5,9 @@
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/transaction.hpp"
-#include "builders/protobuf/transaction.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 // common data for tests
 auto created_time = iroha::time::now();

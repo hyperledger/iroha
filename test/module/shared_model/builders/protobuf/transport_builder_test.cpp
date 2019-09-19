@@ -6,10 +6,6 @@
 #include <gtest/gtest.h>
 
 #include <boost/range/irange.hpp>
-#include "builders/protobuf/queries.hpp"
-#include "builders/protobuf/transaction.hpp"
-#include "builders/protobuf/transaction_sequence_builder.hpp"
-#include "builders/protobuf/transport_builder.hpp"
 #include "common/bind.hpp"
 #include "endpoint.pb.h"
 #include "framework/batch_helper.hpp"
@@ -19,10 +15,14 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
+#include "module/shared_model/builders/protobuf/queries.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
+#include "module/shared_model/builders/protobuf/transaction_sequence_builder.hpp"
+#include "module/shared_model/builders/protobuf/transport_builder.hpp"
 #include "validators/transactions_collection/batch_order_validator.hpp"
 
 using namespace shared_model;

@@ -7,7 +7,6 @@
 #include "validation/impl/chain_validator_impl.hpp"
 
 #include "ametsuchi/mutable_storage.hpp"
-#include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
@@ -15,6 +14,7 @@
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 // TODO mboldyrev 14.02.2019 IR-324 Use supermajority checker mock
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =

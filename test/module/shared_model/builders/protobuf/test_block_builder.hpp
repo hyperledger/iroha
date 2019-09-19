@@ -14,7 +14,6 @@
  * and "required fields" check
  */
 using TestBlockBuilder = shared_model::proto::TemplateBlockBuilder<
-    (1 << shared_model::proto::TemplateBlockBuilder<>::total) - 1,
     shared_model::validation::AlwaysValidValidator,
     shared_model::proto::Block>;
 
@@ -23,7 +22,6 @@ using TestBlockBuilder = shared_model::proto::TemplateBlockBuilder<
  * "required fields" and signs checks
  */
 using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<
-    (1 << shared_model::proto::TemplateBlockBuilder<>::total) - 1,
     shared_model::validation::AlwaysValidValidator,
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block>>;
 

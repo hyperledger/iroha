@@ -5,8 +5,8 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
-#include "builders/protobuf/queries.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/queries.hpp"
 
 class QueryValidatorTest : public ValidatorsTest {
  public:

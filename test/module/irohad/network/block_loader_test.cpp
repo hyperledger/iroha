@@ -8,7 +8,6 @@
 #include <grpc++/server_builder.h>
 #include <gtest/gtest.h>
 
-#include "builders/protobuf/builder_templates/transaction_template.hpp"
 #include "consensus/consensus_block_cache.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
@@ -19,6 +18,7 @@
 #include "module/irohad/ametsuchi/mock_block_query_factory.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
+#include "module/shared_model/builders/protobuf/builder_templates/transaction_template.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -92,11 +92,7 @@ class BlockLoaderTest : public testing::Test {
                       .build()
                       .signAndAddSignature(key)
                       .finish());
-    return shared_model::proto::TemplateBlockBuilder<
-               (1 << shared_model::proto::TemplateBlockBuilder<>::total) - 1,
-               shared_model::validation::AlwaysValidValidator,
-               shared_model::proto::UnsignedWrapper<
-                   shared_model::proto::Block>>()
+    return TestUnsignedBlockBuilder()
         .height(height)
         .prevHash(prev_hash)
         .createdTime(iroha::time::now())

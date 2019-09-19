@@ -39,7 +39,6 @@ if (NOT IROHA_ROOT_PROJECT)
 endif ()
 
 add_subdirectory(backend)
-add_subdirectory(builders)
 add_subdirectory(converters)
 add_subdirectory(cryptography)
 add_subdirectory(interfaces)

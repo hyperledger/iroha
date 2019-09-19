@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "builders/protobuf/builder_templates/transaction_template.hpp"
+#include "module/shared_model/builders/protobuf/builder_templates/transaction_template.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
 using ProtoTxType = shared_model::proto::Transaction;
@@ -18,7 +18,6 @@ using ProtoTxType = shared_model::proto::Transaction;
  * validation and "required fields" check
  */
 using TestTransactionBuilder = shared_model::proto::TemplateTransactionBuilder<
-    (1 << shared_model::proto::TemplateTransactionBuilder<>::total) - 1,
     shared_model::validation::AlwaysValidValidator,
     ProtoTxType>;
 
@@ -28,7 +27,6 @@ using TestTransactionBuilder = shared_model::proto::TemplateTransactionBuilder<
  */
 using TestUnsignedTransactionBuilder =
     shared_model::proto::TemplateTransactionBuilder<
-        (1 << shared_model::proto::TemplateTransactionBuilder<>::total) - 1,
         shared_model::validation::AlwaysValidValidator,
         shared_model::proto::UnsignedWrapper<ProtoTxType>>;
 

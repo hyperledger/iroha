@@ -50,11 +50,7 @@ class BlockValidatorTest : public ValidatorsTest {
   auto generateBlock(
       const std::vector<shared_model::proto::Transaction> &txs,
       const std::vector<shared_model::crypto::Hash> &rejected_hashes) {
-    return shared_model::proto::TemplateBlockBuilder<
-               (1 << shared_model::proto::TemplateBlockBuilder<>::total) - 1,
-               shared_model::validation::AlwaysValidValidator,
-               shared_model::proto::UnsignedWrapper<
-                   shared_model::proto::Block>>()
+    return TestUnsignedBlockBuilder()
         .height(1)
         .prevHash(kPrevHash)
         .createdTime(iroha::time::now())

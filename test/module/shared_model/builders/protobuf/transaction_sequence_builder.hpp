@@ -6,10 +6,10 @@
 #ifndef IROHA_TRANSACTION_SEQUENCE_BUILDER_HPP
 #define IROHA_TRANSACTION_SEQUENCE_BUILDER_HPP
 
-#include "builders/protobuf/transport_builder.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/transport_builder.hpp"
 
 namespace shared_model {
   namespace proto {

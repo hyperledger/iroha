@@ -9,7 +9,6 @@
 #include <boost/range/join.hpp>
 #include <boost/variant.hpp>
 #include "backend/protobuf/proto_tx_status_factory.hpp"
-#include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -23,6 +22,7 @@
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 

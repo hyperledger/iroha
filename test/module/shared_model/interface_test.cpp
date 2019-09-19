@@ -6,8 +6,8 @@
 #include <gtest/gtest.h>
 #include "logger/logger.hpp"
 
-#include "builders/protobuf/transaction.hpp"
 #include "framework/test_logger.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 class TransactionFixture : public ::testing::Test {
  public:

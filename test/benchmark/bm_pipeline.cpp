@@ -8,11 +8,11 @@
 
 #include "backend/protobuf/transaction.hpp"
 #include "benchmark/bm_utils.hpp"
-#include "builders/protobuf/unsigned_proto.hpp"
 #include "datetime/time.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace benchmark::utils;

@@ -9,9 +9,9 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/irange.hpp>
-#include "builders/protobuf/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 using namespace shared_model;
 

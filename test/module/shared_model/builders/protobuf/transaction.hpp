@@ -6,7 +6,7 @@
 #ifndef IROHA_PROTO_TRANSACTION_BUILDER_HPP
 #define IROHA_PROTO_TRANSACTION_BUILDER_HPP
 
-#include "builders/protobuf/builder_templates/transaction_template.hpp"
+#include "module/shared_model/builders/protobuf/builder_templates/transaction_template.hpp"
 
 namespace shared_model {
   namespace proto {

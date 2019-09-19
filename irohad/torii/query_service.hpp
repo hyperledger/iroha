@@ -13,7 +13,6 @@
 
 #include "backend/protobuf/queries/proto_blocks_query.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
-#include "builders/protobuf/transport_builder.hpp"
 #include "cache/cache.hpp"
 #include "logger/logger_fwd.hpp"
 #include "torii/processor/query_processor.hpp"

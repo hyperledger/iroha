@@ -5,14 +5,14 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
-#include "builders/protobuf/queries.hpp"
-#include "builders/protobuf/transaction.hpp"
 #include "common/files.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
+#include "module/shared_model/builders/protobuf/queries.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 using namespace common_constants;
 using shared_model::interface::permissions::Role;

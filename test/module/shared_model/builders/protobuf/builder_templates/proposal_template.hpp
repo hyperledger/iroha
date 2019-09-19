@@ -19,27 +19,15 @@ namespace shared_model {
     /**
      * Template proposal builder for creating new types of proposal builders by
      * means of replacing template parameters
-     * @tparam S -- field counter for checking that all required fields are set
      * @tparam SV -- stateless validator called when build method is invoked
      */
-    template <int S = 0, typename SV = validation::DefaultProposalValidator>
+    template <typename SV = validation::DefaultProposalValidator>
     class [[deprecated]] TemplateProposalBuilder {
      private:
-      template <int, typename>
-      friend class TemplateProposalBuilder;
-
-      enum RequiredFields { Transactions, Height, CreatedTime, TOTAL };
-
-      template <int s>
-      using NextBuilder = TemplateProposalBuilder<S | (1 << s), SV>;
+      using NextBuilder = TemplateProposalBuilder<SV>;
 
       iroha::protocol::Proposal proposal_;
       SV stateless_validator_;
-
-      template <int Sp>
-      TemplateProposalBuilder(const TemplateProposalBuilder<Sp, SV> &o)
-          : proposal_(o.proposal_),
-            stateless_validator_(o.stateless_validator_) {}
 
       /**
        * Make transformation on copied content
@@ -47,15 +35,12 @@ namespace shared_model {
        * @param t - transform function for proto object
        * @return new builder with updated state
        */
-      template <int Fields, typename Transformation>
+      template <typename Transformation>
       auto transform(Transformation t) const {
-        NextBuilder<Fields> copy = *this;
+        NextBuilder copy = *this;
         t(copy.proposal_);
         return copy;
       }
-
-      TemplateProposalBuilder(const SV &validator)
-          : stateless_validator_(validator){};
 
      public:
       // we do such default initialization only because it is deprecated and
@@ -65,14 +50,20 @@ namespace shared_model {
                 transport_proposal ? iroha::test::kProposalTestsValidatorsConfig
                                    : iroha::test::kTestsValidatorsConfig)) {}
 
+      TemplateProposalBuilder(const SV &validator)
+          : stateless_validator_(validator) {}
+
+      TemplateProposalBuilder(const TemplateProposalBuilder<SV> &o)
+          : proposal_(o.proposal_),
+            stateless_validator_(o.stateless_validator_) {}
+
       auto height(const interface::types::HeightType height) const {
-        return transform<Height>(
-            [&](auto &proposal) { proposal.set_height(height); });
+        return transform([&](auto &proposal) { proposal.set_height(height); });
       }
 
       template <class T>
       auto transactions(const T &transactions) const {
-        return transform<Transactions>([&](auto &proposal) {
+        return transform([&](auto &proposal) {
           for (const auto &tx : transactions) {
             new (proposal.add_transactions())
                 iroha::protocol::Transaction(tx.getTransport());
@@ -82,12 +73,11 @@ namespace shared_model {
 
       auto createdTime(const interface::types::TimestampType created_time)
           const {
-        return transform<CreatedTime>(
+        return transform(
             [&](auto &proposal) { proposal.set_created_time(created_time); });
       }
 
       Proposal build() {
-        static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         auto result = Proposal(iroha::protocol::Proposal(proposal_));
         auto answer = stateless_validator_.validate(result);
         if (answer.hasErrors()) {
@@ -95,8 +85,6 @@ namespace shared_model {
         }
         return result;
       }
-
-      static const int total = RequiredFields::TOTAL;
     };
   }  // namespace proto
 }  // namespace shared_model

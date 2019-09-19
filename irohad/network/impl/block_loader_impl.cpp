@@ -9,7 +9,6 @@
 #include <chrono>
 
 #include "backend/protobuf/block.hpp"
-#include "builders/protobuf/transport_builder.hpp"
 #include "common/bind.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"

@@ -11,10 +11,10 @@
 
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
-#include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
 #include "queries.pb.h"
 #include "validators/default_validator.hpp"
 
@@ -24,35 +24,16 @@ namespace shared_model {
     /**
      * Template query builder for creating new types of query builders by
      * means of replacing template parameters
-     * @tparam S -- field counter for checking that all required fields are
-     * set
      * @tparam SV -- stateless validator called when build method is invoked
      * @tparam BT -- build type of built object returned by build method
      */
-    template <int S = 0,
-              typename SV = validation::DefaultUnsignedQueryValidator,
+    template <typename SV = validation::DefaultUnsignedQueryValidator,
               typename BT = UnsignedWrapper<Query>>
     class [[deprecated]] TemplateQueryBuilder {
      private:
-      template <int, typename, typename>
-      friend class TemplateQueryBuilder;
-
-      enum RequiredFields {
-        CreatedTime,
-        CreatorAccountId,
-        QueryField,
-        QueryCounter,
-        TOTAL
-      };
-
-      template <int s>
-      using NextBuilder = TemplateQueryBuilder<S | (1 << s), SV, BT>;
+      using NextBuilder = TemplateQueryBuilder<SV, BT>;
 
       using ProtoQuery = iroha::protocol::Query;
-
-      template <int Sp>
-      TemplateQueryBuilder(const TemplateQueryBuilder<Sp, SV, BT> &o)
-          : query_(o.query_), stateless_validator_(o.stateless_validator_) {}
 
       /**
        * Make transformation on copied content
@@ -60,9 +41,9 @@ namespace shared_model {
        * @param t - transform function for proto object
        * @return new builder with updated state
        */
-      template <int Fields, typename Transformation>
+      template <typename Transformation>
       auto transform(Transformation t) const {
-        NextBuilder<Fields> copy = *this;
+        NextBuilder copy = *this;
         t(copy.query_);
         return copy;
       }
@@ -75,7 +56,7 @@ namespace shared_model {
        */
       template <typename Transformation>
       auto queryField(Transformation t) const {
-        NextBuilder<QueryField> copy = *this;
+        NextBuilder copy = *this;
         t(copy.query_.mutable_payload());
         return copy;
       }
@@ -93,31 +74,34 @@ namespace shared_model {
         }
       }
 
-      TemplateQueryBuilder(const SV &validator)
-          : stateless_validator_(validator) {}
-
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
       TemplateQueryBuilder()
           : TemplateQueryBuilder(SV(iroha::test::kTestsValidatorsConfig)) {}
 
+      TemplateQueryBuilder(const SV &validator)
+          : stateless_validator_(validator) {}
+
+      TemplateQueryBuilder(const TemplateQueryBuilder<SV, BT> &o)
+          : query_(o.query_), stateless_validator_(o.stateless_validator_) {}
+
       auto createdTime(interface::types::TimestampType created_time) const {
-        return transform<CreatedTime>([&](auto &qry) {
+        return transform([&](auto &qry) {
           qry.mutable_payload()->mutable_meta()->set_created_time(created_time);
         });
       }
 
       auto creatorAccountId(
           const interface::types::AccountIdType &creator_account_id) const {
-        return transform<CreatorAccountId>([&](auto &qry) {
+        return transform([&](auto &qry) {
           qry.mutable_payload()->mutable_meta()->set_creator_account_id(
               creator_account_id);
         });
       }
 
       auto queryCounter(interface::types::CounterType query_counter) const {
-        return transform<QueryCounter>([&](auto &qry) {
+        return transform([&](auto &qry) {
           qry.mutable_payload()->mutable_meta()->set_query_counter(
               query_counter);
         });
@@ -281,7 +265,6 @@ namespace shared_model {
       }
 
       auto build() const {
-        static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         if (not query_.has_payload()) {
           throw std::invalid_argument("Query missing payload");
         }
@@ -296,8 +279,6 @@ namespace shared_model {
         }
         return BT(std::move(result));
       }
-
-      static const int total = RequiredFields::TOTAL;
 
      private:
       ProtoQuery query_;

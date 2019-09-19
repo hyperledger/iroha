@@ -7,12 +7,12 @@
 
 #include <gtest/gtest.h>
 
-#include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 #include "validators/default_validator.hpp"
 
 using namespace shared_model::validation;

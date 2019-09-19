@@ -5,7 +5,6 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
-#include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
@@ -14,6 +13,7 @@
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 
 using namespace shared_model;
 using namespace common_constants;

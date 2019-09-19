@@ -15,10 +15,10 @@
 #include "transaction.pb.h"
 
 #include "backend/protobuf/permissions.hpp"
-#include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/builders/protobuf/unsigned_proto.hpp"
 #include "validators/default_validator.hpp"
 
 namespace shared_model {
@@ -27,37 +27,17 @@ namespace shared_model {
     /**
      * Template tx builder for creating new types of transaction builders by
      * means of replacing template parameters
-     * @tparam S -- field counter for checking that all required fields are set
      * @tparam SV -- stateless validator called when build method is invoked
      * @tparam BT -- build type of built object returned by build method
      */
-    template <int S = 0,
-              typename SV = validation::DefaultUnsignedTransactionValidator,
+    template <typename SV = validation::DefaultUnsignedTransactionValidator,
               typename BT = UnsignedWrapper<Transaction>>
     class [[deprecated]] TemplateTransactionBuilder {
      private:
-      template <int, typename, typename>
-      friend class TemplateTransactionBuilder;
-
-      enum RequiredFields {
-        Command,
-        CreatorAccountId,
-        CreatedTime,
-        Quorum,
-        TOTAL
-      };
-
-      template <int s>
-      using NextBuilder = TemplateTransactionBuilder<S | (1 << s), SV, BT>;
+      using NextBuilder = TemplateTransactionBuilder<SV, BT>;
 
       using ProtoTx = iroha::protocol::Transaction;
       using ProtoCommand = iroha::protocol::Command;
-
-      template <int Sp>
-      TemplateTransactionBuilder(
-          const TemplateTransactionBuilder<Sp, SV, BT> &o)
-          : transaction_(o.transaction_),
-            stateless_validator_(o.stateless_validator_) {}
 
       /**
        * Make transformation on copied content
@@ -65,9 +45,9 @@ namespace shared_model {
        * @param f - transform function for proto object
        * @return new builder with updated state
        */
-      template <int Fields, typename Transformation>
+      template <typename Transformation>
       auto transform(Transformation t) const {
-        NextBuilder<Fields> copy = *this;
+        NextBuilder copy = *this;
         t(copy.transaction_);
         return copy;
       }
@@ -80,15 +60,12 @@ namespace shared_model {
        */
       template <typename Transformation>
       auto addCommand(Transformation t) const {
-        NextBuilder<Command> copy = *this;
+        NextBuilder copy = *this;
         t(copy.transaction_.mutable_payload()
               ->mutable_reduced_payload()
               ->add_commands());
         return copy;
       }
-
-      TemplateTransactionBuilder(const SV &validator)
-          : stateless_validator_(validator) {}
 
      public:
       // we do such default initialization only because it is deprecated and
@@ -97,9 +74,16 @@ namespace shared_model {
           : TemplateTransactionBuilder(
                 SV(iroha::test::kTestsValidatorsConfig)) {}
 
+      TemplateTransactionBuilder(const SV &validator)
+          : stateless_validator_(validator) {}
+
+      TemplateTransactionBuilder(const TemplateTransactionBuilder<SV, BT> &o)
+          : transaction_(o.transaction_),
+            stateless_validator_(o.stateless_validator_) {}
+
       auto creatorAccountId(const interface::types::AccountIdType &account_id)
           const {
-        return transform<CreatorAccountId>([&](auto &tx) {
+        return transform([&](auto &tx) {
           tx.mutable_payload()
               ->mutable_reduced_payload()
               ->set_creator_account_id(account_id);
@@ -108,7 +92,7 @@ namespace shared_model {
 
       auto batchMeta(interface::types::BatchType type,
                      std::vector<interface::types::HashType> hashes) const {
-        return transform<0>([&](auto &tx) {
+        return transform([&](auto &tx) {
           tx.mutable_payload()->mutable_batch()->set_type(
               static_cast<
                   iroha::protocol::Transaction::Payload::BatchMeta::BatchType>(
@@ -121,14 +105,14 @@ namespace shared_model {
       }
 
       auto createdTime(interface::types::TimestampType created_time) const {
-        return transform<CreatedTime>([&](auto &tx) {
+        return transform([&](auto &tx) {
           tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
               created_time);
         });
       }
 
       auto quorum(interface::types::QuorumType quorum) const {
-        return transform<Quorum>([&](auto &tx) {
+        return transform([&](auto &tx) {
           tx.mutable_payload()->mutable_reduced_payload()->set_quorum(quorum);
         });
       }
@@ -330,7 +314,6 @@ namespace shared_model {
       }
 
       auto build() const {
-        static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         auto result = Transaction(iroha::protocol::Transaction(transaction_));
         auto answer = stateless_validator_.validate(result);
         if (answer.hasErrors()) {
@@ -338,8 +321,6 @@ namespace shared_model {
         }
         return BT(std::move(result));
       }
-
-      static const int total = RequiredFields::TOTAL;
 
      private:
       ProtoTx transaction_;

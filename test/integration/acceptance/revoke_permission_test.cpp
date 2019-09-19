@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "builders/protobuf/builder_templates/query_template.hpp"
+#include "module/shared_model/builders/protobuf/builder_templates/query_template.hpp"
 
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
 

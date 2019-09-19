@@ -5,13 +5,13 @@
 
 #include "integration/acceptance/fake_peer_fixture.hpp"
 
-#include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
 #include "ordering/impl/on_demand_common.cpp"
 
 using namespace common_constants;
