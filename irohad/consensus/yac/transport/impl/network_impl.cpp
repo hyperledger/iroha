@@ -15,6 +15,10 @@
 #include "logger/logger.hpp"
 #include "yac.pb.h"
 
+namespace {
+  const std::chrono::seconds kSendStateTimeout{5};
+}  // namespace
+
 namespace iroha {
   namespace consensus {
     namespace yac {
@@ -46,6 +50,9 @@ namespace iroha {
         }
 
         async_call_->Call([&](auto context, auto cq) {
+          // set a timeout to avoid being hung
+          context->set_deadline(std::chrono::system_clock::now()
+                                + kSendStateTimeout);
           return peers_.at(to.address())->AsyncSendState(context, request, cq);
         });
 
@@ -86,9 +93,7 @@ namespace iroha {
 
       void NetworkImpl::createPeerConnection(
           const shared_model::interface::Peer &peer) {
-        if (peers_.count(peer.address()) == 0) {
-          peers_[peer.address()] = client_creator_(peer);
-        }
+        peers_[peer.address()] = client_creator_(peer);
       }
 
     }  // namespace yac
