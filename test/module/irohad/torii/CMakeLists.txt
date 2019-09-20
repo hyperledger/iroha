@@ -21,6 +21,7 @@ target_link_libraries(torii_queries_test
     query_client
     server_runner
     processors
+    shared_model_proto_builders
     test_logger
     )
 
@@ -28,6 +29,7 @@ addtest(query_service_test query_service_test.cpp)
 target_link_libraries(query_service_test
     torii_service
     query_client
+    shared_model_proto_builders
     test_logger
     )
 

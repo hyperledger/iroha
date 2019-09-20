@@ -8,7 +8,11 @@
 
 #include "interfaces/queries/query.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Query;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

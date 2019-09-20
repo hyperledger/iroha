@@ -7,9 +7,11 @@ add_library(shared_model_proto_builders
 	protobuf/builder_templates/proposal_template.cpp
 	protobuf/builder_templates/block_template.cpp
 	protobuf/builder_templates/blocks_query_template.cpp
+	protobuf/builder_templates/query_template.cpp
 	)
 target_link_libraries(shared_model_proto_builders
     shared_model_proto_backend
+    shared_model_plain_backend
 	)
 
 add_library(shared_model_default_builders INTERFACE)

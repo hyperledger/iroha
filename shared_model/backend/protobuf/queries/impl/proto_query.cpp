@@ -20,6 +20,7 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
+#include "queries.pb.h"
 #include "utils/variant_deserializer.hpp"
 
 namespace {
