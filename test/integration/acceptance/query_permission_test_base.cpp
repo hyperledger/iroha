@@ -25,16 +25,16 @@ IntegrationTestFramework &QueryPermissionTestBase::prepareState(
       .sendTxAwait(
           fixture.complete(
               fixture.baseTx(kAdminId)
-                  .createRole(kAnotherUser, spectator_permissions)
-                  .createDomain(kSecondDomain, kAnotherUser)
+                  .createRole(kSecondUser, spectator_permissions)
+                  .createDomain(kSecondDomain, kSecondUser)
                   .createAccount(
-                      kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey())
-                  .createAccount(kAnotherUser,
+                      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey())
+                  .createAccount(kSecondUser,
                                  kSecondDomain,
-                                 kAnotherDomainUserKeypair.publicKey())
+                                 kSecondDomainUserKeypair.publicKey())
                   // Assign the close spectator the spectator role. Remote
                   // spectator gets this role by default (from domain)
-                  .appendRole(kSameDomainUserId, kAnotherUser)
+                  .appendRole(kSameDomainUserId, kSecondUser)
                   .detachRole(kSameDomainUserId, kDefaultRole),
               kAdminKeypair),
           getBlockTransactionsAmountChecker(1));

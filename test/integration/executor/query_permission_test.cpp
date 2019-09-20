@@ -26,7 +26,7 @@ enum class SpectatorPermissions : int {
 enum class Spectator : int {
   kMe = 1,
   kSameDomain,
-  kAnotherDomain,
+  kSecondDomain,
 
   LAST,
   FIRST = kMe
@@ -59,7 +59,7 @@ std::string makeDescription(SpectatorPermissions spectator_permissions,
   static const EnumMap<Spectator, std::string> kSpectatorNames{
       {Spectator::kMe, "Myself"},
       {Spectator::kSameDomain, "AnAccountFromMyDomain"},
-      {Spectator::kAnotherDomain, "AnAccountFromAnotherDomain"}};
+      {Spectator::kSecondDomain, "AnAccountFromAnotherDomain"}};
   std::stringstream ss;
   ss << "Query" << kSpectatorNames.at(spectator) << "Having"
      << kSpectatorPermissionNames.at(spectator_permissions);
@@ -98,7 +98,7 @@ query_permission_test::getParams(
   const EnumMap<Spectator, std::string> spectators_map{
       {Spectator::kMe, kUserId},
       {Spectator::kSameDomain, kSameDomainUserId},
-      {Spectator::kAnotherDomain, kAnotherDomainUserId}};
+      {Spectator::kSecondDomain, kSecondDomainUserId}};
   iterateEnum<SpectatorPermissions>(
       [&](SpectatorPermissions spectator_permissions) {
         iterateEnum<Spectator>([&](Spectator spectator) {
