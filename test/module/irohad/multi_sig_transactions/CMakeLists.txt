@@ -1,6 +1,11 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+add_library(mst_test_helpers mst_test_helpers.cpp)
+target_link_libraries(mst_test_helpers
+    batch_helper
+    )
+
 AddTest(state_test state_test.cpp)
 target_link_libraries(state_test
     mst_state
@@ -8,6 +13,7 @@ target_link_libraries(state_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    mst_test_helpers
     )
 
 AddTest(storage_test storage_test.cpp)
@@ -17,6 +23,7 @@ target_link_libraries(storage_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    mst_test_helpers
     )
 
 AddTest(completer_test completer_test.cpp)
@@ -32,6 +39,7 @@ target_link_libraries(transport_test
     shared_model_cryptography
     shared_model_stateless_validation
     shared_model_proto_backend
+    mst_test_helpers
     )
 
 AddTest(mst_processor_test mst_processor_test.cpp)
@@ -40,6 +48,7 @@ target_link_libraries(mst_processor_test
     test_logger
     shared_model_default_builders
     shared_model_stateless_validation
+    mst_test_helpers
     )
 
 AddTest(gossip_propagation_strategy_test

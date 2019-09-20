@@ -10,6 +10,7 @@
 #include "backend/protobuf/commands/proto_command.hpp"
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/util.hpp"
+#include "transaction.pb.h"
 #include "utils/reference_holder.hpp"
 
 namespace shared_model {

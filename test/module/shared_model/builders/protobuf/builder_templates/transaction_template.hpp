@@ -6,13 +6,9 @@
 #ifndef IROHA_PROTO_TRANSACTION_BUILDER_TEMPLATE_HPP
 #define IROHA_PROTO_TRANSACTION_BUILDER_TEMPLATE_HPP
 
+#include <memory>
+
 #include "backend/protobuf/transaction.hpp"
-
-#include <boost/range/algorithm/for_each.hpp>
-
-#include "commands.pb.h"
-#include "primitive.pb.h"
-#include "transaction.pb.h"
 
 #include "backend/protobuf/permissions.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -30,11 +26,6 @@ namespace shared_model {
     template <typename BT = UnsignedWrapper<Transaction>>
     class [[deprecated]] TemplateTransactionBuilder {
      private:
-      using NextBuilder = TemplateTransactionBuilder<BT>;
-
-      using ProtoTx = iroha::protocol::Transaction;
-      using ProtoCommand = iroha::protocol::Command;
-
       /**
        * Make transformation on copied content
        * @tparam Transformation - callable type for changing the copy
@@ -42,11 +33,7 @@ namespace shared_model {
        * @return new builder with updated state
        */
       template <typename Transformation>
-      auto transform(Transformation t) const {
-        NextBuilder copy = *this;
-        t(copy.transaction_);
-        return copy;
-      }
+      TemplateTransactionBuilder<BT> transform(Transformation t) const;
 
       /**
        * Make add command transformation on copied object
@@ -55,264 +42,132 @@ namespace shared_model {
        * @return new builder with added command
        */
       template <typename Transformation>
-      auto addCommand(Transformation t) const {
-        NextBuilder copy = *this;
-        t(copy.transaction_.mutable_payload()
-              ->mutable_reduced_payload()
-              ->add_commands());
-        return copy;
-      }
+      TemplateTransactionBuilder<BT> addCommand(Transformation t) const;
 
      public:
       // we do such default initialization only because it is deprecated and
       // used only in tests
-      TemplateTransactionBuilder() = default;
+      TemplateTransactionBuilder();
 
-      TemplateTransactionBuilder(const TemplateTransactionBuilder<BT> &o)
-          : transaction_(o.transaction_) {}
+      TemplateTransactionBuilder(const TemplateTransactionBuilder<BT> &o);
 
-      auto creatorAccountId(const interface::types::AccountIdType &account_id)
-          const {
-        return transform([&](auto &tx) {
-          tx.mutable_payload()
-              ->mutable_reduced_payload()
-              ->set_creator_account_id(account_id);
-        });
-      }
+      TemplateTransactionBuilder<BT> &operator=(
+          const TemplateTransactionBuilder<BT> &o);
 
-      auto batchMeta(interface::types::BatchType type,
-                     std::vector<interface::types::HashType> hashes) const {
-        return transform([&](auto &tx) {
-          tx.mutable_payload()->mutable_batch()->set_type(
-              static_cast<
-                  iroha::protocol::Transaction::Payload::BatchMeta::BatchType>(
-                  type));
-          for (const auto &hash : hashes) {
-            tx.mutable_payload()->mutable_batch()->add_reduced_hashes(
-                hash.hex());
-          }
-        });
-      }
+      TemplateTransactionBuilder<BT> creatorAccountId(
+          const interface::types::AccountIdType &account_id) const;
 
-      auto createdTime(interface::types::TimestampType created_time) const {
-        return transform([&](auto &tx) {
-          tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
-              created_time);
-        });
-      }
+      TemplateTransactionBuilder<BT> batchMeta(
+          interface::types::BatchType type,
+          std::vector<interface::types::HashType> hashes) const;
 
-      auto quorum(interface::types::QuorumType quorum) const {
-        return transform([&](auto &tx) {
-          tx.mutable_payload()->mutable_reduced_payload()->set_quorum(quorum);
-        });
-      }
+      TemplateTransactionBuilder<BT> createdTime(
+          interface::types::TimestampType created_time) const;
 
-      auto addAssetQuantity(const interface::types::AssetIdType &asset_id,
-                            const std::string &amount) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_add_asset_quantity();
-          command->set_asset_id(asset_id);
-          command->set_amount(amount);
-        });
-      }
+      TemplateTransactionBuilder<BT> quorum(interface::types::QuorumType quorum)
+          const;
 
-      auto addPeerRaw(const interface::types::AddressType &address,
-                      const std::string &peer_key) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_add_peer();
-          auto peer = command->mutable_peer();
-          peer->set_address(address);
-          peer->set_peer_key(peer_key);
-        });
-      }
+      TemplateTransactionBuilder<BT> addAssetQuantity(
+          const interface::types::AssetIdType &asset_id,
+          const std::string &amount) const;
 
-      auto addPeer(const interface::types::AddressType &address,
-                   const interface::types::PubkeyType &peer_key) const {
-        return addPeerRaw(address, peer_key.hex());
-      }
+      TemplateTransactionBuilder<BT> addPeerRaw(
+          const interface::types::AddressType &address,
+          const std::string &peer_key) const;
 
-      auto removePeer(const interface::types::PubkeyType &public_key) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_remove_peer();
-          command->set_public_key(public_key.hex());
-        });
-      }
+      TemplateTransactionBuilder<BT> addPeer(
+          const interface::types::AddressType &address,
+          const interface::types::PubkeyType &peer_key) const;
 
-      auto addSignatoryRaw(const interface::types::AccountIdType &account_id,
-                           const std::string &public_key) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_add_signatory();
-          command->set_account_id(account_id);
-          command->set_public_key(public_key);
-        });
-      }
+      TemplateTransactionBuilder<BT> removePeer(
+          const interface::types::PubkeyType &public_key) const;
 
-      auto addSignatory(const interface::types::AccountIdType &account_id,
-                        const interface::types::PubkeyType &public_key) const {
-        return addSignatoryRaw(account_id, public_key.hex());
-      }
+      TemplateTransactionBuilder<BT> addSignatoryRaw(
+          const interface::types::AccountIdType &account_id,
+          const std::string &public_key) const;
 
-      auto removeSignatoryRaw(const interface::types::AccountIdType &account_id,
-                              const std::string &public_key) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_remove_signatory();
-          command->set_account_id(account_id);
-          command->set_public_key(public_key);
-        });
-      }
+      TemplateTransactionBuilder<BT> addSignatory(
+          const interface::types::AccountIdType &account_id,
+          const interface::types::PubkeyType &public_key) const;
 
-      auto removeSignatory(const interface::types::AccountIdType &account_id,
-                           const interface::types::PubkeyType &public_key)
-          const {
-        return removeSignatoryRaw(account_id, public_key.hex());
-      }
+      TemplateTransactionBuilder<BT> removeSignatoryRaw(
+          const interface::types::AccountIdType &account_id,
+          const std::string &public_key) const;
 
-      auto appendRole(const interface::types::AccountIdType &account_id,
-                      const interface::types::RoleIdType &role_name) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_append_role();
-          command->set_account_id(account_id);
-          command->set_role_name(role_name);
-        });
-      }
+      TemplateTransactionBuilder<BT> removeSignatory(
+          const interface::types::AccountIdType &account_id,
+          const interface::types::PubkeyType &public_key) const;
 
-      auto createAsset(const interface::types::AssetNameType &asset_name,
-                       const interface::types::DomainIdType &domain_id,
-                       interface::types::PrecisionType precision) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_create_asset();
-          command->set_asset_name(asset_name);
-          command->set_domain_id(domain_id);
-          command->set_precision(precision);
-        });
-      }
+      TemplateTransactionBuilder<BT> appendRole(
+          const interface::types::AccountIdType &account_id,
+          const interface::types::RoleIdType &role_name) const;
 
-      auto createAccountRaw(
+      TemplateTransactionBuilder<BT> createAsset(
+          const interface::types::AssetNameType &asset_name,
+          const interface::types::DomainIdType &domain_id,
+          interface::types::PrecisionType precision) const;
+
+      TemplateTransactionBuilder<BT> createAccountRaw(
           const interface::types::AccountNameType &account_name,
           const interface::types::DomainIdType &domain_id,
-          const std::string &main_pubkey) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_create_account();
-          command->set_account_name(account_name);
-          command->set_domain_id(domain_id);
-          command->set_public_key(main_pubkey);
-        });
-      }
+          const std::string &main_pubkey) const;
 
-      auto createAccount(const interface::types::AccountNameType &account_name,
-                         const interface::types::DomainIdType &domain_id,
-                         const interface::types::PubkeyType &main_pubkey)
-          const {
-        return createAccountRaw(account_name, domain_id, main_pubkey.hex());
-      }
+      TemplateTransactionBuilder<BT> createAccount(
+          const interface::types::AccountNameType &account_name,
+          const interface::types::DomainIdType &domain_id,
+          const interface::types::PubkeyType &main_pubkey) const;
 
-      auto createDomain(const interface::types::DomainIdType &domain_id,
-                        const interface::types::RoleIdType &default_role)
-          const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_create_domain();
-          command->set_domain_id(domain_id);
-          command->set_default_role(default_role);
-        });
-      }
+      TemplateTransactionBuilder<BT> createDomain(
+          const interface::types::DomainIdType &domain_id,
+          const interface::types::RoleIdType &default_role) const;
 
-      auto createRole(const interface::types::RoleIdType &role_name,
-                      const interface::RolePermissionSet &permissions) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_create_role();
-          command->set_role_name(role_name);
-          for (size_t i = 0; i < permissions.size(); ++i) {
-            auto perm = static_cast<interface::permissions::Role>(i);
-            if (permissions.isSet(perm)) {
-              command->add_permissions(permissions::toTransport(perm));
-            }
-          }
-        });
-      }
+      TemplateTransactionBuilder<BT> createRole(
+          const interface::types::RoleIdType &role_name,
+          const interface::RolePermissionSet &permissions) const;
 
-      auto detachRole(const interface::types::AccountIdType &account_id,
-                      const interface::types::RoleIdType &role_name) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_detach_role();
-          command->set_account_id(account_id);
-          command->set_role_name(role_name);
-        });
-      }
+      TemplateTransactionBuilder<BT> detachRole(
+          const interface::types::AccountIdType &account_id,
+          const interface::types::RoleIdType &role_name) const;
 
-      auto grantPermission(const interface::types::AccountIdType &account_id,
-                           interface::permissions::Grantable permission) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_grant_permission();
-          command->set_account_id(account_id);
-          command->set_permission(permissions::toTransport(permission));
-        });
-      }
+      TemplateTransactionBuilder<BT> grantPermission(
+          const interface::types::AccountIdType &account_id,
+          interface::permissions::Grantable permission) const;
 
-      auto revokePermission(const interface::types::AccountIdType &account_id,
-                            interface::permissions::Grantable permission)
-          const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_revoke_permission();
-          command->set_account_id(account_id);
-          command->set_permission(permissions::toTransport(permission));
-        });
-      }
+      TemplateTransactionBuilder<BT> revokePermission(
+          const interface::types::AccountIdType &account_id,
+          interface::permissions::Grantable permission) const;
 
-      auto setAccountDetail(
+      TemplateTransactionBuilder<BT> setAccountDetail(
           const interface::types::AccountIdType &account_id,
           const interface::types::AccountDetailKeyType &key,
-          const interface::types::AccountDetailValueType &value) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_set_account_detail();
-          command->set_account_id(account_id);
-          command->set_key(key);
-          command->set_value(value);
-        });
-      }
+          const interface::types::AccountDetailValueType &value) const;
 
-      auto setAccountQuorum(const interface::types::AddressType &account_id,
-                            interface::types::QuorumType quorum) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_set_account_quorum();
-          command->set_account_id(account_id);
-          command->set_quorum(quorum);
-        });
-      }
+      TemplateTransactionBuilder<BT> setAccountQuorum(
+          const interface::types::AddressType &account_id,
+          interface::types::QuorumType quorum) const;
 
-      auto subtractAssetQuantity(const interface::types::AssetIdType &asset_id,
-                                 const std::string &amount) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_subtract_asset_quantity();
-          command->set_asset_id(asset_id);
-          command->set_amount(amount);
-        });
-      }
+      TemplateTransactionBuilder<BT> subtractAssetQuantity(
+          const interface::types::AssetIdType &asset_id,
+          const std::string &amount) const;
 
-      auto transferAsset(const interface::types::AccountIdType &src_account_id,
-                         const interface::types::AccountIdType &dest_account_id,
-                         const interface::types::AssetIdType &asset_id,
-                         const interface::types::DescriptionType &description,
-                         const std::string &amount) const {
-        return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_transfer_asset();
-          command->set_src_account_id(src_account_id);
-          command->set_dest_account_id(dest_account_id);
-          command->set_asset_id(asset_id);
-          command->set_description(description);
-          command->set_amount(amount);
-        });
-      }
+      TemplateTransactionBuilder<BT> transferAsset(
+          const interface::types::AccountIdType &src_account_id,
+          const interface::types::AccountIdType &dest_account_id,
+          const interface::types::AssetIdType &asset_id,
+          const interface::types::DescriptionType &description,
+          const std::string &amount) const;
 
-      auto build() const {
-        auto result = Transaction(iroha::protocol::Transaction(transaction_));
+      BT build() const;
 
-        return BT(std::move(result));
-      }
+      ~TemplateTransactionBuilder();
 
      private:
-      ProtoTx transaction_;
+      std::unique_ptr<iroha::protocol::Transaction> transaction_;
     };
 
+    extern template class TemplateTransactionBuilder<Transaction>;
+    extern template class TemplateTransactionBuilder<
+        UnsignedWrapper<Transaction>>;
   }  // namespace proto
 }  // namespace shared_model
 

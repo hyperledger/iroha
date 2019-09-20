@@ -27,28 +27,19 @@ namespace framework {
      * @return prepared transaction builder
      */
     template <typename TransactionBuilderType = TestTransactionBuilder>
-    auto prepareTransactionBuilder(
+    TransactionBuilderType prepareTransactionBuilder(
         const std::string &creator,
         const size_t &created_time = iroha::time::now(),
-        const shared_model::interface::types::QuorumType &quorum = 1) {
-      return TransactionBuilderType()
-          .setAccountQuorum(creator, 1)
-          .creatorAccountId(creator)
-          .createdTime(created_time)
-          .quorum(quorum);
-    }
+        const shared_model::interface::types::QuorumType &quorum = 1);
 
     /**
      * Creates unsigned transaction builder with set creator
      * @return prepared transaction builder
      */
-    auto prepareUnsignedTransactionBuilder(
+    TestUnsignedTransactionBuilder prepareUnsignedTransactionBuilder(
         const std::string &creator,
         const size_t &created_time = iroha::time::now(),
-        const shared_model::interface::types::QuorumType &quorum = 1) {
-      return prepareTransactionBuilder<TestUnsignedTransactionBuilder>(
-          creator, created_time, quorum);
-    }
+        const shared_model::interface::types::QuorumType &quorum = 1);
 
     /**
      * Create unsigned batch with given fields of transactions: batch type and
@@ -58,32 +49,11 @@ namespace framework {
      * @param now created time for every transaction
      * @return batch with the same size as size of range of pairs
      */
-    auto createUnsignedBatchTransactions(
+    shared_model::interface::types::SharedTxsCollectionType
+    createUnsignedBatchTransactions(
         std::vector<std::pair<shared_model::interface::types::BatchType,
                               std::string>> btype_creator_pairs,
-        size_t now = iroha::time::now()) {
-      std::vector<shared_model::interface::types::HashType> reduced_hashes;
-      for (const auto &btype_creator : btype_creator_pairs) {
-        auto tx = prepareTransactionBuilder(btype_creator.second, now).build();
-        reduced_hashes.push_back(tx.reducedHash());
-      }
-
-      shared_model::interface::types::SharedTxsCollectionType txs;
-
-      std::transform(
-          btype_creator_pairs.begin(),
-          btype_creator_pairs.end(),
-          std::back_inserter(txs),
-          [&now, &reduced_hashes](const auto &btype_creator)
-              -> shared_model::interface::types::SharedTxsCollectionType::
-                  value_type {
-                    return clone(
-                        prepareTransactionBuilder(btype_creator.second, now)
-                            .batchMeta(btype_creator.first, reduced_hashes)
-                            .build());
-                  });
-      return txs;
-    }
+        size_t now = iroha::time::now());
 
     /**
      * Creates batch transactions, where every transaction has single signature
@@ -93,41 +63,12 @@ namespace framework {
      * @param quorum quorum for every transaction
      * @return batch with the same size as size of range of pairs
      */
-    auto createBatchOneSignTransactions(
+    shared_model::interface::types::SharedTxsCollectionType
+    createBatchOneSignTransactions(
         std::vector<std::pair<shared_model::interface::types::BatchType,
                               std::string>> btype_creator_pairs,
         size_t now = iroha::time::now(),
-        const shared_model::interface::types::QuorumType &quorum = 1) {
-      std::vector<shared_model::interface::types::HashType> reduced_hashes;
-      for (const auto &btype_creator : btype_creator_pairs) {
-        auto tx =
-            prepareUnsignedTransactionBuilder(btype_creator.second, now, quorum)
-                .build();
-        reduced_hashes.push_back(tx.reducedHash());
-      }
-
-      shared_model::interface::types::SharedTxsCollectionType txs;
-
-      std::transform(
-          btype_creator_pairs.begin(),
-          btype_creator_pairs.end(),
-          std::back_inserter(txs),
-          [&now, &reduced_hashes, &quorum](const auto &btype_creator)
-              -> shared_model::interface::types::SharedTxsCollectionType::
-                  value_type {
-                    return clone(
-                        prepareUnsignedTransactionBuilder(
-                            btype_creator.second, now, quorum)
-                            .batchMeta(btype_creator.first, reduced_hashes)
-                            .build()
-                            .signAndAddSignature(
-                                shared_model::crypto::
-                                    DefaultCryptoAlgorithmType::
-                                        generateKeypair())
-                            .finish());
-                  });
-      return txs;
-    }
+        const shared_model::interface::types::QuorumType &quorum = 1);
 
     /**
      * Creates batch transactions, where every transaction has single signature
@@ -139,21 +80,13 @@ namespace framework {
      * @param quorum quorum for every transaction
      * @return batch with the same size as size of range of pairs
      */
-    auto createBatchOneSignTransactions(
+    shared_model::interface::types::SharedTxsCollectionType
+    createBatchOneSignTransactions(
         const shared_model::interface::types::BatchType batch_type,
         std::vector<shared_model::interface::types::AccountIdType>
             transactions_creators,
         size_t now = iroha::time::now(),
-        const shared_model::interface::types::QuorumType &quorum = 1) {
-      std::vector<std::pair<shared_model::interface::types::BatchType,
-                            shared_model::interface::types::AccountIdType>>
-          batch_types_and_creators;
-      for (const auto &creator : transactions_creators) {
-        batch_types_and_creators.emplace_back(batch_type, creator);
-      }
-      return createBatchOneSignTransactions(
-          batch_types_and_creators, now, quorum);
-    }
+        const shared_model::interface::types::QuorumType &quorum = 1);
 
     /**
      * Creates atomic batch from provided creator accounts
@@ -161,19 +94,11 @@ namespace framework {
      * @return unsigned batch of the same size as the size of creator account
      * ids
      */
-    auto createUnsignedBatchTransactions(
+    shared_model::interface::types::SharedTxsCollectionType
+    createUnsignedBatchTransactions(
         shared_model::interface::types::BatchType batch_type,
         const std::vector<std::string> &creators,
-        size_t now = iroha::time::now()) {
-      std::vector<std::pair<decltype(batch_type), std::string>> fields;
-      std::transform(creators.begin(),
-                     creators.end(),
-                     std::back_inserter(fields),
-                     [&batch_type](const auto creator) {
-                       return std::make_pair(batch_type, creator);
-                     });
-      return createUnsignedBatchTransactions(fields, now);
-    }
+        size_t now = iroha::time::now());
 
     /**
      * Creates transaction collection for the batch of given type and size
@@ -182,23 +107,11 @@ namespace framework {
      * @param now created time for every transactions
      * @return unsigned batch
      */
-    auto createUnsignedBatchTransactions(
+    shared_model::interface::types::SharedTxsCollectionType
+    createUnsignedBatchTransactions(
         shared_model::interface::types::BatchType batch_type,
         uint32_t batch_size,
-        size_t now = iroha::time::now()) {
-      auto range = boost::irange(0, (int)batch_size);
-      std::vector<std::string> creators;
-
-      std::transform(range.begin(),
-                     range.end(),
-                     std::back_inserter(creators),
-                     [](const auto &id) {
-                       return std::string("account") + std::to_string(id)
-                           + "@domain";
-                     });
-
-      return createUnsignedBatchTransactions(batch_type, creators, now);
-    }
+        size_t now = iroha::time::now());
 
     /**
      * Creates a batch of expected size
@@ -206,59 +119,17 @@ namespace framework {
      * @param created_time - time of batch creation
      * @return valid batch
      */
-    auto createValidBatch(const size_t &size,
-                          const size_t &created_time = iroha::time::now()) {
-      using namespace shared_model::validation;
-
-      auto batch_type = shared_model::interface::types::BatchType::ATOMIC;
-      std::vector<std::pair<decltype(batch_type), std::string>>
-          transaction_fields;
-      for (size_t i = 0; i < size; ++i) {
-        transaction_fields.push_back(std::make_pair(
-            batch_type, "account" + std::to_string(i) + "@domain"));
-      }
-
-      auto batch_validator =
-          std::make_shared<shared_model::validation::BatchValidator>(
-              iroha::test::kTestsValidatorsConfig);
-      std::shared_ptr<shared_model::interface::TransactionBatchFactory>
-          batch_factory = std::make_shared<
-              shared_model::interface::TransactionBatchFactoryImpl>(
-              batch_validator);
-      auto txs =
-          createBatchOneSignTransactions(transaction_fields, created_time);
-      auto result_batch = batch_factory->createTransactionBatch(txs);
-
-      return framework::expected::val(result_batch).value().value;
-    }
+    std::unique_ptr<shared_model::interface::TransactionBatch> createValidBatch(
+        const size_t &size, const size_t &created_time = iroha::time::now());
 
     /**
      * Wrap a transaction with batch
      * @param tx - interested transaction
      * @return created batch or throw std::runtime_error
      */
-    inline auto createBatchFromSingleTransaction(
-        std::shared_ptr<shared_model::interface::Transaction> tx) {
-      auto batch_validator =
-          std::make_shared<shared_model::validation::BatchValidator>(
-              iroha::test::kTestsValidatorsConfig);
-      auto batch_factory = std::make_shared<
-          shared_model::interface::TransactionBatchFactoryImpl>(
-          batch_validator);
-      return batch_factory->createTransactionBatch(std::move(tx))
-          .match(
-              [](auto &&value) -> std::shared_ptr<
-                                   shared_model::interface::TransactionBatch> {
-                return std::move(value.value);
-              },
-              [](const auto &err)
-                  -> std::shared_ptr<
-                      shared_model::interface::TransactionBatch> {
-                throw std::runtime_error(
-                    err.error
-                    + "Error transformation from transaction to batch");
-              });
-    }
+    std::shared_ptr<shared_model::interface::TransactionBatch>
+    createBatchFromSingleTransaction(
+        std::shared_ptr<shared_model::interface::Transaction> tx);
 
     /**
      * Namespace provides useful functions which are related to implementation
@@ -282,9 +153,7 @@ namespace framework {
         return HashesType{builder.build().reducedHash()};
       }
 
-      auto fetchReducedHashes() {
-        return HashesType{};
-      }
+      HashesType fetchReducedHashes();
 
       template <typename FirstTxBuilder, typename... RestTxBuilders>
       auto fetchReducedHashes(const FirstTxBuilder &first,
@@ -297,9 +166,8 @@ namespace framework {
         return first_vector;
       }
 
-      auto makeTxBatchCollection(const BatchMeta &) {
-        return shared_model::interface::types::SharedTxsCollectionType();
-      }
+      shared_model::interface::types::SharedTxsCollectionType
+      makeTxBatchCollection(const BatchMeta &);
 
       template <typename Builder>
       auto completeUnsignedTxBuilder(Builder &&builder) {

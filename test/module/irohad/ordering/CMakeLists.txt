@@ -34,6 +34,7 @@ target_link_libraries(on_demand_ordering_gate_test
     shared_model_interfaces_factories
     test_logger
     shared_model_proto_backend
+    shared_model_proto_builders
     )
 
 addtest(on_demand_cache_test on_demand_cache_test.cpp)

@@ -7,7 +7,12 @@
 #define IROHA_SHARED_MODEL_PROTO_TRANSACTION_HPP
 
 #include "interfaces/transaction.hpp"
-#include "transaction.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class Transaction;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

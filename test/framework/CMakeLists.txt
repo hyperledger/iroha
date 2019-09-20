@@ -14,6 +14,12 @@ target_link_libraries(test_logger
     logger_manager
     )
 
+add_library(batch_helper batch_helper.cpp)
+target_link_libraries(batch_helper
+    shared_model_proto_builders
+    shared_model_interfaces_factories
+    )
+
 add_library(integration_framework
     integration_framework/integration_test_framework.cpp
     integration_framework/iroha_instance.cpp

@@ -9,6 +9,7 @@
 #include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "datetime/time.hpp"
 #include "module/shared_model/builders/protobuf/transaction.hpp"
+#include "transaction.pb.h"
 
 // common data for tests
 auto created_time = iroha::time::now();

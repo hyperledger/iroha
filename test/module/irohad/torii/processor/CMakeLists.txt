@@ -10,6 +10,7 @@ target_link_libraries(transaction_processor_test
     processors
     shared_model_proto_builders
     shared_model_stateless_validation
+    batch_helper
     test_logger
     )
 

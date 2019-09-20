@@ -57,6 +57,7 @@ addtest(command_service_replay_test
     )
 target_link_libraries(command_service_replay_test
     torii_service
+    batch_helper
     test_logger
     )
 

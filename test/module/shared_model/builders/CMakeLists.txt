@@ -8,6 +8,7 @@ add_library(shared_model_proto_builders
 	protobuf/builder_templates/block_template.cpp
 	protobuf/builder_templates/blocks_query_template.cpp
 	protobuf/builder_templates/query_template.cpp
+	protobuf/builder_templates/transaction_template.cpp
 	)
 target_link_libraries(shared_model_proto_builders
     shared_model_proto_backend
