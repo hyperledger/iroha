@@ -32,6 +32,7 @@ addtest(shared_proto_queries_test
     )
 target_link_libraries(shared_proto_queries_test
     shared_model_proto_backend
+    shared_model_proto_builders
     shared_model_cryptography
     shared_model_stateless_validation
     )

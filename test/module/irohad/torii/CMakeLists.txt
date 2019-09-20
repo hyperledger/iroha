@@ -36,6 +36,7 @@ target_link_libraries(torii_service_query_test
     torii_service
     server_runner
     query_client
+    shared_model_proto_builders
     test_logger
     )
 
