@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <gtest/gtest.h>
+#include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
 #include "interfaces/permissions.hpp"
@@ -20,14 +21,13 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 
 namespace {
-  template <typename Type>
-  void checkTransactionResponse(
-      const shared_model::interface::TransactionResponse &resp) {
+  template <typename Type, typename T>
+  void checkTransactionResponse(const T &resp) {
     ASSERT_NO_THROW(boost::get<const Type &>(resp.get())) << resp.toString();
   }
 
 #define BASE_CHECK_RESPONSE(type)                                  \
-  [](const shared_model::interface::TransactionResponse &resp) {   \
+  [](const auto &resp) {                                           \
     SCOPED_TRACE(#type);                                           \
     checkTransactionResponse<shared_model::interface::type>(resp); \
   }
