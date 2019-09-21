@@ -16,11 +16,12 @@
 #include <vector>
 
 #include <boost/filesystem.hpp>
+#include <rxcpp/rx.hpp>
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
-#include "framework/integration_framework/iroha_instance.hpp"
-#include "framework/integration_framework/test_irohad.hpp"
+#include "consensus/gate_object.hpp"
+#include "cryptography/keypair.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "logger/logger.hpp"
@@ -29,6 +30,7 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "network/mst_transport.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
+#include "synchronizer/synchronizer_common.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -40,12 +42,23 @@ namespace shared_model {
     class CommonObjectsFactory;
     class Block;
     class Proposal;
+    class TransactionBatchFactory;
+    class TransactionBatchParser;
   }  // namespace interface
   namespace proto {
     class Block;
+    class Transaction;
+  }  // namespace proto
+  namespace validation {
+    template <typename Model>
+    class AbstractValidator;
   }
 }  // namespace shared_model
 namespace iroha {
+  namespace ametsuchi {
+    class BlockQuery;
+    class TxPresenceCache;
+  }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
       class YacNetwork;
@@ -62,6 +75,8 @@ namespace iroha {
   }
 }  // namespace iroha
 
+class ServerRunner;
+
 namespace integration_framework {
 
   namespace fake_peer {
@@ -69,6 +84,8 @@ namespace integration_framework {
   }
 
   class PortGuard;
+
+  class IrohaInstance;
 
   using std::chrono::milliseconds;
 

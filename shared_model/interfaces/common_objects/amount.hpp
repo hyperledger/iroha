@@ -8,7 +8,6 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/multiprecision/cpp_int.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -21,11 +20,7 @@ namespace shared_model {
      public:
       explicit Amount(const std::string &amount);
 
-      /**
-       * Gets integer representation value, which ignores precision
-       * @return amount represented as integer value, which ignores precision
-       */
-      const boost::multiprecision::uint256_t &intValue() const;
+      int sign() const;
 
       /**
        * Gets the position of precision
