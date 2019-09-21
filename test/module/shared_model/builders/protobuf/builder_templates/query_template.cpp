@@ -254,5 +254,6 @@ BT TemplateQueryBuilder<BT>::build() const {
 template <typename BT>
 TemplateQueryBuilder<BT>::~TemplateQueryBuilder() = default;
 
-template class TemplateQueryBuilder<Query>;
-template class TemplateQueryBuilder<UnsignedWrapper<Query>>;
+template class shared_model::proto::TemplateQueryBuilder<Query>;
+template class shared_model::proto::TemplateQueryBuilder<
+    UnsignedWrapper<Query>>;

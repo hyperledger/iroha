@@ -334,5 +334,6 @@ BT TemplateTransactionBuilder<BT>::build() const {
 template <typename BT>
 TemplateTransactionBuilder<BT>::~TemplateTransactionBuilder() = default;
 
-template class TemplateTransactionBuilder<Transaction>;
-template class TemplateTransactionBuilder<UnsignedWrapper<Transaction>>;
+template class shared_model::proto::TemplateTransactionBuilder<Transaction>;
+template class shared_model::proto::TemplateTransactionBuilder<
+    UnsignedWrapper<Transaction>>;

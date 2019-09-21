@@ -14,7 +14,7 @@ using namespace framework;
 using namespace framework::batch;
 using namespace framework::batch::internal;
 
-template <typename TransactionBuilderType = TestTransactionBuilder>
+template <typename TransactionBuilderType>
 TransactionBuilderType framework::batch::prepareTransactionBuilder(
     const std::string &creator,
     const size_t &created_time,

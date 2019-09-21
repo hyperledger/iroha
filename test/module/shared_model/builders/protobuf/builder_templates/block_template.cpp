@@ -87,5 +87,6 @@ BT TemplateBlockBuilder<BT>::build() {
 template <typename BT>
 TemplateBlockBuilder<BT>::~TemplateBlockBuilder() = default;
 
-template class TemplateBlockBuilder<Block>;
-template class TemplateBlockBuilder<UnsignedWrapper<Block>>;
+template class shared_model::proto::TemplateBlockBuilder<Block>;
+template class shared_model::proto::TemplateBlockBuilder<
+    UnsignedWrapper<Block>>;
