@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <grpc++/grpc++.h>
 #include <gtest/gtest.h>
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"

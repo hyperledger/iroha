@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
