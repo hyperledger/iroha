@@ -4,6 +4,7 @@
  */
 
 #include <gtest/gtest.h>
+#include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
@@ -12,6 +13,7 @@
 using namespace std;
 using namespace iroha;
 using namespace iroha::model;
+using namespace framework::batch;
 
 auto mst_state_log_ = getTestLogger("MstState");
 auto log_ = getTestLogger("MstStateTest");
@@ -52,7 +54,8 @@ TEST(StateTest, UpdateExistingState) {
   state += second_tx;
   ASSERT_EQ(1, state.getBatches().size());
 
-  auto merged_tx = addSignatures(base_tx, 0, first_signature, second_signature);
+  auto merged_tx = addSignatures(
+      addSignatures(base_tx, 0, first_signature), 0, second_signature);
   ASSERT_EQ(*merged_tx, **state.getBatches().begin());
 }
 

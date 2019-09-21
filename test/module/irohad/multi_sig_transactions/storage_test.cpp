@@ -5,12 +5,14 @@
 
 #include <gtest/gtest.h>
 #include <memory>
+#include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
 
 using namespace iroha;
+using namespace framework::batch;
 
 auto log_ = getTestLogger("MstStorageTest");
 

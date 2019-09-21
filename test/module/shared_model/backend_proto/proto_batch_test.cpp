@@ -253,56 +253,6 @@ TEST_F(TransactionBatchTest, BatchWithOneSignature) {
 }
 
 /**
- * @given one tx-builder
- * @when  try to fetch hash
- * @then  got only one hash
- */
-TEST_F(TransactionBatchTest, TemplateHasherOne) {
-  ASSERT_EQ(
-      1,
-      framework::batch::internal::fetchReducedHashes(makeTxBuilder()).size());
-}
-
-/**
- * @given 3 tx-builders
- * @when  try to fetch hashes
- * @then  got exactly 3 hashes
- */
-TEST_F(TransactionBatchTest, TemplateHasherVariadic) {
-  ASSERT_EQ(3,
-            framework::batch::internal::fetchReducedHashes(
-                makeTxBuilder(), makeTxBuilder(), makeTxBuilder())
-                .size());
-}
-
-/**
- * @given one tx-builder
- * @when  try to create transaction
- * @then  got exactly one tx
- */
-TEST_F(TransactionBatchTest, MakeTxBatchCollectionOne) {
-  ASSERT_EQ(1,
-            framework::batch::internal::makeTxBatchCollection(
-                framework::batch::internal::BatchMeta{}, makeTxBuilder())
-                .size());
-}
-
-/**
- * @given three tx-builders
- * @when  try to create transaction collection
- * @then  got exactly 3 txes
- */
-TEST_F(TransactionBatchTest, MakeTxBatchCollectionMany) {
-  ASSERT_EQ(3,
-            framework::batch::internal::makeTxBatchCollection(
-                framework::batch::internal::BatchMeta{},
-                makeTxBuilder(),
-                makeTxBuilder(),
-                makeTxBuilder())
-                .size());
-}
-
-/**
  * @given two tx-builders
  * @when  try to create batch
  * @then  batch contains two transactions

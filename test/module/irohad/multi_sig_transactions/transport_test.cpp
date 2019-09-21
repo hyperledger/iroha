@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
+#include "framework/batch_helper.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -23,6 +24,7 @@
 #include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
+using namespace framework::batch;
 using namespace iroha::network;
 using namespace iroha::model;
 using namespace shared_model::interface;

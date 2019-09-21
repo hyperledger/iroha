@@ -5,6 +5,7 @@
 
 #include "validators/transaction_batch_validator.hpp"
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "framework/batch_helper.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"

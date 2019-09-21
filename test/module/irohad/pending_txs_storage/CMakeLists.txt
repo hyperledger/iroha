@@ -14,6 +14,7 @@ target_link_libraries(pending_txs_storage_test
     shared_model_stateless_validation
     shared_model_proto_backend
     shared_model_interfaces_factories
+    batch_helper
     mst_test_helpers
     test_logger
     )
@@ -28,6 +29,7 @@ target_link_libraries(old_pending_txs_storage_test
     shared_model_stateless_validation
     shared_model_proto_backend
     shared_model_interfaces_factories
+    batch_helper
     mst_test_helpers
     test_logger
     )

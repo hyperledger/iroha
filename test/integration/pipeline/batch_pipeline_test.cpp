@@ -3,10 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "framework/result_fixture.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
@@ -366,10 +368,12 @@ INSTANTIATE_TEST_CASE_P(BatchPipelineParameterizedTest,
  *   because the second transaction has no signatures
  */
 TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
-  auto batch = framework::batch::makeTestBatch(
-      prepareTransferAssetBuilder(
-          kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
-      prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
+  std::shared_ptr<shared_model::interface::TransactionBatch> batch =
+      framework::batch::makeTestBatch(
+          prepareTransferAssetBuilder(
+              kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
+          prepareTransferAssetBuilder(
+              kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
   batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
   auto firstTxHash = batch->transactions()[0]->hash();

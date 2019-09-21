@@ -10,6 +10,7 @@
 #include "datetime/time.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "framework/result_fixture.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"

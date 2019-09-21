@@ -10,6 +10,7 @@
 #include <boost/variant.hpp>
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"

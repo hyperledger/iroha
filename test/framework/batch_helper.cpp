@@ -5,6 +5,11 @@
 
 #include "framework/batch_helper.hpp"
 
+#include <boost/range/irange.hpp>
+#include "framework/result_fixture.hpp"
+#include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
+#include "module/irohad/common/validators_config.hpp"
+
 using namespace framework;
 using namespace framework::batch;
 using namespace framework::batch::internal;
@@ -191,11 +196,22 @@ framework::batch::createBatchFromSingleTransaction(
           });
 }
 
-HashesType framework::batch::internal::fetchReducedHashes() {
-  return HashesType{};
+std::shared_ptr<shared_model::proto::Transaction>
+framework::batch::internal::completeTxBuilder(
+    shared_model::proto::TemplateTransactionBuilder<
+        shared_model::proto::UnsignedWrapper<shared_model::proto::Transaction>>
+        builder) {
+  return std::make_shared<shared_model::proto::Transaction>(
+      builder.build()
+          .signAndAddSignature(
+              shared_model::crypto::DefaultCryptoAlgorithmType::
+                  generateKeypair())
+          .finish());
 }
 
-shared_model::interface::types::SharedTxsCollectionType
-framework::batch::internal::makeTxBatchCollection(const BatchMeta &) {
-  return shared_model::interface::types::SharedTxsCollectionType();
+std::shared_ptr<shared_model::proto::Transaction>
+framework::batch::internal::completeTxBuilder(
+    shared_model::proto::TemplateTransactionBuilder<
+        shared_model::proto::Transaction> builder) {
+  return std::make_shared<shared_model::proto::Transaction>(builder.build());
 }

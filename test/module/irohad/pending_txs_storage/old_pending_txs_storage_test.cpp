@@ -6,10 +6,13 @@
 #include <gtest/gtest.h>
 #include <rxcpp/rx.hpp>
 #include "datetime/time.hpp"
+#include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
+
+using namespace framework::batch;
 
 class OldPendingTxsStorageFixture : public ::testing::Test {
  public:
@@ -253,10 +256,10 @@ TEST_F(OldPendingTxsStorageFixture, PreparedBatch) {
       dummy,
       dummyPreparedTxsObservable());
 
-  batch = addSignatures(batch,
-                        0,
-                        makeSignature("2", "pub_key_2"),
-                        makeSignature("3", "pub_key_3"));
+  batch =
+      addSignatures(addSignatures(batch, 0, makeSignature("2", "pub_key_2")),
+                    0,
+                    makeSignature("3", "pub_key_3"));
   prepared_batches_subject.get_subscriber().on_next(batch);
   prepared_batches_subject.get_subscriber().on_completed();
   auto pending = storage.getPendingTransactions("alice@iroha");

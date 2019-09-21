@@ -5,6 +5,9 @@
 
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 
+#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "module/shared_model/builders/protobuf/transaction.hpp"
+
 using namespace iroha;
 
 shared_model::crypto::Keypair makeKey() {
@@ -21,6 +24,29 @@ TestTransactionBuilder txBuilder(
       .creatorAccountId(account_id)
       .setAccountQuorum(account_id, counter)
       .quorum(quorum);
+}
+
+std::shared_ptr<shared_model::interface::TransactionBatch> addSignatures(
+    std::shared_ptr<shared_model::interface::TransactionBatch> batch,
+    int tx_number,
+    std::pair<shared_model::crypto::Signed, shared_model::crypto::PublicKey>
+        signature) {
+  batch->addSignature(tx_number, signature.first, signature.second);
+
+  return batch;
+}
+
+std::shared_ptr<shared_model::interface::TransactionBatch>
+addSignaturesFromKeyPairs(
+    std::shared_ptr<shared_model::interface::TransactionBatch> batch,
+    int tx_number,
+    shared_model::crypto::Keypair keypair) {
+  auto &payload = batch->transactions().at(tx_number)->payload();
+  auto signed_blob = shared_model::crypto::CryptoSigner<>::sign(
+      shared_model::crypto::Blob(payload), keypair);
+  batch->addSignature(tx_number, signed_blob, keypair.publicKey());
+
+  return batch;
 }
 
 std::pair<shared_model::crypto::Signed, shared_model::crypto::PublicKey>

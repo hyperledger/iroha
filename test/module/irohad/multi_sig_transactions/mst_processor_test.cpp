@@ -7,6 +7,7 @@
 #include <tuple>
 #include "cryptography/keypair.hpp"
 #include "datetime/time.hpp"
+#include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "logger/logger.hpp"
@@ -19,6 +20,7 @@
 auto log_ = getTestLogger("MstProcessorTest");
 
 using namespace iroha;
+using namespace framework::batch;
 using namespace framework::test_subscriber;
 
 using testing::_;
