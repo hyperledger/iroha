@@ -19,6 +19,7 @@ target_link_libraries(client_factory_test
     shared_model_cryptography
     shared_model_default_builders
     server_runner
+    tls_credentials
     endpoint
     test_logger
     )

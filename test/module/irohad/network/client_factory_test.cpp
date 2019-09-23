@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include "endpoint.grpc.pb.h"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -24,159 +25,110 @@ namespace {
   // * third one with CN=another_public_key
   //   subjectAltName=IP:127.0.0.1,otherName:1.3.101.112;UTF8:another_public_key
 
-  constexpr auto kPeer1Certificate = R"(-----BEGIN CERTIFICATE-----
-MIIDwzCCAqugAwIBAgIUOof8D8aUplguIv1iFTIYSPv9fywwDQYJKoZIhvcNAQEL
-BQAwXDELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
-GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDEVMBMGA1UEAwwMcHVibGljX2tleV8x
-MCAXDTE5MDkxMjIwMzgwMVoYDzIxMTkwODE5MjAzODAxWjBcMQswCQYDVQQGEwJB
-VTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50ZXJuZXQgV2lkZ2l0
-cyBQdHkgTHRkMRUwEwYDVQQDDAxwdWJsaWNfa2V5XzEwggEiMA0GCSqGSIb3DQEB
-AQUAA4IBDwAwggEKAoIBAQDQL3vZftv/AjzhdrWM/NIwDZ8DasBbLPWbjNuwELED
-2hMySiT0+kKpEUzlkPqGcfIzvxeUy4sBzQfjFCILQJ2ATcLKeYJ42rh6UzdJyqL1
-iBUAxQnEq5fU+w4DEznA6j/PI4Unl16721KgdhGJjo/NyXFlsag8JO4nw8QzZNog
-FjoppRDwmL+et4s1efsIcO5qaPZdYs/oXBdu8MixukTQUD6mBXwPky/4jB4tbgWU
-K0tjzzTtPltPsbfyb9/OJWUo2aERgGufL+BzJfvhd0ngqkdwV7kM3l5PEg+vp+i+
-EK27h9GSCCEd70zwEiJAmgTB4vTx7yBtYwKV8dFCetMjAgMBAAGjezB5MB0GA1Ud
-DgQWBBSf7UNGeUCU/0Wd7OX41FlK9L+ffjAfBgNVHSMEGDAWgBSf7UNGeUCU/0Wd
-7OX41FlK9L+ffjAPBgNVHRMBAf8EBTADAQH/MCYGA1UdEQQfMB2HBH8AAAGgFQYD
-K2VwoA4MDHB1YmxpY19rZXlfMTANBgkqhkiG9w0BAQsFAAOCAQEAFePeUAEkKB5K
-O6Ud5xzs+cFAZ64oyr035GlaVAGv9eNphuGFHLFOJ1QxepJ/CBiBBxGu/R+0Q33B
-WiiS5v3ztfbBznzHIX8VcpBvjpi4HLSNlRSKfyKRXZgHSrqQ/Tmv/qFlweg4BZSn
-/ItyDyyDQ9A8nYB4YS+CeND5rtXwno8MP5FvpLpr+uSsQ6QHJzeWzFHkBP6cC4h6
-tyChhV7Xa8L8T2Gyj3KJkEXdyTMXtnfsAra+S0MlDdqa2lBGgebZ52lVzqpZxeqC
-cuR+sOOdKepbQGtGIsGzA1ZX35Sv+UunmMJOQgCUtGsKFIfyROEMz5nfOhE8hglo
-B/dYqhQqAQ==
------END CERTIFICATE-----)";
-  constexpr auto kPeer1Key = R"(-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDQL3vZftv/Ajzh
-drWM/NIwDZ8DasBbLPWbjNuwELED2hMySiT0+kKpEUzlkPqGcfIzvxeUy4sBzQfj
-FCILQJ2ATcLKeYJ42rh6UzdJyqL1iBUAxQnEq5fU+w4DEznA6j/PI4Unl16721Kg
-dhGJjo/NyXFlsag8JO4nw8QzZNogFjoppRDwmL+et4s1efsIcO5qaPZdYs/oXBdu
-8MixukTQUD6mBXwPky/4jB4tbgWUK0tjzzTtPltPsbfyb9/OJWUo2aERgGufL+Bz
-Jfvhd0ngqkdwV7kM3l5PEg+vp+i+EK27h9GSCCEd70zwEiJAmgTB4vTx7yBtYwKV
-8dFCetMjAgMBAAECggEAfA2Pc07QsOgYdxFRpa2RYej79AFMlgf4YrRQxF1t3am4
-/qKH2yK1TiFs/O6jGjIT7RnVZ2jScERIituYXbQnJikwBY7aXEGY4+tqaqJA8KYi
-Pc8rvvGxC8x90P9HztjHJRs5YRol7TMHzW4NjTZSIoIC/GIcqZon/7H729Qg1jTV
-SxFp6C3jx8I9eRH7wmNKDwTC8Tt2PM2MGSz1zd5G/mxMkOK7EkkOZKjNFBs1p3U5
-SdD5mCcTQPTDLJaXMyYwNx02iURFX3nJCklNrcGqc1DsWrTUUiOOIrOqD4Sxlwhd
-gvIhm+9BHoXdMOklb10k8bzPYo5/1WWYQGWHbWcUAQKBgQDrtpsntCwAGuQWFt48
-sFJr1sTC1cvHHWzzmotYQ+m11cO1xr52R2voR5Z2gzjgf4JSpxEp1Ru7FKEp+dQl
-YuwhdFruF9etjld35iA4mS9spEvEkzOwqmpEq1iu9Og/+Zn4y823GJ4I90IZ43gO
-bjZoQJfpIfV4qODTCay2goVYowKBgQDiGl3CyPJmKuwLjnj+owONLmh7cSemLA9O
-ye1Ml4hQEaDjnel2+SJfR4CQlYRZKkzTFu3mvnQZjqHffBjpKQgaefWTi7G4Fsbj
-m49fishZEsKFnphHYBF0CUtSSW2ADB01nA6Bsc+kokqHrILbJ2iJ+UwWb61+GjeT
-LScv3XfDgQKBgQDNnADldk13Xf2dox8CU0/iD3qc9b+GlY1nRWTNfpgL7EaGdrHH
-HO/ssx11jWt8sN0uWdsn4WQKIamfovRCFHMjj4qN67BQDT0RMmTi2gS7QOlytHC/
-ZzfBZLG8E5fPzltX4fc1Ar0/1ucLDBe6hrrg349jZiLouG88x1Cn91x3/wKBgQDB
-z5oJatiljStS6Kh8lV1o+pvjHGbBQUlJ3ztDCS12fPXtxqGmMv4ssAzbYt7U07aQ
-xzncLes1MRc+i5CK5Homv94qwHbxdsy7s8+dNUhxWexWP1EG9algTss62Og896Ve
-G8wvjiyQUfETBWQR2WD5zDFVlhsgWfbDeNP7aprLgQKBgFRU0m8FI6FzD2tsXnE8
-hBTGOgd79TjnpSYg3T8jEeAUxEgk061RaaLpnMrxKX9qk0NnCVBkQKo2TFM5QKqA
-yoS2xZvEE8lfgHAQaXb2FX0Tc9FeXKXxZZFGvfw23tca78HFtjY4GR9RIhh9UvK5
-8CqoT0MHQYjmsajQRfRWpTdJ
------END PRIVATE KEY-----)";
-  constexpr auto kPeer2Certificate = R"(-----BEGIN CERTIFICATE-----
-MIIDwzCCAqugAwIBAgIUGVDHJ8YKBVEvr7v9ylFwF9eXO1owDQYJKoZIhvcNAQEL
-BQAwXDELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
-GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDEVMBMGA1UEAwwMcHVibGljX2tleV8y
-MCAXDTE5MDkxMjIwMTc0N1oYDzIxMTkwODE5MjAxNzQ3WjBcMQswCQYDVQQGEwJB
-VTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50ZXJuZXQgV2lkZ2l0
-cyBQdHkgTHRkMRUwEwYDVQQDDAxwdWJsaWNfa2V5XzIwggEiMA0GCSqGSIb3DQEB
-AQUAA4IBDwAwggEKAoIBAQDMVy3yLkQjvGTP4SGrRQ70ugo2So+7Vgr1b93EhxKf
-5Z4XZA4TOYUrcStBqQcjs4xMQ9EOsHUt7+VFtPwz1PvO2wqfrZ6Rn6h1fzuSWCpM
-fpBFgcnLQNW8gpnj7YZ/hE3QtKXT5lnbDdB8QAxNrZX34ShCFqcPJAe80Nu4nT3z
-F+sh/4vjPtRMvLslGLOK2AKDhHn9AYTAgUzpeOwDwGx+KEpj7OCNcRfe15xrDAh3
-+c8ezHI4H982koudve4mWNSkfLCtL/KdeB88m8fDMTjk/Q7HBMrl7pLAnwkkFGG2
-MXWRwwZSoSxYORpDfqKoNayVnD3h5xk2UlzoUwdseEqDAgMBAAGjezB5MB0GA1Ud
-DgQWBBQlEpN42nTInVYwNcgowEiaV/TqrDAfBgNVHSMEGDAWgBQlEpN42nTInVYw
-NcgowEiaV/TqrDAPBgNVHRMBAf8EBTADAQH/MCYGA1UdEQQfMB2HBH8AAAGgFQYD
-K2VwoA4MDHB1YmxpY19rZXlfMjANBgkqhkiG9w0BAQsFAAOCAQEATAbRGTQF0Qfc
-T08eBTvHXq0MhlxD7SrcMELG6vktaQ1Rnla6Ad7XhN5WwcY6mMVJHx0GprqsyphB
-uXP2SACTyhBmOhze+TFC4DjOflk6S+aFaHFMMSAvnqV4qaPjaaRvL58l0pGMzS4V
-NOLthpOq3AZZTWE1KzkNEj/+SqYZXnoXqAXRmpm0Ng2eevUhR76NsJivl5msqie+
-97G1AoYAkkJGnbzUz/+4+oB9vDgkuG9qmT6BGAE5CoXADd9Bf61s4ZyaMA+feJ55
-rz/b1L5tZYIXibBsw1S2Nzy9clRLWiNSMKp+X0/7b11X3Fj/LT7lSvEwcQSAwBS0
-+AVODvOGKw==
------END CERTIFICATE-----)";
-  constexpr auto kPeer2Key = R"(-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDMVy3yLkQjvGTP
-4SGrRQ70ugo2So+7Vgr1b93EhxKf5Z4XZA4TOYUrcStBqQcjs4xMQ9EOsHUt7+VF
-tPwz1PvO2wqfrZ6Rn6h1fzuSWCpMfpBFgcnLQNW8gpnj7YZ/hE3QtKXT5lnbDdB8
-QAxNrZX34ShCFqcPJAe80Nu4nT3zF+sh/4vjPtRMvLslGLOK2AKDhHn9AYTAgUzp
-eOwDwGx+KEpj7OCNcRfe15xrDAh3+c8ezHI4H982koudve4mWNSkfLCtL/KdeB88
-m8fDMTjk/Q7HBMrl7pLAnwkkFGG2MXWRwwZSoSxYORpDfqKoNayVnD3h5xk2Ulzo
-UwdseEqDAgMBAAECggEBAJS5z0M50XaBJI75OVxDA0O0NMKXOk4LriY9qZflB/VB
-VvOHa4cqknawA9/iesPNZwwLQBoE7QTmWmWF+RpwpmZEn1LhN0yefCoo1N8LNJ5A
-cBlnAczh/68ZD5EJzJ77WPfSw++a9UOuplQI+et/sGuegYK4ohcvDkKrcYDJUdGg
-Bg2lWnK71pCVrVi0ZhANjmaTU4XLrJxo0ASfTl2if5QURF832sU+gLsi6dTcb47o
-WWHiZNk/xFcSsjkdLZi3rFiJJB0qymmQOVLPxdfRhOiBwiduh6mp0yUTarJkwEJ/
-TwtWw2PUirrAPaZzJBUi+kUksD1U32dF1h0FLmh184ECgYEA6WlnGyBuXb4R+5mO
-NCrpFWQIzsTxdsKqNmQrs6FsBcnGASklo3ghj5yBR/znR37jBkqtjhusBZA4pFGc
-xna+m74WcAyyNPR3R9IUPegeOWVTX6o0OyERVgorsKI3qU8DtaAY2o+5RpGfyfXJ
-n1deZe5MZBX41CqRiBj32LbqYjECgYEA4B2PcfD1CWoKyJHzTvwMC2Q2d8FfiTFw
-wAU66fVQJOSUTYweEGHK5TnhhRkpu2UdLiSq/qsZzpQsYqwSLXjU/p1WZ+vpkwuW
-4kMscsfHQbyNRKuXZgN/l3C12nC77NopNjy6Fc7Bm3WFijrat7+pRjk7bYDwU58e
-+vbAuhFC9vMCgYB8KXONfIz5FNigDCkXGxRuKo5830rLL/Y3hMWyglXiJllL2MWK
-1aaUrF4hGyk0YQ0HFcaI57N0KinXTwqkkBoI4u8wn7BUdw7Uh6342HbrdTkKlJHA
-OnDsYfCnv0L4r217ujQ+X2HhZimn1zVvq5wtgLvmKcH5qsNLsGx3PaYkoQKBgQCC
-a3FggzJ1igpAcf6/RhnUPzsbMaLg+a59cA26vJEpBwPupM2SBvbFsos0o1IPxWXX
-xmrjzLo15zB1M2FYqOp6SSFRVI4WjjX98c1Z9jxUWt9yyNBQA1Uq0eJh/hy+Vq6I
-64n2yt0MFLXjnSBOsfBV91RIAzLX1s92iEXbgdQQVQKBgHA8JHgOdGg2748/wlds
-uhN5ls5koFWPU8bzGWGvAJcb0vGEKoqfaETgVslt7uk6RzN0UkOwvZ0WgilKlZtO
-0IBXlLIQNZhodyWpBoPsIV7aLZeGmJq0Mysd9le417QjpXtFgvNjAKpNMAOuT2qt
-b+PKVx014xoU/gTAWXHHx7AZ
------END PRIVATE KEY-----)";
-  constexpr auto kAnotherCertificate = R"(-----BEGIN CERTIFICATE-----
-MIID1jCCAr6gAwIBAgIUAZ8EJdwjrCxvarW0rgb601yL/ZQwDQYJKoZIhvcNAQEL
-BQAwYjELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
-GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDEbMBkGA1UEAwwSYW5vdGhlcl9wdWJs
-aWNfa2V5MCAXDTE5MDkxMzA5MzY1OFoYDzIxMTkwODIwMDkzNjU4WjBiMQswCQYD
-VQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50ZXJuZXQg
-V2lkZ2l0cyBQdHkgTHRkMRswGQYDVQQDDBJhbm90aGVyX3B1YmxpY19rZXkwggEi
-MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCuY/Vn5+TZB9vo19/QwmFhniZH
-JfvXwThSwMdnTtU+PKUY/rP5pUSq7ULE2xnqX0hB51cadgyrX2TNRqLvjeABYdFD
-1gzF9bJBCHGaty3I4Zgue/lIdTHzGHqgZly6kJ3CPVdz2p7noCQtE02a6pOP0+30
-BntqiW2WGO1NlBvr0x1DFxK/cV+dN/LLkTGiz8mzr56uPOjzRW/oxaUJvelhcKQH
-tfgYtMrC6L9/0DyilIGJuOfxBIpdb4DSH1hy/OToyp/mbSYNx85PN6czNVrFVqc9
-UzuIBA5qcbeQtbXuRaf/7qVGga7VaUYtZ/bIzJPI9tjnsCQhEEehgV/0mb5xAgMB
-AAGjgYEwfzAdBgNVHQ4EFgQU9jPh5zkQldgMLQWrf9thRLN+GBowHwYDVR0jBBgw
-FoAU9jPh5zkQldgMLQWrf9thRLN+GBowDwYDVR0TAQH/BAUwAwEB/zAsBgNVHREE
-JTAjhwR/AAABoBsGAytlcKAUDBJhbm90aGVyX3B1YmxpY19rZXkwDQYJKoZIhvcN
-AQELBQADggEBAC6QTFijCgv0rlsZo62P/uLvNErGImYsMOI0W3+MKQ6RuOdb16GF
-U9VmbFB7FNX7STuWR4uuP/wBqVTS9nCHwwubVKvNODSlhhKudGHfdjIyl/pD8Njw
-tgXycVag/ilIzdxZczuJ9RzYvvPlESSBZFtE8gyPMCs98DPloGhU9vE5VLo81QTU
-H1NF8Dckmd71Dh6oXPostUxidhHFLMvJKq+1OMGf+4BMcTXxHeOQLc84hPvloD/P
-3IKguXUBLh215uCET3kbiRV5EV75yITN7AEu9Cn7NCwsyt5cFvlhkWxPVGtUuMv5
-Lun3x17YAF2exWbcBSbDlcUz28RawAtlc/M=
------END CERTIFICATE-----)";
-  constexpr auto kAnotherKey = R"(-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCuY/Vn5+TZB9vo
-19/QwmFhniZHJfvXwThSwMdnTtU+PKUY/rP5pUSq7ULE2xnqX0hB51cadgyrX2TN
-RqLvjeABYdFD1gzF9bJBCHGaty3I4Zgue/lIdTHzGHqgZly6kJ3CPVdz2p7noCQt
-E02a6pOP0+30BntqiW2WGO1NlBvr0x1DFxK/cV+dN/LLkTGiz8mzr56uPOjzRW/o
-xaUJvelhcKQHtfgYtMrC6L9/0DyilIGJuOfxBIpdb4DSH1hy/OToyp/mbSYNx85P
-N6czNVrFVqc9UzuIBA5qcbeQtbXuRaf/7qVGga7VaUYtZ/bIzJPI9tjnsCQhEEeh
-gV/0mb5xAgMBAAECggEAQbsPfrCbQ2qA6wyjIc6CYgb4Ko0YlcQQdLCQ+FFwctrs
-57TpJUmzzjFLn2NuKzbqx1xpKmIgeF+mYPEk7OIu8pZqCAWgHuVy4KxMFaLBsRvG
-/o5f8X2q7BPn9JlgjjmAHPx9//8BMhDcUdkawS91mxqob/gZgJh4I8EVgM44j/QN
-o/8pzjjdt2VPTYWuCpv73tDMUSFLkTsIwzdHV8d6ZGukQpe0OWvYkFZP+7kn4CuF
-5NsPOObbSYXXx9CGNmUsnwfkvYXcVLdz1v0RAMfW5usRi/hXszCz4cW3OudXX0I3
-kFVLoacQH02UehCkfDSS8xcO78+DWe/z0NNBubEIGQKBgQDVLl7Z+qFu2bdwBeaO
-zUvQYfWlg701Chfrxar8VlunGv3vtIKG3fs7ZP3FSUrvQsKQgKY0N2reZ6Uw2qpw
-ATVWa+ijuvEHXcpk1aeqiCbfMQ/HFyCqvRmj6nA6G2SNyp33LyuYn0n8qpcZu+dn
-HSk0tYLEGAuj1/hKsKRZ+51JOwKBgQDRav+BEjiM9cvDeTG4COsbWETvwbTxgZkx
-fudlKTVsqcBHXEJQ3N84pJaNf8dyS9MfUKeK1LXhGbLV+H1n4rpH3ltYKaJHqKzs
-TK3QNdDIEzBhw/kdFAlfAyZvoHxOxLAY6/0F/W9ZuJji4v30SqUu84NQvqmWgrjf
-xROiKXV8QwKBgQDAaxRuSA0CUz2BvbG3X5J4ypLBDMHxZ+TjiQ2mqgQcNv7SJ+pQ
-9XhYyfVM57TddTLM33IlW4f4qzCtghGo+047bTcU4h3AemW+0iJ+iFodxtjo6PUx
-Z3IHRAp8SFFgsmwWutrs7YoIp6mvLq3VorqYuuUHPnTzNHMGZ55RIg18FQKBgDZg
-WxGvooFvfUY3XOKVZj7Gb7f1iz8+UIHamsjYp2ecuDGPUiTfBRMXIYSCTk5uQ9aY
-wbg5vTRC0P3gNOfZplbs9LjyrpF+yc/dpTAwGRMqcGCiWzfisQA7uCo5+K0XQ0Zl
-WGDKyrP4S7J2EEzzaOrFDi7UIwLS1KA98vgjXb8zAoGBAJRevc7w6r4nvq1lnQNr
-Ky4HRZH8jk4Ta4VriPImD86PnVoUstWfZXkBGXOh07GOR4WIdEk57e6cMWxTF8LN
-8a3fY9wjbmVS0Cd0ZYWJ/w5WKDR+vJn2abSz6d2zMZvw+3m/yhDTTNftYH8BKppn
-EenS0kb2FX1eKsVd3N2WB+it
------END PRIVATE KEY-----)";
+  static const shared_model::crypto::PublicKey kPeer2Key("deadbeef");
+  static const auto kPeer2TlsCreds =
+      std::make_shared<const iroha::network::TlsCredentials>(
+          R"(-----BEGIN PRIVATE KEY-----
+MIICdwIBADANBgkqhkiG9w0BAQEFAASCAmEwggJdAgEAAoGBALRPxvMGB3JhqXZV
+bm52QtLc3djGfxJ82szidEeQheG8JcUlJI8QnFTME669Yvv407J40JgT/UG2sSNl
+O2ZglhlECEWXpaxx9zwaNfFaOaGzySM+rzElZbMmPuvpkxxNEyE4tAtkeboG6cm9
+hcKu3ry2gX9nb0PH7z1Y4RFUjY1JAgMBAAECgYA9Nffr+Ff+1Hia21Wp2ivFOYV2
+Waw5snj0pMukn8NTZnPMAVfv2Uu43a6w20oHD+mN5MWrWt3WuRZZVbxcfN13FEzP
+0IaTrzY5gwWULA6wcnkglx3ZrDJM9RyenzIIHpa0s9cOXjHsStezkjltMwNNrGEP
+a88OpBMId6R15xLGIQJBAN+Eu11P5p44ZF2sGyK0v47jBR7c+DvrkrbxLNh9TCtl
+dy+VmQEmNQS6DCTeRTb/MqzQV0qDeT2Ouida3JmB6d8CQQDOg609HXrURpzmbt/d
+FwMV99lEBBsnwFmbSXgMwE2vXJ6Xe2Up+Udevv5hLkM9UlJZbLeo85ZnAmG/UlDz
+SD3XAkA7L+CVYvUEbJZXH53H4Ojgo0jV1Vl+NHETNGXVpcgnraST2x866K0dZU6V
+7K2TVJxMmpaiypGuNT8h8LN9iqMtAkEAzfaBxtwp7qBmR2P5HPWgfD5uj+lQc/rg
+44EInB8G24iSGx5ULOKTDamK5r1PDk+WFd3Z5kTake3MMxYT6i74jQJBAJUs+Oez
+y7oScHGNmXS7qpYwK9pVLxggDbKo6qyzHabZToG1mCOjcnklZeshSoCrW9a75i40
+BYHcf5sNEAv1+sU=
+-----END PRIVATE KEY-----)",
+          R"(-----BEGIN CERTIFICATE-----
+MIICmjCCAgMCAQEwDQYJKoZIhvcNAQEFBQAweTELMAkGA1UEBhMCSlAxEjAQBgNV
+BAgMCU9ORSBXT1JMRDEUMBIGA1UEBwwLT05FIEVDT05PTVkxFjAUBgNVBAoMDVNv
+cmFtaXRzdSBMdGQxDTALBgNVBAsMBHRlc3QxGTAXBgNVBAMMEGlyb2hhIHBlZXIg
+ZGVhZGIwHhcNMTkwOTIzMTU1MTA3WhcNMjAwOTIyMTU1MTA3WjB5MQswCQYDVQQG
+EwJKUDESMBAGA1UECAwJT05FIFdPUkxEMRQwEgYDVQQHDAtPTkUgRUNPTk9NWTEW
+MBQGA1UECgwNU29yYW1pdHN1IEx0ZDENMAsGA1UECwwEdGVzdDEZMBcGA1UEAwwQ
+aXJvaGEgcGVlciBkZWFkYjCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAtE/G
+8wYHcmGpdlVubnZC0tzd2MZ/EnzazOJ0R5CF4bwlxSUkjxCcVMwTrr1i+/jTsnjQ
+mBP9QbaxI2U7ZmCWGUQIRZelrHH3PBo18Vo5obPJIz6vMSVlsyY+6+mTHE0TITi0
+C2R5ugbpyb2Fwq7evLaBf2dvQ8fvPVjhEVSNjUkCAwEAAaM3MDUwMwYDVR0RAQH/
+BCkwJ4IFaXJvaGGCHmlyb2hhLW5vZGUtcHVibGljLWtleS5kZWFkYmVlZjANBgkq
+hkiG9w0BAQUFAAOBgQALU8MGLGwJCjb3xOAif0YZ7l1K2ND9PV0BmJjJz+N71OCF
+gwST1teaC4skxzt1Mdzv5gYuEix2zHCbE4IK56EUBkMIxDQxphWrx9kTWF97GvAe
+CySW3ZvsOIR0ngxlnBIOi0LuWrpzmSEmDDtEljoFpkeAAMS/abK6izWMai5DQw==
+-----END CERTIFICATE-----)");
+  static const shared_model::crypto::PublicKey kPeer1Key("b16b00b5");
+  static const auto kPeer1TlsCreds =
+      std::make_shared<const iroha::network::TlsCredentials>(
+          R"(-----BEGIN PRIVATE KEY-----
+MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAMR05oJ1KDPDgknX
+0PRSUsIJa3B1wXulPAwJKmkQL7NowOtbv+ErIULVKlRDAV6fWKZKH+dzc7/W5qjH
+ytkDOj3t6BK+Ktvn2Wdh4T2L6eMNBQKkqh6pzFzkdNWOy651FHbqh/OkFrSOia2k
+5jwEYFNVY9qIfV/pyhPnZeZT0TuNAgMBAAECgYBp5ppbuMvzG3EgXTZGfhoefvVr
+qg6imG/GDSrPd+o+zDkypkLJHnbPkBlBUt1qJHulKFAKdDHxN+cfFJREZ3j89qtY
+ovg8BtPQ+NXzEjZobNUg1wWasrzBTNPy954CJt2wVBXDUF1IAp+PWusqwOEDSjRK
+hOrDeg/UzHm8nhvYAQJBAPNbsvLZfqKSqFqAeGbWnLf3yo8QcNGIy+XdoOaYFmec
+bOTFC1OitDf8DdSCgnZnAowwxcPNsYU73Mx1Md6t+5cCQQDOqXsNg7DBc48rRRbw
+1SstpinZ9ZvQNb1yYPJBHzu6OUMrSE2aa3oT8phvCbZz6uiWtbasLygY0kgPPZ/h
+BLZ7AkBmPepq2TG4/8C3dS4glp31NKfnf1LG1aBEjN6iwtb25ONjId3mX38z3jO5
+SrOhJxoM6BjOcMbaYRIc3Ef9dD81AkBMPSfBH5DofOoXK2DALdPE/mS4HKyDjh+6
+f1s/fPc6xv8pi33ddsLNcxSa+flOIB3340dlk+v15DVjMfe2OlfbAkEAyu6bROo+
+4O6ef8UIXFxAnkMWmU+kv8febgLsrhZ//6eqXWwv8Z3Da6s+DOsvPt8lZjn7m7v5
+7V76NoysmF+cWA==
+-----END PRIVATE KEY-----)",
+          R"(-----BEGIN CERTIFICATE-----
+MIICmjCCAgMCAQEwDQYJKoZIhvcNAQEFBQAweTELMAkGA1UEBhMCSlAxEjAQBgNV
+BAgMCU9ORSBXT1JMRDEUMBIGA1UEBwwLT05FIEVDT05PTVkxFjAUBgNVBAoMDVNv
+cmFtaXRzdSBMdGQxDTALBgNVBAsMBHRlc3QxGTAXBgNVBAMMEGlyb2hhIHBlZXIg
+YjE2YjAwHhcNMTkwOTIzMTU1MzE4WhcNMjAwOTIyMTU1MzE4WjB5MQswCQYDVQQG
+EwJKUDESMBAGA1UECAwJT05FIFdPUkxEMRQwEgYDVQQHDAtPTkUgRUNPTk9NWTEW
+MBQGA1UECgwNU29yYW1pdHN1IEx0ZDENMAsGA1UECwwEdGVzdDEZMBcGA1UEAwwQ
+aXJvaGEgcGVlciBiMTZiMDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAxHTm
+gnUoM8OCSdfQ9FJSwglrcHXBe6U8DAkqaRAvs2jA61u/4SshQtUqVEMBXp9Ypkof
+53Nzv9bmqMfK2QM6Pe3oEr4q2+fZZ2HhPYvp4w0FAqSqHqnMXOR01Y7LrnUUduqH
+86QWtI6JraTmPARgU1Vj2oh9X+nKE+dl5lPRO40CAwEAAaM3MDUwMwYDVR0RAQH/
+BCkwJ4IFaXJvaGGCHmlyb2hhLW5vZGUtcHVibGljLWtleS5iMTZiMDBiNTANBgkq
+hkiG9w0BAQUFAAOBgQCC+K3fmd+5TzK8m6IT6wuu4KY2tnmhP5xHpl1G/fTfLWXD
+y11zQNyRxMsYFhX7ssKvuoYHSLZ1fYr/6WlsdbTH1mkRhaeEuPVY7TtDwf31RvK8
+4xh2xtYPDIUt3GG4mnkb+rPioVPjGXsm8zZd4f/X0Em5xV9WEtDsexjxG9qMHA==
+-----END CERTIFICATE-----)");
+  static const auto kPeer3TlsCreds =
+      std::make_shared<const iroha::network::TlsCredentials>(
+          R"(-----BEGIN PRIVATE KEY-----
+MIICdgIBADANBgkqhkiG9w0BAQEFAASCAmAwggJcAgEAAoGBAL5kxPj4YdQEKD5N
+K8pN/ILTTbN/JQwXjG/pU7+WebNdADD42r1cHTOmmIebFNhe/wh9hlONwvS3whn7
+a2PCgpSZpeid5caUSSpE4TU3bLAS+GtfYwkN+IKA1D2zcB9CnAlp8h+Pe4kLnN5A
+Ee5CY5wu9hOD38tE+hfO16G9iwFxAgMBAAECgYBtXRrb3GjtTToEl3V47pUGXPP8
+ECOqr3gm7IMDwR7FDb3HY5raPKg1fBOPiWBO7TpXmSroobyDr24aWJYWJqu0TFZ1
+npUF2Yhkbzwj2OPlrXUHkV9UCnYT9K2m8M2LdmO+YT1EZ5lxwcauhBjDOaSDbZ1b
+8wE0zVLuALJ5giuaMQJBAOMPPlWS6WgSrUnTn0dKOilim6GJyCQU+gau/1dIRQBP
+vdJhiYY8ZrkU6XlSd0RF4+0hD0X9RJo9oFPOCEQPdp0CQQDWqSYcNkypOPGAM1BI
+F6TmjeHQcshioOuuv8Apkjqe5bTZK53YBswgTPDHfLzEvIBLyFECN6QMOKqfOBJk
+9VPlAkEAptdgmkilMU/n/UN+2kd0jUxjx0MSyVCQl7Cm91+nNB9j/96jyvs/D+iJ
+1hf+gzBH1spgCrGbYyq9UFcoQ7qJEQJAIZy+4PAHtP+7oQ1n5sH9CjTxRQiUJA16
+mhRgbKH/F950IQVZY/g8glpJ4ZLApDW4CSXGuYgo4dkFroTDLJfVmQJAdI5+Qkp9
+FybA7EwGHZGO7Akh0DGdFcGo3VyGpQUvd7A/KsZJ5AlFwkZiA9qLpcKFEZLLEx33
+uJgvijc7Q7JQ8A==
+-----END PRIVATE KEY-----)",
+          R"(-----BEGIN CERTIFICATE-----
+MIICmTCCAgICAQEwDQYJKoZIhvcNAQEFBQAweTELMAkGA1UEBhMCSlAxEjAQBgNV
+BAgMCU9ORSBXT1JMRDEUMBIGA1UEBwwLT05FIEVDT05PTVkxFjAUBgNVBAoMDVNv
+cmFtaXRzdSBMdGQxDTALBgNVBAsMBHRlc3QxGTAXBgNVBAMMEGlyb2hhIHBlZXIg
+YmFkZDAwHhcNMTkwOTIzMTYxNTIzWhcNMjAwOTIyMTYxNTIzWjB5MQswCQYDVQQG
+EwJKUDESMBAGA1UECAwJT05FIFdPUkxEMRQwEgYDVQQHDAtPTkUgRUNPTk9NWTEW
+MBQGA1UECgwNU29yYW1pdHN1IEx0ZDENMAsGA1UECwwEdGVzdDEZMBcGA1UEAwwQ
+aXJvaGEgcGVlciBiYWRkMDCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAvmTE
++Phh1AQoPk0ryk38gtNNs38lDBeMb+lTv5Z5s10AMPjavVwdM6aYh5sU2F7/CH2G
+U43C9LfCGftrY8KClJml6J3lxpRJKkThNTdssBL4a19jCQ34goDUPbNwH0KcCWny
+H497iQuc3kAR7kJjnC72E4Pfy0T6F87Xob2LAXECAwEAAaM2MDQwMgYDVR0RAQH/
+BCgwJoIFaXJvaGGCHWlyb2hhLW5vZGUtcHVibGljLWtleS5iYWRkMDBkMA0GCSqG
+SIb3DQEBBQUAA4GBACW7TGshUKZ+mThpyMit04sl8KremeHa8kJ4No5+k/d1XZ4D
+Is2sOzOnedElSptjufMx2zOSyRf/arqKsGN/FvrGKQM3z+u8kBIXbyCGUWY4ztVl
+foAaWCjkHEXorw9JjXRNtU4QWYQ6R9geyvafXXqjG0rZigEbyVA/qe5ynNWc
+-----END CERTIFICATE-----)");
 
   constexpr auto kLocalhost = "127.0.0.1";
   constexpr auto kLocalhostAnyPort = "127.0.0.1:0";
@@ -206,32 +158,18 @@ class ClientFactoryTest : public ::testing::Test {
     insecure_address_ =
         std::string(kLocalhost) + ":" + std::to_string(*insecure_port_optional);
 
-    auto client_credentials =
-        std::make_shared<iroha::network::TlsCredentials>();
-    client_credentials->private_key = kPeer1Key;
-    client_credentials->certificate = kPeer1Certificate;
-    auto server_credentials =
-        std::make_shared<iroha::network::TlsCredentials>();
-    server_credentials->private_key = kPeer2Key;
-    server_credentials->certificate = kPeer2Certificate;
     auto server_cert_provider =
         std::make_shared<iroha::network::PeerTlsCertificatesProviderRoot>(
-            kPeer1Certificate);
+            kPeer1TlsCreds->certificate);
 
     tls_client_factory_ = iroha::network::getTestTlsClientFactory(
-        std::string(kPeer2Certificate),
-        boost::make_optional<
-            std::shared_ptr<const iroha::network::TlsCredentials>>(
-            client_credentials));
+        std::string(kPeer2TlsCreds->certificate), kPeer1TlsCreds);
     tls_server_runner_ = std::make_unique<iroha::network::ServerRunner>(
         kLocalhostAnyPort,
         getTestLoggerManager()->getChild("TlsServerRunner"),
         false,
-        boost::make_optional<
-            std::shared_ptr<const iroha::network::TlsCredentials>>(
-            server_credentials),
-        boost::make_optional<
-            std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>>(
+        kPeer2TlsCreds,
+        std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>(
             server_cert_provider));
     tls_server_runner_->append(std::make_shared<MockQueryService>());
     auto tls_port_optional =
@@ -240,15 +178,8 @@ class ClientFactoryTest : public ::testing::Test {
     tls_address_ =
         std::string(kLocalhost) + ":" + std::to_string(*tls_port_optional);
 
-    auto outside_credentials =
-        std::make_shared<iroha::network::TlsCredentials>();
-    outside_credentials->private_key = kAnotherKey;
-    outside_credentials->certificate = kAnotherCertificate;
     outside_client_factory_ = iroha::network::getTestTlsClientFactory(
-        std::string(kPeer2Certificate),
-        boost::make_optional<
-            std::shared_ptr<const iroha::network::TlsCredentials>>(
-            outside_credentials));
+        std::string(kPeer2TlsCreds->certificate), kPeer3TlsCreds);
   }
 
   auto makeRequestAndCheckStatus(
@@ -268,8 +199,9 @@ class ClientFactoryTest : public ::testing::Test {
   auto makeClient(
       const std::unique_ptr<iroha::network::GenericClientFactory> &factory,
       const std::string &address) {
-    return factory->createClient<iroha::protocol::QueryService_v1>(*makePeer(
-        address, shared_model::crypto::PublicKey(""), kPeer2Certificate));
+    return framework::expected::assertAndGetResultValue(
+        factory->createClient<iroha::protocol::QueryService_v1>(
+            *makePeer(address, kPeer2Key, kPeer2TlsCreds->certificate)));
   }
 
   std::string insecure_address_;
