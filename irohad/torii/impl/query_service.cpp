@@ -5,6 +5,8 @@
 
 #include "torii/query_service.hpp"
 
+#include <rxcpp/operators/rx-observe_on.hpp>
+#include <rxcpp/operators/rx-take_while.hpp>
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "common/run_loop_handler.hpp"

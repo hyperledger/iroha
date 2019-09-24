@@ -10,7 +10,7 @@
 
 #include <mutex>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
 

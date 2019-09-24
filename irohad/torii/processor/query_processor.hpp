@@ -6,7 +6,7 @@
 #ifndef IROHA_QUERY_PROCESSOR_HPP
 #define IROHA_QUERY_PROCESSOR_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 
 #include <memory>
 

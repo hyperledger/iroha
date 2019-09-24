@@ -6,7 +6,7 @@
 #ifndef IROHA_BLOCK_CREATOR_HPP
 #define IROHA_BLOCK_CREATOR_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "simulator/block_creator_common.hpp"
 
 namespace iroha {

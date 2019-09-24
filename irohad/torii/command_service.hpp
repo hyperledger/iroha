@@ -6,7 +6,7 @@
 #ifndef TORII_COMMAND_SERVICE_HPP
 #define TORII_COMMAND_SERVICE_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
