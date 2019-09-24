@@ -23,7 +23,7 @@ Where can Iroha be used?
 Hyperledger Iroha is a general purpose permissioned blockchain system that can be used to manage digital assets, identity, and serialized data.
 This can be useful for applications such as interbank settlement, central bank digital currencies, payment systems, national IDs, and logistics, among others.
 
-For a detailed description please check our `Use Case Scenarios section <http://iroha.readthedocs.io/en/latest/use_cases/>`_.
+For a detailed description please check our `Use Case Scenarios section <develop/cases.html>`_.
 
 How is it different from Bitcoin or Ethereum?
 ---------------------------------------------
@@ -53,7 +53,7 @@ How to create applications around Iroha?
 ----------------------------------------
 
 In order to bring the power of blockchain into your application, you should think first of how it is going to interface with Iroha peers.
-A good start is to check `Core Concepts section <http://iroha.readthedocs.io/en/latest/core_concepts/>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
+A good start is to check `Before we start section <before_start/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
 
 We also have several client libraries which provide tools for developers to form building blocks, such as signatures, commands,
 send messages to Iroha peers and check the status.

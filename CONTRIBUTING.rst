@@ -116,7 +116,7 @@ maintainers team, community or simply assign this issue to yourself.
 Pull Requests
 ~~~~~~~~~~~~~
 
--  Fill in `the required template <.github/PULL_REQUEST_TEMPLATE.md>`__
+-  Fill in `the required template <https://github.com/hyperledger/iroha/blob/master/.github/PULL_REQUEST_TEMPLATE.md>`__
 
 -  End all files with a newline
 
@@ -184,7 +184,7 @@ Documentation Styleguide
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 -  Use
-   `Doxygen <http://www.stack.nl/~dimitri/doxygen/manual/docblocks.html>`__.
+   `Doxygen <http://www.doxygen.nl/>`__.
 -  Document all public API: methods, functions, members, templates,
    classes...
 

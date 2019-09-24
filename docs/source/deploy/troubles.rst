@@ -14,12 +14,12 @@ You can build Iroha daemon binary from sources. You can get binaries `here <http
 Do not have a config file
 -------------------------
 
-Check how to create a configuration file by following this `link <./configuration.html>`__
+Check how to create a configuration file by following this `link <../configure/index.html>`__
 
 Do not have a genesis block
 ---------------------------
 
-Create genesis block by generating it via `iroha-cli` or manually, using the `example <https://github.com/hyperledger/iroha/blob/master/example/genesis.block>`__ and checking out `permissions <https://iroha.readthedocs.io/en/latest/maintenance/permissions.html>`__
+Create genesis block by generating it via `iroha-cli` or manually, using the `example <https://github.com/hyperledger/iroha/blob/master/example/genesis.block>`__ and checking out `permissions <../develop/api/permissions.html>`__
 
 Do not have a keypair for a peer
 --------------------------------

@@ -39,7 +39,7 @@ The line
 
 
 is actually about the permissions you might be using for the transaction.
-You can find a full list here: `Permissions <../maintenance/permissions.html>`_.
+You can find a full list here: `Permissions <../develop/api/permissions.html>`_.
 
 
 In the next block we can see the following:
@@ -75,13 +75,13 @@ Let's look at the first of the defined commands:
 	    send_transaction_and_print_status(tx)
 
 Here we define a transaction made of 2 commands: CreateDomain and CreateAsset.
-You can find a full list here: `commands <../api/commands.html>`_.
+You can find a full list here: `commands <../develop/api/commands.html>`_.
 Each of Iroha commands has its own set of parameters.
-You can check them in command descriptions in `iroha-api-reference <../api/index.html>`_.
+You can check them in command descriptions in `iroha-api-reference <../develop/api.html>`_.
 
 Then we sign the transaction with the parameters defined earlier.
 
-You can define `queries <../api/queries.html>`_ the same way.
+You can define `queries <../develop/api/queries.html>`_ the same way.
 
 Running the commands
 --------------------
