@@ -138,14 +138,6 @@ class Irohad {
   RunResult restoreWsv();
 
   /**
-   * Replaces peers in WSV with an externally provided peers list
-   * @param alternative_peers - the peers to place into WSV
-   * @return void on success, error otherwise
-   */
-  Irohad::RunResult resetPeers(
-      const shared_model::interface::types::PeerList &alternative_peers);
-
-  /**
    * Drop wsv and block store
    */
   virtual void dropStorage();
@@ -199,6 +191,10 @@ class Irohad {
 
   virtual RunResult initQueryService();
 
+  virtual RunResult initSettings();
+
+  virtual RunResult initValidatorsConfigs();
+
   /**
    * Initialize WSV restorer
    */
@@ -244,6 +240,9 @@ class Irohad {
   iroha::network::BlockLoaderInit loader_init;
 
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
+
+  // Settings
+  std::shared_ptr<const shared_model::validation::Settings> settings_;
 
   // WSV restorer
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;

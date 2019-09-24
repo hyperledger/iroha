@@ -244,7 +244,7 @@ namespace iroha {
         soci::rowset<T> st = std::forward<QueryExecutor>(query_executor)();
         auto range = boost::make_iterator_range(st.begin(), st.end());
 
-        return apply(
+        return iroha::ametsuchi::apply(
             viewPermissions<PermissionTuple>(range.front()),
             [this, range, &response_creator, &perms_err_response, &query_hash](
                 auto... perms) {
@@ -398,9 +398,10 @@ namespace iroha {
             // unpack results to get map from block height to index of tx in
             // a block
             for (const auto &t : range_without_nulls) {
-              apply(t, [&index](auto &height, auto &idx, auto &) {
-                index[height].push_back(idx);
-              });
+              iroha::ametsuchi::apply(
+                  t, [&index](auto &height, auto &idx, auto &) {
+                    index[height].push_back(idx);
+                  });
             }
 
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -513,7 +514,8 @@ namespace iroha {
                   QueryErrorType::kNoAccount, q.accountId(), 0, query_hash);
             }
 
-            return apply(range_without_nulls.front(), query_apply);
+            return iroha::ametsuchi::apply(range_without_nulls.front(),
+                                           query_apply);
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyAccount,
@@ -598,7 +600,7 @@ namespace iroha {
             auto pubkeys = boost::copy_range<
                 std::vector<shared_model::interface::types::PubkeyType>>(
                 range_without_nulls | boost::adaptors::transformed([](auto t) {
-                  return apply(t, [&](auto &public_key) {
+                  return iroha::ametsuchi::apply(t, [&](auto &public_key) {
                     return shared_model::interface::types::PubkeyType{
                         shared_model::crypto::Blob::fromHexString(public_key)};
                   });
@@ -712,7 +714,7 @@ namespace iroha {
             }
             std::map<uint64_t, std::unordered_set<std::string>> index;
             for (const auto &t : range_without_nulls) {
-              apply(t, [&index](auto &height, auto &hash) {
+              iroha::ametsuchi::apply(t, [&index](auto &height, auto &hash) {
                 index[height].insert(hash);
               });
             }
@@ -885,17 +887,18 @@ namespace iroha {
                 assets;
             size_t total_number = 0;
             for (const auto &row : range_without_nulls) {
-              apply(row,
-                    [&assets, &total_number](auto &account_id,
-                                             auto &asset_id,
-                                             auto &amount,
-                                             auto &total_number_col) {
-                      total_number = total_number_col;
-                      assets.push_back(std::make_tuple(
-                          std::move(account_id),
-                          std::move(asset_id),
-                          shared_model::interface::Amount(amount)));
-                    });
+              iroha::ametsuchi::apply(
+                  row,
+                  [&assets, &total_number](auto &account_id,
+                                           auto &asset_id,
+                                           auto &amount,
+                                           auto &total_number_col) {
+                    total_number = total_number_col;
+                    assets.push_back(std::make_tuple(
+                        std::move(account_id),
+                        std::move(asset_id),
+                        shared_model::interface::Amount(amount)));
+                  });
             }
             if (assets.empty() and req_first_asset_id) {
               // nonexistent first_asset_id provided in query request
@@ -1055,7 +1058,7 @@ namespace iroha {
                   query_hash);
             }
 
-            return apply(
+            return iroha::ametsuchi::apply(
                 range.front(),
                 [&, this](auto &json,
                           auto &total_number,
@@ -1160,7 +1163,8 @@ namespace iroha {
             auto roles = boost::copy_range<
                 std::vector<shared_model::interface::types::RoleIdType>>(
                 range_without_nulls | boost::adaptors::transformed([](auto t) {
-                  return apply(t, [](auto &role_id) { return role_id; });
+                  return iroha::ametsuchi::apply(
+                      t, [](auto &role_id) { return role_id; });
                 }));
 
             return query_response_factory_->createRolesResponse(roles,
@@ -1202,7 +1206,7 @@ namespace iroha {
                   query_hash);
             }
 
-            return apply(
+            return iroha::ametsuchi::apply(
                 range_without_nulls.front(),
                 [this, &query_hash](auto &permission) {
                   return query_response_factory_->createRolePermissionsResponse(
@@ -1247,7 +1251,7 @@ namespace iroha {
                   query_hash);
             }
 
-            return apply(
+            return iroha::ametsuchi::apply(
                 range_without_nulls.front(),
                 [this, &q, &query_hash](auto &domain_id, auto &precision) {
                   return query_response_factory_->createAssetResponse(
@@ -1348,12 +1352,14 @@ namespace iroha {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
             shared_model::interface::types::PeerList peers;
             for (const auto &row : range_without_nulls) {
-              apply(row, [&peers](auto &peer_key, auto &address) {
-                peers.push_back(std::make_shared<shared_model::plain::Peer>(
-                    address,
-                    shared_model::interface::types::PubkeyType{
-                        shared_model::crypto::Blob::fromHexString(peer_key)}));
-              });
+              iroha::ametsuchi::apply(
+                  row, [&peers](auto &peer_key, auto &address) {
+                    peers.push_back(std::make_shared<shared_model::plain::Peer>(
+                        address,
+                        shared_model::interface::types::PubkeyType{
+                            shared_model::crypto::Blob::fromHexString(
+                                peer_key)}));
+                  });
             }
             return query_response_factory_->createPeersResponse(peers,
                                                                 query_hash);

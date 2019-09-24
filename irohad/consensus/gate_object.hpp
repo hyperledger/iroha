@@ -83,11 +83,17 @@ namespace iroha {
       using Synchronizable::Synchronizable;
     };
 
+    /// round.block_round > ledger_state->top_block_info.height + 1
+    struct Future : public Synchronizable {
+      using Synchronizable::Synchronizable;
+    };
+
     using GateObject = boost::variant<PairValid,
                                       VoteOther,
                                       ProposalReject,
                                       BlockReject,
-                                      AgreementOnNone>;
+                                      AgreementOnNone,
+                                      Future>;
 
   }  // namespace consensus
 }  // namespace iroha
@@ -96,6 +102,7 @@ extern template class boost::variant<iroha::consensus::PairValid,
                                      iroha::consensus::VoteOther,
                                      iroha::consensus::ProposalReject,
                                      iroha::consensus::BlockReject,
-                                     iroha::consensus::AgreementOnNone>;
+                                     iroha::consensus::AgreementOnNone,
+                                     iroha::consensus::Future>;
 
 #endif  // CONSENSUS_GATE_OBJECT_HPP

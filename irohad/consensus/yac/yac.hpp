@@ -55,7 +55,10 @@ namespace iroha {
 
         // ------|Hash gate|------
 
-        void vote(YacHash hash, ClusterOrdering order) override;
+        void vote(YacHash hash,
+                  ClusterOrdering order,
+                  boost::optional<ClusterOrdering> alternative_order =
+                      boost::none) override;
 
         rxcpp::observable<Answer> onOutcome() override;
 
@@ -77,6 +80,9 @@ namespace iroha {
          */
         void closeRound();
 
+        /// Get cluster_order_ or alternative_order_ if present
+        ClusterOrdering &getCurrentOrder();
+
         /**
          * Find corresponding peer in the ledger from vote message
          * @param vote message containing peer information
@@ -86,7 +92,8 @@ namespace iroha {
         findPeer(const VoteMessage &vote);
 
         /// Remove votes from unknown peers from given vector.
-        void removeUnknownPeersVotes(std::vector<VoteMessage> &votes);
+        void removeUnknownPeersVotes(std::vector<VoteMessage> &votes,
+                                     ClusterOrdering &order);
 
         // ------|Apply data|------
         /**
@@ -109,6 +116,7 @@ namespace iroha {
 
         // ------|One round|------
         ClusterOrdering cluster_order_;
+        boost::optional<ClusterOrdering> alternative_order_;
         Round round_;
 
         // ------|Fields|------

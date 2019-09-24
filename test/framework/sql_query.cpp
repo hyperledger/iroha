@@ -26,6 +26,8 @@ namespace framework {
     using shared_model::interface::types::PrecisionType;
     using shared_model::interface::types::QuorumType;
     using shared_model::interface::types::RoleIdType;
+    using shared_model::interface::types::SettingKeyType;
+    using shared_model::interface::types::SettingValueType;
 
     template <typename T, typename F>
     auto SqlQuery::execute(F &&f) -> boost::optional<soci::rowset<T>> {
@@ -213,6 +215,22 @@ namespace framework {
 
       return flatMapValue<boost::optional<std::string>>(
           result, [&](auto &json) { return boost::make_optional(json); });
+    }
+
+    boost::optional<SettingValueType> SqlQuery::getSettingValue(
+        const SettingKeyType &setting_key) {
+      using T = boost::tuple<SettingValueType>;
+      auto result = execute<T>([&] {
+        return (sql_.prepare << "SELECT setting_value "
+                                "FROM setting WHERE setting_key = "
+                                ":setting_key",
+                soci::use(setting_key, "setting_key"));
+      });
+
+      return flatMapValue<boost::optional<SettingValueType>>(
+          result, [&](auto &setting_value) {
+            return boost::make_optional(setting_value);
+          });
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Asset>>

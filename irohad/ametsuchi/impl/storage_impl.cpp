@@ -20,6 +20,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
+#include "ametsuchi/impl/postgres_setting_query.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
@@ -451,6 +452,21 @@ namespace iroha {
           std::make_unique<soci::session>(*connection_),
           *block_store_,
           log_manager_->getChild("PostgresBlockQuery")->getLogger());
+    }
+
+    boost::optional<std::unique_ptr<SettingQuery>>
+    StorageImpl::createSettingQuery() const {
+      std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
+      if (not connection_) {
+        log_->info(
+            "getSettingQuery: connection to database is not initialised");
+        return boost::none;
+      }
+      std::unique_ptr<SettingQuery> setting_query_ptr =
+          std::make_unique<PostgresSettingQuery>(
+              std::make_unique<soci::session>(*connection_),
+              log_manager_->getChild("PostgresSettingQuery")->getLogger());
+      return boost::make_optional(std::move(setting_query_ptr));
     }
 
     rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>

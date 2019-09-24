@@ -64,14 +64,11 @@ namespace iroha {
       /**
        * Performs synchronization on rejects
        * @param msg - consensus gate message with a list of peers and a round
-       * @param alternative_outcome - synchronization outcome when block store
-       * height is equal to expected height after synchronization
+       * @param required_height - minimal top block height to be downloaded
        */
-      void processDifferent(const consensus::Synchronizable &msg,
-                            SynchronizationOutcomeType alternative_outcome);
-
-      boost::optional<shared_model::interface::types::HeightType>
-      getTopBlockHeight() const;
+      void processDifferent(
+          const consensus::Synchronizable &msg,
+          shared_model::interface::types::HeightType required_height);
 
       std::unique_ptr<ametsuchi::MutableStorage> getStorage();
 

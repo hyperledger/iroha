@@ -12,6 +12,7 @@ add_library(shared_model_stateless_validation
         protobuf/proto_transaction_validator.cpp
         protobuf/proto_proposal_validator.cpp
         transaction_batch_validator.cpp
+        settings.cpp
         )
 
 target_link_libraries(shared_model_stateless_validation

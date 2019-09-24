@@ -4,14 +4,12 @@
  */
 
 #include "query_permission_fixture.hpp"
-#include "query_permission_test_acc_details.hpp"
 #include "query_permission_test_ast_txs.hpp"
 #include "query_permission_test_txs.hpp"
 
 using namespace common_constants;
-using QueryPermissionTestingTypes = ::testing::Types<QueryPermissionAssetTxs,
-                                                     QueryPermissionAccDetails,
-                                                     QueryPermissionTxs>;
+using QueryPermissionTestingTypes =
+    ::testing::Types<QueryPermissionAssetTxs, QueryPermissionTxs>;
 TYPED_TEST_CASE(QueryPermissionFixture, QueryPermissionTestingTypes, );
 
 /**
@@ -44,14 +42,9 @@ TYPED_TEST(QueryPermissionFixture,
  * @then the query recognized as stateless invalid
  */
 TYPED_TEST(QueryPermissionFixture, ReadEmptyAccountHavingPermissionForAll) {
-  // in GetAccountDetail query empty target is substituted with spectator
-  const auto checker = std::is_same<QueryPermissionAccDetails,
-                                    typename TestFixture::ParamType>::value
-      ? this->impl_.getGeneralResponseChecker()
-      : getQueryStatelesslyInvalidChecker();
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryEveryone})
       .sendQuery(this->impl_.makeQuery(*this, "", kUserId, kUserKeypair),
-                 checker);
+                 getQueryStatelesslyInvalidChecker());
 }
 
 /*
@@ -177,7 +170,7 @@ TYPED_TEST(QueryPermissionFixture,
            AnothersFromDifferentDomainWithoutAnyPermission) {
   this->impl_.prepareState(*this, {}).sendQuery(
       this->impl_.makeQuery(
-          *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+          *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
       getQueryStatefullyInvalidChecker());
 }
 
@@ -193,7 +186,7 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryMyself})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           getQueryStatefullyInvalidChecker());
 }
 
@@ -210,7 +203,7 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryMyDomain})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           getQueryStatefullyInvalidChecker());
 }
 
@@ -226,6 +219,6 @@ TYPED_TEST(QueryPermissionFixture,
   this->impl_.prepareState(*this, {this->impl_.kPermissionToQueryEveryone})
       .sendQuery(
           this->impl_.makeQuery(
-              *this, kUserId, kAnotherDomainUserId, kAnotherDomainUserKeypair),
+              *this, kUserId, kSecondDomainUserId, kSecondDomainUserKeypair),
           this->impl_.getGeneralResponseChecker());
 }
