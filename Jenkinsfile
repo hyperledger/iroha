@@ -295,7 +295,7 @@ node ('master') {
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', build_shared_libs, specialBranch, false,
-      false, testList, false, false, false, false, true, false, false, false, false, use_libursa, false, environmentList)}]
+      false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, false, environmentList)}]
     }
     if (build_scenario == 'Before merge to trunk') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
@@ -322,7 +322,7 @@ node ('master') {
     //If "master" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-        mac_compiler_list, 'Release', false, false, testList, true, false, false, environmentList)}]
+        mac_compiler_list, 'Release', false, false, testList, true, false, false, false, environmentList)}]
     }
     x64MacBuildPostSteps = new Builder.PostSteps(
       always: [{x64BuildScript.alwaysPostSteps(environmentList)}],
