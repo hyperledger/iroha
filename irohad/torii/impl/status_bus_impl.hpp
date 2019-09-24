@@ -8,6 +8,10 @@
 
 #include "torii/status_bus.hpp"
 
+#include <rxcpp/rx-lite.hpp>
+
+#include <rxcpp/operators/rx-observe_on.hpp>
+
 namespace iroha {
   namespace torii {
     /**

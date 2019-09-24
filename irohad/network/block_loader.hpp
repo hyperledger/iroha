@@ -7,7 +7,7 @@
 #define IROHA_BLOCK_LOADER_HPP
 
 #include <memory>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/types.hpp"

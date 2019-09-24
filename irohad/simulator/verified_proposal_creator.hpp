@@ -6,7 +6,7 @@
 #ifndef IROHA_VERIFIED_PROPOSAL_CREATOR_HPP
 #define IROHA_VERIFIED_PROPOSAL_CREATOR_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "simulator/verified_proposal_creator_common.hpp"
 
 namespace shared_model {

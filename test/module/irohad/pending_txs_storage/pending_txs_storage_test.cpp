@@ -4,12 +4,14 @@
  */
 
 #include <gtest/gtest.h>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
+
+#include <rxcpp/operators/rx-flat_map.hpp>
 
 // TODO igor-egorov 2019-06-24 IR-573 Refactor pending txs storage tests
 class PendingTxsStorageFixture : public ::testing::Test {

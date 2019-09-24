@@ -13,11 +13,13 @@
 #include <mutex>
 
 #include <boost/optional.hpp>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "consensus/yac/cluster_order.hpp"     //  for ClusterOrdering
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/yac_vote_storage.hpp"  // for VoteStorage
 #include "logger/logger_fwd.hpp"
+
+#include <rxcpp/operators/rx-observe_on.hpp>
 
 namespace iroha {
   namespace consensus {

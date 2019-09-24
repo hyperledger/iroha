@@ -8,8 +8,10 @@
 
 #include <mutex>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "consensus/yac/timer.hpp"
+
+#include <rxcpp/operators/rx-observe_on.hpp>
 
 namespace iroha {
   namespace consensus {

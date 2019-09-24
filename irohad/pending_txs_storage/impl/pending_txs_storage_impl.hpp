@@ -11,7 +11,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "pending_txs_storage/pending_txs_storage.hpp"
 

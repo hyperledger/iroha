@@ -6,7 +6,7 @@
 #ifndef FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_
 #define FAKE_PEER_ODOS_NETWORK_NOTIFIER_HPP_
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 
 #include <mutex>
 

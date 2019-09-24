@@ -6,7 +6,7 @@
 #ifndef IROHA_SYNCHRONIZER_HPP
 #define IROHA_SYNCHRONIZER_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 
 #include "consensus/gate_object.hpp"
 #include "synchronizer/synchronizer_common.hpp"
