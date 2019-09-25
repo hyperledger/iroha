@@ -8,6 +8,7 @@
 
 #include "torii/command_service.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "endpoint.grpc.pb.h"
 #include "endpoint.pb.h"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"

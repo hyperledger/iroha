@@ -5,6 +5,7 @@
 
 #include "validation/impl/chain_validator_impl.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "consensus/yac/supermajority_checker.hpp"

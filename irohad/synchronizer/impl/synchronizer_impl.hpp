@@ -8,6 +8,7 @@
 
 #include "synchronizer/synchronizer.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/commit_result.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"

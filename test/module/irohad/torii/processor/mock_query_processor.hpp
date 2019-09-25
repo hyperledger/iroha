@@ -9,6 +9,7 @@
 #include "torii/processor/query_processor.hpp"
 
 #include <gmock/gmock.h>
+#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace torii {

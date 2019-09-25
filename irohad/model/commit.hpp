@@ -6,7 +6,7 @@
 #ifndef IROHA_COMMIT_HPP
 #define IROHA_COMMIT_HPP
 
-#include <rxcpp/rx-lite.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 
 namespace iroha {
   using OldCommit = rxcpp::observable<model::Block>;
