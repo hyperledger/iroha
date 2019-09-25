@@ -10,16 +10,17 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include <boost/math/special_functions/sign.hpp>
 
 using namespace shared_model::interface;
 
 struct AmountTest : public ::testing::Test {
   /// Check sign, precision and string representation of a valid amount.
   void checkValid(const Amount &tested,
-                  bool greater_than_zero,
+                  int ref_sign,
                   types::PrecisionType ref_precision,
                   std::string ref_str) {
-    EXPECT_EQ(tested.sign() > 0, greater_than_zero);
+    EXPECT_EQ(boost::math::sign(tested.sign()), boost::math::sign(ref_sign));
     EXPECT_EQ(tested.precision(), ref_precision);
     EXPECT_EQ(tested.toStringRepr(), ref_str);
   }
@@ -33,17 +34,17 @@ struct AmountTest : public ::testing::Test {
 };
 
 TEST_F(AmountTest, Basic) {
-  checkValid(Amount{"0"}, false, 0, "0");
-  checkValid(Amount{"0.1"}, true, 1, "0.1");
-  checkValid(Amount{"1234"}, true, 0, "1234");
-  checkValid(Amount{"23.45"}, true, 2, "23.45");
+  checkValid(Amount{"0"}, 0, 0, "0");
+  checkValid(Amount{"0.1"}, 1, 1, "0.1");
+  checkValid(Amount{"1234"}, 1, 0, "1234");
+  checkValid(Amount{"23.45"}, 1, 2, "23.45");
 }
 
 TEST_F(AmountTest, Strange) {
-  checkValid(Amount{"000.000"}, false, 3, "0.000");
-  checkValid(Amount{"000.001"}, true, 3, "0.001");
-  checkValid(Amount{"0000001"}, true, 0, "1");
-  checkValid(Amount{"1.00000"}, true, 5, "1.00000");
+  checkValid(Amount{"000.000"}, 0, 3, "0.000");
+  checkValid(Amount{"000.001"}, 1, 3, "0.001");
+  checkValid(Amount{"0000001"}, 1, 0, "1");
+  checkValid(Amount{"1.00000"}, 1, 5, "1.00000");
 }
 
 TEST_F(AmountTest, Invalid) {

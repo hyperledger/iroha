@@ -6,6 +6,7 @@
 #include <benchmark/benchmark.h>
 #include <string>
 
+#include <boost/filesystem.hpp>
 #include "backend/protobuf/transaction.hpp"
 #include "benchmark/bm_utils.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"

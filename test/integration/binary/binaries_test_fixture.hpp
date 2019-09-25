@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
 #include <vector>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/binary/launchers.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
