@@ -278,7 +278,7 @@ Main Parameters
 | USE_LIBURSA  |                 | OFF     | Enables usage of the HL Ursa cryptography instead of the standard one  |
 +--------------+-----------------+---------+------------------------------------------------------------------------+
 
-.. note:: If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <integrations/index.html#hyperledger-ursa>`_.
+.. note:: If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <../integrations/index.html#hyperledger-ursa>`_.
 
 Packaging Specific Parameters
 """""""""""""""""""""""""""""
