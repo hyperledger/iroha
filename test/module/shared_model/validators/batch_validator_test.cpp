@@ -13,7 +13,9 @@
 struct BatchValidatorFixture : public ::testing::Test {
   auto getValidator(bool allow_partial_ordered_batches) {
     auto config = std::make_shared<shared_model::validation::ValidatorsConfig>(
-        iroha::test::getTestsMaxBatchSize(), allow_partial_ordered_batches);
+        iroha::test::getTestsMaxBatchSize(),
+        shared_model::validation::getDefaultSettings(),
+        allow_partial_ordered_batches);
     auto validator =
         std::make_shared<shared_model::validation::BatchValidator>(config);
     return validator;

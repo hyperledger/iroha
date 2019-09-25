@@ -40,8 +40,7 @@ This negates the need to write cumbersome and hard to test smart contracts, enab
 How is it different from the rest of Hyperledger frameworks or other permissioned blockchains?
 ----------------------------------------------------------------------------------------------
 
-Iroha has a novel, Byzantine fault tolerant consensus algorithm (called YAC [#f1]_) that is high-performance and allows for finality of transactions with low latency.
-Other frameworks either focus more on probabilistic consensus algorithms, such as Nakamoto Consensus, or sacrifice Byzantine fault tolerance.
+Iroha has a novel, Crash fault tolerant consensus algorithm (called YAC [#f1]_) that is high-performance and allows for finality of transactions with low latency.
 
 Also, Iroha's built-in commands are a major benefit compared to other platforms, since it is very simple to do common tasks such as create digital assets, register accounts, and transfer assets between accounts.
 Moreover, it narrows the attack vector, improving overall security of the system, as there are less things to fail.

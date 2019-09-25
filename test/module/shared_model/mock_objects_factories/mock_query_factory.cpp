@@ -60,6 +60,18 @@ MockQueryFactory::constructGetAccountAssetTransactions(
       });
 }
 
+MockQueryFactory::FactoryResult<MockAccountDetailPaginationMeta>
+MockQueryFactory::constructAccountDetailPaginationMeta(
+    size_t page_size,
+    boost::optional<const AccountDetailRecordId &> first_record_id) const {
+  return createFactoryResult<MockAccountDetailPaginationMeta>(
+      [&page_size, &first_record_id](MockAccountDetailPaginationMeta &mock) {
+        EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
+        EXPECT_CALL(mock, firstRecordId())
+            .WillRepeatedly(Return(std::move(first_record_id)));
+      });
+}
+
 MockQueryFactory::FactoryResult<MockGetAccountDetail>
 MockQueryFactory::constructGetAccountDetail(
     const types::AccountIdType &account_id,

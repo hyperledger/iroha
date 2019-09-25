@@ -30,6 +30,7 @@ using iroha::consensus::ConsensusResultCache;
 using ::testing::_;
 using ::testing::An;
 using ::testing::AtLeast;
+using ::testing::InSequence;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
 
@@ -91,6 +92,7 @@ class YacGateTest : public ::testing::Test {
 
     gate = std::make_shared<YacGateImpl>(std::move(hash_gate_ptr),
                                          std::move(peer_orderer_ptr),
+                                         alternative_order,
                                          hash_provider,
                                          block_creator,
                                          block_cache,
@@ -104,6 +106,7 @@ class YacGateTest : public ::testing::Test {
   }
 
   iroha::consensus::Round round{1, 1};
+  boost::optional<ClusterOrdering> alternative_order;
   PublicKey expected_pubkey{"expected_pubkey"};
   Signed expected_signed{"expected_signed"};
   Hash prev_hash{"prev hash"};
@@ -136,7 +139,7 @@ class YacGateTest : public ::testing::Test {
  */
 TEST_F(YacGateTest, YacGateSubscriptionTest) {
   // yac consensus
-  EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
   // generate order of peers
   EXPECT_CALL(*peer_orderer, getOrdering(_, _))
@@ -177,8 +180,8 @@ TEST_F(YacGateTest, CacheReleased) {
   YacHash empty_hash({}, ProposalHash(""), BlockHash(""));
 
   // yac consensus
-  EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);
-  EXPECT_CALL(*hash_gate, vote(empty_hash, _)).Times(1);
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
+  EXPECT_CALL(*hash_gate, vote(empty_hash, _, _)).Times(1);
 
   // generate order of peers
   EXPECT_CALL(*peer_orderer, getOrdering(_, _))
@@ -208,7 +211,7 @@ TEST_F(YacGateTest, CacheReleased) {
  */
 TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
   // yac consensus
-  EXPECT_CALL(*hash_gate, vote(_, _)).Times(0);
+  EXPECT_CALL(*hash_gate, vote(_, _, _)).Times(0);
 
   // generate order of peers
   EXPECT_CALL(*peer_orderer, getOrdering(_, _)).WillOnce(Return(boost::none));
@@ -226,7 +229,7 @@ TEST_F(YacGateTest, YacGateSubscribtionTestFailCase) {
  * @then cache isn't changed
  */
 TEST_F(YacGateTest, AgreementOnNone) {
-  EXPECT_CALL(*hash_gate, vote(_, _)).Times(1);
+  EXPECT_CALL(*hash_gate, vote(_, _, _)).Times(1);
 
   EXPECT_CALL(*peer_orderer, getOrdering(_, _))
       .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
@@ -251,7 +254,7 @@ TEST_F(YacGateTest, DifferentCommit) {
   EXPECT_CALL(*peer_orderer, getOrdering(_, _))
       .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
 
-  EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
   block_notifier.get_subscriber().on_next(BlockCreatorEvent{
       RoundData{expected_proposal, expected_block}, round, ledger_state});
@@ -313,7 +316,7 @@ class CommitFromTheFuture : public YacGateTest {
     EXPECT_CALL(*peer_orderer, getOrdering(_, _))
         .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
 
-    EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(1);
+    EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
 
     block_notifier.get_subscriber().on_next(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
@@ -425,7 +428,7 @@ class YacGateOlderTest : public YacGateTest {
  * @then vote is ignored
  */
 TEST_F(YacGateOlderTest, OlderVote) {
-  EXPECT_CALL(*hash_gate, vote(expected_hash, _)).Times(0);
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(0);
 
   EXPECT_CALL(*peer_orderer, getOrdering(_, _)).Times(0);
 
@@ -488,4 +491,70 @@ TEST_F(YacGateOlderTest, OlderReject) {
   outcome_notifier.get_subscriber().on_next(reject);
 
   ASSERT_TRUE(gate_wrapper.validate());
+}
+
+class YacGateAlternativeOrderTest : public YacGateTest {
+ protected:
+  YacGateAlternativeOrderTest() {
+    alternative_order = ClusterOrdering::create({makePeer("alternative_node")});
+  }
+
+  void SetUp() override {
+    YacGateTest::SetUp();
+
+    // generate order of peers
+    EXPECT_CALL(*peer_orderer, getOrdering(_, _))
+        .WillRepeatedly(
+            Return(ClusterOrdering::create({makePeer("fake_node")})));
+
+    // make hash from block
+    EXPECT_CALL(*hash_provider, makeHash(_))
+        .WillRepeatedly(Return(expected_hash));
+  }
+};
+
+namespace iroha {
+  namespace consensus {
+    namespace yac {
+      bool operator==(const ClusterOrdering &lhs, const ClusterOrdering &rhs) {
+        return lhs.getPeers() == rhs.getPeers();
+      }
+    }  // namespace yac
+  }    // namespace consensus
+}  // namespace iroha
+
+/**
+ * @given yac gate with initialized alternative order
+ * @when vote is called
+ * @then alternative order is used
+ */
+TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsed) {
+  // yac consensus
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, alternative_order)).Times(1);
+
+  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+      RoundData{expected_proposal, expected_block}, round, ledger_state});
+}
+
+/**
+ * @given yac gate with initialized alternative order
+ * @when vote is called twice
+ * @then alternative order is used only the first time
+ */
+TEST_F(YacGateAlternativeOrderTest, AlternativeOrderUsedOnce) {
+  // yac consensus
+  {
+    InSequence s;  // ensures the call order
+    EXPECT_CALL(*hash_gate, vote(expected_hash, _, alternative_order)).Times(1);
+    EXPECT_CALL(*hash_gate,
+                vote(expected_hash, _, boost::optional<ClusterOrdering>{}))
+        .Times(1);
+  }
+
+  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+      RoundData{expected_proposal, expected_block}, round, ledger_state});
+  block_notifier.get_subscriber().on_next(
+      BlockCreatorEvent{RoundData{expected_proposal, expected_block},
+                        {round.block_round + 1, 0},
+                        ledger_state});
 }

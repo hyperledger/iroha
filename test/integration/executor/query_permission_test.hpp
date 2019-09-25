@@ -65,14 +65,14 @@ namespace executor_testing {
             kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
         // create spectators
         assertResultValue(getItf().createUserWithPerms(
-            kAnotherUser,
+            kSecondUser,
             kDomain,
             kSameDomainUserKeypair.publicKey(),
             permissions_param_.spectator_permissions));
         assertResultValue(getItf().createUserWithPerms(
-            kAnotherUser,
+            kSecondUser,
             kSecondDomain,
-            kAnotherDomainUserKeypair.publicKey(),
+            kSecondDomainUserKeypair.publicKey(),
             permissions_param_.spectator_permissions));
       }
 

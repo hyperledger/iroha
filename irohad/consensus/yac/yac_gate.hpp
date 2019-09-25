@@ -28,9 +28,13 @@ namespace iroha {
         /**
          * Proposal new hash in network
          * @param hash - hash for voting
-         * @param order - peer ordering
+         * @param order - peer ordering for round in hash
+         * @param alternative_order - peer order
          */
-        virtual void vote(YacHash hash, ClusterOrdering order) = 0;
+        virtual void vote(YacHash hash,
+                          ClusterOrdering order,
+                          boost::optional<ClusterOrdering> alternative_order =
+                              boost::none) = 0;
 
         /**
          * Observable with consensus outcomes - commits and rejects - in network

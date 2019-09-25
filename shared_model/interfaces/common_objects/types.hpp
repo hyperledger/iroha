@@ -81,6 +81,10 @@ namespace shared_model {
       using TransactionsNumberType = uint16_t;
       /// Type of the transfer message
       using DescriptionType = std::string;
+      /// Type of setting key
+      using SettingKeyType = std::string;
+      /// Type of setting value
+      using SettingValueType = std::string;
       /// Type of peers collection
       using PeerList =
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;

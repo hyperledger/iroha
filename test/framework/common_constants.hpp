@@ -20,7 +20,7 @@ namespace common_constants {
   /// user names
   extern const std::string kAdminName;
   extern const std::string kUser;
-  extern const std::string kAnotherUser;
+  extern const std::string kSecondUser;
 
   /// role names
   extern const std::string kAdminRole;
@@ -39,7 +39,7 @@ namespace common_constants {
   extern const std::string kAdminId;
   extern const std::string kUserId;
   extern const std::string kSameDomainUserId;
-  extern const std::string kAnotherDomainUserId;
+  extern const std::string kSecondDomainUserId;
   extern const std::string kAssetId;
   extern const std::string kSecondDomainAssetId;
 
@@ -47,7 +47,7 @@ namespace common_constants {
   extern const Keypair kAdminKeypair;
   extern const Keypair kUserKeypair;
   extern const Keypair kSameDomainUserKeypair;
-  extern const Keypair kAnotherDomainUserKeypair;
+  extern const Keypair kSecondDomainUserKeypair;
 
   // misc
   extern const shared_model::interface::Amount
