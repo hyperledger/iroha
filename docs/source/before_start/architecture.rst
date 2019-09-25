@@ -51,7 +51,7 @@ Proposal creation could be triggered by one of the following events:
 
 2. Ordering service has received the maximum amount of transactions allowed for a single proposal.
 
-Both parameters (timeout and maximum size of proposal) are configurable (check `environment-specific parameters <../guides/configuration.html#environment-specific-parameters>`_ page).
+Both parameters (timeout and maximum size of proposal) are configurable (check `environment-specific parameters <../configure/index.html#environment-specific-parameters>`_ page).
 
 A common precondition for both triggers is that at least one transaction should reach the ordering service.
 Otherwise, no proposal will be formed.
@@ -94,7 +94,7 @@ Synchronizer
 ------------
 
 Is a part of `consensus <#consensus>`__.
-Adds missing blocks to `peers' <../core_concepts/glossary.html#peer>`__ chains (downloads them from other peers to preserve consistency).
+Adds missing blocks to `peers' <glossary.html#peer>`__ chains (downloads them from other peers to preserve consistency).
 
 Ametsuchi Blockstore
 --------------------
