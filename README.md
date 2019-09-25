@@ -45,7 +45,7 @@ Check [getting started](http://iroha.readthedocs.io/en/latest/getting_started/) 
 
 ### How to build Iroha?
 
-Use [build guide](http://iroha.readthedocs.io/en/latest/guides/build.html), which might be helpful if you want to modify the code and contribute.
+Use [build guide](https://iroha.readthedocs.io/en/latest/build/index.html), which might be helpful if you want to modify the code and contribute.
 
 ### Is there SDK available?
 
