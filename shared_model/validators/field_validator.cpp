@@ -107,11 +107,8 @@ namespace shared_model {
     void FieldValidator::validateAmount(ReasonsGroupType &reason,
                                         const interface::Amount &amount) const {
       if (amount.sign() <= 0) {
-        auto message =
-            (boost::format("Amount must be greater than 0, but got: %d")
-             % amount.toStringRepr())
-                .str();
-        reason.second.push_back(message);
+        reason.second.push_back(
+            "Invalid number, amount must be greater than 0");
       }
     }
 

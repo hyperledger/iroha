@@ -20,6 +20,10 @@ namespace shared_model {
      public:
       explicit Amount(const std::string &amount);
 
+      /**
+       * Returns a value less than zero if Amount is negative, a value greater
+       * than zero if Amount is positive, and zero if Amount is zero.
+       */
       int sign() const;
 
       /**
