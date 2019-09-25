@@ -8,6 +8,7 @@
 
 #include <random>
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"

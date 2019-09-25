@@ -8,6 +8,7 @@
 
 #include "torii/command_service.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "cache/cache.hpp"

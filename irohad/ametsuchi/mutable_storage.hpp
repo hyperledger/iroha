@@ -8,7 +8,7 @@
 
 #include <functional>
 
-#include <rxcpp/rx-lite.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/ledger_state.hpp"
 #include "interfaces/common_objects/types.hpp"
 
