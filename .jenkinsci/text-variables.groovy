@@ -146,6 +146,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><span style="color: #ff0000;"><strong>benchmarking</strong></span> = true</p>
+      <ul>
+         <li>
+            <p>builds benchmarks</p>
+         </li>
+         <li>
+            <p>Ex:&nbsp;benchmarking=true; testing = true; testList = "(None)"</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><span style="color: #ff0000;"><strong>coredumps</strong></span> = true</p>
       <ul>
          <li>
