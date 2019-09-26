@@ -6,46 +6,52 @@
 #ifndef IROHA_INTEGRATION_FRAMEWORK_HPP
 #define IROHA_INTEGRATION_FRAMEWORK_HPP
 
-#include <algorithm>
-#include <chrono>
-#include <exception>
-#include <functional>
-#include <queue>
-#include <string>
-#include <thread>
-#include <vector>
-
-#include <boost/filesystem.hpp>
-#include "backend/protobuf/queries/proto_query.hpp"
-#include "backend/protobuf/query_responses/proto_query_response.hpp"
-#include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
-#include "framework/integration_framework/iroha_instance.hpp"
-#include "framework/integration_framework/test_irohad.hpp"
-#include "interfaces/common_objects/peer.hpp"
-#include "interfaces/iroha_internal/transaction_sequence.hpp"
-#include "logger/logger.hpp"
+#include <rxcpp/rx.hpp>
+#include "consensus/gate_object.hpp"
+#include "cryptography/keypair.hpp"
+#include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
-#include "network/impl/async_grpc_client.hpp"
-#include "network/mst_transport.hpp"
-#include "ordering/impl/on_demand_os_client_grpc.hpp"
-#include "torii/command_client.hpp"
-#include "torii/query_client.hpp"
+#include "synchronizer/synchronizer_common.hpp"
+
+namespace google {
+  namespace protobuf {
+    class Empty;
+  }
+}  // namespace google
 
 namespace shared_model {
   namespace crypto {
     class Keypair;
   }
   namespace interface {
+    template <typename Interface, typename Transport>
+    class AbstractTransportFactory;
     class CommonObjectsFactory;
     class Block;
     class Proposal;
+    class TransactionBatch;
+    class TransactionBatchFactory;
+    class TransactionBatchParser;
+    class TransactionResponse;
+    class TransactionSequence;
   }  // namespace interface
   namespace proto {
     class Block;
+    class Transaction;
+    class TransactionResponse;
+    class Query;
+    class QueryResponse;
+  }  // namespace proto
+  namespace validation {
+    template <typename Model>
+    class AbstractValidator;
   }
 }  // namespace shared_model
 namespace iroha {
+  namespace ametsuchi {
+    class BlockQuery;
+    class TxPresenceCache;
+  }  // namespace ametsuchi
   namespace consensus {
     namespace yac {
       class YacNetwork;
@@ -56,11 +62,26 @@ namespace iroha {
   namespace network {
     class MstTransportGrpc;
     class OrderingServiceTransport;
+    template <typename Response>
+    class AsyncGrpcClient;
   }  // namespace network
+  namespace protocol {
+    class Proposal;
+    class Transaction;
+  }  // namespace protocol
   namespace validation {
     struct VerifiedProposalAndErrors;
   }
+  class MstState;
 }  // namespace iroha
+namespace torii {
+  class CommandSyncClient;
+}
+namespace torii_utils {
+  class QuerySyncClient;
+}
+
+class ServerRunner;
 
 namespace integration_framework {
 
@@ -69,6 +90,8 @@ namespace integration_framework {
   }
 
   class PortGuard;
+
+  class IrohaInstance;
 
   using std::chrono::milliseconds;
 
@@ -383,9 +406,13 @@ namespace integration_framework {
     rxcpp::observable<std::shared_ptr<iroha::MstState>>
     getMstStateUpdateObservable();
 
-    rxcpp::observable<iroha::BatchPtr> getMstPreparedBatchesObservable();
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionBatch>>
+    getMstPreparedBatchesObservable();
 
-    rxcpp::observable<iroha::BatchPtr> getMstExpiredBatchesObservable();
+    rxcpp::observable<
+        std::shared_ptr<shared_model::interface::TransactionBatch>>
+    getMstExpiredBatchesObservable();
 
     rxcpp::observable<iroha::consensus::GateObject> getYacOnCommitObservable();
 
@@ -475,8 +502,8 @@ namespace integration_framework {
     size_t torii_port_;
     size_t internal_port_;
     std::shared_ptr<IrohaInstance> iroha_instance_;
-    torii::CommandSyncClient command_client_;
-    torii_utils::QuerySyncClient query_client_;
+    std::unique_ptr<torii::CommandSyncClient> command_client_;
+    std::unique_ptr<torii_utils::QuerySyncClient> query_client_;
 
     std::shared_ptr<AsyncCall> async_call_;
 
@@ -500,8 +527,9 @@ namespace integration_framework {
         batch_validator_;
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory_;
-    std::shared_ptr<
-        iroha::ordering::transport::OnDemandOsClientGrpc::TransportFactoryType>
+    std::shared_ptr<shared_model::interface::AbstractTransportFactory<
+        shared_model::interface::Proposal,
+        iroha::protocol::Proposal>>
         proposal_factory_;
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;

@@ -7,6 +7,7 @@
 
 #include <benchmark/benchmark.h>
 #include <boost/variant.hpp>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "benchmark/bm_utils.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"

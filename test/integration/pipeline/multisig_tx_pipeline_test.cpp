@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
