@@ -40,5 +40,6 @@ TEST_F(PeerQueryWSVTest, GetPeers) {
 
   auto result = peer_query_->getLedgerPeers();
   ASSERT_TRUE(result);
-  ASSERT_TRUE(std::equal(result->cbegin(), result->cend(), peers.cbegin()));
+  ASSERT_THAT(result.get(),
+              testing::ElementsAreArray(peers.cbegin(), peers.cend()));
 }
