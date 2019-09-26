@@ -54,7 +54,8 @@
             "type": "powershell",
             "scripts": [
                 "./scripts/SetUpDevTools.ps1"
-            ]
+            ],
+            "valid_exit_codes": [0, 3010]
         },
         {
             "type": "windows-restart"
