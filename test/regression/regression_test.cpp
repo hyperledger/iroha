@@ -4,7 +4,12 @@
  */
 
 #include <gtest/gtest.h>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <boost/variant.hpp>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
+#include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "common/files.hpp"

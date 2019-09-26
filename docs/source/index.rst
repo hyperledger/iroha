@@ -20,6 +20,7 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     overview.rst
     before_start/index.rst
     getting_started/index.rst
+    integrations/index.rst
     build/index.rst
     configure/index.rst
     deploy/index.rst

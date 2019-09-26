@@ -8,8 +8,6 @@
 
 #include <utility>
 
-#include <rxcpp/rx.hpp>
-
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 #include "interfaces/iroha_internal/block.hpp"

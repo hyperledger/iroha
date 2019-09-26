@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include <boost/mpl/at.hpp>
 #include <boost/mpl/contains.hpp>
 #include <boost/mpl/map.hpp>
 #include "common/result.hpp"

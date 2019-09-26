@@ -81,7 +81,7 @@ writing a list of peers and creating a genesis block.
 
 Don't be scared away — we have prepared an example configuration for this guide,
 so you can start testing Iroha node now.
-In order to get those files, you need to clone the `Iroha repository <github.com/hyperledger/iroha>`_
+In order to get those files, you need to clone the `Iroha repository <https://github.com/hyperledger/iroha>`_
 from Github or copy them manually (cloning is faster, though).
 
 .. code-block:: shell
