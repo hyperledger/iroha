@@ -544,6 +544,8 @@ Possible Stateful Validation Errors
     "5", "Invalid account id", "User with such account id does not exist", "Make sure account id is correct"
     "6", "Invalid asset id", "Asset with such asset id does not exist", "Make sure asset id is correct"
 
+.. note:: This response is of type protocol buffer. Use protocol buffer packages for respsective languages to transform the objects into native data types
+
 Get Account Assets
 ^^^^^^^^^^^^^^^^^^
 
