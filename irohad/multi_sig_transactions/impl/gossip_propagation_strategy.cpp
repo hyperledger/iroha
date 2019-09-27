@@ -10,6 +10,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/range/irange.hpp>
+#include <rxcpp/operators/rx-map.hpp>
 #include "common/bind.hpp"
 
 namespace iroha {

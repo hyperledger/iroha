@@ -13,6 +13,7 @@
 
 #include <soci/soci.h>
 #include <boost/optional.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"

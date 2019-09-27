@@ -14,6 +14,8 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <rxcpp/operators/rx-start_with.hpp>
+#include <rxcpp/operators/rx-take_while.hpp>
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "common/combine_latest_until_first_completed.hpp"
 #include "common/run_loop_handler.hpp"

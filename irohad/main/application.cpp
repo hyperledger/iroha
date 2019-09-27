@@ -6,7 +6,7 @@
 #include "main/application.hpp"
 
 #include <boost/filesystem.hpp>
-
+#include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
