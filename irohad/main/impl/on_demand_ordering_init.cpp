@@ -5,6 +5,8 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
+#include <numeric>
+
 #include <rxcpp/operators/rx-filter.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include <rxcpp/operators/rx-skip.hpp>

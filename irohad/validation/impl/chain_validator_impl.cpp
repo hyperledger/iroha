@@ -5,6 +5,7 @@
 
 #include "validation/impl/chain_validator_impl.hpp"
 
+#include <boost/algorithm/string/join.hpp>
 #include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
@@ -81,18 +82,16 @@ namespace iroha {
             "Block does not contain signatures of supermajority of "
             "peers. Block signatures public keys: [{}], ledger peers "
             "public keys: [{}]",
-            std::accumulate(std::next(std::begin(signatures)),
-                            std::end(signatures),
-                            signatures.front().publicKey().hex(),
-                            [](auto acc, auto &sig) {
-                              return acc + ", " + sig.publicKey().hex();
-                            }),
-            std::accumulate(std::next(std::begin(peers)),
-                            std::end(peers),
-                            peers.front()->pubkey().hex(),
-                            [](auto acc, auto &peer) {
-                              return acc + ", " + peer->pubkey().hex();
-                            }));
+            boost::algorithm::join(
+                signatures | boost::adaptors::transformed([](const auto &s) {
+                  return s.publicKey().toString();
+                }),
+                ", "),
+            boost::algorithm::join(
+                peers | boost::adaptors::transformed([](const auto &p) {
+                  return p->pubkey().toString();
+                }),
+                ", "));
       }
 
       return has_supermajority;

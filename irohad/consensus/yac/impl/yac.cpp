@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "common/bind.hpp"
 #include "common/visitor.hpp"
@@ -28,21 +29,6 @@ auto &getRound(const std::vector<iroha::consensus::yac::VoteMessage> &state) {
 namespace iroha {
   namespace consensus {
     namespace yac {
-
-      template <typename T>
-      static std::string cryptoError(const T &votes) {
-        std::string result =
-            "Crypto verification failed for message.\n Votes: ";
-        result += logger::to_string(votes, [](const auto &vote) {
-          std::string result = "(Public key: ";
-          result += vote.signature->publicKey().hex();
-          result += ", Signature: ";
-          result += vote.signature->signedData().hex();
-          result += ")\n";
-          return result;
-        });
-        return result;
-      }
 
       std::shared_ptr<Yac> Yac::create(
           YacVoteStorage vote_storage,
@@ -90,9 +76,12 @@ namespace iroha {
       void Yac::vote(YacHash hash,
                      ClusterOrdering order,
                      boost::optional<ClusterOrdering> alternative_order) {
-        log_->info("Order for voting: {}",
-                   logger::to_string(order.getPeers(),
-                                     [](auto val) { return val->address(); }));
+        log_->info("Order for voting: [{}]",
+                   boost::algorithm::join(
+                       order.getPeers()
+                           | boost::adaptors::transformed(
+                                 [](const auto &p) { return p->address(); }),
+                       ", "));
 
         std::unique_lock<std::mutex> lock(mutex_);
         cluster_order_ = order;
@@ -180,7 +169,13 @@ namespace iroha {
 
           applyState(state, guard);
         } else {
-          log_->warn("{}", cryptoError(state));
+          log_->warn(
+              "Crypto verification failed for message. Votes: [{}]",
+              boost::algorithm::join(
+                  state | boost::adaptors::transformed([](const auto &v) {
+                    return v.signature->toString();
+                  }),
+                  ", "));
         }
       }
 
