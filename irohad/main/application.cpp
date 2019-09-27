@@ -534,7 +534,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      delay,
                                      log_manager_->getChild("Ordering"));
   log_->info("[Init] => init ordering gate - [{}]",
-             logger::logBool(ordering_gate));
+             logger::boolRepr(bool(ordering_gate)));
   return {};
 }
 

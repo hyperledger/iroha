@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <iterator>
 
+#include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -80,13 +81,11 @@ namespace iroha {
               .str();
         }
 
-        std::string folded_hashes =
-            std::accumulate(std::next(tx_hashes.begin()),
-                            tx_hashes.end(),
-                            tx_hashes[0].hex(),
-                            [](auto &&acc, const auto &h) -> std::string {
-                              return acc + ", " + h.hex();
-                            });
+        std::string folded_hashes = boost::algorithm::join(
+            tx_hashes | boost::adaptors::transformed([](const auto &h) {
+              return h.hex();
+            }),
+            ", ");
 
         return (boost::format(
                     "Stateless invalid tx in transaction sequence, error: %s\n"
