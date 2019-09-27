@@ -5,7 +5,10 @@
 
 #include <gmock/gmock.h>
 
+#include <backend/plain/account.hpp>
+#include <backend/plain/domain.hpp>
 #include <backend/plain/peer.hpp>
+#include <backend/plain/signature.hpp>
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "framework/test_logger.hpp"
@@ -57,6 +60,32 @@ namespace iroha {
       ASSERT_EQ(peers.size(), 2);
       ASSERT_EQ(*peers[0], peer1);
       ASSERT_EQ(*peers[1], peer2);
+    }
+
+    /**
+     * @given storage with signatories
+     * @when trying to get signatories of one account
+     * @then signature list for one account successfully received
+     */
+    TEST_F(WsvQueryTest, GetSignatories) {
+      command->insertRole("role");
+      shared_model::plain::Domain domain("domain", "role");
+      command->insertDomain(domain);
+      shared_model::plain::Account account("account", "domain", 1, "{}");
+      command->insertAccount(account);
+
+      auto pub_key1 = shared_model::crypto::PublicKey("some-public-key");
+      command->insertSignatory(pub_key1);
+      command->insertAccountSignatory("account", pub_key1);
+      auto pub_key2 = shared_model::crypto::PublicKey("another-public-key");
+      command->insertSignatory(pub_key2);
+      command->insertAccountSignatory("account", pub_key2);
+
+      auto result = query->getSignatories("account");
+      ASSERT_TRUE(result);
+      auto signatories = result.get();
+      ASSERT_THAT(signatories,
+                  testing::UnorderedElementsAre(pub_key1, pub_key2));
     }
 
   }  // namespace ametsuchi
