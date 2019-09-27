@@ -6,7 +6,7 @@
 #ifndef IROHA_TRANSACTIONS_RESPONSE_HPP
 #define IROHA_TRANSACTIONS_RESPONSE_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "model/transaction.hpp"
 
 namespace iroha {

@@ -5,6 +5,7 @@
 
 #include "network/impl/peer_communication_service_impl.hpp"
 
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
 #include "network/ordering_gate.hpp"

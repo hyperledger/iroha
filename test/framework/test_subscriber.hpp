@@ -8,7 +8,7 @@
 
 #include <functional>
 #include <memory>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include <utility>
 
 namespace framework {

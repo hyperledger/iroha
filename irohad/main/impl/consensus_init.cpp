@@ -15,6 +15,7 @@
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
+#include "consensus/yac/yac.hpp"
 #include "logger/logger_manager.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
 

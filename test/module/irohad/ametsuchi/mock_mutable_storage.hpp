@@ -9,6 +9,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 
 #include <gmock/gmock.h>
+#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace ametsuchi {

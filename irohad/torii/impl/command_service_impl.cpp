@@ -5,6 +5,8 @@
 
 #include "torii/impl/command_service_impl.hpp"
 
+#include <rxcpp/operators/rx-filter.hpp>
+#include <rxcpp/operators/rx-start_with.hpp>
 #include "ametsuchi/block_query.hpp"
 #include "common/byteutils.hpp"
 #include "common/is_any.hpp"

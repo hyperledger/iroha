@@ -6,7 +6,7 @@
 #ifndef IROHA_PEER_COMMUNICATION_SERVICE_HPP
 #define IROHA_PEER_COMMUNICATION_SERVICE_HPP
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "network/ordering_gate_common.hpp"
 #include "simulator/verified_proposal_creator_common.hpp"
 #include "synchronizer/synchronizer_common.hpp"

@@ -5,6 +5,7 @@
 
 #include "main/impl/pending_transaction_storage_init.hpp"
 
+#include <rxcpp/operators/rx-flat_map.hpp>
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "network/peer_communication_service.hpp"
