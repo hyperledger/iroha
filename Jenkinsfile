@@ -141,6 +141,7 @@ node ('master') {
   testing = true
   testList = '(module)'
   fuzzing = true // testing = true
+  benchmarking = true // testing = true
 
   sanitize = false
   cppcheck = false
@@ -264,7 +265,7 @@ node ('master') {
        specialBranch=${specialBranch}, packageBuild=${packageBuild}, pushDockerTag=${pushDockerTag}, packagePush=${packagePush}
        testing=${testing}, testList=${testList}, parallelism=${parallelism}, useBTF=${useBTF}
        x64linux_compiler_list=${x64linux_compiler_list}, mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
-       sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, coredumps=${coredumps}, sonar=${sonar},
+       sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, benchmarking=${benchmarking}, coredumps=${coredumps}, sonar=${sonar},
        codestyle=${codestyle},coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
        forceDockerDevelopBuild=${forceDockerDevelopBuild}, checkTag=${checkTag}
     """
@@ -289,24 +290,24 @@ node ('master') {
   if(!x64linux_compiler_list.isEmpty()){
     x64LinuxBuildSteps = [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, build_shared_libs, specialBranch, coverage,
-      testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, coredumps, useBTF, use_libursa, forceDockerDevelopBuild, environmentList)}]
+      testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, forceDockerDevelopBuild, environmentList)}]
     //If "master" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', build_shared_libs, specialBranch, false,
-      false, testList, false, false, false, false, true, false, false, false, false, use_libursa, false, environmentList)}]
+      false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, false, environmentList)}]
     }
     if (build_scenario == 'Before merge to trunk') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
       // Build with shared libraries
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc5'], build_type, true, false, false,
-      false, testList, false, false, false, false, false, false, fuzzing, false, useBTF, use_libursa, false, environmentList)}]
+      false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, false, environmentList)}]
       if (!use_libursa) {
         // Force build with libursa
         x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc5'], build_type, build_shared_libs, false, false,
-        testing, testList, false, false, false, false, false, false, fuzzing, coredumps, useBTF, true, false, environmentList)}]
+        testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, true, false, environmentList)}]
       }
     }
     x64LinuxPostSteps = new Builder.PostSteps(
@@ -317,11 +318,11 @@ node ('master') {
   def x64MacBuildPostSteps = new Builder.PostSteps()
   if(!mac_compiler_list.isEmpty()){
     x64MacBuildSteps = [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, useBTF, environmentList)}]
+      mac_compiler_list, build_type, coverage_mac, testing, testList, packageBuild, fuzzing, benchmarking, useBTF, environmentList)}]
     //If "master" or "dev" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64MacBuildSteps += [{x64BuildScript.buildSteps(parallelism==0 ?x64MacWorker.cpusAvailable : parallelism,
-        mac_compiler_list, 'Release', false, false, testList, true, false, false, environmentList)}]
+        mac_compiler_list, 'Release', false, false, testList, true, false, false, false, environmentList)}]
     }
     x64MacBuildPostSteps = new Builder.PostSteps(
       always: [{x64BuildScript.alwaysPostSteps(environmentList)}],

@@ -14,7 +14,7 @@ namespace common_constants {
   // user names
   const std::string kAdminName = "admin";
   const std::string kUser = "user";
-  const std::string kAnotherUser = "user2";
+  const std::string kSecondUser = "user2";
 
   // role names
   const std::string kAdminRole = "admin_role";
@@ -32,8 +32,8 @@ namespace common_constants {
   // ids
   const std::string kAdminId = kAdminName + "@" + kDomain;
   const std::string kUserId = kUser + "@" + kDomain;
-  const std::string kSameDomainUserId = kAnotherUser + "@" + kDomain;
-  const std::string kAnotherDomainUserId = kAnotherUser + "@" + kSecondDomain;
+  const std::string kSameDomainUserId = kSecondUser + "@" + kDomain;
+  const std::string kSecondDomainUserId = kSecondUser + "@" + kSecondDomain;
   const std::string kAssetId = kAssetName + "#" + kDomain;
   const std::string kSecondDomainAssetId = kAssetName + "#" + kSecondDomain;
 
@@ -42,7 +42,7 @@ namespace common_constants {
   const Keypair kUserKeypair = DefaultCryptoAlgorithmType::generateKeypair();
   const Keypair kSameDomainUserKeypair =
       DefaultCryptoAlgorithmType::generateKeypair();
-  const Keypair kAnotherDomainUserKeypair =
+  const Keypair kSecondDomainUserKeypair =
       DefaultCryptoAlgorithmType::generateKeypair();
 
   // misc

@@ -26,6 +26,7 @@
 #include "interfaces/commands/revoke_permission.hpp"
 #include "interfaces/commands/set_account_detail.hpp"
 #include "interfaces/commands/set_quorum.hpp"
+#include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/transaction.hpp"
@@ -251,6 +252,16 @@ namespace shared_model {
         casad.oldValue() | [&reason, this](const auto &oldValue) {
           this->validator_.validateOldAccountDetailValue(reason, oldValue);
         };
+        return reason;
+      }
+
+      ReasonsGroupType operator()(const interface::SetSettingValue &ssv) const {
+        ReasonsGroupType reason;
+        addInvalidCommand(reason, "SetSettingValue");
+
+        reason.second.emplace_back(
+            "The command can only be called from genesis block");
+        // genesis block is not required to pass stateless validation
 
         return reason;
       }
@@ -316,8 +327,11 @@ namespace shared_model {
           : field_validator_(field_validator) {}
 
      public:
-      explicit TransactionValidator(std::shared_ptr<ValidatorsConfig> config)
-          : TransactionValidator(FieldValidator{config}) {}
+      explicit TransactionValidator(
+          const std::shared_ptr<ValidatorsConfig> &config)
+          : TransactionValidator(FieldValidator{config}) {
+        validators_config_ = config;
+      }
 
       /**
        * Applies validation to given transaction

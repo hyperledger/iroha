@@ -4,7 +4,7 @@ Hyperledger Iroha documentation
 
 .. image:: ../image_assets/iroha_logo.png
 
-Welcome! Hyperledger Iroha is a simple blockchain platform you can use to make trusted, secure, and fast applications by bringing the power of permission-based blockchain with Byzantine fault-tolerant consensus. It's free, open-source, and works on Linux and Mac OS, with a variety of mobile and desktop libraries.
+Welcome! Hyperledger Iroha is a simple blockchain platform you can use to make trusted, secure, and fast applications by bringing the power of permission-based blockchain with Crash fault-tolerant consensus. It's free, open-source, and works on Linux and Mac OS, with a variety of mobile and desktop libraries.
 
 You can download the source code of Hyperledger Iroha and latest releases from `GitHub page <https://github.com/hyperledger/iroha>`_.
 
@@ -20,6 +20,7 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     overview.rst
     before_start/index.rst
     getting_started/index.rst
+    integrations/index.rst
     build/index.rst
     configure/index.rst
     deploy/index.rst

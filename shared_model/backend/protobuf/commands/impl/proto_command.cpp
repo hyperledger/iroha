@@ -21,6 +21,7 @@
 #include "backend/protobuf/commands/proto_revoke_permission.hpp"
 #include "backend/protobuf/commands/proto_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_set_quorum.hpp"
+#include "backend/protobuf/commands/proto_set_setting_value.hpp"
 #include "backend/protobuf/commands/proto_subtract_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
 #include "utils/variant_deserializer.hpp"
@@ -45,7 +46,8 @@ namespace {
                        shared_model::proto::SubtractAssetQuantity,
                        shared_model::proto::TransferAsset,
                        shared_model::proto::RemovePeer,
-                       shared_model::proto::CompareAndSetAccountDetail>;
+                       shared_model::proto::CompareAndSetAccountDetail,
+                       shared_model::proto::SetSettingValue>;
 
   /// list of types in proto variant
   using ProtoCommandListType = ProtoCommandVariantType::types;

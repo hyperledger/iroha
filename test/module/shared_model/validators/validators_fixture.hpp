@@ -7,6 +7,7 @@
 #define IROHA_VALIDATORS_FIXTURE_HPP
 
 #include <gtest/gtest.h>
+#include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
@@ -35,6 +36,8 @@ class ValidatorsTest : public ::testing::Test {
     auto setUInt64 = setField(&google::protobuf::Reflection::SetUInt64);
     auto addEnum = setField(&google::protobuf::Reflection::AddEnumValue);
     auto setEnum = setField(&google::protobuf::Reflection::SetEnumValue);
+
+    ignored_fields_ = {"iroha.protocol.Command.set_setting_value"};
 
     field_setters = {
         {"iroha.protocol.GetAccount.account_id", setString(account_id)},
@@ -151,18 +154,24 @@ class ValidatorsTest : public ::testing::Test {
     const auto &range = boost::irange(0, desc->field_count())
         | boost::adaptors::transformed([&](auto i) { return desc->field(i); });
     // Iterate through all concrete types
-    boost::for_each(range, [&](auto field) {
-      auto concrete = concrete_gen(field);
+    boost::for_each(
+        range | boost::adaptors::filtered([this](const auto &field) {
+          return not ignored_fields_.count(field->full_name());
+        }),
+        [&](auto field) {
+          auto concrete = concrete_gen(field);
 
-      // Iterate through all fields of concrete type
-      auto concrete_desc = concrete->GetDescriptor();
-      // Get field descriptor for concrete type field
-      const auto &range = boost::irange(0, concrete_desc->field_count())
-          | boost::adaptors::transformed(
-                              [&](auto i) { return concrete_desc->field(i); });
-      boost::for_each(range, [&](auto field) { field_op(field, concrete); });
-      validator();
-    });
+          // Iterate through all fields of concrete type
+          auto concrete_desc = concrete->GetDescriptor();
+          // Get field descriptor for concrete type field
+          const auto &range = boost::irange(0, concrete_desc->field_count())
+              | boost::adaptors::transformed([&](auto i) {
+                                return concrete_desc->field(i);
+                              });
+          boost::for_each(range,
+                          [&](auto field) { field_op(field, concrete); });
+          validator();
+        });
   }
   // TODO: IR-1490 02.07.2018 Rewrite interator for all containters
   /**
@@ -292,6 +301,9 @@ class ValidatorsTest : public ::testing::Test {
                          google::protobuf::Message *,
                          const google::protobuf::FieldDescriptor *)>>
       field_setters;
+
+  // List all ignored commands
+  std::unordered_set<std::string> ignored_fields_;
 };
 
 #endif  // IROHA_VALIDATORS_FIXTURE_HPP

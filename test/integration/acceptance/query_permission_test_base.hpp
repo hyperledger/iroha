@@ -6,6 +6,7 @@
 #ifndef QUERY_PERMISSION_TEST_BASE_HPP_
 #define QUERY_PERMISSION_TEST_BASE_HPP_
 
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/query_permission_fixture.hpp"
 #include "utils/query_error_response_visitor.hpp"

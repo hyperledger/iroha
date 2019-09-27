@@ -205,6 +205,16 @@ namespace shared_model {
           const types::AccountDetailValueType &value,
           const boost::optional<types::AccountDetailValueType> old_value) const;
 
+      /**
+       * Construct a mocked SetSettingValue
+       * @param key to be in that command
+       * @param value to be in that command
+       * @return pointer to the created command
+       */
+      FactoryResult<MockSetSettingValue> constructSetSettingValue(
+          const types::SettingKeyType &key,
+          const types::SettingValueType &value) const;
+
      private:
       /**
        * Actually create a pointer to the mocked command

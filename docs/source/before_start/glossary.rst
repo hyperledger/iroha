@@ -54,7 +54,7 @@ Command
 =======
 
 A command is an intention to change the `state <#world-state-view>`__ of the network.
-For example, in order to create a new `role <#role>`__ in Iroha you have to issue `Create role <../api/commands.html#create-role>`__ command.
+For example, in order to create a new `role <#role>`__ in Iroha you have to issue `Create role <../develop/api/commands.html#create-role>`__ command.
 
 Consensus
 =========
@@ -67,13 +67,13 @@ Solving that issue -- known as the consensus problem -- is important in distribu
 
 An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased.
 
-For consensus as Iroha's component, please check `this link <../architecture/index.html#block-consensus-yac>`_.
+For consensus as Iroha's component, please check `this link <architecture.html#block-consensus-yac>`_.
 
 Domain
 ======
 
-A named abstraction for grouping `accounts <#account>`__ and `assets <#asset>`__. 
-For example, it can represent an organisation in the group of organisations working with Iroha. 
+A named abstraction for grouping `accounts <#account>`__ and `assets <#asset>`__.
+For example, it can represent an organisation in the group of organisations working with Iroha.
 
 Peer
 ====
@@ -87,7 +87,7 @@ Permission
 A named rule that gives the privilege to perform a command.
 Permission **cannot** be granted to an `account <#account>`__ directly, instead, account has roles, which are collections of permissions. Although, there is an exception, see `Grantable Permission <#grantable-permission>`__.
 
-`List of Iroha permissions <../maintenance/permissions.html>`_.
+`List of Iroha permissions <../develop/api/permissions.html>`_.
 
 Grantable Permission
 --------------------
@@ -109,7 +109,7 @@ A set of transactions that have passed both `stateless <#stateless-validation>`_
 Query
 =====
 
-A request to Iroha that does **not** change the `state <../architecture/index.html#world-state-view>`__ of the network.
+A request to Iroha that does **not** change the `state <architecture.html#world-state-view>`__ of the network.
 By performing a query, a client can request data from the state, for example a balance of his account, a history of transactions, etc.
 
 Quorum
@@ -130,7 +130,7 @@ Signatory
 =========
 
 Represents an entity that can confirm multisignature transactions for an `account <#account>`__.
-It can be attached to account via `AddSignatory <../api/commands.html#add-signatory>`__ and detached via `RemoveSignatory <../api/commands.html#remove-signatory>`__.
+It can be attached to account via `AddSignatory <../develop/api/commands.html#add-signatory>`__ and detached via `RemoveSignatory <../develop/api/commands.html#remove-signatory>`__.
 
 Transaction
 ===========
@@ -146,7 +146,7 @@ Transaction Structure
     - Time of creation (unix time, in milliseconds)
     - Account ID of transaction creator (username@domain)
     - Quorum field (indicates required number of signatures)
-    - Repeated commands which are described in details in `commands section <../api/commands.html>`__
+    - Repeated commands which are described in details in `commands section <../develop/api/commands.html>`__
     - Batch meta information (optional part). See `Batch of Transactions`_ for details
 
 
@@ -238,14 +238,14 @@ There are two kinds of validation - stateless and stateful.
 Stateless Validation
 --------------------
 
-Performed in `Torii <../architecture/index.html#torii>`__.
+Performed in `Torii <architecture.html#torii>`__.
 Checks if an object is well-formed, including the signatures.
 
 Stateful Validation
 -------------------
 
 Performed in `Verified Proposal Creator <#verified-proposal-creator>`__.
-Validates against `World State View <../architecture/index.html#world-state-view>`__.
+Validates against `World State View <architecture.html#world-state-view>`__.
 
 
 .. [#f1] https://en.bitcoin.it/wiki/Block

@@ -7,6 +7,7 @@
 
 #include <regex>
 
+#include <boost/multiprecision/cpp_int.hpp>
 #include "utils/string_builder.hpp"
 
 static const char kDecimalSeparator = '.';
@@ -57,8 +58,8 @@ struct Amount::Impl {
 Amount::Amount(const std::string &amount)
     : impl_(std::make_shared<Impl>(amount)) {}
 
-const boost::multiprecision::uint256_t &Amount::intValue() const {
-  return impl_->multiprecision_repr_;
+int Amount::sign() const {
+  return impl_->multiprecision_repr_.sign();
 }
 
 types::PrecisionType Amount::precision() const {

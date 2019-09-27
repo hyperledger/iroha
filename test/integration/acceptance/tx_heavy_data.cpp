@@ -7,6 +7,7 @@
 #include <boost/property_tree/json_parser.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/variant.hpp>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/account_response.hpp"

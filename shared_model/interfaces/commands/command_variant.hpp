@@ -29,7 +29,8 @@ namespace boost {
       const shared_model::interface::SetQuorum &,
       const shared_model::interface::SubtractAssetQuantity &,
       const shared_model::interface::TransferAsset &,
-      const shared_model::interface::CompareAndSetAccountDetail &>;
+      const shared_model::interface::CompareAndSetAccountDetail &,
+      const shared_model::interface::SetSettingValue &>;
 }  // namespace boost
 
 #endif  // IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP

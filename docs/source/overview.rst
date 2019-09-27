@@ -23,7 +23,7 @@ Where can Iroha be used?
 Hyperledger Iroha is a general purpose permissioned blockchain system that can be used to manage digital assets, identity, and serialized data.
 This can be useful for applications such as interbank settlement, central bank digital currencies, payment systems, national IDs, and logistics, among others.
 
-For a detailed description please check our `Use Case Scenarios section <http://iroha.readthedocs.io/en/latest/use_cases/>`_.
+For a detailed description please check our `Use Case Scenarios section <develop/cases.html>`_.
 
 How is it different from Bitcoin or Ethereum?
 ---------------------------------------------
@@ -40,8 +40,7 @@ This negates the need to write cumbersome and hard to test smart contracts, enab
 How is it different from the rest of Hyperledger frameworks or other permissioned blockchains?
 ----------------------------------------------------------------------------------------------
 
-Iroha has a novel, Byzantine fault tolerant consensus algorithm (called YAC [#f1]_) that is high-performance and allows for finality of transactions with low latency.
-Other frameworks either focus more on probabilistic consensus algorithms, such as Nakamoto Consensus, or sacrifice Byzantine fault tolerance.
+Iroha has a novel, Crash fault tolerant consensus algorithm (called YAC [#f1]_) that is high-performance and allows for finality of transactions with low latency.
 
 Also, Iroha's built-in commands are a major benefit compared to other platforms, since it is very simple to do common tasks such as create digital assets, register accounts, and transfer assets between accounts.
 Moreover, it narrows the attack vector, improving overall security of the system, as there are less things to fail.
@@ -54,7 +53,7 @@ How to create applications around Iroha?
 ----------------------------------------
 
 In order to bring the power of blockchain into your application, you should think first of how it is going to interface with Iroha peers.
-A good start is to check `Core Concepts section <http://iroha.readthedocs.io/en/latest/core_concepts/>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
+A good start is to check `Before we start section <before_start/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
 
 We also have several client libraries which provide tools for developers to form building blocks, such as signatures, commands,
 send messages to Iroha peers and check the status.

@@ -47,7 +47,7 @@ TEST_P(CreateAccountTest, Valid) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateAccount});
   assertResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructCreateAccount(
-          kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey()),
+          kSecondUser, kDomain, kSameDomainUserKeypair.publicKey()),
       kUserId,
       true));
   checkAccount(kSameDomainUserId, kSameDomainUserKeypair.publicKey());
@@ -63,7 +63,7 @@ TEST_P(CreateAccountTest, NoPerms) {
   checkCommandError(
       getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructCreateAccount(
-              kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey()),
+              kSecondUser, kDomain, kSameDomainUserKeypair.publicKey()),
           kUserId,
           true),
       2);
@@ -79,11 +79,11 @@ TEST_P(CreateAccountTest, NoDomain) {
   checkCommandError(
       getItf().executeMaintenanceCommand(
           *getItf().getMockCommandFactory()->constructCreateAccount(
-              kAnotherUser,
+              kSecondUser,
               "no_such_domain",
               kSameDomainUserKeypair.publicKey())),
       3);
-  checkNoSuchAccount(kAnotherUser + "@no_such_domain");
+  checkNoSuchAccount(kSecondUser + "@no_such_domain");
 }
 
 /**
@@ -121,9 +121,7 @@ TEST_P(CreateAccountTest, PrivelegeElevation) {
   checkCommandError(
       getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructCreateAccount(
-              kAnotherUser,
-              kSecondDomain,
-              kAnotherDomainUserKeypair.publicKey()),
+              kSecondUser, kSecondDomain, kSecondDomainUserKeypair.publicKey()),
           kUserId,
           true),
       2);
@@ -140,7 +138,7 @@ TEST_P(CreateAccountTest, RootPermission) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot});
   assertResultValue(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructCreateAccount(
-          kAnotherUser, kDomain, kSameDomainUserKeypair.publicKey()),
+          kSecondUser, kDomain, kSameDomainUserKeypair.publicKey()),
       kUserId,
       true));
   checkAccount(kSameDomainUserId, kSameDomainUserKeypair.publicKey());

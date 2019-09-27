@@ -133,7 +133,7 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "1", "Could not get block", "Internal error happened", "Try again or contact developers"
-    "2", "No such permissions", "Query's creator does not have a permission to get block", "Grant `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission"
+    "2", "No such permissions", "Query's creator does not have a permission to get block", "Grant `can_get_block <permissions.html#can-get-blocks>`__ permission"
     "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
     "3", "Invalid height", "Supplied height is not uint_64 or greater than the ledger's height", "Check the height and try again"
 
@@ -258,8 +258,8 @@ Get Pending Transactions
 Purpose
 -------
 
-GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../core_concepts/glossary.html#multisignature-transactions>`_
-or `batches of transactions <../core_concepts/glossary.html#batch-of-transactions>`__ issued by account of query creator.
+GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_
+or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
 .. note:: This query uses pagination for quicker and more convenient query responses.
 
@@ -328,7 +328,7 @@ Response Schema
 Response Structure
 ------------------
 
-The response contains a list of `pending transactions <../core_concepts/glossary.html#pending-transactions>`_,
+The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_,
 the amount of all stored pending transactions for the user
 and the information required to query the subsequent page (if exists).
 
@@ -352,8 +352,8 @@ Get Pending Transactions (deprecated)
 Purpose
 -------
 
-GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../core_concepts/glossary.html#multisignature-transactions>`_
-or `batches of transactions <../core_concepts/glossary.html#batch-of-transactions>`__ issued by account of query creator.
+GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_
+or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
 Request Schema
 --------------
@@ -375,7 +375,7 @@ Response Schema
 Response Structure
 ------------------
 
-The response contains a list of `pending transactions <../core_concepts/glossary.html#pending-transactions>`_.
+The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_.
 
 .. csv-table::
     :header: "Field", "Description", "Constraint", "Example"
@@ -1088,13 +1088,13 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "1", "Could not get block streaming", "Internal error happened", "Try again or contact developers"
-    "2", "No such permissions", "Query's creator does not have any of the permissions to get blocks", "Grant `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission"
+    "2", "No such permissions", "Query's creator does not have any of the permissions to get blocks", "Grant `can_get_block <permissions.html#can-get-blocks>`__ permission"
     "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
 
 .. note::
     `BlockErrorResponse` contains only `message` field.
     In case of stateful validation error it will be "stateful invalid".
-    `GetBlock <#get-block>`__ requires same `can_get_block <../maintenance/permissions.html#can-get-blocks>`__ permission.
+    `GetBlock <#get-block>`__ requires same `can_get_block <permissions.html#can-get-blocks>`__ permission.
     Therefore, it can be used with `height = 1` (first block is always present) to check for invalid signatories or insufficient permissions.
 
 Example

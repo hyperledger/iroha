@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
+#include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"

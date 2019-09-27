@@ -6,6 +6,7 @@
 #include <benchmark/benchmark.h>
 #include <string>
 
+#include <boost/filesystem.hpp>
 #include "backend/protobuf/transaction.hpp"
 #include "benchmark/bm_utils.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
@@ -36,7 +37,7 @@ static void BM_AddAssetQuantity(benchmark::State &state) {
   integration_framework::IntegrationTestFramework itf(
       kProposalSize,
       boost::none,
-      [](auto &) {},
+      false,
       false,
       (boost::filesystem::temp_directory_path()
        / boost::filesystem::unique_path())
