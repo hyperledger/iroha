@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_ACCOUNT_H
 #define IROHA_PROTO_GET_ACCOUNT_H
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_account.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetAccount final
-        : public TrivialProto<interface::GetAccount, iroha::protocol::Query> {
+    class GetAccount final : public interface::GetAccount {
      public:
-      template <typename QueryType>
-      explicit GetAccount(QueryType &&query);
-
-      GetAccount(const GetAccount &o);
-
-      GetAccount(GetAccount &&o) noexcept;
+      explicit GetAccount(iroha::protocol::Query &query);
 
       const interface::types::AccountIdType &accountId() const override;
 

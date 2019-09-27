@@ -9,6 +9,7 @@
 #include <rxcpp/operators/rx-take_while.hpp>
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
+#include "backend/protobuf/util.hpp"
 #include "common/run_loop_handler.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"

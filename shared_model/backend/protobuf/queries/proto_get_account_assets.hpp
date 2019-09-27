@@ -8,22 +8,15 @@
 
 #include "interfaces/queries/get_account_assets.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include <boost/optional.hpp>
 #include "backend/protobuf/queries/proto_asset_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetAccountAssets final
-        : public TrivialProto<interface::GetAccountAssets,
-                              iroha::protocol::Query> {
+    class GetAccountAssets final : public interface::GetAccountAssets {
      public:
-      template <typename QueryType>
-      explicit GetAccountAssets(QueryType &&query);
-
-      GetAccountAssets(const GetAccountAssets &o);
-
-      GetAccountAssets(GetAccountAssets &&o) noexcept;
+      explicit GetAccountAssets(iroha::protocol::Query &query);
 
       const interface::types::AccountIdType &accountId() const override;
 

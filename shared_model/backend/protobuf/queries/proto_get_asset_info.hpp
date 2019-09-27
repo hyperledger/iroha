@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_ASSET_INFO_H
 #define IROHA_PROTO_GET_ASSET_INFO_H
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetAssetInfo final
-        : public TrivialProto<interface::GetAssetInfo, iroha::protocol::Query> {
+    class GetAssetInfo final : public interface::GetAssetInfo {
      public:
-      template <typename QueryType>
-      explicit GetAssetInfo(QueryType &&query);
-
-      GetAssetInfo(const GetAssetInfo &o);
-
-      GetAssetInfo(GetAssetInfo &&o) noexcept;
+      explicit GetAssetInfo(iroha::protocol::Query &query);
 
       const interface::types::AssetIdType &assetId() const override;
 

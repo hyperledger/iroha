@@ -6,22 +6,23 @@
 #ifndef IROHA_SHARED_MODEL_QUERY_VALIDATOR_HPP
 #define IROHA_SHARED_MODEL_QUERY_VALIDATOR_HPP
 
+#include <boost/variant/apply_visitor.hpp>
 #include <boost/variant/static_visitor.hpp>
 
-#include "backend/protobuf/queries/proto_get_account.hpp"
-#include "backend/protobuf/queries/proto_get_account_asset_transactions.hpp"
-#include "backend/protobuf/queries/proto_get_account_assets.hpp"
-#include "backend/protobuf/queries/proto_get_account_detail.hpp"
-#include "backend/protobuf/queries/proto_get_account_transactions.hpp"
-#include "backend/protobuf/queries/proto_get_asset_info.hpp"
-#include "backend/protobuf/queries/proto_get_block.hpp"
-#include "backend/protobuf/queries/proto_get_pending_transactions.hpp"
-#include "backend/protobuf/queries/proto_get_role_permissions.hpp"
-#include "backend/protobuf/queries/proto_get_roles.hpp"
-#include "backend/protobuf/queries/proto_get_signatories.hpp"
-#include "backend/protobuf/queries/proto_get_transactions.hpp"
-#include "backend/protobuf/queries/proto_query.hpp"
 #include "common/bind.hpp"
+#include "interfaces/queries/get_account.hpp"
+#include "interfaces/queries/get_account_asset_transactions.hpp"
+#include "interfaces/queries/get_account_assets.hpp"
+#include "interfaces/queries/get_account_detail.hpp"
+#include "interfaces/queries/get_account_transactions.hpp"
+#include "interfaces/queries/get_asset_info.hpp"
+#include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_pending_transactions.hpp"
+#include "interfaces/queries/get_role_permissions.hpp"
+#include "interfaces/queries/get_roles.hpp"
+#include "interfaces/queries/get_signatories.hpp"
+#include "interfaces/queries/get_transactions.hpp"
+#include "interfaces/queries/query.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/abstract_validator.hpp"
 #include "validators/answer.hpp"
