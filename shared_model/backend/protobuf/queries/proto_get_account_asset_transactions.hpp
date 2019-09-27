@@ -6,23 +6,17 @@
 #ifndef IROHA_GET_ACCOUNT_ASSET_TRANSACTIONS_H
 #define IROHA_GET_ACCOUNT_ASSET_TRANSACTIONS_H
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "interfaces/queries/get_account_asset_transactions.hpp"
+
+#include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
     class GetAccountAssetTransactions final
-        : public TrivialProto<interface::GetAccountAssetTransactions,
-                              iroha::protocol::Query> {
+        : public interface::GetAccountAssetTransactions {
      public:
-      template <typename QueryType>
-      explicit GetAccountAssetTransactions(QueryType &&query);
-
-      GetAccountAssetTransactions(const GetAccountAssetTransactions &o);
-
-      GetAccountAssetTransactions(GetAccountAssetTransactions &&o) noexcept;
+      explicit GetAccountAssetTransactions(iroha::protocol::Query &query);
 
       const interface::types::AccountIdType &accountId() const override;
 

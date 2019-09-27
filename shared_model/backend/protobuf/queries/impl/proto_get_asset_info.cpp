@@ -8,20 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetAssetInfo::GetAssetInfo(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          asset_info_{proto_->payload().get_asset_info()} {}
-
-    template GetAssetInfo::GetAssetInfo(GetAssetInfo::TransportType &);
-    template GetAssetInfo::GetAssetInfo(const GetAssetInfo::TransportType &);
-    template GetAssetInfo::GetAssetInfo(GetAssetInfo::TransportType &&);
-
-    GetAssetInfo::GetAssetInfo(const GetAssetInfo &o)
-        : GetAssetInfo(o.proto_) {}
-
-    GetAssetInfo::GetAssetInfo(GetAssetInfo &&o) noexcept
-        : GetAssetInfo(std::move(o.proto_)) {}
+    GetAssetInfo::GetAssetInfo(iroha::protocol::Query &query)
+        : asset_info_{query.payload().get_asset_info()} {}
 
     const interface::types::AssetIdType &GetAssetInfo::assetId() const {
       return asset_info_.asset_id();

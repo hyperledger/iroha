@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_SIGNATORIES_H
 #define IROHA_PROTO_GET_SIGNATORIES_H
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_signatories.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetSignatories final : public TrivialProto<interface::GetSignatories,
-                                                     iroha::protocol::Query> {
+    class GetSignatories final : public interface::GetSignatories {
      public:
-      template <typename QueryType>
-      explicit GetSignatories(QueryType &&query);
-
-      GetSignatories(const GetSignatories &o);
-
-      GetSignatories(GetSignatories &&o) noexcept;
+      explicit GetSignatories(iroha::protocol::Query &query);
 
       const interface::types::AccountIdType &accountId() const override;
 

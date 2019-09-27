@@ -8,22 +8,14 @@
 
 #include "interfaces/queries/get_transactions.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "cryptography/hash.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetTransactions final
-        : public TrivialProto<interface::GetTransactions,
-                              iroha::protocol::Query> {
+    class GetTransactions final : public interface::GetTransactions {
      public:
-      template <typename QueryType>
-      explicit GetTransactions(QueryType &&query);
-
-      GetTransactions(const GetTransactions &o);
-
-      GetTransactions(GetTransactions &&o) noexcept;
+      explicit GetTransactions(iroha::protocol::Query &query);
 
       const TransactionHashesType &transactionHashes() const override;
 

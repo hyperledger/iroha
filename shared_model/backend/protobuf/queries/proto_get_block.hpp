@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_BLOCK_HPP
 #define IROHA_PROTO_GET_BLOCK_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_block.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetBlock final
-        : public TrivialProto<interface::GetBlock, iroha::protocol::Query> {
+    class GetBlock final : public interface::GetBlock {
      public:
-      template <typename QueryType>
-      explicit GetBlock(QueryType &&query);
-
-      GetBlock(const GetBlock &o);
-
-      GetBlock(GetBlock &&o) noexcept;
+      explicit GetBlock(iroha::protocol::Query &query);
 
       interface::types::HeightType height() const override;
 

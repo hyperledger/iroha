@@ -6,23 +6,19 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_BLOCKS_QUERY_HPP
 #define IROHA_SHARED_MODEL_PROTO_BLOCKS_QUERY_HPP
 
-#include "backend/protobuf/common_objects/signature.hpp"
-#include "backend/protobuf/util.hpp"
 #include "interfaces/queries/blocks_query.hpp"
+
+#include "backend/protobuf/common_objects/signature.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class BlocksQuery final
-        : public TrivialProto<interface::BlocksQuery,
-                              iroha::protocol::BlocksQuery> {
+    class BlocksQuery final : public interface::BlocksQuery {
      public:
-      template <typename BlocksQueryType>
-      explicit BlocksQuery(BlocksQueryType &&query);
+      using TransportType = iroha::protocol::BlocksQuery;
 
-      BlocksQuery(const BlocksQuery &o);
-
-      BlocksQuery(BlocksQuery &&o) noexcept;
+      explicit BlocksQuery(const TransportType &query);
+      explicit BlocksQuery(TransportType &&query);
 
       const interface::types::AccountIdType &creatorAccountId() const override;
 
@@ -42,8 +38,12 @@ namespace shared_model {
 
       interface::types::TimestampType createdTime() const override;
 
+      const TransportType &getTransport() const;
+
      private:
       // ------------------------------| fields |-------------------------------
+      TransportType proto_;
+
       const interface::types::BlobType blob_;
 
       const interface::types::BlobType payload_;
