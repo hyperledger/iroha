@@ -9,6 +9,7 @@
 #include <boost/optional.hpp>
 #include <memory>
 #include <vector>
+#include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -34,6 +35,14 @@ namespace iroha {
        * @return list of peers in insertion to ledger order
        */
       virtual boost::optional<std::vector<wPeer>> getLedgerPeers() = 0;
+
+      /**
+       * Fetch peer with given public key from ledger
+       * @return the peer if found, none otherwise
+       */
+      virtual boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
+          const shared_model::interface::types::PubkeyType &public_key)
+          const = 0;
 
       virtual ~PeerQuery() = default;
     };

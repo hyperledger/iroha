@@ -12,6 +12,22 @@
 #include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 
+namespace {
+  template <typename T>
+  boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+  getPeersFromSociRowSet(T &&rowset) {
+    return iroha::ametsuchi::flatMapValues<
+        std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
+        std::forward<T>(rowset), [&](auto &public_key, auto &address) {
+          return boost::make_optional(
+              std::make_shared<shared_model::plain::Peer>(
+                  address,
+                  shared_model::crypto::PublicKey{
+                      shared_model::crypto::Blob::fromHexString(public_key)}));
+        });
+  }
+}  // namespace
+
 namespace iroha {
   namespace ametsuchi {
 
@@ -60,16 +76,23 @@ namespace iroha {
         return (sql_.prepare << "SELECT public_key, address FROM peer");
       });
 
-      return flatMapValues<
-          std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
-          result, [&](auto &public_key, auto &address) {
-            return boost::make_optional(
-                std::make_shared<shared_model::plain::Peer>(
-                    address,
-                    shared_model::crypto::PublicKey{
-                        shared_model::crypto::Blob::fromHexString(
-                            public_key)}));
-          });
+      return getPeersFromSociRowSet(result);
+    }
+
+    boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+    PostgresWsvQuery::getPeerByPublicKey(const PubkeyType &public_key) {
+      using T = boost::tuple<std::string, AddressType>;
+      auto result = execute<T>([&] {
+        return (sql_.prepare << R"(
+            SELECT public_key, address
+            FROM peer
+            WHERE public_key = :public_key)",
+                soci::use(public_key.hex(), "public_key"));
+      });
+
+      return getPeersFromSociRowSet(result) | [](auto &&peers) {
+        return boost::make_optional(std::move(peers.front()));
+      };
     }
   }  // namespace ametsuchi
 }  // namespace iroha
