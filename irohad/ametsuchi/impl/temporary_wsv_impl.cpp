@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 
+#include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
@@ -35,11 +36,7 @@ namespace iroha {
       auto keys_range = transaction.signatures()
           | boost::adaptors::transformed(
                             [](const auto &s) { return s.publicKey().hex(); });
-      auto keys = std::accumulate(
-          std::next(std::begin(keys_range)),
-          std::end(keys_range),
-          keys_range.front(),
-          [](auto acc, const auto &val) { return acc + "'), ('" + val; });
+      auto keys = boost::algorithm::join(keys_range, "'), ('");
       // not using bool since it is not supported by SOCI
       boost::optional<uint8_t> signatories_valid;
 

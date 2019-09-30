@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
 #include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -668,12 +669,11 @@ namespace iroha {
         const shared_model::interface::GetTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      auto escape = [](auto &hash) { return "'" + hash.hex() + "'"; };
-      std::string hash_str = std::accumulate(
-          std::next(q.transactionHashes().begin()),
-          q.transactionHashes().end(),
-          escape(q.transactionHashes().front()),
-          [&escape](auto &acc, auto &val) { return acc + "," + escape(val); });
+      std::string hash_str = boost::algorithm::join(
+          q.transactionHashes()
+              | boost::adaptors::transformed(
+                    [](const auto &h) { return "'" + h.hex() + "'"; }),
+          ", ");
 
       using QueryTuple =
           QueryType<shared_model::interface::types::HeightType, std::string>;
