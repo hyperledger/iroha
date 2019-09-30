@@ -12,6 +12,7 @@
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "framework/test_logger.hpp"
+#include "integration/acceptance/fake_peer_fixture.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 
 namespace iroha {
@@ -46,20 +47,22 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(WsvQueryTest, GetPeers) {
-      shared_model::plain::Peer peer1(
-          "some-address", shared_model::crypto::PublicKey("some-public-key"));
-      command->insertPeer(peer1);
-      shared_model::plain::Peer peer2(
-          "another-address",
-          shared_model::crypto::PublicKey("another-public-key"));
-      command->insertPeer(peer2);
+      std::shared_ptr<shared_model::interface::Peer> peer1 =
+          std::make_shared<shared_model::plain::Peer>(
+              "some-address",
+              shared_model::crypto::PublicKey("some-public-key"));
+      command->insertPeer(*peer1);
+      std::shared_ptr<shared_model::interface::Peer> peer2 =
+          std::make_shared<shared_model::plain::Peer>(
+              "another-address",
+              shared_model::crypto::PublicKey("another-public-key"));
+      command->insertPeer(*peer2);
 
       auto result = query->getPeers();
       ASSERT_TRUE(result);
-      auto peers = result.get();
-      ASSERT_EQ(peers.size(), 2);
-      ASSERT_EQ(*peers[0], peer1);
-      ASSERT_EQ(*peers[1], peer2);
+      ASSERT_THAT(*result,
+                  testing::ElementsAre(makePeerPointeeMatcher(peer1),
+                                       makePeerPointeeMatcher(peer2)));
     }
 
     /**
