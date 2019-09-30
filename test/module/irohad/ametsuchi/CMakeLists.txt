@@ -118,3 +118,8 @@ addtest(k_times_reconnection_strategy_test k_times_reconnection_strategy_test.cp
 target_link_libraries(k_times_reconnection_strategy_test
     ametsuchi
     )
+
+addtest(peer_query_wsv_test peer_query_wsv_test.cpp)
+target_link_libraries(peer_query_wsv_test
+    ametsuchi
+    )
