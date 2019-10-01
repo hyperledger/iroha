@@ -1,6 +1,6 @@
-package main
+package state
 
-// #cgo CFLAGS: -I ../../../irohad
+// #cgo CFLAGS: -I ../../../../irohad
 // #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
 // #include "ametsuchi/impl/proto_command_executor.h"
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
@@ -102,13 +102,51 @@ func (ias *IrohaAppState) RemoveAccount(address crypto.Address) error {
 }
 
 func (ias *IrohaAppState) GetStorage(addr crypto.Address, key binary.Word256) ([]byte, error) {
-	fmt.Printf("GetStorage: "+addr.String()+" %x\n", key)
+	// fmt.Printf("[GetStorage] Retrieving %s accountDetail for %s %x\n", addr.String(), key)
+	fmt.Printf("[GetStorage] Retrieving accountDetail for account %s, key: %v, key.String(): %s\n",
+		addr.String(), key, key.String())
 	return ias.getIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()))
 }
 
 func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, value []byte) error {
-	fmt.Printf("SetStorage: "+addr.String()+" %x %x\n", key, value)
+	fmt.Printf("[SetStorage]: addr.String(): %s, key (hex): %x, string(key): %s, key.String(): %s, string(value): %s\n",
+		addr.String(), key, string(key.Bytes()), key.String(), string(value))
 	return ias.setIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()), value)
+}
+
+/*
+	Method for retrieving accounts assets balances
+	Not part of ReaderWriter interface, hence type assertion required
+*/
+func (ias *IrohaAppState) GetBalance(addr []byte, asset binary.Word256) ([]byte, error) {
+	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
+	assetID := string(assetBytes)
+	fmt.Printf("[GetBalance] Retrieving balance for account %s, asset.String(): %s\n", string(addr), assetID)
+	balances, err := ias.getIrohaAccountAssets(addr)
+	if err != nil {
+		return []byte{}, err
+	}
+	for _, v := range balances {
+		if v.GetAssetId() == assetID {
+			return []byte(v.GetBalance()), nil
+		}
+	}
+	return []byte{}, nil
+}
+
+func (ias *IrohaAppState) TransferAsset(src []byte, dst []byte, amount []byte, asset binary.Word256) error {
+	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
+	assetID := string(assetBytes)
+	fmt.Printf("[TransferAsset] Transferring %s asset from %s to %s\n", assetID, string(src), string(dst))
+	return ias.transferIrohaAsset(src, dst, amount, assetID)
+}
+
+func (ias *IrohaAppState) SetCommandExecutor(ce unsafe.Pointer) {
+	ias.commandExecutor = ce
+}
+
+func (ias *IrohaAppState) SetQueryExecutor(qe unsafe.Pointer) {
+	ias.queryExecutor = qe
 }
 
 /*
@@ -116,6 +154,16 @@ func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, va
 	commandExecutor or queryExecutor accordingly, and protobuf messages from iroha_protocol.
 	In all cases returned error signs about a technical problem, not a logical one.
 */
+
+// Helper function to store the evm account actual "parent" ID in AccountDetails
+func (ias *IrohaAppState) SetParentID(addr crypto.Address, key string, value []byte) error {
+	return ias.setIrohaAccountDetail(addr, key, value)
+}
+
+// Helper function to resolve EVM address into Iroha accountID
+func (ias *IrohaAppState) fromEVMAddress(addr crypto.Address) ([]byte, error) {
+	return ias.getIrohaAccountDetail(addr, "ParentID")
+}
 
 // -----------------------Iroha commands---------------------------------------
 
@@ -263,6 +311,68 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 	default:
 		return []byte{}, fmt.Errorf("wrong queryResponse for getIrohaAccountDetail")
 	}
+}
+
+// Queries asset balance of an account
+func (ias *IrohaAppState) getIrohaAccountAssets(addr []byte) ([]*pb.AccountAsset, error) {
+	// accountID, err := ias.fromEVMAddress(addr)
+	// fmt.Printf("[IrohaAppState::getIrohaAccountAssets] Parent account ID is: %s\n", accountID)
+	// if err != nil {
+	// 	return []*pb.AccountAsset{}, err
+	// }
+	accountID := string(addr)
+	query := &pb.Query{Payload: &pb.Query_Payload{
+		Meta: &pb.QueryPayloadMeta{
+			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+			CreatorAccountId: "evm@evm",
+			QueryCounter:     1},
+		Query: &pb.Query_Payload_GetAccountAssets{
+			GetAccountAssets: &pb.GetAccountAssets{AccountId: string(accountID)}}}}
+	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
+	if err != nil {
+		return []*pb.AccountAsset{}, err
+	}
+	fmt.Println(queryResponse)
+	switch response := queryResponse.Response.(type) {
+	case *pb.QueryResponse_ErrorResponse:
+		fmt.Println("QueryResponse_ErrorResponse getAccountAssets for address " + string(addr))
+		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
+			// No errors, but requested account does not exist
+			return []*pb.AccountAsset{}, nil
+		}
+		return []*pb.AccountAsset{}, fmt.Errorf("QueryResponse_ErrorResponse: code - %d, message - %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
+	case *pb.QueryResponse_AccountAssetsResponse:
+		fmt.Println("Query result for address " + string(addr) + ": " + queryResponse.String())
+		accountAssetsResponse := queryResponse.GetAccountAssetsResponse()
+		return accountAssetsResponse.AccountAssets, nil
+	default:
+		return []*pb.AccountAsset{}, fmt.Errorf("wrong queryResponse for getIrohaAccountAssets")
+	}
+}
+
+/*
+	Method for transferring assets between accounts
+	Not part of ReaderWriter interface, hence type assertion required
+*/
+func (ias *IrohaAppState) transferIrohaAsset(src []byte, dst []byte, amount []byte, asset string) error {
+	command := &pb.Command{Command: &pb.Command_TransferAsset{
+		TransferAsset: &pb.TransferAsset{
+			SrcAccountId:  string(src),
+			DestAccountId: string(dst),
+			AssetId:       asset,
+			Description:   "EVM asset transfer",
+			Amount:        string(amount),
+		}}}
+	commandResult, err := makeProtobufCmdAndExecute(ias.commandExecutor, command)
+	if err != nil {
+		return err
+	}
+	fmt.Println(commandResult)
+	if commandResult.error_code != 0 {
+		return fmt.Errorf("Error occurred when transferring asset nominated in %s from %s to %s\n", asset, string(src), string(dst))
+	}
+
+	return nil
 }
 
 // Helper function to perform Iroha queries
