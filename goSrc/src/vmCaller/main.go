@@ -3,6 +3,9 @@ package main
 import "C"
 import (
 	"fmt"
+
+	"vmCaller/state"
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
@@ -34,7 +37,7 @@ func blockHashGetter(height uint64) []byte {
 }
 
 // Real application state
-var appState = NewIrohaAppState()
+var appState = state.NewIrohaAppState()
 
 // Create EVM instance
 var burrowEVM = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogger())
@@ -43,14 +46,14 @@ var burrowEVM = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopL
 func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, queryExecutor unsafe.Pointer) (*C.char, bool) {
 
 	// Update executors
-	appState.commandExecutor = commandExecutor
-	appState.queryExecutor = queryExecutor
+	appState.SetCommandExecutor(commandExecutor)
+	appState.SetQueryExecutor(queryExecutor)
 
 	// The wrapper for EVM state.
 	// Contains real application state (here it is the appState) and it's cache.
 	// Since Iroha state changes are possible between VmCall invocations,
 	// cache should be synced with appState to prevent using of invalid data.
-	var evmState = evm.NewState(appState, blockHashGetter)
+	var evmState = state.NewState(appState, blockHashGetter)
 
 	// Convert strings into EVM addresses
 	evmCaller := toEVMaddress(C.GoString(caller))
@@ -61,6 +64,8 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 	// Check if caller account exists
 	if !evmState.Exists(evmCaller) {
 		evmState.CreateAccount(evmCaller)
+		// TODO: study if storing the original Iroha accountID of the caller is necessary
+		// appState.SetParentID(evmCaller, "ParentID", []byte(C.GoString(caller)))
 	}
 
 	// Check if callee account exists
@@ -72,6 +77,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 
 	if !evmState.Exists(evmCallee) {
 		// Then smart contract should be deployed
+		fmt.Printf("No EVM account exists for the callee %s. Creating account\n", evmCallee)
 		evmState.CreateAccount(evmCallee)
 		// Pass goInput as deployment data
 		output, err = burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
