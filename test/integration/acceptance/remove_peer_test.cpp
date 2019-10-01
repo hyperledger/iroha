@@ -5,6 +5,11 @@
 
 #include "integration/acceptance/fake_peer_fixture.hpp"
 
+#include <rxcpp/operators/rx-filter.hpp>
+#include <rxcpp/operators/rx-observe_on.hpp>
+#include <rxcpp/operators/rx-replay.hpp>
+#include <rxcpp/operators/rx-take.hpp>
+#include <rxcpp/operators/rx-timeout.hpp>
 #include "ametsuchi/block_query.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/vote_message.hpp"

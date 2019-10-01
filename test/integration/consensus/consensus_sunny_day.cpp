@@ -15,6 +15,8 @@
 #include "consensus/yac/yac.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 
+#include <rxcpp/operators/rx-take.hpp>
+#include <rxcpp/operators/rx-timeout.hpp>
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "logger/logger_manager.hpp"

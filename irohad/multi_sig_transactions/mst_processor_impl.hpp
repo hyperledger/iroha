@@ -6,14 +6,17 @@
 #ifndef IROHA_MST_PROCESSOR_IMPL_HPP
 #define IROHA_MST_PROCESSOR_IMPL_HPP
 
+#include "multi_sig_transactions/mst_processor.hpp"
+#include "network/mst_transport.hpp"
+
 #include <memory>
+
+#include <rxcpp/rx-lite.hpp>
 #include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
-#include "network/mst_transport.hpp"
 
 namespace iroha {
 

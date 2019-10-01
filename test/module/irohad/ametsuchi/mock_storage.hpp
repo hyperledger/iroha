@@ -9,6 +9,7 @@
 #include "ametsuchi/storage.hpp"
 
 #include <gmock/gmock.h>
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"

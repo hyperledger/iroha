@@ -6,7 +6,7 @@
 #include "main/application.hpp"
 
 #include <boost/filesystem.hpp>
-
+#include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
@@ -534,7 +534,7 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      delay,
                                      log_manager_->getChild("Ordering"));
   log_->info("[Init] => init ordering gate - [{}]",
-             logger::logBool(ordering_gate));
+             logger::boolRepr(bool(ordering_gate)));
   return {};
 }
 

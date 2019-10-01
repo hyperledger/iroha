@@ -5,6 +5,15 @@
 
 #include "main/impl/on_demand_ordering_init.hpp"
 
+#include <numeric>
+
+#include <rxcpp/operators/rx-filter.hpp>
+#include <rxcpp/operators/rx-map.hpp>
+#include <rxcpp/operators/rx-skip.hpp>
+#include <rxcpp/operators/rx-start_with.hpp>
+#include <rxcpp/operators/rx-tap.hpp>
+#include <rxcpp/operators/rx-with_latest_from.hpp>
+#include <rxcpp/operators/rx-zip.hpp>
 #include "common/bind.hpp"
 #include "common/delay.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"

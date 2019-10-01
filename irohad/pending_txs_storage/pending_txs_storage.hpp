@@ -7,7 +7,6 @@
 #define IROHA_PENDING_TXS_STORAGE_HPP
 
 #include <boost/optional.hpp>
-#include <rxcpp/rx.hpp>
 #include "common/result.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/common_objects/types.hpp"

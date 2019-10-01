@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"

@@ -9,6 +9,14 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager_fwd.hpp"
 
+/// Allows to log objects, which have toString() method without calling it, e.g.
+/// log.info("{}", myObject)
+template <typename StreamType, typename T>
+auto operator<<(StreamType &os, const T &object)
+    -> decltype(os << object.toString()) {
+  return os << object.toString();
+}
+
 logger::LoggerManagerTreePtr getTestLoggerManager(
     const logger::LogLevel &log_level = logger::LogLevel::kDebug);
 

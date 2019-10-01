@@ -43,15 +43,12 @@ class NetworkUtil {
       const iroha::consensus::Round &r,
       const std::string &block_hash = "default_block",
       const std::string &proposal_hash = "default_proposal") const {
-    return std::accumulate(
-        peers.begin(),
-        peers.end(),
-        std::vector<VoteMessage>(),
-        [&, this](auto vector, const auto &peer_number) {
-          vector.push_back(this->createVote(
-              peer_number, this->createHash(r, block_hash, proposal_hash)));
-          return std::move(vector);
-        });
+    std::vector<VoteMessage> result;
+    for (auto &peer_number : peers) {
+      result.push_back(
+          createVote(peer_number, createHash(r, block_hash, proposal_hash)));
+    }
+    return result;
   }
 
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers_;

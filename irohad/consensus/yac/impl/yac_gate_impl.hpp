@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "logger/logger_fwd.hpp"

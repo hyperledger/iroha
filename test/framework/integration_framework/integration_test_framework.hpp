@@ -6,7 +6,11 @@
 #ifndef IROHA_INTEGRATION_FRAMEWORK_HPP
 #define IROHA_INTEGRATION_FRAMEWORK_HPP
 
-#include <rxcpp/rx.hpp>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/gate_object.hpp"
 #include "cryptography/keypair.hpp"
 #include "logger/logger_fwd.hpp"

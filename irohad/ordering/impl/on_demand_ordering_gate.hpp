@@ -11,7 +11,7 @@
 #include <shared_mutex>
 
 #include <boost/variant.hpp>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"

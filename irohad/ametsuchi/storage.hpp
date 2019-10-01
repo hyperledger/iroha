@@ -8,7 +8,7 @@
 
 #include <vector>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"

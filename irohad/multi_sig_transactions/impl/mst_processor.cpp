@@ -5,6 +5,8 @@
 
 #include "multi_sig_transactions/mst_processor.hpp"
 
+#include <rxcpp/rx-lite.hpp>
+
 namespace iroha {
 
   MstProcessor::MstProcessor(logger::LoggerPtr log) : log_(std::move(log)) {}
