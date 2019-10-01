@@ -23,6 +23,7 @@ add_library(client
     )
 target_link_libraries(client
     ed25519_crypto
+    grpc_channel_factory
     logger
     rapidjson
     pb_model_converters

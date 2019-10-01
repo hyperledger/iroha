@@ -7,8 +7,10 @@
 #define IROHA_TESTIROHAD_HPP
 
 #include "cryptography/keypair.hpp"
+#include "framework/test_client_factory.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
+#include "network/impl/channel_factory.hpp"
 
 namespace integration_framework {
   /**
@@ -50,6 +52,7 @@ namespace integration_framework {
                  stale_stream_max_rounds,
                  std::move(opt_alternative_peers),
                  std::move(irohad_log_manager),
+                 iroha::network::getDefaultTestChannelParams(),
                  opt_mst_gossip_params,
                  torii_tls_params),
           log_(std::move(log)) {}

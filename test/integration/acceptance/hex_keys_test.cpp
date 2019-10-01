@@ -58,7 +58,7 @@ struct HexKeys : public AcceptanceFixture {
   auto addPeer(std::string key, interface::types::TimestampType time) {
     const auto imaginary_address = "192.168.23.149:50051";
     return AcceptanceFixture::baseTx().createdTime(time).addPeerRaw(
-        imaginary_address, key);
+        imaginary_address, key, boost::none);
   }
 
   auto composeKeypairFromHex(std::string public_key, std::string private_key) {

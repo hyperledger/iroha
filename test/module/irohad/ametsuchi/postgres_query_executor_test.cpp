@@ -1719,8 +1719,7 @@ namespace iroha {
           std::move(result), [&expected_peer = peer](const auto &cast_resp) {
             ASSERT_EQ(boost::size(cast_resp.peers()), 1);
             auto &peer = cast_resp.peers().front();
-            ASSERT_EQ(peer.address(), expected_peer.address());
-            ASSERT_EQ(peer.pubkey(), expected_peer.pubkey());
+            ASSERT_EQ(peer, expected_peer);
           });
     }
 

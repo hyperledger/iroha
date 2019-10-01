@@ -55,10 +55,10 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // ------------------------ WHEN -------------------------
   // send addPeer command
-  itf.sendTxAwait(
-      complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_pubkey),
-               kAdminKeypair),
-      checkBlockHasNTxs<1>);
+  itf.sendTxAwait(complete(baseTx(kAdminId).addPeer(
+                               new_peer_address, new_peer_pubkey, boost::none),
+                           kAdminKeypair),
+                  checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
   // check that ledger state contains the two peers
@@ -125,7 +125,8 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
 
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(new_peer->getAddress(),
-                                        new_peer->getKeypair().publicKey()),
+                                        new_peer->getKeypair().publicKey(),
+                                        boost::none),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
@@ -168,7 +169,8 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .creatorAccountId(kAdminId)
           .createdTime(iroha::time::now())
           .addPeer(initial_peer->getAddress(),
-                   initial_peer->getKeypair().publicKey())
+                   initial_peer->getKeypair().publicKey(),
+                   boost::none)
           .createRole(kAdminRole, all_perms)
           .createRole(kDefaultRole, {})
           .createDomain(kDomain, kDefaultRole)
@@ -195,7 +197,8 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
       proto::BlockBuilder()
           .transactions(std::vector<shared_model::proto::Transaction>{
               complete(baseTx(kAdminId).addPeer(itf_->getAddress(),
-                                                itf_->getThisPeer()->pubkey()),
+                                                itf_->getThisPeer()->pubkey(),
+                                                boost::none),
                        kAdminKeypair)})
           .height(genesis_block.height() + 1)
           .prevHash(genesis_block.hash())

@@ -10,9 +10,11 @@
 #include <grpc++/impl/codegen/service_type.h>
 #include "common/result.hpp"
 #include "logger/logger_fwd.hpp"
+#include "logger/logger_manager_fwd.hpp"
 
 namespace iroha {
   namespace network {
+    class PeerTlsCertificatesProvider;
     struct TlsCredentials;
 
     /**
@@ -23,16 +25,21 @@ namespace iroha {
       /**
        * Constructor. Initialize a new instance of ServerRunner class.
        * @param address - the address the server will be bind to in URI form
-       * @param log to print progress to
+       * @param log_manager to print progress to
        * @param reuse - allow multiple sockets to bind to the same port
        * @param my_tls_creds - TLS credentials_ for this server, if required
+       * @param peer_tls_certificates_provider  - if provided, will be used to
+       * establish tls connections to peers.
        */
       explicit ServerRunner(
           const std::string &address,
-          logger::LoggerPtr log,
+          logger::LoggerManagerTreePtr log_manager,
           bool reuse = true,
           const boost::optional<std::shared_ptr<const TlsCredentials>>
-              &my_tls_creds = boost::none);
+              &my_tls_creds = boost::none,
+          const boost::optional<
+              std::shared_ptr<const PeerTlsCertificatesProvider>>
+              &peer_tls_certificates_provider = boost::none);
 
       ~ServerRunner();
 
@@ -72,8 +79,11 @@ namespace iroha {
       std::condition_variable server_instance_cv_;
 
       std::string server_address_;
+      boost::optional<std::shared_ptr<const TlsCredentials>> my_tls_creds_;
       std::shared_ptr<grpc::ServerCredentials> credentials_;
+
       bool reuse_;
+
       std::vector<std::shared_ptr<grpc::Service>> services_;
     };
 

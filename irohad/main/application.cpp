@@ -40,6 +40,8 @@
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
+#include "network/impl/channel_factory_tls.hpp"
+#include "network/impl/channel_pool.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 #include "network/impl/peer_tls_certificates_provider_wsv.hpp"
@@ -55,7 +57,6 @@
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/processor/transaction_processor_impl.hpp"
 #include "torii/query_service.hpp"
-#include "torii/tls_params.hpp"
 #include "validation/impl/chain_validator_impl.hpp"
 #include "validation/impl/stateful_validator_impl.hpp"
 #include "validators/always_valid_validator.hpp"
@@ -100,6 +101,7 @@ Irohad::Irohad(
     boost::optional<shared_model::interface::types::PeerList>
         opt_alternative_peers,
     logger::LoggerManagerTreePtr logger_manager,
+    std::shared_ptr<const GrpcChannelParams> grpc_channel_params,
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
@@ -117,6 +119,7 @@ Irohad::Irohad(
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
+      grpc_channel_params_(std::move(grpc_channel_params)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pending_txs_storage_init(
@@ -158,6 +161,7 @@ Irohad::RunResult Irohad::init() {
   | [this]{ return restoreWsv();}
   | [this]{ return initTlsCredentials();}
   | [this]{ return initPeerCertProvider();}
+  | [this]{ return initClientFactory();}
   | [this]{ return initCryptoProvider();}
   | [this]{ return initBatchParser();}
   | [this]{ return initValidators();}
@@ -422,6 +426,39 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
 }
 
 /**
+ * Initializing channel pool.
+ */
+Irohad::RunResult Irohad::initClientFactory() {
+  using namespace iroha::expected;
+  using ChannelFactoryCreationResult =
+      Result<std::unique_ptr<ChannelFactory>, std::string>;
+
+  const auto create_channel_factory = [this]() -> ChannelFactoryCreationResult {
+    const auto create_tls_channel_factory =
+        [this]() -> ChannelFactoryCreationResult {
+      return std::make_unique<ChannelFactoryTls>(
+          this->grpc_channel_params_,
+          this->peer_tls_certificates_provider_,
+          this->my_inter_peer_tls_creds_);
+    };
+    const auto create_insecure_channel_factory =
+        [this]() -> ChannelFactoryCreationResult {
+      return makeValue(
+          std::make_unique<ChannelFactory>(this->grpc_channel_params_));
+    };
+    return this->inter_peer_tls_config_ ? create_tls_channel_factory()
+                                        : create_insecure_channel_factory();
+  };
+
+  return create_channel_factory() |
+             [this](auto &&channel_factory) -> RunResult {
+    this->inter_peer_client_factory_ = std::make_unique<GenericClientFactory>(
+        std::make_unique<ChannelPool>(std::move(channel_factory)));
+    return {};
+  };
+}
+
+/**
  * Initializing crypto provider
  */
 Irohad::RunResult Irohad::initCryptoProvider() {
@@ -637,7 +674,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
                                      persistent_cache,
                                      proposal_strategy,
                                      delay,
-                                     log_manager_->getChild("Ordering"));
+                                     log_manager_->getChild("Ordering"),
+                                     inter_peer_client_factory_);
   log_->info("[Init] => init ordering gate - [{}]",
              logger::boolRepr(bool(ordering_gate)));
   return {};
@@ -695,7 +733,8 @@ Irohad::RunResult Irohad::initBlockLoader() {
                                   storage,
                                   consensus_result_cache_,
                                   block_validators_config_,
-                                  log_manager_->getChild("BlockLoader"));
+                                  log_manager_->getChild("BlockLoader"),
+                                  inter_peer_client_factory_);
 
   log_->info("[Init] => block loader");
   return {};
@@ -730,7 +769,8 @@ Irohad::RunResult Irohad::initConsensusGate() {
       vote_delay_,
       async_call_,
       kConsensusConsistencyModel,
-      log_manager_->getChild("Consensus"));
+      log_manager_->getChild("Consensus"),
+      inter_peer_client_factory_);
   consensus_gate->onOutcome().subscribe(
       consensus_gate_events_subscription,
       consensus_gate_objects.get_subscriber());
@@ -821,7 +861,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
         mst_completer,
         keypair.publicKey(),
         std::move(mst_state_logger),
-        mst_logger_manager->getChild("Transport")->getLogger());
+        mst_logger_manager->getChild("Transport")->getLogger(),
+        std::make_unique<iroha::network::ClientFactoryImpl<
+            iroha::network::MstTransportGrpc::Service>>(
+            inter_peer_client_factory_));
     mst_propagation = std::make_shared<GossipPropagationStrategy>(
         storage, rxcpp::observe_on_new_thread(), *opt_mst_gossip_params_);
   } else {
@@ -930,14 +973,16 @@ Irohad::RunResult Irohad::run() {
   // Initializing torii server
   torii_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(torii_port_),
-      log_manager_->getChild("ToriiServerRunner")->getLogger(),
+      log_manager_->getChild("ToriiServerRunner"),
       false);
 
   // Initializing internal server
   internal_server = std::make_unique<ServerRunner>(
       listen_ip_ + ":" + std::to_string(internal_port_),
-      log_manager_->getChild("InternalServerRunner")->getLogger(),
-      false);
+      log_manager_->getChild("InternalServerRunner"),
+      false,
+      my_inter_peer_tls_creds_,
+      peer_tls_certificates_provider_);
 
   auto make_port_logger = [this](std::string server_name) {
     return [this, server_name](auto port) -> RunResult {
@@ -957,7 +1002,7 @@ Irohad::RunResult Irohad::run() {
     run_result |= [&, this] {
       torii_tls_server = std::make_unique<ServerRunner>(
           listen_ip_ + ":" + std::to_string(torii_tls_params_->port),
-          log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
+          log_manager_->getChild("ToriiTlsServerRunner"),
           false,
           tls_creds);
       return (*torii_tls_server)

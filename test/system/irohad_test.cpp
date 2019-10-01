@@ -28,6 +28,7 @@
 #include "cryptography/blob.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
+#include "framework/test_client_factory.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "logger/logger.hpp"
@@ -36,7 +37,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 
@@ -50,6 +51,36 @@ using namespace boost::filesystem;
 using namespace std::chrono_literals;
 using namespace common_constants;
 using iroha::operator|;
+
+namespace {
+  // example cert with CN=localhost subjectAltName=IP:127.0.0.1
+  boost::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
+      shared_model::interface::types::TLSCertificateType{
+          R"(
+-----BEGIN CERTIFICATE-----
+MIIDpDCCAoygAwIBAgIUXwQAtk7WnMb1Rb3hQvnNLGUUjxcwDQYJKoZIhvcNAQEL
+BQAwWTELMAkGA1UEBhMCQVUxEzARBgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MB4X
+DTE5MDgyODE1NDcyMVoXDTM5MDgyMzE1NDcyMVowWTELMAkGA1UEBhMCQVUxEzAR
+BgNVBAgMClNvbWUtU3RhdGUxITAfBgNVBAoMGEludGVybmV0IFdpZGdpdHMgUHR5
+IEx0ZDESMBAGA1UEAwwJbG9jYWxob3N0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A
+MIIBCgKCAQEA0+8KU9ZsYIoePPwHl/e1yPBKLW/mVv6XgjP2LVJ+4lq7j0+0KNGE
+0P1/W2MBA0kVIe5i2wNFo8ac22lP+s34aKSjcWWLlFEmBH7Tk17VHqetyRBmAVNO
+BLs/VCZA/eg5mG5EE2hsh/jS5A6KezZ7xDxlfvmCcjJ51qo7mZ3samZkwvG1ktdQ
+lYrWtX7ziTDyEP0XVYT3GfVhkN9L6d9yebCzcqlpC+E+JVSmtetussz56bGL+ycZ
+wko2BkGqZLekmegf5hxyQdVt2YN+LtoCODZMqYNgprBwdeqrapq0VtvfhWBeYCRl
+HemL2VR3iAdC2Q7cuAo2kbYVZXjNxTskpQIDAQABo2QwYjAdBgNVHQ4EFgQUujeO
+B1gunwsQi4Ua+F8GzEGJSaowHwYDVR0jBBgwFoAUujeOB1gunwsQi4Ua+F8GzEGJ
+SaowDwYDVR0TAQH/BAUwAwEB/zAPBgNVHREECDAGhwR/AAABMA0GCSqGSIb3DQEB
+CwUAA4IBAQAc7i5pXtY9iFX9OIOdUFl7o1CbA4DENLD7GIF+RiuL4whoPwHxj6g5
+2h287E+Vk+Mo2A/M+/Vi4guVhBbMROm72zPpnKRoQAqwRN6y/+FhZV4Zw1hf9fw6
+N1PgJiOdAcYdsoZtrrWFUQ8pcvrrmJpi8e4QNC0DmePCI5hKlB94PAQg81rL1fPs
+NhkvxwFwAUBCzHmisHPGDz8DNwdpu2KoMHtDIiTGa38ZxBTSw5BEnP2/5VhsI+2o
+1b540Kw9rtbHux+CHbCs7Cs3XIY5BLnAf3T7MOpA+a5/rWPkiWAdVCxguxy/OLZQ
+J6DR+swaKJJCJpwSShC2+YjrcPa9hdkc
+-----END CERTIFICATE-----
+  )"};
+}  // namespace
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
   static logger::LoggerManagerTreePtr irohad_test_logger_manager;
@@ -192,23 +223,26 @@ class IrohadTest : public AcceptanceFixture {
         config_copy_, path_genesis_.string(), path_keypair_node_.string(), {});
   }
 
+  static const iroha::network::GrpcChannelParams &getChannelParams() {
+    static const auto params = [] {
+      auto params = iroha::network::getDefaultTestChannelParams();
+      params->retry_policy->max_attempts = 3u;
+      params->retry_policy->initial_backoff = 1s;
+      params->retry_policy->max_backoff = 1s;
+      params->retry_policy->backoff_multiplier = 1.0f;
+      return params;
+    }();
+    return *params;
+  }
+
   torii::CommandSyncClient createToriiClient(
       bool enable_tls = false,
       const boost::optional<uint16_t> override_port = {}) {
-    uint16_t port = override_port.value_or(enable_tls ? kSecurePort : kPort);
-
-    std::unique_ptr<iroha::protocol::CommandService_v1::Stub> stub;
-    if (enable_tls) {
-      stub = iroha::network::createSecureClient<
-          iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port), root_ca_);
-    } else {
-      stub = iroha::network::createClient<iroha::protocol::CommandService_v1>(
-          kAddress + ":" + std::to_string(port));
-    }
+    const auto port = override_port.value_or(enable_tls ? kSecurePort : kPort);
 
     return torii::CommandSyncClient(
-        std::move(stub),
+        iroha::network::createInsecureClient<torii::CommandSyncClient::Service>(
+            kAddress, port, getChannelParams()),
         getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
   }
 
@@ -274,7 +308,7 @@ class IrohadTest : public AcceptanceFixture {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer("0.0.0.0:10001", node0_keys.get().publicKey())
+            .addPeer("127.0.0.1:10001", node0_keys.get().publicKey(), kTlsCert)
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
             .createRole(kMoneyCreator, money_perms)
@@ -508,7 +542,10 @@ TEST_F(IrohadTest, SendQuery) {
 
   iroha::protocol::QueryResponse response;
   auto query = complete(baseQry(kAdminId).getRoles(), key_pair.get());
-  auto client = torii_utils::QuerySyncClient(kAddress, kPort);
+  auto client =
+      torii_utils::QuerySyncClient(iroha::network::createInsecureClient<
+                                   torii_utils::QuerySyncClient::Service>(
+          kAddress, kPort, getChannelParams()));
   client.Find(query.getTransport(), response);
   shared_model::proto::QueryResponse resp{std::move(response)};
 

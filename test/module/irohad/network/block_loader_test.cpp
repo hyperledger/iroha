@@ -13,6 +13,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
 #include "datetime/time.hpp"
+#include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
@@ -24,6 +25,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/block_loader_service.hpp"
+#include "network/impl/client_factory.hpp"
 #include "validators/default_validator.hpp"
 
 using namespace iroha::network;
@@ -61,7 +63,9 @@ class BlockLoaderTest : public testing::Test {
         shared_model::proto::ProtoBlockFactory(
             std::move(validator_ptr),
             std::make_unique<MockValidator<iroha::protocol::Block>>()),
-        getTestLogger("BlockLoader"));
+        getTestLogger("BlockLoader"),
+        std::make_unique<ClientFactoryImpl<BlockLoaderImpl::Service>>(
+            getTestInsecureClientFactory(getDefaultTestChannelParams())));
     service = std::make_shared<BlockLoaderService>(
         block_query_factory, block_cache, getTestLogger("BlockLoaderService"));
 

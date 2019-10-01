@@ -22,6 +22,7 @@
 #include "main/iroha_conf_literals.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/raw_block_loader.hpp"
+#include "network/impl/channel_factory.hpp"  // for getDefaultChannelParams()
 #include "validators/field_validator.hpp"
 
 static const std::string kListenIp = "0.0.0.0";
@@ -214,9 +215,11 @@ int main(int argc, char *argv[]) {
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
       std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
+      ::iroha::network::getDefaultChannelParams(),
       boost::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
-      config.torii_tls_params);
+      config.torii_tls_params,
+      config.inter_peer_tls);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {

@@ -13,6 +13,7 @@
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
@@ -36,9 +37,7 @@ using ::testing::SaveArg;
 
 class TransportTest : public ::testing::Test {
  public:
-  TransportTest()
-      : my_key_(makeKey()),
-        stub(new iroha::network::transport::MockMstTransportGrpcStub()) {}
+  TransportTest() : my_key_(makeKey()) {}
   void SetUp() override {
     async_call_ = std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
         getTestLogger("AsyncClient"));
@@ -64,24 +63,20 @@ class TransportTest : public ::testing::Test {
         shared_model::interface::Transaction,
         shared_model::proto::Transaction>>(std::move(interface_tx_validator),
                                            std::move(proto_tx_validator));
-    // TODO 18.06.19 (@alex9430) fix the test so that neither boost::none, nor
-    // nullptr is in use with sender_factory
-    MstTransportGrpc::SenderFactory sender_factory_(
-        [this](const shared_model::interface::Peer &peer) {
-          return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-              stub);
-        });
-    transport =
-        std::make_shared<MstTransportGrpc>(async_call_,
-                                           tx_factory,
-                                           parser_,
-                                           batch_factory_,
-                                           tx_presence_cache_,
-                                           completer_,
-                                           my_key_.publicKey(),
-                                           getTestLogger("MstState"),
-                                           getTestLogger("MstTransportGrpc"),
-                                           sender_factory_);
+    mock_client_factory_ =
+        new iroha::network::MockClientFactory<MstTransportGrpc::Service>();
+    transport = std::make_shared<MstTransportGrpc>(
+        async_call_,
+        tx_factory,
+        parser_,
+        batch_factory_,
+        tx_presence_cache_,
+        completer_,
+        my_key_.publicKey(),
+        getTestLogger("MstState"),
+        getTestLogger("MstTransportGrpc"),
+        std::unique_ptr<MstTransportGrpc::MstClientFactory>(
+            mock_client_factory_));
     transport->subscribe(mst_notification_transport_);
 
     shared_model::interface::types::PubkeyType pk(
@@ -90,6 +85,18 @@ class TransportTest : public ::testing::Test {
     peer = makePeer("localhost:0", pk);
   }
 
+  template <typename ExpectationsSetter>
+  auto expectConnection(const shared_model::interface::Peer &peer,
+                        ExpectationsSetter &&set_expectations) {
+    using namespace ::testing;
+    auto stub = std::make_unique<transport::MockMstTransportGrpcStub>();
+    std::forward<ExpectationsSetter>(set_expectations)(*stub);
+    EXPECT_CALL(*mock_client_factory_, createClient(Ref(peer)))
+        .WillOnce(Return(ByMove(std::move(stub))));
+  }
+
+  iroha::network::MockClientFactory<MstTransportGrpc::Service>
+      *mock_client_factory_;
   std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call_;
   std::shared_ptr<TransactionBatchParserImpl> parser_;
   std::shared_ptr<shared_model::validation::AbstractValidator<
@@ -113,8 +120,6 @@ class TransportTest : public ::testing::Test {
       tx_factory;
   std::shared_ptr<MstTransportGrpc> transport;
   std::shared_ptr<shared_model::interface::Peer> peer;
-  // stub will be deleted by unique_ptr created in client_creator
-  iroha::network::transport::MockMstTransportGrpcStub *stub;
 };
 
 static bool statesEqual(const iroha::MstState &a, const iroha::MstState &b) {
@@ -171,8 +176,10 @@ TEST_F(TransportTest, SendAndReceive) {
   ::iroha::network::transport::MstState request;
   auto r = std::make_unique<
       grpc::testing::MockClientAsyncResponseReader<google::protobuf::Empty>>();
-  EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
-      .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  expectConnection(*peer, [&request, &r](auto &stub) {
+    EXPECT_CALL(stub, AsyncSendStateRaw(_, _, _))
+        .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
+  });
   transport->sendState(*peer, state);
   auto response = transport->SendState(&context, &request, nullptr);
   ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);

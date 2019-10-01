@@ -11,7 +11,15 @@
 #include "model/converters/json_transaction_factory.hpp"
 #include "model/converters/pb_query_factory.hpp"
 #include "model/converters/pb_transaction_factory.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
+
+template <typename Service>
+std::shared_ptr<typename Service::StubInterface> makeStub(std::string target_ip,
+                                                          int port) {
+  using namespace iroha::network;
+  static const auto kChannelParams = getDefaultChannelParams();
+  return createInsecureClient<Service>(target_ip, port, *kChannelParams);
+}
 
 namespace iroha_cli {
 
@@ -19,10 +27,10 @@ namespace iroha_cli {
                        int port,
                        logger::LoggerPtr pb_qry_factory_log)
       : command_client_(
-            iroha::network::createClient<iroha::protocol::CommandService_v1>(
-                target_ip + ":" + std::to_string(port)),
+            makeStub<torii::CommandSyncClient::Service>(target_ip, port),
             pb_qry_factory_log),
-        query_client_(target_ip, port),
+        query_client_(
+            makeStub<torii_utils::QuerySyncClient::Service>(target_ip, port)),
         pb_qry_factory_log_(std::move(pb_qry_factory_log)) {}
 
   CliClient::Response<CliClient::TxStatus> CliClient::sendTx(

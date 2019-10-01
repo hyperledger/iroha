@@ -9,6 +9,7 @@ target_link_libraries(irohad_test
         boost
         SOCI::postgresql
         SOCI::core
+        test_client_factory
         rapidjson
         integration_framework_config_helper
         libs_files

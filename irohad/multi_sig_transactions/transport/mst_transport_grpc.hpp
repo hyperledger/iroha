@@ -25,16 +25,19 @@ namespace iroha {
   }
 
   namespace network {
+    template <typename Service>
+    class ClientFactory;
+
     class MstTransportGrpc : public MstTransport,
                              public transport::MstTransportGrpc::Service {
      public:
-      using SenderFactory = std::function<
-          std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
-              const shared_model::interface::Peer &)>;
       using TransportFactoryType =
           shared_model::interface::AbstractTransportFactory<
               shared_model::interface::Transaction,
               iroha::protocol::Transaction>;
+
+      using Service = transport::MstTransportGrpc;
+      using MstClientFactory = ClientFactory<Service>;
 
       MstTransportGrpc(
           std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
@@ -49,7 +52,7 @@ namespace iroha {
           shared_model::crypto::PublicKey my_key,
           logger::LoggerPtr mst_state_logger,
           logger::LoggerPtr log,
-          boost::optional<SenderFactory> = boost::none);
+          std::unique_ptr<MstClientFactory> client_factory);
 
       /**
        * Server part of grpc SendState method call
@@ -87,12 +90,12 @@ namespace iroha {
                                             ///< objects.
       logger::LoggerPtr log_;               ///< Logger for local use.
 
-      boost::optional<SenderFactory> sender_factory_;
+      std::unique_ptr<MstClientFactory> client_factory_;
     };
 
-    void sendStateAsync(const shared_model::interface::Peer &to,
-                        iroha::ConstRefState state,
-                        const shared_model::crypto::PublicKey &sender_key,
+    void sendStateAsync(ConstRefState state,
+                        const std::string &sender_key,
+                        transport::MstTransportGrpc::StubInterface &clinet_stub,
                         AsyncGrpcClient<google::protobuf::Empty> &async_call);
 
   }  // namespace network

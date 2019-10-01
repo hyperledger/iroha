@@ -47,6 +47,7 @@ namespace integration_framework {
        * @param listen_ip - IP on which this fake peer should listen
        * @param internal_port - the port for internal commulications
        * @param key - the keypair of this peer
+       * @param tls_certificate - optional TLS certificate
        * @param real_peer - the main tested peer managed by ITF
        * @param common_objects_factory - common_objects_factory
        * @param transaction_factory - transaction_factory
@@ -60,6 +61,9 @@ namespace integration_framework {
           const std::string &listen_ip,
           size_t internal_port,
           const boost::optional<shared_model::crypto::Keypair> &key,
+          boost::optional<
+              shared_model::interface::types::TLSCertificateType>
+              tls_certificate,
           std::shared_ptr<shared_model::interface::Peer> real_peer,
           const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               &common_objects_factory,
@@ -106,6 +110,10 @@ namespace integration_framework {
 
       /// Get the keypair of this peer.
       const shared_model::crypto::Keypair &getKeypair() const;
+
+      /// Get the TLS certificate of this peer.
+      const boost::optional<shared_model::interface::types::TLSCertificateType>
+          &getTlsCertificate() const;
 
       /// Get interface::Peer object for this instance.
       std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
@@ -232,6 +240,8 @@ namespace integration_framework {
       const std::string listen_ip_;
       size_t internal_port_;
       std::unique_ptr<shared_model::crypto::Keypair> keypair_;
+      boost::optional<shared_model::interface::types::TLSCertificateType>
+          tls_certificate_;
 
       std::shared_ptr<shared_model::interface::Peer>
           this_peer_;  ///< this fake instance
@@ -239,6 +249,7 @@ namespace integration_framework {
           real_peer_;  ///< the real instance
 
       std::shared_ptr<AsyncCall> async_call_;
+      std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
 
       std::shared_ptr<MstTransport> mst_transport_;
       std::shared_ptr<YacTransport> yac_transport_;

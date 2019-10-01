@@ -8,25 +8,29 @@
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
+#include "framework/test_client_factory.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
 
 namespace integration_framework {
   namespace fake_peer {
 
-    LoaderGrpc::LoaderGrpc(const std::shared_ptr<FakePeer> &fake_peer,
-                           logger::LoggerPtr log)
-        : fake_peer_wptr_(fake_peer), log_(std::move(log)) {}
+    LoaderGrpc::LoaderGrpc(
+        const std::shared_ptr<FakePeer> &fake_peer,
+        logger::LoggerPtr log,
+        std::shared_ptr<iroha::network::GenericClientFactory> client_factory)
+        : fake_peer_wptr_(fake_peer),
+          log_(std::move(log)),
+          client_factory_(client_factory) {}
 
-    bool LoaderGrpc::sendBlockRequest(const std::string &dest_address,
+    bool LoaderGrpc::sendBlockRequest(const shared_model::interface::Peer &peer,
                                       const LoaderBlockRequest &height) {
       iroha::network::proto::BlockRequest request;
       request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
-      auto client = iroha::network::createClient<iroha::network::proto::Loader>(
-          dest_address);
+      auto client =
+          client_factory_->createClient<iroha::network::proto::Loader>(peer);
 
       const auto status = client->retrieveBlock(&context, request, &block);
       if (not status.ok()) {
@@ -36,14 +40,15 @@ namespace integration_framework {
       return true;
     }
 
-    size_t LoaderGrpc::sendBlocksRequest(const std::string &dest_address,
-                                         const LoaderBlocksRequest &height) {
+    size_t LoaderGrpc::sendBlocksRequest(
+        const shared_model::interface::Peer &peer,
+        const LoaderBlocksRequest &height) {
       iroha::network::proto::BlockRequest request;
       request.set_height(height);
       grpc::ClientContext context;
       iroha::protocol::Block block;
-      auto client = iroha::network::createClient<iroha::network::proto::Loader>(
-          dest_address);
+      auto client =
+          client_factory_->createClient<iroha::network::proto::Loader>(peer);
 
       auto reader = client->retrieveBlocks(&context, request);
       size_t num_read_blocks = 0;

@@ -64,6 +64,7 @@ namespace iroha {
     struct Round;
   }  // namespace consensus
   namespace network {
+    class GenericClientFactory;
     class MstTransportGrpc;
     class OrderingServiceTransport;
     class ServerRunner;
@@ -147,7 +148,9 @@ namespace integration_framework {
 
     /// Add a fake peer with given key.
     std::shared_ptr<fake_peer::FakePeer> addFakePeer(
-        const boost::optional<shared_model::crypto::Keypair> &key);
+        const boost::optional<shared_model::crypto::Keypair> &key,
+        boost::optional<shared_model::interface::types::TLSCertificateType>
+            tls_certificate = boost::none);
 
     /// Add the given amount of fake peers with generated default keys and
     /// "honest" behaviours.
@@ -535,10 +538,14 @@ namespace integration_framework {
         iroha::protocol::Proposal>>
         proposal_factory_;
     std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
+
+    std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
     boost::optional<shared_model::crypto::Keypair> my_key_;
+    boost::optional<shared_model::interface::types::TLSCertificateType>
+        my_tls_cert_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:

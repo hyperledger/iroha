@@ -9,8 +9,9 @@
 #include <grpcpp/support/status.h>
 #include "endpoint.grpc.pb.h"
 #include "framework/test_logger.hpp"
+#include "logger/logger_manager.hpp"
 #include "main/server_runner.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/channel_factory.hpp"
 #include "qry_responses.pb.h"
 #include "queries.pb.h"
 
@@ -44,9 +45,9 @@ namespace {
 
   auto makeRunner() {
     auto listen_addr = std::string(kListenIP) + ":0";
-    auto logger = getTestLogger("TestServerRunner");
+    auto logger_manager = getTestLoggerManager()->getChild("TestServerRunner");
     return std::make_shared<iroha::network::ServerRunner>(
-        listen_addr, logger, true);
+        listen_addr, logger_manager, true);
   }
 
   std::shared_ptr<iroha::network::ServerRunner> makeServer(int max_attempts,
@@ -64,8 +65,8 @@ namespace {
                                  grpc::StatusCode code,
                                  const std::string &message) {
     auto client =
-        iroha::network::createClient<iroha::protocol::QueryService_v1>(
-            std::string(kListenIP) + ":" + std::to_string(port));
+        iroha::network::createInsecureClient<iroha::protocol::QueryService_v1>(
+            kListenIP, port, *iroha::network::getDefaultChannelParams());
 
     iroha::protocol::Query query;
     iroha::protocol::QueryResponse response;

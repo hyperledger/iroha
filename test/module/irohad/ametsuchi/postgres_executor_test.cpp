@@ -289,6 +289,9 @@ namespace iroha {
 
       std::vector<std::string> query_args{peer->address(),
                                           peer->pubkey().hex()};
+      if (peer->tlsCertificate()) {
+        query_args.push_back(peer->tlsCertificate().value());
+      }
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 

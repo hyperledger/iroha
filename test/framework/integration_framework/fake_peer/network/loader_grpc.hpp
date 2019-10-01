@@ -10,33 +10,36 @@
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger_fwd.hpp"
+#include "network/impl/client_factory.hpp"
 
 namespace integration_framework {
   namespace fake_peer {
 
     class LoaderGrpc : public iroha::network::proto::Loader::Service {
      public:
-      explicit LoaderGrpc(const std::shared_ptr<FakePeer> &fake_peer,
-                          logger::LoggerPtr log);
+      explicit LoaderGrpc(
+          const std::shared_ptr<FakePeer> &fake_peer,
+          logger::LoggerPtr log,
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       /**
        * Send a `retrieveBlock' request to the peer at given address.
        *
-       * @param dest_address - the destination of the request.
+       * @param peer - the destination of the request.
        * @param request - the data of the request.
        * @return true if the grpc request succeeded, false otherwise.
        */
-      bool sendBlockRequest(const std::string &dest_address,
+      bool sendBlockRequest(const shared_model::interface::Peer &peer,
                             const LoaderBlockRequest &request);
 
       /**
        * Send a `retrieveBlocks' request to the peer at given address.
        *
-       * @param dest_address - the destination of the request.
+       * @param peer - the destination of the request.
        * @param request - the data of the request.
        * @return the number of received in reply blocks.
        */
-      size_t sendBlocksRequest(const std::string &dest_address,
+      size_t sendBlocksRequest(const shared_model::interface::Peer &peer,
                                const LoaderBlocksRequest &request);
 
       /// Get the observable of block requests.
@@ -66,6 +69,8 @@ namespace integration_framework {
       rxcpp::subjects::subject<LoaderBlocksRequest> blocks_requests_subject_;
 
       logger::LoggerPtr log_;
+
+      std::shared_ptr<iroha::network::GenericClientFactory> client_factory_;
     };
   }  // namespace fake_peer
 }  // namespace integration_framework

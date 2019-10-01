@@ -7,12 +7,14 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 add_library(server_runner
     server_runner.cpp
+    server_runner_auth.cpp
     )
 target_link_libraries(server_runner
     logger
     grpc++
     boost
     common
+    shared_model_cryptography_model
     )
 
 add_library(raw_block_loader impl/raw_block_loader.cpp)
@@ -47,6 +49,10 @@ add_library(application
     )
 target_link_libraries(application
     PRIVATE
+    grpc_channel_factory
+    grpc_channel_factory_tls
+    grpc_channel_pool
+    grpc_client_factory
     peer_tls_certificates_providers
     tls_credentials
     yac
@@ -81,6 +87,7 @@ target_link_libraries(irohad
     application
     raw_block_loader
     gflags
+    grpc_channel_factory
     rapidjson
     keys_manager
     common

@@ -16,37 +16,12 @@
 
 namespace iroha {
   namespace network {
+    class GenericClientFactory;
+
     /**
      * Initialization context of Block loader: loader itself and service
      */
     class BlockLoaderInit {
-     private:
-      /**
-       * Create block loader service with given storage
-       * @param block_query_factory - factory to block query component
-       * @param block_cache used to retrieve last block put by consensus
-       * @param loader_log - the log of the loader subsystem
-       * @return initialized service
-       */
-      auto createService(
-          std::shared_ptr<ametsuchi::BlockQueryFactory> block_query_factory,
-          std::shared_ptr<consensus::ConsensusResultCache> block_cache,
-          const logger::LoggerManagerTreePtr &loader_log_manager);
-
-      /**
-       * Create block loader for loading blocks from given peer factory by top
-       * block
-       * @param peer_query_factory - factory for peer query component creation
-       * @param validators_config - a config for underlying validators
-       * @param loader_log - the log of the loader subsystem
-       * @return initialized loader
-       */
-      auto createLoader(
-          std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory,
-          std::shared_ptr<shared_model::validation::ValidatorsConfig>
-              validators_config,
-          logger::LoggerPtr loader_log);
-
      public:
       /**
        * Initialize block loader with service and loader
@@ -55,6 +30,7 @@ namespace iroha {
        * @param block_cache used to retrieve last block put by consensus
        * @param validators_config - a config for underlying validators
        * @param loader_log - the log of the loader subsystem
+       * @param client_factory - a factory of client stubs
        * @return initialized service
        */
       std::shared_ptr<BlockLoader> initBlockLoader(
@@ -64,7 +40,8 @@ namespace iroha {
           std::shared_ptr<consensus::ConsensusResultCache> block_cache,
           std::shared_ptr<shared_model::validation::ValidatorsConfig>
               validators_config,
-          const logger::LoggerManagerTreePtr &loader_log_manager);
+          const logger::LoggerManagerTreePtr &loader_log_manager,
+          std::shared_ptr<iroha::network::GenericClientFactory> client_factory);
 
       std::shared_ptr<BlockLoaderImpl> loader;
       std::shared_ptr<BlockLoaderService> service;

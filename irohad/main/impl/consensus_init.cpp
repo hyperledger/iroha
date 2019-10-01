@@ -17,7 +17,7 @@
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "logger/logger_manager.hpp"
-#include "network/impl/grpc_channel_builder.hpp"
+#include "network/impl/client_factory.hpp"
 
 using namespace iroha::consensus;
 using namespace iroha::consensus::yac;
@@ -97,16 +97,18 @@ namespace iroha {
               iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
               async_call,
           ConsistencyModel consistency_model,
-          const logger::LoggerManagerTreePtr &consensus_log_manager) {
+          const logger::LoggerManagerTreePtr &consensus_log_manager,
+          std::shared_ptr<iroha::network::GenericClientFactory>
+              client_factory) {
         auto peer_orderer = createPeerOrderer(peer_query_factory);
         auto peers = peer_query_factory->createPeerQuery() |
             [](auto &&peer_query) { return peer_query->getLedgerPeers(); };
 
         consensus_network_ = std::make_shared<NetworkImpl>(
             async_call,
-            [](const shared_model::interface::Peer &peer) {
-              return network::createClient<proto::Yac>(peer.address());
-            },
+            std::make_unique<
+                iroha::network::ClientFactoryImpl<NetworkImpl::Service>>(
+                std::move(client_factory)),
             consensus_log_manager->getChild("Network")->getLogger());
 
         auto yac = createYac(*ClusterOrdering::create(peers.value()),

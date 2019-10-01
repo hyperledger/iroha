@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/ametsuchi/mock_client_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
@@ -74,7 +75,9 @@ namespace fuzzing {
           shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
               .publicKey(),
           logger::getDummyLoggerPtr(),
-          logger::getDummyLoggerPtr());
+          logger::getDummyLoggerPtr(),
+          std::make_unique<
+              iroha::network::MockClientFactory<MstTransportGrpc::Service>>());
     }
   };
 }  // namespace fuzzing

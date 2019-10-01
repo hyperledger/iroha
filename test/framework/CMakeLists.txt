@@ -8,6 +8,15 @@ target_link_libraries(test_subscriber_testing
     rxcpp
     )
 
+add_library(test_client_factory test_client_factory.cpp)
+target_link_libraries(test_client_factory
+    grpc_channel_pool
+    grpc_channel_factory
+    grpc_channel_factory_tls
+    grpc_client_factory
+    test_logger
+    )
+
 add_library(test_logger test_logger.cpp)
 target_link_libraries(test_logger
     logger
@@ -33,6 +42,7 @@ add_library(integration_framework
     )
 target_link_libraries(integration_framework
     PRIVATE
+    test_client_factory
     yac_transport
     PUBLIC
     application

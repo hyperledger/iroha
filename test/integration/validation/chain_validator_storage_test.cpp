@@ -20,6 +20,14 @@
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
     iroha::consensus::yac::ConsistencyModel::kBft;
 
+boost::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
+    shared_model::interface::types::TLSCertificateType{
+        R"(
+-----BEGIN CERTIFICATE-----
+verily I say unto you
+-----END CERTIFICATE-----
+)"};
+
 namespace iroha {
 
   class ChainValidatorStorageTest : public ametsuchi::AmetsuchiTest {
@@ -75,12 +83,12 @@ namespace iroha {
 
     /// Create first block with 4 peers, apply it to storage and return it
     auto generateAndApplyFirstBlock() {
-      auto tx =
-          completeTx(baseTx()
-                         .addPeer("0.0.0.0:50541", keys.at(0).publicKey())
-                         .addPeer("0.0.0.0:50542", keys.at(1).publicKey())
-                         .addPeer("0.0.0.0:50543", keys.at(2).publicKey())
-                         .addPeer("0.0.0.0:50544", keys.at(3).publicKey()));
+      auto tx = completeTx(
+          baseTx()
+              .addPeer("0.0.0.0:50541", keys.at(0).publicKey(), kTlsCert)
+              .addPeer("0.0.0.0:50542", keys.at(1).publicKey(), kTlsCert)
+              .addPeer("0.0.0.0:50543", keys.at(2).publicKey(), kTlsCert)
+              .addPeer("0.0.0.0:50544", keys.at(3).publicKey(), kTlsCert));
 
       auto block = completeBlock(
           baseBlock({tx},
@@ -128,8 +136,8 @@ namespace iroha {
   TEST_F(ChainValidatorStorageTest, PeerAdded) {
     auto block1 = generateAndApplyFirstBlock();
 
-    auto add_peer =
-        completeTx(baseTx().addPeer("0.0.0.0:50545", keys.at(4).publicKey()));
+    auto add_peer = completeTx(
+        baseTx().addPeer("0.0.0.0:50545", keys.at(4).publicKey(), kTlsCert));
     auto block2 = completeBlock(baseBlock({add_peer}, 2, block1->hash())
                                     .signAndAddSignature(keys.at(0))
                                     .signAndAddSignature(keys.at(1))

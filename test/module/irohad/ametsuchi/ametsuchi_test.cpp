@@ -38,6 +38,14 @@ namespace shared_model {
   }  // namespace interface
 }  // namespace shared_model
 
+boost::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
+    shared_model::interface::types::TLSCertificateType{
+        R"(
+-----BEGIN CERTIFICATE-----
+I'll eat my hat.
+-----END CERTIFICATE-----
+)"};
+
 /**
  * Validate getAccountAsset with given parameters
  * @tparam W WSV query type
@@ -151,7 +159,7 @@ TEST_F(AmetsuchiTest, PeerTest) {
 
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(TestTransactionBuilder()
-                    .addPeer("192.168.9.1:50051", fake_pubkey)
+                    .addPeer("192.168.9.1:50051", fake_pubkey, kTlsCert)
                     .build());
 
   auto block = createBlock(txs, 1, fake_hash);
@@ -334,7 +342,7 @@ std::shared_ptr<const shared_model::interface::Block> getBlock() {
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId("adminone")
-                    .addPeer("192.168.0.0:10001", fake_pubkey)
+                    .addPeer("192.168.0.0:10001", fake_pubkey, kTlsCert)
                     .build());
 
   auto block = createBlock(txs, 1, fake_hash);

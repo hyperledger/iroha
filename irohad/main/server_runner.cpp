@@ -10,7 +10,10 @@
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
+#include "logger/logger_manager.hpp"
+#include "main/server_runner_auth.hpp"
 #include "network/impl/tls_credentials.hpp"
+#include "network/peer_tls_certificates_provider.hpp"
 
 using namespace iroha::network;
 
@@ -20,17 +23,27 @@ namespace {
 
   std::shared_ptr<grpc::ServerCredentials> createCredentials(
       const boost::optional<std::shared_ptr<const TlsCredentials>>
-          &my_tls_creds) {
+          &my_tls_creds,
+      const boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
+          &peer_tls_certificates_provider,
+      logger::LoggerPtr log) {
     if (not my_tls_creds) {
       return grpc::InsecureServerCredentials();
     }
     auto options = grpc::SslServerCredentialsOptions(
-        GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE);
+        peer_tls_certificates_provider
+            ? GRPC_SSL_REQUEST_AND_REQUIRE_CLIENT_CERTIFICATE_BUT_DONT_VERIFY
+            : GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE);
     grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
         my_tls_creds.value()->private_key, my_tls_creds.value()->certificate};
     options.pem_key_cert_pairs.push_back(keypair);
     std::shared_ptr<grpc::ServerCredentials> credentials =
         grpc::SslServerCredentials(options);
+    if (peer_tls_certificates_provider) {
+      credentials->SetAuthMetadataProcessor(
+          std::make_shared<PeerCertificateAuthMetadataProcessor>(
+              peer_tls_certificates_provider.value(), std::move(log)));
+    }
     return credentials;
   }
 
@@ -38,12 +51,17 @@ namespace {
 
 ServerRunner::ServerRunner(
     const std::string &address,
-    logger::LoggerPtr log,
+    logger::LoggerManagerTreePtr log_manager,
     bool reuse,
-    const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds)
-    : log_(std::move(log)),
+    const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds,
+    const boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
+        &peer_tls_certificates_provider)
+    : log_(log_manager->getLogger()),
       server_address_(address),
-      credentials_(createCredentials(my_tls_creds)),
+      credentials_(createCredentials(
+          my_tls_creds,
+          peer_tls_certificates_provider,
+          log_manager->getChild("AuthMetaProcessor")->getLogger())),
       reuse_(reuse) {}
 
 ServerRunner::~ServerRunner() {
