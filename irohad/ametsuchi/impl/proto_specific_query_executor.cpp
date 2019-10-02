@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/proto_specific_query_executor.h"
 
+#include <boost/variant.hpp>
 #include "ametsuchi/specific_query_executor.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"

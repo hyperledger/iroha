@@ -12,6 +12,7 @@
 #include <boost/mpl/copy.hpp>
 #include <boost/mpl/count.hpp>
 #include <boost/mpl/find.hpp>
+#include <boost/mpl/vector.hpp>
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"

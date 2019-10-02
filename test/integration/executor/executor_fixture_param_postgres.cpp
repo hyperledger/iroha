@@ -100,11 +100,8 @@ namespace {
 
   ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager) {
     ExecutorItfTarget target;
-    target.command_executor = std::make_shared<PostgresCommandExecutor>(
-        db_manager.getSession(),
-        std::make_shared<shared_model::proto::ProtoPermissionToString>());
-    target.query_executor =
-        std::make_unique<PostgresSpecificQueryExecutorWrapper>(
+    auto postgres_query_executor =
+        std::make_shared<PostgresSpecificQueryExecutorWrapper>(
             db_manager.getSession(),
             std::make_unique<MockBlockStorage>(),
             std::make_shared<MockPendingTransactionStorage>(),
@@ -113,6 +110,11 @@ namespace {
             getTestLoggerManager()
                 ->getChild("SpecificQueryExecutor")
                 ->getLogger());
+    target.command_executor = std::make_shared<PostgresCommandExecutor>(
+        db_manager.getSession(),
+        std::make_shared<shared_model::proto::ProtoPermissionToString>(),
+        postgres_query_executor);
+    target.query_executor = std::move(postgres_query_executor);
     return target;
   }
 

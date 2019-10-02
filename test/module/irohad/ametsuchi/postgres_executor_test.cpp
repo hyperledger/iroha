@@ -55,14 +55,13 @@ namespace iroha {
       void SetUp() override {
         AmetsuchiTest::SetUp();
 
-        auto sql = std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                                   pgopt_);
         wsv_query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
 
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
         executor = std::make_unique<PostgresCommandExecutor>(
-            std::move(sql),
+            std::make_unique<soci::session>(*soci::factory_postgresql(),
+                                            pgopt_),
             perm_converter,
             std::make_shared<PostgresSpecificQueryExecutor>(
                 *sql,
