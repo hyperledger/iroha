@@ -385,6 +385,30 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls>(
   assert_fatal(src.IsObject(), path + " must be a dictionary");
   const auto obj = src.GetObject();
   getValByKey(path, dest.my_tls_creds_path, obj, config_members::KeyPairPath);
+  getValByKey(
+      path, dest.peer_certificates, obj, config_members::PeerCertProvider);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls::PeerCertProvider>(
+    const std::string &path,
+    IrohadConfig::InterPeerTls::PeerCertProvider &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::RootCert) {
+    IrohadConfig::InterPeerTls::RootCert root_cert;
+    getValByKey(path, root_cert.path, obj, config_members::Path);
+    dest = std::move(root_cert);
+  } else if (type == config_members::InLengerCerts) {
+    dest = IrohadConfig::InterPeerTls::FromWsv{};
+  } else {
+    throw std::runtime_error{std::string{
+        "Unimplemented peer certificate provider type: '" + type + "'"}};
+  }
 }
 
 template <>
