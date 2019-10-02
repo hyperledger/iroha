@@ -14,6 +14,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -21,7 +22,6 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
-#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
@@ -31,9 +31,11 @@
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
+#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/transaction.hpp"
 #include "validators/abstract_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
+#include "validators/validators_common.hpp"
 
 namespace shared_model {
   namespace validation {
@@ -79,13 +81,16 @@ namespace shared_model {
       }
 
       std::optional<ValidationError> operator()(
-          const interface::EngineCall &engine_call) const {
-        return aggregateErrors(
-            "EngineCall",
-            {},
-            // TODO(IvanTyulyandin): these functions are mocks
-            {validator_.validateCallee(engine_call.callee()),
-             validator_.validateBytecode(engine_call.input())});
+          const interface::CallEngine &call_engine) const {
+        ValidationErrorCreator error_creator;
+        error_creator |= validator_.validateAccountId(call_engine.caller());
+        if (call_engine.callee()) {
+          error_creator |=
+              validator_.validateEvmHexAddress(call_engine.callee().value());
+        }
+        error_creator |= validator_.validateBytecode(
+            interface::types::EvmCodeHexStringView{call_engine.input()});
+        return std::move(error_creator).getValidationError("CallEngine");
       }
 
       std::optional<ValidationError> operator()(
