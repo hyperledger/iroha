@@ -17,14 +17,14 @@ import (
 )
 
 var (
-	assetBalanceAddress       = crypto.MustAddressFromHexString("200ffd74ede8735cdb03c8327d93244a9040571a")
-	otherAssetBalanceAddress  = crypto.MustAddressFromHexString("c1850043a380abc52cd715a99d3e3225cf347ddc")
-	assetTransferAddress      = crypto.MustAddressFromHexString("d06d3d6774374e536e39380239fa0e248ae0cb69")
-	otherAssetTransferAddress = crypto.MustAddressFromHexString("67828520a9669a43d57bb391c667cb1b209e6c78")
-	a0                        = binary.LeftPadWord256(hex.MustDecodeString("833ecd8e2c588c5ea5c03d7418b94f78e901da8b2ab6935e9cb068b5672ab7b1"))
-	a1                        = binary.LeftPadWord256(hex.MustDecodeString("37d3424576bafb5fd5f9f8e99478f66780477fcd8d71cb2319b37a64a01640db"))
-	a2                        = binary.LeftPadWord256(hex.MustDecodeString("a2060faa0fc5697bc282c626d908a989dc0d2b79270a5cdc58fbc0ab74c35faf"))
-	trimCutSet                = string([]byte{0})
+	assetBalanceAddress       crypto.Address
+	otherAssetBalanceAddress  crypto.Address
+	assetTransferAddress      crypto.Address
+	otherAssetTransferAddress crypto.Address
+	a0                        binary.Word256
+	a1                        binary.Word256
+	a2                        binary.Word256
+	trimCutSet                string
 )
 
 type State struct {
@@ -38,8 +38,6 @@ type State struct {
 	error errors.CodedError
 	// In order for nested cache to inherit any options
 	cacheOptions []acmstate.CacheOption
-	// Service contracts addresses
-	assetBalanceAddress crypto.Address
 }
 
 func NewState(st acmstate.ReaderWriter, blockHashGetter func(height uint64) []byte, cacheOptions ...acmstate.CacheOption) *State {
@@ -48,10 +46,6 @@ func NewState(st acmstate.ReaderWriter, blockHashGetter func(height uint64) []by
 		blockHashGetter: blockHashGetter,
 		cache:           acmstate.NewCache(st, cacheOptions...),
 		cacheOptions:    cacheOptions,
-		// assetBalanceAddress:       crypto.MustAddressFromBytes(hex.MustDecodeString(assetBalanceAddressString)),
-		// otherAssetBalanceAddress:  crypto.MustAddressFromBytes(hex.MustDecodeString(otherAssetBalanceAddressString)),
-		// assetTransferAddress:      crypto.MustAddressFromBytes(hex.MustDecodeString(assetTransferAddressString)),
-		// otherAssetTransferAddress: crypto.MustAddressFromBytes(hex.MustDecodeString(otherAssetTransferAddressString)),
 	}
 }
 
@@ -516,4 +510,16 @@ func (st *State) removeAccount(address crypto.Address) {
 	if err != nil {
 		st.PushError(err)
 	}
+}
+
+// package init function
+func init() {
+	assetBalanceAddress, _ = crypto.AddressFromHexString("200ffd74ede8735cdb03c8327d93244a9040571a")
+	otherAssetBalanceAddress, _ = crypto.AddressFromHexString("c1850043a380abc52cd715a99d3e3225cf347ddc")
+	assetTransferAddress, _ = crypto.AddressFromHexString("d06d3d6774374e536e39380239fa0e248ae0cb69")
+	otherAssetTransferAddress, _ = crypto.AddressFromHexString("67828520a9669a43d57bb391c667cb1b209e6c78")
+	a0 = binary.LeftPadWord256(hex.MustDecodeString("833ecd8e2c588c5ea5c03d7418b94f78e901da8b2ab6935e9cb068b5672ab7b1"))
+	a1 = binary.LeftPadWord256(hex.MustDecodeString("37d3424576bafb5fd5f9f8e99478f66780477fcd8d71cb2319b37a64a01640db"))
+	a2 = binary.LeftPadWord256(hex.MustDecodeString("a2060faa0fc5697bc282c626d908a989dc0d2b79270a5cdc58fbc0ab74c35faf"))
+	trimCutSet = string([]byte{0})
 }
