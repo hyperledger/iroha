@@ -12,7 +12,9 @@
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
 
+#include "commands.pb.h"
 #include "datetime/time.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "primitive.pb.h"
 #include "queries.pb.h"
@@ -100,8 +102,17 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
         {"iroha.protocol.TransferAsset.amount", setString(amount)},
         {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
-        {"iroha.protocol.EngineCall.callee", setString(callee)},
-        {"iroha.protocol.EngineCall.input", setString(input)},
+        {"iroha.protocol.CallEngine.type", setEnum(engine_type)},
+        {"iroha.protocol.CallEngine.caller", setString(account_id)},
+        {"iroha.protocol.CallEngine.callee",
+         [this](auto refl, auto msg, auto field) {
+           if (callee) {
+             refl->SetString(msg, field, callee.value());
+           } else {
+             refl->ClearOneof(msg, field->containing_oneof());
+           }
+         }},
+        {"iroha.protocol.CallEngine.input", setString(input)},
         {"iroha.protocol.AddPeer.peer",
          [&](auto refl, auto msg, auto field) {
            refl->MutableMessage(msg, field)->CopyFrom(peer);
@@ -243,13 +254,16 @@ class ValidatorsTest : public ::testing::Test {
     domain_id = "ru";
     detail_key = "key";
     writer = "account@domain";
-    callee = "smartContractWillAddressTo";
-    input = "606060405260a18060106000396000f360606040526000357c01000000000000000"
-           "0000000000000000000000000000000000000000090048063d46300fd1460435780"
-           "63ee919d5014606857603f565b6002565b34600257605260048050506082565b604"
-           "0518082815260200191505060405180910390f35b34600257608060048080359060"
-           "200190919050506093565b005b600060006000505490506090565b90565b8060006"
-           "00050819055505b5056";
+    callee = std::string(40, 'a');
+    engine_type = iroha::protocol::CallEngine::EngineType::
+        CallEngine_EngineType_kSolidity;
+    input =
+        "606060405260a18060106000396000f360606040526000357c01000000000000000"
+        "0000000000000000000000000000000000000000090048063d46300fd1460435780"
+        "63ee919d5014606857603f565b6002565b34600257605260048050506082565b604"
+        "0518082815260200191505060405180910390f35b34600257608060048080359060"
+        "200190919050506093565b005b600060006000505490506090565b90565b8060006"
+        "00050819055505b5056";
     // size of public_key and hash are twice bigger `public_key_size` because it
     // is hex representation
     public_key = std::string(public_key_size * 2, '0');
@@ -287,8 +301,9 @@ class ValidatorsTest : public ::testing::Test {
   std::string public_key;
   std::string hash;
   std::string writer;
-  std::string callee;
-  std::string input;
+  std::optional<std::string> callee;
+  iroha::protocol::CallEngine::EngineType engine_type;
+  shared_model::interface::types::EvmCodeHexString input;
   iroha::protocol::Transaction::Payload::BatchMeta batch_meta;
   shared_model::interface::permissions::Role model_role_permission;
   shared_model::interface::permissions::Grantable model_grantable_permission;

@@ -7,6 +7,7 @@
 
 #include <forward_list>
 
+#include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
@@ -18,6 +19,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -25,7 +27,6 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
-#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
@@ -1459,9 +1460,23 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::EngineCall &command,
+        const shared_model::interface::CallEngine &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
+      {  // check permissions
+        int has_permission = 0;
+        using namespace shared_model::interface::permissions;
+        *sql_ << fmt::format(
+            "select count(1) from (({}) union ({})) t",
+            checkAccountRolePermission(Role::kCallEngine, ":creator"),
+            checkAccountGrantablePermission(
+                Grantable::kCallEngineOnMyBehalf, ":creator", ":caller")),
+            soci::use(creator_account_id, "creator"),
+            soci::use(command.caller(), "caller"), soci::into(has_permission);
+        if (has_permission == 0) {
+          return makeCommandError("CallEngine", 2, "Not enough permissions.");
+        }
+      }
       return {};
     }
 

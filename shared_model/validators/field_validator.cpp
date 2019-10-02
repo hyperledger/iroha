@@ -6,6 +6,7 @@
 #include "validators/field_validator.hpp"
 
 #include <limits>
+#include <string_view>
 
 #include <fmt/core.h>
 #include <boost/algorithm/string_regex.hpp>
@@ -102,6 +103,8 @@ namespace {
   const RegexValidator kAccountDetailKeyValidator{"DetailKey",
                                                   R"([A-Za-z0-9_]{1,64})"};
   const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kHexValidator{
+      "Hex", R"#(([0-9a-fA-F][0-9a-fA-F])*)#", "Hex encoded string expected"};
   const RegexValidator kPublicKeyHexValidator{
       "PublicKeyHex",
       fmt::format("[A-Fa-f0-9]{{1,{}}}",
@@ -110,11 +113,10 @@ namespace {
       "SignatureHex",
       fmt::format("[A-Fa-f0-9]{{1,{}}}",
                   shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
-  const RegexValidator kHexValidator{
-    "Hex", 
-    R"#(([0-9a-fA-F][0-9a-fA-F])*)#",
-    "Hex encoded string expected"
-  };
+  const RegexValidator kEvmAddressValidator{
+      "EvmHexAddress",
+      R"#([0-9a-fA-F]{40})#",
+      "Hex encoded 20-byte address expected"};
 }  // namespace
 
 namespace shared_model {
@@ -136,23 +138,15 @@ namespace shared_model {
       return kAssetIdValidator.validate(asset_id);
     }
 
-    std::optional<ValidationError> FieldValidator::validateCallee(
-        const interface::types::AccountIdType &callee) const {
-      // TODO(IvanTyulyandin): add callee validator
-      // this is mock for tests to be passed
-      // consider accountId validation method to call
-      if (callee.empty()) {
-        return ValidationError(
-          "EngineCall", {"Smart contract callee must be specified"});
-      }
-      return boost::none;
+    std::optional<ValidationError> FieldValidator::validateEvmHexAddress(
+        std::string_view address) const {
+      return kEvmAddressValidator.validate(address);
     }
 
     std::optional<ValidationError> FieldValidator::validateBytecode(
-        const interface::types::SmartContractCodeType &input) const {
-      // TODO(IvanTyulyandin): add code validator
-      // this is mock for tests to be passed
-      return kHexValidator.validate(input);
+        interface::types::EvmCodeHexStringView input) const {
+      return kHexValidator.validate(
+          static_cast<std::string_view const &>(input));
     }
 
     std::optional<ValidationError> FieldValidator::validatePeer(

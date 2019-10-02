@@ -20,7 +20,6 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
-#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
@@ -56,12 +55,6 @@ namespace shared_model {
     struct MockAddSignatory : public shared_model::interface::AddSignatory {
       MOCK_CONST_METHOD0(pubkey, const std::string &());
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
-    };
-
-    struct MockEngineCall : public shared_model::interface::EngineCall {
-      MOCK_CONST_METHOD0(callee, const types::AccountIdType &());
-      MOCK_CONST_METHOD0(input, const types::SmartContractCodeType &());
-      MOCK_CONST_METHOD0(clone, MockEngineCall *());
     };
 
     struct MockAppendRole : public shared_model::interface::AppendRole {

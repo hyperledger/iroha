@@ -72,21 +72,6 @@ namespace shared_model {
           });
     }
 
-    MockCommandFactory::FactoryResult<MockEngineCall>
-    MockCommandFactory::constructEngineCall(
-        const types::AccountIdType &callee,
-        const types::SmartContractCodeType &input) const {
-      return createFactoryResult<MockEngineCall>(
-          [&callee, &input]
-          (FactoryResult<MockEngineCall> specific_cmd_mock) {
-            ON_CALL(*specific_cmd_mock, callee())
-                .WillByDefault(ReturnRefOfCopy(callee));
-            ON_CALL(*specific_cmd_mock, input())
-                .WillByDefault(ReturnRefOfCopy(input));
-            return specific_cmd_mock;
-          });
-    }
-
     MockCommandFactory::FactoryResult<MockAppendRole>
     MockCommandFactory::constructAppendRole(
         const types::AccountIdType &account_id,

@@ -16,8 +16,8 @@ namespace shared_model {
     class AddAssetQuantity;
     class AddPeer;
     class AddSignatory;
-    class EngineCall;
     class AppendRole;
+    class CallEngine;
     class CreateAccount;
     class CreateAsset;
     class CreateDomain;
@@ -49,7 +49,6 @@ namespace shared_model {
       using CommandVariantType = wrap<AddAssetQuantity,
                                       AddPeer,
                                       AddSignatory,
-                                      EngineCall,
                                       AppendRole,
                                       CreateAccount,
                                       CreateAsset,
@@ -65,7 +64,8 @@ namespace shared_model {
                                       TransferAsset,
                                       RemovePeer,
                                       CompareAndSetAccountDetail,
-                                      SetSettingValue>;
+                                      SetSettingValue,
+                                      CallEngine>;
 
       /**
        * @return reference to const variant with concrete command

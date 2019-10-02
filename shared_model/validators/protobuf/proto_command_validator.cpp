@@ -37,6 +37,17 @@ namespace shared_model {
           return aggregateErrors(
               "AddSignatory", {}, {validatePublicKey(as.public_key())});
         }
+        case iroha::protocol::Command::kCallEngine: {
+          const auto &cmd = command.call_engine();
+          using EngineType = iroha::protocol::CallEngine::EngineType;
+          switch (cmd.type()) {
+            case EngineType::CallEngine_EngineType_kSolidity:
+              break;
+            default:
+              return ValidationError{"CallEngine", {"Unknown engine type."}};
+          }
+          return std::nullopt;
+        }
         case iroha::protocol::Command::kCreateAccount: {
           const auto &ca = command.create_account();
           return aggregateErrors(

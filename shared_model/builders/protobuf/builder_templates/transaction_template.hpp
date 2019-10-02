@@ -16,7 +16,9 @@
 
 #include "backend/protobuf/permissions.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
+#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/engine_type.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/default_validator.hpp"
@@ -190,18 +192,18 @@ namespace shared_model {
         });
       }
 
-      auto addSmartContract(
-          const interface::types::AccountIdType &callee,
-          const interface::types::SmartContractCodeType &input) const {
-        return addSmartContractRaw(callee, input);
-      }
-
-      auto addSmartContractRaw(
-          const interface::types::AccountIdType &callee,
-          const interface::types::SmartContractCodeType &input) const {
+      auto callEngine(
+          const interface::types::AccountIdType &caller,
+          std::optional<interface::types::EvmCalleeHexString> callee,
+          const interface::types::EvmCodeHexString &input) const {
         return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_engine_call();
-          command->set_callee(callee);
+          auto command = proto_command->mutable_call_engine();
+          command->set_type(iroha::protocol::CallEngine::EngineType::
+                                CallEngine_EngineType_kSolidity);
+          command->set_caller(caller);
+          if (callee) {
+            command->set_callee(callee.value());
+          }
           command->set_input(input);
         });
       }

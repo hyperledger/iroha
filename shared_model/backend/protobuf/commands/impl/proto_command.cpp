@@ -9,13 +9,13 @@
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
 #include "backend/protobuf/commands/proto_append_role.hpp"
+#include "backend/protobuf/commands/proto_call_engine.hpp"
 #include "backend/protobuf/commands/proto_compare_and_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_create_account.hpp"
 #include "backend/protobuf/commands/proto_create_asset.hpp"
 #include "backend/protobuf/commands/proto_create_domain.hpp"
 #include "backend/protobuf/commands/proto_create_role.hpp"
 #include "backend/protobuf/commands/proto_detach_role.hpp"
-#include "backend/protobuf/commands/proto_engine_call.hpp"
 #include "backend/protobuf/commands/proto_grant_permission.hpp"
 #include "backend/protobuf/commands/proto_remove_peer.hpp"
 #include "backend/protobuf/commands/proto_remove_signatory.hpp"
@@ -33,7 +33,6 @@ namespace {
       ::boost::variant<shared_model::proto::AddAssetQuantity,
                        shared_model::proto::AddPeer,
                        shared_model::proto::AddSignatory,
-                       shared_model::proto::EngineCall,
                        shared_model::proto::AppendRole,
                        shared_model::proto::CreateAccount,
                        shared_model::proto::CreateAsset,
@@ -49,7 +48,8 @@ namespace {
                        shared_model::proto::TransferAsset,
                        shared_model::proto::RemovePeer,
                        shared_model::proto::CompareAndSetAccountDetail,
-                       shared_model::proto::SetSettingValue>;
+                       shared_model::proto::SetSettingValue,
+                       shared_model::proto::CallEngine>;
 
   /// list of types in proto variant
   using ProtoCommandListType = ProtoCommandVariantType::types;

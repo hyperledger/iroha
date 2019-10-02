@@ -32,6 +32,10 @@ namespace shared_model {
         return std::nullopt;
       }
       template <typename... Args>
+      std::optional<ValidationError> validateEvmHexAddress(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
       std::optional<ValidationError> validatePeer(Args...) const {
         return std::nullopt;
       }
