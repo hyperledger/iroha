@@ -16,6 +16,7 @@
 #include "logger/logger_manager_fwd.hpp"
 #include "main/impl/block_loader_init.hpp"
 #include "main/impl/on_demand_ordering_init.hpp"
+#include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
@@ -43,6 +44,7 @@ namespace iroha {
     class PeerCommunicationService;
     class MstTransport;
     class OrderingGate;
+    struct TlsCredentials;
   }  // namespace network
   namespace simulator {
     class Simulator;
@@ -105,6 +107,7 @@ class Irohad {
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    * @param torii_tls_params - optional TLS params for torii.
    * @see iroha::torii::TlsParams
+   * @param inter_peer_tls_config - set up TLS in peer-to-peer communication
    */
   Irohad(const boost::optional<std::string> &block_store_dir,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
@@ -124,6 +127,8 @@ class Irohad {
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none,
          const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+             boost::none,
+         boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
              boost::none);
 
   /**
@@ -154,6 +159,8 @@ class Irohad {
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
       std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
+
+  RunResult initTlsCredentials();
 
   virtual RunResult initCryptoProvider();
 
@@ -217,6 +224,12 @@ class Irohad {
       opt_alternative_peers_;
   boost::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
+  boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
+
+  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
+      my_inter_peer_tls_creds_;
+  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
+      torii_tls_creds_;
 
   std::unique_ptr<iroha::PendingTransactionStorageInit>
       pending_txs_storage_init;
@@ -340,9 +353,10 @@ class Irohad {
   rxcpp::subjects::subject<iroha::consensus::GateObject> consensus_gate_objects;
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
-  std::unique_ptr<ServerRunner> torii_server;
-  boost::optional<std::unique_ptr<ServerRunner>> torii_tls_server = boost::none;
-  std::unique_ptr<ServerRunner> internal_server;
+  std::unique_ptr<iroha::network::ServerRunner> torii_server;
+  boost::optional<std::unique_ptr<iroha::network::ServerRunner>>
+      torii_tls_server = boost::none;
+  std::unique_ptr<iroha::network::ServerRunner> internal_server;
 
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager
 

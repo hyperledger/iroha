@@ -45,10 +45,12 @@ namespace {
   auto makeRunner() {
     auto listen_addr = std::string(kListenIP) + ":0";
     auto logger = getTestLogger("TestServerRunner");
-    return std::make_shared<ServerRunner>(listen_addr, logger, true);
+    return std::make_shared<iroha::network::ServerRunner>(
+        listen_addr, logger, true);
   }
 
-  std::shared_ptr<ServerRunner> makeServer(int max_attempts, int &port) {
+  std::shared_ptr<iroha::network::ServerRunner> makeServer(int max_attempts,
+                                                           int &port) {
     auto runner = makeRunner();
     runner->append(std::make_shared<MockQueryService>(max_attempts));
     runner->run().match([&](const auto &val) { port = val.value; },

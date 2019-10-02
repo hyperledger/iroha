@@ -40,3 +40,10 @@ add_library(ordering_gate_common
 target_link_libraries(ordering_gate_common
     boost
     )
+
+add_library(tls_credentials
+    impl/tls_credentials.cpp
+    )
+target_link_libraries(tls_credentials
+    common
+    )
