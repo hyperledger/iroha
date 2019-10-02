@@ -8,21 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetSignatories::GetSignatories(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          account_signatories_{proto_->payload().get_signatories()} {}
-
-    template GetSignatories::GetSignatories(GetSignatories::TransportType &);
-    template GetSignatories::GetSignatories(
-        const GetSignatories::TransportType &);
-    template GetSignatories::GetSignatories(GetSignatories::TransportType &&);
-
-    GetSignatories::GetSignatories(const GetSignatories &o)
-        : GetSignatories(o.proto_) {}
-
-    GetSignatories::GetSignatories(GetSignatories &&o) noexcept
-        : GetSignatories(std::move(o.proto_)) {}
+    GetSignatories::GetSignatories(iroha::protocol::Query &query)
+        : account_signatories_{query.payload().get_signatories()} {}
 
     const interface::types::AccountIdType &GetSignatories::accountId() const {
       return account_signatories_.account_id();

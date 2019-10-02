@@ -8,22 +8,16 @@
 
 #include "interfaces/queries/get_pending_transactions.hpp"
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include <boost/optional.hpp>
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
     class GetPendingTransactions final
-        : public TrivialProto<interface::GetPendingTransactions,
-                              iroha::protocol::Query> {
+        : public interface::GetPendingTransactions {
      public:
-      template <typename QueryType>
-      explicit GetPendingTransactions(QueryType &&query);
-
-      GetPendingTransactions(const GetPendingTransactions &o);
-
-      GetPendingTransactions(GetPendingTransactions &&o) noexcept;
+      explicit GetPendingTransactions(iroha::protocol::Query &query);
 
       boost::optional<const interface::TxPaginationMeta &> paginationMeta()
           const override;
