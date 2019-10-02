@@ -7,7 +7,6 @@ set(EXECUTABLE_OUTPUT_PATH ${PROJECT_BINARY_DIR}/bin)
 
 add_library(server_runner
     server_runner.cpp
-    tls_keypair.cpp
     )
 target_link_libraries(server_runner
     logger
@@ -48,6 +47,7 @@ add_library(application
     )
 target_link_libraries(application
     PRIVATE
+    tls_credentials
     yac
     yac_transport
     PUBLIC

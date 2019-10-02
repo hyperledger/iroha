@@ -41,6 +41,7 @@
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
+#include "network/impl/tls_credentials.hpp"
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"
@@ -81,24 +82,26 @@ static constexpr iroha::consensus::yac::ConsistencyModel
 /**
  * Configuring iroha daemon
  */
-Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
-               std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
-               const std::string &listen_ip,
-               size_t torii_port,
-               size_t internal_port,
-               size_t max_proposal_size,
-               std::chrono::milliseconds proposal_delay,
-               std::chrono::milliseconds vote_delay,
-               std::chrono::minutes mst_expiration_time,
-               const shared_model::crypto::Keypair &keypair,
-               std::chrono::milliseconds max_rounds_delay,
-               size_t stale_stream_max_rounds,
-               boost::optional<shared_model::interface::types::PeerList>
-                   opt_alternative_peers,
-               logger::LoggerManagerTreePtr logger_manager,
-               const boost::optional<GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params,
-               const boost::optional<iroha::torii::TlsParams> &torii_tls_params)
+Irohad::Irohad(
+    const boost::optional<std::string> &block_store_dir,
+    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
+    const std::string &listen_ip,
+    size_t torii_port,
+    size_t internal_port,
+    size_t max_proposal_size,
+    std::chrono::milliseconds proposal_delay,
+    std::chrono::milliseconds vote_delay,
+    std::chrono::minutes mst_expiration_time,
+    const shared_model::crypto::Keypair &keypair,
+    std::chrono::milliseconds max_rounds_delay,
+    size_t stale_stream_max_rounds,
+    boost::optional<shared_model::interface::types::PeerList>
+        opt_alternative_peers,
+    logger::LoggerManagerTreePtr logger_manager,
+    const boost::optional<GossipPropagationStrategyParams>
+        &opt_mst_gossip_params,
+    const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
+    boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
     : block_store_dir_(block_store_dir),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
@@ -113,6 +116,7 @@ Irohad::Irohad(const boost::optional<std::string> &block_store_dir,
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
+      inter_peer_tls_config_(std::move(inter_peer_tls_config)),
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       keypair(keypair),
@@ -150,6 +154,7 @@ Irohad::RunResult Irohad::init() {
                                       // to be sure it is consistent
   }
   | [this]{ return restoreWsv();}
+  | [this]{ return initTlsCredentials();}
   | [this]{ return initCryptoProvider();}
   | [this]{ return initBatchParser();}
   | [this]{ return initValidators();}
@@ -314,6 +319,38 @@ Irohad::RunResult Irohad::restoreWsv() {
     }
     return {};
   };
+}
+
+/**
+ * Initializing own TLS credentials.
+ */
+Irohad::RunResult Irohad::initTlsCredentials() {
+  const auto &p2p_path = inter_peer_tls_config_ |
+      [](const auto &p2p_config) { return p2p_config.my_tls_creds_path; };
+  const auto &torii_path = torii_tls_params_ | [](const auto &torii_config) {
+    return boost::make_optional(torii_config.key_path);
+  };
+
+  auto load_tls_creds = [this](const auto &opt_path,
+                               const auto &description,
+                               auto &destination) -> RunResult {
+    if (opt_path) {
+      return TlsCredentials::load(opt_path.value()) |
+                 [&](auto &&tls_creds) -> RunResult {
+        destination = std::move(tls_creds);
+        return {};
+        log_->debug("Loaded my {} TLS credentials from '{}'.",
+                    description,
+                    opt_path.value());
+      };
+    }
+    return {};
+  };
+
+  return load_tls_creds(p2p_path, "inter peer", my_inter_peer_tls_creds_) |
+      [&, this] {
+        return load_tls_creds(torii_path, "torii", this->torii_tls_creds_);
+      };
 }
 
 /**
@@ -848,27 +885,20 @@ Irohad::RunResult Irohad::run() {
       | make_port_logger("Torii");
 
   // Run torii TLS server
-  if (torii_tls_params_) {
-    auto tls_keypair =
-        TlsKeypairFactory().readFromFiles(torii_tls_params_->key_path);
-    if (not tls_keypair) {
-      return expected::makeError("Failed to read TLS keypair from "
-                                 + torii_tls_params_->key_path);
-    }
-
+  torii_tls_creds_ | [&, this](const auto &tls_creds) {
     run_result |= [&, this] {
       torii_tls_server = std::make_unique<ServerRunner>(
           listen_ip_ + ":" + std::to_string(torii_tls_params_->port),
           log_manager_->getChild("ToriiTlsServerRunner")->getLogger(),
           false,
-          tls_keypair);
+          tls_creds);
       return (*torii_tls_server)
                  ->append(command_service_transport)
                  .append(query_service)
                  .run()
           | make_port_logger("Torii TLS");
     };
-  }
+  };
 
   // Run internal server
   run_result |= [&, this] {
