@@ -899,7 +899,7 @@ TEST_F(FieldValidatorTest, QueryContainerFieldsValidation) {
         // Skip oneof types
         if (field->containing_oneof()
             == iroha::protocol::Query::Payload::descriptor()->FindOneofByName(
-                   "query")) {
+                "query")) {
           return;
         }
         this->runTestCases(field);
