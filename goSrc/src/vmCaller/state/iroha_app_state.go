@@ -114,10 +114,9 @@ func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, va
 	Method for retrieving accounts assets balances
 	Not part of ReaderWriter interface, hence type assertion required
 */
-func (ias *IrohaAppState) GetBalance(addr []byte, asset binary.Word256) ([]byte, error) {
+func (ias *IrohaAppState) GetBalance(addr string, asset binary.Word256) ([]byte, error) {
 	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
 	assetID := string(assetBytes)
-	fmt.Printf("[GetBalance] Retrieving balance for account %s, asset: %s\n", string(addr), assetID)
 	balances, err := ias.getIrohaAccountAssets(addr)
 	if err != nil {
 		return []byte{}, err
@@ -130,10 +129,9 @@ func (ias *IrohaAppState) GetBalance(addr []byte, asset binary.Word256) ([]byte,
 	return []byte{}, nil
 }
 
-func (ias *IrohaAppState) TransferAsset(src []byte, dst []byte, amount []byte, asset binary.Word256) error {
+func (ias *IrohaAppState) TransferAsset(src, dst, amount string, asset binary.Word256) error {
 	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
 	assetID := string(assetBytes)
-	fmt.Printf("[TransferAsset] Transferring %s asset from %s to %s\n", assetID, string(src), string(dst))
 	return ias.transferIrohaAsset(src, dst, amount, assetID)
 }
 
@@ -176,16 +174,14 @@ func (ias *IrohaAppState) createIrohaEvmAccount(addr crypto.Address) (err error)
 	fmt.Printf("Create Iroha account with name $s, result: ", accountName)
 	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
-		return fmt.Errorf("Error while creating tied account in Iroha at addr " + addr.String())
+		return fmt.Errorf("Error while creating tied account in Iroha at addr %s", addr.String())
 	}
 
 	return nil
 }
 
 // Sets key-value pair in storage of the tied Iroha account
-func (ias *IrohaAppState) setIrohaAccountDetail(
-	addr crypto.Address, key string, value []byte) (err error) {
-
+func (ias *IrohaAppState) setIrohaAccountDetail(addr crypto.Address, key string, value []byte) (err error) {
 	hexValue := hex.EncodeToString(value)
 	irohaCompliantAddress := irohaAccountID(addr)
 	// Send SetAccountDetail to Iroha
@@ -206,9 +202,7 @@ func (ias *IrohaAppState) setIrohaAccountDetail(
 }
 
 // Helper function to perform Iroha commands
-func makeProtobufCmdAndExecute(
-	cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
-
+func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
 	fmt.Println(proto.MarshalTextString(command))
 	out, err := proto.Marshal(command)
 	if err != nil {
@@ -314,20 +308,14 @@ func (ias *IrohaAppState) getIrohaAccountDetail(addr crypto.Address, key string)
 }
 
 // Queries asset balance of an account
-func (ias *IrohaAppState) getIrohaAccountAssets(addr []byte) ([]*pb.AccountAsset, error) {
-	// accountID, err := ias.fromEVMAddress(addr)
-	// fmt.Printf("[IrohaAppState::getIrohaAccountAssets] Parent account ID is: %s\n", accountID)
-	// if err != nil {
-	// 	return []*pb.AccountAsset{}, err
-	// }
-	accountID := string(addr)
+func (ias *IrohaAppState) getIrohaAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
 			CreatorAccountId: "evm@evm",
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountAssets{
-			GetAccountAssets: &pb.GetAccountAssets{AccountId: string(accountID)}}}}
+			GetAccountAssets: &pb.GetAccountAssets{AccountId: accountID}}}}
 	queryResponse, err := makeProtobufQueryAndExecute(ias.queryExecutor, query)
 	if err != nil {
 		return []*pb.AccountAsset{}, err
@@ -335,14 +323,14 @@ func (ias *IrohaAppState) getIrohaAccountAssets(addr []byte) ([]*pb.AccountAsset
 	fmt.Println(queryResponse)
 	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
-		fmt.Println("QueryResponse_ErrorResponse getAccountAssets for address " + string(addr))
+		fmt.Printf("QueryResponse_ErrorResponse getAccountAssets for account %s\n", accountID)
 		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
 			// No errors, but requested account does not exist
 			return []*pb.AccountAsset{}, nil
 		}
 		return []*pb.AccountAsset{}, fmt.Errorf("QueryResponse_ErrorResponse: code - %d, message - %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
 	case *pb.QueryResponse_AccountAssetsResponse:
-		fmt.Println("Query result for address " + string(addr) + ": " + queryResponse.String())
+		fmt.Println("Query result for account %s: %s\n", accountID, queryResponse.String())
 		accountAssetsResponse := queryResponse.GetAccountAssetsResponse()
 		return accountAssetsResponse.AccountAssets, nil
 	default:
@@ -354,14 +342,14 @@ func (ias *IrohaAppState) getIrohaAccountAssets(addr []byte) ([]*pb.AccountAsset
 	Method for transferring assets between accounts
 	Not part of ReaderWriter interface, hence type assertion required
 */
-func (ias *IrohaAppState) transferIrohaAsset(src []byte, dst []byte, amount []byte, asset string) error {
+func (ias *IrohaAppState) transferIrohaAsset(src, dst, amount, asset string) error {
 	command := &pb.Command{Command: &pb.Command_TransferAsset{
 		TransferAsset: &pb.TransferAsset{
-			SrcAccountId:  string(src),
-			DestAccountId: string(dst),
+			SrcAccountId:  src,
+			DestAccountId: dst,
 			AssetId:       asset,
 			Description:   "EVM asset transfer",
-			Amount:        string(amount),
+			Amount:        amount,
 		}}}
 	commandResult, err := makeProtobufCmdAndExecute(ias.commandExecutor, command)
 	if err != nil {
@@ -369,7 +357,7 @@ func (ias *IrohaAppState) transferIrohaAsset(src []byte, dst []byte, amount []by
 	}
 	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
-		return fmt.Errorf("Error occurred when transferring asset nominated in %s from %s to %s\n", asset, string(src), string(dst))
+		return fmt.Errorf("Error occurred when transferring asset nominated in %s from %s to %s\n", asset, src, dst)
 	}
 
 	return nil

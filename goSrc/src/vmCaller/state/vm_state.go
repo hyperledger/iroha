@@ -98,10 +98,13 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved caller's address from cache: %v\n", callerBytes)
-		callerAccount := []byte(hex.EncodeToString(bytes.TrimLeft(callerBytes, trimCutSet)) + "@evm")
-		fmt.Printf("[vm_state::GetStorage] Reconstructed caller's account ID: %v\n", callerAccount)
-		value, err = st.backend.(*IrohaAppState).GetBalance(callerAccount, key)
+		// Assuming the bytes we have read from cache represent a valid EVM address
+		callerAccount, err := crypto.AddressFromBytes(bytes.TrimLeft(callerBytes, trimCutSet))
+		if err != nil {
+			st.PushError(err)
+			return
+		}
+		value, err = st.backend.(*IrohaAppState).GetBalance(irohaAccountID(callerAccount), key)
 		if err != nil {
 			st.PushError(err)
 			return
@@ -114,9 +117,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved other account ID bytes from cache: %v\n", otherAccountBytes)
-		otherAccount := bytes.TrimLeft(otherAccountBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Other account ID: %v\n", otherAccount)
+		otherAccount := string(bytes.TrimLeft(otherAccountBytes, trimCutSet))
 		value, err = st.backend.(*IrohaAppState).GetBalance(otherAccount, key)
 		if err != nil {
 			st.PushError(err)
@@ -130,9 +131,12 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved caller's address from cache: %v\n", callerBytes)
-		srcAccount := []byte(hex.EncodeToString(bytes.TrimLeft(callerBytes, trimCutSet)) + "@evm")
-		fmt.Printf("[vm_state::GetStorage] Source account ID: %v\n", srcAccount)
+		// We assume the bytes we have read from cache represent a valid EVM address
+		srcAccount, err := crypto.AddressFromBytes(bytes.TrimLeft(callerBytes, trimCutSet))
+		if err != nil {
+			st.PushError(err)
+			return
+		}
 
 		// Fetching caller's address from "a1" variable
 		dstBytes, err := st.cache.GetStorage(address, a1)
@@ -140,9 +144,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved destination address from cache: %v\n", dstBytes)
-		dstAccount := bytes.TrimLeft(dstBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Destination account ID: %v\n", dstAccount)
+		dstAccount := string(bytes.TrimLeft(dstBytes, trimCutSet))
 
 		// Fetching transfer amount from "a2" variable
 		amountBytes, err := st.cache.GetStorage(address, a2)
@@ -150,11 +152,9 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved transfer amount from cache: %v\n", amountBytes)
-		amount := bytes.TrimLeft(amountBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Transfer amount ID: %v\n", amount)
+		amount := string(bytes.TrimLeft(amountBytes, trimCutSet))
 
-		err = st.backend.(*IrohaAppState).TransferAsset(srcAccount, dstAccount, amount, key)
+		err = st.backend.(*IrohaAppState).TransferAsset(irohaAccountID(srcAccount), dstAccount, amount, key)
 		if err != nil {
 			st.PushError(err)
 			return
@@ -167,9 +167,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved source account ID bytes from cache: %v\n", srcBytes)
-		srcAccount := bytes.TrimLeft(srcBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Source account ID: %v\n", srcAccount)
+		srcAccount := string(bytes.TrimLeft(srcBytes, trimCutSet))
 
 		// Fetching caller's address from "a1" variable
 		dstBytes, err := st.cache.GetStorage(address, a1)
@@ -177,9 +175,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved destination address from cache: %v\n", dstBytes)
-		dstAccount := bytes.TrimLeft(dstBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Destination account ID: %v\n", dstAccount)
+		dstAccount := string(bytes.TrimLeft(dstBytes, trimCutSet))
 
 		// Fetching transfer amount from "a2" variable
 		amountBytes, err := st.cache.GetStorage(address, a2)
@@ -187,9 +183,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		fmt.Printf("[vm_state::GetStorage] Retrieved transfer amount from cache: %v\n", amountBytes)
-		amount := bytes.TrimLeft(amountBytes, trimCutSet)
-		fmt.Printf("[vm_state::GetStorage] Transfer amount ID: %v\n", amount)
+		amount := string(bytes.TrimLeft(amountBytes, trimCutSet))
 
 		err = st.backend.(*IrohaAppState).TransferAsset(srcAccount, dstAccount, amount, key)
 		if err != nil {
