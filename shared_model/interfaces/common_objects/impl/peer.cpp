@@ -5,6 +5,8 @@
 
 #include "interfaces/common_objects/peer.hpp"
 
+#include <boost/optional.hpp>
+
 #include "cryptography/public_key.hpp"
 
 namespace shared_model {
@@ -14,11 +16,13 @@ namespace shared_model {
           .init("Peer")
           .append("address", address())
           .append("pubkey", pubkey().toString())
+          .append("tlsCertificate", bool(tlsCertificate()))
           .finalize();
     }
 
     bool Peer::operator==(const ModelType &rhs) const {
-      return address() == rhs.address() and pubkey() == rhs.pubkey();
+      return address() == rhs.address() and pubkey() == rhs.pubkey()
+          and tlsCertificate() == rhs.tlsCertificate();
     }
   }  // namespace interface
 }  // namespace shared_model

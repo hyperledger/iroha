@@ -1331,13 +1331,14 @@ namespace iroha {
         const shared_model::interface::GetPeers &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      using QueryTuple =
-          QueryType<std::string, shared_model::interface::types::AddressType>;
+      using QueryTuple = QueryType<std::string,
+                                   shared_model::interface::types::AddressType,
+                                   std::string>;
       using PermissionTuple = boost::tuple<int>;
 
       auto cmd = (boost::format(
                       R"(WITH has_perms AS (%s)
-      SELECT public_key, address, perm FROM peer
+      SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
       )") % getAccountRolePermissionCheckSql(Role::kGetPeers))
                      .str();
@@ -1349,16 +1350,26 @@ namespace iroha {
           },
           query_hash,
           [&](auto range, auto &) {
-            auto range_without_nulls = resultWithoutNulls(std::move(range));
             shared_model::interface::types::PeerList peers;
-            for (const auto &row : range_without_nulls) {
+            for (const auto &row : range) {
               iroha::ametsuchi::apply(
-                  row, [&peers](auto &peer_key, auto &address) {
-                    peers.push_back(std::make_shared<shared_model::plain::Peer>(
-                        address,
-                        shared_model::interface::types::PubkeyType{
-                            shared_model::crypto::Blob::fromHexString(
-                                peer_key)}));
+                  row,
+                  [this, &peers](
+                      auto &peer_key, auto &address, auto &tls_certificate) {
+                    if (peer_key and address) {
+                      peers.push_back(
+                          std::make_shared<shared_model::plain::Peer>(
+                              *address,
+                              shared_model::interface::types::PubkeyType{
+                                  shared_model::crypto::Blob::fromHexString(
+                                      *peer_key)},
+                              tls_certificate));
+                    } else {
+                      log_->error(
+                          "Address or public key not set for some peer!");
+                      assert(peer_key);
+                      assert(address);
+                    }
                   });
             }
             return query_response_factory_->createPeersResponse(peers,

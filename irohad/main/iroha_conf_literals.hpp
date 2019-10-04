@@ -40,6 +40,7 @@ namespace config_members {
   extern const char *InitialPeers;
   extern const char *Address;
   extern const char *PublicKey;
+  extern const char *TlsCertificatePath;
 
 }  // namespace config_members
 

@@ -15,6 +15,7 @@
 #include <rapidjson/rapidjson.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/map.hpp>
+#include "common/files.hpp"
 #include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "torii/tls_params.hpp"
@@ -336,11 +337,28 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   getValByKey(path, address, obj, config_members::Address);
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
+  boost::optional<std::string> tls_certificate_path =
+      getOptValByKey<std::string>(
+          path, obj, config_members::TlsCertificatePath);
+
+  boost::optional<std::string> tls_certificate_str;
+  if (tls_certificate_path) {
+    iroha::readFile(*tls_certificate_path)
+        .match([&tls_certificate_str](
+                   const auto &v) { tls_certificate_str = v.value; },
+               [this, &path](const auto &e) {
+                 this->assert_fatal(false,
+                                    "Error reading file specified in " + path
+                                        + ": " + e.error);
+               });
+  }
+
   common_objects_factory_
       ->createPeer(
           address,
           shared_model::crypto::PublicKey(
-              shared_model::crypto::Blob::fromHexString(public_key_str)))
+              shared_model::crypto::Blob::fromHexString(public_key_str)),
+          tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {
                throw std::runtime_error("Failed to create a peer at '" + path

@@ -449,6 +449,13 @@ namespace iroha {
         arguments_string_builder_.append(argument_name, value);
       }
 
+      void addArgumentToString(const std::string &argument_name,
+                               const boost::optional<std::string> &value) {
+        if (value) {
+          addArgumentToString(argument_name, *value);
+        }
+      }
+
       template <typename T>
       std::enable_if_t<std::is_arithmetic<T>::value> addArgumentToString(
           const std::string &argument_name, const T &value) {
@@ -563,9 +570,9 @@ namespace iroha {
           R"(
           WITH %s
             inserted AS (
-                INSERT INTO peer(public_key, address)
+                INSERT INTO peer(public_key, address, tls_certificate)
                 (
-                    SELECT :pubkey, :address
+                    SELECT :pubkey, :address, :tls_certificate
                     %s
                 ) RETURNING (1)
             )
@@ -1411,6 +1418,7 @@ namespace iroha {
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
       executor.use("pubkey", peer.pubkey().hex());
+      executor.use("tls_certificate", peer.tlsCertificate());
 
       return executor.execute();
     }

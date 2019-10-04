@@ -126,5 +126,5 @@ namespace shared_model {
       return impl_->proto_;
     }
 
-  };  // namespace proto
+  }  // namespace proto
 }  // namespace shared_model
