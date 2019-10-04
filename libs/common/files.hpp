@@ -8,6 +8,7 @@
 
 #include <string>
 
+#include "common/result.hpp"
 #include "logger/logger_fwd.hpp"
 
 /**
@@ -23,5 +24,13 @@ namespace iroha {
    */
   void remove_dir_contents(const std::string &dir,
                            const logger::LoggerPtr &log);
+
+  /**
+   * Read file, and either return its contents as a string
+   * or return the error as a string
+   * @param path - path to the file
+   */
+  iroha::expected::Result<std::string, std::string> readFile(
+      const std::string &path);
 }  // namespace iroha
 #endif  // IROHA_FILES_HPP

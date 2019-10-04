@@ -94,8 +94,9 @@ add_library(iroha_conf_loader iroha_conf_loader.cpp)
 target_link_libraries(iroha_conf_loader
     iroha_conf_literals
     logger_manager
+    libs_files
     rapidjson
-)
+    )
 
 add_library(iroha_conf_literals iroha_conf_literals.cpp)
 target_link_libraries(iroha_conf_literals

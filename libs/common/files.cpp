@@ -6,9 +6,19 @@
 #include "common/files.hpp"
 
 #include <ciso646>
+#include <fstream>
+#include <sstream>
 
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include "logger/logger.hpp"
+
+namespace {
+  auto makeCannotReadFileError(const std::string &path) {
+    return iroha::expected::makeError(
+        (boost::format("File '%1%' could not be read") % path).str());
+  }
+}  // namespace
 
 void iroha::remove_dir_contents(const std::string &dir,
                                 const logger::LoggerPtr &log) {
@@ -39,4 +49,19 @@ void iroha::remove_dir_contents(const std::string &dir,
     if (error_code != boost::system::errc::success)
       log->error("{}", error_code.message());
   }
+}
+
+iroha::expected::Result<std::string, std::string> iroha::readFile(
+    const std::string &path) {
+  std::ifstream file(path);
+  if (!file) {
+    return makeCannotReadFileError(path);
+  }
+
+  std::stringstream ss;
+  ss << file.rdbuf();
+  if (!ss) {
+    return makeCannotReadFileError(path);
+  }
+  return iroha::expected::makeValue(ss.str());
 }

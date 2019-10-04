@@ -36,10 +36,15 @@ namespace shared_model {
 
       FactoryResult<std::unique_ptr<interface::Peer>> createPeer(
           const interface::types::AddressType &address,
-          const interface::types::PubkeyType &public_key) override {
+          const interface::types::PubkeyType &public_key,
+          const boost::optional<interface::types::TLSCertificateType>
+              &tls_certificate = boost::none) override {
         iroha::protocol::Peer peer;
         peer.set_address(address);
         peer.set_peer_key(public_key.hex());
+        if (tls_certificate) {
+          peer.set_tls_certificate(*tls_certificate);
+        }
         auto proto_peer = std::make_unique<Peer>(std::move(peer));
 
         auto errors =

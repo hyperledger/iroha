@@ -43,6 +43,15 @@ namespace shared_model {
       return *this;
     }
 
+    PrettyStringBuilder &PrettyStringBuilder::append(const std::string &name,
+                                                     bool value) {
+      if (value) {
+        return append(name, std::string("true"));
+      } else {
+        return append(name, std::string("false"));
+      }
+    }
+
     PrettyStringBuilder &PrettyStringBuilder::append(const std::string &value) {
       result_.append(value);
       result_.append(spaceSeparator);

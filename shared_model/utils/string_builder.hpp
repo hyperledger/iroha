@@ -40,6 +40,13 @@ namespace shared_model {
                                   const std::string &value);
 
       /**
+       * Appends new field to string as a "name=value" pair
+       * @param name - field name to append
+       * @param value = field value (as a bool)
+       */
+      PrettyStringBuilder &append(const std::string &name, bool value);
+
+      /**
        * Appends new single value to string
        * @param value - value to append
        */

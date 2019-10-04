@@ -88,6 +88,8 @@ namespace shared_model {
       /// Type of peers collection
       using PeerList =
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;
+      /// Type of a TLS certificate
+      using TLSCertificateType = std::string;
 
       enum class BatchType { ATOMIC = 0, ORDERED = 1 };
 
