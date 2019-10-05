@@ -13,6 +13,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_hash_gate.hpp"
 #include "module/irohad/consensus/yac/mock_yac_hash_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_peer_orderer.hpp"
@@ -299,6 +300,76 @@ TEST_F(YacGateTest, DifferentCommit) {
   });
 
   outcome_notifier.get_subscriber().on_next(expected_commit);
+
+  ASSERT_TRUE(gate_wrapper.validate());
+}
+
+/**
+ * @given yac gate, in round (i, j) -> last block height is (i - 1)
+ * @when vote for round (i + 1, j) is received
+ * @then peer goes to round (i + 1, j)
+ */
+TEST_F(YacGateTest, Future) {
+  // yac consensus
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
+
+  // generate order of peers
+  EXPECT_CALL(*peer_orderer, getOrdering(_, _))
+      .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
+
+  // make hash from block
+  EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
+
+  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+      RoundData{expected_proposal, expected_block}, round, ledger_state});
+
+  iroha::consensus::Round future_round{round.block_round + 1,
+                                       round.reject_round};
+  auto signature = createSig("actual_pubkey");
+
+  VoteMessage future_message{};
+  future_message.hash =
+      YacHash(future_round, "actual_proposal", "actual_block");
+  future_message.signature = signature;
+
+  // verify that yac gate emit expected block
+  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
+  gate_wrapper.subscribe([&](auto outcome) {
+    auto concrete_outcome = boost::get<iroha::consensus::Future>(outcome);
+
+    ASSERT_EQ(future_round, concrete_outcome.round);
+  });
+
+  outcome_notifier.get_subscriber().on_next(FutureMessage{future_message});
+
+  ASSERT_TRUE(gate_wrapper.validate());
+}
+
+/**
+ * @given yac gate, in round (i - 1, j)
+ * @when another vote for round (i, j) is received while it is already being
+ * processed
+ * @then vote is ignored
+ */
+TEST_F(YacGateTest, OutdatedFuture) {
+  // yac consensus
+  EXPECT_CALL(*hash_gate, vote(expected_hash, _, _)).Times(1);
+
+  // generate order of peers
+  EXPECT_CALL(*peer_orderer, getOrdering(_, _))
+      .WillOnce(Return(ClusterOrdering::create({makePeer("fake_node")})));
+
+  // make hash from block
+  EXPECT_CALL(*hash_provider, makeHash(_)).WillOnce(Return(expected_hash));
+
+  block_notifier.get_subscriber().on_next(BlockCreatorEvent{
+      RoundData{expected_proposal, expected_block}, round, ledger_state});
+
+  // verify that yac gate does not emit anything
+  auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 0);
+  gate_wrapper.subscribe();
+
+  outcome_notifier.get_subscriber().on_next(FutureMessage{message});
 
   ASSERT_TRUE(gate_wrapper.validate());
 }
