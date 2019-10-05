@@ -56,3 +56,17 @@ target_link_libraries(bm_pipeline
     integration_framework
     shared_model_stateless_validation
     )
+
+add_executable(bm_iroha_ed25519 bm_iroha_ed25519.cpp)
+target_link_libraries(bm_iroha_ed25519
+    benchmark
+    ed25519
+    )
+
+if(USE_LIBURSA)
+    add_executable(bm_ursa_ed25519 bm_ursa_ed25519.cpp)
+    target_link_libraries(bm_ursa_ed25519
+        benchmark
+        ursa
+        )
+endif()
