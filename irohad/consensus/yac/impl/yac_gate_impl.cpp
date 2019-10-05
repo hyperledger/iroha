@@ -208,11 +208,13 @@ namespace iroha {
           const FutureMessage &msg) {
         const auto hash = getHash(msg.votes).value();
         auto public_keys = getPublicKeys(msg.votes);
-        if (hash.vote_round < current_hash_.vote_round) {
+        if (hash.vote_round.block_round
+            <= current_hash_.vote_round.block_round) {
           log_->info(
-              "Current round {} is greater than reject round {}, skipped",
-              current_hash_.vote_round,
-              hash.vote_round);
+              "Current block round {} is not lower than future block round {}, "
+              "skipped",
+              current_hash_.vote_round.block_round,
+              hash.vote_round.block_round);
           return rxcpp::observable<>::empty<GateObject>();
         }
 
