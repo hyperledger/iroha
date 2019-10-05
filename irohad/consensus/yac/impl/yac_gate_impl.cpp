@@ -211,9 +211,19 @@ namespace iroha {
         auto public_keys = getPublicKeys(msg.votes);
         if (hash.vote_round < current_hash_.vote_round) {
           log_->info(
-              "Current round {} is greater than reject round {}, skipped",
+              "Current round {} is greater than future round {}, skipped",
               current_hash_.vote_round,
               hash.vote_round);
+          return rxcpp::observable<>::empty<GateObject>();
+        }
+
+        if (hash.vote_round.block_round
+            == current_hash_.vote_round.block_round) {
+          log_->info(
+              "Current block round {} is the same as future block round {}, "
+              "skipped",
+              current_hash_.vote_round.block_round,
+              hash.vote_round.block_round);
           return rxcpp::observable<>::empty<GateObject>();
         }
 
