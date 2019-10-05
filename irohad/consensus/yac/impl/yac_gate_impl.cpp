@@ -67,10 +67,8 @@ namespace iroha {
             block_creator_(std::move(block_creator)),
             consensus_result_cache_(std::move(consensus_result_cache)),
             hash_gate_(std::move(hash_gate)) {
-        block_creator_->onBlock().subscribe([this](const auto &event) {
-          current_ledger_state_ = event.ledger_state;
-          this->vote(event);
-        });
+        block_creator_->onBlock().subscribe(
+            [this](const auto &event) { this->vote(event); });
       }
 
       void YacGateImpl::vote(const simulator::BlockCreatorEvent &event) {
@@ -83,7 +81,10 @@ namespace iroha {
           return;
         }
 
+        current_ledger_state_ = event.ledger_state;
         current_hash_ = hash_provider_->makeHash(event);
+        assert(current_hash_.vote_round.block_round
+               == current_ledger_state_->top_block_info.height + 1);
 
         if (not event.round_data) {
           current_block_ = boost::none;
@@ -136,6 +137,9 @@ namespace iroha {
           return rxcpp::observable<>::empty<GateObject>();
         }
 
+        assert(hash.vote_round.block_round
+               == current_hash_.vote_round.block_round);
+
         if (hash == current_hash_ and current_block_) {
           // if node has voted for the committed block
           // append signatures of other nodes
@@ -180,6 +184,9 @@ namespace iroha {
           return rxcpp::observable<>::empty<GateObject>();
         }
 
+        assert(hash.vote_round.block_round
+               == current_hash_.vote_round.block_round);
+
         auto has_same_proposals =
             std::all_of(std::next(msg.votes.begin()),
                         msg.votes.end(),
@@ -208,6 +215,9 @@ namespace iroha {
               hash.vote_round);
           return rxcpp::observable<>::empty<GateObject>();
         }
+
+        assert(hash.vote_round.block_round
+               > current_hash_.vote_round.block_round);
 
         log_->info("Message from future, waiting for sync");
         return rxcpp::observable<>::just<GateObject>(Future(
