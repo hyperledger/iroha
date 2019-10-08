@@ -16,11 +16,13 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <boost/range/irange.hpp>
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/peer_query_factory.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+
+#include <rxcpp/operators/rx-take.hpp>
 
 using namespace iroha;
 

@@ -8,31 +8,18 @@
 
 #include "interfaces/query_responses/error_query_response.hpp"
 
-#include "backend/protobuf/query_responses/proto_concrete_error_query_response.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
     class ErrorQueryResponse final : public interface::ErrorQueryResponse {
      public:
-      /// type of proto variant
-      using ProtoQueryErrorResponseVariantType =
-          boost::variant<StatelessFailedErrorResponse,
-                         StatefulFailedErrorResponse,
-                         NoAccountErrorResponse,
-                         NoAccountAssetsErrorResponse,
-                         NoAccountDetailErrorResponse,
-                         NoSignatoriesErrorResponse,
-                         NotSupportedErrorResponse,
-                         NoAssetErrorResponse,
-                         NoRolesErrorResponse>;
-
-      /// list of types in proto variant
-      using ProtoQueryErrorResponseListType =
-          ProtoQueryErrorResponseVariantType::types;
-
       explicit ErrorQueryResponse(
           iroha::protocol::QueryResponse &query_response);
+
+      ErrorQueryResponse(ErrorQueryResponse &&o) noexcept;
+
+      ~ErrorQueryResponse() override;
 
       const QueryErrorResponseVariantType &get() const override;
 
@@ -41,11 +28,8 @@ namespace shared_model {
       ErrorCodeType errorCode() const override;
 
      private:
-      iroha::protocol::ErrorResponse &error_response_;
-
-      ProtoQueryErrorResponseVariantType variant_;
-
-      QueryErrorResponseVariantType ivariant_;
+      struct Impl;
+      std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto
 }  // namespace shared_model

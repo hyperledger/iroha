@@ -10,6 +10,7 @@
 #include "simulator/verified_proposal_creator.hpp"
 
 #include <boost/optional.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/temporary_factory.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "interfaces/iroha_internal/unsafe_block_factory.hpp"

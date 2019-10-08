@@ -6,7 +6,7 @@
 #ifndef INTEGRATION_FRAMEWORK_FAKE_PEER_LOADER_GRPC_HPP_
 #define INTEGRATION_FRAMEWORK_FAKE_PEER_LOADER_GRPC_HPP_
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger_fwd.hpp"

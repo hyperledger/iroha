@@ -10,26 +10,12 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetAccountTransactions::GetAccountTransactions(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          account_transactions_{proto_->payload().get_account_transactions()},
-          pagination_meta_{account_transactions_.pagination_meta()} {}
-
-    template GetAccountTransactions::GetAccountTransactions(
-        GetAccountTransactions::TransportType &);
-    template GetAccountTransactions::GetAccountTransactions(
-        const GetAccountTransactions::TransportType &);
-    template GetAccountTransactions::GetAccountTransactions(
-        GetAccountTransactions::TransportType &&);
-
     GetAccountTransactions::GetAccountTransactions(
-        const GetAccountTransactions &o)
-        : GetAccountTransactions(o.proto_) {}
-
-    GetAccountTransactions::GetAccountTransactions(
-        GetAccountTransactions &&o) noexcept
-        : GetAccountTransactions(std::move(o.proto_)) {}
+        iroha::protocol::Query &query)
+        : account_transactions_{query.payload().get_account_transactions()},
+          pagination_meta_{*query.mutable_payload()
+                                ->mutable_get_account_transactions()
+                                ->mutable_pagination_meta()} {}
 
     const interface::types::AccountIdType &GetAccountTransactions::accountId()
         const {

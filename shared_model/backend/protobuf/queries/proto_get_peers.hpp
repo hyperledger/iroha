@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_PEERS_HPP
 #define IROHA_PROTO_GET_PEERS_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_peers.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetPeers final
-        : public TrivialProto<interface::GetPeers, iroha::protocol::Query> {
+    class GetPeers final : public interface::GetPeers {
      public:
-      template <typename QueryType>
-      explicit GetPeers(QueryType &&query);
-
-      GetPeers(const GetPeers &o);
-
-      GetPeers(GetPeers &&o) noexcept;
+      explicit GetPeers(iroha::protocol::Query &query);
     };
 
   }  // namespace proto

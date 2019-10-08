@@ -8,6 +8,7 @@
 
 #include "interfaces/queries/account_detail_pagination_meta.hpp"
 
+#include <boost/optional.hpp>
 #include "backend/protobuf/queries/proto_account_detail_record_id.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"

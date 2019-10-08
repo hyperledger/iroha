@@ -5,6 +5,7 @@
 
 #include "backend/protobuf/proto_query_response_factory.hpp"
 
+#include "backend/protobuf/block.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"

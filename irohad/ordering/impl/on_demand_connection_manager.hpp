@@ -10,7 +10,7 @@
 
 #include <shared_mutex>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

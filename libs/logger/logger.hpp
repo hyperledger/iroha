@@ -8,23 +8,34 @@
 
 #include "logger/logger_fwd.hpp"
 
-#include <memory>
-#include <numeric>  // for std::accumulate
 #include <string>
 
-/// Allows to log objects, which have toString() method without calling it, e.g.
-/// log.info("{}", myObject)
-template <typename StreamType, typename T>
-auto operator<<(StreamType &os, const T &object)
-    -> decltype(os << object.toString()) {
-  return os << object.toString();
-}
-
-#include <fmt/format.h>
-#include <fmt/ostream.h>
+#include <fmt/core.h>
 // Windows includes transitively included by format.h define interface as
 // struct, leading to compilation issues
 #undef interface
+
+namespace fmt {
+  /// Allows to log objects, which have toString() method without calling it,
+  /// e.g. log.info("{}", myObject)
+  template <typename T>
+  struct formatter<
+      T,
+      std::enable_if_t<std::is_same<decltype(std::declval<T>().toString()),
+                                    std::string>::value,
+                       char>> {
+    // The following functions are not defined intentionally.
+    template <typename ParseContext>
+    typename ParseContext::iterator parse(ParseContext &ctx) {
+      return ctx.begin();
+    }
+
+    template <typename FormatContext>
+    auto format(const T &val, FormatContext &ctx) -> decltype(ctx.out()) {
+      return format_to(ctx.begin(), "{}", val.toString());
+    }
+  };
+}  // namespace fmt
 
 namespace logger {
 
@@ -87,7 +98,7 @@ namespace logger {
       if (shouldLog(level)) {
         try {
           logInternal(level, fmt::format(format, args...));
-        } catch (const fmt::v5::format_error &error) {
+        } catch (const std::exception &error) {
           std::string error_msg("Exception was thrown while logging: ");
           logInternal(LogLevel::kError, error_msg.append(error.what()));
         }
@@ -108,60 +119,6 @@ namespace logger {
    * @return "true" or "false"
    */
   std::string boolRepr(bool value);
-
-  /**
-   * Converts object to bool and provides string repr of it
-   * @tparam T - type of object, T must implement bool operator
-   * @param val - value for convertation
-   * @return string representation of bool object
-   */
-  template <typename T>
-  std::string logBool(T val) {
-    return boolRepr(bool(val));
-  }
-
-  /**
-   * Function provide string representation of collection
-   * @tparam Collection - type should implement for semantic
-   * @tparam Lambda - function that transform argument to string
-   * @param collection - bunch of objects
-   * @param transform - function that convert object to string
-   * @return string repr of collection
-   */
-  template <class Collection, class Lambda>
-  std::string to_string(const Collection &collection, Lambda transform) {
-    const std::string left_bracket = "{";
-    const std::string right_bracket = "}";
-    const std::string separator = ", ";
-    auto begin = collection.size() == 0 ? collection.begin()
-                                        : std::next(collection.begin());
-    auto front =
-        collection.size() == 0 ? std::string{} : transform(*collection.begin());
-
-    auto result = std::accumulate(begin,
-                                  collection.end(),
-                                  front.insert(0, left_bracket),
-                                  [&](auto &acc, const auto &value) {
-                                    acc += separator;
-                                    acc += transform(value);
-                                    return acc;
-                                  });
-    return result.append(right_bracket);
-  }
-
-  /**
-   * Function provide string representation of optional value
-   * @tparam Optional - type of optional
-   * @tparam Lambda - function that consume value type and return std::string
-   * @param opt - value wrapped by optional
-   * @param transform - function that transforming value to std::string
-   * @return string repr of value
-   */
-  template <class Optional, class Lambda>
-  std::string opt_to_string(const Optional &opt, Lambda transform) {
-    const std::string null_value = "nullopt";
-    return opt ? null_value : transform(*opt);
-  }
 
 }  // namespace logger
 

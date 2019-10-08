@@ -6,23 +6,17 @@
 #ifndef IROHA_PROTO_GET_ACCOUNT_DETAIL_HPP
 #define IROHA_PROTO_GET_ACCOUNT_DETAIL_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
 #include "interfaces/queries/get_account_detail.hpp"
+
+#include <boost/optional.hpp>
+#include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetAccountDetail final
-        : public TrivialProto<interface::GetAccountDetail,
-                              iroha::protocol::Query> {
+    class GetAccountDetail final : public interface::GetAccountDetail {
      public:
-      template <typename QueryType>
-      explicit GetAccountDetail(QueryType &&query);
-
-      GetAccountDetail(const GetAccountDetail &o);
-
-      GetAccountDetail(GetAccountDetail &&o) noexcept;
+      explicit GetAccountDetail(iroha::protocol::Query &query);
 
       const interface::types::AccountIdType &accountId() const override;
 
@@ -37,6 +31,7 @@ namespace shared_model {
      private:
       // ------------------------------| fields |-------------------------------
 
+      const iroha::protocol::Query &query_;
       const iroha::protocol::GetAccountDetail &account_detail_;
       const boost::optional<const AccountDetailPaginationMeta> pagination_meta_;
     };

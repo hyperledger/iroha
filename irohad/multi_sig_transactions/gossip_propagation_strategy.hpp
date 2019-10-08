@@ -10,9 +10,12 @@
 #include <chrono>
 #include <mutex>
 
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/peer_query_factory.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
+
+#include <rxcpp/operators/rx-observe_on.hpp>
 
 namespace iroha {
 

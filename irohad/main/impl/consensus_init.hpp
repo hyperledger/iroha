@@ -10,10 +10,10 @@
 
 #include "ametsuchi/peer_query_factory.hpp"
 #include "consensus/consensus_block_cache.hpp"
+#include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/timer.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
-#include "consensus/yac/yac.hpp"
 #include "consensus/yac/yac_gate.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "consensus/yac/yac_peer_orderer.hpp"

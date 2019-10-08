@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include <rxcpp/rx-lite.hpp>
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
 #include "logger/logger_fwd.hpp"
