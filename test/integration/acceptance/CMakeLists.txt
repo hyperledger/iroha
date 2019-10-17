@@ -150,14 +150,6 @@ target_link_libraries(remove_signatory_test
     integration_framework
     )
 
-addtest(get_asset_info_test
-    get_asset_info_test.cpp
-    )
-target_link_libraries(get_asset_info_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(get_role_permissions_test
     get_role_permissions_test.cpp
     )
