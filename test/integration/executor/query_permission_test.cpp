@@ -11,6 +11,7 @@ using namespace common_constants;
 using namespace executor_testing;
 
 using shared_model::interface::RolePermissionSet;
+using shared_model::interface::permissions::Role;
 
 enum class SpectatorPermissions : int {
   kNone = 0,
@@ -81,34 +82,42 @@ decltype(::testing::Combine(
     ::testing::ValuesIn(
         {query_permission_test::SpecificQueryPermissionTestData{}})))
 query_permission_test::getParams(
-    RolePermissionSet permission_to_query_myself,
-    RolePermissionSet permission_to_query_my_domain,
-    RolePermissionSet permission_to_query_everyone) {
+    boost::optional<Role> permission_to_query_myself,
+    boost::optional<Role> permission_to_query_my_domain,
+    boost::optional<Role> permission_to_query_everyone) {
   std::vector<SpecificQueryPermissionTestData> perm_params;
-  shared_model::interface::RolePermissionSet no_permissions;
-  static const RolePermissionSet kRootPermission(
-      {shared_model::interface::permissions::Role::kRoot});
-  const EnumMap<SpectatorPermissions, const RolePermissionSet &>
-      spectator_permissions_map{
-          {SpectatorPermissions::kNone, no_permissions},
-          {SpectatorPermissions::kMyself, permission_to_query_myself},
-          {SpectatorPermissions::kSameDomain, permission_to_query_my_domain},
-          {SpectatorPermissions::kEveryone, permission_to_query_everyone},
-          {SpectatorPermissions::kRoot, kRootPermission}};
   const EnumMap<Spectator, std::string> spectators_map{
       {Spectator::kMe, kUserId},
       {Spectator::kSameDomain, kSameDomainUserId},
       {Spectator::kSecondDomain, kSecondDomainUserId}};
-  iterateEnum<SpectatorPermissions>(
-      [&](SpectatorPermissions spectator_permissions) {
-        iterateEnum<Spectator>([&](Spectator spectator) {
-          perm_params.emplace_back(SpecificQueryPermissionTestData{
-              spectator_permissions_map.at(spectator_permissions),
-              spectators_map.at(spectator),
-              enoughPermissions(spectator_permissions, spectator),
-              makeDescription(spectator_permissions, spectator)});
-        });
-      });
+
+  auto add_perm_case = [&](SpectatorPermissions perm_type,
+                           RolePermissionSet permissions) {
+    iterateEnum<Spectator>([&](Spectator spectator) {
+      perm_params.emplace_back(SpecificQueryPermissionTestData{
+          permissions,
+          spectators_map.at(spectator),
+          enoughPermissions(perm_type, spectator),
+          makeDescription(perm_type, spectator)});
+    });
+  };
+
+  auto add_perm_case_if_provided = [&](SpectatorPermissions perm_type,
+                                       boost::optional<Role> permission) {
+    if (permission) {
+      add_perm_case(perm_type, RolePermissionSet{permission.value()});
+    }
+  };
+
+  add_perm_case(SpectatorPermissions::kNone, {});
+  add_perm_case_if_provided(SpectatorPermissions::kMyself,
+                            permission_to_query_myself);
+  add_perm_case_if_provided(SpectatorPermissions::kSameDomain,
+                            permission_to_query_my_domain);
+  add_perm_case_if_provided(SpectatorPermissions::kEveryone,
+                            permission_to_query_everyone);
+  add_perm_case_if_provided(SpectatorPermissions::kRoot, Role::kRoot);
+
   return ::testing::Combine(getExecutorTestParams(),
                             ::testing::ValuesIn(std::move(perm_params)));
 }
