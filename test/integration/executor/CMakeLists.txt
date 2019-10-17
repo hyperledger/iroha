@@ -87,6 +87,15 @@ target_link_libraries(get_asset_info_test
     query_permission_test
     )
 
+addtest(get_account_test get_account_test.cpp)
+target_link_libraries(get_account_test
+    account_detail_checker
+    executor_fixture
+    executor_fixture_param_provider
+    common_test_constants
+    query_permission_test
+    )
+
 add_library(query_permission_test query_permission_test.cpp)
 target_link_libraries(query_permission_test
     executor_fixture
