@@ -119,3 +119,11 @@ target_link_libraries(get_signatories_test
     common_test_constants
     query_permission_test
     )
+
+addtest(remove_signatory_test remove_signatory_test.cpp)
+target_link_libraries(remove_signatory_test
+    command_permission_test
+    common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
+    )
