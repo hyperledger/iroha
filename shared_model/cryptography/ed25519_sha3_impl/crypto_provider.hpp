@@ -61,11 +61,11 @@ namespace shared_model {
        */
       static Keypair generateKeypair(const Seed &seed);
 
-      static const size_t kHashLength;
-      static const size_t kPublicKeyLength;
-      static const size_t kPrivateKeyLength;
-      static const size_t kSignatureLength;
-      static const size_t kSeedLength;
+      static constexpr size_t kHashLength = 256 / 8;
+      static constexpr size_t kPublicKeyLength = 256 / 8;
+      static constexpr size_t kPrivateKeyLength = 256 / 8;
+      static constexpr size_t kSignatureLength = 512 / 8;
+      static constexpr size_t kSeedLength = 256 / 8;
     };
   }  // namespace crypto
 }  // namespace shared_model
