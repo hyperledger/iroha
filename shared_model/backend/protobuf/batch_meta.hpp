@@ -8,7 +8,7 @@
 
 #include "interfaces/iroha_internal/batch_meta.hpp"
 
-#include <boost/range/numeric.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "transaction.pb.h"
@@ -28,13 +28,11 @@ namespace shared_model {
                                    ->index();
               return static_cast<interface::types::BatchType>(which);
             }()},
-            reduced_hashes_{boost::accumulate(
-                batch_meta_.reduced_hashes(),
-                ReducedHashesType{},
-                [](auto &&acc, const auto &hash) {
-                  acc.emplace_back(crypto::Hash::fromHexString(hash));
-                  return std::forward<decltype(acc)>(acc);
-                })} {}
+            reduced_hashes_{boost::copy_range<ReducedHashesType>(
+                batch_meta.reduced_hashes()
+                | boost::adaptors::transformed([](const auto &hash) {
+                    return crypto::Hash::fromHexString(hash);
+                  }))} {}
 
       interface::types::BatchType type() const override {
         return type_;
