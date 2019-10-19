@@ -134,7 +134,7 @@ node ('master') {
   // Define variable and params
 
   //All variable and Default values
-  x64linux_compiler_list = ['gcc5']
+  x64linux_compiler_list = ['gcc7']
   mac_compiler_list = []
   win_compiler_list = []
 
@@ -213,7 +213,7 @@ node ('master') {
         break;
      case 'Before merge to trunk':
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
-        x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
+        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -225,7 +225,7 @@ node ('master') {
         useBTF = true
         break;
      case 'Nightly build':
-        x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
+        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
