@@ -7,7 +7,7 @@
 
 #include <condition_variable>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 
 namespace iroha {
   namespace schedulers {

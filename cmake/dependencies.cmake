@@ -204,7 +204,11 @@ endif()
 ###################################
 #              fmt                #
 ###################################
-find_package(fmt 5.3.0 REQUIRED)
+find_package(fmt 5.3.0 REQUIRED CONFIG)
+add_library(fmt INTERFACE IMPORTED)
+target_link_libraries(fmt INTERFACE
+  fmt::fmt
+  )
 
 if (USE_LIBIROHA)
   find_package(libiroha)

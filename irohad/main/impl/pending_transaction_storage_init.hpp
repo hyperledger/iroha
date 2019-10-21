@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {

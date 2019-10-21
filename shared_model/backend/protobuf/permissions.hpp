@@ -11,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "primitive.pb.h"
 
 namespace shared_model {

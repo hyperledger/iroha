@@ -11,9 +11,12 @@
 #include <condition_variable>
 #include <iterator>
 
+#include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <rxcpp/operators/rx-start_with.hpp>
+#include <rxcpp/operators/rx-take_while.hpp>
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "common/combine_latest_until_first_completed.hpp"
 #include "common/run_loop_handler.hpp"
@@ -78,13 +81,11 @@ namespace iroha {
               .str();
         }
 
-        std::string folded_hashes =
-            std::accumulate(std::next(tx_hashes.begin()),
-                            tx_hashes.end(),
-                            tx_hashes[0].hex(),
-                            [](auto &&acc, const auto &h) -> std::string {
-                              return acc + ", " + h.hex();
-                            });
+        std::string folded_hashes = boost::algorithm::join(
+            tx_hashes | boost::adaptors::transformed([](const auto &h) {
+              return h.hex();
+            }),
+            ", ");
 
         return (boost::format(
                     "Stateless invalid tx in transaction sequence, error: %s\n"

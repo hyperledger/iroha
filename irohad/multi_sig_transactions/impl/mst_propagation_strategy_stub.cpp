@@ -5,6 +5,8 @@
 
 #include "multi_sig_transactions/mst_propagation_strategy_stub.hpp"
 
+#include <rxcpp/rx-lite.hpp>
+
 namespace iroha {
   rxcpp::observable<PropagationStrategy::PropagationData>
   PropagationStrategyStub::emitter() {

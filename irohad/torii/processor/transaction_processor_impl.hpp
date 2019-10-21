@@ -10,7 +10,7 @@
 
 #include <mutex>
 
-#include <rxcpp/rx.hpp>
+#include <rxcpp/rx-lite.hpp>
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"

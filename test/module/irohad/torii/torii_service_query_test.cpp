@@ -5,6 +5,7 @@
 
 #include <gmock/gmock.h>
 
+#include "backend/protobuf/block.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"

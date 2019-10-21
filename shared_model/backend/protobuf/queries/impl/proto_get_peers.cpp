@@ -8,17 +8,7 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetPeers::GetPeers(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)) {}
-
-    template GetPeers::GetPeers(GetPeers::TransportType &);
-    template GetPeers::GetPeers(const GetPeers::TransportType &);
-    template GetPeers::GetPeers(GetPeers::TransportType &&);
-
-    GetPeers::GetPeers(const GetPeers &o) : GetPeers(o.proto_) {}
-
-    GetPeers::GetPeers(GetPeers &&o) noexcept : GetPeers(std::move(o.proto_)) {}
+    GetPeers::GetPeers(iroha::protocol::Query &query) {}
 
   }  // namespace proto
 }  // namespace shared_model

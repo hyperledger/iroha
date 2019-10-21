@@ -6,10 +6,12 @@
 #ifndef IROHA_QUERY_PROCESSOR_IMPL_HPP
 #define IROHA_QUERY_PROCESSOR_IMPL_HPP
 
+#include "torii/processor/query_processor.hpp"
+
+#include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
-#include "torii/processor/query_processor.hpp"
 
 namespace iroha {
   namespace torii {

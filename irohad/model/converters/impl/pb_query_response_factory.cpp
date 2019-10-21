@@ -4,6 +4,7 @@
  */
 
 #include "model/converters/pb_query_response_factory.hpp"
+#include <rxcpp/operators/rx-reduce.hpp>
 #include "common/byteutils.hpp"
 #include "common/instanceof.hpp"
 #include "model/converters/pb_common.hpp"

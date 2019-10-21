@@ -5,9 +5,10 @@
 
 #include "network/impl/block_loader_impl.hpp"
 
-#include <grpc++/create_channel.h>
 #include <chrono>
 
+#include <grpc++/create_channel.h>
+#include <rxcpp/rx-lite.hpp>
 #include "backend/protobuf/block.hpp"
 #include "builders/protobuf/transport_builder.hpp"
 #include "common/bind.hpp"

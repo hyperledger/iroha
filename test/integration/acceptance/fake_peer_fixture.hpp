@@ -29,6 +29,7 @@ auto makePeerPointeeMatcher(shared_model::interface::types::AddressType address,
 
 auto makePeerPointeeMatcher(
     std::shared_ptr<shared_model::interface::Peer> peer) {
+  // TODO [IR-658] artyom-yurin 30.09.2019: Rewrite using operator ==
   return makePeerPointeeMatcher(peer->address(), peer->pubkey());
 }
 

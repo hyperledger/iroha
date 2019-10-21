@@ -65,18 +65,14 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
 
   auto batch_candidates = batch_parser_->parseBatches(std::move(transactions));
 
-  auto batches = std::accumulate(
-      std::begin(batch_candidates),
-      std::end(batch_candidates),
-      OdOsNotification::CollectionType{},
-      [this](auto &acc, const auto &cand) {
-        batch_factory_->createTransactionBatch(cand).match(
-            [&](auto &&value) { acc.push_back(std::move(value).value); },
-            [&](const auto &error) {
-              log_->warn("Batch deserialization failed: {}", error.error);
-            });
-        return acc;
-      });
+  OdOsNotification::CollectionType batches;
+  for (auto &cand : batch_candidates) {
+    batch_factory_->createTransactionBatch(cand).match(
+        [&](auto &&value) { batches.push_back(std::move(value).value); },
+        [&](const auto &error) {
+          log_->warn("Batch deserialization failed: {}", error.error);
+        });
+  }
 
   ordering_service_->onBatches(std::move(batches));
 

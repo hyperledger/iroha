@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <boost/variant/apply_visitor.hpp>
+#include <rxcpp/operators/rx-all.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
