@@ -1,0 +1,15 @@
+boost-assert
+boost-build
+boost-config
+boost-function
+boost-integer
+boost-iterator
+boost-modular-build-helper
+boost-smart-ptr
+boost-static-assert
+boost-system
+boost-thread
+boost-type-traits
+boost-unordered
+boost-vcpkg-helpers
+libiconv
