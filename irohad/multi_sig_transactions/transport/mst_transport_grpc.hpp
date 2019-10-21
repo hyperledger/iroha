@@ -70,12 +70,6 @@ namespace iroha {
                      ConstRefState providing_state) override;
 
      private:
-      /**
-       * Flat map transport transactions to shared model
-       */
-      shared_model::interface::types::SharedTxsCollectionType
-      deserializeTransactions(const transport::MstState *request);
-
       std::weak_ptr<MstTransportNotification> subscriber_;
       std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
           async_call_;
