@@ -1,7 +1,6 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
-RUN apt-get update; \
-    apt-get install -y libc-ares-dev
+RUN apt-get update
 
 #Install iroha
 COPY iroha.deb /tmp/iroha.deb
