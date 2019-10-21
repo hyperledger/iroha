@@ -41,6 +41,8 @@
 #include "multi_sig_transactions/transport/mst_transport_stub.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
+#include "network/impl/peer_tls_certificates_provider_root.hpp"
+#include "network/impl/peer_tls_certificates_provider_wsv.hpp"
 #include "network/impl/tls_credentials.hpp"
 #include "ordering/impl/kick_out_proposal_creation_strategy.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -155,6 +157,7 @@ Irohad::RunResult Irohad::init() {
   }
   | [this]{ return restoreWsv();}
   | [this]{ return initTlsCredentials();}
+  | [this]{ return initPeerCertProvider();}
   | [this]{ return initCryptoProvider();}
   | [this]{ return initBatchParser();}
   | [this]{ return initValidators();}
@@ -351,6 +354,71 @@ Irohad::RunResult Irohad::initTlsCredentials() {
       [&, this] {
         return load_tls_creds(torii_path, "torii", this->torii_tls_creds_);
       };
+}
+
+/**
+ * Initializing peers' certificates provider.
+ */
+Irohad::RunResult Irohad::initPeerCertProvider() {
+  using namespace iroha::expected;
+
+  if (not inter_peer_tls_config_) {
+    return {};
+  }
+
+  static const auto read_file =
+      [](const std::string &path) -> Result<std::string, std::string> {
+    try {
+      std::ifstream certificate_file(path);
+      std::stringstream ss;
+      ss << certificate_file.rdbuf();
+      return makeValue(ss.str());
+    } catch (const std::exception &e) {
+      return makeError(e.what());
+    }
+  };
+
+  using OptionalPeerCertProvider =
+      boost::optional<std::unique_ptr<const PeerTlsCertificatesProvider>>;
+  using PeerCertProviderResult = Result<OptionalPeerCertProvider, std::string>;
+
+  return iroha::visit_in_place(
+             inter_peer_tls_config_->peer_certificates,
+             [this](const IrohadConfig::InterPeerTls::RootCert &root)
+                 -> PeerCertProviderResult {
+               return read_file(root.path) |
+                   [&root, this](std::string &&root_cert) {
+                     log_->debug("Loaded root TLS certificate from '{}'.",
+                                 root.path);
+                     return OptionalPeerCertProvider{
+                         std::make_unique<PeerTlsCertificatesProviderRoot>(
+                             root_cert)};
+                   };
+             },
+             [this](const IrohadConfig::InterPeerTls::FromWsv &)
+                 -> PeerCertProviderResult {
+               auto opt_peer_query = this->storage->createPeerQuery();
+               if (not opt_peer_query) {
+                 return makeError(std::string{"Failed to get peer query."});
+               }
+               log_->debug("Prepared WSV peer certificate provider.");
+               return boost::make_optional(
+                   std::make_unique<PeerTlsCertificatesProviderWsv>(
+                       std::move(opt_peer_query).value()));
+             },
+             [this](const IrohadConfig::InterPeerTls::None &)
+                 -> PeerCertProviderResult {
+               log_->debug("Peer certificate provider not initialized.");
+               return OptionalPeerCertProvider{};
+             },
+             [](const auto &) -> PeerCertProviderResult {
+               return makeError("Unimplemented peer certificate provider.");
+             })
+             | [this](OptionalPeerCertProvider &&opt_peer_cert_provider)
+             -> RunResult {
+    this->peer_tls_certificates_provider_ = std::move(opt_peer_cert_provider);
+    return {};
+  };
 }
 
 /**

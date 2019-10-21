@@ -25,7 +25,15 @@ struct IrohadConfig {
   };
 
   struct InterPeerTls {
+    struct RootCert {
+      std::string path;
+    };
+    struct FromWsv {};
+    struct None {};
+    using PeerCertProvider = boost::variant<RootCert, FromWsv, None>;
+
     boost::optional<std::string> my_tls_creds_path;
+    PeerCertProvider peer_certificates;
   };
 
   // TODO: block_store_path is now optional, change docs IR-576
