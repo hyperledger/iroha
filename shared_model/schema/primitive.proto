@@ -11,9 +11,7 @@
 
 syntax = "proto3";
 
-
 package iroha.protocol;
-
 
 /**
  * Represents any possible value for permission field,
@@ -89,17 +87,20 @@ enum GrantablePermission {
   can_remove_my_signatory = 1;
   can_set_my_quorum = 2;
   can_set_my_account_detail = 3;
-  can_transfer_my_assets = 4; // not implemented now
+  can_transfer_my_assets = 4;  // not implemented now
 }
 
 message Signature {
   string public_key = 1;
-  string signature  = 2;
+  string signature = 2;
 }
 
 message Peer {
   string address = 1;
-  string peer_key = 2; // hex string
+  string peer_key = 2;  // hex string
+  oneof certificate {
+    string tls_certificate = 3;  // pem-encoded string
+  }
 }
 
 message AccountDetailRecordId {

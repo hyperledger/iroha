@@ -10,17 +10,41 @@
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
 #include "logger/logger.hpp"
+#include "network/impl/tls_credentials.hpp"
 
-const auto kPortBindError = "Cannot bind server to address %s";
+using namespace iroha::network;
 
-ServerRunner::ServerRunner(const std::string &address,
-                           logger::LoggerPtr log,
-                           bool reuse,
-                           const boost::optional<TlsKeypair> &tls_keypair)
+namespace {
+
+  const auto kPortBindError = "Cannot bind server to address %s";
+
+  std::shared_ptr<grpc::ServerCredentials> createCredentials(
+      const boost::optional<std::shared_ptr<const TlsCredentials>>
+          &my_tls_creds) {
+    if (not my_tls_creds) {
+      return grpc::InsecureServerCredentials();
+    }
+    auto options = grpc::SslServerCredentialsOptions(
+        GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE);
+    grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
+        my_tls_creds.value()->private_key, my_tls_creds.value()->certificate};
+    options.pem_key_cert_pairs.push_back(keypair);
+    std::shared_ptr<grpc::ServerCredentials> credentials =
+        grpc::SslServerCredentials(options);
+    return credentials;
+  }
+
+}  // namespace
+
+ServerRunner::ServerRunner(
+    const std::string &address,
+    logger::LoggerPtr log,
+    bool reuse,
+    const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds)
     : log_(std::move(log)),
       server_address_(address),
-      reuse_(reuse),
-      tls_keypair_(tls_keypair) {}
+      credentials_(createCredentials(my_tls_creds)),
+      reuse_(reuse) {}
 
 ServerRunner::~ServerRunner() {
   shutdown(std::chrono::system_clock::now());
@@ -39,7 +63,7 @@ iroha::expected::Result<int, std::string> ServerRunner::run() {
     builder.AddChannelArgument(GRPC_ARG_ALLOW_REUSEPORT, 0);
   }
 
-  addListeningPortToBuilder(builder, &selected_port);
+  builder.AddListeningPort(server_address_, credentials_, &selected_port);
 
   for (auto &service : services_) {
     builder.RegisterService(service.get());
@@ -67,26 +91,6 @@ void ServerRunner::waitForServersReady() {
   std::unique_lock<std::mutex> lock(wait_for_server_);
   while (not server_instance_) {
     server_instance_cv_.wait(lock);
-  }
-}
-
-std::shared_ptr<grpc::ServerCredentials>
-ServerRunner::createSecureCredentials() {
-  grpc::SslServerCredentialsOptions::PemKeyCertPair keypair = {
-      tls_keypair_->pem_private_key, tls_keypair_->pem_certificate};
-  auto options = grpc::SslServerCredentialsOptions();
-  options.pem_key_cert_pairs.push_back(keypair);
-  return grpc::SslServerCredentials(options);
-}
-
-void ServerRunner::addListeningPortToBuilder(grpc::ServerBuilder &builder,
-                                             int *selected_port) {
-  if (tls_keypair_) {  // if specified, requested to enable TLS
-    auto credentials = createSecureCredentials();
-    builder.AddListeningPort(server_address_, credentials, selected_port);
-  } else {  // tls is disabled
-    builder.AddListeningPort(
-        server_address_, grpc::InsecureServerCredentials(), selected_port);
   }
 }
 

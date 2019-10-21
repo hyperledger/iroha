@@ -30,25 +30,6 @@
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 #include "ordering/impl/ordering_gate_cache/on_demand_cache.hpp"
 
-namespace {
-  /// match event and call corresponding lambda depending on sync_outcome
-  template <typename OnBlocks, typename OnNothing>
-  auto matchEvent(const iroha::synchronizer::SynchronizationEvent &event,
-                  OnBlocks &&on_blocks,
-                  OnNothing &&on_nothing) {
-    using iroha::synchronizer::SynchronizationOutcomeType;
-    switch (event.sync_outcome) {
-      case SynchronizationOutcomeType::kCommit:
-        return std::forward<OnBlocks>(on_blocks)(event);
-      case SynchronizationOutcomeType::kReject:
-      case SynchronizationOutcomeType::kNothing:
-        return std::forward<OnNothing>(on_nothing)(event);
-      default:
-        BOOST_ASSERT_MSG(false, "Unknown value");
-    }
-  }
-}  // namespace
-
 namespace iroha {
   namespace network {
 
@@ -104,36 +85,40 @@ namespace iroha {
 
         consensus::Round current_round = latest_commit.round;
 
-        auto on_blocks =
-            [this, current_hashes, &current_round](const auto &commit) {
-              current_round = ordering::nextCommitRound(current_round);
-              current_peers_ = commit.ledger_state->ledger_peers;
+        current_peers_ = latest_commit.ledger_state->ledger_peers;
 
-              // generate permutation of peers list from corresponding round
-              // hash
-              auto generate_permutation = [&](auto round) {
-                auto &hash = std::get<round()>(current_hashes);
-                log_->debug("Using hash: {}", hash.toString());
-                auto &permutation = permutations_[round()];
+        // generate permutation of peers list from corresponding round
+        // hash
+        auto generate_permutation = [&](auto round) {
+          auto &hash = std::get<round()>(current_hashes);
+          log_->debug("Using hash: {}", hash.toString());
+          auto &permutation = permutations_[round()];
 
-                std::seed_seq seed(hash.blob().begin(), hash.blob().end());
-                gen_.seed(seed);
+          std::seed_seq seed(hash.blob().begin(), hash.blob().end());
+          gen_.seed(seed);
 
-                permutation.resize(current_peers_.size());
-                std::iota(permutation.begin(), permutation.end(), 0);
+          permutation.resize(current_peers_.size());
+          std::iota(permutation.begin(), permutation.end(), 0);
 
-                std::shuffle(permutation.begin(), permutation.end(), gen_);
-              };
-
-              generate_permutation(RoundTypeConstant<kCurrentRound>{});
-              generate_permutation(RoundTypeConstant<kNextRound>{});
-              generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
-            };
-        auto on_nothing = [&current_round](const auto &) {
-          current_round = ordering::nextRejectRound(current_round);
+          std::shuffle(permutation.begin(), permutation.end(), gen_);
         };
 
-        matchEvent(latest_commit, on_blocks, on_nothing);
+        generate_permutation(RoundTypeConstant<kCurrentRound>{});
+        generate_permutation(RoundTypeConstant<kNextRound>{});
+        generate_permutation(RoundTypeConstant<kRoundAfterNext>{});
+
+        using iroha::synchronizer::SynchronizationOutcomeType;
+        switch (latest_commit.sync_outcome) {
+          case SynchronizationOutcomeType::kCommit:
+            current_round = ordering::nextCommitRound(current_round);
+            break;
+          case SynchronizationOutcomeType::kReject:
+          case SynchronizationOutcomeType::kNothing:
+            current_round = ordering::nextRejectRound(current_round);
+            break;
+          default:
+            BOOST_ASSERT_MSG(false, "Unknown value");
+        }
 
         auto getOsPeer = [this, &current_round](auto block_round_advance,
                                                 auto reject_round) {

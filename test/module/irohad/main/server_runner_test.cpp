@@ -10,6 +10,8 @@
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"
 
+using iroha::network::ServerRunner;
+
 boost::format address{"0.0.0.0:%d"};
 auto port_visitor = iroha::make_visitor(
     [](iroha::expected::Value<int> x) { return x.value; },

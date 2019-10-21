@@ -253,6 +253,7 @@ TEST_F(SynchronizerTest, ValidWhenSingleCommitSynchronized) {
 TEST_F(SynchronizerTest, ValidWhenValidChain) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
+  consensus::Round round{kHeight, 1};
 
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
 
@@ -263,13 +264,14 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
+  wrapper.subscribe([this, round](auto commit_event) {
     EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
     ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+    ASSERT_EQ(commit_event.round, round);
   });
 
-  gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+  gate_outcome.get_subscriber().on_next(
+      consensus::VoteOther(round, ledger_state, public_keys, hash));
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -589,9 +591,12 @@ TEST_F(SynchronizerTest, OneRoundDifference) {
 
   auto wrapper =
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
-  wrapper.subscribe([this](auto commit_event) {
+  wrapper.subscribe([this,
+                     expected_round = consensus::Round{commit_message->height(),
+                                                       0}](auto commit_event) {
     EXPECT_EQ(this->ledger_peers, commit_event.ledger_state->ledger_peers);
     ASSERT_EQ(commit_event.sync_outcome, SynchronizationOutcomeType::kCommit);
+    ASSERT_EQ(commit_event.round, expected_round);
   });
 
   gate_outcome.get_subscriber().on_next(consensus::Future(

@@ -66,6 +66,7 @@ namespace iroha {
   namespace network {
     class MstTransportGrpc;
     class OrderingServiceTransport;
+    class ServerRunner;
     template <typename Response>
     class AsyncGrpcClient;
   }  // namespace network
@@ -84,8 +85,6 @@ namespace torii {
 namespace torii_utils {
   class QuerySyncClient;
 }
-
-class ServerRunner;
 
 namespace integration_framework {
 
@@ -545,7 +544,8 @@ namespace integration_framework {
    private:
     bool cleanup_on_exit_;
     std::vector<std::shared_ptr<fake_peer::FakePeer>> fake_peers_;
-    std::vector<std::unique_ptr<ServerRunner>> fake_peers_servers_;
+    std::vector<std::unique_ptr<iroha::network::ServerRunner>>
+        fake_peers_servers_;
   };
 
 }  // namespace integration_framework

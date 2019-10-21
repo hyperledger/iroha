@@ -188,11 +188,11 @@ namespace integration_framework {
       return proposal_storage_;
     }
 
-    std::unique_ptr<ServerRunner> FakePeer::run() {
+    std::unique_ptr<iroha::network::ServerRunner> FakePeer::run() {
       ensureInitialized();
       // start instance
       log_->info("starting listening server");
-      auto internal_server = std::make_unique<ServerRunner>(
+      auto internal_server = std::make_unique<iroha::network::ServerRunner>(
           getAddress(),
           log_manager_->getChild("InternalServer")->getLogger(),
           false);

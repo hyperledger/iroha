@@ -9,6 +9,8 @@
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
+#include <boost/optional/optional_fwd.hpp>
+
 namespace shared_model {
   namespace interface {
 
@@ -21,6 +23,12 @@ namespace shared_model {
        * @return Peer address, for fetching data
        */
       virtual const interface::types::AddressType &address() const = 0;
+
+      /**
+       * @return Peer TLS certficate
+       */
+      virtual const boost::optional<interface::types::TLSCertificateType>
+          &tlsCertificate() const = 0;
 
       /**
        * @return Public key, for fetching data

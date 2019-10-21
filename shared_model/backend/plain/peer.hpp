@@ -9,21 +9,30 @@
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
+#include <boost/optional.hpp>
+
 namespace shared_model {
   namespace plain {
 
     class Peer final : public interface::Peer {
      public:
       Peer(const interface::types::AddressType &address,
-           const interface::types::PubkeyType &public_key);
+           const interface::types::PubkeyType &public_key,
+           const boost::optional<interface::types::TLSCertificateType>
+               &tls_certificate);
 
       const interface::types::AddressType &address() const override;
 
       const interface::types::PubkeyType &pubkey() const override;
 
+      const boost::optional<interface::types::TLSCertificateType>
+          &tlsCertificate() const override;
+
      private:
       const interface::types::AddressType address_;
       const interface::types::PubkeyType public_key_;
+      const boost::optional<interface::types::TLSCertificateType>
+          tls_certificate_;
     };
 
   }  // namespace plain

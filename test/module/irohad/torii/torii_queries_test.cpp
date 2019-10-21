@@ -57,8 +57,8 @@ using ErrorQueryType =
 class ToriiQueriesTest : public testing::Test {
  public:
   virtual void SetUp() {
-    runner = std::make_unique<ServerRunner>(ip + ":0",
-                                            getTestLogger("ServerRunner"));
+    runner = std::make_unique<iroha::network::ServerRunner>(
+        ip + ":0", getTestLogger("ServerRunner"));
     wsv_query = std::make_shared<MockWsvQuery>();
     block_query = std::make_shared<MockBlockQuery>();
     query_executor = std::make_shared<MockQueryExecutor>();
@@ -126,7 +126,7 @@ class ToriiQueriesTest : public testing::Test {
             std::move(proto_blocks_query_validator));
   }
 
-  std::unique_ptr<ServerRunner> runner;
+  std::unique_ptr<iroha::network::ServerRunner> runner;
   shared_model::crypto::Keypair pair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
   std::vector<shared_model::interface::types::PubkeyType> signatories = {

@@ -40,3 +40,19 @@ add_library(ordering_gate_common
 target_link_libraries(ordering_gate_common
     boost
     )
+
+add_library(tls_credentials
+    impl/tls_credentials.cpp
+    )
+target_link_libraries(tls_credentials
+    common
+    )
+
+add_library(peer_tls_certificates_providers
+    impl/peer_tls_certificates_provider_root.cpp
+    impl/peer_tls_certificates_provider_wsv.cpp
+    )
+target_link_libraries(peer_tls_certificates_providers
+    logger
+    shared_model_interfaces
+    )

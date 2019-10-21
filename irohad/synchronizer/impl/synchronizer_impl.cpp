@@ -159,13 +159,15 @@ namespace iroha {
           msg.public_keys);
 
       commit_result.match(
-          [this](auto &value) {
+          [this, &msg](auto &value) {
             auto &ledger_state = value.value;
             assert(ledger_state);
-            auto new_height = ledger_state->top_block_info.height;
+            const auto new_height = ledger_state->top_block_info.height;
             notifier_.get_subscriber().on_next(
                 SynchronizationEvent{SynchronizationOutcomeType::kCommit,
-                                     consensus::Round{new_height, 0},
+                                     new_height != msg.round.block_round
+                                         ? consensus::Round{new_height, 0}
+                                         : msg.round,
                                      std::move(ledger_state)});
           },
           [this](const auto &error) {

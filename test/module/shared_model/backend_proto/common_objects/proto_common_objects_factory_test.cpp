@@ -27,22 +27,37 @@ class PeerTest : public ProtoFixture {
   crypto::PublicKey valid_pubkey =
       crypto::DefaultCryptoAlgorithmType::generateKeypair().publicKey();
   std::string invalid_address = "127.0.0.1";
+
+  void testValidPeerCreation(const std::string &address,
+                             const crypto::PublicKey &pubkey,
+                             const boost::optional<std::string> &tls_cert) {
+    factory.createPeer(address, pubkey, tls_cert)
+        .match(
+            [&](const auto &v) {
+              ASSERT_EQ(v.value->address(), address);
+              ASSERT_EQ(v.value->pubkey().hex(), pubkey.hex());
+              ASSERT_EQ(v.value->tlsCertificate(), tls_cert);
+            },
+            [](const auto &e) { FAIL() << e.error; });
+  }
 };
 
 /**
- * @given valid data for peer
+ * @given valid data for peer including TLS certficate
  * @when peer is created via factory
  * @then peer is successfully initialized
  */
-TEST_F(PeerTest, ValidPeerInitialization) {
-  auto peer = factory.createPeer(valid_address, valid_pubkey);
+TEST_F(PeerTest, ValidPeerInitializationWithTlsCert) {
+  testValidPeerCreation(valid_address, valid_pubkey, std::string(""));
+}
 
-  peer.match(
-      [&](const auto &v) {
-        ASSERT_EQ(v.value->address(), valid_address);
-        ASSERT_EQ(v.value->pubkey().hex(), valid_pubkey.hex());
-      },
-      [](const auto &e) { FAIL() << e.error; });
+/**
+ * @given valid data for peer without TLS certficate
+ * @when peer is created via factory
+ * @then peer is successfully initialized
+ */
+TEST_F(PeerTest, ValidPeerInitializationWithoutTlsCert) {
+  testValidPeerCreation(valid_address, valid_pubkey, boost::none);
 }
 
 /**
@@ -51,7 +66,8 @@ TEST_F(PeerTest, ValidPeerInitialization) {
  * @then peer is not initialized correctly
  */
 TEST_F(PeerTest, InvalidPeerInitialization) {
-  auto peer = factory.createPeer(invalid_address, valid_pubkey);
+  auto peer =
+      factory.createPeer(invalid_address, valid_pubkey, std::string(""));
 
   peer.match([](const auto &v) { FAIL() << "Expected error case"; },
              [](const auto &e) { SUCCEED(); });
