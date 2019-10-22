@@ -11,11 +11,14 @@ import (
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/logging"
+	"github.com/hyperledger/burrow/permission"
 	"github.com/tmthrgd/go-hex"
 	"golang.org/x/crypto/ripemd160"
 	"strconv"
 	"unsafe"
 )
+
+const defaultPermissions permission.PermFlag = permission.Send | permission.Call | permission.CreateContract | permission.CreateAccount
 
 func newParams() evm.Params {
 	return evm.Params{
@@ -64,6 +67,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 	// Check if caller account exists
 	if !evmState.Exists(evmCaller) {
 		evmState.CreateAccount(evmCaller)
+		evmState.SetPermission(evmCaller, defaultPermissions, true)
 		// TODO: study if storing the original Iroha accountID of the caller is necessary
 		// appState.SetParentID(evmCaller, "ParentID", []byte(C.GoString(caller)))
 	}
@@ -88,6 +92,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 			return nil, false
 		}
 		evmState.InitCode(evmCallee, output)
+		evmState.SetPermission(evmCallee, defaultPermissions, true)
 	} else {
 		var calleeAcc *acm.Account
 		calleeAcc, err = appState.GetAccount(evmCallee)
