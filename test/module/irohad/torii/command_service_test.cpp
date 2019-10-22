@@ -124,7 +124,7 @@ TEST_F(CommandServiceTest, ProcessBatchOn) {
 /**
  * @given initialized command service
  * @when  status of a transaction is queried
- *        @and im-memory cache does not contain info about the transaction
+ *        @and in-memory cache does not contain info about the transaction
  *        @and the transaction is saved to the ledger as Rejected
  * @then  query response tells that the transaction has been rejected
  */
@@ -148,8 +148,10 @@ TEST_F(CommandServiceTest, RejectedTxStatus) {
 
   initCommandService();
   auto response = command_service_->getStatus(hash);
-  iroha::visit_in_place(
-      response->get(),
-      [](const shared_model::interface::RejectedTxResponse &) {},
-      [](const auto &a) { FAIL() << "Wrong response!"; });
+
+  ASSERT_NO_THROW({
+    boost::get<const shared_model::interface::RejectedTxResponse &>(
+        response->get());
+  }) << "Wrong response. Expected: RejectedTxResponse, Received: "
+     << response->toString();
 }
