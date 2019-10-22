@@ -5,7 +5,6 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
-#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/format.hpp>
@@ -14,6 +13,7 @@
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
+#include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
@@ -48,17 +48,6 @@ namespace {
 
   using namespace iroha;
 
-  const auto kRootRolePermStr =
-      shared_model::interface::RolePermissionSet({Role::kRoot}).toBitstring();
-
-  shared_model::interface::types::DomainIdType getDomainFromName(
-      const shared_model::interface::types::AccountIdType &account_id) {
-    // TODO 03.10.18 andrei: IR-1728 Move getDomainFromName to shared_model
-    std::vector<std::string> res;
-    boost::split(res, account_id, boost::is_any_of("@"));
-    return res.at(1);
-  }
-
   std::string getAccountRolePermissionCheckSql(
       shared_model::interface::permissions::Role permission,
       const std::string &account_alias = ":role_account_id") {
@@ -66,7 +55,8 @@ namespace {
         shared_model::interface::RolePermissionSet({permission}).toBitstring();
     const auto bits = shared_model::interface::RolePermissionSet::size();
     // TODO 14.09.18 andrei: IR-1708 Load SQL from separate files
-    std::string query = (boost::format(R"(
+    std::string query =
+        (boost::format(R"(
           SELECT
             (
               COALESCE(bit_or(rp.permission), '0'::bit(%1%))
@@ -76,8 +66,8 @@ namespace {
           FROM role_has_permissions AS rp
           JOIN account_has_roles AS ar on ar.role_id = rp.role_id
           WHERE ar.account_id = %4%)")
-                         % bits % perm_str % kRootRolePermStr % account_alias)
-                            .str();
+         % bits % perm_str % iroha::ametsuchi::kRootRolePermStr % account_alias)
+            .str();
     return query;
   }
 
@@ -135,8 +125,8 @@ namespace {
 
     return (cmd % getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted)
             % bits % creator % perm_str % all_perm_str % domain_perm_str
-            % target_account % getDomainFromName(creator)
-            % getDomainFromName(target_account))
+            % target_account % iroha::ametsuchi::getDomainFromName(creator)
+            % iroha::ametsuchi::getDomainFromName(target_account))
         .str();
   }
 
