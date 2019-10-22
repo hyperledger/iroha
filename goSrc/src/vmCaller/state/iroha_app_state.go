@@ -58,7 +58,7 @@ func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) 
 	} else {
 
 		// Get data about account
-		accountBytes, err := ias.getIrohaAccountDetail(addr, "EVM_marshalled_account_data")
+		accountBytes, err := ias.getIrohaAccountDetail(addr, "evm_account_data")
 		if err != nil {
 			fmt.Println("Error during GetAccount, addr", addr.String())
 		}
@@ -92,7 +92,7 @@ func (ias *IrohaAppState) UpdateAccount(account *acm.Account) error {
 		return err
 	}
 
-	err = ias.setIrohaAccountDetail(account.Address, "EVM_marshalled_account_data", marshalledData)
+	err = ias.setIrohaAccountDetail(account.Address, "evm_account_data", marshalledData)
 
 	return err
 }
