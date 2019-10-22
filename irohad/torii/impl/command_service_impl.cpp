@@ -99,7 +99,8 @@ namespace iroha {
             cache_->addItem(request, response);
             return response;
           },
-          [this, &request](const auto &) {
+          [this, &request](
+              const iroha::ametsuchi::tx_cache_status_responses::Committed &) {
             std::shared_ptr<shared_model::interface::TransactionResponse>
                 response = status_factory_->makeCommitted(request);
             cache_->addItem(request, response);
