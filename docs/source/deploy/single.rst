@@ -56,6 +56,8 @@ An example of shell command, running Iroha daemon is
 
     irohad --config example/config.sample --genesis_block example/genesis.block --keypair_name example/node0
 
+.. Note:: if you are running Iroha built with `HL Ursa support <../integrations/index.html#hyperledger-ursa>`_ please get the example keys and genesis block in `example/ursa-keys/`
+
 .. Attention:: If you have stopped the daemon and want to use existing chain — you should not pass the genesis block parameter.
 
 

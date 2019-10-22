@@ -1,32 +1,28 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 # number of concurrent threads during build
 # usage: docker build --build-arg PARALLELISM=8 -t name/name .
 ARG PARALLELISM=1
-ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
 
 RUN apt-get update && \
-    apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
+    apt-get -y --no-install-recommends install apt-utils software-properties-common wget gpg-agent; \
     apt-get -y clean
 
 # add repos
 RUN set -e; \
     add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
     wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -; \
-    echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-6.0 main' >> /etc/apt/sources.list; \
-    echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main' >> /etc/apt/sources.list; \
+    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-6.0 main' >> /etc/apt/sources.list; \
+    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-7 main' >> /etc/apt/sources.list; \
     apt-get update
 
 RUN set -e; \
-    apt-get -y --no-install-recommends install python-software-properties \
-        automake libtool \
-        # compilers (gcc-5, gcc-7, clang-6)
-        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-7 \
-        # dev dependencies
-        libssl-dev zlib1g-dev libcurl4-openssl-dev libc6-dbg golang \
+    apt-get -y --no-install-recommends install libtool \
+        # compilers (gcc-7, gcc-9, clang-6)
+        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-9 \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # Pythons
