@@ -5,7 +5,7 @@
 
 #include "backend/protobuf/query_responses/proto_signatories_response.hpp"
 
-#include <boost/range/numeric.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 #include "cryptography/hash.hpp"
 
 namespace shared_model {
@@ -14,15 +14,11 @@ namespace shared_model {
     SignatoriesResponse::SignatoriesResponse(
         iroha::protocol::QueryResponse &query_response)
         : signatories_response_{query_response.signatories_response()},
-          keys_{[this] {
-            return boost::accumulate(
-                signatories_response_.keys(),
-                interface::types::PublicKeyCollectionType{},
-                [](auto acc, auto key) {
-                  acc.emplace_back(crypto::Hash::fromHexString(key));
-                  return acc;
-                });
-          }()} {}
+          keys_{boost::copy_range<interface::types::PublicKeyCollectionType>(
+              signatories_response_.keys()
+              | boost::adaptors::transformed([](const auto &key) {
+                  return crypto::PublicKey::fromHexString(key);
+                }))} {}
 
     const interface::types::PublicKeyCollectionType &SignatoriesResponse::keys()
         const {

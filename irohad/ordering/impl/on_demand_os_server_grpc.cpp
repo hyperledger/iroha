@@ -9,8 +9,10 @@
 
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/proposal.hpp"
 #include "common/bind.hpp"
+#include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger.hpp"
 
@@ -31,50 +33,29 @@ OnDemandOsServerGrpc::OnDemandOsServerGrpc(
       batch_factory_(std::move(transaction_batch_factory)),
       log_(std::move(log)) {}
 
-shared_model::interface::types::SharedTxsCollectionType
-OnDemandOsServerGrpc::deserializeTransactions(
-    const proto::BatchesRequest *request) {
-  return boost::copy_range<
-      shared_model::interface::types::SharedTxsCollectionType>(
-      request->transactions()
-      | boost::adaptors::transformed(
-            [&](const auto &tx) { return transaction_factory_->build(tx); })
-      | boost::adaptors::filtered([&](const auto &result) {
-          return result.match(
-              [](const auto &) { return true; },
-              [&](const auto &error) {
-                log_->info("Transaction deserialization failed: hash {}, {}",
-                           error.error.hash,
-                           error.error.error);
-                return false;
-              });
-        })
-      | boost::adaptors::transformed([](auto result) {
-          return std::move(
-                     boost::get<iroha::expected::ValueOf<decltype(result)>>(
-                         result))
-              .value;
-        }));
-}
-
 grpc::Status OnDemandOsServerGrpc::SendBatches(
     ::grpc::ServerContext *context,
     const proto::BatchesRequest *request,
     ::google::protobuf::Empty *response) {
-  auto transactions = deserializeTransactions(request);
-
-  auto batch_candidates = batch_parser_->parseBatches(std::move(transactions));
-
-  OdOsNotification::CollectionType batches;
-  for (auto &cand : batch_candidates) {
-    batch_factory_->createTransactionBatch(cand).match(
-        [&](auto &&value) { batches.push_back(std::move(value).value); },
-        [&](const auto &error) {
-          log_->warn("Batch deserialization failed: {}", error.error);
-        });
+  auto transactions = shared_model::proto::deserializeTransactions(
+      *transaction_factory_, request->transactions());
+  if (auto e = expected::resultToOptionalError(transactions)) {
+    log_->warn(
+        "Transaction deserialization failed: hash {}, {}", e->hash, e->error);
+    return ::grpc::Status::OK;
   }
 
-  ordering_service_->onBatches(std::move(batches));
+  auto batches = shared_model::interface::parseAndCreateBatches(
+      *batch_parser_,
+      *batch_factory_,
+      *expected::resultToOptionalValue(std::move(transactions)));
+  if (auto e = expected::resultToOptionalError(batches)) {
+    log_->warn("Batch deserialization failed: {}", *e);
+    return ::grpc::Status::OK;
+  }
+
+  ordering_service_->onBatches(
+      *expected::resultToOptionalValue(std::move(batches)));
 
   return ::grpc::Status::OK;
 }

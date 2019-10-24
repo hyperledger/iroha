@@ -5,7 +5,7 @@
 
 #include "backend/protobuf/query_responses/proto_account_response.hpp"
 
-#include <boost/range/numeric.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 
 namespace shared_model {
   namespace proto {
@@ -13,13 +13,11 @@ namespace shared_model {
     AccountResponse::AccountResponse(
         iroha::protocol::QueryResponse &query_response)
         : account_response_{query_response.account_response()},
-          account_roles_{boost::accumulate(
-              account_response_.account_roles(),
-              AccountRolesIdType{},
-              [](auto &&roles, const auto &role) {
-                roles.push_back(interface::types::RoleIdType(role));
-                return std::move(roles);
-              })},
+          account_roles_{boost::copy_range<AccountRolesIdType>(
+              account_response_.account_roles()
+              | boost::adaptors::transformed([](const auto &role) {
+                  return interface::types::RoleIdType(role);
+                }))},
           account_{
               *query_response.mutable_account_response()->mutable_account()} {}
 

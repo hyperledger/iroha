@@ -119,12 +119,6 @@ namespace iroha {
           override;
 
      private:
-      /**
-       * Flat map transport transactions to shared model
-       */
-      shared_model::interface::types::SharedTxsCollectionType
-      deserializeTransactions(const iroha::protocol::TxList *request);
-
       std::shared_ptr<CommandService> command_service_;
       std::shared_ptr<iroha::torii::StatusBus> status_bus_;
       std::shared_ptr<shared_model::interface::TxStatusFactory> status_factory_;
