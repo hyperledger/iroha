@@ -17,7 +17,8 @@ namespace shared_model {
           keys_{boost::copy_range<interface::types::PublicKeyCollectionType>(
               signatories_response_.keys()
               | boost::adaptors::transformed([](const auto &key) {
-                  return crypto::PublicKey::fromHexString(key);
+                  return crypto::PublicKey{
+                      crypto::PublicKey::fromHexString(key)};
                 }))} {}
 
     const interface::types::PublicKeyCollectionType &SignatoriesResponse::keys()
