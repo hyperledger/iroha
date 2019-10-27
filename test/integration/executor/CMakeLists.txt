@@ -16,6 +16,7 @@ target_link_libraries(executor_fixture_param_postgres
     ametsuchi
     executor_fixture_param
     gmock::main
+    shared_model_plain_backend
     shared_model_proto_backend
     test_db_manager
     test_logger

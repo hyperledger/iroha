@@ -16,6 +16,8 @@
 
 using namespace iroha::consensus::yac;
 
+using ::iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Bft;
+
 // TODO mboldyrev 14.02.2019 IR-324 Use supermajority checker mock
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
     iroha::consensus::yac::ConsistencyModel::kBft;
@@ -27,8 +29,8 @@ class YacBlockStorageTest : public ::testing::Test {
   const PeersNumberType number_of_peers = 4;
   const PeersNumberType supermajority = number_of_peers
       - (number_of_peers - 1)
-          / detail::kSupermajorityCheckerKfPlus1Bft;  // `kf+1' consistency
-                                                      // model
+          / kSupermajorityCheckerKfPlus1Bft;  // `kf+1' consistency
+                                              // model
   const YacHash hash =
       YacHash(iroha::consensus::Round{1, 1}, "proposal", "commit");
   YacBlockStorage storage =

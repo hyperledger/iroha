@@ -10,7 +10,7 @@
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
-#include "backend/protobuf/proto_query_response_factory.hpp"
+#include "backend/plain/query_response_factory.hpp"
 #include "common/result.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_db_manager.hpp"
@@ -106,7 +106,7 @@ namespace {
             db_manager.getSession(),
             std::make_unique<MockBlockStorage>(),
             std::make_shared<MockPendingTransactionStorage>(),
-            std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
+            std::make_shared<shared_model::plain::QueryResponseFactory>(),
             std::make_shared<shared_model::proto::ProtoPermissionToString>(),
             getTestLoggerManager()
                 ->getChild("SpecificQueryExecutor")

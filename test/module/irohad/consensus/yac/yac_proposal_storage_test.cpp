@@ -19,6 +19,8 @@
 using namespace iroha::consensus::yac;
 using namespace ::testing;
 
+using ::iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Bft;
+
 static logger::LoggerPtr log_ = getTestLogger("YacProposalStorage");
 
 class YacProposalStorageTest : public ::testing::Test {
@@ -26,8 +28,8 @@ class YacProposalStorageTest : public ::testing::Test {
   const PeersNumberType number_of_peers = 7;
   const PeersNumberType supermajority = number_of_peers
       - (number_of_peers - 1)
-          / detail::kSupermajorityCheckerKfPlus1Bft;  // `kf+1' consistency
-                                                      // model
+          / kSupermajorityCheckerKfPlus1Bft;  // `kf+1' consistency
+                                              // model
   const YacHash hash =
       YacHash(iroha::consensus::Round{1, 1}, "proposal", "commit");
   const std::shared_ptr<MockSupermajorityChecker> supermajority_checker =

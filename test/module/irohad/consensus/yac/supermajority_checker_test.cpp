@@ -4,6 +4,7 @@
  */
 
 #include "consensus/yac/supermajority_checker.hpp"
+
 #include "consensus/yac/impl/supermajority_checker_bft.hpp"
 #include "consensus/yac/impl/supermajority_checker_cft.hpp"
 
@@ -18,13 +19,15 @@
 
 using namespace iroha::consensus::yac;
 
+using ::iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Bft;
+using ::iroha::consensus::yac::detail::kSupermajorityCheckerKfPlus1Cft;
 using ::testing::ReturnRefOfCopy;
 
 static logger::LoggerPtr log_ = getTestLogger("YacCommon");
 
 static const std::map<ConsistencyModel, unsigned int> kf1_param{
-    {ConsistencyModel::kCft, detail::kSupermajorityCheckerKfPlus1Cft},
-    {ConsistencyModel::kBft, detail::kSupermajorityCheckerKfPlus1Bft}};
+    {ConsistencyModel::kCft, kSupermajorityCheckerKfPlus1Cft},
+    {ConsistencyModel::kBft, kSupermajorityCheckerKfPlus1Bft}};
 
 class SupermajorityCheckerTest
     : public ::testing::TestWithParam<ConsistencyModel>,
