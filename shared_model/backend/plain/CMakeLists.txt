@@ -6,6 +6,7 @@
 add_library(shared_model_plain_backend
     impl/account_detail_record_id.cpp
     impl/peer.cpp
+    impl/permission_to_string.cpp
     impl/signature.cpp
     impl/account.cpp
     impl/domain.cpp
@@ -13,4 +14,5 @@ add_library(shared_model_plain_backend
 
 target_link_libraries(shared_model_plain_backend
     shared_model_cryptography
+    shared_model_interfaces
     )

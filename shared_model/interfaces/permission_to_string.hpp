@@ -20,27 +20,26 @@ namespace shared_model {
        * @param sm object for conversion
        * @return its string representation
        */
-      virtual std::string toString(permissions::Role r) = 0;
+      virtual std::string toString(permissions::Role r) const = 0;
 
       /**
        * @param sm object for conversion
        * @return its string representation
        */
-      virtual std::string toString(permissions::Grantable r) = 0;
+      virtual std::string toString(permissions::Grantable r) const = 0;
 
       /**
        * @param set for stringify
        * @return vector of string representation of set elements
        */
-      virtual std::vector<std::string> toString(
-          const RolePermissionSet &set) = 0;
+      std::vector<std::string> toString(const RolePermissionSet &set) const;
 
       /**
        * @param set for stringify
        * @return vector of string representation of set elements
        */
-      virtual std::vector<std::string> toString(
-          const GrantablePermissionSet &set) = 0;
+      std::vector<std::string> toString(
+          const GrantablePermissionSet &set) const;
     };
   }  // namespace interface
 }  // namespace shared_model

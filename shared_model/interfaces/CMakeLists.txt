@@ -4,6 +4,7 @@
 #
 
 add_library(shared_model_interfaces
+    impl/permission_to_string.cpp
     impl/permissions.cpp
     impl/transaction.cpp
     commands/impl/add_asset_quantity.cpp

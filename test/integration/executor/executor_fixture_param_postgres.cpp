@@ -9,7 +9,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
-#include "backend/protobuf/proto_permission_to_string.hpp"
+#include "backend/plain/permission_to_string.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "common/result.hpp"
 #include "framework/result_gtest_checkers.hpp"
@@ -100,14 +100,14 @@ namespace {
     ExecutorItfTarget target;
     target.command_executor = std::make_shared<PostgresCommandExecutor>(
         db_manager.getSession(),
-        std::make_shared<shared_model::proto::ProtoPermissionToString>());
+        std::make_shared<shared_model::plain::PermissionToString>());
     target.query_executor =
         std::make_unique<PostgresSpecificQueryExecutorWrapper>(
             db_manager.getSession(),
             std::make_unique<MockBlockStorage>(),
             std::make_shared<MockPendingTransactionStorage>(),
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>(),
-            std::make_shared<shared_model::proto::ProtoPermissionToString>(),
+            std::make_shared<shared_model::plain::PermissionToString>(),
             getTestLoggerManager()
                 ->getChild("SpecificQueryExecutor")
                 ->getLogger());

@@ -12,13 +12,8 @@ namespace shared_model {
   namespace proto {
     class ProtoPermissionToString : public interface::PermissionToString {
      public:
-      std::string toString(interface::permissions::Role r) override;
-      std::string toString(interface::permissions::Grantable r) override;
-
-      std::vector<std::string> toString(
-          const interface::RolePermissionSet &set) override;
-      std::vector<std::string> toString(
-          const interface::GrantablePermissionSet &set) override;
+      std::string toString(interface::permissions::Role r) const override;
+      std::string toString(interface::permissions::Grantable r) const override;
     };
   }  // namespace proto
 }  // namespace shared_model
