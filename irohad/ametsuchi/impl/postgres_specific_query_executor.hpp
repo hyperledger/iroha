@@ -9,6 +9,7 @@
 #include "ametsuchi/specific_query_executor.hpp"
 
 #include <soci/soci.h>
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -133,13 +134,14 @@ namespace iroha {
      private:
       /**
        * Get transactions from block using range from range_gen and filtered by
-       * predicate pred
+       * predicate pred and store them in dest_it
        */
-      template <typename RangeGen, typename Pred>
-      std::vector<std::unique_ptr<shared_model::interface::Transaction>>
-      getTransactionsFromBlock(uint64_t block_id,
-                               RangeGen &&range_gen,
-                               Pred &&pred);
+      template <typename RangeGen, typename Pred, typename OutputIterator>
+      iroha::expected::Result<void, std::string> getTransactionsFromBlock(
+          uint64_t block_id,
+          RangeGen &&range_gen,
+          Pred &&pred,
+          OutputIterator dest_it);
 
       /**
        * Execute query and return its response
