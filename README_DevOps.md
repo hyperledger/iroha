@@ -60,7 +60,7 @@ Persistent storage directory is defined in configuration file in `block_store_pa
 Data is critical but if there are other nodes, the data will synchronize - the time it would take depends on the amount of blocks missed.
 
 # Scaling
-It is possible to add new nodes of Iroha by adding manually generated keys for them and sending commands to the ledger. Service seems to be stateful. 
+It is possible to add new Iroha nodes by sending the corresponding commands with generated keys to the existing network. Service is stateful. 
 Iroha is scalable linearly or better than linearly.
 
 # Queue (optional)
