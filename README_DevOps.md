@@ -50,7 +50,7 @@ Both of the methods are used for synchronization among nodes.
 
 # Logging
 https://iroha.readthedocs.io/en/latest/configure/index.html?highlight=log#logging
-Please note that logging levels cannot be changed during runtime.
+Please note that logging levels cannot be changed during runtime yet.
 
 # Monitoring
 HL Iroha does not have a monitoring system yet.
