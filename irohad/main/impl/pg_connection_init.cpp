@@ -280,10 +280,14 @@ CREATE TABLE IF NOT EXISTS account_has_grantable_permissions (
     PRIMARY KEY (permittee_account_id, account_id)
 );
 CREATE TABLE IF NOT EXISTS position_by_hash (
-    hash varchar,
+    hash varchar unique not null,
     height bigint,
     index bigint
 );
+CREATE INDEX IF NOT EXISTS position_by_hash_hash_index
+    ON position_by_hash
+    USING hash
+    (hash);
 CREATE TABLE IF NOT EXISTS tx_status_by_hash (
     hash varchar,
     status boolean
