@@ -69,8 +69,12 @@ namespace fs = boost::filesystem;
 
 iroha::keypair_t *makeOldModel(const shared_model::crypto::Keypair &keypair) {
   return new iroha::keypair_t{
-      iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey())),
-      iroha::privkey_t::from_string(toBinaryString(keypair.privateKey()))};
+      iroha::expected::resultToOptionalValue(
+          iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey())))
+          .value(),
+      iroha::expected::resultToOptionalValue(
+          iroha::privkey_t::from_string(toBinaryString(keypair.privateKey())))
+          .value()};
 }
 
 int main(int argc, char *argv[]) {
