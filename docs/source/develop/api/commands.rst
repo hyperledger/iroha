@@ -660,7 +660,7 @@ Validation
 
 Three cases:
 
-    Case 1. When transaction creator wants to set account detail to other person's account and he or she has permission `can_set_detail <../permissions.html#can-set-detail>`_.
+    Case 1. When transaction creator wants to set account detail to other person's account and creator has permission `can_set_detail <../permissions.html#can-set-detail>`_.
 
     Case 2. `can_set_my_account_detail <../permissions.html#can-set-my-account-detail>`_ was granted to transaction creator in order to allow them to set account details of the target account.
 
