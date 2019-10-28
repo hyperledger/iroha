@@ -14,6 +14,7 @@
 #include "backend/protobuf/proto_block_json_converter.hpp"
 #include "common/byteutils.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "datetime/time.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
@@ -48,12 +49,20 @@ class BlockQueryTest : public AmetsuchiTest {
     empty_blocks = std::make_shared<PostgresBlockQuery>(
         *sql, *mock_block_storage, getTestLogger("PostgresBlockQueryEmpty"));
 
+    auto make_tx = [created_time =
+                        iroha::time::now()](const auto &creator) mutable {
+      return TestTransactionBuilder()
+          .creatorAccountId(creator)
+          .createdTime(created_time++)
+          .build();
+    };
+
     // First transaction in block1
-    auto txn1_1 = TestTransactionBuilder().creatorAccountId(creator1).build();
+    auto txn1_1 = make_tx(creator1);
     tx_hashes.push_back(txn1_1.hash());
 
     // Second transaction in block1
-    auto txn1_2 = TestTransactionBuilder().creatorAccountId(creator1).build();
+    auto txn1_2 = make_tx(creator1);
     tx_hashes.push_back(txn1_2.hash());
 
     std::vector<shared_model::proto::Transaction> txs1;
@@ -70,11 +79,11 @@ class BlockQueryTest : public AmetsuchiTest {
             .build();
 
     // First tx in block 1
-    auto txn2_1 = TestTransactionBuilder().creatorAccountId(creator1).build();
+    auto txn2_1 = make_tx(creator1);
     tx_hashes.push_back(txn2_1.hash());
 
     // Second tx in block 2
-    auto txn2_2 = TestTransactionBuilder().creatorAccountId(creator2).build();
+    auto txn2_2 = make_tx(creator2);
     tx_hashes.push_back(txn2_2.hash());
 
     std::vector<shared_model::proto::Transaction> txs2;
