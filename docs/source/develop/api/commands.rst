@@ -658,11 +658,13 @@ Structure
 Validation
 ^^^^^^^^^^
 
-Two cases:
+Three cases:
 
-    Case 1. When transaction creator wants to set account detail to his/her account and he or she has permission CanSetAccountInfo
+    Case 1. When transaction creator wants to set account detail to other person's account and creator has permission `can_set_detail <../permissions.html#can-set-detail>`_.
 
-    Case 2. CanSetAccountInfo was granted to transaction creator
+    Case 2. `can_set_my_account_detail <../permissions.html#can-set-my-account-detail>`_ was granted to transaction creator in order to allow them to set account details of the target account.
+
+    Case 3. When the account holder wants to set their own account details – no permission is needed in this case.
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
