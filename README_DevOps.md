@@ -56,7 +56,7 @@ Please note that logging levels cannot be changed during runtime yet.
 HL Iroha does not have a monitoring system yet.
 
 # Storage
-Persistent storage is defined in configuration file in block_store_path parameter. If it is not defined, then in PostgreSQL, in 'blocks' table.
+Persistent storage directory is defined in configuration file in `block_store_path` parameter. If it is not defined, then the 'blocks' table in PostgreSQL is used to store the blocks.
 Data is critical but if there are other nodes, the data will synchronize - the time it would take depends on the amount of blocks missed.
 
 # Scaling
