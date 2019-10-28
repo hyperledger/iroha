@@ -57,7 +57,7 @@ namespace iroha {
       /**
        * Flush the indices to storage.
        * Makes the effects of new indices (that were created before this call)
-       * visible to other components.
+       * visible to other components. Discards indexer inner state on success.
        * @return Void Value on success, string Error on failure.
        */
       virtual iroha::expected::Result<void, std::string> flush() = 0;
