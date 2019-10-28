@@ -197,27 +197,36 @@ namespace iroha {
           qry.get());
     }
 
-    template <typename RangeGen, typename Pred>
-    std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+    template <typename RangeGen, typename Pred, typename OutputIterator>
+    iroha::expected::Result<void, std::string>
     PostgresSpecificQueryExecutor::getTransactionsFromBlock(
-        uint64_t block_id, RangeGen &&range_gen, Pred &&pred) {
-      std::vector<std::unique_ptr<shared_model::interface::Transaction>> result;
-      auto block = block_store_.fetch(block_id);
-      if (not block) {
-        log_->error("Failed to retrieve block with id {}", block_id);
-        return result;
+        uint64_t block_id,
+        RangeGen &&range_gen,
+        Pred &&pred,
+        OutputIterator dest_it) {
+      auto opt_block = block_store_.fetch(block_id);
+      if (not opt_block) {
+        return iroha::expected::makeError(
+            fmt::format("Failed to retrieve block with id {}", block_id));
+      }
+      auto &block = opt_block.value();
+
+      const auto block_size = block->transactions().size();
+      for (auto tx_id : range_gen(block_size)) {
+        if (tx_id >= block_size) {
+          return iroha::expected::makeError(
+              fmt::format("Failed to retrieve transaction with id {} "
+                          "from block height {}.",
+                          tx_id,
+                          block_id));
+        }
+        auto &tx = block->transactions()[tx_id];
+        if (pred(tx)) {
+          *dest_it++ = clone(tx);
+        }
       }
 
-      boost::transform(range_gen(boost::size((*block)->transactions()))
-                           | boost::adaptors::transformed(
-                                 [&block](auto i) -> decltype(auto) {
-                                   return (*block)->transactions()[i];
-                                 })
-                           | boost::adaptors::filtered(pred),
-                       std::back_inserter(result),
-                       [&](const auto &tx) { return clone(tx); });
-
-      return result;
+      return {};
     }
 
     template <typename QueryTuple,
@@ -399,12 +408,15 @@ namespace iroha {
                 response_txs;
             // get transactions corresponding to indexes
             for (auto &block : index) {
-              auto txs = this->getTransactionsFromBlock(
+              auto txs_result = this->getTransactionsFromBlock(
                   block.first,
                   [&block](auto) { return block.second; },
-                  [](auto &) { return true; });
-              std::move(
-                  txs.begin(), txs.end(), std::back_inserter(response_txs));
+                  [](auto &) { return true; },
+                  std::back_inserter(response_txs));
+              if (auto e = iroha::expected::resultToOptionalError(txs_result)) {
+                return this->logAndReturnErrorResponse(
+                    QueryErrorType::kStatefulFailed, e.value(), 1, query_hash);
+              }
             }
 
             if (response_txs.empty()) {
@@ -712,7 +724,7 @@ namespace iroha {
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
                 response_txs;
             for (auto &block : index) {
-              auto txs = this->getTransactionsFromBlock(
+              auto txs_result = this->getTransactionsFromBlock(
                   block.first,
                   [](auto size) {
                     return boost::irange(static_cast<decltype(size)>(0), size);
@@ -722,9 +734,12 @@ namespace iroha {
                         and (all_perm
                              or (my_perm
                                  and tx.creatorAccountId() == creator_id));
-                  });
-              std::move(
-                  txs.begin(), txs.end(), std::back_inserter(response_txs));
+                  },
+                  std::back_inserter(response_txs));
+              if (auto e = iroha::expected::resultToOptionalError(txs_result)) {
+                return this->logAndReturnErrorResponse(
+                    QueryErrorType::kStatefulFailed, e.value(), 1, query_hash);
+              }
             }
 
             return query_response_factory_->createTransactionsResponse(
