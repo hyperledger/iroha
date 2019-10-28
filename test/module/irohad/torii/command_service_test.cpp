@@ -120,3 +120,38 @@ TEST_F(CommandServiceTest, ProcessBatchOn) {
   initCommandService();
   command_service_->handleTransactionBatch(batch);
 }
+
+/**
+ * @given initialized command service
+ * @when  status of a transaction is queried
+ *        @and in-memory cache does not contain info about the transaction
+ *        @and the transaction is saved to the ledger as Rejected
+ * @then  query response tells that the transaction has been rejected
+ */
+TEST_F(CommandServiceTest, RejectedTxStatus) {
+  auto hash = shared_model::crypto::Hash("a");
+  auto batch = createMockBatchWithTransactions(
+      {createMockTransactionWithHash(hash)}, "a");
+
+  auto block_query_mock = std::make_shared<iroha::ametsuchi::MockBlockQuery>();
+  iroha::ametsuchi::TxCacheStatusType ret_value{
+      iroha::ametsuchi::tx_cache_status_responses::Rejected{hash}};
+
+  EXPECT_CALL(
+      *block_query_mock,
+      checkTxPresence(Matcher<const shared_model::crypto::Hash &>(hash)))
+      .WillOnce(Return(ret_value));
+  EXPECT_CALL(*storage_, getBlockQuery()).WillOnce(Return(block_query_mock));
+  EXPECT_CALL(*status_bus_, statuses())
+      .WillRepeatedly(Return(
+          rxcpp::observable<>::empty<iroha::torii::StatusBus::Objects>()));
+
+  initCommandService();
+  auto response = command_service_->getStatus(hash);
+
+  ASSERT_NO_THROW({
+    boost::get<const shared_model::interface::RejectedTxResponse &>(
+        response->get());
+  }) << "Wrong response. Expected: RejectedTxResponse, Received: "
+     << response->toString();
+}
