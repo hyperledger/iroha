@@ -662,7 +662,7 @@ Three cases:
 
     Case 1. When transaction creator wants to set account detail to other person's account and he or she has permission `can_set_detail <../permissions.html#can-set-detail>`_.
 
-    Case 2. `can_set_my_account_detail <../permissions.html#can-set-my-account-detail>`_ was granted to transaction creator in order to allow them to set account details of the original account holder.
+    Case 2. `can_set_my_account_detail <../permissions.html#can-set-my-account-detail>`_ was granted to transaction creator in order to allow them to set account details of the target account.
 
     Case 3. When the account holder wants to set their own account details – no permission is needed in this case.
 
