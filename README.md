@@ -55,6 +55,9 @@ Yes, in [Java](https://github.com/hyperledger/iroha-java), [Python](https://gith
 
 [Android point app](https://github.com/hyperledger/iroha-android/tree/master/iroha-android-sample) and [JavaScript wallet](https://github.com/soramitsu/iroha-wallet-js).
 
+Also do not forget to check out [The Borsello App](https://github.com/claudiocandio/borsello) – it is a wallet for Android & iOS along with a web browser application contributed by [Claudio](https://github.com/claudiocandio).
+It is based on JS Wallet but is up-to-date.
+
 ### Want to help us develop Iroha?
 
 That's great! 
