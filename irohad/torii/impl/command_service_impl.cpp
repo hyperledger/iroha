@@ -92,7 +92,15 @@ namespace iroha {
             log_->warn("Asked non-existing tx: {}", request.hex());
             return status_factory_->makeNotReceived(request);
           },
-          [this, &request](const auto &) {
+          [this, &request](
+              const iroha::ametsuchi::tx_cache_status_responses::Rejected &) {
+            std::shared_ptr<shared_model::interface::TransactionResponse>
+                response = status_factory_->makeRejected(request);
+            cache_->addItem(request, response);
+            return response;
+          },
+          [this, &request](
+              const iroha::ametsuchi::tx_cache_status_responses::Committed &) {
             std::shared_ptr<shared_model::interface::TransactionResponse>
                 response = status_factory_->makeCommitted(request);
             cache_->addItem(request, response);

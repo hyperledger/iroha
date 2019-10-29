@@ -11,6 +11,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
+#include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -50,9 +51,6 @@ namespace {
   // from string
   const std::string kPgTrue{"true"};
   const std::string kPgFalse{"false"};
-
-  const auto kRootRolePermStr =
-      shared_model::interface::RolePermissionSet({Role::kRoot}).toBitstring();
 
   std::string makeJsonString(std::string value) {
     return std::string{"\""} + value + "\"";
@@ -188,7 +186,7 @@ namespace {
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
               WHERE ar.account_id = %4%)")
                          % kRolePermissionSetSize % permission_bitstring
-                         % kRootRolePermStr % account_id)
+                         % iroha::ametsuchi::kRootRolePermStr % account_id)
                             .str();
     return query;
   }
@@ -222,14 +220,6 @@ namespace {
                          % account_id % creator_id)
                             .str();
     return query;
-  }
-
-  shared_model::interface::types::DomainIdType getDomainFromName(
-      const shared_model::interface::types::AccountIdType &account_id) {
-    // TODO 03.10.18 andrei: IR-1728 Move getDomainFromName to shared_model
-    std::vector<std::string> res;
-    boost::split(res, account_id, boost::is_any_of("@"));
-    return res.at(1);
   }
 
   /**

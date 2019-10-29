@@ -186,40 +186,6 @@ class AcceptanceFixture : public ::testing::Test {
    */
   iroha::time::time_t getUniqueTime();
 
-  const std::vector<shared_model::interface::types::AssetNameType>
-      kIllegalAssetNames = {"",
-                            " ",
-                            "   ",
-                            "A",
-                            "assetV",
-                            "asSet",
-                            "asset%",
-                            "^123",
-                            "verylongassetname_thenameislonger",
-                            "verylongassetname_thenameislongerthanitshouldbe",
-                            "assset-01"};
-
-  const std::vector<shared_model::interface::types::DomainIdType>
-      kIllegalDomainNames = {
-          "",
-          " ",
-          "   ",
-          "9start.with.digit",
-          "-startWithDash",
-          "@.is.not.allowed",
-          "no space is allowed",
-          "endWith-",
-          "label.endedWith-.is.not.allowed",
-          "aLabelMustNotExceeds63charactersALabelMustNotExceeds63characters",
-          "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
-          "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
-          "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
-          "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPadP",
-          "257.257.257.257",
-          "domain#domain",
-          "asd@asd",
-          "ab..cd"};
-
  private:
   iroha::time::time_t initial_time;
   /// number of created transactions, used to provide unique time

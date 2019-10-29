@@ -5,7 +5,6 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
-#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/format.hpp>
@@ -14,6 +13,7 @@
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
+#include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
@@ -48,17 +48,6 @@ namespace {
 
   using namespace iroha;
 
-  const auto kRootRolePermStr =
-      shared_model::interface::RolePermissionSet({Role::kRoot}).toBitstring();
-
-  shared_model::interface::types::DomainIdType getDomainFromName(
-      const shared_model::interface::types::AccountIdType &account_id) {
-    // TODO 03.10.18 andrei: IR-1728 Move getDomainFromName to shared_model
-    std::vector<std::string> res;
-    boost::split(res, account_id, boost::is_any_of("@"));
-    return res.at(1);
-  }
-
   std::string getAccountRolePermissionCheckSql(
       shared_model::interface::permissions::Role permission,
       const std::string &account_alias = ":role_account_id") {
@@ -66,7 +55,8 @@ namespace {
         shared_model::interface::RolePermissionSet({permission}).toBitstring();
     const auto bits = shared_model::interface::RolePermissionSet::size();
     // TODO 14.09.18 andrei: IR-1708 Load SQL from separate files
-    std::string query = (boost::format(R"(
+    std::string query =
+        (boost::format(R"(
           SELECT
             (
               COALESCE(bit_or(rp.permission), '0'::bit(%1%))
@@ -76,8 +66,8 @@ namespace {
           FROM role_has_permissions AS rp
           JOIN account_has_roles AS ar on ar.role_id = rp.role_id
           WHERE ar.account_id = %4%)")
-                         % bits % perm_str % kRootRolePermStr % account_alias)
-                            .str();
+         % bits % perm_str % iroha::ametsuchi::kRootRolePermStr % account_alias)
+            .str();
     return query;
   }
 
@@ -135,8 +125,8 @@ namespace {
 
     return (cmd % getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted)
             % bits % creator % perm_str % all_perm_str % domain_perm_str
-            % target_account % getDomainFromName(creator)
-            % getDomainFromName(target_account))
+            % target_account % iroha::ametsuchi::getDomainFromName(creator)
+            % iroha::ametsuchi::getDomainFromName(target_account))
         .str();
   }
 
@@ -207,27 +197,36 @@ namespace iroha {
           qry.get());
     }
 
-    template <typename RangeGen, typename Pred>
-    std::vector<std::unique_ptr<shared_model::interface::Transaction>>
+    template <typename RangeGen, typename Pred, typename OutputIterator>
+    iroha::expected::Result<void, std::string>
     PostgresSpecificQueryExecutor::getTransactionsFromBlock(
-        uint64_t block_id, RangeGen &&range_gen, Pred &&pred) {
-      std::vector<std::unique_ptr<shared_model::interface::Transaction>> result;
-      auto block = block_store_.fetch(block_id);
-      if (not block) {
-        log_->error("Failed to retrieve block with id {}", block_id);
-        return result;
+        uint64_t block_id,
+        RangeGen &&range_gen,
+        Pred &&pred,
+        OutputIterator dest_it) {
+      auto opt_block = block_store_.fetch(block_id);
+      if (not opt_block) {
+        return iroha::expected::makeError(
+            fmt::format("Failed to retrieve block with id {}", block_id));
+      }
+      auto &block = opt_block.value();
+
+      const auto block_size = block->transactions().size();
+      for (auto tx_id : range_gen(block_size)) {
+        if (tx_id >= block_size) {
+          return iroha::expected::makeError(
+              fmt::format("Failed to retrieve transaction with id {} "
+                          "from block height {}.",
+                          tx_id,
+                          block_id));
+        }
+        auto &tx = block->transactions()[tx_id];
+        if (pred(tx)) {
+          *dest_it++ = clone(tx);
+        }
       }
 
-      boost::transform(range_gen(boost::size((*block)->transactions()))
-                           | boost::adaptors::transformed(
-                                 [&block](auto i) -> decltype(auto) {
-                                   return (*block)->transactions()[i];
-                                 })
-                           | boost::adaptors::filtered(pred),
-                       std::back_inserter(result),
-                       [&](const auto &tx) { return clone(tx); });
-
-      return result;
+      return {};
     }
 
     template <typename QueryTuple,
@@ -409,12 +408,15 @@ namespace iroha {
                 response_txs;
             // get transactions corresponding to indexes
             for (auto &block : index) {
-              auto txs = this->getTransactionsFromBlock(
+              auto txs_result = this->getTransactionsFromBlock(
                   block.first,
                   [&block](auto) { return block.second; },
-                  [](auto &) { return true; });
-              std::move(
-                  txs.begin(), txs.end(), std::back_inserter(response_txs));
+                  [](auto &) { return true; },
+                  std::back_inserter(response_txs));
+              if (auto e = iroha::expected::resultToOptionalError(txs_result)) {
+                return this->logAndReturnErrorResponse(
+                    QueryErrorType::kStatefulFailed, e.value(), 1, query_hash);
+              }
             }
 
             if (response_txs.empty()) {
@@ -722,7 +724,7 @@ namespace iroha {
             std::vector<std::unique_ptr<shared_model::interface::Transaction>>
                 response_txs;
             for (auto &block : index) {
-              auto txs = this->getTransactionsFromBlock(
+              auto txs_result = this->getTransactionsFromBlock(
                   block.first,
                   [](auto size) {
                     return boost::irange(static_cast<decltype(size)>(0), size);
@@ -732,9 +734,12 @@ namespace iroha {
                         and (all_perm
                              or (my_perm
                                  and tx.creatorAccountId() == creator_id));
-                  });
-              std::move(
-                  txs.begin(), txs.end(), std::back_inserter(response_txs));
+                  },
+                  std::back_inserter(response_txs));
+              if (auto e = iroha::expected::resultToOptionalError(txs_result)) {
+                return this->logAndReturnErrorResponse(
+                    QueryErrorType::kStatefulFailed, e.value(), 1, query_hash);
+              }
             }
 
             return query_response_factory_->createTransactionsResponse(

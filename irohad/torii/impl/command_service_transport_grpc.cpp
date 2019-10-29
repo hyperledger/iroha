@@ -17,9 +17,13 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <rxcpp/operators/rx-start_with.hpp>
 #include <rxcpp/operators/rx-take_while.hpp>
+#include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
+#include "backend/protobuf/util.hpp"
 #include "common/combine_latest_until_first_completed.hpp"
 #include "common/run_loop_handler.hpp"
+#include "cryptography/hash_providers/sha3_256.hpp"
+#include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser.hpp"
@@ -63,89 +67,45 @@ namespace iroha {
       return ListTorii(context, &single_tx_list, response);
     }
 
-    namespace {
-      /**
-       * Form an error message, which is to be shared between all transactions,
-       * if there are several of them, or individual message, if there's only
-       * one
-       * @param tx_hashes is non empty hash list to form error message from
-       * @param error of those tx(s)
-       * @return message
-       */
-      std::string formErrorMessage(
-          const std::vector<shared_model::crypto::Hash> &tx_hashes,
-          const std::string &error) {
-        if (tx_hashes.size() == 1) {
-          return (boost::format("Stateless invalid tx, error: %s, hash: %s")
-                  % error % tx_hashes[0].hex())
-              .str();
-        }
-
-        std::string folded_hashes = boost::algorithm::join(
-            tx_hashes | boost::adaptors::transformed([](const auto &h) {
-              return h.hex();
-            }),
-            ", ");
-
-        return (boost::format(
-                    "Stateless invalid tx in transaction sequence, error: %s\n"
-                    "Hash list: [%s]")
-                % error % folded_hashes)
-            .str();
-      }
-    }  // namespace
-
-    shared_model::interface::types::SharedTxsCollectionType
-    CommandServiceTransportGrpc::deserializeTransactions(
-        const iroha::protocol::TxList *request) {
-      shared_model::interface::types::SharedTxsCollectionType tx_collection;
-      for (const auto &tx : request->transactions()) {
-        transaction_factory_->build(tx).match(
-            [&tx_collection](auto &&v) {
-              tx_collection.emplace_back(std::move(v).value);
-            },
-            [this](const auto &error) {
-              status_bus_->publish(status_factory_->makeStatelessFail(
-                  error.error.hash,
-                  shared_model::interface::TxStatusFactory::TransactionError{
-                      error.error.error, 0, 0}));
-            });
-      }
-      return tx_collection;
-    }
-
     grpc::Status CommandServiceTransportGrpc::ListTorii(
         grpc::ServerContext *context,
         const iroha::protocol::TxList *request,
         google::protobuf::Empty *response) {
-      auto transactions = deserializeTransactions(request);
+      auto publish_stateless_fail = [&](auto &&message) {
+        using HashProvider = shared_model::crypto::Sha3_256;
 
-      auto batches = batch_parser_->parseBatches(transactions);
+        log_->warn("{}", message);
+        for (const auto &tx : request->transactions()) {
+          status_bus_->publish(status_factory_->makeStatelessFail(
+              HashProvider::makeHash(
+                  shared_model::proto::makeBlob(tx.payload())),
+              shared_model::interface::TxStatusFactory::TransactionError{
+                  message, 0, 0}));
+        }
+        return grpc::Status::OK;
+      };
 
-      for (auto &batch : batches) {
-        batch_factory_->createTransactionBatch(batch).match(
-            [&](auto &&value) {
-              this->command_service_->handleTransactionBatch(
-                  std::move(value).value);
-            },
-            [&](const auto &error) {
-              std::vector<shared_model::crypto::Hash> hashes;
+      auto transactions = shared_model::proto::deserializeTransactions(
+          *transaction_factory_, request->transactions());
+      if (auto e = expected::resultToOptionalError(transactions)) {
+        return publish_stateless_fail(
+            fmt::format("Transaction deserialization failed: hash {}, {}",
+                        e->hash,
+                        e->error));
+      }
 
-              std::transform(batch.begin(),
-                             batch.end(),
-                             std::back_inserter(hashes),
-                             [](const auto &tx) { return tx->hash(); });
+      auto batches = shared_model::interface::parseAndCreateBatches(
+          *batch_parser_,
+          *batch_factory_,
+          *expected::resultToOptionalValue(std::move(transactions)));
+      if (auto e = expected::resultToOptionalError(batches)) {
+        return publish_stateless_fail(
+            fmt::format("Batch deserialization failed: {}", *e));
+      }
 
-              auto error_msg = formErrorMessage(hashes, error.error);
-              // set error response for each transaction in a batch candidate
-              std::for_each(
-                  hashes.begin(), hashes.end(), [this, &error_msg](auto &hash) {
-                    status_bus_->publish(status_factory_->makeStatelessFail(
-                        hash,
-                        shared_model::interface::TxStatusFactory::
-                            TransactionError{error_msg, 0, 0}));
-                  });
-            });
+      auto opt_batches = expected::resultToOptionalValue(std::move(batches));
+      for (auto &batch : *opt_batches) {
+        this->command_service_->handleTransactionBatch(std::move(batch));
       }
 
       return grpc::Status::OK;
