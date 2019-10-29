@@ -4,6 +4,7 @@
  */
 
 #include "model/generators/transaction_generator.hpp"
+
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 #include "datetime/time.hpp"
@@ -17,9 +18,14 @@ namespace iroha {
       iroha::keypair_t *makeOldModel(
           const shared_model::crypto::Keypair &keypair) {
         return new iroha::keypair_t{
-            iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey())),
-            iroha::privkey_t::from_string(
-                toBinaryString(keypair.privateKey()))};
+            iroha::expected::resultToOptionalValue(
+                iroha::pubkey_t::from_string(
+                    toBinaryString(keypair.publicKey())))
+                .value(),
+            iroha::expected::resultToOptionalValue(
+                iroha::privkey_t::from_string(
+                    toBinaryString(keypair.privateKey())))
+                .value()};
       }
 
       Transaction TransactionGenerator::generateGenesisTransaction(

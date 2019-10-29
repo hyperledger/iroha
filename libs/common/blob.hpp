@@ -13,6 +13,7 @@
 #include <string>
 
 #include "common/hexutils.hpp"
+#include "common/result.hpp"
 
 namespace iroha {
   using BadFormatException = std::invalid_argument;
@@ -84,25 +85,29 @@ namespace iroha {
       return res;
     }
 
-    static blob_t<size_> from_string(const std::string &data) {
-      if (data.size() != size_) {
-        std::string value = "blob_t: input string has incorrect length. Found: "
-            + std::to_string(data.size())
-            + +", required: " + std::to_string(size_);
-        throw BadFormatException(value.c_str());
-      }
-
+    static blob_t<size_> from_raw(const byte_t data[size_]) {
       blob_t<size_> b;
-      std::copy(data.begin(), data.end(), b.begin());
-
+      std::copy(data, data + size_, b.begin());
       return b;
     }
 
-    static blob_t<size_> from_hexstring(const std::string &hex) {
+    static expected::Result<blob_t<size_>, std::string> from_string(
+        const std::string &data) {
+      if (data.size() != size_) {
+        return expected::makeError(
+            std::string{"blob_t: input string has incorrect length. Found: "}
+            + std::to_string(data.size())
+            + +", required: " + std::to_string(size_));
+      }
+      return from_raw(reinterpret_cast<const byte_t *>(data.data()));
+    }
+
+    static expected::Result<blob_t<size_>, std::string> from_hexstring(
+        const std::string &hex) {
       auto bytes = iroha::hexstringToBytestring(hex);
       if (not bytes) {
-        throw BadFormatException(
-            "Provided data (" + hex
+        return expected::makeError(
+            std::string{"Provided data ("} + hex
             + ") is not a valid hex value for blob of size ("
             + std::to_string(size_) + ").");
       }

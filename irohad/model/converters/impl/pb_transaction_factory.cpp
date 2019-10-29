@@ -4,6 +4,7 @@
  */
 
 #include "model/converters/pb_transaction_factory.hpp"
+
 #include "model/commands/add_asset_quantity.hpp"
 #include "model/converters/pb_command_factory.hpp"
 
@@ -47,8 +48,12 @@ namespace iroha {
 
         for (const auto &pb_sig : pb_tx.signatures()) {
           model::Signature sig{};
-          sig.pubkey = pubkey_t::from_hexstring(pb_sig.public_key());
-          sig.signature = sig_t::from_hexstring(pb_sig.signature());
+          sig.pubkey = iroha::expected::resultToOptionalValue(
+                           pubkey_t::from_hexstring(pb_sig.public_key()))
+                           .value();
+          sig.signature = iroha::expected::resultToOptionalValue(
+                              sig_t::from_hexstring(pb_sig.signature()))
+                              .value();
           tx.signatures.push_back(sig);
         }
 
