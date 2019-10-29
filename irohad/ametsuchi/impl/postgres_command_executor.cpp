@@ -423,7 +423,7 @@ namespace iroha {
         statement_.exchange(soci::use(temp_values_.front(), argument_name));
         addArgumentToString(
             argument_name,
-            boost::algorithm::join(perm_converter_->toString(permission_set),
+            boost::algorithm::join(perm_converter_->setToString(permission_set),
                                    ", "));
       }
 

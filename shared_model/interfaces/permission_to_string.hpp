@@ -32,13 +32,13 @@ namespace shared_model {
        * @param set for stringify
        * @return vector of string representation of set elements
        */
-      std::vector<std::string> toString(const RolePermissionSet &set) const;
+      std::vector<std::string> setToString(const RolePermissionSet &set) const;
 
       /**
        * @param set for stringify
        * @return vector of string representation of set elements
        */
-      std::vector<std::string> toString(
+      std::vector<std::string> setToString(
           const GrantablePermissionSet &set) const;
     };
   }  // namespace interface

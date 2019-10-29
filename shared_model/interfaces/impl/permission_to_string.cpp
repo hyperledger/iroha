@@ -18,12 +18,12 @@ namespace {
   }
 }  // namespace
 
-std::vector<std::string> PermissionToString::toString(
+std::vector<std::string> PermissionToString::setToString(
     const interface::RolePermissionSet &set) const {
   return permSetToStringVector(*this, set);
 }
 
-std::vector<std::string> PermissionToString::toString(
+std::vector<std::string> PermissionToString::setToString(
     const interface::GrantablePermissionSet &set) const {
   return permSetToStringVector(*this, set);
 }
