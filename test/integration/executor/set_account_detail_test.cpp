@@ -10,6 +10,7 @@
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
 #include "integration/executor/account_detail_checker.hpp"
+#include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -29,7 +30,7 @@ using shared_model::plain::AccountDetailRecordId;
 static const AccountDetailKeyType kKey{"key"};
 static const AccountDetailValueType kVal{"value"};
 
-class SetAccountDetailTest : public BasicExecutorTest<ExecutorTestBase> {
+class SetAccountDetailTest : public ExecutorTestBase {
  public:
   iroha::ametsuchi::CommandResult setDetail(const AccountIdType &target,
                                             const AccountDetailKeyType &key,
@@ -57,13 +58,15 @@ class SetAccountDetailTest : public BasicExecutorTest<ExecutorTestBase> {
   }
 };
 
+using SetAccountDetailBasicTest = BasicExecutorTest<SetAccountDetailTest>;
+
 /**
  * C274
  * @given a user without can_set_detail permission
  * @when execute SetAccountDetail command to set own detail
  * @then the command succeeds and the detail is added
  */
-TEST_P(SetAccountDetailTest, Self) {
+TEST_P(SetAccountDetailBasicTest, Self) {
   getItf().createUserWithPerms(kUser, kDomain, kUserKeypair.publicKey(), {});
   assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
@@ -75,7 +78,7 @@ TEST_P(SetAccountDetailTest, Self) {
  * @when execute SetAccountDetail command with nonexistent user
  * @then the command fails with error code 3
  */
-TEST_P(SetAccountDetailTest, NonExistentUser) {
+TEST_P(SetAccountDetailBasicTest, NonExistentUser) {
   checkCommandError(setDetail(kUserId, kKey, kVal, kAdminId), 3);
 }
 
@@ -85,7 +88,7 @@ TEST_P(SetAccountDetailTest, NonExistentUser) {
  * @when the first one tries to execute SetAccountDetail on the second
  * @then the command does not succeed and the detail is not added
  */
-TEST_P(SetAccountDetailTest, NoPerms) {
+TEST_P(SetAccountDetailBasicTest, NoPerms) {
   getItf().createUserWithPerms(kUser, kDomain, kUserKeypair.publicKey(), {});
   getItf().createUserWithPerms(
       kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
@@ -98,7 +101,7 @@ TEST_P(SetAccountDetailTest, NoPerms) {
  * @when the first one executes SetAccountDetail on the second
  * @then the command succeeds and the detail is added
  */
-TEST_P(SetAccountDetailTest, ValidRolePerm) {
+TEST_P(SetAccountDetailBasicTest, ValidRolePerm) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetDetail});
   getItf().createUserWithPerms(
@@ -113,7 +116,7 @@ TEST_P(SetAccountDetailTest, ValidRolePerm) {
  * @when the first one executes SetAccountDetail on the second
  * @then the command succeeds and the detail is added
  */
-TEST_P(SetAccountDetailTest, ValidGrantablePerm) {
+TEST_P(SetAccountDetailBasicTest, ValidGrantablePerm) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail});
   getItf().createUserWithPerms(
@@ -132,7 +135,7 @@ TEST_P(SetAccountDetailTest, ValidGrantablePerm) {
  * @when the first one executes SetAccountDetail on the second
  * @then the command succeeds and the detail is added
  */
-TEST_P(SetAccountDetailTest, RootPermission) {
+TEST_P(SetAccountDetailBasicTest, RootPermission) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot});
   getItf().createUserWithPerms(
@@ -142,6 +145,30 @@ TEST_P(SetAccountDetailTest, RootPermission) {
 }
 
 INSTANTIATE_TEST_CASE_P(Base,
-                        SetAccountDetailTest,
+                        SetAccountDetailBasicTest,
                         executor_testing::getExecutorTestParams(),
                         executor_testing::paramToString);
+
+using SetAccountDetailPermissionTest =
+    command_permission_test::CommandPermissionTest<SetAccountDetailTest>;
+
+TEST_P(SetAccountDetailPermissionTest, CommandPermissionTest) {
+  ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
+  ASSERT_NO_FATAL_FAILURE(prepareState({}));
+
+  if (checkResponse(setDetail(kUserId, kKey, kVal, getActor()))) {
+    checkDetails(kUserId, DetailsByKeyByWriter{{{getActor(), {{kKey, kVal}}}}});
+  } else {
+    checkDetails(kUserId, DetailsByKeyByWriter{});
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Common,
+    SetAccountDetailPermissionTest,
+    command_permission_test::getParams(boost::none,
+                                       boost::none,
+                                       Role::kSetDetail,
+                                       Grantable::kSetMyAccountDetail,
+                                       true),
+    command_permission_test::paramToString);
