@@ -66,29 +66,6 @@ TEST_F(CreateAssetFixture, Basic) {
 }
 
 /**
- * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has
- * more test cases than its duplicate field validator test)
- *
- * C235 Create asset with an empty name
- * C236 Create asset with boundary values per name validation
- * @given some user with can_create_asset permission
- * @when the user tries to create an asset with invalid or empty name
- * @then no asset is created
- */
-TEST_F(CreateAssetFixture, IllegalCharactersInName) {
-  IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
-      .sendTx(makeUserWithPerms())
-      .skipProposal()
-      .checkBlock(
-          [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
-  for (const auto &name : kIllegalAssetNames) {
-    itf.sendTx(complete(baseTx().createAsset(name, kDomain, kPrecision)),
-               CHECK_STATELESS_INVALID);
-  }
-}
-
-/**
  * TODO mboldyrev 18.01.2019 IR-206 remove, covered by
  * postgres_executor_test CreateAccount.NameNotUnique
  *
@@ -199,24 +176,4 @@ TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
           })
       .checkBlock(
           [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
-}
-
-/**
- * TODO mboldyrev 18.01.2019 IR-206 convert to a SLV unit test (this one has
- * more test cases than its duplicate field validator test)
- *
- * @given a user with can_create_asset permission
- * @when the user tries to create an asset in a domain with illegal characters
- * @then stateless validation failed
- */
-TEST_F(CreateAssetFixture, InvalidDomain) {
-  IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
-      .sendTxAwait(makeUserWithPerms(), [](auto &block) {
-        ASSERT_EQ(block->transactions().size(), 1);
-      });
-  for (const auto &domain : kIllegalDomainNames) {
-    itf.sendTx(complete(baseTx().createAsset(kAssetName, domain, kPrecision)),
-               CHECK_STATELESS_INVALID);
-  }
 }
