@@ -38,3 +38,8 @@ configure_file (
 target_include_directories(shared_model_cryptography INTERFACE
   "${PROJECT_BINARY_DIR}"
   )
+
+add_library(crypto_blob_hasher blob_hasher.cpp)
+target_link_libraries(crypto_blob_hasher
+    common
+    )

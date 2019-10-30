@@ -7,6 +7,7 @@
 #define IROHA_MST_STORAGE_IMPL_HPP
 
 #include <unordered_map>
+#include "cryptography/blob_hasher.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
@@ -56,7 +57,7 @@ namespace iroha {
     const CompleterType completer_;
     std::unordered_map<shared_model::crypto::PublicKey,
                        MstState,
-                       iroha::model::BlobHasher>
+                       shared_model::crypto::BlobHasher>
         peer_states_;
     MstState own_state_;
 
