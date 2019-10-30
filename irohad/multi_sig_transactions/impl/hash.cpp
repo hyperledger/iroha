@@ -21,10 +21,5 @@ namespace iroha {
       return std::hash<std::string>{}(batch->reducedHash().hex());
     }
 
-    std::size_t BlobHasher::operator()(
-        const shared_model::crypto::Blob &blob) const {
-      return boost::hash_value(blob.blob());
-    }
-
   }  // namespace model
 }  // namespace iroha
