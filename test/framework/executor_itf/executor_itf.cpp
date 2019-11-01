@@ -21,6 +21,8 @@ using namespace common_constants;
 using namespace iroha::expected;
 
 namespace {
+  static char const *kOrphanTxHash = "orphan tx hash";
+
   logger::LoggerManagerTreePtr getDefaultLogManager() {
     return getTestLoggerManager()->getChild("ExecutorITF");
   }
@@ -47,6 +49,7 @@ ExecutorItf::ExecutorItf(std::shared_ptr<CommandExecutor> cmd_executor,
       cmd_executor_(std::move(cmd_executor)),
       tx_executor_(std::make_unique<TransactionExecutor>(cmd_executor_)),
       query_executor_(std::move(query_executor)),
+      orphan_cmd_counter_(0),
       query_counter_(0) {}
 
 ExecutorItf::~ExecutorItf() {
@@ -69,7 +72,8 @@ CommandResult ExecutorItf::executeCommandAsAccount(
     const shared_model::interface::Command &cmd,
     const std::string &account_id,
     bool do_validation) const {
-  return cmd_executor_->execute(cmd, account_id, do_validation);
+  return cmd_executor_->execute(
+      cmd, account_id, kOrphanTxHash, orphan_cmd_counter_++, do_validation);
 }
 
 Result<void, TxExecutionError> ExecutorItf::executeTransaction(
@@ -81,6 +85,16 @@ Result<void, TxExecutionError> ExecutorItf::executeTransaction(
 iroha::ametsuchi::QueryExecutorResult ExecutorItf::executeQuery(
     const shared_model::interface::Query &query) const {
   return query_executor_->execute(query);
+}
+
+iroha::integration_framework::ExecutorItf::SpecificQueryResult<
+    shared_model::interface::EngineResponse>
+ExecutorItf::getLastEngineResultResponse() {
+  assert(last_executed_cmd_meta_);
+  auto query = getMockQueryFactory()->constructGetEngineResponse(
+      last_executed_cmd_meta_->tx_hash);
+  return executeQuery(
+      *query, last_executed_cmd_meta_->creator_account_id, boost::none);
 }
 
 const std::unique_ptr<shared_model::interface::MockCommandFactory>

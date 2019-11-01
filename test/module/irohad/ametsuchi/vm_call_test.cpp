@@ -84,8 +84,8 @@ class TestAccount {
 TEST(VmCallTest, UsageTest) {
   /*
 
-deploySCdata is bytecode from the following Solidity code using online Remix IDE with
-compiler version 0.4.0
+deploySCdata is bytecode from the following Solidity code using online Remix IDE
+with compiler version 0.4.0
 
 pragma solidity ^0.4.0;
 
@@ -135,39 +135,48 @@ contract C {
       command_executor,
       execute(VariantWithType<const shared_model::interface::CreateAccount &>(),
               ::testing::_,
+              ::testing::_,
+              ::testing::_,
               ::testing::_))
-      .WillRepeatedly([&testAccounts](const auto &cmd, const auto &, auto) {
-        const auto &cmdNewAcc =
-            boost::get<const shared_model::interface::CreateAccount &>(
-                cmd.get());
-        testAccounts.insert(
-            std::make_pair(cmdNewAcc.accountName() + "@" + cmdNewAcc.domainId(),
-                           TestAccount{}));
-        return iroha::ametsuchi::CommandResult{};
-      });
+      .WillRepeatedly(
+          [&testAccounts](
+              const auto &cmd, const auto &, const auto &, auto, auto) {
+            const auto &cmdNewAcc =
+                boost::get<const shared_model::interface::CreateAccount &>(
+                    cmd.get());
+            testAccounts.insert(std::make_pair(
+                cmdNewAcc.accountName() + "@" + cmdNewAcc.domainId(),
+                TestAccount{}));
+            return iroha::ametsuchi::CommandResult{};
+          });
 
   EXPECT_CALL(
       command_executor,
       execute(
           VariantWithType<const shared_model::interface::SetAccountDetail &>(),
           ::testing::_,
+          ::testing::_,
+          ::testing::_,
           ::testing::_))
-      .WillRepeatedly([&testAccounts](const auto &cmd, const auto &, auto) {
-        const auto &cmdSetDetail =
-            boost::get<const shared_model::interface::SetAccountDetail &>(
-                cmd.get());
-        // Check if account exist to get storage of the requested detail
-        const auto iterToAcc = testAccounts.find(cmdSetDetail.accountId());
-        if (iterToAcc != testAccounts.end()) {
-          (*iterToAcc).second.storage[cmdSetDetail.key()] =
-              cmdSetDetail.value();
-          return iroha::ametsuchi::CommandResult{};
-        } else {
-          // TODO(IvanTyulyandin): Fix magic number 1
-          return iroha::ametsuchi::CommandResult{iroha::ametsuchi::CommandError{
-              "SetAccountDetail", 1, "Mocked_No_Such_Account"}};
-        }
-      });
+      .WillRepeatedly(
+          [&testAccounts](
+              const auto &cmd, const auto &, const auto &, auto, auto) {
+            const auto &cmdSetDetail =
+                boost::get<const shared_model::interface::SetAccountDetail &>(
+                    cmd.get());
+            // Check if account exist to get storage of the requested detail
+            const auto iterToAcc = testAccounts.find(cmdSetDetail.accountId());
+            if (iterToAcc != testAccounts.end()) {
+              (*iterToAcc).second.storage[cmdSetDetail.key()] =
+                  cmdSetDetail.value();
+              return iroha::ametsuchi::CommandResult{};
+            } else {
+              // TODO(IvanTyulyandin): Fix magic number 1
+              return iroha::ametsuchi::CommandResult{
+                  iroha::ametsuchi::CommandError{
+                      "SetAccountDetail", 1, "Mocked_No_Such_Account"}};
+            }
+          });
 
   iroha::ametsuchi::MockSpecificQueryExecutor specific_query_executor;
   auto query_response_factory =
@@ -218,7 +227,7 @@ contract C {
             const auto iterToValue =
                 (*iterToTestAccount).second.storage.find(key);
             if (iterToValue != (*iterToTestAccount).second.storage.end()) {
-              std::string response = "{\"evm@evm\": {\"" + key + "\": \"" 
+              std::string response = "{\"evm@evm\": {\"" + key + "\": \""
                   + (*iterToValue).second + "\"}}";
               return query_response_factory->createAccountDetailResponse(
                   response, 1, {}, {});
@@ -243,8 +252,11 @@ contract C {
         }
       });
 
-  auto res = VmCall(
-      deploySCdata, caller, callee, &command_executor, &specific_query_executor);
+  auto res = VmCall(deploySCdata,
+                    caller,
+                    callee,
+                    &command_executor,
+                    &specific_query_executor);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 

@@ -92,6 +92,11 @@ namespace shared_model {
           interface::types::PeerList peers,
           const crypto::Hash &query_hash) const override;
 
+      std::unique_ptr<interface::QueryResponse> createEngineResponse(
+          const std::vector<std::unique_ptr<interface::EngineResponseRecord>>
+              &engine_response_records,
+          const crypto::Hash &query_hash) const override;
+
       std::unique_ptr<interface::BlockQueryResponse> createBlockQueryResponse(
           std::shared_ptr<const interface::Block> block) const override;
 

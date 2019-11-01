@@ -371,6 +371,26 @@ shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
       query_hash);
 }
 
+std::unique_ptr<shared_model::interface::QueryResponse>
+shared_model::proto::ProtoQueryResponseFactory::createEngineResponse(
+    const std::vector<
+        std::unique_ptr<shared_model::interface::EngineResponseRecord>>
+        &engine_response_records,
+    const crypto::Hash &query_hash) const {
+  return createQueryResponse(
+      [&](iroha::protocol::QueryResponse &protocol_query_response) {
+        auto *protocol_specific_response =
+            protocol_query_response.mutable_engine_response();
+        for (const auto &record : engine_response_records) {
+          auto proto_record =
+              protocol_specific_response->add_engine_response_records();
+          proto_record->set_command_index(record->commandIndex());
+          proto_record->set_response(record->response());
+        }
+      },
+      query_hash);
+}
+
 std::unique_ptr<shared_model::interface::BlockQueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createBlockQueryResponse(
     std::shared_ptr<const shared_model::interface::Block> block) const {

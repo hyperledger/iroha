@@ -110,3 +110,8 @@ message AccountDetailRecordId {
   string writer = 1;
   string key = 2;
 }
+
+message EngineResponseRecord {
+  uint64 command_index = 1;
+  string response = 2;
+}

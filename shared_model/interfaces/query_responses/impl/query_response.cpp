@@ -10,6 +10,7 @@
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/asset_response.hpp"
 #include "interfaces/query_responses/block_response.hpp"
+#include "interfaces/query_responses/engine_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/peers_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"

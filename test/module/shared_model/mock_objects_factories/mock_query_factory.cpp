@@ -171,3 +171,11 @@ MockQueryFactory::constructTxPaginationMeta(
         EXPECT_CALL(mock, firstTxHash()).WillRepeatedly(Return(first_tx_hash));
       });
 }
+
+MockQueryFactory::FactoryResult<MockGetEngineResponse>
+MockQueryFactory::constructGetEngineResponse(const std::string &tx_hash) const {
+  return createFactoryResult<MockGetEngineResponse>(
+      [&tx_hash](MockGetEngineResponse &mock) {
+        EXPECT_CALL(mock, txHash()).WillRepeatedly(ReturnRefOfCopy(tx_hash));
+      });
+}

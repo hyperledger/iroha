@@ -213,6 +213,14 @@ namespace iroha {
             executeQuery(specific_query, std::forward<Types>(args)...));
       }
 
+      /**
+       * Execute GetEngineResponse with the metadata referring to the last
+       * command executed with executeCommand method.
+       * @return Result of query execution.
+       */
+      SpecificQueryResult<shared_model::interface::EngineResponse>
+      getLastEngineResultResponse();
+
       // -------------- mock command and query factories getters ---------------
 
       /// Get mock command factory.
@@ -310,6 +318,7 @@ namespace iroha {
       std::shared_ptr<iroha::ametsuchi::TransactionExecutor> tx_executor_;
       std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor> query_executor_;
 
+      mutable shared_model::interface::types::CounterType orphan_cmd_counter_;
       shared_model::interface::types::CounterType query_counter_;
     };
 

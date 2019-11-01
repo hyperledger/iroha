@@ -51,7 +51,7 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executor->execute(cmd, creator, not do_validation);
+        return executor->execute(cmd, creator, {}, 0, not do_validation);
       }
 
       void TearDown() override {
