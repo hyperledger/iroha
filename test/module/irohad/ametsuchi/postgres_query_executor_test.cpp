@@ -200,7 +200,7 @@ namespace iroha {
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
         IROHA_ASSERT_RESULT_VALUE(
-            command_executor->execute(cmd, creator, not do_validation));
+            command_executor->execute(cmd, creator, "", 0, not do_validation));
       }
 
       void addPerms(

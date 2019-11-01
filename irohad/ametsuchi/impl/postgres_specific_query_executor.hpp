@@ -29,6 +29,7 @@ namespace shared_model {
     class GetAssetInfo;
     class GetPendingTransactions;
     class GetPeers;
+    class GetEngineResponse;
   }  // namespace interface
 }  // namespace shared_model
 
@@ -128,6 +129,11 @@ namespace iroha {
 
       QueryExecutorResult operator()(
           const shared_model::interface::GetPeers &q,
+          const shared_model::interface::types::AccountIdType &creator_id,
+          const shared_model::interface::types::HashType &query_hash);
+
+      QueryExecutorResult operator()(
+          const shared_model::interface::GetEngineResponse &q,
           const shared_model::interface::types::AccountIdType &creator_id,
           const shared_model::interface::types::HashType &query_hash);
 

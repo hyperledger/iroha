@@ -17,6 +17,7 @@
 #include "interfaces/queries/get_account_transactions.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
 #include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_engine_response.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
 #include "interfaces/queries/get_role_permissions.hpp"
 #include "interfaces/queries/get_roles.hpp"
@@ -183,6 +184,16 @@ namespace shared_model {
       std::optional<ValidationError> operator()(
           const interface::GetPeers &get_peers) const {
         return std::nullopt;
+      }
+
+      ReasonsGroupType operator()(
+          const interface::GetEngineResponse &qry) const {
+        ReasonsGroupType reason;
+        reason.first = "GetEngineResponse";
+
+        validator_.validateHash(reason, qry.txHash());
+
+        return reason;
       }
 
      private:

@@ -27,6 +27,7 @@ namespace shared_model {
     class Signature;
     class Transaction;
     class Peer;
+    class EngineResponseRecord;
 
     namespace types {
       /// Type of hash

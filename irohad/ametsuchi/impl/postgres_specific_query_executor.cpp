@@ -18,6 +18,7 @@
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
+#include "backend/plain/engine_response_record_reference.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
@@ -32,6 +33,7 @@
 #include "interfaces/queries/get_account_transactions.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
 #include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_engine_response.hpp"
 #include "interfaces/queries/get_peers.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
 #include "interfaces/queries/get_role_permissions.hpp"
@@ -1446,6 +1448,49 @@ namespace iroha {
                                                                 query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
+    }
+
+    QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
+        const shared_model::interface::GetEngineResponse &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
+      auto cmd = R"(
+            SELECT cmd_index, engine_response
+            FROM engine_response_records
+            WHERE creator_id=:creator_account_id and tx_hash=:tx_hash
+            )";
+
+      using QueryTuple =
+          QueryType<shared_model::interface::types::CommandIndexType,
+                    shared_model::interface::types::SmartContractCodeType>;
+      using PermissionTuple = boost::tuple<int>;
+
+      return executeQuery<QueryTuple, PermissionTuple>(
+          [&] {
+            return (sql_.prepare << cmd,
+                    soci::use(creator_id, "creator_account_id"),
+                    soci::use(q.txHash(), "tx_hash"));
+          },
+          query_hash,
+          [&](auto range, auto &) {
+            auto range_without_nulls = resultWithoutNulls(std::move(range));
+            std::vector<
+                std::unique_ptr<shared_model::interface::EngineResponseRecord>>
+                records;
+            for (const auto &row : range_without_nulls) {
+              apply(row, [&records](auto &cmd_index, auto &engine_response) {
+                records.push_back(
+                    std::make_unique<
+                        shared_model::plain::EngineResponseRecordReference>(
+                        cmd_index, engine_response));
+              });
+            }
+            return query_response_factory_->createEngineResponse(records,
+                                                                 query_hash);
+          },
+          // Permission missing error is not going to happen in case of that
+          // query for now
+          notEnoughPermissionsResponse(perm_converter_, Role::kGetBlocks));
     }
 
     template <typename ReturnValueType>

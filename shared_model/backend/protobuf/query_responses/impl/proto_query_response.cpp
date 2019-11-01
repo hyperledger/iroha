@@ -9,6 +9,7 @@
 #include "backend/protobuf/query_responses/proto_account_detail_response.hpp"
 #include "backend/protobuf/query_responses/proto_account_response.hpp"
 #include "backend/protobuf/query_responses/proto_asset_response.hpp"
+#include "backend/protobuf/query_responses/proto_engine_response.hpp"
 #include "backend/protobuf/query_responses/proto_error_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_get_block_response.hpp"
 #include "backend/protobuf/query_responses/proto_peers_response.hpp"
@@ -35,7 +36,8 @@ namespace {
                      shared_model::proto::TransactionsPageResponse,
                      shared_model::proto::PendingTransactionsPageResponse,
                      shared_model::proto::GetBlockResponse,
-                     shared_model::proto::PeersResponse>;
+                     shared_model::proto::PeersResponse,
+                     shared_model::proto::EngineResponse>;
 }  // namespace
 
 #ifdef IROHA_BIND_TYPE

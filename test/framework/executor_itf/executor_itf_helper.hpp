@@ -22,6 +22,7 @@
 #include "interfaces/query_responses/block_error_response.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "interfaces/query_responses/block_response.hpp"
+#include "interfaces/query_responses/engine_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
@@ -69,7 +70,9 @@ namespace iroha {
               shared_model::interface::GetPendingTransactions,
               shared_model::interface::PendingTransactionsPageResponse>,
           boost::mpl::pair<shared_model::interface::GetBlock,
-                           shared_model::interface::BlockResponse>>
+                           shared_model::interface::BlockResponse>,
+          boost::mpl::pair<shared_model::interface::GetEngineResponse,
+                           shared_model::interface::EngineResponse>>
           SpecificQueryResponses;
 
       /// true for specific commands

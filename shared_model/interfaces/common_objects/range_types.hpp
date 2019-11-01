@@ -35,6 +35,12 @@ namespace shared_model {
       using HashCollectionType = boost::
           any_range<HashType, boost::forward_traversal_tag, const HashType &>;
 
+      /// Type for EVM reposponse records
+      using EngineResponseRecordCollectionType =
+          boost::any_range<EngineResponseRecord,
+                           boost::forward_traversal_tag,
+                           const EngineResponseRecord &>;
+
     }  // namespace types
   }    // namespace interface
 }  // namespace shared_model
