@@ -115,7 +115,8 @@ func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, va
 	Not part of ReaderWriter interface, hence type assertion required
 */
 func (ias *IrohaAppState) GetBalance(addr string, asset binary.Word256) ([]byte, error) {
-	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
+	// The type of the $asset parameter of the contracts functions is bytes32 which is right-padded
+	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadRight()))
 	assetID := string(assetBytes)
 	balances, err := ias.getIrohaAccountAssets(addr)
 	if err != nil {
@@ -130,7 +131,8 @@ func (ias *IrohaAppState) GetBalance(addr string, asset binary.Word256) ([]byte,
 }
 
 func (ias *IrohaAppState) TransferAsset(src, dst, amount string, asset binary.Word256) error {
-	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadLeft()))
+	// The type of the $asset parameter of the contracts functions is bytes32 which is right-padded
+	assetBytes, _ := hex.DecodeString(hex.EncodeToString(asset.UnpadRight()))
 	assetID := string(assetBytes)
 	return ias.transferIrohaAsset(src, dst, amount, assetID)
 }
