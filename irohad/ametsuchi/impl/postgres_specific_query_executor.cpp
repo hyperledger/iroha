@@ -18,7 +18,7 @@
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
-#include "backend/plain/engine_response_record_reference.hpp"
+#include "backend/plain/engine_response_record.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
@@ -1455,9 +1455,13 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
       auto cmd = R"(
+            WITH has_perms AS (SELECT 1),
+            engine_responses AS (
             SELECT cmd_index, engine_response
             FROM engine_response_records
-            WHERE creator_id=:creator_account_id and tx_hash=:tx_hash
+            WHERE creator_id=:creator_account_id and tx_hash=:tx_hash)
+            SELECT * FROM engine_responses
+            RIGHT OUTER JOIN has_perms ON TRUE;
             )";
 
       using QueryTuple =
@@ -1480,8 +1484,7 @@ namespace iroha {
             for (const auto &row : range_without_nulls) {
               apply(row, [&records](auto &cmd_index, auto &engine_response) {
                 records.push_back(
-                    std::make_unique<
-                        shared_model::plain::EngineResponseRecordReference>(
+                    std::make_unique<shared_model::plain::EngineResponseRecord>(
                         cmd_index, engine_response));
               });
             }

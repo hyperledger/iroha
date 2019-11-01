@@ -7,7 +7,7 @@ add_library(shared_model_plain_backend
     impl/account.cpp
     impl/account_detail_record_id.cpp
     impl/domain.cpp
-    impl/engine_response_record_reference.cpp
+    impl/engine_response_record.cpp
     impl/peer.cpp
     impl/signature.cpp
     )

@@ -382,7 +382,7 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineResponse(
         auto *protocol_specific_response =
             protocol_query_response.mutable_engine_response();
         for (const auto &record : engine_response_records) {
-          auto proto_record =
+          auto *proto_record =
               protocol_specific_response->add_engine_response_records();
           proto_record->set_command_index(record->commandIndex());
           proto_record->set_response(record->response());

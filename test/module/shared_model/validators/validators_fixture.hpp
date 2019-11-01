@@ -148,7 +148,8 @@ class ValidatorsTest : public ::testing::Test {
            refl->MutableMessage(msg, field)
                ->CopyFrom(account_detail_pagination_meta);
          }},
-        {"iroha.protocol.GetBlock.height", setUInt64(height)}};
+        {"iroha.protocol.GetBlock.height", setUInt64(height)},
+        {"iroha.protocol.GetEngineResponse.tx_hash", setString(hash)}};
   }
 
   /**
