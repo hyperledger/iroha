@@ -98,7 +98,7 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		// Assuming the bytes we have read from cache represent a valid EVM address
+		// Assuming the bytes we have read from cache represent a valid EVM address of type 'address' (or uint160) which is left-padded
 		callerAccount, err := crypto.AddressFromBytes(bytes.TrimLeft(callerBytes, trimCutSet))
 		if err != nil {
 			st.PushError(err)
@@ -117,7 +117,8 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		otherAccount := string(bytes.TrimLeft(otherAccountBytes, trimCutSet))
+		// The $accountID parameter type is bytes32 which is right-padded, hence trailing zeros trimming
+		otherAccount := string(bytes.TrimRight(otherAccountBytes, trimCutSet))
 		value, err = st.backend.(*IrohaAppState).GetBalance(otherAccount, key)
 		if err != nil {
 			st.PushError(err)
@@ -131,20 +132,21 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		// We assume the bytes we have read from cache represent a valid EVM address
+		// Assuming the bytes we have read from cache represent a valid EVM address of type 'address' (or uint160) which is left-padded
 		srcAccount, err := crypto.AddressFromBytes(bytes.TrimLeft(callerBytes, trimCutSet))
 		if err != nil {
 			st.PushError(err)
 			return
 		}
 
-		// Fetching caller's address from "a1" variable
+		// Fetching destination address from "a1" variable
 		dstBytes, err := st.cache.GetStorage(address, a1)
 		if err != nil {
 			st.PushError(err)
 			return
 		}
-		dstAccount := string(bytes.TrimLeft(dstBytes, trimCutSet))
+		// The $dst parameter type is bytes32 which is right-padded, hence trailing zeros trimming
+		dstAccount := string(bytes.TrimRight(dstBytes, trimCutSet))
 
 		// Fetching transfer amount from "a2" variable
 		amountBytes, err := st.cache.GetStorage(address, a2)
@@ -152,7 +154,8 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		amount := string(bytes.TrimLeft(amountBytes, trimCutSet))
+		// The $amount parameter type is bytes32 which is right-padded, hence trailing zeros trimming
+		amount := string(bytes.TrimRight(amountBytes, trimCutSet))
 
 		err = st.backend.(*IrohaAppState).TransferAsset(irohaAccountID(srcAccount), dstAccount, amount, key)
 		if err != nil {
@@ -167,15 +170,17 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		srcAccount := string(bytes.TrimLeft(srcBytes, trimCutSet))
+		// The $src parameter type is bytes32 which is right-padded, hence trailing zeros trimming
+		srcAccount := string(bytes.TrimRight(srcBytes, trimCutSet))
 
-		// Fetching caller's address from "a1" variable
+		// Fetching destination address from "a1" variable
 		dstBytes, err := st.cache.GetStorage(address, a1)
 		if err != nil {
 			st.PushError(err)
 			return
 		}
-		dstAccount := string(bytes.TrimLeft(dstBytes, trimCutSet))
+		// The $dst parameter type is bytes32 which is right-padded, hence trailing zeros trimming
+		dstAccount := string(bytes.TrimRight(dstBytes, trimCutSet))
 
 		// Fetching transfer amount from "a2" variable
 		amountBytes, err := st.cache.GetStorage(address, a2)
@@ -183,7 +188,8 @@ func (st *State) GetStorage(address crypto.Address, key binary.Word256) (value [
 			st.PushError(err)
 			return
 		}
-		amount := string(bytes.TrimLeft(amountBytes, trimCutSet))
+		// The amount parameter type is bytes32 which is right-padded
+		amount := string(bytes.TrimRight(amountBytes, trimCutSet))
 
 		err = st.backend.(*IrohaAppState).TransferAsset(srcAccount, dstAccount, amount, key)
 		if err != nil {
