@@ -96,6 +96,9 @@ if(USE_BURROW)
     target_link_libraries(postgres_burrow_storage common)
 endif()
 
+add_library(vmCall STATIC IMPORTED GLOBAL)
+set_property(TARGET vmCall PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/vmCall.a")
+
 target_link_libraries(ametsuchi
     pg_connection_init
     flat_file_storage
@@ -114,6 +117,7 @@ target_link_libraries(ametsuchi
     failover_callback
     SOCI::postgresql
     SOCI::core
+    vmCall
     )
 
 target_compile_definitions(ametsuchi

@@ -15,6 +15,7 @@ namespace boost {
       const shared_model::interface::AddAssetQuantity &,
       const shared_model::interface::AddPeer &,
       const shared_model::interface::AddSignatory &,
+      const shared_model::interface::AddSmartContract &,
       const shared_model::interface::AppendRole &,
       const shared_model::interface::CallEngine &,
       const shared_model::interface::CompareAndSetAccountDetail &,
