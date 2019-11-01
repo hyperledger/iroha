@@ -6,9 +6,9 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
-class AddSmartContract : public AcceptanceFixture {
+class EngineCall : public AcceptanceFixture {
   public:
-    // TODO(IvanTyulyandin): add permissions for add_smart_contract
+    // TODO(IvanTyulyandin): add permissions for engine_call
     auto makeUserWithPerms(const interface::RolePermissionSet &perms =
                            shared_model::interface::RolePermissionSet()) {
       return AcceptanceFixture::makeUserWithPerms(perms);
@@ -56,10 +56,10 @@ contract C {
 
 /**
  * @given some user
- * @when execute tx with AddSmartContract command
+ * @when execute tx with EngineCall command
  * @then there is the tx in proposal
  */
-TEST_F(AddSmartContract, Basic) {
+TEST_F(EngineCall, Basic) {
   IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(makeUserWithPerms())

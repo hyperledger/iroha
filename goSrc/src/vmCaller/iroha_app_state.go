@@ -9,62 +9,77 @@ import (
 	"github.com/hyperledger/burrow/crypto"
 )
 
+// Analogue of the following code, but without metadata:
+// https://github.com/hyperledger/burrow/blob/develop/acm/acmstate/memory_state.go
+
 type IrohaAppState struct {
 	accounts map[crypto.Address]*acm.Account
-	storage  map[string][]byte
+	storage  map[crypto.Address]map[binary.Word256][]byte
 }
 
 // check IrohaAppState implements acmstate.ReaderWriter
-var _ acmstate.ReaderWriter = (*IrohaAppState)(nil)
+var _ acmstate.ReaderWriter = &IrohaAppState{}
+
+func NewIrohaAppState() *IrohaAppState {
+	return &IrohaAppState{
+		accounts: make(map[crypto.Address]*acm.Account),
+		storage:  make(map[crypto.Address]map[binary.Word256][]byte),
+	}
+}
 
 func (ias *IrohaAppState) GetAccount(addr crypto.Address) (*acm.Account, error) {
 	fmt.Println("GetAccount: " + addr.String())
-	account := ias.accounts[addr]
-	return account, nil
+	return ias.accounts[addr], nil
+}
+
+// mock
+func (ias *IrohaAppState) GetMetadata(metahash acmstate.MetadataHash) (string, error) {
+	fmt.Println("GetMetadata: metahash" + metahash.String())
+	return "", nil
+}
+
+// mock
+func (ias *IrohaAppState) SetMetadata(metahash acmstate.MetadataHash, metadata string) error {
+	fmt.Println("SetMetadata: metahash" + metahash.String() + " metadata: " + metadata)
+	return nil
 }
 
 func (ias *IrohaAppState) UpdateAccount(account *acm.Account) error {
 	fmt.Println("UpdateAccount: " + account.String())
+	if account == nil {
+		return fmt.Errorf("UpdateAccount passed nil account in MemoryState")
+	}
 	ias.accounts[account.GetAddress()] = account
 	return nil
 }
 
 func (ias *IrohaAppState) RemoveAccount(address crypto.Address) error {
 	fmt.Println("RemoveAccount: " + address.String())
-	_, ok := ias.accounts[address]
-	if !ok {
-		panic(fmt.Sprintf("Invalid account addr: %s", address))
-	} else {
-		// Remove account
-		delete(ias.accounts, address)
-	}
+	delete(ias.accounts, address)
 	return nil
 }
 
 func (ias *IrohaAppState) GetStorage(addr crypto.Address, key binary.Word256) ([]byte, error) {
 	fmt.Printf("GetStorage: " + addr.String() + " %x\n", key)
-	_, ok := ias.accounts[addr]
+	storage, ok := ias.storage[addr]
 	if !ok {
-		panic(fmt.Sprintf("Invalid account addr: %s", addr))
+		return []byte{}, fmt.Errorf("could not find storage for account %s", addr)
 	}
-
-	value, ok := ias.storage[addr.String()+key.String()]
-	if ok {
-		return value, nil
-	} else {
-		return []byte{}, nil
+	value, ok := storage[key]
+	if !ok {
+		return []byte{}, fmt.Errorf("could not find key %x for account %s", key, addr)
 	}
+	return value, nil
 }
 
 func (ias *IrohaAppState) SetStorage(addr crypto.Address, key binary.Word256, value []byte) error {
 	fmt.Printf("SetStorage: " + addr.String() + " %x %x\n", key, value)
-	_, ok := ias.accounts[addr]
+	storage, ok := ias.storage[addr]
 	if !ok {
-		fmt.Println("\n\n", ias.accountsDump())
-		panic(fmt.Sprintf("Invalid account addr: %s", addr))
+		storage = make(map[binary.Word256][]byte)
+		ias.storage[addr] = storage
 	}
-
-	ias.storage[addr.String()+key.String()] = value
+	storage[key] = value
 	return nil
 }
 

@@ -1,5 +1,5 @@
-#ifndef IROHA_SHARED_MODEL_ADD_SMART_CONTRACT_HPP
-#define IROHA_SHARED_MODEL_ADD_SMART_CONTRACT_HPP
+#ifndef IROHA_SHARED_MODEL_ENGINE_CALL_HPP
+#define IROHA_SHARED_MODEL_ENGINE_CALL_HPP
 
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -9,7 +9,7 @@ namespace shared_model {
     /**
      * Smart contract code class
      */
-    class AddSmartContract : public ModelPrimitive<AddSmartContract> {
+    class EngineCall : public ModelPrimitive<EngineCall> {
       public:
 
         /**
@@ -40,4 +40,4 @@ namespace shared_model {
   } // namespace interface
 } // namespace shared_model
 
-#endif  // IROHA_SHARED_MODEL_ADD_SMART_CONTRACT_HPP
+#endif  // IROHA_SHARED_MODEL_ENGINE_CALL_HPP

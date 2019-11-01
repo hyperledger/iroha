@@ -1,10 +1,10 @@
-# How to run test for add_smart_contract
+# How to run test for engine_call
 Docker container should be runned as sudo.
 To set golang environment, download Hyperledger Burrow sources and build .so from it run following:
 1) source scripts/envForBurrowVM.sh
 2) ./scripts/buildVmCaller.sh
 
-Then run all test, or add_smart_contract_test in the appropriate directory
+Then run all test, or engine_call_test in the appropriate directory
 
 
 # Welcome!

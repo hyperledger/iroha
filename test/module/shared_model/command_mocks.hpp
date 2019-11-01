@@ -12,7 +12,6 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
-#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
@@ -21,6 +20,7 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
+#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
@@ -58,12 +58,12 @@ namespace shared_model {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
     };
 
-    struct MockAddSmartContract : public shared_model::interface::AddSmartContract {
+    struct MockEngineCall : public shared_model::interface::EngineCall {
       MOCK_CONST_METHOD0(caller, const types::AccountIdType &());
       MOCK_CONST_METHOD0(callee, const types::AccountIdType &());
       MOCK_CONST_METHOD0(code, const types::SmartContractCodeType &());
       MOCK_CONST_METHOD0(input, const types::SmartContractCodeType &());
-      MOCK_CONST_METHOD0(clone, MockAddSmartContract *());
+      MOCK_CONST_METHOD0(clone, MockEngineCall *());
     };
 
     struct MockAppendRole : public shared_model::interface::AppendRole {
