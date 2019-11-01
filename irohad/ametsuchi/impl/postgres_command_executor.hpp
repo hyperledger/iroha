@@ -19,7 +19,6 @@ namespace shared_model {
     class AddAssetQuantity;
     class AddPeer;
     class AddSignatory;
-    class AddSmartContract;
     class AppendRole;
     class CompareAndSetAccountDetail;
     class CallEngine;
@@ -28,6 +27,7 @@ namespace shared_model {
     class CreateDomain;
     class CreateRole;
     class DetachRole;
+    class EngineCall;
     class GrantPermission;
     class PermissionToString;
     class RemovePeer;

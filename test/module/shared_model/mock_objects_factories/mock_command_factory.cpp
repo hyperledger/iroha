@@ -72,15 +72,15 @@ namespace shared_model {
           });
     }
 
-    MockCommandFactory::FactoryResult<MockAddSmartContract>
-    MockCommandFactory::constructAddSmartContract(
+    MockCommandFactory::FactoryResult<MockEngineCall>
+    MockCommandFactory::constructEngineCall(
         const types::AccountIdType &caller,
         const types::AccountIdType &callee,
         const types::SmartContractCodeType &code,
         const types::SmartContractCodeType &input) const {
-      return createFactoryResult<MockAddSmartContract>(
+      return createFactoryResult<MockEngineCall>(
           [&caller, &callee, &code, &input]
-          (FactoryResult<MockAddSmartContract> specific_cmd_mock) {
+          (FactoryResult<MockEngineCall> specific_cmd_mock) {
             ON_CALL(*specific_cmd_mock, caller())
                 .WillByDefault(ReturnRefOfCopy(caller));
             ON_CALL(*specific_cmd_mock, callee())

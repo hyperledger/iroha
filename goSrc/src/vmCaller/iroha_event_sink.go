@@ -8,7 +8,7 @@ import (
 )
 
 
-var _ evm.EventSink = (*IrohaEventSink)(nil)
+var _ evm.EventSink = &IrohaEventSink{}
 
 type IrohaEventSink struct {}
 
