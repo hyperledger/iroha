@@ -8,6 +8,7 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
+#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
