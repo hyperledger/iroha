@@ -5,49 +5,73 @@
 
 #include "interfaces/common_objects/amount.hpp"
 
-#include <regex>
-
+#include <boost/algorithm/string/classification.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 #include "utils/string_builder.hpp"
 
 static const char kDecimalSeparator = '.';
 static const char *kDigits = "0123456789";
+static const char kZero = kDigits[0];
 
 using namespace shared_model::interface;
 
 struct Amount::Impl {
   Impl(const std::string &amount)
       : string_repr_("NaN"), precision_(0), multiprecision_repr_(0) {
-    const auto dot_pos = amount.find_first_not_of(kDigits);
-    if (dot_pos != std::string::npos) {
-      // fail, if:
-      if (amount[dot_pos]
-              != kDecimalSeparator  // string contains an invalid character
-          or amount.find_first_not_of(kDigits, dot_pos + 1)
-              != std::string::npos  // string contains more than one non-digit
-          or dot_pos == 0  // dot is the first symbol (for compatibility)
-          or dot_pos == amount.size() - 1  // dot is the last symbol
-      ) {
+    const char *const start = amount.data();
+    const char *const end = start + amount.size();
+
+    const char *first_nonzero_digit_pos = end;
+    const char *dot_pos = end;
+    for (auto *c = start; c < end; ++c) {
+      static const auto is_digit = boost::is_any_of(kDigits);
+      if (*c == kDecimalSeparator and dot_pos == end) {
+        dot_pos = c;
+      } else if (is_digit(*c)) {
+        if (first_nonzero_digit_pos == end and *c != kZero) {
+          first_nonzero_digit_pos = c;
+        }
+      } else {
+        // invalid character
         return;
       }
-      std::string amount_without_dot = amount.substr(0, dot_pos);
-      amount_without_dot.append(amount.substr(dot_pos + 1));
-      precision_ = amount.size() - dot_pos - 1;
-      multiprecision_repr_ =
-          boost::multiprecision::uint256_t(amount_without_dot);
-    } else {
-      multiprecision_repr_ = boost::multiprecision::uint256_t(amount);
     }
 
-    // make the string representation
-    std::stringstream ss;
-    ss << std::setw(precision_ + 1) << std::setfill('0')
-       << std::setiosflags(std::ios::right) << multiprecision_repr_;
-    string_repr_ = ss.str();
-    if (precision_ > 0) {
-      const auto dot_pos = string_repr_.end() - precision_;
-      string_repr_.insert(dot_pos, '.');
+    if (dot_pos == start or dot_pos == end - 1) {
+      // not allowed to start or end with a dot
+      return;
     }
+
+    string_repr_.clear();
+    if (dot_pos == end) {
+      if (first_nonzero_digit_pos == end) {
+        string_repr_.push_back(kZero);
+      } else {
+        // we have nonzero digits and no dot. reuse the original string.
+        string_repr_.append(first_nonzero_digit_pos, end);
+        multiprecision_repr_ =
+            boost::multiprecision::uint256_t(first_nonzero_digit_pos);
+      }
+    } else if (first_nonzero_digit_pos > dot_pos) {
+      // we have a dot preceded by zeroes only. reuse the original string.
+      assert(dot_pos > start and dot_pos < end);
+      string_repr_.append(dot_pos - 1, end);
+      multiprecision_repr_ =
+          boost::multiprecision::uint256_t(first_nonzero_digit_pos);
+    } else {
+      // we have a decimal separator with at least one nonzero digit before it.
+      assert(dot_pos < end);
+      assert(first_nonzero_digit_pos < dot_pos);
+      // build a copy of amount string, starting with nonzero digit and having
+      // no decimal separator
+      string_repr_.append(first_nonzero_digit_pos, end);
+      std::string amount_without_dot;
+      amount_without_dot.append(first_nonzero_digit_pos, dot_pos);
+      amount_without_dot.append(dot_pos + 1, end);
+      multiprecision_repr_ =
+          boost::multiprecision::uint256_t(amount_without_dot);
+    }
+    precision_ = dot_pos == end ? 0 : end - dot_pos - 1;
   }
 
   std::string string_repr_;

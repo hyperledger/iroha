@@ -18,10 +18,8 @@ echo "Run bootstrap-vcpkg.bat"
 Invoke-Expression "$vcpkg_path\bootstrap-vcpkg.bat"
 
 echo "Installing vcpkg packages"
-Invoke-Expression "$vcpkg_path\vcpkg.exe install (Get-Content -Path $iroha_vcpkg_path\VCPKG_DEPS_LIST).replace(`":`",`":x64-windows`")"
-
-echo "Installing rx-cpp"
-Invoke-Expression "$vcpkg_path\vcpkg.exe install --head (Get-Content -Path $iroha_vcpkg_path\VCPKG_HEAD_DEPS_LIST).replace(`":`",`":x64-windows`")"
+Invoke-Expression "$vcpkg_path\vcpkg.exe install --triplet x64-windows (Get-Content -Path $iroha_vcpkg_path\VCPKG_DEPS_LIST)"
+Invoke-Expression "$vcpkg_path\vcpkg.exe install --triplet x64-windows --head (Get-Content -Path $iroha_vcpkg_path\VCPKG_HEAD_DEPS_LIST)"
 
 echo "Run vcpkg.exe integrate install"
 Invoke-Expression "$vcpkg_path\vcpkg.exe integrate install"

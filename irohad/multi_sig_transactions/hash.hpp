@@ -17,14 +17,6 @@ namespace iroha {
      public:
       size_t operator()(const DataType &batch) const;
     };
-
-    /**
-     * Hashing of Blob object
-     */
-    class BlobHasher {
-     public:
-      std::size_t operator()(const shared_model::crypto::Blob &blob) const;
-    };
   }  // namespace model
 }  // namespace iroha
 

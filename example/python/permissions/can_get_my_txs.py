@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import irohalib
+from iroha import Iroha, IrohaCrypto
+from iroha import primitive_pb2
 import commons
 import binascii
-import primitive_pb2
 
 admin = commons.new_user('admin@first')
 alice = commons.new_user('alice@second')
-iroha = irohalib.Iroha(admin['id'])
+iroha = Iroha(admin['id'])
 
 alice_tx1_hash = None
 alice_tx2_hash = None
@@ -25,7 +25,7 @@ def genesis_tx():
     ]
     genesis_commands = commons.genesis_block(admin, alice, test_permissions, multidomain=True)
     tx = iroha.transaction(genesis_commands)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
@@ -35,8 +35,8 @@ def alice_action_1_tx():
     tx = iroha.transaction([
         iroha.command('CreateAsset', asset_name='coin', domain_id='first', precision=2)
     ], creator_account=alice['id'])
-    alice_tx1_hash = irohalib.IrohaCrypto.hash(tx)
-    irohalib.IrohaCrypto.sign_transaction(tx, alice['key'])
+    alice_tx1_hash = IrohaCrypto.hash(tx)
+    IrohaCrypto.sign_transaction(tx, alice['key'])
     return tx
 
 
@@ -46,8 +46,8 @@ def alice_action_2_tx():
     tx = iroha.transaction([
         iroha.command('AddAssetQuantity', asset_id='coin#first', amount='600.30')
     ], creator_account=alice['id'])
-    alice_tx2_hash = irohalib.IrohaCrypto.hash(tx)
-    irohalib.IrohaCrypto.sign_transaction(tx, alice['key'])
+    alice_tx2_hash = IrohaCrypto.hash(tx)
+    IrohaCrypto.sign_transaction(tx, alice['key'])
     return tx
 
 
@@ -58,5 +58,5 @@ def transactions_query():
         binascii.hexlify(alice_tx2_hash)
     ]
     query = iroha.query('GetTransactions', creator_account=alice['id'], tx_hashes=hashes)
-    irohalib.IrohaCrypto.sign_query(query, alice['key'])
+    IrohaCrypto.sign_query(query, alice['key'])
     return query
