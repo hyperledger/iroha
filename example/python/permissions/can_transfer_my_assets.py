@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import irohalib
+from iroha import Iroha, IrohaCrypto
+from iroha import primitive_pb2
 import commons
-import primitive_pb2
 
 admin = commons.new_user('admin@test')
 alice = commons.new_user('alice@test')
 bob = commons.new_user('bob@test')
-iroha = irohalib.Iroha(admin['id'])
+iroha = Iroha(admin['id'])
 
 
 @commons.hex
@@ -23,7 +23,7 @@ def genesis_tx():
     genesis_commands = commons.genesis_block(admin, alice, test_permissions)
     genesis_commands.extend([
         iroha.command('CreateAccount', account_name='bob', domain_id='test',
-                      public_key=irohalib.IrohaCrypto.derive_public_key(bob['key'])),
+                      public_key=IrohaCrypto.derive_public_key(bob['key'])),
         iroha.command('CreateAsset', asset_name='coin', domain_id='test', precision=2),
         iroha.command('AddAssetQuantity', asset_id='coin#test', amount='100.00'),
         iroha.command('TransferAsset',
@@ -34,7 +34,7 @@ def genesis_tx():
                       amount='90.00')
     ])
     tx = iroha.transaction(genesis_commands)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
@@ -43,7 +43,7 @@ def grant_permission_tx():
     tx = iroha.transaction([
         iroha.command('GrantPermission', account_id=bob['id'], permission=primitive_pb2.can_transfer_my_assets)
     ], creator_account=alice['id'])
-    irohalib.IrohaCrypto.sign_transaction(tx, alice['key'])
+    IrohaCrypto.sign_transaction(tx, alice['key'])
     return tx
 
 
@@ -57,5 +57,5 @@ def transfer_asset_tx():
                       description='transfer from Alice to Admin by Bob',
                       amount='60.00')
     ], creator_account=bob['id'])
-    irohalib.IrohaCrypto.sign_transaction(tx, bob['key'])
+    IrohaCrypto.sign_transaction(tx, bob['key'])
     return tx

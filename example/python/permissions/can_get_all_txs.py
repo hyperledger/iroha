@@ -3,14 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import irohalib
-import binascii
+from iroha import Iroha, IrohaCrypto
+from iroha import primitive_pb2
 import commons
-import primitive_pb2
+import binascii
+
 
 admin = commons.new_user('admin@first')
 alice = commons.new_user('alice@second')
-iroha = irohalib.Iroha(admin['id'])
+iroha = Iroha(admin['id'])
 
 admin_tx1_hash = None
 admin_tx2_hash = None
@@ -21,7 +22,7 @@ def genesis_tx():
     test_permissions = [primitive_pb2.can_get_all_txs]
     genesis_commands = commons.genesis_block(admin, alice, test_permissions, multidomain=True)
     tx = iroha.transaction(genesis_commands)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
@@ -31,8 +32,8 @@ def admin_action_1_tx():
     tx = iroha.transaction([
         iroha.command('CreateAsset', asset_name='coin', domain_id='second', precision=2)
     ])
-    admin_tx1_hash = irohalib.IrohaCrypto.hash(tx)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    admin_tx1_hash = IrohaCrypto.hash(tx)
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
@@ -42,8 +43,8 @@ def admin_action_2_tx():
     tx = iroha.transaction([
         iroha.command('SetAccountDetail', account_id=admin['id'], key='hyperledger', value='iroha')
     ])
-    admin_tx2_hash = irohalib.IrohaCrypto.hash(tx)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    admin_tx2_hash = IrohaCrypto.hash(tx)
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
@@ -54,5 +55,5 @@ def transactions_query():
         binascii.hexlify(admin_tx2_hash)
     ]
     query = iroha.query('GetTransactions', tx_hashes=hashes, creator_account=alice['id'])
-    irohalib.IrohaCrypto.sign_query(query, alice['key'])
+    IrohaCrypto.sign_query(query, alice['key'])
     return query
