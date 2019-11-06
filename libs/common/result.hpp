@@ -180,6 +180,11 @@ namespace iroha {
     template <typename ResultType>
     using ErrorOf = typename std::decay_t<ResultType>::ErrorType;
 
+    template <typename ResultType>
+    using InnerValueOf = typename std::decay_t<ResultType>::ValueInnerType;
+    template <typename ResultType>
+    using InnerErrorOf = typename std::decay_t<ResultType>::ErrorInnerType;
+
     /**
      * Get a new result with the copied value or mapped error
      * @param res base Result for getting new one
@@ -396,8 +401,8 @@ namespace iroha {
     /// @return optional with value if present, otherwise none
     template <typename ResultType,
               typename = std::enable_if_t<isResult<ResultType>>>
-    boost::optional<typename std::decay_t<ResultType>::ValueInnerType>
-    resultToOptionalValue(ResultType &&res) noexcept {
+    boost::optional<InnerValueOf<ResultType>> resultToOptionalValue(
+        ResultType &&res) noexcept {
       if (hasValue(res)) {
         return boost::get<ValueOf<ResultType>>(std::forward<ResultType>(res))
             .value;
@@ -408,8 +413,8 @@ namespace iroha {
     /// @return optional with error if present, otherwise none
     template <typename ResultType,
               typename = std::enable_if_t<isResult<ResultType>>>
-    boost::optional<typename std::decay_t<ResultType>::ErrorInnerType>
-    resultToOptionalError(ResultType &&res) noexcept {
+    boost::optional<InnerErrorOf<ResultType>> resultToOptionalError(
+        ResultType &&res) noexcept {
       if (hasError(res)) {
         return boost::get<ErrorOf<ResultType>>(std::forward<ResultType>(res))
             .error;

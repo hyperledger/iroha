@@ -13,6 +13,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
 #include "datetime/time.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -30,6 +31,7 @@
 
 using namespace iroha::network;
 using namespace iroha::ametsuchi;
+using namespace framework::expected;
 using namespace framework::test_subscriber;
 using namespace shared_model::crypto;
 using namespace shared_model::validation;
@@ -60,7 +62,7 @@ class BlockLoaderTest : public testing::Test {
     validator = validator_ptr.get();
     loader = std::make_shared<BlockLoaderImpl>(
         peer_query_factory,
-        shared_model::proto::ProtoBlockFactory(
+        std::make_shared<shared_model::proto::ProtoBlockFactory>(
             std::move(validator_ptr),
             std::make_unique<MockValidator<iroha::protocol::Block>>()),
         getTestLogger("BlockLoader"),
@@ -81,6 +83,14 @@ class BlockLoaderTest : public testing::Test {
 
     ASSERT_TRUE(server);
     ASSERT_NE(port, 0);
+  }
+
+  void setPeerQuery() {
+    EXPECT_CALL(*peer_query, getLedgerPeers())
+        .WillRepeatedly(Return(std::vector<wPeer>{peer}));
+    EXPECT_CALL(*peer_query, getLedgerPeerByPublicKey(peer->pubkey()))
+        .WillRepeatedly(
+            Return(std::shared_ptr<shared_model::interface::Peer>(peer)));
   }
 
   auto getBaseBlockBuilder(
@@ -105,6 +115,14 @@ class BlockLoaderTest : public testing::Test {
         .prevHash(prev_hash)
         .createdTime(iroha::time::now())
         .transactions(txs);
+  }
+
+  void retrieveBlockAndCompare(
+      const shared_model::interface::types::HeightType height,
+      const shared_model::interface::Block &ref_block) {
+    auto retrieved_block =
+        assertAndGetResultValue(loader->retrieveBlock(peer_key, height));
+    EXPECT_EQ(ref_block, *retrieved_block);
   }
 
   std::shared_ptr<MockPeer> peer;
@@ -132,12 +150,12 @@ class BlockLoaderTest : public testing::Test {
 TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
   auto block = getBaseBlockBuilder().build().signAndAddSignature(key).finish();
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
-  auto wrapper = make_test_subscriber<CallExact>(
-      loader->retrieveBlocks(1, peer->pubkey()), 0);
+  auto retrieved_blocks =
+      assertAndGetResultValue(loader->retrieveBlocks(1, peer->pubkey()));
+  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 0);
   wrapper.subscribe();
 
   ASSERT_TRUE(wrapper.validate());
@@ -165,15 +183,15 @@ TEST_F(BlockLoaderTest, ValidWhenOneBlock) {
                        .signAndAddSignature(key)
                        .finish();
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*storage, getTopBlockHeight())
       .WillOnce(Return(top_block.height()));
   EXPECT_CALL(*storage, getBlock(top_block.height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(top_block)))));
-  auto wrapper =
-      make_test_subscriber<CallExact>(loader->retrieveBlocks(1, peer_key), 1);
+  auto retrieved_blocks =
+      assertAndGetResultValue(loader->retrieveBlocks(1, peer_key));
+  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 1);
   wrapper.subscribe([&top_block](auto block) { ASSERT_EQ(*block, top_block); });
 
   ASSERT_TRUE(wrapper.validate());
@@ -211,10 +229,10 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
             clone<shared_model::interface::Block>(blk)))));
   }
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
-  auto wrapper = make_test_subscriber<CallExact>(
-      loader->retrieveBlocks(1, peer_key), num_blocks);
+  setPeerQuery();
+  auto retrieved_blocks =
+      assertAndGetResultValue(loader->retrieveBlocks(1, peer_key));
+  auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, num_blocks);
   auto height = next_height;
   wrapper.subscribe(
       [&height](auto block) { ASSERT_EQ(block->height(), height++); });
@@ -237,15 +255,12 @@ TEST_F(BlockLoaderTest, ValidWhenBlockPresent) {
       getBaseBlockBuilder().build().signAndAddSignature(key).finish());
   block_cache->insert(block);
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*validator, validate(RefAndPointerEq(block)))
       .WillOnce(Return(Answer{}));
   EXPECT_CALL(*storage, getBlock(_)).Times(0);
-  auto retrieved_block = loader->retrieveBlock(peer_key, block->height());
 
-  ASSERT_TRUE(retrieved_block);
-  ASSERT_EQ(*block, **retrieved_block);
+  retrieveBlockAndCompare(block->height(), *block);
 }
 
 /**
@@ -265,15 +280,12 @@ TEST_F(BlockLoaderTest, ValidWhenBlockMissing) {
           .finish());
   block_cache->insert(cur_block);
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*storage, getBlock(prev_block->height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(*prev_block)))));
 
-  auto block = loader->retrieveBlock(peer_key, prev_block->height());
-  ASSERT_TRUE(block);
-  ASSERT_EQ(block.value()->height(), prev_block->height());
+  retrieveBlockAndCompare(prev_block->height(), *prev_block);
 }
 
 /**
@@ -291,15 +303,12 @@ TEST_F(BlockLoaderTest, ValidWithEmptyCache) {
           .signAndAddSignature(key)
           .finish());
 
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*storage, getBlock(prev_block->height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(*prev_block)))));
 
-  auto block = loader->retrieveBlock(peer_key, prev_block->height());
-  ASSERT_TRUE(block);
-  ASSERT_EQ(block.value()->height(), prev_block->height());
+  retrieveBlockAndCompare(prev_block->height(), *prev_block);
 }
 
 /**
@@ -309,13 +318,11 @@ TEST_F(BlockLoaderTest, ValidWithEmptyCache) {
  * loader returns nothing
  */
 TEST_F(BlockLoaderTest, NoBlocksInStorage) {
-  EXPECT_CALL(*peer_query, getLedgerPeers())
-      .WillOnce(Return(std::vector<wPeer>{peer}));
+  setPeerQuery();
   EXPECT_CALL(*storage, getBlock(1))
       .WillOnce(
           Return(ByMove(iroha::expected::makeError(BlockQuery::GetBlockError{
               BlockQuery::GetBlockError::Code::kNoBlock, "no block"}))));
 
-  auto block = loader->retrieveBlock(peer_key, 1);
-  ASSERT_FALSE(block);
+  assertResultError(loader->retrieveBlock(peer_key, 1));
 }

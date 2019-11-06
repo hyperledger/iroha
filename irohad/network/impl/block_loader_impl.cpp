@@ -59,32 +59,30 @@ BlockLoaderImpl::retrieveBlocks(
     return client_factory_->createClient(*peer) | [&](auto client) {
       std::shared_ptr<typename decltype(client)::element_type> shared_client(
           std::move(client));
-      return Result<rxcpp::observable<std::shared_ptr<Block>>, std::string>(
-          rxcpp::observable<std::shared_ptr<Block>>(
-              rxcpp::observable<>::create<std::shared_ptr<Block>>(
-                  [shared_state, shared_client, block_factory = block_factory_](
-                      auto subscriber) {
-                    auto reader = shared_client->retrieveBlocks(
-                        &shared_state->context, shared_state->request);
-                    protocol::Block block;
-                    while (subscriber.is_subscribed()
-                           and reader->Read(&block)) {
-                      block_factory->createBlock(std::move(block))
-                          .match(
-                              [&](auto &&result) {
-                                subscriber.on_next(std::move(result.value));
-                              },
-                              [&](const auto &error) {
-                                subscriber.on_error(std::make_exception_ptr(
-                                    std::runtime_error(fmt::format(
-                                        "Failed to parse received block: {}.",
-                                        error.error))));
-                                shared_state->context.TryCancel();
-                              });
-                    }
-                    reader->Finish();
-                    subscriber.on_completed();
-                  })));
+      return rxcpp::observable<std::shared_ptr<Block>>(
+          rxcpp::observable<>::create<std::shared_ptr<Block>>(
+              [shared_state, shared_client, block_factory = block_factory_](
+                  auto subscriber) {
+                auto reader = shared_client->retrieveBlocks(
+                    &shared_state->context, shared_state->request);
+                protocol::Block block;
+                while (subscriber.is_subscribed() and reader->Read(&block)) {
+                  block_factory->createBlock(std::move(block))
+                      .match(
+                          [&](auto &&result) {
+                            subscriber.on_next(std::move(result.value));
+                          },
+                          [&](const auto &error) {
+                            subscriber.on_error(std::make_exception_ptr(
+                                std::runtime_error(fmt::format(
+                                    "Failed to parse received block: {}.",
+                                    error.error))));
+                            shared_state->context.TryCancel();
+                          });
+                }
+                reader->Finish();
+                subscriber.on_completed();
+              }));
     };
   };
 }

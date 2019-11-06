@@ -11,6 +11,7 @@
 
 #include <boost/core/noncopyable.hpp>
 #include <rxcpp/rx-observable-fwd.hpp>
+#include "common/result.hpp"
 #include "framework/integration_framework/fake_peer/network/mst_message.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/integration_framework/fake_peer/types.hpp"
@@ -22,8 +23,9 @@
 
 namespace iroha {
   namespace network {
+    class GenericClientFactory;
     class ServerRunner;
-  }
+  }  // namespace network
 }  // namespace iroha
 
 namespace integration_framework {
@@ -61,8 +63,7 @@ namespace integration_framework {
           const std::string &listen_ip,
           size_t internal_port,
           const boost::optional<shared_model::crypto::Keypair> &key,
-          boost::optional<
-              shared_model::interface::types::TLSCertificateType>
+          boost::optional<shared_model::interface::types::TLSCertificateType>
               tls_certificate,
           std::shared_ptr<shared_model::interface::Peer> real_peer,
           const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -182,15 +183,18 @@ namespace integration_framework {
           const std::shared_ptr<shared_model::interface::TransactionBatch>
               &batch);
 
-      bool sendBlockRequest(const LoaderBlockRequest &request);
+      iroha::expected::Result<void, std::string> sendBlockRequest(
+          const LoaderBlockRequest &request);
 
-      size_t sendBlocksRequest(const LoaderBlocksRequest &request);
+      iroha::expected::Result<size_t, std::string> sendBlocksRequest(
+          const LoaderBlocksRequest &request);
 
       /// Send the real peer the provided batches for proposal.
-      void proposeBatches(BatchesCollection batches);
+      iroha::expected::Result<void, std::string> proposeBatches(
+          BatchesCollection batches);
 
       /// Send the real peer the provided transactions for proposal.
-      void proposeTransactions(
+      iroha::expected::Result<void, std::string> proposeTransactions(
           std::vector<std::shared_ptr<shared_model::interface::Transaction>>
               transactions);
 

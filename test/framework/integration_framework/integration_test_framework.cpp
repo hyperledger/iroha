@@ -37,6 +37,7 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -665,7 +666,7 @@ namespace integration_framework {
 
   IntegrationTestFramework &IntegrationTestFramework::sendBatches(
       const std::vector<TransactionBatchSPtr> &batches) {
-    auto on_demand_os_transport =
+    auto on_demand_os_transport = framework::expected::assertAndGetResultValue(
         iroha::ordering::transport::OnDemandOsClientGrpcFactory(
             async_call_,
             proposal_factory_,
@@ -678,7 +679,7 @@ namespace integration_framework {
             makeTransportClientFactory<
                 iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
                 client_factory_))
-            .create(*this_peer_);
+            .create(*this_peer_));
     on_demand_os_transport->onBatches(batches);
     return *this;
   }
@@ -686,7 +687,7 @@ namespace integration_framework {
   boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
   IntegrationTestFramework::requestProposal(
       const iroha::consensus::Round &round, std::chrono::milliseconds timeout) {
-    auto on_demand_os_transport =
+    auto on_demand_os_transport = framework::expected::assertAndGetResultValue(
         iroha::ordering::transport::OnDemandOsClientGrpcFactory(
             async_call_,
             proposal_factory_,
@@ -696,19 +697,21 @@ namespace integration_framework {
             makeTransportClientFactory<
                 iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
                 client_factory_))
-            .create(*this_peer_);
+            .create(*this_peer_));
     return on_demand_os_transport->onRequestProposal(round);
   }
 
   IntegrationTestFramework &IntegrationTestFramework::sendMstState(
       const shared_model::crypto::PublicKey &src_key,
       const iroha::MstState &mst_state) {
+    auto client = framework::expected::assertAndGetResultValue(
+        makeTransportClientFactory<iroha::network::MstTransportGrpc>(
+            client_factory_)
+            ->createClient(*this_peer_));
     iroha::network::sendStateAsync(
         mst_state,
         shared_model::crypto::toBinaryString(src_key),
-        *makeTransportClientFactory<iroha::network::MstTransportGrpc>(
-             client_factory_)
-             ->createClient(*this_peer_),
+        *client,
         *async_call_);
     return *this;
   }

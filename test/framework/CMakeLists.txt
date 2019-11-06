@@ -13,7 +13,7 @@ target_link_libraries(test_client_factory
     grpc_channel_pool
     grpc_channel_factory
     grpc_channel_factory_tls
-    grpc_client_factory
+    grpc_generic_client_factory
     test_logger
     )
 
@@ -49,6 +49,7 @@ target_link_libraries(integration_framework
     integration_framework_config_helper
     command_client
     common_test_constants
+    grpc_generic_client_factory
     query_client
     ordering_gate_common
     shared_model_cryptography_model

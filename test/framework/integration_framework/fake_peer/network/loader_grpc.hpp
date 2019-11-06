@@ -12,6 +12,12 @@
 #include "logger/logger_fwd.hpp"
 #include "network/impl/client_factory.hpp"
 
+namespace iroha {
+  namespace network {
+    class GenericClientFactory;
+  }
+}  // namespace iroha
+
 namespace integration_framework {
   namespace fake_peer {
 
@@ -29,8 +35,9 @@ namespace integration_framework {
        * @param request - the data of the request.
        * @return true if the grpc request succeeded, false otherwise.
        */
-      bool sendBlockRequest(const shared_model::interface::Peer &peer,
-                            const LoaderBlockRequest &request);
+      iroha::expected::Result<void, std::string> sendBlockRequest(
+          const shared_model::interface::Peer &peer,
+          const LoaderBlockRequest &request);
 
       /**
        * Send a `retrieveBlocks' request to the peer at given address.
@@ -39,8 +46,9 @@ namespace integration_framework {
        * @param request - the data of the request.
        * @return the number of received in reply blocks.
        */
-      size_t sendBlocksRequest(const shared_model::interface::Peer &peer,
-                               const LoaderBlocksRequest &request);
+      iroha::expected::Result<size_t, std::string> sendBlocksRequest(
+          const shared_model::interface::Peer &peer,
+          const LoaderBlocksRequest &request);
 
       /// Get the observable of block requests.
       rxcpp::observable<LoaderBlockRequest> getLoaderBlockRequestObservable();

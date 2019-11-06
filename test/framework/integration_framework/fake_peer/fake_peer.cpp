@@ -26,6 +26,7 @@
 #include "framework/integration_framework/fake_peer/network/yac_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_client_factory.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger.hpp"
@@ -37,6 +38,7 @@
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 
+using namespace iroha::expected;
 using namespace shared_model::crypto;
 using namespace framework::expected;
 
@@ -354,15 +356,18 @@ namespace integration_framework {
       sendYacState(my_votes);
     }
 
-    bool FakePeer::sendBlockRequest(const LoaderBlockRequest &request) {
+    Result<void, std::string> FakePeer::sendBlockRequest(
+        const LoaderBlockRequest &request) {
       return synchronizer_transport_->sendBlockRequest(*real_peer_, request);
     }
 
-    size_t FakePeer::sendBlocksRequest(const LoaderBlocksRequest &request) {
+    Result<size_t, std::string> FakePeer::sendBlocksRequest(
+        const LoaderBlocksRequest &request) {
       return synchronizer_transport_->sendBlocksRequest(*real_peer_, request);
     }
 
-    void FakePeer::proposeBatches(BatchesCollection batches) {
+    Result<void, std::string> FakePeer::proposeBatches(
+        BatchesCollection batches) {
       std::vector<std::shared_ptr<shared_model::interface::Transaction>>
           transactions;
       for (auto &batch : batches) {
@@ -370,26 +375,28 @@ namespace integration_framework {
                   batch->transactions().end(),
                   std::back_inserter(transactions));
       }
-      proposeTransactions(std::move(transactions));
+      return proposeTransactions(std::move(transactions));
     }
 
-    void FakePeer::proposeTransactions(
+    Result<void, std::string> FakePeer::proposeTransactions(
         std::vector<std::shared_ptr<shared_model::interface::Transaction>>
             transactions) {
-      iroha::ordering::proto::BatchesRequest request;
-      for (auto &transaction : transactions) {
-        *request.add_transactions() =
-            static_cast<shared_model::proto::Transaction *>(transaction.get())
-                ->getTransport();
-      }
+      return client_factory_
+                     ->createClient<iroha::ordering::proto::OnDemandOrdering>(
+                         *real_peer_)
+                 | [&transactions](auto client) -> Result<void, std::string> {
+        iroha::ordering::proto::BatchesRequest request;
+        for (auto &transaction : transactions) {
+          *request.add_transactions() =
+              static_cast<shared_model::proto::Transaction *>(transaction.get())
+                  ->getTransport();
+        }
 
-      auto client =
-          client_factory_
-              ->createClient<iroha::ordering::proto::OnDemandOrdering>(
-                  *real_peer_);
-      grpc::ClientContext context;
-      google::protobuf::Empty result;
-      client->SendBatches(&context, request, &result);
+        grpc::ClientContext context;
+        google::protobuf::Empty result;
+        client->SendBatches(&context, request, &result);
+        return {};
+      };
     }
 
     boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
@@ -397,15 +404,16 @@ namespace integration_framework {
                                   std::chrono::milliseconds timeout) const {
       using iroha::ordering::transport::OnDemandOsClientGrpcFactory;
       auto on_demand_os_transport =
-          OnDemandOsClientGrpcFactory(
-              async_call_,
-              proposal_factory_,
-              [] { return std::chrono::system_clock::now(); },
-              timeout,
-              ordering_log_manager_->getChild("NetworkClient")->getLogger(),
-              iroha::network::makeTransportClientFactory<
-                  OnDemandOsClientGrpcFactory>(client_factory_))
-              .create(*real_peer_);
+          framework::expected::assertAndGetResultValue(
+              OnDemandOsClientGrpcFactory(
+                  async_call_,
+                  proposal_factory_,
+                  [] { return std::chrono::system_clock::now(); },
+                  timeout,
+                  ordering_log_manager_->getChild("NetworkClient")->getLogger(),
+                  iroha::network::makeTransportClientFactory<
+                      OnDemandOsClientGrpcFactory>(client_factory_))
+                  .create(*real_peer_));
       return on_demand_os_transport->onRequestProposal(round);
     }
 

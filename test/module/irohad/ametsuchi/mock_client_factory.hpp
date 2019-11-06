@@ -17,9 +17,11 @@ namespace iroha {
     template <typename Service>
     class MockClientFactory : public ClientFactory<Service> {
      public:
-      MOCK_CONST_METHOD1_T(createClient,
-                           std::unique_ptr<typename Service::StubInterface>(
-                               const shared_model::interface::Peer &));
+      MOCK_CONST_METHOD1_T(
+          createClient,
+          iroha::expected::Result<
+              std::unique_ptr<typename Service::StubInterface>,
+              std::string>(const shared_model::interface::Peer &));
     };
 
   }  // namespace network

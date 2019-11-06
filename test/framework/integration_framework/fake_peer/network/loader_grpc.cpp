@@ -11,6 +11,9 @@
 #include "framework/test_client_factory.hpp"
 #include "loader.grpc.pb.h"
 #include "logger/logger.hpp"
+#include "network/impl/generic_client_factory.cpp"
+
+using namespace iroha::expected;
 
 namespace integration_framework {
   namespace fake_peer {
@@ -23,40 +26,41 @@ namespace integration_framework {
           log_(std::move(log)),
           client_factory_(client_factory) {}
 
-    bool LoaderGrpc::sendBlockRequest(const shared_model::interface::Peer &peer,
-                                      const LoaderBlockRequest &height) {
-      iroha::network::proto::BlockRequest request;
-      request.set_height(height);
-      grpc::ClientContext context;
-      iroha::protocol::Block block;
-      auto client =
-          client_factory_->createClient<iroha::network::proto::Loader>(peer);
-
-      const auto status = client->retrieveBlock(&context, request, &block);
-      if (not status.ok()) {
-        log_->warn("Error retrieving block: " + status.error_message());
-        return false;
-      }
-      return true;
+    Result<void, std::string> LoaderGrpc::sendBlockRequest(
+        const shared_model::interface::Peer &peer,
+        const LoaderBlockRequest &height) {
+      return client_factory_->createClient<iroha::network::proto::Loader>(peer)
+                 | [height](auto client) -> Result<void, std::string> {
+        iroha::network::proto::BlockRequest request;
+        request.set_height(height);
+        grpc::ClientContext context;
+        iroha::protocol::Block block;
+        const auto status = client->retrieveBlock(&context, request, &block);
+        if (not status.ok()) {
+          return status.error_message();
+        }
+        return {};
+      };
     }
 
-    size_t LoaderGrpc::sendBlocksRequest(
+    Result<size_t, std::string> LoaderGrpc::sendBlocksRequest(
         const shared_model::interface::Peer &peer,
         const LoaderBlocksRequest &height) {
-      iroha::network::proto::BlockRequest request;
-      request.set_height(height);
-      grpc::ClientContext context;
-      iroha::protocol::Block block;
-      auto client =
-          client_factory_->createClient<iroha::network::proto::Loader>(peer);
+      return client_factory_->createClient<iroha::network::proto::Loader>(peer)
+                 | [height](auto client) -> Result<size_t, std::string> {
+        iroha::network::proto::BlockRequest request;
+        request.set_height(height);
+        grpc::ClientContext context;
+        iroha::protocol::Block block;
 
-      auto reader = client->retrieveBlocks(&context, request);
-      size_t num_read_blocks = 0;
-      while (reader->Read(&block)) {
-        ++num_read_blocks;
-      }
+        auto reader = client->retrieveBlocks(&context, request);
+        size_t num_read_blocks = 0;
+        while (reader->Read(&block)) {
+          ++num_read_blocks;
+        }
 
-      return num_read_blocks;
+        return num_read_blocks;
+      };
     }
 
     rxcpp::observable<LoaderBlockRequest>

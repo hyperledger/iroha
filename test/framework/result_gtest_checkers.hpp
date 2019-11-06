@@ -32,11 +32,14 @@ namespace framework {
         return o->toString();
       }
 
-      template <typename V, typename E>
-      inline auto getValueMessage(const iroha::expected::Result<V, E> &r)
-          -> decltype(getMessage(std::declval<V>())) {
+      template <typename R>
+      inline std::enable_if_t<
+          iroha::expected::isResult<R>,
+          decltype(
+              getMessage(std::declval<iroha::expected::InnerValueOf<R>>()))>
+      getValueMessage(R &&r) {
         using iroha::operator|;
-        return iroha::expected::resultToOptionalValue(r) |
+        return iroha::expected::resultToOptionalValue(std::forward<R>(r)) |
             [](const auto &v) { return getMessage(v); };
       }
 
@@ -46,11 +49,14 @@ namespace framework {
         return "void value";
       }
 
-      template <typename V, typename E>
-      inline auto getErrorMessage(const iroha::expected::Result<V, E> &r)
-          -> decltype(getMessage(std::declval<E>())) {
+      template <typename R>
+      inline std::enable_if_t<
+          iroha::expected::isResult<R>,
+          decltype(
+              getMessage(std::declval<iroha::expected::InnerErrorOf<R>>()))>
+      getErrorMessage(R &&r) {
         using iroha::operator|;
-        return iroha::expected::resultToOptionalError(r) |
+        return iroha::expected::resultToOptionalError(std::forward<R>(r)) |
             [](const auto &e) { return getMessage(e); };
       }
 
@@ -61,28 +67,48 @@ namespace framework {
       }
     }  // namespace detail
 
-    template <typename V, typename E>
-    inline void expectResultValue(const iroha::expected::Result<V, E> &r) {
+    template <typename R>
+    inline std::enable_if_t<iroha::expected::isResult<R>> expectResultValue(
+        R &&r) {
       EXPECT_TRUE(iroha::expected::hasValue(r))
-          << "Value expected, but got error: " << detail::getErrorMessage(r);
+          << "Value expected, but got error: "
+          << detail::getErrorMessage(std::forward<R>(r));
     }
 
-    template <typename V, typename E>
-    inline void assertResultValue(const iroha::expected::Result<V, E> &r) {
+    template <typename R>
+    inline std::enable_if_t<iroha::expected::isResult<R>> assertResultValue(
+        R &&r) {
       ASSERT_TRUE(iroha::expected::hasValue(r))
-          << "Value expected, but got error: " << detail::getErrorMessage(r);
+          << "Value expected, but got error: "
+          << detail::getErrorMessage(std::forward<R>(r));
     }
 
-    template <typename V, typename E>
-    inline void expectResultError(const iroha::expected::Result<V, E> &r) {
+    template <typename R>
+    inline std::enable_if_t<iroha::expected::isResult<R>> expectResultError(
+        R &&r) {
       EXPECT_TRUE(iroha::expected::hasError(r))
-          << "Error expected, but got value: " << detail::getValueMessage(r);
+          << "Error expected, but got value: "
+          << detail::getValueMessage(std::forward<R>(r));
     }
 
-    template <typename V, typename E>
-    inline void assertResultError(const iroha::expected::Result<V, E> &r) {
+    template <typename R>
+    inline std::enable_if_t<iroha::expected::isResult<R>> assertResultError(
+        R &&r) {
       ASSERT_TRUE(iroha::expected::hasError(r))
-          << "Error expected, but got value: " << detail::getValueMessage(r);
+          << "Error expected, but got value: "
+          << detail::getValueMessage(std::forward<R>(r));
+    }
+
+    template <typename R>
+    inline std::enable_if_t<iroha::expected::isResult<R>,
+                            iroha::expected::InnerValueOf<R>>
+    assertAndGetResultValue(R &&r) {
+      if (not iroha::expected::hasValue(r)) {
+        ADD_FAILURE() << "Value expected, but got error: "
+                      << detail::getErrorMessage(std::forward<R>(r));
+        assert(false);
+      }
+      return iroha::expected::resultToOptionalValue(std::forward<R>(r)).value();
     }
 
   }  // namespace expected
