@@ -88,19 +88,30 @@ namespace iroha {
         const shared_model::interface::types::HeightType target_height,
         const PublicKeysRange &public_keys) {
       // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
+      using namespace iroha::expected;
       for (const auto &public_key : public_keys) {
         auto storage = getStorage();
 
-        shared_model::interface::types::HeightType my_height = start_height;
-        auto network_chain =
-            block_loader_->retrieveBlocks(start_height, public_key)
-                .tap([&my_height](
-                         const std::shared_ptr<shared_model::interface::Block>
-                             &block) { my_height = block->height(); });
+        auto attempt = block_loader_->retrieveBlocks(start_height, public_key) |
+            [&, start_height](auto network_chain) -> ametsuchi::CommitResult {
+          auto my_height = start_height;
+          auto update_height =
+              [&my_height](const std::shared_ptr<shared_model::interface::Block>
+                               &block) { my_height = block->height(); };
 
-        if (validator_->validateAndApply(network_chain, *storage)
-            and my_height >= target_height) {
-          return mutable_factory_->commit(std::move(storage));
+          if (validator_->validateAndApply(network_chain.tap(update_height),
+                                           *storage)
+              and my_height >= target_height) {
+            return mutable_factory_->commit(std::move(storage));
+          }
+          return makeError(std::string{"Failed to apply block sequence."});
+        };
+        if (auto e = resultToOptionalError(attempt)) {
+          log_->warn("Synchronization attempt failed with peer {}: {}",
+                     public_key,
+                     e.value());
+        } else {
+          return resultToOptionalValue(std::move(attempt)).value();
         }
       }
       return expected::makeError(

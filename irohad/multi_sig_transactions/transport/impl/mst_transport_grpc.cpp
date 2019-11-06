@@ -131,8 +131,13 @@ void MstTransportGrpc::subscribe(
 void MstTransportGrpc::sendState(const shared_model::interface::Peer &to,
                                  ConstRefState providing_state) {
   log_->info("Propagate MstState to peer {}", to.address());
-  const auto client = client_factory_->createClient(to);
-  sendStateAsync(providing_state, my_key_, *client, *async_call_);
+  client_factory_->createClient(to).match(
+      [&](auto client) {
+        sendStateAsync(providing_state, my_key_, *client.value, *async_call_);
+      },
+      [this](const auto &error) {
+        log_->error("Could not send state: {}", error.error);
+      });
 }
 
 void iroha::network::sendStateAsync(

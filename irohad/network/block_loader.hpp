@@ -26,7 +26,9 @@ namespace iroha {
        * @param peer_pubkey - peer for requesting blocks
        * @return
        */
-      virtual rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
+      virtual iroha::expected::Result<
+          rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>,
+          std::string>
       retrieveBlocks(const shared_model::interface::types::HeightType height,
                      const shared_model::crypto::PublicKey &peer_pubkey) = 0;
 
@@ -37,10 +39,11 @@ namespace iroha {
        * @return block on success, nullopt on failure
        * TODO 14/02/17 (@l4l) IR-960 rework method with returning result
        */
-      virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
-      retrieveBlock(
-          const shared_model::crypto::PublicKey &peer_pubkey,
-          shared_model::interface::types::HeightType block_height) = 0;
+      virtual iroha::expected::
+          Result<std::unique_ptr<shared_model::interface::Block>, std::string>
+          retrieveBlock(
+              const shared_model::crypto::PublicKey &peer_pubkey,
+              shared_model::interface::types::HeightType block_height) = 0;
 
       virtual ~BlockLoader() = default;
     };

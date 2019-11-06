@@ -8,6 +8,7 @@
 
 #include "ordering/on_demand_os_transport.hpp"
 
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/impl/async_grpc_client.hpp"
@@ -77,12 +78,8 @@ namespace iroha {
             logger::LoggerPtr client_log,
             std::unique_ptr<ClientFactory> client_factory);
 
-        /**
-         * Create connection with insecure gRPC channel.
-         * This factory method can be used in production code
-         */
-        std::unique_ptr<OdOsNotification> create(
-            const shared_model::interface::Peer &to) override;
+        iroha::expected::Result<std::unique_ptr<OdOsNotification>, std::string>
+        create(const shared_model::interface::Peer &to) override;
 
        private:
         std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>

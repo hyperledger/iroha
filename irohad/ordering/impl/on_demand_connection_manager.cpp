@@ -6,6 +6,8 @@
 #include "ordering/impl/on_demand_connection_manager.hpp"
 
 #include <boost/range/combine.hpp>
+#include "common/bind.hpp"
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
 #include "ordering/impl/on_demand_common.hpp"
@@ -52,7 +54,8 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 
   auto propagate = [&](auto consumer) {
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-    connections_.peers[consumer]->onBatches(batches);
+    connections_.peers[consumer] |
+        [&batches](const auto &connection) { connection->onBatches(batches); };
   };
 
   propagate(kRejectRejectConsumer);
@@ -67,14 +70,16 @@ OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
 
   log_->debug("onRequestProposal, {}", round);
 
-  return connections_.peers[kIssuer]->onRequestProposal(round);
+  return connections_.peers[kIssuer] | [&round](const auto &connection) {
+    return connection->onRequestProposal(round);
+  };
 }
 
 void OnDemandConnectionManager::initializeConnections(
     const CurrentPeers &peers) {
-  auto create_assign = [this](auto &ptr, auto &peer) {
+  auto create_assign = [this](auto &connection, auto &peer) {
     std::lock_guard<std::shared_timed_mutex> lock(mutex_);
-    ptr = factory_->create(*peer);
+    connection = expected::resultToOptionalValue(factory_->create(*peer));
   };
 
   for (auto &&pair : boost::combine(connections_.peers, peers.peers)) {

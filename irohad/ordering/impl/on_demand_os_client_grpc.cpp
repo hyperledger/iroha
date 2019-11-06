@@ -93,13 +93,15 @@ OnDemandOsClientGrpcFactory::OnDemandOsClientGrpcFactory(
       client_log_(std::move(client_log)),
       client_factory_(std::move(client_factory)) {}
 
-std::unique_ptr<OdOsNotification> OnDemandOsClientGrpcFactory::create(
-    const shared_model::interface::Peer &to) {
-  return std::make_unique<OnDemandOsClientGrpc>(
-      client_factory_->createClient(to),
-      async_call_,
-      proposal_factory_,
-      time_provider_,
-      proposal_request_timeout_,
-      client_log_);
+expected::Result<std::unique_ptr<OdOsNotification>, std::string>
+OnDemandOsClientGrpcFactory::create(const shared_model::interface::Peer &to) {
+  return client_factory_->createClient(to) |
+             [&](auto &&client) -> std::unique_ptr<OdOsNotification> {
+    return std::make_unique<OnDemandOsClientGrpc>(std::move(client),
+                                                  async_call_,
+                                                  proposal_factory_,
+                                                  time_provider_,
+                                                  proposal_request_timeout_,
+                                                  client_log_);
+  };
 }

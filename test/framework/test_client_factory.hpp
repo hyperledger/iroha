@@ -8,7 +8,8 @@
 
 #include <boost/optional.hpp>
 #include "interfaces/common_objects/types.hpp"
-#include "network/impl/client_factory.hpp"
+#include "network/impl/client_factory_impl.hpp"
+#include "network/impl/generic_client_factory.hpp"
 #include "network/impl/grpc_channel_params.hpp"
 
 namespace iroha {
@@ -28,6 +29,14 @@ namespace iroha {
             boost::none,
         std::shared_ptr<const GrpcChannelParams> params =
             getDefaultTestChannelParams());
+
+    template <typename Transport>
+    auto makeTransportClientFactory(
+        std::shared_ptr<iroha::network::GenericClientFactory> generic_factory) {
+      return std::make_unique<
+          iroha::network::ClientFactoryImpl<typename Transport::Service>>(
+          std::move(generic_factory));
+    }
 
   }  // namespace network
 }  // namespace iroha

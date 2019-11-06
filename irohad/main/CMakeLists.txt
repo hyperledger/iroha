@@ -52,7 +52,7 @@ target_link_libraries(application
     grpc_channel_factory
     grpc_channel_factory_tls
     grpc_channel_pool
-    grpc_client_factory
+    grpc_generic_client_factory
     peer_tls_certificates_providers
     tls_credentials
     yac

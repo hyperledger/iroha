@@ -7,6 +7,7 @@
 
 #include <chrono>
 
+#include <fmt/core.h>
 #include <grpc++/create_channel.h>
 #include <rxcpp/rx-lite.hpp>
 #include "backend/protobuf/block.hpp"
@@ -17,20 +18,18 @@
 #include "network/impl/client_factory.hpp"
 
 using namespace iroha::ametsuchi;
+using namespace iroha::expected;
 using namespace iroha::network;
 using namespace shared_model::crypto;
 using namespace shared_model::interface;
 
 namespace {
-  const char *kPeerNotFound = "Cannot find peer";
-  const char *kPeerRetrieveFail = "Failed to retrieve peers";
-  const char *kPeerFindFail = "Failed to find requested peer";
   const std::chrono::seconds kBlocksRequestTimeout{5};
 }  // namespace
 
 BlockLoaderImpl::BlockLoaderImpl(
     std::shared_ptr<PeerQueryFactory> peer_query_factory,
-    shared_model::proto::ProtoBlockFactory factory,
+    std::shared_ptr<shared_model::proto::ProtoBlockFactory> factory,
     logger::LoggerPtr log,
     std::unique_ptr<ClientFactory> client_factory)
     : peer_query_factory_(std::move(peer_query_factory)),
@@ -38,98 +37,86 @@ BlockLoaderImpl::BlockLoaderImpl(
       client_factory_(std::move(client_factory)),
       log_(std::move(log)) {}
 
-rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
+Result<rxcpp::observable<std::shared_ptr<Block>>, std::string>
+BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     const PublicKey &peer_pubkey) {
-  return rxcpp::observable<>::create<std::shared_ptr<Block>>(
-      [this, height, &peer_pubkey](auto subscriber) {
-        auto peer = this->findPeer(peer_pubkey);
-        if (not peer) {
-          log_->error("{}", kPeerNotFound);
-          subscriber.on_completed();
-          return;
-        }
+  return findPeer(peer_pubkey) | [&](const auto &peer) {
+    struct SharedState {
+      proto::BlockRequest request;
+      grpc::ClientContext context;
+    };
 
-        proto::BlockRequest request;
-        grpc::ClientContext context;
-        protocol::Block block;
+    auto shared_state = std::make_shared<SharedState>();
 
-        // set a timeout to avoid being hung
-        context.set_deadline(std::chrono::system_clock::now()
-                             + kBlocksRequestTimeout);
+    // set a timeout to avoid being hung
+    shared_state->context.set_deadline(std::chrono::system_clock::now()
+                                       + kBlocksRequestTimeout);
 
-        // request next block to our top
-        request.set_height(height + 1);
+    // request next block to our top
+    shared_state->request.set_height(height + 1);
 
-        auto reader = this->client_factory_->createClient(*peer.value())
-                          ->retrieveBlocks(&context, request);
-        while (subscriber.is_subscribed() and reader->Read(&block)) {
-          block_factory_.createBlock(std::move(block))
-              .match(
-                  [&subscriber](auto &&result) {
-                    subscriber.on_next(std::move(result.value));
-                  },
-                  [this, &context](const auto &error) {
-                    log_->error("{}", error.error);
-                    context.TryCancel();
-                  });
-        }
-        reader->Finish();
-        subscriber.on_completed();
-      });
+    return client_factory_->createClient(*peer) | [&](auto client) {
+      std::shared_ptr<typename decltype(client)::element_type> shared_client(
+          std::move(client));
+      return Result<rxcpp::observable<std::shared_ptr<Block>>, std::string>(
+          rxcpp::observable<std::shared_ptr<Block>>(
+              rxcpp::observable<>::create<std::shared_ptr<Block>>(
+                  [shared_state, shared_client, block_factory = block_factory_](
+                      auto subscriber) {
+                    auto reader = shared_client->retrieveBlocks(
+                        &shared_state->context, shared_state->request);
+                    protocol::Block block;
+                    while (subscriber.is_subscribed()
+                           and reader->Read(&block)) {
+                      block_factory->createBlock(std::move(block))
+                          .match(
+                              [&](auto &&result) {
+                                subscriber.on_next(std::move(result.value));
+                              },
+                              [&](const auto &error) {
+                                subscriber.on_error(std::make_exception_ptr(
+                                    std::runtime_error(fmt::format(
+                                        "Failed to parse received block: {}.",
+                                        error.error))));
+                                shared_state->context.TryCancel();
+                              });
+                    }
+                    reader->Finish();
+                    subscriber.on_completed();
+                  })));
+    };
+  };
 }
 
-boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
+Result<std::unique_ptr<Block>, std::string> BlockLoaderImpl::retrieveBlock(
     const PublicKey &peer_pubkey, types::HeightType block_height) {
-  auto peer = findPeer(peer_pubkey);
-  if (not peer) {
-    log_->error("{}", kPeerNotFound);
-    return boost::none;
-  }
+  return findPeer(peer_pubkey) | [&](const auto &peer) {
+    proto::BlockRequest request;
+    grpc::ClientContext context;
+    protocol::Block block;
 
-  proto::BlockRequest request;
-  grpc::ClientContext context;
-  protocol::Block block;
+    // request block with specified height
+    request.set_height(block_height);
 
-  // request block with specified height
-  request.set_height(block_height);
+    return client_factory_->createClient(*peer) | [&](auto &&client)
+               -> Result<std::unique_ptr<Block>, std::string> {
+      auto status = client->retrieveBlock(&context, request, &block);
+      if (not status.ok()) {
+        return makeError(
+            fmt::format("Block request failed: {}.", status.error_message()));
+      }
 
-  auto status = this->client_factory_->createClient(*peer.value())
-                    ->retrieveBlock(&context, request, &block);
-  if (not status.ok()) {
-    log_->warn("{}", status.error_message());
-    return boost::none;
-  }
-
-  return block_factory_.createBlock(std::move(block))
-      .match(
-          [](auto &&v) {
-            return boost::make_optional(
-                std::shared_ptr<Block>(std::move(v.value)));
-          },
-          [this](const auto &e) -> boost::optional<std::shared_ptr<Block>> {
-            log_->error("{}", e.error);
-            return boost::none;
-          });
+      return block_factory_->createBlock(std::move(block));
+    };
+  };
 }
 
-boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+Result<std::shared_ptr<shared_model::interface::Peer>, std::string>
 BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
-  auto peers = peer_query_factory_->createPeerQuery() |
-      [](const auto &query) { return query->getLedgerPeers(); };
-  if (not peers) {
-    log_->error("{}", kPeerRetrieveFail);
-    return boost::none;
-  }
-
-  auto &blob = pubkey.blob();
-  auto it = std::find_if(
-      peers.value().begin(), peers.value().end(), [&blob](const auto &peer) {
-        return peer->pubkey().blob() == blob;
-      });
-  if (it == peers.value().end()) {
-    log_->error("{}", kPeerFindFail);
-    return boost::none;
-  }
-  return *it;
+  return peer_query_factory_->createPeerQuery() | [&pubkey](const auto &query) {
+    return optionalToResult(
+        query->getLedgerPeerByPublicKey(pubkey),
+        fmt::format("Cannot find peer with public key {}.", pubkey));
+  };
 }

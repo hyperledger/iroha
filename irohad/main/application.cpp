@@ -42,6 +42,8 @@
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/channel_factory_tls.hpp"
 #include "network/impl/channel_pool.hpp"
+#include "network/impl/client_factory_impl.hpp"
+#include "network/impl/generic_client_factory.hpp"
 #include "network/impl/peer_communication_service_impl.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 #include "network/impl/peer_tls_certificates_provider_wsv.hpp"

@@ -43,13 +43,20 @@ namespace iroha {
           *pb_vote = PbConverters::serializeVote(vote);
         }
 
-        async_call_->Call([&](auto context, auto cq) {
-          return client_factory_->createClient(to)->AsyncSendState(
-              context, request, cq);
-        });
-
-        log_->info(
-            "Send votes bundle[size={}] to {}", state.size(), to.address());
+        client_factory_->createClient(to).match(
+            [&](auto client) {
+              async_call_->Call([&,
+                                 client = std::move(client.value),
+                                 log = log_,
+                                 votes_number = state.size()](auto context,
+                                                              auto cq) {
+                log->info("Send votes bundle[size={}] to {}", votes_number, to);
+                return client->AsyncSendState(context, request, cq);
+              });
+            },
+            [&](const auto &error) {
+              log_->error("Could not send state to {}: {}", to, error.error);
+            });
       }
 
       grpc::Status NetworkImpl::SendState(

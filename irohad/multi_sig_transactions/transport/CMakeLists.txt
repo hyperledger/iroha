@@ -12,6 +12,7 @@ target_link_libraries(mst_transport
     boost
     common
     endpoint
+    grpc_generic_client_factory
     shared_model_interfaces_factories
     shared_model_stateless_validation
     shared_model_cryptography

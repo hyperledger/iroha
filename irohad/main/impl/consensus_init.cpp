@@ -17,7 +17,7 @@
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
 #include "logger/logger_manager.hpp"
-#include "network/impl/client_factory.hpp"
+#include "network/impl/client_factory_impl.hpp"
 
 using namespace iroha::consensus;
 using namespace iroha::consensus::yac;

@@ -74,7 +74,9 @@ namespace iroha {
        * @see PeerType for individual descriptions
        */
       struct CurrentConnections {
-        PeerCollectionType<std::unique_ptr<transport::OdOsNotification>> peers;
+        PeerCollectionType<
+            boost::optional<std::unique_ptr<transport::OdOsNotification>>>
+            peers;
       };
 
       /**

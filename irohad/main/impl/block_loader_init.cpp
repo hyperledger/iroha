@@ -6,7 +6,7 @@
 #include "main/impl/block_loader_init.hpp"
 
 #include "logger/logger_manager.hpp"
-#include "network/impl/client_factory.hpp"
+#include "network/impl/client_factory_impl.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_block_validator.hpp"
 
@@ -47,7 +47,8 @@ namespace {
                         validators_config,
                     logger::LoggerPtr loader_log,
                     std::shared_ptr<GenericClientFactory> client_factory) {
-    shared_model::proto::ProtoBlockFactory block_factory(
+    auto block_factory = std::make_shared<
+        shared_model::proto::ProtoBlockFactory>(
         std::make_unique<shared_model::validation::DefaultSignedBlockValidator>(
             validators_config),
         std::make_unique<shared_model::validation::ProtoBlockValidator>());

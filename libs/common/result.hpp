@@ -416,6 +416,15 @@ namespace iroha {
       }
       return {};
     }
+
+    template <typename Error, typename Value>
+    Result<Value, Error> optionalToResult(boost::optional<Value> value,
+                                          Error error) {
+      if (value) {
+        return value.value();
+      }
+      return makeError<Error>(std::move(error));
+    }
   }  // namespace expected
 }  // namespace iroha
 #endif  // IROHA_RESULT_HPP

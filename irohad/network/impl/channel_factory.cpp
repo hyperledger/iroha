@@ -47,7 +47,7 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
       params.retry_policy | [](const auto &retry_policy) {
         return fmt::format(
             R"(
-            "retryPolicy": \{
+            "retryPolicy": {{
               "maxAttempts": {},
               "initialBackoff": "{}s",
               "maxBackoff": "{}s",
@@ -55,7 +55,7 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
               "retryableStatusCodes": [
                 {}
               ]
-            \},)",
+            }},)",
             retry_policy.max_attempts,
             retry_policy.initial_backoff.count(),
             retry_policy.max_backoff.count(),
@@ -67,22 +67,22 @@ grpc::ChannelArguments iroha::network::makeChannelArguments(
       };
   static const auto make_service_id = [](const std::string &service_full_name) {
     return fmt::format(R"(
-              \{ "service": "{}" \}
+              {{ "service": "{}" }}
         )",
                        service_full_name);
   };
   std::string service_config = fmt::format(
       R"(
-        \{
-          "methodConfig": [ \{
+        {{
+          "methodConfig": [ {{
             "name": [
               {}
             ],
             {}
             "maxRequestMessageBytes": {},
             "maxResponseMessageBytes": {}
-          \} ]
-        \})",
+          }} ]
+        }})",
       boost::algorithm::join(
           services | boost::adaptors::transformed(make_service_id), ",\n"),
       retry_policy,

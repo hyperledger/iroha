@@ -22,7 +22,7 @@
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
-#include "network/impl/client_factory.hpp"
+#include "network/impl/client_factory_impl.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 #include "ordering/impl/on_demand_connection_manager.hpp"
 #include "ordering/impl/on_demand_ordering_gate.hpp"

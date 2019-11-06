@@ -114,10 +114,15 @@ namespace iroha {
             blocks,
         MutableStoragePredicate predicate) {
       return withSavepoint([&] {
-        return blocks
-            .all([&](auto block) { return this->apply(block, predicate); })
-            .as_blocking()
-            .first();
+        try {
+          return blocks
+              .all([&](auto block) { return this->apply(block, predicate); })
+              .as_blocking()
+              .first();
+        } catch (const std::exception &e) {
+          log_->error("Failed to apply blocks: {}", e.what());
+          return false;
+        }
       });
     }
 
