@@ -3,13 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import irohalib
+from iroha import Iroha, IrohaCrypto
+from iroha import primitive_pb2
 import commons
-import primitive_pb2
 
 admin = commons.new_user('admin@test')
 alice = commons.new_user('alice@test')
-iroha = irohalib.Iroha(admin['id'])
+iroha = Iroha(admin['id'])
 
 
 @commons.hex
@@ -20,12 +20,12 @@ def genesis_tx():
         iroha.command('CreateAsset', asset_name='coin', domain_id='test', precision=2)
     )
     tx = iroha.transaction(genesis_commands)
-    irohalib.IrohaCrypto.sign_transaction(tx, admin['key'])
+    IrohaCrypto.sign_transaction(tx, admin['key'])
     return tx
 
 
 @commons.hex
 def get_asset_query():
     query = iroha.query('GetAssetInfo', asset_id='coin#test', creator_account=alice['id'])
-    irohalib.IrohaCrypto.sign_query(query, alice['key'])
+    IrohaCrypto.sign_query(query, alice['key'])
     return query
