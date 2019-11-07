@@ -41,12 +41,13 @@ Result<rxcpp::observable<std::shared_ptr<Block>>, std::string>
 BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     const PublicKey &peer_pubkey) {
-  return findPeer(peer_pubkey) | [&](const auto &peer) {
-    struct SharedState {
-      proto::BlockRequest request;
-      grpc::ClientContext context;
-    };
+  // this struct is for the lambda below, but MSVC cannot compile it there
+  struct SharedState {
+    proto::BlockRequest request;
+    grpc::ClientContext context;
+  };
 
+  return findPeer(peer_pubkey) | [&](const auto &peer) {
     auto shared_state = std::make_shared<SharedState>();
 
     // set a timeout to avoid being hung
