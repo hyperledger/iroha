@@ -88,6 +88,21 @@ The ``database`` section fields:
 - ``maintenance database`` is the name of databse that will be used to maintain the working database.
   For example, when iroha needs to create or drop its working database, it must use another database to connect to PostgreSQL.
 
+To enable TLS for communications between peers, you need to generate a keypair
+between all peers (:ref:`more on that <inter-peer-tls>`), and then specify
+the path to it (in the same way as Torii's TLS keypair, which is described above)
+in the ``p2p_tls_key_pair_path`` config key. For example,
+
+.. codeblock:: javascript
+  :linenos:
+
+  {
+    "p2p_tls_key_pair_path": "/path/to/node/keypair"
+  }
+
+This would mean that this node now requires TLS authentication when connecting
+to other nodes, and would encrypt all inter-node traffic with this keypair.
+
 Environment-specific parameters
 ===============================
 

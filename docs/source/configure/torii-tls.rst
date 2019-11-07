@@ -1,3 +1,5 @@
+.. _torii-tls:
+
 Configure TLS for client-peer communication (torii)
 ===================================================
 By default, client-peer communication is not encrypted.
