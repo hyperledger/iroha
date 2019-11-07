@@ -38,12 +38,13 @@ class RemoveSignatoryTest : public ExecutorTestBase {
   }
 
   auto issueRemoveSignatoryBy(
-      const shared_model::interface::types::AccountIdType &issuer) {
+      const shared_model::interface::types::AccountIdType &issuer,
+      bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructRemoveSignatory(
             kUserId, kTargetSignatory),
         issuer,
-        true);
+        validation_enabled);
   }
 
  protected:
@@ -114,7 +115,8 @@ TEST_P(RemoveSignatoryPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(
       checkSignatories(kUserId, {old_sig_, kTargetSignatory}));
 
-  if (checkResponse(issueRemoveSignatoryBy(getActor()))) {
+  if (checkResponse(
+          issueRemoveSignatoryBy(getActor(), getValidationEnabled()))) {
     checkSignatories(kUserId, {old_sig_});
   } else {
     checkSignatories(kUserId, {old_sig_, kTargetSignatory});

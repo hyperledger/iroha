@@ -31,12 +31,13 @@ class AddSignatoryTest : public ExecutorTestBase {
   iroha::ametsuchi::CommandResult addSignatory(
       const AccountIdType &issuer,
       const AccountIdType &target = kUserId,
-      const PubkeyType &pubkey = kNewPubkey) {
+      const PubkeyType &pubkey = kNewPubkey,
+      bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructAddSignatory(pubkey,
                                                                  target),
         issuer,
-        true);
+        validation_enabled);
   }
 };
 
@@ -82,7 +83,8 @@ TEST_P(AddSignatoryPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(
       checkSignatories(kUserId, {kUserKeypair.publicKey()}));
 
-  if (checkResponse(addSignatory(getActor()))) {
+  if (checkResponse(addSignatory(
+          getActor(), kUserId, kNewPubkey, getValidationEnabled()))) {
     checkSignatories(kUserId, {kUserKeypair.publicKey(), kNewPubkey});
   } else {
     checkSignatories(kUserId, {kUserKeypair.publicKey()});
