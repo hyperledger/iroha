@@ -23,6 +23,13 @@ at ``example/config.sample``
       "key_pair_path": "/path/to/the/keypair"
     },
     "internal_port": 10001,
+    "inter_peer_tls": {
+      "peer_certificates": {
+        "type": "root_certificate",
+        "path": "/path/to/root_certificate.pem"
+      },
+      "key_pair_path": "/path/to/my/tls/credentials"
+    },
     "pg_opt": "host=localhost port=5432 user=postgres password=mysecretpassword dbname=iroha",
     "database": {
       "host": "localhost",
@@ -52,6 +59,7 @@ Deployment-specific parameters
   transactions are sent here.
 - ``internal_port`` sets the port for internal communications: ordering
   service, consensus and block loader.
+- ``inter_peer_tls`` (optional) configures inter-peer TLS communication (see below).
 - ``database`` (optional) is used to set the database configuration (see below)
 - ``pg_opt`` (optional) is a deprecated way of setting credentials of PostgreSQL:
   hostname, port, username, password and database name.
@@ -88,20 +96,40 @@ The ``database`` section fields:
 - ``maintenance database`` is the name of databse that will be used to maintain the working database.
   For example, when iroha needs to create or drop its working database, it must use another database to connect to PostgreSQL.
 
-To enable TLS for communications between peers, you need to generate a keypair
-between all peers (:ref:`more on that <inter-peer-tls>`), and then specify
+To enable TLS for communications between peers, you need to generate a key and a certificate
+for each peer (:ref:`more on that <inter-peer-tls>`), and then specify
 the path to it (in the same way as Torii's TLS keypair, which is described above)
-in the ``p2p_tls_key_pair_path`` config key. For example,
+in the ``inter_peer_tls`` config key.
+
+There are two modes of peer authentication available: root certificate and self-signed individual peer certificates stored in ledger.
+When using root certificate, you need to distribute it to every node and specify the path to it in the configuration file:
 
 .. codeblock:: javascript
   :linenos:
 
-  {
-    "p2p_tls_key_pair_path": "/path/to/node/keypair"
-  }
+    "inter_peer_tls": {
+      "peer_certificates": {
+        "type": "root_certificate",
+        "path": "/path/to/root_certificate.pem"
+      },
+      "key_pair_path": "/path/to/my/tls/credentials"
+    }
 
-This would mean that this node now requires TLS authentication when connecting
-to other nodes, and would encrypt all inter-node traffic with this keypair.
+With self-signed individual certificates, the trust is put in the ledger that associates a certificate to a peer.
+In the configuration file you need to tell iroha to get certificates from the ledger:
+
+.. codeblock:: javascript
+  :linenos:
+
+    "inter_peer_tls": {
+      "peer_certificates": {
+        "type": "from_ledger"
+      },
+      "key_pair_path": "/path/to/my/tls/credentials"
+    }
+
+With any of the above configuration options, this node now requires TLS authentication when connecting
+to other nodes, and will encrypt all inter-node traffic with its key.
 
 Environment-specific parameters
 ===============================
