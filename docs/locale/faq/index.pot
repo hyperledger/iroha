@@ -1,0 +1,98 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../faq/index.rst:3
+msgid "FAQ"
+msgstr ""
+
+#: ../../faq/index.rst:6
+msgid "I'm new. Where to start?"
+msgstr ""
+
+#: ../../faq/index.rst:8
+msgid "Hello, newcomer! You are very welcome :) There are 2 ways for you to start with Iroha:"
+msgstr ""
+
+#: ../../faq/index.rst:11
+msgid "You can see what Iroha is an how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_"
+msgstr ""
+
+#: ../../faq/index.rst:12
+msgid "You can get acquainted with the `core concepts of Iroha <../before_start/index.html>`_ and start building your own `Iroha network <../deploy/index.html>`_"
+msgstr ""
+
+#: ../../faq/index.rst:14
+msgid "Now you have your Iroha blockchain! Congratulations! If you have any questions on it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha"
+msgstr ""
+
+#: ../../faq/index.rst:18
+msgid "What type of data can be transferred?"
+msgstr ""
+
+#: ../../faq/index.rst:20
+msgid "Hyperleder Iroha allows you to send not only assets (you might get such impression due to a highly developed set of commands and queries for serving such assets) but any data that will be stored in the chain as well."
+msgstr ""
+
+#: ../../faq/index.rst:22
+msgid "The current implementation provides that opportunity at least via `SetAccountDetail <../develop/api/commands.html#set-account-detail>`_ command and `GetAccountDetail <../develop/api/queries.html#get-account-detail>`_ query."
+msgstr ""
+
+#: ../../faq/index.rst:25
+msgid "Can mobile device be a node?"
+msgstr ""
+
+#: ../../faq/index.rst:27
+msgid "There are two options depending on what you mean by mobile device."
+msgstr ""
+
+#: ../../faq/index.rst:29
+msgid "If we are speaking about ARM-based hardware with some linux onboard (like Raspberry PI) or rooted Android device, then it is possible to launch Iroha as a node (a peer within a network) on that device. In that case, Iroha will run as a platform-native binary."
+msgstr ""
+
+#: ../../faq/index.rst:31
+msgid "If we are speaking about default iOS or Android device with untouched factory shell (GUI), then it is generally not possible and we are not providing any instructions regarding this. Though you still can create mobile applications that use Iroha. They will be Iroha clients and would not serve as peers."
+msgstr ""
+
+#: ../../faq/index.rst:33
+msgid "In order to run Iroha on ARM device you have to build it on the target platform. Building Iroha requires notable amount of RAM - for 32-bit ARM host you will need 8GB RAM. The build can be performed inside Docker container. To prepare the container you will need to:"
+msgstr ""
+
+#: ../../faq/index.rst:35
+msgid "Clone Iroha git repo: https://github.com/hyperledger/iroha"
+msgstr ""
+
+#: ../../faq/index.rst:36
+msgid "Do `docker build -t iroha-build-env .` being in `iroha/docker/develop`"
+msgstr ""
+
+#: ../../faq/index.rst:37
+msgid "Run the newly built container and build there Iroha itself"
+msgstr ""
+
+#: ../../faq/index.rst:39
+msgid "Please do not forget to mount a folder with Iroha git repository to the container"
+msgstr ""
+
+#: ../../faq/index.rst:42
+msgid "What is the throughput (TPS)? Are there any performance test results?"
+msgstr ""
+
+#: ../../faq/index.rst:44
+msgid "The efficiency of your Iroha network will depend on the configuration, hardware and number of nodes. You are welcome to try out the load test in `test/load` directory and report the results."
+msgstr ""
+

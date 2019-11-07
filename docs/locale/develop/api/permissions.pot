@@ -1,0 +1,1376 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/api/permissions.rst:8
+msgid "Permissions"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:10
+msgid "Hyperledger Iroha uses a role-based access control system to limit actions of its users. This system greatly helps to implement use cases involving user groups having different access levels — ranging from the weak users, who can't even receive asset transfer to the super-users. The beauty of our permission system is that you don't have to have a super-user in your Iroha setup or use all the possible permissions: you can create segregated and lightweight roles."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:16
+msgid "Maintenance of the system involves setting up roles and permissions, that are included in the roles. This might be done at the initial step of system deployment — in genesis block, or later when Iroha network is up and running, roles can be changed (if there is a role that can do that :)"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:20
+msgid "This section will help you to understand permissions and give you an idea of how to create roles including certain permissions. Each permission is provided with an example written in Python that demonstrates the way of transaction or query creation, which require specific permission. Every example uses *commons.py* module, which listing is available at `Supplementary Sources`_ section."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:26
+msgid "List of Permissions"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:31
+msgid "Permission Name"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:32
+msgid "Category"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:33
+msgid "Type"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:34
+msgid "`root`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:35
+#: ../../develop/api/permissions.rst:198
+msgid "All Categories"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:36
+msgid "Command and Query"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:37
+msgid "`can_create_account`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:38
+#: ../../develop/api/permissions.rst:41
+#: ../../develop/api/permissions.rst:44
+#: ../../develop/api/permissions.rst:122
+#: ../../develop/api/permissions.rst:125
+#: ../../develop/api/permissions.rst:128
+#: ../../develop/api/permissions.rst:131
+#: ../../develop/api/permissions.rst:134
+#: ../../develop/api/permissions.rst:137
+#: ../../develop/api/permissions.rst:216
+#: ../../develop/api/permissions.rst:755
+msgid "Account"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:39
+#: ../../develop/api/permissions.rst:42
+#: ../../develop/api/permissions.rst:45
+#: ../../develop/api/permissions.rst:48
+#: ../../develop/api/permissions.rst:51
+#: ../../develop/api/permissions.rst:54
+#: ../../develop/api/permissions.rst:57
+#: ../../develop/api/permissions.rst:60
+#: ../../develop/api/permissions.rst:63
+#: ../../develop/api/permissions.rst:66
+#: ../../develop/api/permissions.rst:69
+#: ../../develop/api/permissions.rst:72
+#: ../../develop/api/permissions.rst:75
+#: ../../develop/api/permissions.rst:78
+#: ../../develop/api/permissions.rst:81
+#: ../../develop/api/permissions.rst:84
+#: ../../develop/api/permissions.rst:87
+#: ../../develop/api/permissions.rst:90
+#: ../../develop/api/permissions.rst:93
+#: ../../develop/api/permissions.rst:96
+#: ../../develop/api/permissions.rst:99
+#: ../../develop/api/permissions.rst:102
+#: ../../develop/api/permissions.rst:105
+#: ../../develop/api/permissions.rst:108
+#: ../../develop/api/permissions.rst:111
+#: ../../develop/api/permissions.rst:114
+#: ../../develop/api/permissions.rst:117
+#: ../../develop/api/permissions.rst:120
+msgid "Command"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:40
+msgid "`can_set_detail`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:43
+msgid "`can_set_my_account_detail`_ ``grantable``"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:46
+msgid "`can_create_asset`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:47
+#: ../../develop/api/permissions.rst:50
+#: ../../develop/api/permissions.rst:53
+#: ../../develop/api/permissions.rst:56
+#: ../../develop/api/permissions.rst:167
+#: ../../develop/api/permissions.rst:278
+#: ../../develop/api/permissions.rst:1052
+msgid "Asset"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:49
+msgid "`can_receive`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:52
+msgid "`can_transfer`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:55
+msgid "`can_transfer_my_assets`_ ``grantable``"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:58
+msgid "`can_add_asset_qty`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:59
+#: ../../develop/api/permissions.rst:62
+#: ../../develop/api/permissions.rst:65
+#: ../../develop/api/permissions.rst:68
+#: ../../develop/api/permissions.rst:352
+msgid "Asset Quantity"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:61
+msgid "`can_subtract_asset_qty`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:64
+msgid "`can_add_domain_asset_qty`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:67
+msgid "`can_subtract_domain_asset_qty`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:70
+msgid "`can_create_domain`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:71
+#: ../../develop/api/permissions.rst:421
+msgid "Domain"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:73
+msgid "`can_grant_can_add_my_signatory`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:74
+#: ../../develop/api/permissions.rst:77
+#: ../../develop/api/permissions.rst:80
+#: ../../develop/api/permissions.rst:83
+#: ../../develop/api/permissions.rst:86
+#: ../../develop/api/permissions.rst:441
+msgid "Grant"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:76
+msgid "`can_grant_can_remove_my_signatory`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:79
+msgid "`can_grant_can_set_my_account_detail`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:82
+msgid "`can_grant_can_set_my_quorum`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:85
+msgid "`can_grant_can_transfer_my_assets`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:88
+msgid "`can_add_peer`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:89
+#: ../../develop/api/permissions.rst:92
+#: ../../develop/api/permissions.rst:191
+#: ../../develop/api/permissions.rst:529
+#: ../../develop/api/permissions.rst:1195
+msgid "Peer"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:91
+msgid "`can_remove_peer`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:94
+msgid "`can_append_role`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:95
+#: ../../develop/api/permissions.rst:98
+#: ../../develop/api/permissions.rst:101
+#: ../../develop/api/permissions.rst:173
+#: ../../develop/api/permissions.rst:570
+#: ../../develop/api/permissions.rst:1083
+msgid "Role"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:97
+msgid "`can_create_role`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:100
+msgid "`can_detach_role`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:103
+msgid "`can_add_my_signatory`_ ``grantable``"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:104
+#: ../../develop/api/permissions.rst:107
+#: ../../develop/api/permissions.rst:110
+#: ../../develop/api/permissions.rst:113
+#: ../../develop/api/permissions.rst:116
+#: ../../develop/api/permissions.rst:119
+#: ../../develop/api/permissions.rst:176
+#: ../../develop/api/permissions.rst:179
+#: ../../develop/api/permissions.rst:182
+#: ../../develop/api/permissions.rst:631
+#: ../../develop/api/permissions.rst:1104
+msgid "Signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:106
+msgid "`can_add_signatory`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:109
+msgid "`can_remove_my_signatory`_ ``grantable``"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:112
+msgid "`can_remove_signatory`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:115
+msgid "`can_set_my_quorum`_ ``grantable``"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:118
+msgid "`can_set_quorum`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:121
+msgid "`can_get_all_acc_detail`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:123
+#: ../../develop/api/permissions.rst:126
+#: ../../develop/api/permissions.rst:129
+#: ../../develop/api/permissions.rst:132
+#: ../../develop/api/permissions.rst:135
+#: ../../develop/api/permissions.rst:138
+#: ../../develop/api/permissions.rst:141
+#: ../../develop/api/permissions.rst:144
+#: ../../develop/api/permissions.rst:147
+#: ../../develop/api/permissions.rst:150
+#: ../../develop/api/permissions.rst:153
+#: ../../develop/api/permissions.rst:156
+#: ../../develop/api/permissions.rst:159
+#: ../../develop/api/permissions.rst:162
+#: ../../develop/api/permissions.rst:165
+#: ../../develop/api/permissions.rst:168
+#: ../../develop/api/permissions.rst:171
+#: ../../develop/api/permissions.rst:174
+#: ../../develop/api/permissions.rst:177
+#: ../../develop/api/permissions.rst:180
+#: ../../develop/api/permissions.rst:183
+#: ../../develop/api/permissions.rst:186
+#: ../../develop/api/permissions.rst:189
+#: ../../develop/api/permissions.rst:192
+msgid "Query"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:124
+msgid "`can_get_all_accounts`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:127
+msgid "`can_get_domain_acc_detail`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:130
+msgid "`can_get_domain_accounts`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:133
+msgid "`can_get_my_acc_detail`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:136
+msgid "`can_get_my_account`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:139
+msgid "`can_get_all_acc_ast`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:140
+#: ../../develop/api/permissions.rst:143
+#: ../../develop/api/permissions.rst:146
+#: ../../develop/api/permissions.rst:872
+msgid "Account Asset"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:142
+msgid "`can_get_domain_acc_ast`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:145
+msgid "`can_get_my_acc_ast`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:148
+msgid "`can_get_all_acc_ast_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:149
+#: ../../develop/api/permissions.rst:152
+#: ../../develop/api/permissions.rst:155
+#: ../../develop/api/permissions.rst:932
+msgid "Account Asset Transaction"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:151
+msgid "`can_get_domain_acc_ast_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:154
+msgid "`can_get_my_acc_ast_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:157
+msgid "`can_get_all_acc_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:158
+#: ../../develop/api/permissions.rst:161
+#: ../../develop/api/permissions.rst:164
+#: ../../develop/api/permissions.rst:992
+msgid "Account Transaction"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:160
+msgid "`can_get_domain_acc_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:163
+msgid "`can_get_my_acc_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:166
+msgid "`can_read_assets`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:169
+msgid "`can_get_blocks`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:170
+#: ../../develop/api/permissions.rst:1072
+msgid "Block Stream"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:172
+msgid "`can_get_roles`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:175
+msgid "`can_get_all_signatories`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:178
+msgid "`can_get_domain_signatories`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:181
+msgid "`can_get_my_signatories`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:184
+msgid "`can_get_all_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:185
+#: ../../develop/api/permissions.rst:188
+#: ../../develop/api/permissions.rst:1158
+msgid "Transaction"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:187
+msgid "`can_get_my_txs`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:190
+msgid "`can_get_peers`_"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:195
+msgid "Command and Query-related permissions"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:201
+msgid "root"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:203
+msgid "Allows executing all `commands <../../before_start/glossary.html#command>`__ and queries without other `permissions <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:205
+msgid "This permission allows you to create and assign any roles with any permissions."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:207
+#: ../../develop/api/permissions.rst:225
+#: ../../develop/api/permissions.rst:246
+#: ../../develop/api/permissions.rst:267
+#: ../../develop/api/permissions.rst:287
+#: ../../develop/api/permissions.rst:304
+#: ../../develop/api/permissions.rst:341
+#: ../../develop/api/permissions.rst:363
+#: ../../develop/api/permissions.rst:382
+#: ../../develop/api/permissions.rst:430
+#: ../../develop/api/permissions.rst:450
+#: ../../develop/api/permissions.rst:467
+#: ../../develop/api/permissions.rst:484
+#: ../../develop/api/permissions.rst:501
+#: ../../develop/api/permissions.rst:518
+#: ../../develop/api/permissions.rst:540
+#: ../../develop/api/permissions.rst:559
+#: ../../develop/api/permissions.rst:581
+#: ../../develop/api/permissions.rst:601
+#: ../../develop/api/permissions.rst:620
+#: ../../develop/api/permissions.rst:642
+#: ../../develop/api/permissions.rst:661
+#: ../../develop/api/permissions.rst:682
+#: ../../develop/api/permissions.rst:701
+#: ../../develop/api/permissions.rst:722
+#: ../../develop/api/permissions.rst:741
+#: ../../develop/api/permissions.rst:764
+#: ../../develop/api/permissions.rst:785
+#: ../../develop/api/permissions.rst:802
+#: ../../develop/api/permissions.rst:823
+#: ../../develop/api/permissions.rst:840
+#: ../../develop/api/permissions.rst:861
+#: ../../develop/api/permissions.rst:883
+#: ../../develop/api/permissions.rst:902
+#: ../../develop/api/permissions.rst:921
+#: ../../develop/api/permissions.rst:943
+#: ../../develop/api/permissions.rst:962
+#: ../../develop/api/permissions.rst:981
+#: ../../develop/api/permissions.rst:1003
+#: ../../develop/api/permissions.rst:1022
+#: ../../develop/api/permissions.rst:1041
+#: ../../develop/api/permissions.rst:1061
+#: ../../develop/api/permissions.rst:1093
+#: ../../develop/api/permissions.rst:1113
+#: ../../develop/api/permissions.rst:1130
+#: ../../develop/api/permissions.rst:1147
+#: ../../develop/api/permissions.rst:1167
+#: ../../develop/api/permissions.rst:1184
+#: ../../develop/api/permissions.rst:1204
+msgid "**Example**"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:209
+msgid "Admin with root permission can create and assign a role with rights that he does not have."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:213
+msgid "Command-related permissions"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:219
+msgid "can_create_account"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:221
+msgid "Allows creating new `accounts <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:223
+msgid "Related API method: `Create Account <../api/commands.html#create-account>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:227
+msgid "Admin creates domain \"test\" that contains only can_create_account permission and Alice account in that domain. Alice can create Bob account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:236
+msgid "can_set_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:238
+msgid "Allows setting `account <../../before_start/glossary.html#account>`__ detail."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:240
+msgid "The `permission <../../before_start/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../before_start/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:242
+msgid "Transaction creator can always set detail for own account even without that permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:244
+#: ../../develop/api/permissions.rst:265
+msgid "Related API method: `Set Account Detail <../api/commands.html#set-account-detail>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:248
+msgid "Admin creates domain \"test\" that contains only can_set_detail permission and Alice account in that domain. Alice can set detail for Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:257
+msgid "can_set_my_account_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:259
+#: ../../develop/api/permissions.rst:333
+#: ../../develop/api/permissions.rst:636
+#: ../../develop/api/permissions.rst:674
+#: ../../develop/api/permissions.rst:714
+msgid "This is a grantable permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:261
+msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set details for the another specified account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:263
+msgid "To grant the permission an account should already have a role with `can_grant_can_set_my_account_detail`_ permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:269
+msgid "Admin creates domain \"test\" that contains only can_grant_can_set_my_account_detail permission and two accounts for Alice and Bob in that domain. Alice grants to Bob can_set_my_account_detail permission. Bob can set detail for Alice account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:281
+msgid "can_create_asset"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:283
+msgid "Allows creating new `assets <../../before_start/glossary.html#asset>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:285
+msgid "Related API method: `Create Asset <../api/commands.html#create-asset>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:289
+msgid "Admin creates domain \"test\" that contains only can_create_asset permission and Alice account in that domain. Alice can create new assets."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:298
+msgid "can_receive"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:300
+msgid "Allows `account <../../before_start/glossary.html#account>`__ receive `assets <../../before_start/glossary.html#asset>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:302
+#: ../../develop/api/permissions.rst:323
+#: ../../develop/api/permissions.rst:339
+msgid "Related API method: `Transfer Asset <../api/commands.html#transfer-asset>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:306
+msgid "Admin creates domain \"test\" that contains can_receive and can_transfer permissions and two accounts for Alice and Bob. Admin creates \"coin\" asset, adds some quantity of it and transfers the asset to Alice. Alice can transfer assets to Bob (Alice has can_transfer permission and Bob has can_receive permission)."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:315
+msgid "can_transfer"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:317
+msgid "Allows sending `assets <../../before_start/glossary.html#asset>`__ from an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:319
+msgid "You can transfer an asset from one `domain <../../before_start/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:321
+msgid "Destination account should have `can_receive`_ permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:331
+msgid "can_transfer_my_assets"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:335
+msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to transfer `assets <../../before_start/glossary.html#asset>`__ of another specified account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:337
+#: ../../develop/api/permissions.rst:678
+msgid "See the example (to be done) for the usage details."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:343
+msgid "Admin creates domain \"test\" that contains can_grant_can_transfer_my_assets, can_receive, can_transfer permissions and two accounts for Alice and Bob in that domain. Admin issues some amount of \"coin\" asset and transfers it to Alice. Alice grants to Bob can_transfer_my_assets permission. Bob can transfer Alice's assets to any account that has can_receive permission, for example, to Admin."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:355
+msgid "can_add_asset_qty"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:357
+msgid "Allows issuing `assets <../../before_start/glossary.html#asset>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:359
+#: ../../develop/api/permissions.rst:378
+msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:361
+#: ../../develop/api/permissions.rst:399
+msgid "Related API method: `Add Asset Quantity <../api/commands.html#add-asset-quantity>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:365
+msgid "Admin creates domain \"test\" that contains only can_add_asset_qty permission and Alice account in that domain. Admin craetes \"coin\" asset. Alice can add to own account any amount of any asset (e.g. \"coin\" asset)."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:374
+msgid "can_subtract_asset_qty"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:376
+msgid "Allows burning `assets <../../before_start/glossary.html#asset>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:380
+#: ../../develop/api/permissions.rst:413
+msgid "Related API method: `Subtract Asset Quantity <../api/commands.html#subtract-asset-quantity>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:384
+msgid "Admin creates domain \"test\" that contains only can_subtract_asset_qty permission and Alice account in that domain. Admin issues some amount of \"coin\" asset and transfers some amount of \"coin\" asset to Alice. Alice can burn any amount of \"coin\" assets."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:393
+msgid "can_add_domain_asset_qty"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:395
+msgid "Allows issuing `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:397
+#: ../../develop/api/permissions.rst:411
+msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:407
+msgid "can_subtract_domain_asset_qty"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:409
+msgid "Allows burning `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:424
+msgid "can_create_domain"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:426
+msgid "Allows creating new `domains <../../before_start/glossary.html#domain>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:428
+msgid "Related API method: `Create Domain <../api/commands.html#create-domain>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:432
+msgid "Admin creates domain that contains only can_create_domain permission and Alice account in that domain. Alice can create new domains."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:444
+msgid "can_grant_can_add_my_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:446
+msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:448
+#: ../../develop/api/permissions.rst:465
+#: ../../develop/api/permissions.rst:482
+#: ../../develop/api/permissions.rst:499
+#: ../../develop/api/permissions.rst:516
+msgid "Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:452
+msgid "Admin creates domain that contains only can_grant_can_add_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_add_my_signatory permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:461
+msgid "can_grant_can_remove_my_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:463
+msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:469
+msgid "Admin creates domain that contains only can_grant_can_remove_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_remove_my_signatory permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:478
+msgid "can_grant_can_set_my_account_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:480
+msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:486
+msgid "Admin creates domain that contains only can_grant_can_set_my_account_detail permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_set_my_account_detail permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:495
+msgid "can_grant_can_set_my_quorum"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:497
+msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:503
+msgid "Admin creates domain that contains only can_grant_can_set_my_quorum permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_set_my_quorum permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:512
+msgid "can_grant_can_transfer_my_assets"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:514
+msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:520
+msgid "Admin creates domain that contains only can_grant_can_transfer_my_assets permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob and revoke can_transfer_my_assets permission."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:532
+msgid "can_add_peer"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:534
+msgid "Allows adding `peers <../../before_start/glossary.html#peer>`__ to the network."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:536
+msgid "A new peer will be a valid participant in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing \"addPeer\" `command <../../before_start/glossary.html#command>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:538
+msgid "Related API method: `Add Peer <../api/commands.html#add-peer>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:542
+msgid "Admin creates domain that contains only can_add_peer permission and Alice account in that domain. Alice can add new peers."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:551
+msgid "can_remove_peer"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:553
+msgid "Allows removing `peers <../../before_start/glossary.html#peer>`__ from the network."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:555
+msgid "Removed peer will not participate in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing \"removePeer\" `command <../../before_start/glossary.html#command>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:557
+msgid "Related API method: `Remove Peer <../api/commands.html#remove-peer>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:561
+msgid "Admin creates domain that contains only can_remove_peer permission and Alice account in that domain. Admin adds a second peer. Alice can remove existing peers."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:573
+msgid "can_append_role"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:575
+msgid "Allows appending `roles <../../before_start/glossary.html#role>`__ to another `account <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:577
+msgid "You can append only that role that has lesser or the same set of privileges as `transaction <../../before_start/glossary.html#transaction>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:579
+msgid "Related API method: `Append Role <../api/commands.html#append-role>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:583
+msgid "Admin creates domian that contains can_append_role and can_add_peer permissions and two accounts for Alice and Bob in that domain. Admin creates the second role that contains only can_add_peer permission. Alice can append role to Bob."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:592
+msgid "can_create_role"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:594
+msgid "Allows creating a new `role <../../before_start/glossary.html#role>`__ within a system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:596
+msgid "Possible set of `permissions <../../before_start/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../before_start/glossary.html#transaction>`__ creator has."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:599
+msgid "Related API method: `Create Role <../api/commands.html#create-role>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:603
+msgid "Admin creates domain that contains only can_create_role permission and Alice account in that domain. Alice can create new roles."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:612
+msgid "can_detach_role"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:614
+msgid "Allows revoking a `role <../../before_start/glossary.html#role>`__ from a user."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:616
+msgid "Due to a known issue the permission allows to detach any role without limitations https://soramitsu.atlassian.net/browse/IR-1468"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:618
+msgid "Related API method: `Detach Role <../api/commands.html#detach-role>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:622
+msgid "Admin creates domain that contains only can_detach_role permission and creates Alice account in that domain. Admin has two roles test_role and admin_role. Alice can detach test_role from Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:634
+msgid "can_add_my_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:638
+msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to add an extra public key to the another specified account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:640
+#: ../../develop/api/permissions.rst:659
+msgid "Related API method: `Add Signatory <../api/commands.html#add-signatory>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:644
+msgid "Admin creates domain that contains only can_grant_can_add_my_signatory permission and two accounts for Alice and Bob in that domain. Alice can grant to Bob can_add_my_signatory permission. Bob can add an extra key to Alice account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:653
+msgid "can_add_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:655
+msgid "Allows linking additional public keys to `account <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:657
+#: ../../develop/api/permissions.rst:697
+msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:663
+msgid "Admin creates domain that contains only can_add_signatory permission and Alice account in that domain. Alice can add to own account additional keys."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:672
+msgid "can_remove_my_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:676
+msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ remove public key from the another specified account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:680
+#: ../../develop/api/permissions.rst:699
+msgid "Related API method: `Remove Signatory <../api/commands.html#remove-signatory>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:684
+msgid "Admin creates domain that contains can_add_signatory and can_grant_can_remove_my_signatory permissions and two accounts for Alice and Bob. Alice grants can_remove_my_signatory permission to Bob and adds additional key to own account. Bob can remove one of Alice's keys."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:693
+msgid "can_remove_signatory"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:695
+msgid "Allows unlinking additional public keys from an `account <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:703
+msgid "Admin creates domian that contains can_remove_signatory permission and Alice account in that domain. Admin adds an extra key to Alice account. Alice can remove one of the keys."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:712
+msgid "can_set_my_quorum"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:716
+msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set `quorum <../../before_start/glossary.html#quorum>`__ for the another specified account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:718
+msgid "Account should have greater or equal amount of keys than quorum."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:720
+#: ../../develop/api/permissions.rst:739
+msgid "Related API method: `Set Account Quorum <../api/commands.html#set-account-quorum>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:724
+msgid "Admin creates domain that contains can_grant_can_set_my_quorum and can_add_signatory permissions and create two accounts for Alice and Bob in that domain. Alice grants to Bob can_set_my_qourum permission and adds an extra key to account. Bob can set quorum for Alice."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:733
+msgid "can_set_quorum"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:735
+msgid "Allows setting `quorum <../../before_start/glossary.html#quorum>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:737
+msgid "At least the same number (or more) of public keys should be already linked to an `account <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:743
+msgid "Admin creates domain that contains only can_set_quorum permission and creates Alice account in that domain. Admin adds an extra key for Alice account. Alice can set quorum equals two."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:752
+msgid "Query-related permissions"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:758
+msgid "can_get_all_acc_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:760
+msgid "Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:762
+#: ../../develop/api/permissions.rst:800
+#: ../../develop/api/permissions.rst:838
+msgid "Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:766
+msgid "Admin creates Alice account in a diffrerent domain that has only can_get_all_acc_detail permission. Alice can access details set to Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:775
+msgid "can_get_all_accounts"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:777
+#: ../../develop/api/permissions.rst:815
+#: ../../develop/api/permissions.rst:853
+msgid "Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:779
+msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information about any account within a system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:781
+#: ../../develop/api/permissions.rst:819
+#: ../../develop/api/permissions.rst:857
+msgid "All the details (set by the account owner or owners of other accounts) will be returned."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:783
+#: ../../develop/api/permissions.rst:821
+#: ../../develop/api/permissions.rst:859
+msgid "Related API method: `Get Account <../api/queries.html#get-account>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:787
+msgid "Admin creates Alice account in a different domain that has only can_get_all_accounts permission. Alice can access account information of Admin."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:796
+msgid "can_get_domain_acc_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:798
+msgid "Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:804
+msgid "Admin creates Alice account in the same domain that has only can_get_domain_acc_detail permission. Alice can get details set to Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:813
+msgid "can_get_domain_accounts"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:817
+msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../before_start/glossary.html#domain>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:825
+msgid "Admin creates Alice account in the same domain that has only can_get_domain_accounts. Alice can access account information of Admin."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:834
+msgid "can_get_my_acc_detail"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:836
+msgid "Allows getting all the details set to the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:842
+msgid "Admin creates Alice account in the domain that has only can_get_my_acc_detail permission. Alice can get details set to own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:851
+msgid "can_get_my_account"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:855
+msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:863
+msgid "Admin creates Alice account in the domain that has only can_get_my_account permission. Alice can access own account information."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:875
+msgid "can_get_all_acc_ast"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:877
+msgid "Allows getting a balance of `assets <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:879
+msgid "`Query <../../before_start/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:881
+#: ../../develop/api/permissions.rst:900
+#: ../../develop/api/permissions.rst:919
+msgid "Related API method: `Get Account Assets <../api/queries.html#get-account-assets>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:885
+msgid "Admin creates Alice account in a different domain that has only can_get_all_acc_ast permission. Alice can access assets balance on Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:894
+msgid "can_get_domain_acc_ast"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:896
+msgid "Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:898
+#: ../../develop/api/permissions.rst:917
+msgid "Query response will contain information about all the assets that ever been assigned to an account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:904
+msgid "Admin creates Alice account in the same domain that has only can_get_domain_acc_ast permission. Alice can access assets balance on Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:913
+msgid "can_get_my_acc_ast"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:915
+msgid "Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:923
+msgid "Admin creates Alice account in a domain that has only can_get_my_acc_ast permission. Alice can access assets balance on own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:935
+msgid "can_get_all_acc_ast_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:937
+msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and any `account <../../before_start/glossary.html#account>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:939
+#: ../../develop/api/permissions.rst:958
+#: ../../develop/api/permissions.rst:977
+msgid "Incoming asset transfers will also appear in the query response."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:941
+#: ../../develop/api/permissions.rst:960
+#: ../../develop/api/permissions.rst:979
+msgid "Related API method: `Get Account Asset Transactions <../api/queries.html#get-account-asset-transactions>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:945
+msgid "Admin creates Alice account in a different domain that has can_get_all_acc_ast_txs, can_receive and can_transfer permissions. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:954
+msgid "can_get_domain_acc_ast_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:956
+msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and an `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:964
+msgid "Admin creates Alice in the same domain that has only can_get_domain_acc_ast_txs permission. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:973
+msgid "can_get_my_acc_ast_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:975
+msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator and specified `asset <../../before_start/glossary.html#asset>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:983
+msgid "Admin creates Alice account in a domain that has only can_get_my_acc_ast_txs permission. Admin issues some amount of coins and transfers them to Alice. Alice can query all transactions related to coins and own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:995
+msgid "can_get_all_acc_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:997
+msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:999
+#: ../../develop/api/permissions.rst:1018
+#: ../../develop/api/permissions.rst:1037
+msgid "Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1001
+#: ../../develop/api/permissions.rst:1020
+#: ../../develop/api/permissions.rst:1039
+msgid "Related API method: `Get Account Transactions <../api/queries.html#get-account-transactions>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1005
+msgid "Admin creates Alice account in a different domain that has only can_get_all_acc_txs permiison. Alice can request all the transactions issues by Admin."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1014
+msgid "can_get_domain_acc_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1016
+msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1024
+msgid "Admin creates Alice account in the same domain that has only can_get_domain_acc_txs permission. Alice can request all the transactions issued by Admin."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1033
+msgid "can_get_my_acc_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1035
+msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by an `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1043
+msgid "Admin creates Alice account in a domain that has only can_get_my_acc_txs permission. Alice can get all transactions issued by own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1055
+msgid "can_read_assets"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1057
+msgid "Allows getting information about `asset <../../before_start/glossary.html#asset>`__ precision."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1059
+msgid "Related API method: `Get Asset Info <../api/queries.html#get-asset-info>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1063
+msgid "Admin creates Alice account in a domain that has can_read_assets permissions. Alice can query information about any asset."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1075
+msgid "can_get_blocks"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1077
+msgid "Allows reading `blocks <../../before_start/glossary.html#block>`__. Allows subscription to the stream of accepted blocks."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1080
+msgid "Related API methods: `Get Block <../api/queries.html#get-block>`__, `Fetchcommits <../api/queries.html#fetchcommits>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1086
+msgid "can_get_roles"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1088
+msgid "Allows getting a list of `roles <../../before_start/glossary.html#role>`__ within the system. Allows getting a list of `permissions <../../before_start/glossary.html#permission>`__ associated with a role."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1091
+msgid "Related API methods: `Get Roles <../api/queries.html#get-roles>`__, `Get Role Permissions <../api/queries.html#get-role-permissions>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1095
+msgid "Admin creates Alice account in a domain that has can_get_roles permission. Alice can query list of all existing roles. Alice can query list of permissions contained in any role."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1107
+msgid "can_get_all_signatories"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1109
+msgid "Allows getting a list of public keys linked to an `account <../../before_start/glossary.html#account>`__ within the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1111
+#: ../../develop/api/permissions.rst:1128
+#: ../../develop/api/permissions.rst:1145
+msgid "Related API method: `Get Signatories <../api/queries.html#get-signatories>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1115
+msgid "Admin creates Alice account in a different domain that has only can_get_all_signatories permission. Alice can query a list of public keys related to Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1124
+msgid "can_get_domain_signatories"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1126
+msgid "Allows getting a list of public keys of any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as the domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1132
+msgid "Admin creates Alice account in the same domain that has only can_get_domain_signatories permission. Alice can query a list of public keys related to Admin account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1141
+msgid "can_get_my_signatories"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1143
+msgid "Allows getting a list of public keys of `query <../../before_start/glossary.html#query>`__ creator `account <../../before_start/glossary.html#account>`__."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1149
+msgid "Admin creates Alice account in a domain that has only can_get_my_signatories permission. Alice can query a list of public keys related to own account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1161
+msgid "can_get_all_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1163
+msgid "Allows getting any `transaction <../../before_start/glossary.html#transaction>`__ by hash."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1165
+#: ../../develop/api/permissions.rst:1182
+msgid "Related API method: `Get Transactions <../api/queries.html#get-transactions>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1169
+msgid "Admin issues several transactions and creates Alice account in a different domain that has only can_get_all_txs permission. Alice (knowing transactions hashes) can query transactions issued by Admin Account."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1178
+msgid "can_get_my_txs"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1180
+msgid "Allows getting `transaction <../../before_start/glossary.html#transaction>`__ (that was issued by `query <../../before_start/glossary.html#query>`__ creator) by hash."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1186
+msgid "Admin creates Alice account in a different domain. Alice (knowing transactions hashes) issues several transactions. Alice can query own transactions."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1198
+msgid "can_get_peers"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1200
+msgid "Allows to request the list of `peers <../../before_start/glossary.html#peer>`__ in the Iroha network."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1202
+msgid "Related API method: `Get Peers <../api/queries.html#get-peers>`__"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1206
+msgid "Admin creates Alice account in any domain that has can_get_peers. Alice can now request the list of peers in the system."
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1215
+msgid "Supplementary Sources"
+msgstr ""
+
+#: ../../develop/api/permissions.rst:1217
+msgid "commons.py"
+msgstr ""
+

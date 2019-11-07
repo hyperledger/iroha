@@ -1,0 +1,38 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/libraries/python.rst:2
+msgid "Python Library"
+msgstr ""
+
+#: ../../develop/libraries/python.rst:5
+msgid "Where to Get"
+msgstr ""
+
+#: ../../develop/libraries/python.rst:7
+msgid "A supported python library for Iroha is available at its `own Hyperledger iroha-python repo <https://github.com/hyperledger/iroha-python/>`__. Python 3+ is supported."
+msgstr ""
+
+#: ../../develop/libraries/python.rst:10
+msgid "You can also install Python library via pip:"
+msgstr ""
+
+#: ../../develop/libraries/python.rst:17
+msgid "Example Code"
+msgstr ""
+

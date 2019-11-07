@@ -1,0 +1,74 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/libraries/swift_ios.rst:2
+msgid "iOS Swift Library"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:4
+msgid "The library was created to provide convenient interface for iOS applications to communicate with Iroha blockchain including sending transactions/query, streaming transaction statuses and block commits."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:7
+msgid "Where to get"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:9
+msgid "Iroha iOS library is available through CocoaPods. To install it, simply add the following line to your Podfile:"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:15
+msgid "Also you can download the source code for the library in `its repo <https://github.com/hyperledger/iroha-ios>`__"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:20
+msgid "How to use"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:22
+msgid "For new Iroha users we recommend to checkout `iOS example project <https://github.com/hyperledger/iroha-ios/tree/master/Example>`__. It tries to establish connection with Iroha peer which should be also run locally on your computer to create new account and send some asset quantity to it. To run the project, please, go through steps below:"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:26
+msgid "Follow instructions from Iroha documentation to setup and run iroha peer in Docker container."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:28
+msgid "Clone `iroha-ios repository <https://github.com/hyperledger/iroha-ios>`__."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:30
+msgid "cd Example directory and run pod install."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:32
+msgid "Open IrohaCommunication.xcworkspace in XCode"
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:34
+msgid "Build and Run IrohaExample target."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:36
+msgid "Consider logs to see if the scenario completed successfully."
+msgstr ""
+
+#: ../../develop/libraries/swift_ios.rst:38
+msgid "Feel free to experiment with example project and don't hesitate to ask any questions in Rocket.Chat."
+msgstr ""
+

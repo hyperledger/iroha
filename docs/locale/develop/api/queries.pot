@@ -1,0 +1,1636 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/api/queries.rst:2
+msgid "Queries"
+msgstr ""
+
+#: ../../develop/api/queries.rst:4
+msgid "A query is a request related to certain part of World State View — the latest state of blockchain. Query cannot modify the contents of the chain and a response is returned to any client immediately after receiving peer has processed a query."
+msgstr ""
+
+#: ../../develop/api/queries.rst:9
+msgid "Validation"
+msgstr ""
+
+#: ../../develop/api/queries.rst:11
+msgid "The validation for all queries includes:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:13
+msgid "timestamp — shouldn't be from the past (24 hours prior to the peer time) or from the future (range of 5 minutes added to the peer time)"
+msgstr ""
+
+#: ../../develop/api/queries.rst:14
+msgid "signature of query creator — used for checking the identity of query creator"
+msgstr ""
+
+#: ../../develop/api/queries.rst:15
+msgid "query counter — checked to be incremented with every subsequent query from query creator"
+msgstr ""
+
+#: ../../develop/api/queries.rst:16
+msgid "roles — depending on the query creator's role: the range of state available to query can relate to to the same account, account in the domain, to the whole chain, or not allowed at all"
+msgstr ""
+
+#: ../../develop/api/queries.rst:19
+msgid "Get Account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:22
+#: ../../develop/api/queries.rst:88
+#: ../../develop/api/queries.rst:149
+#: ../../develop/api/queries.rst:203
+#: ../../develop/api/queries.rst:259
+#: ../../develop/api/queries.rst:353
+#: ../../develop/api/queries.rst:400
+#: ../../develop/api/queries.rst:474
+#: ../../develop/api/queries.rst:551
+#: ../../develop/api/queries.rst:634
+#: ../../develop/api/queries.rst:822
+#: ../../develop/api/queries.rst:885
+#: ../../develop/api/queries.rst:929
+#: ../../develop/api/queries.rst:987
+#: ../../develop/api/queries.rst:1043
+msgid "Purpose"
+msgstr ""
+
+#: ../../develop/api/queries.rst:24
+msgid "Purpose of get account query is to get the state of an account."
+msgstr ""
+
+#: ../../develop/api/queries.rst:27
+#: ../../develop/api/queries.rst:93
+#: ../../develop/api/queries.rst:154
+#: ../../develop/api/queries.rst:209
+#: ../../develop/api/queries.rst:267
+#: ../../develop/api/queries.rst:359
+#: ../../develop/api/queries.rst:407
+#: ../../develop/api/queries.rst:481
+#: ../../develop/api/queries.rst:556
+#: ../../develop/api/queries.rst:654
+#: ../../develop/api/queries.rst:827
+#: ../../develop/api/queries.rst:890
+#: ../../develop/api/queries.rst:934
+#: ../../develop/api/queries.rst:992
+#: ../../develop/api/queries.rst:1048
+msgid "Request Schema"
+msgstr ""
+
+#: ../../develop/api/queries.rst:36
+#: ../../develop/api/queries.rst:103
+#: ../../develop/api/queries.rst:163
+#: ../../develop/api/queries.rst:218
+#: ../../develop/api/queries.rst:283
+#: ../../develop/api/queries.rst:424
+#: ../../develop/api/queries.rst:499
+#: ../../develop/api/queries.rst:573
+#: ../../develop/api/queries.rst:689
+#: ../../develop/api/queries.rst:836
+#: ../../develop/api/queries.rst:943
+msgid "Request Structure"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Field"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Description"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Constraint"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:304
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1101
+msgid "Example"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Account ID"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id to request its state"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "<account_name>@<domain_id>"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "alex@morgan"
+msgstr ""
+
+#: ../../develop/api/queries.rst:45
+#: ../../develop/api/queries.rst:112
+#: ../../develop/api/queries.rst:172
+#: ../../develop/api/queries.rst:227
+#: ../../develop/api/queries.rst:314
+#: ../../develop/api/queries.rst:367
+#: ../../develop/api/queries.rst:435
+#: ../../develop/api/queries.rst:511
+#: ../../develop/api/queries.rst:584
+#: ../../develop/api/queries.rst:706
+#: ../../develop/api/queries.rst:846
+#: ../../develop/api/queries.rst:898
+#: ../../develop/api/queries.rst:952
+#: ../../develop/api/queries.rst:1000
+#: ../../develop/api/queries.rst:1054
+msgid "Response Schema"
+msgstr ""
+
+#: ../../develop/api/queries.rst:63
+#: ../../develop/api/queries.rst:121
+#: ../../develop/api/queries.rst:181
+#: ../../develop/api/queries.rst:236
+#: ../../develop/api/queries.rst:329
+#: ../../develop/api/queries.rst:376
+#: ../../develop/api/queries.rst:460
+#: ../../develop/api/queries.rst:524
+#: ../../develop/api/queries.rst:602
+#: ../../develop/api/queries.rst:717
+#: ../../develop/api/queries.rst:871
+#: ../../develop/api/queries.rst:907
+#: ../../develop/api/queries.rst:961
+#: ../../develop/api/queries.rst:1014
+#: ../../develop/api/queries.rst:1076
+msgid "Response Structure"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Domain ID"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "domain where the account was created"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "RFC1035 [#f1]_, RFC1123 [#f2]_"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "morgan"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Quorum"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "number of signatories needed to sign the transaction to make it valid"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "0 < quorum ≤ 128"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "5"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "JSON data"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "key-value account information"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "JSON"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{ genesis: {name: alex} }"
+msgstr ""
+
+#: ../../develop/api/queries.rst:75
+#: ../../develop/api/queries.rst:130
+#: ../../develop/api/queries.rst:190
+#: ../../develop/api/queries.rst:245
+#: ../../develop/api/queries.rst:387
+#: ../../develop/api/queries.rst:448
+#: ../../develop/api/queries.rst:535
+#: ../../develop/api/queries.rst:620
+#: ../../develop/api/queries.rst:729
+#: ../../develop/api/queries.rst:861
+#: ../../develop/api/queries.rst:916
+#: ../../develop/api/queries.rst:970
+#: ../../develop/api/queries.rst:1025
+#: ../../develop/api/queries.rst:1085
+msgid "Possible Stateful Validation Errors"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Code"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Error Name"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "How to solve"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "1"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Internal error happened"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Try again or contact developers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "2"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "No such permissions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Grant the necessary permission: individual, global or domain one"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "3"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Invalid signatures"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Signatures of this query did not pass validation"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Add more signatures and make sure query's signatures are a subset of account's signatories"
+msgstr ""
+
+#: ../../develop/api/queries.rst:85
+msgid "Get Block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:90
+msgid "Purpose of get block query is to get a specific block, using its height as an identifier"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Height"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "height of the block to be retrieved"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "0 < height < 2^64"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "42"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "the retrieved block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "block structure"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have a permission to get block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Grant `can_get_block <permissions.html#can-get-blocks>`__ permission"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Invalid height"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Supplied height is not uint_64 or greater than the ledger's height"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Check the height and try again"
+msgstr ""
+
+#: ../../develop/api/queries.rst:141
+msgid "Error code 3 is ambiguous for this query. It indicates either invalid signatories or invalid height. Use this method with `height = 1` (first block is always present) to check for invalid signatories."
+msgstr ""
+
+#: ../../develop/api/queries.rst:146
+msgid "Get Signatories"
+msgstr ""
+
+#: ../../develop/api/queries.rst:151
+msgid "Purpose of get signatories query is to get signatories, which act as an identity of the account."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id to request signatories"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Keys"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "an array of public keys"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "`ed25519 <https://ed25519.cr.yp.to>`_"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get signatories"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get signatories"
+msgstr ""
+
+#: ../../develop/api/queries.rst:200
+msgid "Get Transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:205
+msgid "GetTransactions is used for retrieving information about transactions, based on their hashes. .. note:: This query is valid if and only if all the requested hashes are correct: corresponding transactions exist, and the user has a permission to retrieve them"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Transactions hashes"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "an array of hashes"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "array with 32 byte hashes"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{hash1, hash2…}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "an array of transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Committed transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "{tx1, tx2…}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "4"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Invalid hash"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "At least one of the supplied hashes either does not exist in user's transaction list or creator of the query does not have permissions to see it"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Check the supplied hashes and try again"
+msgstr ""
+
+#: ../../develop/api/queries.rst:256
+msgid "Get Pending Transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:261
+#: ../../develop/api/queries.rst:355
+msgid "GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_ or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator."
+msgstr ""
+
+#: ../../develop/api/queries.rst:264
+#: ../../develop/api/queries.rst:404
+msgid "This query uses pagination for quicker and more convenient query responses."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Page size"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "maximum amount of transactions returned in the response"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "page_size > 0"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "First tx hash"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "optional - hash of the first transaction in the starting batch"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "hash in hex format"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+msgstr ""
+
+#: ../../develop/api/queries.rst:292
+msgid "All the user's semi-signed multisignature (pending) transactions can be queried. Maximum amount of transactions contained in a response can be limited by **page_size** field. All the pending transactions are stored till they have collected enough signatures or get expired. The mutual order of pending transactions or batches of transactions is preserved for a user. That allows a user to query all transactions sequentially - page by page. Each response may contain a reference to the next batch or transaction that can be queried. A page size can be greater than the size of the following batch (in transactions). In that case, several batches or transactions will be returned. During navigating over pages, the following batch can collect the missing signatures before it gets queried. This will result in stateful failed query response due to a missing hash of the batch."
+msgstr ""
+
+#: ../../develop/api/queries.rst:306
+msgid "If there are two pending batches with three transactions each and a user queries pending transactions with page size 5, then the transactions of the first batch will be in the response and a reference (first transaction hash and batch size, even if it is a single transaction in fact) to the second batch will be specified too. Transactions of the second batch are not included in the first response because the batch cannot be devided into several parts and only complete batches can be contained in a response."
+msgstr ""
+
+#: ../../develop/api/queries.rst:331
+msgid "The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_, the amount of all stored pending transactions for the user and the information required to query the subsequent page (if exists)."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "an array of pending transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Pending transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "All transactions size"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "the number of stored transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "all_transactions_size >= 0"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "0"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Next batch info"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "A reference to the next page - the message might be not set in a response"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "hash of the first transaction in the next batch"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Batch size"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Minimum page size required to fetch the next batch"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "batch_size > 0"
+msgstr ""
+
+#: ../../develop/api/queries.rst:346
+msgid "Get Pending Transactions (deprecated)"
+msgstr ""
+
+#: ../../develop/api/queries.rst:349
+msgid "The query without parameters is deprecated now and will be removed in the following major Iroha release (2.0). Please use the new query version instead: `Get Pending Transactions <#get-pending-transactions>`__."
+msgstr ""
+
+#: ../../develop/api/queries.rst:378
+msgid "The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get pending transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get pending transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:397
+msgid "Get Account Transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:402
+msgid "In a case when a list of transactions per account is needed, `GetAccountTransactions` query can be formed."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "account id to request transactions from"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "makoto@soramitsu"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "hash of the first transaction in the page. If that field is not set — then the first transactions are returned"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get account transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get account transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Invalid pagination hash"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Supplied hash does not appear in any of the user's transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Make sure hash is correct and try again"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Invalid account id"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "User with such account id does not exist"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Make sure account id is correct"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "an array of transactions for given account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "total number of transactions created by the given account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "100"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Next transaction hash"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "hash pointing to the next transaction after the last transaction in the page. Empty if a page contains the last transaction for the given account"
+msgstr ""
+
+#: ../../develop/api/queries.rst:471
+msgid "Get Account Asset Transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:476
+msgid "`GetAccountAssetTransactions` query returns all transactions associated with given account and asset."
+msgstr ""
+
+#: ../../develop/api/queries.rst:478
+msgid "This query uses pagination for query responses."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Asset ID"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "asset id in order to filter transactions containing this asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "<asset_name>#<domain_id>"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "jpy#japan"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "an array of transactions for given account and asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "total number of transactions for given account and asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "hash pointing to the next transaction after the last transaction in the page. Empty if a page contains the last transaction for given account and asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get account asset transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get account asset transactions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "6"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Invalid asset id"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Asset with such asset id does not exist"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Make sure asset id is correct"
+msgstr ""
+
+#: ../../develop/api/queries.rst:548
+msgid "Get Account Assets"
+msgstr ""
+
+#: ../../develop/api/queries.rst:553
+msgid "To get the state of all assets in an account (a balance), `GetAccountAssets` query can be used."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id to request balance from"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "AssetPaginationMeta.page_size"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Requested page size. The number of assets in response will not exceed this value. If the response was truncated, the asset id immediately following the returned ones will be provided in next_asset_id."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "0 < page_size < 32 bit unsigned int max (4294967296)"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "AssetPaginationMeta.first_asset_id"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Requested page start.  If the field is not set, then the first page is returned."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "name#domain"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "my_asset#my_domain"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "identifier of asset used for checking the balance"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account which has this balance"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Balance"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "balance of the asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "No less than 0"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "200.20"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "total_number"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "number of assets matching query without page limits"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "0 < total_number < 32 bit unsigned int max (4294967296)"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "100500"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "next_asset_id"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "the id of asset immediately following curent page"
+msgstr ""
+
+#: ../../develop/api/queries.rst:615
+msgid "If page size is equal or greater than the number of assets matching other requested criteria, the next asset id will be unset in the response. Otherwise, it contains the value that clients should use for the first asset id if they want to fetch the next page."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get account assets"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get account assets"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "Invalid pagination metadata"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Wrong page size or nonexistent first asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Set a valid page size, and make sure that asset id is valid, or leave first asset id unspecified"
+msgstr ""
+
+#: ../../develop/api/queries.rst:631
+msgid "Get Account Detail"
+msgstr ""
+
+#: ../../develop/api/queries.rst:636
+msgid "To get details of the account, `GetAccountDetail` query can be used. Account details are key-value pairs, splitted into writers categories. Writers are accounts, that added the corresponding account detail. Example of such structure is:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:651
+msgid "Here, one can see four account details - \"age\", \"hobbies\" and \"sports\" - added by two writers - \"account@a_domain\" and \"account@b_domain\". All of these details, obviously, are about the same account."
+msgstr ""
+
+#: ../../develop/api/queries.rst:682
+msgid "Pay attention, that all fields except pagination meta are optional. The reasons for that are described below."
+msgstr ""
+
+#: ../../develop/api/queries.rst:686
+msgid "Pagination metadata can be missing in the request for compatibility reasons, but this behaviour is deprecated and should be avoided."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id to get details from"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "account@domain"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Key"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "key, under which to get details"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "string"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+#: ../../develop/api/queries.rst:1
+msgid "age"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Writer"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "account id of writer"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "AccountDetailPaginationMeta.page_size"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Requested page size. The number of records in response will not exceed this value. If the response was truncated, the record id immediately following the returned ones will be provided in next_record_id."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "AccountDetailPaginationMeta.first_record_id.writer"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "requested page start by writer"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "AccountDetailPaginationMeta.first_record_id.key"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "requested page start by key"
+msgstr ""
+
+#: ../../develop/api/queries.rst:703
+msgid "When specifying first record id, it is enough to provide the attributes (writer, key) that are unset in the main query."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Detail"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "key-value pairs with account details"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "see below"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "number of records matching query without page limits"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "next_record_id.writer"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "the writer account of the record immediately following curent page"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "pushkin@lyceum.tsar"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "next_record_id.key"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "the key of the record immediately following curent page"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "cold and sun"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get account detail"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get account detail"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Wrong page size or nonexistent first record"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Set valid page size, and make sure that the first record id is valid, or leave the first record id unspecified"
+msgstr ""
+
+#: ../../develop/api/queries.rst:740
+msgid "Usage Examples"
+msgstr ""
+
+#: ../../develop/api/queries.rst:742
+msgid "Again, let's consider the example of details from the beginning and see how different variants of `GetAccountDetail` queries will change the resulting response."
+msgstr ""
+
+#: ../../develop/api/queries.rst:757
+msgid "**account_id is not set**"
+msgstr ""
+
+#: ../../develop/api/queries.rst:759
+msgid "If account_id is not set - other fields can be empty or not - it will automatically be substituted with query creator's account, which will lead to one of the next cases."
+msgstr ""
+
+#: ../../develop/api/queries.rst:761
+msgid "**only account_id is set**"
+msgstr ""
+
+#: ../../develop/api/queries.rst:763
+msgid "In this case, all details about that account are going to be returned, leading to the following response:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:778
+msgid "**account_id and key are set**"
+msgstr ""
+
+#: ../../develop/api/queries.rst:780
+msgid "Here, details added by all writers under the key are going to be returned. For example, if we asked for the key \"age\", that's the response we would get:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:793
+msgid "**account_id and writer are set**"
+msgstr ""
+
+#: ../../develop/api/queries.rst:795
+msgid "Now, the response will contain all details about this account, added by one specific writer. For example, if we asked for writer \"account@b_domain\", we would get:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:806
+msgid "**account_id, key and writer are set**"
+msgstr ""
+
+#: ../../develop/api/queries.rst:808
+msgid "Finally, if all three field are set, result will contain details, added the specific writer and under the specific key, for example, if we asked for key \"age\" and writer \"account@a_domain\", we would get:"
+msgstr ""
+
+#: ../../develop/api/queries.rst:819
+msgid "Get Asset Info"
+msgstr ""
+
+#: ../../develop/api/queries.rst:824
+msgid "In order to get information on the given asset (as for now - its precision), user can send `GetAssetInfo` query."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "asset id to know related information"
+msgstr ""
+
+#: ../../develop/api/queries.rst:857
+msgid "Please note that due to a known issue you would not get any exception if you pass invalid precision value. Valid range is: 0 <= precision <= 255"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get asset info"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get asset info"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "domain related to this asset"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "japan"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Precision"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "number of digits after comma"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "0 <= precision <= 255"
+msgstr ""
+
+#: ../../develop/api/queries.rst:882
+msgid "Get Roles"
+msgstr ""
+
+#: ../../develop/api/queries.rst:887
+msgid "To get existing roles in the system, a user can send `GetRoles` query to Iroha network."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Roles"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "array of created roles in the network"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "set of roles in the system"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{MoneyCreator, User, Admin, …}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get roles"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get roles"
+msgstr ""
+
+#: ../../develop/api/queries.rst:926
+msgid "Get Role Permissions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:931
+msgid "To get available permissions per role in the system, a user can send `GetRolePermissions` query to Iroha network."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Role ID"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "role to get permissions for"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "existing role in the system"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "MoneyCreator"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Permissions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "array of permissions related to the role"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "string of permissions related to the role"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{can_add_asset_qty, …}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get role permissions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get role permissions"
+msgstr ""
+
+#: ../../develop/api/queries.rst:979
+msgid "https://www.ietf.org/rfc/rfc1035.txt"
+msgstr ""
+
+#: ../../develop/api/queries.rst:980
+msgid "https://www.ietf.org/rfc/rfc1123.txt"
+msgstr ""
+
+#: ../../develop/api/queries.rst:984
+msgid "Get Peers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:989
+msgid "A query that returns a list of peers in Iroha network."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1016
+msgid "A list of peers with their addresses and public keys is returned."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Peers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "array of peers from the network"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "non-empty list of peers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{Peer{\"peer.domain.com\", \"292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2\"}, …}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get peers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query creator does not have enough permissions to get peers"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Append a role with can_get_blocks or can_get_peers permission"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1036
+msgid "Currently Get Peers query uses \"can_get_blocks\" permission for compatibility purposes. Later that will be changed to \"can_get_peers\" with the next major Iroha release."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1040
+msgid "Fetch Commits"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1045
+msgid "To get new blocks as soon as they are committed, a user can invoke `FetchCommits` RPC call to Iroha network."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1050
+msgid "No request arguments are needed"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1073
+msgid "Please note that it returns a stream of `BlockQueryResponse`."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Iroha block"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "only committed blocks"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "{ 'block_v1': ....}"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Could not get block streaming"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1
+msgid "Query's creator does not have any of the permissions to get blocks"
+msgstr ""
+
+#: ../../develop/api/queries.rst:1095
+msgid "`BlockErrorResponse` contains only `message` field. In case of stateful validation error it will be \"stateful invalid\". `GetBlock <#get-block>`__ requires same `can_get_block <permissions.html#can-get-blocks>`__ permission. Therefore, it can be used with `height = 1` (first block is always present) to check for invalid signatories or insufficient permissions."
+msgstr ""
+
+#: ../../develop/api/queries.rst:1102
+msgid "You can check an example how to use this query here: https://github.com/x3medima17/twitter"
+msgstr ""
+

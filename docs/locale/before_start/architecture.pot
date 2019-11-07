@@ -1,0 +1,166 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../before_start/architecture.rst:4
+msgid "What's inside Iroha?"
+msgstr ""
+
+#: ../../before_start/architecture.rst:6
+msgid "HL Iroha network consists of several essential components that provide the communication between the nodes. You can learn about them below."
+msgstr ""
+
+#: ../../before_start/architecture.rst:14
+msgid "Torii"
+msgstr ""
+
+#: ../../before_start/architecture.rst:16
+msgid "⛩"
+msgstr ""
+
+#: ../../before_start/architecture.rst:18
+msgid "Entry point for `clients <glossary.html#client>`__. Uses gRPC as a transport. In order to interact with Iroha anyone can use gRPC endpoints, described in `Commands <../develop/api/commands.html>`__ and `Queries <../develop/api/queries.html>`__ sections, or use `client libraries <../develop/libraries.html>`__."
+msgstr ""
+
+#: ../../before_start/architecture.rst:23
+msgid "MST Processor"
+msgstr ""
+
+#: ../../before_start/architecture.rst:25
+msgid "*Multisignature Transactions Processor*"
+msgstr ""
+
+#: ../../before_start/architecture.rst:27
+msgid "It is an internal gRPC service that sends and receives messages from other peers through `Gossip protocol <https://en.wikipedia.org/wiki/Gossip_protocol>`_. Its mission is to send out `multisignature transactions <glossary.html#multisignature-transactions>`_ that have not received enough signatures to reach the `quorum <glossary.html#quorum>`_ until it is reached."
+msgstr ""
+
+#: ../../before_start/architecture.rst:31
+msgid "Peer Communication Service"
+msgstr ""
+
+#: ../../before_start/architecture.rst:33
+msgid "Internal component of Iroha - an intermediary that transmits `transaction <glossary.html#transaction>`__ from `Torii <#torii>`__ through `MstProcessor <#MstProcessor>`_ to `Ordering Gate <#ordering-gate>`__. The main goal of PCS is to hide the complexity of interaction with consensus implementation."
+msgstr ""
+
+#: ../../before_start/architecture.rst:37
+msgid "Ordering Gate"
+msgstr ""
+
+#: ../../before_start/architecture.rst:39
+msgid "It is an internal Iroha component (gRPC client) that relays `transactions <glossary.html#transaction>`__ from `Peer Communication Service <#peer-communication-service>`__ to `Ordering Service <#ordering-service>`__. Ordering Gate recieves `proposals <glossary.html#proposal>`_ (potential blocks in the chain) from Ordering Service and sends them to `Simulator <#simulator>`__ for `stateful validation <glossary.html#stateful-validation>`__. It also requests proposal from the Ordering Service based on the consensus round."
+msgstr ""
+
+#: ../../before_start/architecture.rst:44
+msgid "Ordering Service"
+msgstr ""
+
+#: ../../before_start/architecture.rst:46
+msgid "Internal Iroha component (gRPC server) that receives messages from other `peers <glossary.html#peer>`__ and combines several `transactions <glossary.html#transaction>`__ that have been passed `stateless validation <glossary.html#stateless-validation>`__ into a `proposal <glossary.html#proposal>`__. Each node has its own ordering service. Proposal creation could be triggered by one of the following events:"
+msgstr ""
+
+#: ../../before_start/architecture.rst:50
+msgid "Time limit dedicated to transactions collection has expired."
+msgstr ""
+
+#: ../../before_start/architecture.rst:52
+msgid "Ordering service has received the maximum amount of transactions allowed for a single proposal."
+msgstr ""
+
+#: ../../before_start/architecture.rst:54
+msgid "Both parameters (timeout and maximum size of proposal) are configurable (check `environment-specific parameters <../configure/index.html#environment-specific-parameters>`_ page)."
+msgstr ""
+
+#: ../../before_start/architecture.rst:56
+msgid "A common precondition for both triggers is that at least one transaction should reach the ordering service. Otherwise, no proposal will be formed."
+msgstr ""
+
+#: ../../before_start/architecture.rst:59
+msgid "Ordering service also performs preliminary validation of the proposals (e.g. clearing out statelessly rejected transactions from the proposal)."
+msgstr ""
+
+#: ../../before_start/architecture.rst:62
+msgid "Verified Proposal Creator"
+msgstr ""
+
+#: ../../before_start/architecture.rst:64
+msgid "Internal Iroha component that performs `stateful validation <glossary.html#stateful-validation>`_ of `transactions <glossary.html#transaction>`__ contained in received `proposal <glossary.html#proposal>`__ from the `Ordering Service <#ordering-service>`_. On the basis of transactions that have passed stateful validation **verified proposal** will be created and passed to `Block Creator <#block-creator>`__. All the transactions that have not passed stateful validation will be dropped and not included in a verified proposal."
+msgstr ""
+
+#: ../../before_start/architecture.rst:69
+msgid "Block Creator"
+msgstr ""
+
+#: ../../before_start/architecture.rst:71
+msgid "System component that forms a block from a set of transactions that have passed `stateless <glossary.html#stateless-validation>`__ and `stateful <glossary.html#stateful-validation>`__ validation for further propagation to `consensus <#consensus>`__."
+msgstr ""
+
+#: ../../before_start/architecture.rst:73
+msgid "Block creator, together with the `Verified Proposal Creator <#verified-proposal-creator>`_ form a component called `Simulator <https://github.com/hyperledger/iroha/tree/master/irohad/simulator>`_."
+msgstr ""
+
+#: ../../before_start/architecture.rst:76
+msgid "Block Consensus (YAC)"
+msgstr ""
+
+#: ../../before_start/architecture.rst:78
+msgid "*Consensus, as a component*"
+msgstr ""
+
+#: ../../before_start/architecture.rst:80
+msgid "Consensus is the heart of the blockchain - it preserves a consistent state among the `peers <glossary.html#peer>`__ within a peer network. Iroha uses own consensus algorithm called Yet Another Consensus (aka YAC)."
+msgstr ""
+
+#: ../../before_start/architecture.rst:83
+msgid "You can check out a video with a thorough explanation of the principles of consensus and YAC in particular `here <https://youtu.be/mzuAbalxOKo>`__."
+msgstr ""
+
+#: ../../before_start/architecture.rst:85
+msgid "Distinctive features of YAC algorithm are its scalability, performance and Crash fault tolerance."
+msgstr ""
+
+#: ../../before_start/architecture.rst:87
+msgid "To ensure consistency in the network, if there are missing blocks, they will be downloaded from another peer via `Synchronizer <#synchronizer>`__. Committed blocks are stored in `Ametsuchi <#ametsuchi>`__ block storage."
+msgstr ""
+
+#: ../../before_start/architecture.rst:90
+msgid "For general definition of the consensus, please check `this link <glossary.html#consensus>`_."
+msgstr ""
+
+#: ../../before_start/architecture.rst:94
+msgid "Synchronizer"
+msgstr ""
+
+#: ../../before_start/architecture.rst:96
+msgid "Is a part of `consensus <#consensus>`__. Adds missing blocks to `peers' <glossary.html#peer>`__ chains (downloads them from other peers to preserve consistency)."
+msgstr ""
+
+#: ../../before_start/architecture.rst:100
+msgid "Ametsuchi Blockstore"
+msgstr ""
+
+#: ../../before_start/architecture.rst:102
+msgid "Iroha storage component, which stores blocks and a state generated from blocks, called `World State View <#world-state-view>`__. There is no way for the `client <glossary.html#client>`__ to directly interact with Ametsuchi."
+msgstr ""
+
+#: ../../before_start/architecture.rst:107
+msgid "World State View"
+msgstr ""
+
+#: ../../before_start/architecture.rst:109
+msgid "WSV reflects the current state of the system, can be considered as a snapshot. For example, WSV holds information about an amount of `assets <glossary.html#asset>`__ that an `account <glossary.html#account>`__ has at the moment but does not contain any info history of `transaction <glossary.html#transaction>`__ flow."
+msgstr ""
+

@@ -1,0 +1,198 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../deploy/k8s-deployment.rst:3
+msgid "Deploying Iroha on Kubernetes cluster"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:5
+msgid "Some parts of this guide are deprecated. Proceed at your own discretion."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:7
+msgid "By following this guide you will be able to deploy a Kubernetes cluster from scratch on AWS cloud using Terraform and Kubespray, and deploy a network of Iroha nodes on it."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:10
+msgid "Prerequisites"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:11
+msgid "machine running Linux (tested on Ubuntu 16.04) or MacOS"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:12
+msgid "Python 3.3+"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:13
+msgid "boto3"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:14
+msgid "Ansible 2.4+"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:15
+msgid "*ed25519-cli* utility for key generation. Statically linked binary (for x86_64 platform) can be found in deploy/ansible/playbooks/iroha-k8s/scripts directory. You may need to `compile it yourself <https://github.com/Warchant/ed25519-cli>`__."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:17
+msgid "You do not need the items below if you already have a working Kubernetes (k8s) cluster. You can skip to `Generating Iroha configs`_ chapter."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:19
+msgid "Terraform 0.11.8+"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:20
+msgid "AWS account for deploying a k8s cluster on EC2"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:23
+msgid "Preparation"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:24
+msgid "You need to obtain AWS key for managing resources. We recommend to create a separate IAM user for that. Go to your AWS console, head to \"My Security Credentials\" menu and create a user in \"Users\" section. Assign \"AmazonEC2FullAccess\" and \"AmazonVPCFullAccess\" policies to that user. Click \"Create access key\" on Security credentials tab. Take a note for values of Access key ID and Secret key. Set these values as environment variables in your console:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:37
+msgid "Checkout the source tree from Github:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:44
+msgid "Setting up cloud infrastructure"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:45
+msgid "We use Hashicorp's Terraform infrastructure management tool for automated deployment of AWS EC2 nodes in multiple regions. `Kubespray <https://github.com/kubernetes-incubator/kubespray>`__ Ansible module is used for setting up a production-grade k8s cluster."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:47
+msgid "Terraform module creates 3 AWS instances in 3 different regions: eu-west-1, eu-west-2, eu-west-3 by default. Instance type is *c5.large*. There is a separate VPC created in every region. All created VPCs are then connected using VPC peering connection. That is to create a seamless network for k8s cluster."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:49
+msgid "There are several configurable options: number of nodes in each region and its role in k8s cluster (kube-master or kube-node). They can be set either in *variables.tf* file or via environment variables (using the same variable name but prefixed with TF_VAR. See more in `Terraform docs <https://www.terraform.io/intro/getting-started/variables.html#from-environment-variables>`__). More options can be configured by tuning parameters in module's *variables.tf* file."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:51
+msgid "You must set up SSH key in *deploy/tf/k8s/variables.tf* as well. Replace public key with your own. It will added on each created EC2 instance."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:53
+msgid "Navigate to *deploy/tf/k8s* directory. Terraform needs to download required modules first:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:59
+msgid "Then run module execution:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:65
+msgid "Review the execution plan and type *yes* to approve. Upon completion you should see an output similar to this:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:71
+msgid "We are now ready to deploy k8s cluster. Wait a couple of minutes before instances are initialized."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:74
+msgid "Setting up k8s cluster"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:75
+msgid "There is an Ansible role for setting up k8s cluster. It is an external module called Kubespray. It is stored as a submodule in Hyperledger Iroha repository. This means it needs to be initialized first:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:81
+msgid "This command will download Kubespray from master repository."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:83
+msgid "Install required dependencies:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:89
+msgid "Proceed to actual cluster deployment. Make sure you replaced *key-file* parameter with an actual path to SSH private key that was used previously during Terraform configuration. *REGIONS* variable corresponds to default list of regions used on a previous step. Modify it accordingly in case you added or removed any. Inventory file is a Python script that returns Ansible-compatible list of hosts filtered by tag."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:96
+msgid "Upon successful completion you will have working k8s cluster."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:99
+msgid "Generating Iroha configs"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:100
+msgid "In order for Iroha to work properly it requires to generate a key pair for each node, genesis block and configuration file. This is usually a tedious and error-prone procedure, especially for a large number of nodes. We automated it with Ansible role. You can skip to `Deploying Iroha on the cluster`_ chapter if you want to quick start using default configs for k8s cluster with 4 Iroha replicas."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:102
+msgid "Generate configuration files for *N* Iroha nodes. *replicas* variable controls the number of *N*:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:109
+msgid "You should find files created in *deploy/ansible/roles/iroha-k8s/files/conf*."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:112
+msgid "Deploying Iroha on the cluster"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:113
+msgid "Make sure you have configuration files in *deploy/ansible/roles/iroha-k8s/files*. Specifically, non-empty *conf* directory and *k8s-iroha.yaml* file."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:115
+msgid "There are two options for managing k8s cluster: logging into either of master node and executing commands there or configure remote management. We will cover the second option here as the first one is trivial."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:117
+msgid "In case you set up cluster using Kubespray, you can find *admin.conf* file on either of master node in */etc/kubernetes* directory. Copy this file on the control machine (the one you will be running *kubectl* command from). Make sure *server* parameter in this file points to external IP address or DNS name of a master node. Usually, there is a private IP address of the node (in case of AWS). Make sure *kubectl* utility is installed (`check out the docs <https://kubernetes.io/docs/tasks/tools/install-kubectl/>`__ for instructions)."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:119
+msgid "Replace the default *kubectl* configuration:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:125
+msgid "We can now control the remote k8s cluster"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:127
+msgid "*k8s-iroha.yaml* pod specification file requires the creation of a *config-map* first. This is a special resource that is mounted in the init container of each pod, and contains the configuration and genesis block files required to run Iroha."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:133
+msgid "Each peer will have their public and private keys stored in a Kubernetes secret which is  mounted in the init container and copied over for Iroha to use. Peers will only be able read their assigned secret when running Iroha."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:139
+msgid "Deploy Iroha network pod specification:"
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:145
+msgid "Wait a moment before each node downloads and starts Docker containers. Executing *kubectl get pods* command should eventually return a list of deployed pods each in *Running* state."
+msgstr ""
+
+#: ../../deploy/k8s-deployment.rst:147
+msgid "Pods do not expose ports externally. You need to connect to Iroha instance by its hostname (iroha-0, iroha-1, etc). For that you have to have a running pod in the same network."
+msgstr ""
+

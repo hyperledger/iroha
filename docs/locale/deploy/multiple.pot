@@ -1,0 +1,42 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../deploy/multiple.rst:3
+msgid "Running multiple instances (peer network)"
+msgstr ""
+
+#: ../../deploy/multiple.rst:5
+msgid "In order to set up a peer network, one should follow routines, described in this section. In this version, we support manual deployment and automated by Ansible Playbook. Choose an option, that meets your security criteria and other needs."
+msgstr ""
+
+#: ../../deploy/multiple.rst:10
+msgid "Manually"
+msgstr ""
+
+#: ../../deploy/multiple.rst:12
+msgid "By manual deployment, we mean that Iroha peer network is set up without automated assistance. It is similar to the process of running a single local instance, although the difference is the genesis block includes more than a single peer. In order to form a block, which includes more than a single peer, or requires customization for your needs, please take a look at `:ref:`deploy_troubles` section."
+msgstr ""
+
+#: ../../deploy/multiple.rst:17
+msgid "Automated"
+msgstr ""
+
+#: ../../deploy/multiple.rst:19
+msgid "Follow `this guide <https://github.com/hyperledger/iroha-deploy/blob/master/ansible/roles/iroha-docker/README.md>`__"
+msgstr ""
+

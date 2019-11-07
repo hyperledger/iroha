@@ -1,0 +1,42 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../index.rst:3
+msgid "Hyperledger Iroha documentation"
+msgstr ""
+
+#: ../../index.rst:7
+msgid "Welcome! Hyperledger Iroha is a simple blockchain platform you can use to make trusted, secure, and fast applications by bringing the power of permission-based blockchain with Crash fault-tolerant consensus. It's free, open-source, and works on Linux and Mac OS, with a variety of mobile and desktop libraries."
+msgstr ""
+
+#: ../../index.rst:9
+msgid "You can download the source code of Hyperledger Iroha and latest releases from `GitHub page <https://github.com/hyperledger/iroha>`_."
+msgstr ""
+
+#: ../../index.rst:11
+msgid "This documentation will guide you through the installation, deployment, and launch of Iroha network, and explain to you how to write an application for it. We will also see which use case scenarios are feasible now, and are going to be implemented in the future."
+msgstr ""
+
+#: ../../index.rst:13
+msgid "As Hyperledger Iroha is an open-source project, we will also cover contribution part and explain you a working process."
+msgstr ""
+
+#: ../../index.rst:15
+msgid "Table of contents"
+msgstr ""
+

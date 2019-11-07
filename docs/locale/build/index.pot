@@ -1,0 +1,431 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../build/index.rst:5
+#: ../../build/index.rst:16
+#: ../../build/index.rst:234
+msgid "Building Iroha"
+msgstr ""
+
+#: ../../build/index.rst:7
+msgid "In this guide we will learn how to install all dependencies, required to build Iroha and how to actually build it."
+msgstr ""
+
+#: ../../build/index.rst:10
+msgid "There will be 3 steps:"
+msgstr ""
+
+#: ../../build/index.rst:12
+msgid "Installing environment prerequisites"
+msgstr ""
+
+#: ../../build/index.rst:14
+msgid "Installing Iroha dependencies (will be performed automatically for Docker)"
+msgstr ""
+
+#: ../../build/index.rst:18
+msgid "You don't need to build Iroha to start using it. Instead, you can download prepared Docker image from the Hub, this process explained in details in the :ref:`getting-started` page of this documentation."
+msgstr ""
+
+#: ../../build/index.rst:23
+msgid "Prerequisites"
+msgstr ""
+
+#: ../../build/index.rst:25
+msgid "In order to successfully build Iroha, we need to configure the environment. There are several ways to do it and we will describe all of them."
+msgstr ""
+
+#: ../../build/index.rst:28
+msgid "Currently, we support Unix-like systems (we are basically targeting popular Linux distros and MacOS). If you happen to have Windows or you don't want to spend time installing all dependencies you might want to consider using Docker environment. Also, Windows users might consider using `WSL <https://en.wikipedia.org/wiki/Windows_Subsystem_for_Linux>`_"
+msgstr ""
+
+#: ../../build/index.rst:34
+msgid "Technically Iroha can be built under Windows natively in experimental mode. This guide covers that way too. All the stages related to native Windows build are separated from the main flow due to its significant differences."
+msgstr ""
+
+#: ../../build/index.rst:38
+msgid "Please choose your preferred platform below for a quick access:"
+msgstr ""
+
+#: ../../build/index.rst:40
+msgid ":ref:`docker-pre`"
+msgstr ""
+
+#: ../../build/index.rst:41
+msgid ":ref:`linux-pre`"
+msgstr ""
+
+#: ../../build/index.rst:42
+msgid ":ref:`MacOS-pre`"
+msgstr ""
+
+#: ../../build/index.rst:43
+msgid ":ref:`Windows-pre`"
+msgstr ""
+
+#: ../../build/index.rst:46
+msgid "Having troubles? Check FAQ section or communicate to us directly, in case you were stuck on something. We don't expect this to happen, but some issues with an environment are possible."
+msgstr ""
+
+#: ../../build/index.rst:53
+msgid "Docker"
+msgstr ""
+
+#: ../../build/index.rst:55
+msgid "First of all, you need to install ``docker`` and ``docker-compose``. You can read how to install it on the `Docker's website <https://www.docker.com/community-edition/>`_"
+msgstr ""
+
+#: ../../build/index.rst:59
+msgid "Please, use the latest available docker daemon and docker-compose."
+msgstr ""
+
+#: ../../build/index.rst:61
+msgid "Then you should clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the directory of your choice:"
+msgstr ""
+
+#: ../../build/index.rst:68
+msgid "``--depth=1`` option allows us to download only latest commit and save some time and bandwidth. If you want to get a full commit history, you can omit this option."
+msgstr ""
+
+#: ../../build/index.rst:72
+msgid "When it is done, you need to run the development environment. Run the ``scripts/run-iroha-dev.sh`` script:"
+msgstr ""
+
+#: ../../build/index.rst:79
+msgid "Please make sure that Docker is running before executing the script. MacOS users could find a Docker icon in system tray, Linux users can use ``systemctl start docker``"
+msgstr ""
+
+#: ../../build/index.rst:83
+msgid "After you execute this script, the following things will happen:"
+msgstr ""
+
+#: ../../build/index.rst:85
+msgid "The script will check whether you have containers with Iroha already running. Successful completion finishes with the new container shell."
+msgstr ""
+
+#: ../../build/index.rst:87
+msgid "The script will download ``hyperledger/iroha:develop-build`` and ``postgres`` images. ``hyperledger/iroha:develop-build`` image contains all development dependencies and is based on top of ``ubuntu:18.04``. ``postgres`` image is required for starting and running Iroha."
+msgstr ""
+
+#: ../../build/index.rst:89
+msgid "Two containers are created and launched."
+msgstr ""
+
+#: ../../build/index.rst:91
+msgid "The user is attached to the interactive environment for development and testing with ``iroha`` folder mounted from the host machine. Iroha folder is mounted to ``/opt/iroha`` in Docker container."
+msgstr ""
+
+#: ../../build/index.rst:93
+msgid "Now your are ready to build Iroha! Please go directly to `Building Iroha <#build-process>`_ section."
+msgstr ""
+
+#: ../../build/index.rst:98
+msgid "Linux"
+msgstr ""
+
+#: ../../build/index.rst:100
+msgid "To build Iroha, you will need the following packages:"
+msgstr ""
+
+#: ../../build/index.rst:102
+msgid "``build-essential`` ``git`` ``tar`` ``ninja-build`` ``curl`` ``unzip`` ``cmake``"
+msgstr ""
+
+#: ../../build/index.rst:104
+msgid "Use this code to install environment dependencies on Debian-based Linux distro."
+msgstr ""
+
+#: ../../build/index.rst:113
+msgid "If you are willing to actively develop Iroha and to build shared libraries, please consider installing the `latest release <https://cmake.org/download/>`_ of CMake."
+msgstr ""
+
+#: ../../build/index.rst:117
+#: ../../build/index.rst:136
+#: ../../build/index.rst:169
+msgid "Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_."
+msgstr ""
+
+#: ../../build/index.rst:122
+msgid "MacOS"
+msgstr ""
+
+#: ../../build/index.rst:124
+msgid "If you want to build Iroha from scratch and actively develop it, please use the following code to install all environment dependencies with Homebrew:"
+msgstr ""
+
+#: ../../build/index.rst:132
+msgid "To install the Homebrew itself please run"
+msgstr ""
+
+#: ../../build/index.rst:134
+msgid "``ruby -e \"$(curl -fsSL https://raw.githubusercontent.com/homebrew/install/master/install)\"``"
+msgstr ""
+
+#: ../../build/index.rst:141
+#: ../../build/index.rst:196
+msgid "Windows"
+msgstr ""
+
+#: ../../build/index.rst:143
+msgid "All the listed commands are designed for building 64-bit version of Iroha."
+msgstr ""
+
+#: ../../build/index.rst:146
+msgid "Chocolatey Package Manager"
+msgstr ""
+
+#: ../../build/index.rst:148
+msgid "First of all you need Chocolatey package manager installed. Please refer `the guide <https://chocolatey.org/install>`_ for chocolatey installation."
+msgstr ""
+
+#: ../../build/index.rst:152
+msgid "Building the Toolset"
+msgstr ""
+
+#: ../../build/index.rst:154
+msgid "Install CMake, Git, Microsoft compilers via chocolatey being in Administrative mode of command prompt:"
+msgstr ""
+
+#: ../../build/index.rst:162
+msgid "PostgreSQL is not a build dependency, but it is recommended to install it now for the testing later:"
+msgstr ""
+
+#: ../../build/index.rst:172
+msgid "Installing dependencies with Vcpkg Dependency Manager"
+msgstr ""
+
+#: ../../build/index.rst:174
+msgid "Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS. We use a fixed version of Vcpkg to ensure the patches we need will work."
+msgstr ""
+
+#: ../../build/index.rst:177
+msgid "That stable version can only be found inside the Iroha repository, so we will need to clone Iroha. The whole process is pretty similar for all platforms but the exact commands are slightly different."
+msgstr ""
+
+#: ../../build/index.rst:181
+msgid "Linux and MacOS"
+msgstr ""
+
+#: ../../build/index.rst:183
+msgid "Run in terminal:"
+msgstr ""
+
+#: ../../build/index.rst:191
+msgid "After the installation of vcpkg you will be provided with a CMake build parameter like ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``. Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section."
+msgstr ""
+
+#: ../../build/index.rst:198
+msgid "Execute from Power Shell:"
+msgstr ""
+
+#: ../../build/index.rst:205
+msgid "After the installation of vcpkg you will be provided with a CMake build parameter like ``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``. Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section."
+msgstr ""
+
+#: ../../build/index.rst:209
+msgid "If you plan to build 32-bit version of Iroha - you will need to install all the mentioned librares above prefixed with ``x86`` term instead of ``x64``."
+msgstr ""
+
+#: ../../build/index.rst:214
+msgid "Build Process"
+msgstr ""
+
+#: ../../build/index.rst:217
+msgid "Cloning the Repository"
+msgstr ""
+
+#: ../../build/index.rst:218
+msgid "This step is currently unnecessary since you have already cloned Iroha in the previous step. But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the directory of your choice."
+msgstr ""
+
+#: ../../build/index.rst:227
+msgid "If you have installed the prerequisites with Docker, you don't need to clone Iroha again, because when you run ``run-iroha-dev.sh`` it attaches to Iroha source code folder. Feel free to edit source code files with your host environment and build it within docker container."
+msgstr ""
+
+#: ../../build/index.rst:236
+msgid "To build Iroha, use these commands:"
+msgstr ""
+
+#: ../../build/index.rst:243
+msgid "On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other environment please use the path you have got in previous steps."
+msgstr ""
+
+#: ../../build/index.rst:246
+msgid "Number of threads will be defined differently depending on the platform: - On Linux: via ``nproc``. - On MacOS: with ``sysctl -n hw.ncpu``. - On Windows: use ``echo %NUMBER_OF_PROCESSORS%``."
+msgstr ""
+
+#: ../../build/index.rst:251
+msgid "When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt."
+msgstr ""
+
+#: ../../build/index.rst:253
+msgid "Now Iroha is built. Although, if you like, you can build it with additional parameters described below."
+msgstr ""
+
+#: ../../build/index.rst:256
+msgid "CMake Parameters"
+msgstr ""
+
+#: ../../build/index.rst:258
+msgid "We use CMake to generate platform-dependent build files. It has numerous flags for configuring the final build. Note that besides the listed parameters cmake's variables can be useful as well. Also as long as this page can be deprecated (or just not complete) you can browse custom flags via ``cmake -L``, ``cmake-gui``, or ``ccmake``."
+msgstr ""
+
+#: ../../build/index.rst:263
+msgid "You can specify parameters at the cmake configuring stage (e.g cmake -DTESTING=ON)."
+msgstr ""
+
+#: ../../build/index.rst:267
+msgid "Main Parameters"
+msgstr ""
+
+#: ../../build/index.rst:270
+#: ../../build/index.rst:287
+msgid "Parameter"
+msgstr ""
+
+#: ../../build/index.rst:270
+#: ../../build/index.rst:287
+msgid "Possible values"
+msgstr ""
+
+#: ../../build/index.rst:270
+#: ../../build/index.rst:287
+msgid "Default"
+msgstr ""
+
+#: ../../build/index.rst:270
+#: ../../build/index.rst:287
+msgid "Description"
+msgstr ""
+
+#: ../../build/index.rst:272
+msgid "TESTING"
+msgstr ""
+
+#: ../../build/index.rst:272
+#: ../../build/index.rst:289
+msgid "ON/OFF"
+msgstr ""
+
+#: ../../build/index.rst:272
+#: ../../build/index.rst:289
+msgid "ON"
+msgstr ""
+
+#: ../../build/index.rst:272
+msgid "Enables or disables build of the tests"
+msgstr ""
+
+#: ../../build/index.rst:274
+msgid "BENCHMARKING"
+msgstr ""
+
+#: ../../build/index.rst:274
+#: ../../build/index.rst:276
+#: ../../build/index.rst:278
+#: ../../build/index.rst:291
+#: ../../build/index.rst:293
+#: ../../build/index.rst:295
+#: ../../build/index.rst:297
+msgid "OFF"
+msgstr ""
+
+#: ../../build/index.rst:274
+msgid "Enables or disables build of the Google Benchmarks library"
+msgstr ""
+
+#: ../../build/index.rst:276
+msgid "COVERAGE"
+msgstr ""
+
+#: ../../build/index.rst:276
+msgid "Enables or disables lcov setting for code coverage generation"
+msgstr ""
+
+#: ../../build/index.rst:278
+msgid "USE_LIBURSA"
+msgstr ""
+
+#: ../../build/index.rst:278
+msgid "Enables usage of the HL Ursa cryptography instead of the standard one"
+msgstr ""
+
+#: ../../build/index.rst:281
+msgid "If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <../integrations/index.html#hyperledger-ursa>`_."
+msgstr ""
+
+#: ../../build/index.rst:284
+msgid "Packaging Specific Parameters"
+msgstr ""
+
+#: ../../build/index.rst:289
+msgid "ENABLE_LIBS_PACKAGING"
+msgstr ""
+
+#: ../../build/index.rst:289
+msgid "Enables or disables all types of packaging"
+msgstr ""
+
+#: ../../build/index.rst:291
+msgid "PACKAGE_ZIP"
+msgstr ""
+
+#: ../../build/index.rst:291
+msgid "Enables or disables zip packaging"
+msgstr ""
+
+#: ../../build/index.rst:293
+msgid "PACKAGE_TGZ"
+msgstr ""
+
+#: ../../build/index.rst:293
+msgid "Enables or disables tar.gz packaging"
+msgstr ""
+
+#: ../../build/index.rst:295
+msgid "PACKAGE_RPM"
+msgstr ""
+
+#: ../../build/index.rst:295
+msgid "Enables or disables rpm packaging"
+msgstr ""
+
+#: ../../build/index.rst:297
+msgid "PACKAGE_DEB"
+msgstr ""
+
+#: ../../build/index.rst:297
+msgid "Enables or disables deb packaging"
+msgstr ""
+
+#: ../../build/index.rst:301
+msgid "Running Tests (optional)"
+msgstr ""
+
+#: ../../build/index.rst:303
+msgid "After building Iroha, it is a good idea to run tests to check the operability of the daemon. You can run tests with this code:"
+msgstr ""
+
+#: ../../build/index.rst:310
+msgid "Alternatively, you can run the following command in the ``build`` folder"
+msgstr ""
+
+#: ../../build/index.rst:317
+msgid "Some of the tests will fail without PostgreSQL storage running, so if you are not using ``scripts/run-iroha-dev.sh`` script please run Docker container or create a local connection with following parameters:"
+msgstr ""
+

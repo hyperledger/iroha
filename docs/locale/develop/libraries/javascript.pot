@@ -1,0 +1,66 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/libraries/javascript.rst:2
+msgid "Javascript library"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:6
+msgid "This library provides functions which will help you to interact with Hyperledger Iroha from your JS program."
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:9
+msgid "Installation"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:10
+msgid "Via npm"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:16
+msgid "Via yarn"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:23
+msgid "Commands"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:24
+msgid "For usage of any command you need to provide ``commandOptions`` as a first argument."
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:35
+msgid "As second argument you need to provide object that contains properties for required command."
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:60
+msgid "Queries"
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:61
+msgid "For usage of any query you need to provide ``queryOptions`` as a first argument."
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:71
+msgid "As second argument you need to provide object that contains properties for required query."
+msgstr ""
+
+#: ../../develop/libraries/javascript.rst:93
+msgid "Example code"
+msgstr ""
+

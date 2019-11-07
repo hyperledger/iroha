@@ -1,0 +1,62 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/libraries/java.rst:2
+msgid "Java Library"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:4
+msgid "Client library of Iroha written completely in Java 8, which includes:"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:6
+msgid "SDK to work with Iroha API"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:8
+msgid "async wrapper over Iroha API"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:10
+msgid "`testcontainers` wrapper for convenient integration testing with Iroha"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:12
+msgid "examples in Java and Groovy"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:14
+msgid "Both options are described in the following sections. Please check readme file in `project's repo <https://github.com/hyperledger/iroha-java>`__."
+msgstr ""
+
+#: ../../develop/libraries/java.rst:18
+msgid "How to use"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:20
+msgid "`JitPack <https://jitpack.io/#hyperledger/iroha-java>`__"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:21
+msgid "`GitHub <https://github.com/hyperledger/iroha>`__"
+msgstr ""
+
+#: ../../develop/libraries/java.rst:24
+msgid "Example code"
+msgstr ""
+

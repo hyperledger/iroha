@@ -1,0 +1,58 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../deploy/troubles.rst:5
+msgid "Dealing with troubles"
+msgstr ""
+
+#: ../../deploy/troubles.rst:7
+msgid "—\"Please, help me, because I…\""
+msgstr ""
+
+#: ../../deploy/troubles.rst:10
+msgid "Do not have Iroha daemon binary"
+msgstr ""
+
+#: ../../deploy/troubles.rst:12
+msgid "You can build Iroha daemon binary from sources. You can get binaries `here <https://github.com/hyperledger/iroha/releases>`__"
+msgstr ""
+
+#: ../../deploy/troubles.rst:15
+msgid "Do not have a config file"
+msgstr ""
+
+#: ../../deploy/troubles.rst:17
+msgid "Check how to create a configuration file by following this `link <../configure/index.html>`__"
+msgstr ""
+
+#: ../../deploy/troubles.rst:20
+msgid "Do not have a genesis block"
+msgstr ""
+
+#: ../../deploy/troubles.rst:22
+msgid "Create genesis block by generating it via `iroha-cli` or manually, using the `example <https://github.com/hyperledger/iroha/blob/master/example/genesis.block>`__ and checking out `permissions <../develop/api/permissions.html>`__"
+msgstr ""
+
+#: ../../deploy/troubles.rst:25
+msgid "Do not have a keypair for a peer"
+msgstr ""
+
+#: ../../deploy/troubles.rst:27
+msgid "In order to create a keypair for an account or a peer, use iroha-cli binary by passing the name of the peer with `--new_account` option. For example:"
+msgstr ""
+

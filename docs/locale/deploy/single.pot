@@ -1,0 +1,191 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../deploy/single.rst:3
+msgid "Running single instance"
+msgstr ""
+
+#: ../../deploy/single.rst:5
+msgid "Generally, people want to run Iroha locally in order to try out the API and explore the capabilities. This can be done in local or container environment (Docker). We will explore both possible cases, but in order to simplify peer components deployment, *it is advised to have Docker installed on your machine*."
+msgstr ""
+
+#: ../../deploy/single.rst:11
+msgid "Local environment"
+msgstr ""
+
+#: ../../deploy/single.rst:13
+msgid "By local environment, it is meant to have daemon process and Postgres deployed without any containers. This might be helpful in cases when messing up with Docker is not preferred — generally a quick exploration of the features."
+msgstr ""
+
+#: ../../deploy/single.rst:17
+msgid "Run postgres server"
+msgstr ""
+
+#: ../../deploy/single.rst:19
+msgid "In order to run postgres server locally, you should check postgres `website <https://www.postgresql.org/docs/current/static/server-start.html>`__ and follow their description. Generally, postgres server runs automatically when the system starts, but this should be checked in the configuration of the system."
+msgstr ""
+
+#: ../../deploy/single.rst:24
+msgid "Run iroha daemon (irohad)"
+msgstr ""
+
+#: ../../deploy/single.rst:26
+msgid "There is a list of preconditions which you should meet before proceeding:"
+msgstr ""
+
+#: ../../deploy/single.rst:28
+msgid "Postgres server is up and running"
+msgstr ""
+
+#: ../../deploy/single.rst:29
+msgid "`irohad` Iroha daemon binary is built and accessible in your system"
+msgstr ""
+
+#: ../../deploy/single.rst:30
+msgid "The genesis block and configuration files were created"
+msgstr ""
+
+#: ../../deploy/single.rst:31
+msgid "Config file uses valid postgres connection settings"
+msgstr ""
+
+#: ../../deploy/single.rst:32
+msgid "A keypair for the peer is generated"
+msgstr ""
+
+#: ../../deploy/single.rst:33
+#: ../../deploy/single.rst:117
+msgid "This is the first time you run the Iroha on this peer and you want to create new chain"
+msgstr ""
+
+#: ../../deploy/single.rst:35
+msgid "Have you got something that is not the same as in the list of assumptions? Please, refer to the section :ref:`deploy_troubles`."
+msgstr ""
+
+#: ../../deploy/single.rst:37
+msgid "In case of valid assumptions, the only thing that remains is to launch the daemon process with following parameters:"
+msgstr ""
+
+#: ../../deploy/single.rst:40
+msgid "Parameter"
+msgstr ""
+
+#: ../../deploy/single.rst:40
+msgid "Meaning"
+msgstr ""
+
+#: ../../deploy/single.rst:42
+msgid "config"
+msgstr ""
+
+#: ../../deploy/single.rst:42
+msgid "configuration file, containing postgres connection and values to tune the system"
+msgstr ""
+
+#: ../../deploy/single.rst:45
+msgid "genesis_block"
+msgstr ""
+
+#: ../../deploy/single.rst:45
+msgid "initial block in the ledger"
+msgstr ""
+
+#: ../../deploy/single.rst:47
+msgid "keypair_name"
+msgstr ""
+
+#: ../../deploy/single.rst:47
+msgid "private and public key file names without file extension, used by peer to sign the blocks"
+msgstr ""
+
+#: ../../deploy/single.rst:51
+msgid "Specifying a new genesis block using `--genesis_block` with blocks already present in ledger requires `--overwrite_ledger` flag to be set. The daemon will fail otherwise."
+msgstr ""
+
+#: ../../deploy/single.rst:53
+msgid "An example of shell command, running Iroha daemon is"
+msgstr ""
+
+#: ../../deploy/single.rst:59
+msgid "if you are running Iroha built with `HL Ursa support <../integrations/index.html#hyperledger-ursa>`_ please get the example keys and genesis block in `example/ursa-keys/`"
+msgstr ""
+
+#: ../../deploy/single.rst:61
+msgid "If you have stopped the daemon and want to use existing chain — you should not pass the genesis block parameter."
+msgstr ""
+
+#: ../../deploy/single.rst:65
+msgid "Docker"
+msgstr ""
+
+#: ../../deploy/single.rst:67
+msgid "In order to run Iroha peer as a single instance in Docker, you should pull the image for Iroha first:"
+msgstr ""
+
+#: ../../deploy/single.rst:73
+msgid "Use *latest* tag for latest stable release, and *develop* for latest development version"
+msgstr ""
+
+#: ../../deploy/single.rst:75
+msgid "Then, you have to create an enviroment for the image to run without problems:"
+msgstr ""
+
+#: ../../deploy/single.rst:78
+msgid "Create docker network"
+msgstr ""
+
+#: ../../deploy/single.rst:80
+msgid "Containers for Postgres and Iroha should run in the same virtual network, in order to be available to each other. Create a network, by typing following command (you can use any name for the network, but in the example, we use *iroha-network* name):"
+msgstr ""
+
+#: ../../deploy/single.rst:88
+msgid "Run Postgresql in a container"
+msgstr ""
+
+#: ../../deploy/single.rst:90
+msgid "Similarly, run postgres server, attaching it to the network you have created before, and exposing ports for communication:"
+msgstr ""
+
+#: ../../deploy/single.rst:102
+msgid "Create volume for block storage"
+msgstr ""
+
+#: ../../deploy/single.rst:104
+msgid "Before we run iroha daemon in the container, we should create persistent volume to store files, storing blocks for the chain. It is done via the following command:"
+msgstr ""
+
+#: ../../deploy/single.rst:112
+msgid "Running iroha daemon in docker container"
+msgstr ""
+
+#: ../../deploy/single.rst:117
+msgid "There is a list of assumptions which you should review before proceeding:"
+msgstr ""
+
+#: ../../deploy/single.rst:115
+msgid "Postgres server is running on the same docker network"
+msgstr ""
+
+#: ../../deploy/single.rst:116
+msgid "There is a folder, containing config file and keypair for a single node"
+msgstr ""
+
+#: ../../deploy/single.rst:119
+msgid "If they are met, you can move forward with the following command:"
+msgstr ""
+

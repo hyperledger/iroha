@@ -1,0 +1,194 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../configure/index.rst:5
+msgid "Configure"
+msgstr ""
+
+#: ../../configure/index.rst:12
+msgid "In this section we will understand how to configure Iroha. Let's take a look at ``example/config.sample``"
+msgstr ""
+
+#: ../../configure/index.rst:44
+msgid "As you can see, configuration file is a valid ``json`` structure. Let's go line-by-line and understand what every parameter means."
+msgstr ""
+
+#: ../../configure/index.rst:48
+msgid "Deployment-specific parameters"
+msgstr ""
+
+#: ../../configure/index.rst:50
+msgid "``block_store_path`` sets path to the folder where blocks are stored."
+msgstr ""
+
+#: ../../configure/index.rst:51
+msgid "``torii_port`` sets the port for external communications. Queries and transactions are sent here."
+msgstr ""
+
+#: ../../configure/index.rst:53
+msgid "``internal_port`` sets the port for internal communications: ordering service, consensus and block loader."
+msgstr ""
+
+#: ../../configure/index.rst:55
+msgid "``database`` (optional) is used to set the database configuration (see below)"
+msgstr ""
+
+#: ../../configure/index.rst:56
+msgid "``pg_opt`` (optional) is a deprecated way of setting credentials of PostgreSQL: hostname, port, username, password and database name. All data except the database name are mandatory. If database name is not provided, the default one gets used, which is ``iroha_default``."
+msgstr ""
+
+#: ../../configure/index.rst:60
+msgid "``log`` is an optional parameter controlling log output verbosity and format (see below)."
+msgstr ""
+
+#: ../../configure/index.rst:63
+msgid "There is also an optional ``torii_tls_params`` parameter, which could be included in the config to enable TLS support for client communication."
+msgstr ""
+
+#: ../../configure/index.rst:66
+msgid "There, ``port`` is the TCP port where the TLS server will be bound, and ``key_pair_path`` is the path to the keypair in a format such that appending ``.crt`` to it would be the path to the PEM-encoded certificate, and appending ``.key`` would be the path to the PEM-encoded private key for this certificate (e.g. if ``key_pair_path`` is ``\"/path/to/the/keypair\"`` iroha would look for certificate located at ``\"/path/to/the/keypair.crt\"`` and key located at ``\"/path/to/the/keypair.key\"``)"
+msgstr ""
+
+#: ../../configure/index.rst:75
+msgid "Configuration field ``pg_opt`` is deprecated, please use ``database`` section!"
+msgstr ""
+
+#: ../../configure/index.rst:77
+msgid "The ``database`` section overrides ``pg_opt`` when both are provided in configuration."
+msgstr ""
+
+#: ../../configure/index.rst:79
+msgid "Both ``pg_opt`` and ``database`` fields are optional, but at least one must be specified."
+msgstr ""
+
+#: ../../configure/index.rst:81
+msgid "The ``database`` section fields:"
+msgstr ""
+
+#: ../../configure/index.rst:83
+msgid "``host`` the host to use for PostgreSQL connection"
+msgstr ""
+
+#: ../../configure/index.rst:84
+msgid "``port`` the port to use for PostgreSQL connection"
+msgstr ""
+
+#: ../../configure/index.rst:85
+msgid "``user`` the user to use for PostgreSQL connection"
+msgstr ""
+
+#: ../../configure/index.rst:86
+msgid "``password`` the password to use for PostgreSQL connection"
+msgstr ""
+
+#: ../../configure/index.rst:87
+msgid "``working database`` is the name of database that will be used to store the world state view and optionally blocks."
+msgstr ""
+
+#: ../../configure/index.rst:88
+msgid "``maintenance database`` is the name of databse that will be used to maintain the working database. For example, when iroha needs to create or drop its working database, it must use another database to connect to PostgreSQL."
+msgstr ""
+
+#: ../../configure/index.rst:92
+msgid "Environment-specific parameters"
+msgstr ""
+
+#: ../../configure/index.rst:94
+msgid "``max_proposal_size`` is the maximum amount of transactions that can be in one proposal, and as a result in a single block as well. So, by changing this value you define the size of potential block. For a starter you can stick to ``10``. However, we recommend to increase this number if you have a lot of transactions per second."
+msgstr ""
+
+#: ../../configure/index.rst:99
+msgid "``proposal_delay`` is a timeout in milliseconds that a peer waits a response from the orderding service with a proposal."
+msgstr ""
+
+#: ../../configure/index.rst:101
+msgid "``vote_delay`` is a waiting time in milliseconds before sending vote to the next peer. Optimal value depends heavily on the amount of Iroha peers in the network (higher amount of nodes requires longer ``vote_delay``). We recommend to start with 100-1000 milliseconds."
+msgstr ""
+
+#: ../../configure/index.rst:105
+msgid "``mst_enable`` enables or disables multisignature transaction network transport in Iroha. Note that MST engine always works for any peer even when the flag is set to ``false``. The flag only allows sharing information about MST transactions among the peers."
+msgstr ""
+
+#: ../../configure/index.rst:111
+msgid "``mst_expiration_time`` is an optional parameter specifying the time period in which a not fully signed transaction (or a batch) is considered expired (in minutes). The default value is 1440."
+msgstr ""
+
+#: ../../configure/index.rst:115
+msgid "``max_rounds_delay`` is an optional parameter specifying the maximum delay between two consensus rounds (in milliseconds). The default value is 3000. When Iroha is idle, it gradually increases the delay to reduce CPU, network and logging load. However too long delay may be unwanted when first transactions arrive after a long idle time. This parameter allows users to find an optimal value in a tradeoff between resource consumption and the delay of getting back to work after an idle period."
+msgstr ""
+
+#: ../../configure/index.rst:125
+msgid "``stale_stream_max_rounds`` is an optional parameter specifying the maximum amount of rounds to keep an open status stream while no status update is reported. The default value is 2. Increasing this value reduces the amount of times a client must reconnect to track a transaction if for some reason it is not updated with new rounds. However large values increase the average number of connected clients during each round."
+msgstr ""
+
+#: ../../configure/index.rst:133
+msgid "``\"initial_peers`` is an optional parameter specifying list of peers a node will use after startup instead of peers from genesis block. It could be useful when you add a new node to the network where the most of initial peers may become malicious. Peers list should be provided as a JSON array:"
+msgstr ""
+
+#: ../../configure/index.rst:139
+msgid "``\"initial_peers\" : [{\"address\":\"127.0.0.1:10001\", \"public_key\": \"bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929\"}]``"
+msgstr ""
+
+#: ../../configure/index.rst:143
+msgid "Logging"
+msgstr ""
+
+#: ../../configure/index.rst:145
+msgid "In Iroha logging can be adjusted as granularly as you want. Each component has its own logging configuration with properties inherited from its parent, able to be overridden through config file. This means all the component loggers are organized in a tree with a single root. The relevant section of the configuration file contains the overriding values:"
+msgstr ""
+
+#: ../../configure/index.rst:177
+msgid "Every part of this config section is optional."
+msgstr ""
+
+#: ../../configure/index.rst:179
+msgid "``level`` sets the verbosity. Available values are (in decreasing verbosity order):"
+msgstr ""
+
+#: ../../configure/index.rst:182
+msgid "``trace`` - print everything"
+msgstr ""
+
+#: ../../configure/index.rst:183
+msgid "``debug``"
+msgstr ""
+
+#: ../../configure/index.rst:184
+msgid "``info``"
+msgstr ""
+
+#: ../../configure/index.rst:185
+msgid "``warning``"
+msgstr ""
+
+#: ../../configure/index.rst:186
+msgid "``error``"
+msgstr ""
+
+#: ../../configure/index.rst:187
+msgid "``critical`` - print only critical messages"
+msgstr ""
+
+#: ../../configure/index.rst:189
+msgid "``patterns`` controls the formatting of each log string for different verbosity levels. Each value overrides the less verbose levels too. So in the example above, the \"don't panic\" pattern also applies to info and warning levels, and the trace level pattern is the only one that is not initialized in the config (it will be set to default hardcoded value)."
+msgstr ""
+
+#: ../../configure/index.rst:195
+msgid "``children`` describes the overrides of child nodes. The keys are the names of the components, and the values have the same syntax and semantics as the root log configuration."
+msgstr ""
+

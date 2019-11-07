@@ -1,0 +1,1887 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) Soramitsu Co., Ltd.
+# This file is distributed under the same license as the Hyperledger Iroha package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Hyperledger Iroha \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ../../develop/api/commands.rst:2
+msgid "Commands"
+msgstr ""
+
+#: ../../develop/api/commands.rst:4
+msgid "A command changes the state, called World State View, by performing an action over an entity (asset, account) in the system. Any command should be included in a transaction to perform an action."
+msgstr ""
+
+#: ../../develop/api/commands.rst:8
+msgid "Add asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:11
+#: ../../develop/api/commands.rst:63
+#: ../../develop/api/commands.rst:112
+#: ../../develop/api/commands.rst:161
+#: ../../develop/api/commands.rst:207
+#: ../../develop/api/commands.rst:255
+#: ../../develop/api/commands.rst:307
+#: ../../develop/api/commands.rst:353
+#: ../../develop/api/commands.rst:398
+#: ../../develop/api/commands.rst:445
+#: ../../develop/api/commands.rst:490
+#: ../../develop/api/commands.rst:535
+#: ../../develop/api/commands.rst:587
+#: ../../develop/api/commands.rst:630
+#: ../../develop/api/commands.rst:683
+#: ../../develop/api/commands.rst:735
+#: ../../develop/api/commands.rst:785
+#: ../../develop/api/commands.rst:844
+#: ../../develop/api/commands.rst:904
+msgid "Purpose"
+msgstr ""
+
+#: ../../develop/api/commands.rst:13
+msgid "The purpose of add asset quantity command is to increase the quantity of an asset on account of transaction creator. Use case scenario is to increase the number of a mutable asset in the system, which can act as a claim on a commodity (e.g. money, gold, etc.)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:17
+#: ../../develop/api/commands.rst:69
+#: ../../develop/api/commands.rst:118
+#: ../../develop/api/commands.rst:166
+#: ../../develop/api/commands.rst:212
+#: ../../develop/api/commands.rst:261
+#: ../../develop/api/commands.rst:312
+#: ../../develop/api/commands.rst:359
+#: ../../develop/api/commands.rst:404
+#: ../../develop/api/commands.rst:450
+#: ../../develop/api/commands.rst:496
+#: ../../develop/api/commands.rst:540
+#: ../../develop/api/commands.rst:592
+#: ../../develop/api/commands.rst:637
+#: ../../develop/api/commands.rst:689
+#: ../../develop/api/commands.rst:740
+#: ../../develop/api/commands.rst:790
+#: ../../develop/api/commands.rst:849
+#: ../../develop/api/commands.rst:910
+msgid "Schema"
+msgstr ""
+
+#: ../../develop/api/commands.rst:27
+#: ../../develop/api/commands.rst:272
+#: ../../develop/api/commands.rst:750
+msgid "Please note that due to a known issue you would not get any exception if you pass invalid precision value. Valid range is: 0 <= precision <= 255"
+msgstr ""
+
+#: ../../develop/api/commands.rst:32
+#: ../../develop/api/commands.rst:83
+#: ../../develop/api/commands.rst:128
+#: ../../develop/api/commands.rst:176
+#: ../../develop/api/commands.rst:223
+#: ../../develop/api/commands.rst:276
+#: ../../develop/api/commands.rst:322
+#: ../../develop/api/commands.rst:369
+#: ../../develop/api/commands.rst:414
+#: ../../develop/api/commands.rst:460
+#: ../../develop/api/commands.rst:505
+#: ../../develop/api/commands.rst:550
+#: ../../develop/api/commands.rst:602
+#: ../../develop/api/commands.rst:648
+#: ../../develop/api/commands.rst:699
+#: ../../develop/api/commands.rst:754
+#: ../../develop/api/commands.rst:803
+#: ../../develop/api/commands.rst:867
+#: ../../develop/api/commands.rst:920
+msgid "Structure"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Field"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Description"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Constraint"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Example"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Asset ID"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "id of the asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "<asset_name>#<domain_id>"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "usd#morgan"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Amount"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "positive amount of the asset to add"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "> 0"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "200.02"
+msgstr ""
+
+#: ../../develop/api/commands.rst:42
+#: ../../develop/api/commands.rst:93
+#: ../../develop/api/commands.rst:138
+#: ../../develop/api/commands.rst:186
+#: ../../develop/api/commands.rst:234
+#: ../../develop/api/commands.rst:287
+#: ../../develop/api/commands.rst:332
+#: ../../develop/api/commands.rst:379
+#: ../../develop/api/commands.rst:424
+#: ../../develop/api/commands.rst:471
+#: ../../develop/api/commands.rst:514
+#: ../../develop/api/commands.rst:560
+#: ../../develop/api/commands.rst:612
+#: ../../develop/api/commands.rst:659
+#: ../../develop/api/commands.rst:709
+#: ../../develop/api/commands.rst:764
+#: ../../develop/api/commands.rst:816
+#: ../../develop/api/commands.rst:879
+#: ../../develop/api/commands.rst:931
+msgid "Validation"
+msgstr ""
+
+#: ../../develop/api/commands.rst:44
+#: ../../develop/api/commands.rst:766
+msgid "Asset and account should exist"
+msgstr ""
+
+#: ../../develop/api/commands.rst:45
+#: ../../develop/api/commands.rst:767
+msgid "Added quantity precision should be equal to asset precision"
+msgstr ""
+
+#: ../../develop/api/commands.rst:46
+msgid "Creator of a transaction should have a role which has permissions for issuing assets"
+msgstr ""
+
+#: ../../develop/api/commands.rst:49
+#: ../../develop/api/commands.rst:100
+#: ../../develop/api/commands.rst:147
+#: ../../develop/api/commands.rst:193
+#: ../../develop/api/commands.rst:241
+#: ../../develop/api/commands.rst:293
+#: ../../develop/api/commands.rst:339
+#: ../../develop/api/commands.rst:385
+#: ../../develop/api/commands.rst:430
+#: ../../develop/api/commands.rst:477
+#: ../../develop/api/commands.rst:521
+#: ../../develop/api/commands.rst:572
+#: ../../develop/api/commands.rst:617
+#: ../../develop/api/commands.rst:670
+#: ../../develop/api/commands.rst:720
+#: ../../develop/api/commands.rst:771
+#: ../../develop/api/commands.rst:824
+#: ../../develop/api/commands.rst:890
+msgid "Possible Stateful Validation Errors"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Code"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Error Name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "How to solve"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "1"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not add asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Internal error happened"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Try again or contact developers"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "2"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "No such permissions"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to add asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Grant the necessary permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "3"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find asset with such name or such precision"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure asset id and precision are correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "4"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Summation overflow"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Resulting asset quantity is greater than the system can support"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure that resulting quantity is less than 2^256 / 10^asset_precision"
+msgstr ""
+
+#: ../../develop/api/commands.rst:60
+msgid "Add peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:65
+msgid "The purpose of add peer command is to write into ledger the fact of peer addition into the peer network. After a transaction with AddPeer has been committed, consensus and synchronization components will start using it."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Address"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "resolvable address in network (IPv4, IPv6, domain name, etc.)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "should be resolvable"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "192.168.1.1:50541"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Peer key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "peer public key, which is used in consensus algorithm to sign-off vote, commit, reject messages"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "ed25519 public key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "292a8714694095edce6be799398ed5d6244cd7be37eb813106b217d850d261f2"
+msgstr ""
+
+#: ../../develop/api/commands.rst:95
+msgid "Peer key is unique (there is no other peer with such public key)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:96
+msgid "Creator of the transaction has a role which has CanAddPeer permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:97
+msgid "Such network address has not been already added"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not add peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to add peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:109
+msgid "Add signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:114
+msgid "The purpose of add signatory command is to add an identifier to the account. Such identifier is a public key of another device or a public key of another user."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Account ID"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account to which to add signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "<account_name>@<domain_id>"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "makoto@soramitsu"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Public key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Signatory to add to account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "359f925e4eeecfdd6aa1abc0b79a6a121a5dd63bb612b603247ea4f8ad160156"
+msgstr ""
+
+#: ../../develop/api/commands.rst:140
+#: ../../develop/api/commands.rst:565
+#: ../../develop/api/commands.rst:713
+msgid "Two cases:"
+msgstr ""
+
+#: ../../develop/api/commands.rst:142
+msgid "Case 1. Transaction creator wants to add a signatory to his or her account, having permission CanAddSignatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:144
+msgid "Case 2. CanAddSignatory was granted to transaction creator"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not add signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to add signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "No such account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to add signatory to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Make sure account id is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Signatory already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account already has such signatory attached"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Choose another signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:158
+msgid "Append role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:163
+msgid "The purpose of append role command is to promote an account to some created role in the system, where a role is a set of permissions account has to perform an action (command or query)."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "id or account to append role to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "already existent"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Role name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "name of already created role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "MoneyCreator"
+msgstr ""
+
+#: ../../develop/api/commands.rst:188
+msgid "The role should exist in the system"
+msgstr ""
+
+#: ../../develop/api/commands.rst:189
+msgid "Transaction creator should have permissions to append role (CanAppendRole)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:190
+msgid "Account, which appends role, has set of permissions in his roles that is a superset of appended role (in other words no-one can append role that is more powerful than what transaction creator is)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not append role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to append role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to append role to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "No such role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find role with such name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Make sure role id is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:204
+msgid "Create account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:209
+msgid "The purpose of create account command is to make entity in the system, capable of sending transactions or queries, storing signatories, personal data and identifiers."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "domain-unique name for account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "`[a-z_0-9]{1,32}`"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "morgan_stanley"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Domain ID"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "target domain to make relation with"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "should be created before the account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "america"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "first public key to add to the account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "407e57f50ca48969b08ba948171bb2435e035d82cec417e18e4a38f5fb113f83"
+msgstr ""
+
+#: ../../develop/api/commands.rst:236
+msgid "Transaction creator has permission to create an account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:237
+msgid "Domain, passed as domain_id, has already been created in the system"
+msgstr ""
+
+#: ../../develop/api/commands.rst:238
+msgid "Such public key has not been added before as first public key of account or added to a multi-signature account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not create account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator either does not have permission to create account or tries to create account in a more privileged domain, than the one creator is in"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Grant the necessary permission or choose another domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "No such domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find domain with such name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Make sure domain id is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account with such name already exists in that domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Choose another name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:252
+msgid "Create asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:257
+msgid "The purpose of сreate asset command is to create a new type of asset, unique in a domain. An asset is a countable representation of a commodity."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Asset name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "domain-unique name for asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "soracoin"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "RFC1035 [#f1]_, RFC1123 [#f2]_"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "japan"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Precision"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "number of digits after comma/dot"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "0 <= precision <= 255"
+msgstr ""
+
+#: ../../develop/api/commands.rst:289
+msgid "Transaction creator has permission to create assets"
+msgstr ""
+
+#: ../../develop/api/commands.rst:290
+msgid "Asset name is unique in domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not create asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to create asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Asset already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Asset with such name already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:304
+msgid "Create domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:309
+msgid "The purpose of create domain command is to make new domain in Iroha network, which is a group of accounts."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID for created domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "unique, RFC1035 [#f1]_, RFC1123 [#f2]_"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "japan05"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Default role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "role for any created user in the domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "one of the existing roles"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "User"
+msgstr ""
+
+#: ../../develop/api/commands.rst:334
+msgid "Domain ID is unique"
+msgstr ""
+
+#: ../../develop/api/commands.rst:335
+msgid "Account, who sends this command in transaction, has role with permission to create domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:336
+msgid "Role, which will be assigned to created user by default, exists in the system"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not create domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to create domain"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Domain already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Domain with such name already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Choose another domain name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No default role found"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Role, which is provided as a default one for the domain, is not found"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure the role you provided exists or create it"
+msgstr ""
+
+#: ../../develop/api/commands.rst:350
+msgid "Create role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:355
+msgid "The purpose of create role command is to create a new role in the system from the set of permissions. Combining different permissions into roles, maintainers of Iroha peer network can create customized security model."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "name of role to create"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "RolePermission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "array of already existent permissions"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "set of passed permissions is fully included into set of existing permissions"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "{can_receive, can_transfer}"
+msgstr ""
+
+#: ../../develop/api/commands.rst:381
+msgid "Set of passed permissions is fully included into set of existing permissions"
+msgstr ""
+
+#: ../../develop/api/commands.rst:382
+msgid "Set of the permissions is not empty"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not create role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to create role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Role already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Role with such name already exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Choose another role name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:395
+msgid "Detach role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:400
+msgid "The purpose of detach role command is to detach a role from the set of roles of an account. By executing this command it is possible to decrease the number of possible actions in the system for the user."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID of account where role will be deleted"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "a detached role name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "existing role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:426
+msgid "The role exists in the system"
+msgstr ""
+
+#: ../../develop/api/commands.rst:427
+msgid "The account has such role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not detach role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to detach role"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to detach role from"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such role in account's roles"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account with such id does not have role with such name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure account-role pair is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "5"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Role with such name does not exist"
+msgstr ""
+
+#: ../../develop/api/commands.rst:442
+msgid "Grant permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:447
+msgid "The purpose of grant permission command is to give another account rights to perform actions on the account of transaction sender (give someone right to do something with my account)."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "id of the account to which the rights are granted"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "GrantablePermission name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "name of grantable permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "permission is defined"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "CanTransferAssets"
+msgstr ""
+
+#: ../../develop/api/commands.rst:473
+msgid "Account exists"
+msgstr ""
+
+#: ../../develop/api/commands.rst:474
+msgid "Transaction creator is allowed to grant this permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not grant permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to grant permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to grant permission to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:487
+msgid "Remove peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:492
+msgid "The purpose of remove peer command is to write into ledger the fact of peer removal from the network. After a transaction with RemovePeer has been committed, consensus and synchronization components will start using it."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "peer public key, which is used in consensus algorithm to sign vote messages"
+msgstr ""
+
+#: ../../develop/api/commands.rst:516
+msgid "There is more than one peer in the network"
+msgstr ""
+
+#: ../../develop/api/commands.rst:517
+msgid "Creator of the transaction has a role which has CanRemovePeer permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:518
+msgid "Peer should have been previously added to the network"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not remove peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to remove peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find peer with such public key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure that the public key is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Network size does not allow to remove peer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "After removing the peer the network would be empty"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure that the network has at least two peers"
+msgstr ""
+
+#: ../../develop/api/commands.rst:532
+msgid "Remove signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:537
+msgid "Purpose of remove signatory command is to remove a public key, associated with an identity, from an account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Signatory to delete"
+msgstr ""
+
+#: ../../develop/api/commands.rst:562
+msgid "When signatory is deleted, we should check if invariant of **size(signatories) >= quorum** holds"
+msgstr ""
+
+#: ../../develop/api/commands.rst:563
+msgid "Signatory should have been previously added to the account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:567
+msgid "Case 1. When transaction creator wants to remove signatory from their account and he or she has permission CanRemoveSignatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:569
+#: ../../develop/api/commands.rst:717
+msgid "Case 2. CanRemoveSignatory was granted to transaction creator"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not remove signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to remove signatory from his account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to remove signatory from"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find signatory with such public key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure public key is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Quorum does not allow to remove signatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "After removing the signatory account will be left with less signatories, than its quorum allows"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Reduce the quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:584
+msgid "Revoke permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:589
+msgid "The purpose of revoke permission command is to revoke or dismiss given granted permission from another account in the network."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "permission was granted"
+msgstr ""
+
+#: ../../develop/api/commands.rst:614
+msgid "Transaction creator should have previously granted this permission to a target account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not revoke permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to revoke permission"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to revoke permission from"
+msgstr ""
+
+#: ../../develop/api/commands.rst:627
+msgid "Set account detail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:632
+msgid "Purpose of set account detail command is to set key-value information for a given account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:634
+msgid "If there was a value for a given key already in the storage then it will be replaced with the new value"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "id of the account to which the key-value information was set"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "key of information being set"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "`[A-Za-z0-9_]{1,64}`"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Name"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Value"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "value of corresponding key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "≤ 4096"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Makoto"
+msgstr ""
+
+#: ../../develop/api/commands.rst:661
+#: ../../develop/api/commands.rst:881
+msgid "Three cases:"
+msgstr ""
+
+#: ../../develop/api/commands.rst:663
+msgid "Case 1. When transaction creator wants to set account detail to other person's account and creator has permission `can_set_detail <../permissions.html#can-set-detail>`_."
+msgstr ""
+
+#: ../../develop/api/commands.rst:665
+msgid "Case 2. `can_set_my_account_detail <../permissions.html#can-set-my-account-detail>`_ was granted to transaction creator in order to allow them to set account details of the target account."
+msgstr ""
+
+#: ../../develop/api/commands.rst:667
+msgid "Case 3. When the account holder wants to set their own account details – no permission is needed in this case."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not set account detail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to set account detail for another account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to set account detail to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:680
+msgid "Set account quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:685
+msgid "The purpose of set account quorum command is to set the number of signatories required to confirm the identity of a user, who creates the transaction. Use case scenario is to set the number of different users, utilizing single account, to sign off the transaction."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID of account to set quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "number of signatories needed to be included within a transaction from this account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "0 < quorum ≤ public-key set up to account ≤ 128"
+msgstr ""
+
+#: ../../develop/api/commands.rst:711
+msgid "When quorum is set, it is checked if invariant of **size(signatories) >= quorum** holds."
+msgstr ""
+
+#: ../../develop/api/commands.rst:715
+msgid "Case 1. When transaction creator wants to set quorum for his/her account and he or she has permission CanRemoveSignatory"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not set quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to set quorum for his account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account to set quorum to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No signatories on account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find any signatories attached to the account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Add some signatories before setting quorum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "New quorum is incorrect"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "New quorum size is less than account's signatories amount"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Choose another value or add more signatories"
+msgstr ""
+
+#: ../../develop/api/commands.rst:732
+msgid "Subtract asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:737
+msgid "The purpose of subtract asset quantity command is the opposite of AddAssetQuantity commands — to decrease the number of assets on account of transaction creator."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "positive amount of the asset to subtract"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "200"
+msgstr ""
+
+#: ../../develop/api/commands.rst:768
+msgid "Creator of the transaction should have a role which has permissions for subtraction of assets"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not subtract asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to subtract asset quantity"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "No such asset found"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find asset with such name or precision in account's assets"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Make sure asset name and precision are correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Not enough balance"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Account's balance is too low to perform the operation"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "Add asset to account or choose lower value to subtract"
+msgstr ""
+
+#: ../../develop/api/commands.rst:782
+msgid "Transfer asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:787
+msgid "The purpose of transfer asset command is to share assets within the account in peer network: in the way that source account transfers assets to the target account."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Source account ID"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID of the account to withdraw the asset from"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Destination account ID"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID of the account to send the asset to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "alex@california"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "ID of the asset to transfer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "usd#usa"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Message to attach to the transfer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Max length of description (set in genesis block, by default is 64)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "here's my money take it"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "amount of the asset to transfer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "200.20"
+msgstr ""
+
+#: ../../develop/api/commands.rst:818
+msgid "Source account has this asset in its AccountHasAsset relation [#f1]_"
+msgstr ""
+
+#: ../../develop/api/commands.rst:819
+msgid "An amount is a positive number and asset precision is consistent with the asset definition"
+msgstr ""
+
+#: ../../develop/api/commands.rst:820
+msgid "Source account has enough amount of asset to transfer and is not zero"
+msgstr ""
+
+#: ../../develop/api/commands.rst:821
+msgid "Source account can transfer money, and destination account can receive money (their roles have these permissions)"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not transfer asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to transfer asset from his account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such source account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account with such id to transfer money from"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure source account id is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No such destination account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find account with such id to transfer money to"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure destination account id is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Cannot find such asset"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "6"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Source account's balance is too low to perform the operation"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "7"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Too much asset to transfer"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Resulting asset quantity of destination account would exceed the allowed maximum"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure that the final destination value is less than 2^256 / 10^asset_precision"
+msgstr ""
+
+#: ../../develop/api/commands.rst:837
+msgid "https://www.ietf.org/rfc/rfc1035.txt"
+msgstr ""
+
+#: ../../develop/api/commands.rst:838
+msgid "https://www.ietf.org/rfc/rfc1123.txt"
+msgstr ""
+
+#: ../../develop/api/commands.rst:841
+msgid "Compare and Set Account Detail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:846
+msgid "Purpose of compare and set account detail command is to set key-value information for a given account if the old value matches the value passed."
+msgstr ""
+
+#: ../../develop/api/commands.rst:863
+msgid "Pay attention, that old_value field is optional. This is due to the fact that the key-value pair might not exist."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "id of the account to which the key-value information was set. If key-value pair doesnot exist , then it will be created"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "an existing account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "artyom@soramitsu"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "new value for the corresponding key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "length of value ≤ 4096"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Artyom"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Old value"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "current value for the corresponding key"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Artem"
+msgstr ""
+
+#: ../../develop/api/commands.rst:883
+msgid "Case 1. When transaction creator wants to set account detail to his/her account and he or she has permission GetMyAccountDetail / GetAllAccountsDetail / GetDomainAccountDetail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:885
+msgid "Case 2. When transaction creator wants to set account detail to another account and he or she has permissions SetAccountDetail and GetAllAccountsDetail / GetDomainAccountDetail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:887
+msgid "Case 3. SetAccountDetail permission was granted to transaction creator and he or she has permission GetAllAccountsDetail / GetDomainAccountDetail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Could not compare and set account detail"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Command's creator does not have permission to set and read account detail for this account"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "No match values"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Old values do not match"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Make sure old value is correct"
+msgstr ""
+
+#: ../../develop/api/commands.rst:901
+msgid "Set setting value"
+msgstr ""
+
+#: ../../develop/api/commands.rst:906
+msgid "The purpose of set setting value command is to enable customization to your needs."
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Key of the setting"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "list of possible settings"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+#: ../../develop/api/commands.rst:1
+msgid "MaxDescriptionSize"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Value of the setting"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "type of setting"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "255"
+msgstr ""
+
+#: ../../develop/api/commands.rst:933
+msgid "Command can be executed only from genesis block"
+msgstr ""
+
+#: ../../develop/api/commands.rst:936
+msgid "List of possible settings"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Value constraint"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Unsigned integer, 0 <= MaxDescriptionSize < 2^32"
+msgstr ""
+
+#: ../../develop/api/commands.rst:1
+msgid "Maximum transaction description length"
+msgstr ""
+
