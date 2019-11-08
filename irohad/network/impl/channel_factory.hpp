@@ -36,13 +36,6 @@ namespace iroha {
      */
     std::unique_ptr<GrpcChannelParams> getDefaultChannelParams();
 
-    template <typename Service>
-    grpc::ChannelArguments makeChannelArguments(
-        const GrpcChannelParams &params) {
-      return detail::makeChannelArguments({Service::service_full_name()},
-                                          params);
-    }
-
     /**
      * Creates channel arguments for inter-peer communication.
      * @tparam Service type for gRPC stub, e.g. proto::Yac
