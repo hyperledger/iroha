@@ -11,10 +11,10 @@
 #include "network/impl/client_factory_impl.hpp"
 #include "network/impl/generic_client_factory.hpp"
 #include "network/impl/grpc_channel_params.hpp"
+#include "network/impl/tls_credentials.hpp"
 
 namespace iroha {
   namespace network {
-    struct TlsCredentials;
 
     std::unique_ptr<GrpcChannelParams> getDefaultTestChannelParams();
 
@@ -37,6 +37,48 @@ namespace iroha {
           iroha::network::ClientFactoryImpl<typename Transport::Service>>(
           std::move(generic_factory));
     }
+
+    /**
+     * Creates secure client.
+     * @tparam Service type for gRPC stub, e.g. proto::Yac
+     * @param address ip address to connect to
+     * @param port port to connect to
+     * @param peer_cert the certificate to authenticate the peer
+     * @param my_creds the private key and certificate to authenticate myself
+     * @param params grpc channel params
+     * @return gRPC stub of parametrized type
+     */
+    template <typename Service>
+    std::unique_ptr<typename Service::StubInterface> createSecureClient(
+        const std::string &ip,
+        size_t port,
+        boost::optional<shared_model::interface::types::TLSCertificateType>
+            peer_cert,
+        boost::optional<TlsCredentials> my_creds,
+        const GrpcChannelParams &params) {
+      return Service::NewStub(
+          createSecureChannel(ip + ":" + std::to_string(port),
+                              Service::service_full_name(),
+                              std::move(peer_cert),
+                              std::move(my_creds),
+                              params));
+    }
+
+    /**
+     * Creates secure channel
+     * @param address ip address and port to connect to, ipv4:port
+     * @param service_full_name gRPC service full name,
+     *  e.g. iroha.consensus.yac.proto.Yac
+     * @param params grpc channel params
+     * @return grpc channel with provided params
+     */
+    std::shared_ptr<grpc::Channel> createSecureChannel(
+        const shared_model::interface::types::AddressType &address,
+        const std::string &service_full_name,
+        boost::optional<shared_model::interface::types::TLSCertificateType>
+            peer_cert,
+        boost::optional<TlsCredentials> my_creds,
+        const GrpcChannelParams &params);
 
   }  // namespace network
 }  // namespace iroha

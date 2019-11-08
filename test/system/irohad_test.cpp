@@ -240,9 +240,15 @@ class IrohadTest : public AcceptanceFixture {
       const boost::optional<uint16_t> override_port = {}) {
     const auto port = override_port.value_or(enable_tls ? kSecurePort : kPort);
 
+    auto client = enable_tls
+        ? iroha::network::createSecureClient<torii::CommandSyncClient::Service>(
+              kAddress, port, root_ca_, boost::none, getChannelParams())
+        : iroha::network::createInsecureClient<
+              torii::CommandSyncClient::Service>(
+              kAddress, port, getChannelParams());
+
     return torii::CommandSyncClient(
-        iroha::network::createInsecureClient<torii::CommandSyncClient::Service>(
-            kAddress, port, getChannelParams()),
+        std::move(client),
         getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
   }
 

@@ -20,6 +20,15 @@
 
 namespace iroha {
   namespace network {
+    namespace detail {
+      grpc::ChannelArguments makeChannelArguments(
+          const std::set<std::string> &services,
+          const GrpcChannelParams &params);
+
+      grpc::ChannelArguments makeInterPeerChannelArguments(
+          const std::set<std::string> &services,
+          const GrpcChannelParams &params);
+    }  // namespace detail
 
     /**
      * Creates client params which enable sending and receiving messages of
@@ -27,19 +36,24 @@ namespace iroha {
      */
     std::unique_ptr<GrpcChannelParams> getDefaultChannelParams();
 
+    template <typename Service>
     grpc::ChannelArguments makeChannelArguments(
-        const std::set<std::string> &services, const GrpcChannelParams &params);
+        const GrpcChannelParams &params) {
+      return detail::makeChannelArguments({Service::service_full_name()},
+                                          params);
+    }
 
     /**
-     * Creates channel arguments corresponding to provided params.
+     * Creates channel arguments for inter-peer communication.
      * @tparam Service type for gRPC stub, e.g. proto::Yac
      * @param params grpc channel params
      * @return gRPC channel arguments
      */
     template <typename Service>
-    grpc::ChannelArguments makeChannelArguments(
+    grpc::ChannelArguments makeInterPeerChannelArguments(
         const GrpcChannelParams &params) {
-      return makeChannelArguments(Service::service_full_name(), params);
+      return detail::makeInterPeerChannelArguments(
+          {Service::service_full_name()}, params);
     }
 
     /**

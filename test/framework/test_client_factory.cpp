@@ -12,7 +12,6 @@
 #include "network/impl/channel_factory_tls.hpp"
 #include "network/impl/channel_pool.hpp"
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
-#include "network/impl/tls_credentials.hpp"
 
 using namespace std::literals::chrono_literals;
 
@@ -71,6 +70,27 @@ namespace iroha {
 
       return std::make_unique<GenericClientFactory>(
           std::make_unique<ChannelPool>(std::move(channel_factory)));
+    }
+
+    std::shared_ptr<grpc::Channel> createSecureChannel(
+        const shared_model::interface::types::AddressType &address,
+        const std::string &service_full_name,
+        boost::optional<shared_model::interface::types::TLSCertificateType>
+            peer_cert,
+        boost::optional<TlsCredentials> my_creds,
+        const GrpcChannelParams &params) {
+      auto options = grpc::SslCredentialsOptions();
+      if (peer_cert) {
+        options.pem_root_certs = std::move(peer_cert).value();
+      }
+      if (my_creds) {
+        options.pem_private_key = my_creds.value().private_key;
+        options.pem_cert_chain = my_creds.value().certificate;
+      }
+      return grpc::CreateCustomChannel(
+          address,
+          grpc::SslCredentials(options),
+          detail::makeChannelArguments({service_full_name}, params));
     }
 
   }  // namespace network
