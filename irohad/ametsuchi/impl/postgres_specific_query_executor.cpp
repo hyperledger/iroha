@@ -162,7 +162,7 @@ namespace {
   auto resultWithoutNulls(T range) {
     return iroha::dereferenceOptionals(
         range | boost::adaptors::transformed([](auto &&t) {
-             return iroha::ametsuchi::rebind(t);
+          return iroha::ametsuchi::rebind(t);
         }));
   }
 
