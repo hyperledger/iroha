@@ -38,17 +38,17 @@ Both of the methods are used for synchronization among nodes.
 
 # Logging
 https://iroha.readthedocs.io/en/latest/configure/index.html?highlight=log#logging
-Please note that logging levels cannot be changed during runtime.
+Please note that logging levels cannot be changed during runtime yet.
 
 # Monitoring
 HL Iroha does not have a monitoring system yet.
 
 # Storage
-Persistent storage is defined in configuration file in block_store_path parameter. If it is not defined, then in PostgreSQL, in 'blocks' table.
+Persistent storage directory is defined in configuration file in `block_store_path` parameter. If it is not defined, then the 'blocks' table in PostgreSQL is used to store the blocks.
 Data is critical but if there are other nodes, the data will synchronize - the time it would take depends on the amount of blocks missed.
 
 # Scaling
-It is possible to add new nodes of Iroha by adding manually generated keys for them and sending commands to the ledger. Service seems to be stateful. 
+It is possible to add new Iroha nodes by sending the corresponding commands with generated keys to the existing network. Service is stateful. 
 Iroha is scalable linearly or better than linearly.
 
 # Queue (optional)
