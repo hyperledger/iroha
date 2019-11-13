@@ -134,7 +134,7 @@ node ('master') {
   // Define variable and params
 
   //All variable and Default values
-  x64linux_compiler_list = ['gcc5']
+  x64linux_compiler_list = ['gcc7']
   mac_compiler_list = []
   win_compiler_list = []
 
@@ -216,7 +216,7 @@ node ('master') {
         break;
      case 'Before merge to trunk':
         gitNotify ("Jenkins: Merge to trunk", "Started...", 'PENDING')
-        x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
+        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -228,7 +228,7 @@ node ('master') {
         useBTF = true
         break;
      case 'Nightly build':
-        x64linux_compiler_list = ['gcc5','gcc7', 'clang6' , 'clang7']
+        x64linux_compiler_list = ['gcc7', 'gcc9', 'clang6' , 'clang7']
         mac_compiler_list = ['appleclang']
         win_compiler_list = ['msvc']
         testing = true
@@ -301,12 +301,12 @@ node ('master') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
       // Build with shared libraries
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc5'], build_type, true, false, false,
+      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, true, false, false,
       false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, false, environmentList)}]
       if (!use_libursa) {
         // Force build with libursa
         x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-        parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc5'], build_type, build_shared_libs, false, false,
+        parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
         testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, true, false, environmentList)}]
       }
     }

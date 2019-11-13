@@ -47,12 +47,6 @@ namespace iroha {
             proto::ProposalResponse *response) override;
 
        private:
-        /**
-         * Flat map transport transactions to shared model
-         */
-        shared_model::interface::types::SharedTxsCollectionType
-        deserializeTransactions(const proto::BatchesRequest *request);
-
         std::shared_ptr<OdOsNotification> ordering_service_;
 
         std::shared_ptr<TransportFactoryType> transaction_factory_;

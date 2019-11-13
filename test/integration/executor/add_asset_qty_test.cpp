@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
+#include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -16,125 +17,28 @@
 using namespace common_constants;
 using namespace executor_testing;
 using namespace framework::expected;
+using namespace shared_model::interface::types;
 
-using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
 using shared_model::interface::Amount;
 
 static const Amount kAmount{std::string{"12.3"}};
 
-using AddAssetQuantityBasicTest =
-    executor_testing::BasicExecutorTest<executor_testing::ExecutorTestBase>;
+class AddAssetQuantityTest : public ExecutorTestBase {
+ public:
+  iroha::ametsuchi::CommandResult addAsset(const AccountIdType &issuer,
+                                           const AssetIdType &asset = kAssetId,
+                                           const Amount &amount = kAmount) {
+    return getItf().executeCommandAsAccount(
+        *getItf().getMockCommandFactory()->constructAddAssetQuantity(asset,
+                                                                     amount),
+        issuer,
+        true);
+  }
+};
 
-/**
- * @given an asset in another domain and a user with kAddAssetQty permission
- * @when execute AddAssetQuantity command from that user for that asset
- * @then the command succeeds
- * @and the asset quantity gets increased
- */
-TEST_P(AddAssetQuantityBasicTest, Basic) {
-  getItf().createDomain(kSecondDomain);
-  createAsset(kAssetName, kSecondDomain, 1);
-  assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kAddAssetQty}));
-
-  expectResultValue(getItf().executeCommandAsAccount(
-      *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-          kSecondDomainAssetId, kAmount),
-      kUserId,
-      true));
-
-  checkAssetQuantities(kUserId, {AssetQuantity{kSecondDomainAssetId, kAmount}});
-}
-
-/**
- * @given a user with kAddDomainAssetQty permission and an asset in the same
- * domain
- * @when execute AddAssetQuantity command from that user for that asset
- * @then the command succeeds
- * @and the asset quantity gets increased
- */
-TEST_P(AddAssetQuantityBasicTest, DomainPermValid) {
-  createAsset(kAssetName, kDomain, 1);
-  assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kAddDomainAssetQty}));
-
-  expectResultValue(getItf().executeCommandAsAccount(
-      *getItf().getMockCommandFactory()->constructAddAssetQuantity(kAssetId,
-                                                                   kAmount),
-      kUserId,
-      true));
-
-  checkAssetQuantities(kUserId, {AssetQuantity{kAssetId, kAmount}});
-}
-
-/**
- * @given a user with kAddDomainAssetQty permission and an asset in another
- * domain
- * @when execute AddAssetQuantity command from that user for that asset
- * @then the command fails
- * @and the asset is not added to the user
- */
-TEST_P(AddAssetQuantityBasicTest, DomainPermInvalid) {
-  getItf().createDomain(kSecondDomain);
-  createAsset(kAssetName, kSecondDomain, 1);
-  assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kAddDomainAssetQty}));
-
-  checkCommandError(
-      getItf().executeCommandAsAccount(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kSecondDomainAssetId, kAmount),
-          kUserId,
-          true),
-      2);
-
-  checkAssetQuantities(kUserId, {});
-}
-
-/**
- * @given a user without any permissions and an asset in the same domain
- * @when execute AddAssetQuantity command from that user for that asset
- * @then the command fails
- * @and the asset is not added to the user
- */
-TEST_P(AddAssetQuantityBasicTest, NoPermissions) {
-  createAsset(kAssetName, kDomain, 1);
-  assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {}));
-
-  checkCommandError(
-      getItf().executeCommandAsAccount(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(kAssetId,
-                                                                       kAmount),
-          kUserId,
-          true),
-      2);
-
-  checkAssetQuantities(kUserId, {});
-}
-
-/**
- * @given an asset in another domain and a user with root permission
- * @when execute AddAssetQuantity command from that user for that asset
- * @then the command succeeds
- * @and the asset quantity gets increased
- */
-TEST_P(AddAssetQuantityBasicTest, RootPermission) {
-  getItf().createDomain(kSecondDomain);
-  createAsset(kAssetName, kSecondDomain, 1);
-  assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot}));
-
-  expectResultValue(getItf().executeCommandAsAccount(
-      *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-          kSecondDomainAssetId, kAmount),
-      kUserId,
-      true));
-
-  checkAssetQuantities(kUserId, {AssetQuantity{kSecondDomainAssetId, kAmount}});
-}
+using AddAssetQuantityBasicTest = BasicExecutorTest<AddAssetQuantityTest>;
 
 /**
  * @given a user with all related permissions
@@ -143,12 +47,7 @@ TEST_P(AddAssetQuantityBasicTest, RootPermission) {
  * @and the asset is not added to the user
  */
 TEST_P(AddAssetQuantityBasicTest, InvalidAsset) {
-  checkCommandError(
-      getItf().executeMaintenanceCommand(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kAssetId, kAmount)),
-      3);
-
+  checkCommandError(addAsset(kAdminId, kSecondDomainAssetId), 3);
   checkAssetQuantities(kAdminId, {});
 }
 
@@ -163,22 +62,15 @@ TEST_P(AddAssetQuantityBasicTest, InvalidAsset) {
  * @and the asset amount is not increased
  */
 TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
-  createAsset(kAssetName, kDomain, 1);
-  assertResultValue(getItf().executeMaintenanceCommand(
-      *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-          kAssetId, kAmountPrec1Max)));
-  checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}});
+  ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 1));
+  ASSERT_NO_FATAL_FAILURE(
+      assertResultValue(addAsset(kAdminId, kAssetId, kAmountPrec1Max)));
+  ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
+      kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}}));
 
-  checkCommandError(
-      getItf().executeMaintenanceCommand(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kAssetId, Amount{"0.1"})),
-      4);
-  checkCommandError(
-      getItf().executeMaintenanceCommand(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kAssetId, Amount{"1"})),
-      4);
+  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.1"}), 4);
+  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"1"}), 4);
+
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}});
 }
 
@@ -193,22 +85,15 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
  * @and the asset amount is not increased
  */
 TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision2) {
-  createAsset(kAssetName, kDomain, 2);
-  assertResultValue(getItf().executeMaintenanceCommand(
-      *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-          kAssetId, kAmountPrec2Max)));
-  checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}});
+  ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 2));
+  ASSERT_NO_FATAL_FAILURE(
+      assertResultValue(addAsset(kAdminId, kAssetId, kAmountPrec2Max)));
+  ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
+      kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}}));
 
-  checkCommandError(
-      getItf().executeMaintenanceCommand(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kAssetId, Amount{"0.01"})),
-      4);
-  checkCommandError(
-      getItf().executeMaintenanceCommand(
-          *getItf().getMockCommandFactory()->constructAddAssetQuantity(
-              kAssetId, Amount{"0.1"})),
-      4);
+  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.01"}), 4);
+  checkCommandError(addAsset(kAdminId, kAssetId, Amount{"0.1"}), 4);
+
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}});
 }
 
@@ -216,3 +101,25 @@ INSTANTIATE_TEST_CASE_P(Base,
                         AddAssetQuantityBasicTest,
                         executor_testing::getExecutorTestParams(),
                         executor_testing::paramToString);
+
+using AddAssetQuantityPermissionTest =
+    command_permission_test::CommandPermissionTest<AddAssetQuantityTest>;
+
+TEST_P(AddAssetQuantityPermissionTest, CommandPermissionTest) {
+  ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
+  ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 1));
+  ASSERT_NO_FATAL_FAILURE(prepareState({}));
+
+  if (checkResponse(addAsset(getActor()))) {
+    checkAssetQuantities(getActor(), {AssetQuantity{kAssetId, kAmount}});
+  } else {
+    checkAssetQuantities(getActor(), {});
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Common,
+    AddAssetQuantityPermissionTest,
+    command_permission_test::getParams(
+        boost::none, Role::kAddDomainAssetQty, Role::kAddAssetQty, boost::none),
+    command_permission_test::paramToString);

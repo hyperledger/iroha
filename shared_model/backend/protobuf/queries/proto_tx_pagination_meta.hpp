@@ -6,27 +6,25 @@
 #ifndef IROHA_SHARED_PROTO_MODEL_QUERY_TX_PAGINATION_META_HPP
 #define IROHA_SHARED_PROTO_MODEL_QUERY_TX_PAGINATION_META_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
+
+#include "interfaces/common_objects/types.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
 
     /// Provides query metadata for any transaction list pagination.
-    class TxPaginationMeta final
-        : public TrivialProto<interface::TxPaginationMeta,
-                              iroha::protocol::TxPaginationMeta> {
+    class TxPaginationMeta final : public interface::TxPaginationMeta {
      public:
-      explicit TxPaginationMeta(const TransportType &query);
-      explicit TxPaginationMeta(TransportType &&query);
-      TxPaginationMeta(const TxPaginationMeta &o);
-      TxPaginationMeta(TxPaginationMeta &&o) noexcept;
+      explicit TxPaginationMeta(iroha::protocol::TxPaginationMeta &meta);
 
       interface::types::TransactionsNumberType pageSize() const override;
 
       boost::optional<interface::types::HashType> firstTxHash() const override;
+
+     private:
+      const iroha::protocol::TxPaginationMeta &meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

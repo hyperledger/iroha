@@ -8,18 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetBlock::GetBlock(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          get_block_{proto_->payload().get_block()} {}
-
-    template GetBlock::GetBlock(GetBlock::TransportType &);
-    template GetBlock::GetBlock(const GetBlock::TransportType &);
-    template GetBlock::GetBlock(GetBlock::TransportType &&);
-
-    GetBlock::GetBlock(const GetBlock &o) : GetBlock(o.proto_) {}
-
-    GetBlock::GetBlock(GetBlock &&o) noexcept : GetBlock(std::move(o.proto_)) {}
+    GetBlock::GetBlock(iroha::protocol::Query &query)
+        : get_block_{query.payload().get_block()} {}
 
     interface::types::HeightType GetBlock::height() const {
       return get_block_.height();

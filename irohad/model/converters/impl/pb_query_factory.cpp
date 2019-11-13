@@ -103,12 +103,15 @@ namespace iroha {
               // Convert to get transactions
               const auto &pb_cast = pl.get_transactions();
               auto query = GetTransactions();
-              std::transform(pb_cast.tx_hashes().begin(),
-                             pb_cast.tx_hashes().end(),
-                             std::back_inserter(query.tx_hashes),
-                             [](auto tx_hash) {
-                               return iroha::hash256_t::from_hexstring(tx_hash);
-                             });
+              std::transform(
+                  pb_cast.tx_hashes().begin(),
+                  pb_cast.tx_hashes().end(),
+                  std::back_inserter(query.tx_hashes),
+                  [](auto tx_hash) {
+                    return iroha::expected::resultToOptionalValue(
+                               iroha::hash256_t::from_hexstring(tx_hash))
+                        .value();
+                  });
               val = std::make_shared<GetTransactions>(query);
               break;
             }
@@ -137,8 +140,12 @@ namespace iroha {
         const auto &pb_sign = pb_query.signature();
 
         Signature sign{};
-        sign.pubkey = pubkey_t::from_hexstring(pb_sign.public_key());
-        sign.signature = sig_t::from_hexstring(pb_sign.signature());
+        sign.pubkey = iroha::expected::resultToOptionalValue(
+                          pubkey_t::from_hexstring(pb_sign.public_key()))
+                          .value();
+        sign.signature = iroha::expected::resultToOptionalValue(
+                             sig_t::from_hexstring(pb_sign.signature()))
+                             .value();
 
         val->query_counter = pl.meta().query_counter();
         val->signature = sign;

@@ -6,28 +6,24 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_QUERY_PAYLOAD_META_HPP
 #define IROHA_SHARED_MODEL_PROTO_QUERY_PAYLOAD_META_HPP
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class QueryPayloadMeta final
-        : public TrivialProto<interface::QueryPayloadMeta,
-                              iroha::protocol::QueryPayloadMeta> {
+    class QueryPayloadMeta final : public interface::QueryPayloadMeta {
      public:
-      template <typename QueryPayloadMetaType>
-      explicit QueryPayloadMeta(QueryPayloadMetaType &&query);
-
-      QueryPayloadMeta(const QueryPayloadMeta &o);
-
-      QueryPayloadMeta(QueryPayloadMeta &&o) noexcept;
+      explicit QueryPayloadMeta(iroha::protocol::QueryPayloadMeta &meta);
 
       const interface::types::AccountIdType &creatorAccountId() const override;
 
       interface::types::CounterType queryCounter() const override;
 
       interface::types::TimestampType createdTime() const override;
+
+     private:
+      const iroha::protocol::QueryPayloadMeta &meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

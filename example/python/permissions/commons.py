@@ -3,13 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import ed25519
-import irohalib
-import primitive_pb2
+from iroha import primitive_pb2
+from iroha import Iroha, IrohaCrypto
 import binascii
 from time import time
 
-command = irohalib.Iroha.command
+command = Iroha.command
 
 
 def now():
@@ -73,12 +72,11 @@ def genesis_block(admin, alice, test_permissions, multidomain=False):
     :param multidomain: admin and alice accounts will be created in
     different domains and the first domain users will have admin right
     by default if True
-    :return: a list of irohalib.Iroha.command's
+    :return: a list of Iroha.command's
     """
     peer = primitive_pb2.Peer()
     peer.address = '0.0.0.0:50541'
-    # ed25519.publickey_unsafe takes and returns a bytes object, while we have hex strings
-    peer.peer_key = binascii.hexlify(ed25519.publickey_unsafe(binascii.unhexlify(admin['key'])))
+    peer.peer_key = IrohaCrypto.derive_public_key(admin['key'])
     commands = [
         command('AddPeer', peer=peer),
         command('CreateRole', role_name='admin_role', permissions=all_permissions()),
@@ -92,11 +90,11 @@ def genesis_block(admin, alice, test_permissions, multidomain=False):
         command('CreateAccount',
                 account_name='admin',
                 domain_id='first' if multidomain else 'test',
-                public_key=irohalib.IrohaCrypto.derive_public_key(admin['key'])),
+                public_key=IrohaCrypto.derive_public_key(admin['key'])),
         command('CreateAccount',
                 account_name='alice',
                 domain_id='second' if multidomain else 'test',
-                public_key=irohalib.IrohaCrypto.derive_public_key(alice['key']))
+                public_key=IrohaCrypto.derive_public_key(alice['key']))
     ])
     if not multidomain:
         commands.append(command('AppendRole', account_id=admin['id'], role_name='admin_role'))
@@ -104,7 +102,7 @@ def genesis_block(admin, alice, test_permissions, multidomain=False):
 
 
 def new_user(user_id):
-    private_key = irohalib.IrohaCrypto.private_key()
+    private_key = IrohaCrypto.private_key()
     if user_id.lower().startswith('admin'):
         print('K{}'.format(private_key.decode('utf-8')))
     return {

@@ -8,32 +8,17 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetAccountAssets::GetAccountAssets(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          account_assets_{proto_->payload().get_account_assets()},
-          pagination_meta_{
-              [this]() -> boost::optional<const AssetPaginationMeta> {
-                if (this->account_assets_.has_pagination_meta()) {
-                  return AssetPaginationMeta{
-                      this->account_assets_.pagination_meta()};
-                } else {
-                  return boost::none;
-                }
-              }()} {}
-
-    template GetAccountAssets::GetAccountAssets(
-        GetAccountAssets::TransportType &);
-    template GetAccountAssets::GetAccountAssets(
-        const GetAccountAssets::TransportType &);
-    template GetAccountAssets::GetAccountAssets(
-        GetAccountAssets::TransportType &&);
-
-    GetAccountAssets::GetAccountAssets(const GetAccountAssets &o)
-        : GetAccountAssets(o.proto_) {}
-
-    GetAccountAssets::GetAccountAssets(GetAccountAssets &&o) noexcept
-        : GetAccountAssets(std::move(o.proto_)) {}
+    GetAccountAssets::GetAccountAssets(iroha::protocol::Query &query)
+        : account_assets_{query.payload().get_account_assets()},
+          pagination_meta_{[&]() -> boost::optional<const AssetPaginationMeta> {
+            if (query.payload().get_account_assets().has_pagination_meta()) {
+              return AssetPaginationMeta{*query.mutable_payload()
+                                              ->mutable_get_account_assets()
+                                              ->mutable_pagination_meta()};
+            } else {
+              return boost::none;
+            }
+          }()} {}
 
     const interface::types::AccountIdType &GetAccountAssets::accountId() const {
       return account_assets_.account_id();

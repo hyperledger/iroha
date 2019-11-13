@@ -29,11 +29,14 @@ TEST_F(PeerQueryWSVTest, GetPeers) {
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
   std::shared_ptr<shared_model::interface::Peer> peer1 =
       std::make_shared<shared_model::plain::Peer>(
-          "some-address", shared_model::crypto::PublicKey("some-public-key"));
+          "some-address",
+          shared_model::crypto::PublicKey("some-public-key"),
+          boost::none);
   std::shared_ptr<shared_model::interface::Peer> peer2 =
       std::make_shared<shared_model::plain::Peer>(
           "another-address",
-          shared_model::crypto::PublicKey("another-public-key"));
+          shared_model::crypto::PublicKey("another-public-key"),
+          boost::none);
   peers.push_back(peer1);
   peers.push_back(peer2);
   EXPECT_CALL(*wsv_query_, getPeers()).WillOnce(::testing::Return(peers));

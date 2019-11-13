@@ -6,21 +6,15 @@
 #ifndef IROHA_PROTO_GET_ROLES_H
 #define IROHA_PROTO_GET_ROLES_H
 
-#include "backend/protobuf/common_objects/trivial_proto.hpp"
 #include "interfaces/queries/get_roles.hpp"
+
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class GetRoles final
-        : public TrivialProto<interface::GetRoles, iroha::protocol::Query> {
+    class GetRoles final : public interface::GetRoles {
      public:
-      template <typename QueryType>
-      explicit GetRoles(QueryType &&query);
-
-      GetRoles(const GetRoles &o);
-
-      GetRoles(GetRoles &&o) noexcept;
+      explicit GetRoles(iroha::protocol::Query &query);
     };
 
   }  // namespace proto

@@ -15,6 +15,7 @@
 #include <rapidjson/rapidjson.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/map.hpp>
+#include "common/files.hpp"
 #include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "torii/tls_params.hpp"
@@ -336,11 +337,28 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   getValByKey(path, address, obj, config_members::Address);
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
+  boost::optional<std::string> tls_certificate_path =
+      getOptValByKey<std::string>(
+          path, obj, config_members::TlsCertificatePath);
+
+  boost::optional<std::string> tls_certificate_str;
+  if (tls_certificate_path) {
+    iroha::readFile(*tls_certificate_path)
+        .match([&tls_certificate_str](
+                   const auto &v) { tls_certificate_str = v.value; },
+               [this, &path](const auto &e) {
+                 this->assert_fatal(false,
+                                    "Error reading file specified in " + path
+                                        + ": " + e.error);
+               });
+  }
+
   common_objects_factory_
       ->createPeer(
           address,
           shared_model::crypto::PublicKey(
-              shared_model::crypto::Blob::fromHexString(public_key_str)))
+              shared_model::crypto::Blob::fromHexString(public_key_str)),
+          tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {
                throw std::runtime_error("Failed to create a peer at '" + path
@@ -357,6 +375,40 @@ inline void JsonDeserializerImpl::getVal<iroha::torii::TlsParams>(
   const auto obj = src.GetObject();
   getValByKey(path, dest.port, obj, config_members::Port);
   getValByKey(path, dest.key_path, obj, config_members::KeyPairPath);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls>(
+    const std::string &path,
+    IrohadConfig::InterPeerTls &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.my_tls_creds_path, obj, config_members::KeyPairPath);
+  getValByKey(
+      path, dest.peer_certificates, obj, config_members::PeerCertProvider);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::InterPeerTls::PeerCertProvider>(
+    const std::string &path,
+    IrohadConfig::InterPeerTls::PeerCertProvider &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be a dictionary");
+  const auto obj = src.GetObject();
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::RootCert) {
+    IrohadConfig::InterPeerTls::RootCert root_cert;
+    getValByKey(path, root_cert.path, obj, config_members::Path);
+    dest = std::move(root_cert);
+  } else if (type == config_members::InLengerCerts) {
+    dest = IrohadConfig::InterPeerTls::FromWsv{};
+  } else {
+    throw std::runtime_error{std::string{
+        "Unimplemented peer certificate provider type: '" + type + "'"}};
+  }
 }
 
 template <>
@@ -385,6 +437,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.block_store_path, obj, config_members::BlockStorePath);
   getValByKey(path, dest.torii_port, obj, config_members::ToriiPort);
   getValByKey(path, dest.torii_tls_params, obj, config_members::ToriiTlsParams);
+  getValByKey(path, dest.inter_peer_tls, obj, config_members::InterPeerTls);
   getValByKey(path, dest.internal_port, obj, config_members::InternalPort);
   getValByKey(path, dest.pg_opt, obj, config_members::PgOpt);
   getValByKey(path, dest.database_config, obj, config_members::DbConfig);

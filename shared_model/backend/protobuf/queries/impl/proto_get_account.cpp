@@ -8,19 +8,8 @@
 namespace shared_model {
   namespace proto {
 
-    template <typename QueryType>
-    GetAccount::GetAccount(QueryType &&query)
-        : TrivialProto(std::forward<QueryType>(query)),
-          account_{proto_->payload().get_account()} {}
-
-    template GetAccount::GetAccount(GetAccount::TransportType &);
-    template GetAccount::GetAccount(const GetAccount::TransportType &);
-    template GetAccount::GetAccount(GetAccount::TransportType &&);
-
-    GetAccount::GetAccount(const GetAccount &o) : GetAccount(o.proto_) {}
-
-    GetAccount::GetAccount(GetAccount &&o) noexcept
-        : GetAccount(std::move(o.proto_)) {}
+    GetAccount::GetAccount(iroha::protocol::Query &query)
+        : account_{query.payload().get_account()} {}
 
     const interface::types::AccountIdType &GetAccount::accountId() const {
       return account_.account_id();

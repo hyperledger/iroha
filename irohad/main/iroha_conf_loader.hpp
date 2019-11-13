@@ -24,11 +24,24 @@ struct IrohadConfig {
     std::string maintenance_dbname;
   };
 
+  struct InterPeerTls {
+    struct RootCert {
+      std::string path;
+    };
+    struct FromWsv {};
+    struct None {};
+    using PeerCertProvider = boost::variant<RootCert, FromWsv, None>;
+
+    boost::optional<std::string> my_tls_creds_path;
+    PeerCertProvider peer_certificates;
+  };
+
   // TODO: block_store_path is now optional, change docs IR-576
   // luckychess 29.06.2019
   boost::optional<std::string> block_store_path;
   uint16_t torii_port;
   boost::optional<iroha::torii::TlsParams> torii_tls_params;
+  boost::optional<InterPeerTls> inter_peer_tls;
   uint16_t internal_port;
   boost::optional<std::string>
       pg_opt;  // TODO 2019.06.26 mboldyrev IR-556 remove

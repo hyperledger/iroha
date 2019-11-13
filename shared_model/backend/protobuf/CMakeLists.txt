@@ -13,6 +13,7 @@ add_library(shared_model_proto_backend
     impl/proto_tx_status_factory.cpp
     impl/proto_permission_to_string.cpp
     impl/transaction.cpp
+    impl/deserialize_repeated_transactions.cpp
     commands/impl/proto_add_asset_quantity.cpp
     commands/impl/proto_add_peer.cpp
     commands/impl/proto_add_signatory.cpp
