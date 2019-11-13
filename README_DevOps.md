@@ -14,19 +14,7 @@ Please check out our documentation for that: https://iroha.readthedocs.io/en/lat
 https://iroha.readthedocs.io/en/latest/configure/index.html
 
 # Endpoints
-1. User-facing endpoints (described [here](https://github.com/hyperledger/iroha/blob/master/shared_model/schema/endpoint.proto),
- use `torii_port` from configuration file):
-Torii is the component the users connect to:
-`service CommandService_v1 {
-  rpc Torii (Transaction) returns (google.protobuf.Empty);
-  rpc ListTorii (TxList) returns (google.protobuf.Empty);
-  rpc Status (TxStatusRequest) returns (ToriiResponse);
-  rpc StatusStream(TxStatusRequest) returns (stream ToriiResponse);
-}
-service QueryService_v1 {
-  rpc Find (Query) returns (QueryResponse);
-  rpc FetchCommits (BlocksQuery) returns (stream BlockQueryResponse);
-}`
+1. User-facing endpoints (described [here](https://github.com/hyperledger/iroha/blob/master/shared_model/schema/endpoint.proto), use `torii_port` from configuration file:
 `Torii` receives a single transaction
 `ListTorii` receives numerous transactions at the same time
 `Status` requests transaction status
