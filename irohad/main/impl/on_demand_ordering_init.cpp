@@ -62,7 +62,7 @@ auto createNotificationFactory(
 }
 
 auto OnDemandOrderingInit::createConnectionManager(
-    std::shared_ptr<network::AsyncGrpcClient<google::protobuf::Empty>>
+    std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
         async_call,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,
     std::chrono::milliseconds delay,
@@ -92,7 +92,7 @@ auto OnDemandOrderingInit::createConnectionManager(
     auto &latest_commit = std::get<0>(latest_data);
     auto &current_hashes = std::get<1>(latest_data);
 
-    consensus::Round current_round = latest_commit.round;
+    iroha::consensus::Round current_round = latest_commit.round;
 
     current_peers_ = latest_commit.ledger_state->ledger_peers;
 
@@ -138,8 +138,8 @@ auto OnDemandOrderingInit::createConnectionManager(
           current_peers_[permutation[reject_round % permutation.size()]];
       log_->debug(
           "For {}, using OS on peer: {}",
-          consensus::Round{current_round.block_round + block_round_advance,
-                           reject_round},
+          iroha::consensus::Round{
+              current_round.block_round + block_round_advance, reject_round},
           *peer);
       return peer;
     };
@@ -197,10 +197,10 @@ auto OnDemandOrderingInit::createGate(
     std::shared_ptr<cache::OrderingGateCache> cache,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
-    std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     std::function<std::chrono::milliseconds(
-        const synchronizer::SynchronizationEvent &)> delay_func,
+        const iroha::synchronizer::SynchronizationEvent &)> delay_func,
     size_t max_number_of_transactions,
     const logger::LoggerManagerTreePtr &ordering_log_manager) {
   return std::make_shared<OnDemandOrderingGate>(
@@ -228,7 +228,7 @@ auto OnDemandOrderingInit::createGate(
             return hashes;
           }),
       sync_event_notifier.get_observable()
-          .tap([this](const synchronizer::SynchronizationEvent &event) {
+          .tap([this](const iroha::synchronizer::SynchronizationEvent &event) {
             if (not last_received_round_
                 or *last_received_round_ < event.round) {
               last_received_round_ = event.round;
@@ -256,7 +256,7 @@ auto OnDemandOrderingInit::createGate(
             return true;
           })
           .map([this](const auto &event) {
-            consensus::Round current_round;
+            iroha::consensus::Round current_round;
             switch (event.sync_outcome) {
               case iroha::synchronizer::SynchronizationOutcomeType::kCommit:
                 log_->debug("Sync event on {}: commit.", *last_received_round_);
@@ -290,7 +290,7 @@ auto OnDemandOrderingInit::createService(
     size_t max_number_of_transactions,
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
-    std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     const logger::LoggerManagerTreePtr &ordering_log_manager) {
   return std::make_shared<OnDemandOrderingServiceImpl>(
@@ -322,10 +322,10 @@ OnDemandOrderingInit::initOrderingGate(
     std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
         proposal_factory,
     std::shared_ptr<TransportFactoryType> proposal_transport_factory,
-    std::shared_ptr<ametsuchi::TxPresenceCache> tx_cache,
+    std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_cache,
     std::shared_ptr<ProposalCreationStrategy> creation_strategy,
     std::function<std::chrono::milliseconds(
-        const synchronizer::SynchronizationEvent &)> delay_func,
+        const iroha::synchronizer::SynchronizationEvent &)> delay_func,
     logger::LoggerManagerTreePtr ordering_log_manager,
     std::shared_ptr<iroha::network::GenericClientFactory> client_factory) {
   auto ordering_service = createService(max_number_of_transactions,
