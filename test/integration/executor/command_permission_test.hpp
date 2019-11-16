@@ -20,6 +20,7 @@ namespace executor_testing {
       shared_model::interface::RolePermissionSet actor_role_permissions;
       boost::optional<shared_model::interface::permissions::Grantable>
           actor_grantable_permission;
+      bool validation_enabled;
       shared_model::interface::types::AccountIdType actor;
       bool enough_permissions;
       std::string description;
@@ -56,14 +57,22 @@ namespace executor_testing {
        * Prepare state of ledger:
        * - create accounts of target user and actor.
        *
-       * @param target_permissions - set of additional role permissions for
-       * target user
+       * @param additional_target_permissions - set of additional role
+       * permissions for target user
+       * @param additional_actor_permissions - set of additional role
+       * permissions for actor user (the tested command author)
        */
-      void prepareState(
-          shared_model::interface::RolePermissionSet target_permissions) {
+      void prepareState(shared_model::interface::RolePermissionSet
+                            additional_target_permissions = {},
+                        shared_model::interface::RolePermissionSet
+                            additional_actor_permissions = {}) {
         using namespace common_constants;
         using namespace framework::expected;
 
+        auto &target_permissions = additional_target_permissions;
+        if (getActor() == kUserId) {
+          target_permissions |= additional_actor_permissions;
+        }
         // target user role permissions
         target_permissions |= permissions_param_.actor_role_permissions;
         if (permissions_param_.actor_grantable_permission) {
@@ -76,17 +85,16 @@ namespace executor_testing {
         assertResultValue(getItf().createUserWithPerms(
             kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
 
-        // create other actors
-        assertResultValue(getItf().createUserWithPerms(
-            kSecondUser,
-            kDomain,
-            kSameDomainUserKeypair.publicKey(),
-            permissions_param_.actor_role_permissions));
-        assertResultValue(getItf().createUserWithPerms(
-            kSecondUser,
-            kSecondDomain,
-            kSecondDomainUserKeypair.publicKey(),
-            permissions_param_.actor_role_permissions));
+        if (getActor() != kUserId) {
+          auto &actor_permissions = additional_actor_permissions;
+          actor_permissions |= permissions_param_.actor_role_permissions;
+          auto split_actor_id = splitAccountId(getActor());
+          assertResultValue(
+              getItf().createUserWithPerms(split_actor_id.first,
+                                           split_actor_id.second,
+                                           kSameDomainUserKeypair.publicKey(),
+                                           actor_permissions));
+        }
 
         // grant current actor the permissions
         if (permissions_param_.actor_grantable_permission) {
@@ -101,6 +109,10 @@ namespace executor_testing {
 
       const shared_model::interface::types::AccountIdType &getActor() const {
         return permissions_param_.actor;
+      }
+
+      bool getValidationEnabled() const {
+        return permissions_param_.validation_enabled;
       }
 
       /**

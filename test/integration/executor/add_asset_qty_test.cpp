@@ -29,12 +29,13 @@ class AddAssetQuantityTest : public ExecutorTestBase {
  public:
   iroha::ametsuchi::CommandResult addAsset(const AccountIdType &issuer,
                                            const AssetIdType &asset = kAssetId,
-                                           const Amount &amount = kAmount) {
+                                           const Amount &amount = kAmount,
+                                           bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructAddAssetQuantity(asset,
                                                                      amount),
         issuer,
-        true);
+        validation_enabled);
   }
 };
 
@@ -110,7 +111,8 @@ TEST_P(AddAssetQuantityPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 1));
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
-  if (checkResponse(addAsset(getActor()))) {
+  if (checkResponse(
+          addAsset(getActor(), kAssetId, kAmount, getValidationEnabled()))) {
     checkAssetQuantities(getActor(), {AssetQuantity{kAssetId, kAmount}});
   } else {
     checkAssetQuantities(getActor(), {});

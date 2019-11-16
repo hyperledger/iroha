@@ -35,12 +35,13 @@ class SetAccountDetailTest : public ExecutorTestBase {
   iroha::ametsuchi::CommandResult setDetail(const AccountIdType &target,
                                             const AccountDetailKeyType &key,
                                             const AccountDetailValueType &value,
-                                            const AccountIdType &issuer) {
+                                            const AccountIdType &issuer,
+                                            bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructSetAccountDetail(
             target, key, value),
         issuer,
-        true);
+        validation_enabled);
   }
 
   void checkDetails(AccountIdType account,
@@ -156,7 +157,8 @@ TEST_P(SetAccountDetailPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
-  if (checkResponse(setDetail(kUserId, kKey, kVal, getActor()))) {
+  if (checkResponse(
+          setDetail(kUserId, kKey, kVal, getActor(), getValidationEnabled()))) {
     checkDetails(kUserId, DetailsByKeyByWriter{{{getActor(), {{kKey, kVal}}}}});
   } else {
     checkDetails(kUserId, DetailsByKeyByWriter{});

@@ -37,12 +37,6 @@ target_link_libraries(create_domain_test
     integration_framework
     )
 
-addtest(create_role_test create_role_test.cpp)
-target_link_libraries(create_role_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(get_transactions_test get_transactions_test.cpp)
 target_link_libraries(get_transactions_test
     acceptance_fixture
