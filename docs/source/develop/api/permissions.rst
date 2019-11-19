@@ -200,7 +200,7 @@ All Categories
 root
 ^^^^
 
-Allows executing all `commands <../../before_start/glossary.html#command>`__ and queries without other `permissions <../../before_start/glossary.html#permission>`__.
+Allows executing all `commands <../../concepts_architecture/glossary.html#command>`__ and queries without other `permissions <../../concepts_architecture/glossary.html#permission>`__.
 
 .. Note:: This permission allows you to create and assign any roles with any permissions.
 
@@ -218,7 +218,7 @@ Account
 can_create_account
 ^^^^^^^^^^^^^^^^^^
 
-Allows creating new `accounts <../../before_start/glossary.html#account>`__.
+Allows creating new `accounts <../../concepts_architecture/glossary.html#account>`__.
 
 | Related API method: `Create Account <../api/commands.html#create-account>`__
 
@@ -235,9 +235,9 @@ Allows creating new `accounts <../../before_start/glossary.html#account>`__.
 can_set_detail
 ^^^^^^^^^^^^^^
 
-Allows setting `account <../../before_start/glossary.html#account>`__ detail.
+Allows setting `account <../../concepts_architecture/glossary.html#account>`__ detail.
 
-The `permission <../../before_start/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../before_start/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission.
+The `permission <../../concepts_architecture/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission.
 
 .. Note:: Transaction creator can always set detail for own account even without that permission.
 
@@ -258,7 +258,7 @@ can_set_my_account_detail
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set details for the another specified account.
+`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to set details for the another specified account.
 
 .. Note:: To grant the permission an account should already have a role with `can_grant_can_set_my_account_detail`_ permission.
 
@@ -280,7 +280,7 @@ Asset
 can_create_asset
 ^^^^^^^^^^^^^^^^
 
-Allows creating new `assets <../../before_start/glossary.html#asset>`__.
+Allows creating new `assets <../../concepts_architecture/glossary.html#asset>`__.
 
 | Related API method: `Create Asset <../api/commands.html#create-asset>`__
 
@@ -297,7 +297,7 @@ Allows creating new `assets <../../before_start/glossary.html#asset>`__.
 can_receive
 ^^^^^^^^^^^
 
-Allows `account <../../before_start/glossary.html#account>`__ receive `assets <../../before_start/glossary.html#asset>`__.
+Allows `account <../../concepts_architecture/glossary.html#account>`__ receive `assets <../../concepts_architecture/glossary.html#asset>`__.
 
 | Related API method: `Transfer Asset <../api/commands.html#transfer-asset>`__
 
@@ -314,9 +314,9 @@ Allows `account <../../before_start/glossary.html#account>`__ receive `assets <.
 can_transfer
 ^^^^^^^^^^^^
 
-Allows sending `assets <../../before_start/glossary.html#asset>`__ from an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator.
+Allows sending `assets <../../concepts_architecture/glossary.html#asset>`__ from an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator.
 
-You can transfer an asset from one `domain <../../before_start/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name.
+You can transfer an asset from one `domain <../../concepts_architecture/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name.
 
 .. Note:: Destination account should have `can_receive`_ permission.
 
@@ -332,7 +332,7 @@ can_transfer_my_assets
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to transfer `assets <../../before_start/glossary.html#asset>`__ of another specified account.
+`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to transfer `assets <../../concepts_architecture/glossary.html#asset>`__ of another specified account.
 
 See the example (to be done) for the usage details.
 
@@ -354,9 +354,9 @@ Asset Quantity
 can_add_asset_qty
 ^^^^^^^^^^^^^^^^^
 
-Allows issuing `assets <../../before_start/glossary.html#asset>`__.
+Allows issuing `assets <../../concepts_architecture/glossary.html#asset>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API method: `Add Asset Quantity <../api/commands.html#add-asset-quantity>`__
 
@@ -373,9 +373,9 @@ The corresponding `command <../../before_start/glossary.html#command>`__ can be 
 can_subtract_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows burning `assets <../../before_start/glossary.html#asset>`__.
+Allows burning `assets <../../concepts_architecture/glossary.html#asset>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API method: `Subtract Asset Quantity <../api/commands.html#subtract-asset-quantity>`__
 
@@ -392,9 +392,9 @@ The corresponding `command <../../before_start/glossary.html#command>`__ can be 
 can_add_domain_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows issuing `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__.
+Allows issuing `assets <../../concepts_architecture/glossary.html#asset>`__ only in own `domain <../../concepts_architecture/glossary.html#domain>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__ and only for assets in creator’s domain.
 
 | Related API method: `Add Asset Quantity <../api/commands.html#add-asset-quantity>`__
 
@@ -406,9 +406,9 @@ The corresponding `command <../../before_start/glossary.html#command>`__ can be 
 can_subtract_domain_asset_qty
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows burning `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__.
+Allows burning `assets <../../concepts_architecture/glossary.html#asset>`__ only in own `domain <../../concepts_architecture/glossary.html#domain>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__ and only for assets in creator’s domain.
 
 | Related API method: `Subtract Asset Quantity <../api/commands.html#subtract-asset-quantity>`__
 
@@ -423,7 +423,7 @@ Domain
 can_create_domain
 ^^^^^^^^^^^^^^^^^
 
-Allows creating new `domains <../../before_start/glossary.html#domain>`__ within the system.
+Allows creating new `domains <../../concepts_architecture/glossary.html#domain>`__ within the system.
 
 | Related API method: `Create Domain <../api/commands.html#create-domain>`__
 
@@ -443,7 +443,7 @@ Grant
 can_grant_can_add_my_signatory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__.
+Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -460,7 +460,7 @@ Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_add_my
 can_grant_can_remove_my_signatory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__.
+Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -477,7 +477,7 @@ Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_remove
 can_grant_can_set_my_account_detail
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../before_start/glossary.html#permission>`__.
+Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -494,7 +494,7 @@ Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my
 can_grant_can_set_my_quorum
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../before_start/glossary.html#permission>`__.
+Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -511,7 +511,7 @@ Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my
 can_grant_can_transfer_my_assets
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../before_start/glossary.html#permission>`__.
+Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API methods: `Grant Permission <../api/commands.html#grant-permission>`__, `Revoke Permission <../api/commands.html#revoke-permission>`__
 
@@ -531,9 +531,9 @@ Peer
 can_add_peer
 ^^^^^^^^^^^^
 
-Allows adding `peers <../../before_start/glossary.html#peer>`__ to the network.
+Allows adding `peers <../../concepts_architecture/glossary.html#peer>`__ to the network.
 
-A new peer will be a valid participant in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing "addPeer" `command <../../before_start/glossary.html#command>`__.
+A new peer will be a valid participant in the next `consensus <../../concepts_architecture/glossary.html#consensus>`__ round after an agreement on `transaction <../../concepts_architecture/glossary.html#transaction>`__ containing "addPeer" `command <../../concepts_architecture/glossary.html#command>`__.
 
 | Related API method: `Add Peer <../api/commands.html#add-peer>`__
 
@@ -550,9 +550,9 @@ A new peer will be a valid participant in the next `consensus <../../before_star
 can_remove_peer
 ^^^^^^^^^^^^^^^
 
-Allows removing `peers <../../before_start/glossary.html#peer>`__ from the network.
+Allows removing `peers <../../concepts_architecture/glossary.html#peer>`__ from the network.
 
-Removed peer will not participate in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing "removePeer" `command <../../before_start/glossary.html#command>`__.
+Removed peer will not participate in the next `consensus <../../concepts_architecture/glossary.html#consensus>`__ round after an agreement on `transaction <../../concepts_architecture/glossary.html#transaction>`__ containing "removePeer" `command <../../concepts_architecture/glossary.html#command>`__.
 
 | Related API method: `Remove Peer <../api/commands.html#remove-peer>`__
 
@@ -572,9 +572,9 @@ Role
 can_append_role
 ^^^^^^^^^^^^^^^
 
-Allows appending `roles <../../before_start/glossary.html#role>`__ to another `account <../../before_start/glossary.html#account>`__.
+Allows appending `roles <../../concepts_architecture/glossary.html#role>`__ to another `account <../../concepts_architecture/glossary.html#account>`__.
 
-You can append only that role that has lesser or the same set of privileges as `transaction <../../before_start/glossary.html#transaction>`__ creator.
+You can append only that role that has lesser or the same set of privileges as `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator.
 
 | Related API method: `Append Role <../api/commands.html#append-role>`__
 
@@ -591,9 +591,9 @@ You can append only that role that has lesser or the same set of privileges as `
 can_create_role
 ^^^^^^^^^^^^^^^
 
-Allows creating a new `role <../../before_start/glossary.html#role>`__ within a system.
+Allows creating a new `role <../../concepts_architecture/glossary.html#role>`__ within a system.
 
-Possible set of `permissions <../../before_start/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../before_start/glossary.html#transaction>`__ creator has.
+Possible set of `permissions <../../concepts_architecture/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator has.
 
 
 | Related API method: `Create Role <../api/commands.html#create-role>`__
@@ -611,7 +611,7 @@ Possible set of `permissions <../../before_start/glossary.html#permission>`__ fo
 can_detach_role
 ^^^^^^^^^^^^^^^
 
-Allows revoking a `role <../../before_start/glossary.html#role>`__ from a user.
+Allows revoking a `role <../../concepts_architecture/glossary.html#role>`__ from a user.
 
 .. Note:: Due to a known issue the permission allows to detach any role without limitations https://soramitsu.atlassian.net/browse/IR-1468
 
@@ -635,7 +635,7 @@ can_add_my_signatory
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to add an extra public key to the another specified account.
+`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to add an extra public key to the another specified account.
 
 | Related API method: `Add Signatory <../api/commands.html#add-signatory>`__
 
@@ -652,9 +652,9 @@ can_add_my_signatory
 can_add_signatory
 ^^^^^^^^^^^^^^^^^
 
-Allows linking additional public keys to `account <../../before_start/glossary.html#account>`__.
+Allows linking additional public keys to `account <../../concepts_architecture/glossary.html#account>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an account of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API method: `Add Signatory <../api/commands.html#add-signatory>`__
 
@@ -673,7 +673,7 @@ can_remove_my_signatory
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ remove public key from the another specified account.
+`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ remove public key from the another specified account.
 
 See the example (to be done) for the usage details.
 
@@ -692,9 +692,9 @@ See the example (to be done) for the usage details.
 can_remove_signatory
 ^^^^^^^^^^^^^^^^^^^^
 
-Allows unlinking additional public keys from an `account <../../before_start/glossary.html#account>`__.
+Allows unlinking additional public keys from an `account <../../concepts_architecture/glossary.html#account>`__.
 
-The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__.
+The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an account of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__.
 
 | Related API method: `Remove Signatory <../api/commands.html#remove-signatory>`__
 
@@ -713,7 +713,7 @@ can_set_my_quorum
 
 .. Hint:: This is a grantable permission.
 
-`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set `quorum <../../before_start/glossary.html#quorum>`__ for the another specified account.
+`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to set `quorum <../../concepts_architecture/glossary.html#quorum>`__ for the another specified account.
 
 Account should have greater or equal amount of keys than quorum.
 
@@ -732,9 +732,9 @@ Account should have greater or equal amount of keys than quorum.
 can_set_quorum
 ^^^^^^^^^^^^^^
 
-Allows setting `quorum <../../before_start/glossary.html#quorum>`__.
+Allows setting `quorum <../../concepts_architecture/glossary.html#quorum>`__.
 
-At least the same number (or more) of public keys should be already linked to an `account <../../before_start/glossary.html#account>`__.
+At least the same number (or more) of public keys should be already linked to an `account <../../concepts_architecture/glossary.html#account>`__.
 
 | Related API method: `Set Account Quorum <../api/commands.html#set-account-quorum>`__
 
@@ -757,7 +757,7 @@ Account
 can_get_all_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the system.
+Allows getting all the details set to any `account <../../concepts_architecture/glossary.html#account>`__ within the system.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -774,9 +774,9 @@ Allows getting all the details set to any `account <../../before_start/glossary.
 can_get_all_accounts
 ^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../concepts_architecture/glossary.html#account>`__ information: `quorum <../../concepts_architecture/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information about any account within a system.
+With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information about any account within a system.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -795,7 +795,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 can_get_domain_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account.
+Allows getting all the details set to any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as a domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -812,9 +812,9 @@ Allows getting all the details set to any `account <../../before_start/glossary.
 can_get_domain_accounts
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../concepts_architecture/glossary.html#account>`__ information: `quorum <../../concepts_architecture/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../before_start/glossary.html#domain>`__.
+With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../concepts_architecture/glossary.html#domain>`__.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -833,7 +833,7 @@ All the details (set by the account owner or owners of other accounts) will be r
 can_get_my_acc_detail
 ^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all the details set to the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
+Allows getting all the details set to the `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator.
 
 | Related API method: `Get Account Detail <../api/queries.html#get-account-detail>`__
 
@@ -850,9 +850,9 @@ Allows getting all the details set to the `account <../../before_start/glossary.
 can_get_my_account
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account.
+Allows getting `account <../../concepts_architecture/glossary.html#account>`__ information: `quorum <../../concepts_architecture/glossary.html#quorum>`__ and all the details related to the account.
 
-With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about own account.
+With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information only about own account.
 
 All the details (set by the account owner or owners of other accounts) will be returned.
 
@@ -874,9 +874,9 @@ Account Asset
 can_get_all_acc_ast
 ^^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of `assets <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the system.
+Allows getting a balance of `assets <../../concepts_architecture/glossary.html#asset>`__ on any `account <../../concepts_architecture/glossary.html#account>`__ within the system.
 
-`Query <../../before_start/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account.
+`Query <../../concepts_architecture/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account.
 
 | Related API method: `Get Account Assets <../api/queries.html#get-account-assets>`__
 
@@ -893,7 +893,7 @@ Allows getting a balance of `assets <../../before_start/glossary.html#asset>`__ 
 can_get_domain_acc_ast
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account.
+Allows getting a balance of specified `asset <../../concepts_architecture/glossary.html#asset>`__ on any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as a domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account.
 
 Query response will contain information about all the assets that ever been assigned to an account.
 
@@ -912,7 +912,7 @@ Query response will contain information about all the assets that ever been assi
 can_get_my_acc_ast
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
+Allows getting a balance of specified `asset <../../concepts_architecture/glossary.html#asset>`__ on `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator.
 
 Query response will contain information about all the assets that ever been assigned to an account.
 
@@ -934,7 +934,7 @@ Account Asset Transaction
 can_get_all_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and any `account <../../before_start/glossary.html#account>`__ within the system.
+Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with a specified `asset <../../concepts_architecture/glossary.html#asset>`__ and any `account <../../concepts_architecture/glossary.html#account>`__ within the system.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -953,7 +953,7 @@ Allows getting `transactions <../../before_start/glossary.html#transaction>`__ a
 can_get_domain_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and an `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator.
+Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with a specified `asset <../../concepts_architecture/glossary.html#asset>`__ and an `account <../../concepts_architecture/glossary.html#account>`__ from the same `domain <../../concepts_architecture/glossary.html#domain>`__ as `query <../../concepts_architecture/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -972,7 +972,7 @@ Allows getting `transactions <../../before_start/glossary.html#transaction>`__ a
 can_get_my_acc_ast_txs
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator and specified `asset <../../before_start/glossary.html#asset>`__.
+Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with the `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator and specified `asset <../../concepts_architecture/glossary.html#asset>`__.
 
 .. Note:: Incoming asset transfers will also appear in the query response.
 
@@ -994,7 +994,7 @@ Account Transaction
 can_get_all_acc_txs
 ^^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ within the system.
+Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by any `account <../../concepts_architecture/glossary.html#account>`__ within the system.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1013,7 +1013,7 @@ Allows getting all `transactions <../../before_start/glossary.html#transaction>`
 can_get_domain_acc_txs
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator.
+Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by any `account <../../concepts_architecture/glossary.html#account>`__ from the same `domain <../../concepts_architecture/glossary.html#domain>`__ as `query <../../concepts_architecture/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1032,7 +1032,7 @@ Allows getting all `transactions <../../before_start/glossary.html#transaction>`
 can_get_my_acc_txs
 ^^^^^^^^^^^^^^^^^^
 
-Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by an `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator.
+Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by an `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator.
 
 .. Note:: Incoming asset transfer inside a transaction would NOT lead to an appearance of the transaction in the command output.
 
@@ -1054,7 +1054,7 @@ Asset
 can_read_assets
 ^^^^^^^^^^^^^^^
 
-Allows getting information about `asset <../../before_start/glossary.html#asset>`__ precision.
+Allows getting information about `asset <../../concepts_architecture/glossary.html#asset>`__ precision.
 
 | Related API method: `Get Asset Info <../api/queries.html#get-asset-info>`__
 
@@ -1074,7 +1074,7 @@ Block Stream
 can_get_blocks
 ^^^^^^^^^^^^^^
 
-Allows reading `blocks <../../before_start/glossary.html#block>`__.
+Allows reading `blocks <../../concepts_architecture/glossary.html#block>`__.
 Allows subscription to the stream of accepted blocks.
 
 | Related API methods: `Get Block <../api/queries.html#get-block>`__, `Fetchcommits <../api/queries.html#fetchcommits>`__
@@ -1085,8 +1085,8 @@ Role
 can_get_roles
 ^^^^^^^^^^^^^
 
-Allows getting a list of `roles <../../before_start/glossary.html#role>`__ within the system.
-Allows getting a list of `permissions <../../before_start/glossary.html#permission>`__ associated with a role.
+Allows getting a list of `roles <../../concepts_architecture/glossary.html#role>`__ within the system.
+Allows getting a list of `permissions <../../concepts_architecture/glossary.html#permission>`__ associated with a role.
 
 | Related API methods: `Get Roles <../api/queries.html#get-roles>`__, `Get Role Permissions <../api/queries.html#get-role-permissions>`__
 
@@ -1106,7 +1106,7 @@ Signatory
 can_get_all_signatories
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys linked to an `account <../../before_start/glossary.html#account>`__ within the system.
+Allows getting a list of public keys linked to an `account <../../concepts_architecture/glossary.html#account>`__ within the system.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1123,7 +1123,7 @@ Allows getting a list of public keys linked to an `account <../../before_start/g
 can_get_domain_signatories
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys of any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as the domain of `query <../../before_start/glossary.html#query>`__ creator account.
+Allows getting a list of public keys of any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as the domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1140,7 +1140,7 @@ Allows getting a list of public keys of any `account <../../before_start/glossar
 can_get_my_signatories
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Allows getting a list of public keys of `query <../../before_start/glossary.html#query>`__ creator `account <../../before_start/glossary.html#account>`__.
+Allows getting a list of public keys of `query <../../concepts_architecture/glossary.html#query>`__ creator `account <../../concepts_architecture/glossary.html#account>`__.
 
 | Related API method: `Get Signatories <../api/queries.html#get-signatories>`__
 
@@ -1160,7 +1160,7 @@ Transaction
 can_get_all_txs
 ^^^^^^^^^^^^^^^
 
-Allows getting any `transaction <../../before_start/glossary.html#transaction>`__ by hash.
+Allows getting any `transaction <../../concepts_architecture/glossary.html#transaction>`__ by hash.
 
 | Related API method: `Get Transactions <../api/queries.html#get-transactions>`__
 
@@ -1172,12 +1172,12 @@ Allows getting any `transaction <../../before_start/glossary.html#transaction>`_
 .. literalinclude:: ../../../../example/python/permissions/can_get_all_txs.py
     :language: python
     :linenos:
-    :lines: 11-58
+    :lines: 12-59
 
 can_get_my_txs
 ^^^^^^^^^^^^^^
 
-Allows getting `transaction <../../before_start/glossary.html#transaction>`__ (that was issued by `query <../../before_start/glossary.html#query>`__ creator) by hash.
+Allows getting `transaction <../../concepts_architecture/glossary.html#transaction>`__ (that was issued by `query <../../concepts_architecture/glossary.html#query>`__ creator) by hash.
 
 | Related API method: `Get Transactions <../api/queries.html#get-transactions>`__
 
@@ -1197,7 +1197,7 @@ Peer
 can_get_peers
 ^^^^^^^^^^^^^
 
-Allows to request the list of `peers <../../before_start/glossary.html#peer>`__ in the Iroha network.
+Allows to request the list of `peers <../../concepts_architecture/glossary.html#peer>`__ in the Iroha network.
 
 | Related API method: `Get Peers <../api/queries.html#get-peers>`__
 
