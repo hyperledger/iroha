@@ -1172,7 +1172,7 @@ Allows getting any `transaction <../../before_start/glossary.html#transaction>`_
 .. literalinclude:: ../../../../example/python/permissions/can_get_all_txs.py
     :language: python
     :linenos:
-    :lines: 11-58
+    :lines: 12-59
 
 can_get_my_txs
 ^^^^^^^^^^^^^^
