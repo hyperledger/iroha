@@ -71,7 +71,7 @@ html_theme_options = {
     'navigation_depth': 3, #default is 4 - changed for better looks
 }
 
-#additional files
+# Additional files
 html_extra_path = ['_extra']
 
 # -- Options for HTMLHelp output ------------------------------------------
