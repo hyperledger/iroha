@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,15 +16,15 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../../before_start/index.rst:5
-msgid "Before we start"
+#: ../../concepts_architecture/index.rst:5
+msgid "Concepts and Architecture"
 msgstr ""
 
-#: ../../before_start/index.rst:7
+#: ../../concepts_architecture/index.rst:7
 msgid "Iroha is a system that can work with different concepts, and for your convenience we would like you to look through them so you could familiarise yourself with what you will be dealing with. That can be done in \"Core concepts section\"."
 msgstr ""
 
-#: ../../before_start/index.rst:9
+#: ../../concepts_architecture/index.rst:9
 msgid "To learn, what Iroha is made of, please check out \"What's inside Iroha?\""
 msgstr ""
 

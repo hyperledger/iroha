@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -804,7 +804,7 @@ msgstr ""
 
 #: ../../develop/api/queries.rst:261
 #: ../../develop/api/queries.rst:355
-msgid "GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_ or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator."
+msgid "GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../concepts_architecture/glossary.html#multisignature-transactions>`_ or `batches of transactions <../../concepts_architecture/glossary.html#batch-of-transactions>`__ issued by account of query creator."
 msgstr ""
 
 #: ../../develop/api/queries.rst:264
@@ -864,7 +864,7 @@ msgid "If there are two pending batches with three transactions each and a user 
 msgstr ""
 
 #: ../../develop/api/queries.rst:331
-msgid "The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_, the amount of all stored pending transactions for the user and the information required to query the subsequent page (if exists)."
+msgid "The response contains a list of `pending transactions <../../concepts_architecture/glossary.html#pending-transactions>`_, the amount of all stored pending transactions for the user and the information required to query the subsequent page (if exists)."
 msgstr ""
 
 #: ../../develop/api/queries.rst:1
@@ -928,7 +928,7 @@ msgid "The query without parameters is deprecated now and will be removed in the
 msgstr ""
 
 #: ../../develop/api/queries.rst:378
-msgid "The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_."
+msgid "The response contains a list of `pending transactions <../../concepts_architecture/glossary.html#pending-transactions>`_."
 msgstr ""
 
 #: ../../develop/api/queries.rst:1

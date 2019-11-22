@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,154 +16,154 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../../before_start/er_model.rst:2
+#: ../../concepts_architecture/er_model.rst:2
 msgid "Entity-relationship model"
 msgstr ""
 
-#: ../../before_start/er_model.rst:4
+#: ../../concepts_architecture/er_model.rst:4
 msgid "Each Hyperledger Iroha peer has a state, called \"World State View\", which is represented by a set of entities and relations among them. To explain which entities exist in the system and what are the relations, this sections includes ER diagram and an explanation of its components."
 msgstr ""
 
-#: ../../before_start/er_model.rst:8
+#: ../../concepts_architecture/er_model.rst:8
 msgid "ER diagram"
 msgstr ""
 
-#: ../../before_start/er_model.rst:13
+#: ../../concepts_architecture/er_model.rst:13
 msgid "Peer"
 msgstr ""
 
-#: ../../before_start/er_model.rst:15
+#: ../../concepts_architecture/er_model.rst:15
 msgid "address — network address and internal port, is used for synchronization, consensus, and communication with the ordering service"
 msgstr ""
 
-#: ../../before_start/er_model.rst:16
+#: ../../concepts_architecture/er_model.rst:16
 msgid "public_key — key, which will be used for signing blocks during consensus process"
 msgstr ""
 
-#: ../../before_start/er_model.rst:19
+#: ../../concepts_architecture/er_model.rst:19
 msgid "Asset"
 msgstr ""
 
-#: ../../before_start/er_model.rst:21
+#: ../../concepts_architecture/er_model.rst:21
 msgid "asset_id — identifier of asset, formatted as asset_name#domain_id"
 msgstr ""
 
-#: ../../before_start/er_model.rst:22
+#: ../../concepts_architecture/er_model.rst:22
 msgid "domain_id — identifier of domain, where the asset was created, references existing domain"
 msgstr ""
 
-#: ../../before_start/er_model.rst:23
+#: ../../concepts_architecture/er_model.rst:23
 msgid "precision — size of fractional part"
 msgstr ""
 
-#: ../../before_start/er_model.rst:26
+#: ../../concepts_architecture/er_model.rst:26
 msgid "Signatory"
 msgstr ""
 
-#: ../../before_start/er_model.rst:28
+#: ../../concepts_architecture/er_model.rst:28
 msgid "public_key — a public key"
 msgstr ""
 
-#: ../../before_start/er_model.rst:31
+#: ../../concepts_architecture/er_model.rst:31
 msgid "Domain"
 msgstr ""
 
-#: ../../before_start/er_model.rst:33
+#: ../../concepts_architecture/er_model.rst:33
 msgid "domain_id — identifier of a domain"
 msgstr ""
 
-#: ../../before_start/er_model.rst:34
+#: ../../concepts_architecture/er_model.rst:34
 msgid "default_role — a default role per user created in the domain, references existing role"
 msgstr ""
 
-#: ../../before_start/er_model.rst:37
+#: ../../concepts_architecture/er_model.rst:37
 msgid "Role"
 msgstr ""
 
-#: ../../before_start/er_model.rst:39
+#: ../../concepts_architecture/er_model.rst:39
 msgid "role_id — identifier of role"
 msgstr ""
 
-#: ../../before_start/er_model.rst:42
+#: ../../concepts_architecture/er_model.rst:42
 msgid "RoleHasPermissions"
 msgstr ""
 
-#: ../../before_start/er_model.rst:44
-#: ../../before_start/er_model.rst:73
+#: ../../concepts_architecture/er_model.rst:44
+#: ../../concepts_architecture/er_model.rst:73
 msgid "role_id — identifier of role, references existing role"
 msgstr ""
 
-#: ../../before_start/er_model.rst:45
+#: ../../concepts_architecture/er_model.rst:45
 msgid "permission_id — an id of predefined role"
 msgstr ""
 
-#: ../../before_start/er_model.rst:48
+#: ../../concepts_architecture/er_model.rst:48
 msgid "Account"
 msgstr ""
 
-#: ../../before_start/er_model.rst:50
+#: ../../concepts_architecture/er_model.rst:50
 msgid "account_id — identifier of account, formatted as account_name@domain_id"
 msgstr ""
 
-#: ../../before_start/er_model.rst:51
+#: ../../concepts_architecture/er_model.rst:51
 msgid "domain_id — identifier of domain where the account was created, references existing domain"
 msgstr ""
 
-#: ../../before_start/er_model.rst:52
+#: ../../concepts_architecture/er_model.rst:52
 msgid "quorum — number of signatories required for creation of valid transaction from this account"
 msgstr ""
 
-#: ../../before_start/er_model.rst:53
+#: ../../concepts_architecture/er_model.rst:53
 msgid "transaction_count – counter of transactions created by this account"
 msgstr ""
 
-#: ../../before_start/er_model.rst:54
+#: ../../concepts_architecture/er_model.rst:54
 msgid "data — key-value storage for any information, related to the account. Size is limited to 268435455 bytes (0x0FFFFFFF) (PostgreSQL JSONB field)."
 msgstr ""
 
-#: ../../before_start/er_model.rst:57
+#: ../../concepts_architecture/er_model.rst:57
 msgid "AccountHasSignatory"
 msgstr ""
 
-#: ../../before_start/er_model.rst:59
-#: ../../before_start/er_model.rst:65
-#: ../../before_start/er_model.rst:72
+#: ../../concepts_architecture/er_model.rst:59
+#: ../../concepts_architecture/er_model.rst:65
+#: ../../concepts_architecture/er_model.rst:72
 msgid "account_id — identifier of account, references existing account"
 msgstr ""
 
-#: ../../before_start/er_model.rst:60
+#: ../../concepts_architecture/er_model.rst:60
 msgid "public_key — a public key (which is also called signatory), references existing signatory"
 msgstr ""
 
-#: ../../before_start/er_model.rst:63
+#: ../../concepts_architecture/er_model.rst:63
 msgid "AccountHasAsset"
 msgstr ""
 
-#: ../../before_start/er_model.rst:66
+#: ../../concepts_architecture/er_model.rst:66
 msgid "asset_id — identifier of asset, references existing asset"
 msgstr ""
 
-#: ../../before_start/er_model.rst:67
+#: ../../concepts_architecture/er_model.rst:67
 msgid "amount — an amount of the asset, belonging to the account"
 msgstr ""
 
-#: ../../before_start/er_model.rst:70
+#: ../../concepts_architecture/er_model.rst:70
 msgid "AccountHasRoles"
 msgstr ""
 
-#: ../../before_start/er_model.rst:76
+#: ../../concepts_architecture/er_model.rst:76
 msgid "AccountHasGrantablePermissions"
 msgstr ""
 
-#: ../../before_start/er_model.rst:78
+#: ../../concepts_architecture/er_model.rst:78
 msgid "account_id — identifier of account, references existing account. This account gives grantable permission to perform operation over itself to permittee."
 msgstr ""
 
-#: ../../before_start/er_model.rst:79
+#: ../../concepts_architecture/er_model.rst:79
 msgid "permittee_account_id — identifier of account, references existing account. This account is given permission to perform operation over account_id."
 msgstr ""
 
-#: ../../before_start/er_model.rst:80
+#: ../../concepts_architecture/er_model.rst:80
 msgid "permission_id — identifier of grantable_permission"
 msgstr ""
 

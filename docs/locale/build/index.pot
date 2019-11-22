@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 
 #: ../../build/index.rst:5
 #: ../../build/index.rst:16
-#: ../../build/index.rst:234
+#: ../../build/index.rst:233
 msgid "Building Iroha"
 msgstr ""
 
@@ -156,7 +156,7 @@ msgstr ""
 
 #: ../../build/index.rst:117
 #: ../../build/index.rst:136
-#: ../../build/index.rst:169
+#: ../../build/index.rst:168
 msgid "Now you are ready to `install Iroha dependencies <#installing-dependencies-with-vcpkg-dependency-manager>`_."
 msgstr ""
 
@@ -177,7 +177,7 @@ msgid "``ruby -e \"$(curl -fsSL https://raw.githubusercontent.com/homebrew/insta
 msgstr ""
 
 #: ../../build/index.rst:141
-#: ../../build/index.rst:196
+#: ../../build/index.rst:195
 msgid "Windows"
 msgstr ""
 
@@ -201,231 +201,231 @@ msgstr ""
 msgid "Install CMake, Git, Microsoft compilers via chocolatey being in Administrative mode of command prompt:"
 msgstr ""
 
-#: ../../build/index.rst:162
+#: ../../build/index.rst:161
 msgid "PostgreSQL is not a build dependency, but it is recommended to install it now for the testing later:"
 msgstr ""
 
-#: ../../build/index.rst:172
+#: ../../build/index.rst:171
 msgid "Installing dependencies with Vcpkg Dependency Manager"
 msgstr ""
 
-#: ../../build/index.rst:174
+#: ../../build/index.rst:173
 msgid "Currently we use Vcpkg as a dependency manager for all platforms - Linux, Windows and MacOS. We use a fixed version of Vcpkg to ensure the patches we need will work."
 msgstr ""
 
-#: ../../build/index.rst:177
+#: ../../build/index.rst:176
 msgid "That stable version can only be found inside the Iroha repository, so we will need to clone Iroha. The whole process is pretty similar for all platforms but the exact commands are slightly different."
 msgstr ""
 
-#: ../../build/index.rst:181
+#: ../../build/index.rst:180
 msgid "Linux and MacOS"
 msgstr ""
 
-#: ../../build/index.rst:183
+#: ../../build/index.rst:182
 msgid "Run in terminal:"
 msgstr ""
 
-#: ../../build/index.rst:191
+#: ../../build/index.rst:190
 msgid "After the installation of vcpkg you will be provided with a CMake build parameter like ``-DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``. Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section."
 msgstr ""
 
-#: ../../build/index.rst:198
+#: ../../build/index.rst:197
 msgid "Execute from Power Shell:"
 msgstr ""
 
-#: ../../build/index.rst:205
+#: ../../build/index.rst:204
 msgid "After the installation of vcpkg you will be provided with a CMake build parameter like ``-DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake``. Save it somewhere for later use and move to `Building Iroha <#build-process>`_ section."
 msgstr ""
 
-#: ../../build/index.rst:209
+#: ../../build/index.rst:208
 msgid "If you plan to build 32-bit version of Iroha - you will need to install all the mentioned librares above prefixed with ``x86`` term instead of ``x64``."
 msgstr ""
 
-#: ../../build/index.rst:214
+#: ../../build/index.rst:213
 msgid "Build Process"
 msgstr ""
 
-#: ../../build/index.rst:217
+#: ../../build/index.rst:216
 msgid "Cloning the Repository"
 msgstr ""
 
-#: ../../build/index.rst:218
+#: ../../build/index.rst:217
 msgid "This step is currently unnecessary since you have already cloned Iroha in the previous step. But if you want, you can clone the `Iroha repository <https://github.com/hyperledger/iroha>`_ to the directory of your choice."
 msgstr ""
 
-#: ../../build/index.rst:227
+#: ../../build/index.rst:226
 msgid "If you have installed the prerequisites with Docker, you don't need to clone Iroha again, because when you run ``run-iroha-dev.sh`` it attaches to Iroha source code folder. Feel free to edit source code files with your host environment and build it within docker container."
 msgstr ""
 
-#: ../../build/index.rst:236
+#: ../../build/index.rst:235
 msgid "To build Iroha, use these commands:"
 msgstr ""
 
-#: ../../build/index.rst:243
+#: ../../build/index.rst:242
 msgid "On Docker the path to a toolchain file is ``/opt/dependencies/scripts/buildsystems/vcpkg.cmake``. In other environment please use the path you have got in previous steps."
 msgstr ""
 
-#: ../../build/index.rst:246
+#: ../../build/index.rst:245
 msgid "Number of threads will be defined differently depending on the platform: - On Linux: via ``nproc``. - On MacOS: with ``sysctl -n hw.ncpu``. - On Windows: use ``echo %NUMBER_OF_PROCESSORS%``."
 msgstr ""
 
-#: ../../build/index.rst:251
+#: ../../build/index.rst:250
 msgid "When building on Windows do not execute this from the Power Shell. Better use x64 Native tools command prompt."
 msgstr ""
 
-#: ../../build/index.rst:253
+#: ../../build/index.rst:252
 msgid "Now Iroha is built. Although, if you like, you can build it with additional parameters described below."
 msgstr ""
 
-#: ../../build/index.rst:256
+#: ../../build/index.rst:255
 msgid "CMake Parameters"
 msgstr ""
 
-#: ../../build/index.rst:258
+#: ../../build/index.rst:257
 msgid "We use CMake to generate platform-dependent build files. It has numerous flags for configuring the final build. Note that besides the listed parameters cmake's variables can be useful as well. Also as long as this page can be deprecated (or just not complete) you can browse custom flags via ``cmake -L``, ``cmake-gui``, or ``ccmake``."
 msgstr ""
 
-#: ../../build/index.rst:263
+#: ../../build/index.rst:262
 msgid "You can specify parameters at the cmake configuring stage (e.g cmake -DTESTING=ON)."
 msgstr ""
 
-#: ../../build/index.rst:267
+#: ../../build/index.rst:266
 msgid "Main Parameters"
 msgstr ""
 
-#: ../../build/index.rst:270
-#: ../../build/index.rst:287
+#: ../../build/index.rst:269
+#: ../../build/index.rst:286
 msgid "Parameter"
 msgstr ""
 
-#: ../../build/index.rst:270
-#: ../../build/index.rst:287
+#: ../../build/index.rst:269
+#: ../../build/index.rst:286
 msgid "Possible values"
 msgstr ""
 
-#: ../../build/index.rst:270
-#: ../../build/index.rst:287
+#: ../../build/index.rst:269
+#: ../../build/index.rst:286
 msgid "Default"
 msgstr ""
 
-#: ../../build/index.rst:270
-#: ../../build/index.rst:287
+#: ../../build/index.rst:269
+#: ../../build/index.rst:286
 msgid "Description"
 msgstr ""
 
-#: ../../build/index.rst:272
+#: ../../build/index.rst:271
 msgid "TESTING"
 msgstr ""
 
-#: ../../build/index.rst:272
-#: ../../build/index.rst:289
+#: ../../build/index.rst:271
+#: ../../build/index.rst:288
 msgid "ON/OFF"
 msgstr ""
 
-#: ../../build/index.rst:272
-#: ../../build/index.rst:289
+#: ../../build/index.rst:271
+#: ../../build/index.rst:288
 msgid "ON"
 msgstr ""
 
-#: ../../build/index.rst:272
+#: ../../build/index.rst:271
 msgid "Enables or disables build of the tests"
 msgstr ""
 
-#: ../../build/index.rst:274
+#: ../../build/index.rst:273
 msgid "BENCHMARKING"
 msgstr ""
 
-#: ../../build/index.rst:274
-#: ../../build/index.rst:276
-#: ../../build/index.rst:278
-#: ../../build/index.rst:291
-#: ../../build/index.rst:293
-#: ../../build/index.rst:295
-#: ../../build/index.rst:297
+#: ../../build/index.rst:273
+#: ../../build/index.rst:275
+#: ../../build/index.rst:277
+#: ../../build/index.rst:290
+#: ../../build/index.rst:292
+#: ../../build/index.rst:294
+#: ../../build/index.rst:296
 msgid "OFF"
 msgstr ""
 
-#: ../../build/index.rst:274
+#: ../../build/index.rst:273
 msgid "Enables or disables build of the Google Benchmarks library"
 msgstr ""
 
-#: ../../build/index.rst:276
+#: ../../build/index.rst:275
 msgid "COVERAGE"
 msgstr ""
 
-#: ../../build/index.rst:276
+#: ../../build/index.rst:275
 msgid "Enables or disables lcov setting for code coverage generation"
 msgstr ""
 
-#: ../../build/index.rst:278
+#: ../../build/index.rst:277
 msgid "USE_LIBURSA"
 msgstr ""
 
-#: ../../build/index.rst:278
+#: ../../build/index.rst:277
 msgid "Enables usage of the HL Ursa cryptography instead of the standard one"
 msgstr ""
 
-#: ../../build/index.rst:281
+#: ../../build/index.rst:280
 msgid "If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <../integrations/index.html#hyperledger-ursa>`_."
 msgstr ""
 
-#: ../../build/index.rst:284
+#: ../../build/index.rst:283
 msgid "Packaging Specific Parameters"
 msgstr ""
 
-#: ../../build/index.rst:289
+#: ../../build/index.rst:288
 msgid "ENABLE_LIBS_PACKAGING"
 msgstr ""
 
-#: ../../build/index.rst:289
+#: ../../build/index.rst:288
 msgid "Enables or disables all types of packaging"
 msgstr ""
 
-#: ../../build/index.rst:291
+#: ../../build/index.rst:290
 msgid "PACKAGE_ZIP"
 msgstr ""
 
-#: ../../build/index.rst:291
+#: ../../build/index.rst:290
 msgid "Enables or disables zip packaging"
 msgstr ""
 
-#: ../../build/index.rst:293
+#: ../../build/index.rst:292
 msgid "PACKAGE_TGZ"
 msgstr ""
 
-#: ../../build/index.rst:293
+#: ../../build/index.rst:292
 msgid "Enables or disables tar.gz packaging"
 msgstr ""
 
-#: ../../build/index.rst:295
+#: ../../build/index.rst:294
 msgid "PACKAGE_RPM"
 msgstr ""
 
-#: ../../build/index.rst:295
+#: ../../build/index.rst:294
 msgid "Enables or disables rpm packaging"
 msgstr ""
 
-#: ../../build/index.rst:297
+#: ../../build/index.rst:296
 msgid "PACKAGE_DEB"
 msgstr ""
 
-#: ../../build/index.rst:297
+#: ../../build/index.rst:296
 msgid "Enables or disables deb packaging"
 msgstr ""
 
-#: ../../build/index.rst:301
+#: ../../build/index.rst:300
 msgid "Running Tests (optional)"
 msgstr ""
 
-#: ../../build/index.rst:303
+#: ../../build/index.rst:302
 msgid "After building Iroha, it is a good idea to run tests to check the operability of the daemon. You can run tests with this code:"
 msgstr ""
 
-#: ../../build/index.rst:310
+#: ../../build/index.rst:309
 msgid "Alternatively, you can run the following command in the ``build`` folder"
 msgstr ""
 
-#: ../../build/index.rst:317
+#: ../../build/index.rst:316
 msgid "Some of the tests will fail without PostgreSQL storage running, so if you are not using ``scripts/run-iroha-dev.sh`` script please run Docker container or create a local connection with following parameters:"
 msgstr ""
 

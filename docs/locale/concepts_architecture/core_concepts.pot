@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,11 +16,11 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../../before_start/core_concepts.rst:4
+#: ../../concepts_architecture/core_concepts.rst:4
 msgid "Core concepts"
 msgstr ""
 
-#: ../../before_start/core_concepts.rst:6
+#: ../../concepts_architecture/core_concepts.rst:6
 msgid "Why Iroha runs in a network? How to understand the objects inside and outside the system? How peers in the network collaborate and decide which data to put into the blockchain? We will look through the basics of Iroha in this section."
 msgstr ""
 

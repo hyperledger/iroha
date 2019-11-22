@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -445,7 +445,7 @@ msgid "root"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:203
-msgid "Allows executing all `commands <../../before_start/glossary.html#command>`__ and queries without other `permissions <../../before_start/glossary.html#permission>`__."
+msgid "Allows executing all `commands <../../concepts_architecture/glossary.html#command>`__ and queries without other `permissions <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:205
@@ -517,7 +517,7 @@ msgid "can_create_account"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:221
-msgid "Allows creating new `accounts <../../before_start/glossary.html#account>`__."
+msgid "Allows creating new `accounts <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:223
@@ -533,11 +533,11 @@ msgid "can_set_detail"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:238
-msgid "Allows setting `account <../../before_start/glossary.html#account>`__ detail."
+msgid "Allows setting `account <../../concepts_architecture/glossary.html#account>`__ detail."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:240
-msgid "The `permission <../../before_start/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../before_start/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission."
+msgid "The `permission <../../concepts_architecture/glossary.html#permission>`__ allows setting details to other accounts. Another way to set detail without can_set_detail permission is to grant `can_set_my_account_detail`_ permission to someone. In order to grant, `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator should have `can_grant_can_set_my_account_detail`_ permission."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:242
@@ -566,7 +566,7 @@ msgid "This is a grantable permission."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:261
-msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set details for the another specified account."
+msgid "`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to set details for the another specified account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:263
@@ -582,7 +582,7 @@ msgid "can_create_asset"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:283
-msgid "Allows creating new `assets <../../before_start/glossary.html#asset>`__."
+msgid "Allows creating new `assets <../../concepts_architecture/glossary.html#asset>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:285
@@ -598,7 +598,7 @@ msgid "can_receive"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:300
-msgid "Allows `account <../../before_start/glossary.html#account>`__ receive `assets <../../before_start/glossary.html#asset>`__."
+msgid "Allows `account <../../concepts_architecture/glossary.html#account>`__ receive `assets <../../concepts_architecture/glossary.html#asset>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:302
@@ -616,11 +616,11 @@ msgid "can_transfer"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:317
-msgid "Allows sending `assets <../../before_start/glossary.html#asset>`__ from an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator."
+msgid "Allows sending `assets <../../concepts_architecture/glossary.html#asset>`__ from an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:319
-msgid "You can transfer an asset from one `domain <../../before_start/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name."
+msgid "You can transfer an asset from one `domain <../../concepts_architecture/glossary.html#domain>`__ to another, even if the other domain does not have an asset with the same name."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:321
@@ -632,7 +632,7 @@ msgid "can_transfer_my_assets"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:335
-msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to transfer `assets <../../before_start/glossary.html#asset>`__ of another specified account."
+msgid "`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to transfer `assets <../../concepts_architecture/glossary.html#asset>`__ of another specified account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:337
@@ -649,12 +649,12 @@ msgid "can_add_asset_qty"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:357
-msgid "Allows issuing `assets <../../before_start/glossary.html#asset>`__."
+msgid "Allows issuing `assets <../../concepts_architecture/glossary.html#asset>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:359
 #: ../../develop/api/permissions.rst:378
-msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__."
+msgid "The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:361
@@ -671,7 +671,7 @@ msgid "can_subtract_asset_qty"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:376
-msgid "Allows burning `assets <../../before_start/glossary.html#asset>`__."
+msgid "Allows burning `assets <../../concepts_architecture/glossary.html#asset>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:380
@@ -688,12 +688,12 @@ msgid "can_add_domain_asset_qty"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:395
-msgid "Allows issuing `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__."
+msgid "Allows issuing `assets <../../concepts_architecture/glossary.html#asset>`__ only in own `domain <../../concepts_architecture/glossary.html#domain>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:397
 #: ../../develop/api/permissions.rst:411
-msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an `account <../../before_start/glossary.html#account>`__ of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__ and only for assets in creator’s domain."
+msgid "The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an `account <../../concepts_architecture/glossary.html#account>`__ of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__ and only for assets in creator’s domain."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:407
@@ -701,7 +701,7 @@ msgid "can_subtract_domain_asset_qty"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:409
-msgid "Allows burning `assets <../../before_start/glossary.html#asset>`__ only in own `domain <../../before_start/glossary.html#domain>`__."
+msgid "Allows burning `assets <../../concepts_architecture/glossary.html#asset>`__ only in own `domain <../../concepts_architecture/glossary.html#domain>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:424
@@ -709,7 +709,7 @@ msgid "can_create_domain"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:426
-msgid "Allows creating new `domains <../../before_start/glossary.html#domain>`__ within the system."
+msgid "Allows creating new `domains <../../concepts_architecture/glossary.html#domain>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:428
@@ -725,7 +725,7 @@ msgid "can_grant_can_add_my_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:446
-msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__."
+msgid "Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_add_my_signatory`_ `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:448
@@ -745,7 +745,7 @@ msgid "can_grant_can_remove_my_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:463
-msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../before_start/glossary.html#permission>`__."
+msgid "Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_remove_my_signatory`_ `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:469
@@ -757,7 +757,7 @@ msgid "can_grant_can_set_my_account_detail"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:480
-msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../before_start/glossary.html#permission>`__."
+msgid "Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_set_my_account_detail`_ `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:486
@@ -769,7 +769,7 @@ msgid "can_grant_can_set_my_quorum"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:497
-msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../before_start/glossary.html#permission>`__."
+msgid "Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_set_my_quorum`_ `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:503
@@ -781,7 +781,7 @@ msgid "can_grant_can_transfer_my_assets"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:514
-msgid "Allows `role <../../before_start/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../before_start/glossary.html#permission>`__."
+msgid "Allows `role <../../concepts_architecture/glossary.html#role>`__ owners grant `can_transfer_my_assets`_ `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:520
@@ -793,11 +793,11 @@ msgid "can_add_peer"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:534
-msgid "Allows adding `peers <../../before_start/glossary.html#peer>`__ to the network."
+msgid "Allows adding `peers <../../concepts_architecture/glossary.html#peer>`__ to the network."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:536
-msgid "A new peer will be a valid participant in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing \"addPeer\" `command <../../before_start/glossary.html#command>`__."
+msgid "A new peer will be a valid participant in the next `consensus <../../concepts_architecture/glossary.html#consensus>`__ round after an agreement on `transaction <../../concepts_architecture/glossary.html#transaction>`__ containing \"addPeer\" `command <../../concepts_architecture/glossary.html#command>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:538
@@ -813,11 +813,11 @@ msgid "can_remove_peer"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:553
-msgid "Allows removing `peers <../../before_start/glossary.html#peer>`__ from the network."
+msgid "Allows removing `peers <../../concepts_architecture/glossary.html#peer>`__ from the network."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:555
-msgid "Removed peer will not participate in the next `consensus <../../before_start/glossary.html#consensus>`__ round after an agreement on `transaction <../../before_start/glossary.html#transaction>`__ containing \"removePeer\" `command <../../before_start/glossary.html#command>`__."
+msgid "Removed peer will not participate in the next `consensus <../../concepts_architecture/glossary.html#consensus>`__ round after an agreement on `transaction <../../concepts_architecture/glossary.html#transaction>`__ containing \"removePeer\" `command <../../concepts_architecture/glossary.html#command>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:557
@@ -833,11 +833,11 @@ msgid "can_append_role"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:575
-msgid "Allows appending `roles <../../before_start/glossary.html#role>`__ to another `account <../../before_start/glossary.html#account>`__."
+msgid "Allows appending `roles <../../concepts_architecture/glossary.html#role>`__ to another `account <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:577
-msgid "You can append only that role that has lesser or the same set of privileges as `transaction <../../before_start/glossary.html#transaction>`__ creator."
+msgid "You can append only that role that has lesser or the same set of privileges as `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:579
@@ -853,11 +853,11 @@ msgid "can_create_role"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:594
-msgid "Allows creating a new `role <../../before_start/glossary.html#role>`__ within a system."
+msgid "Allows creating a new `role <../../concepts_architecture/glossary.html#role>`__ within a system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:596
-msgid "Possible set of `permissions <../../before_start/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../before_start/glossary.html#transaction>`__ creator has."
+msgid "Possible set of `permissions <../../concepts_architecture/glossary.html#permission>`__ for a new role is limited to those permissions that `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator has."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:599
@@ -873,7 +873,7 @@ msgid "can_detach_role"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:614
-msgid "Allows revoking a `role <../../before_start/glossary.html#role>`__ from a user."
+msgid "Allows revoking a `role <../../concepts_architecture/glossary.html#role>`__ from a user."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:616
@@ -893,7 +893,7 @@ msgid "can_add_my_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:638
-msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to add an extra public key to the another specified account."
+msgid "`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to add an extra public key to the another specified account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:640
@@ -910,12 +910,12 @@ msgid "can_add_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:655
-msgid "Allows linking additional public keys to `account <../../before_start/glossary.html#account>`__."
+msgid "Allows linking additional public keys to `account <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:657
 #: ../../develop/api/permissions.rst:697
-msgid "The corresponding `command <../../before_start/glossary.html#command>`__ can be executed only for an account of `transaction <../../before_start/glossary.html#transaction>`__ creator and only if that account has a `role <../../before_start/glossary.html#role>`__ with the `permission <../../before_start/glossary.html#permission>`__."
+msgid "The corresponding `command <../../concepts_architecture/glossary.html#command>`__ can be executed only for an account of `transaction <../../concepts_architecture/glossary.html#transaction>`__ creator and only if that account has a `role <../../concepts_architecture/glossary.html#role>`__ with the `permission <../../concepts_architecture/glossary.html#permission>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:663
@@ -927,7 +927,7 @@ msgid "can_remove_my_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:676
-msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ remove public key from the another specified account."
+msgid "`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ remove public key from the another specified account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:680
@@ -944,7 +944,7 @@ msgid "can_remove_signatory"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:695
-msgid "Allows unlinking additional public keys from an `account <../../before_start/glossary.html#account>`__."
+msgid "Allows unlinking additional public keys from an `account <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:703
@@ -956,7 +956,7 @@ msgid "can_set_my_quorum"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:716
-msgid "`Permission <../../before_start/glossary.html#permission>`__ that allows a specified `account <../../before_start/glossary.html#account>`__ to set `quorum <../../before_start/glossary.html#quorum>`__ for the another specified account."
+msgid "`Permission <../../concepts_architecture/glossary.html#permission>`__ that allows a specified `account <../../concepts_architecture/glossary.html#account>`__ to set `quorum <../../concepts_architecture/glossary.html#quorum>`__ for the another specified account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:718
@@ -977,11 +977,11 @@ msgid "can_set_quorum"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:735
-msgid "Allows setting `quorum <../../before_start/glossary.html#quorum>`__."
+msgid "Allows setting `quorum <../../concepts_architecture/glossary.html#quorum>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:737
-msgid "At least the same number (or more) of public keys should be already linked to an `account <../../before_start/glossary.html#account>`__."
+msgid "At least the same number (or more) of public keys should be already linked to an `account <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:743
@@ -997,7 +997,7 @@ msgid "can_get_all_acc_detail"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:760
-msgid "Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the system."
+msgid "Allows getting all the details set to any `account <../../concepts_architecture/glossary.html#account>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:762
@@ -1017,11 +1017,11 @@ msgstr ""
 #: ../../develop/api/permissions.rst:777
 #: ../../develop/api/permissions.rst:815
 #: ../../develop/api/permissions.rst:853
-msgid "Allows getting `account <../../before_start/glossary.html#account>`__ information: `quorum <../../before_start/glossary.html#quorum>`__ and all the details related to the account."
+msgid "Allows getting `account <../../concepts_architecture/glossary.html#account>`__ information: `quorum <../../concepts_architecture/glossary.html#quorum>`__ and all the details related to the account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:779
-msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information about any account within a system."
+msgid "With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information about any account within a system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:781
@@ -1045,7 +1045,7 @@ msgid "can_get_domain_acc_detail"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:798
-msgid "Allows getting all the details set to any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgid "Allows getting all the details set to any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as a domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:804
@@ -1057,7 +1057,7 @@ msgid "can_get_domain_accounts"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:817
-msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../before_start/glossary.html#domain>`__."
+msgid "With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information only about accounts from the same `domain <../../concepts_architecture/glossary.html#domain>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:825
@@ -1069,7 +1069,7 @@ msgid "can_get_my_acc_detail"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:836
-msgid "Allows getting all the details set to the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgid "Allows getting all the details set to the `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:842
@@ -1081,7 +1081,7 @@ msgid "can_get_my_account"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:855
-msgid "With this `permission <../../before_start/glossary.html#permission>`__, `query <../../before_start/glossary.html#query>`__ creator can get information only about own account."
+msgid "With this `permission <../../concepts_architecture/glossary.html#permission>`__, `query <../../concepts_architecture/glossary.html#query>`__ creator can get information only about own account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:863
@@ -1093,11 +1093,11 @@ msgid "can_get_all_acc_ast"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:877
-msgid "Allows getting a balance of `assets <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the system."
+msgid "Allows getting a balance of `assets <../../concepts_architecture/glossary.html#asset>`__ on any `account <../../concepts_architecture/glossary.html#account>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:879
-msgid "`Query <../../before_start/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account."
+msgid "`Query <../../concepts_architecture/glossary.html#query>`__ response will contain information about all the assets that ever been assigned to an account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:881
@@ -1115,7 +1115,7 @@ msgid "can_get_domain_acc_ast"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:896
-msgid "Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as a domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgid "Allows getting a balance of specified `asset <../../concepts_architecture/glossary.html#asset>`__ on any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as a domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:898
@@ -1132,7 +1132,7 @@ msgid "can_get_my_acc_ast"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:915
-msgid "Allows getting a balance of specified `asset <../../before_start/glossary.html#asset>`__ on `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgid "Allows getting a balance of specified `asset <../../concepts_architecture/glossary.html#asset>`__ on `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:923
@@ -1144,7 +1144,7 @@ msgid "can_get_all_acc_ast_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:937
-msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and any `account <../../before_start/glossary.html#account>`__ within the system."
+msgid "Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with a specified `asset <../../concepts_architecture/glossary.html#asset>`__ and any `account <../../concepts_architecture/glossary.html#account>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:939
@@ -1168,7 +1168,7 @@ msgid "can_get_domain_acc_ast_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:956
-msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with a specified `asset <../../before_start/glossary.html#asset>`__ and an `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator."
+msgid "Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with a specified `asset <../../concepts_architecture/glossary.html#asset>`__ and an `account <../../concepts_architecture/glossary.html#account>`__ from the same `domain <../../concepts_architecture/glossary.html#domain>`__ as `query <../../concepts_architecture/glossary.html#query>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:964
@@ -1180,7 +1180,7 @@ msgid "can_get_my_acc_ast_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:975
-msgid "Allows getting `transactions <../../before_start/glossary.html#transaction>`__ associated with the `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator and specified `asset <../../before_start/glossary.html#asset>`__."
+msgid "Allows getting `transactions <../../concepts_architecture/glossary.html#transaction>`__ associated with the `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator and specified `asset <../../concepts_architecture/glossary.html#asset>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:983
@@ -1192,7 +1192,7 @@ msgid "can_get_all_acc_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:997
-msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ within the system."
+msgid "Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by any `account <../../concepts_architecture/glossary.html#account>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:999
@@ -1216,7 +1216,7 @@ msgid "can_get_domain_acc_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1016
-msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by any `account <../../before_start/glossary.html#account>`__ from the same `domain <../../before_start/glossary.html#domain>`__ as `query <../../before_start/glossary.html#query>`__ creator."
+msgid "Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by any `account <../../concepts_architecture/glossary.html#account>`__ from the same `domain <../../concepts_architecture/glossary.html#domain>`__ as `query <../../concepts_architecture/glossary.html#query>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1024
@@ -1228,7 +1228,7 @@ msgid "can_get_my_acc_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1035
-msgid "Allows getting all `transactions <../../before_start/glossary.html#transaction>`__ issued by an `account <../../before_start/glossary.html#account>`__ of `query <../../before_start/glossary.html#query>`__ creator."
+msgid "Allows getting all `transactions <../../concepts_architecture/glossary.html#transaction>`__ issued by an `account <../../concepts_architecture/glossary.html#account>`__ of `query <../../concepts_architecture/glossary.html#query>`__ creator."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1043
@@ -1240,7 +1240,7 @@ msgid "can_read_assets"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1057
-msgid "Allows getting information about `asset <../../before_start/glossary.html#asset>`__ precision."
+msgid "Allows getting information about `asset <../../concepts_architecture/glossary.html#asset>`__ precision."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1059
@@ -1256,7 +1256,7 @@ msgid "can_get_blocks"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1077
-msgid "Allows reading `blocks <../../before_start/glossary.html#block>`__. Allows subscription to the stream of accepted blocks."
+msgid "Allows reading `blocks <../../concepts_architecture/glossary.html#block>`__. Allows subscription to the stream of accepted blocks."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1080
@@ -1268,7 +1268,7 @@ msgid "can_get_roles"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1088
-msgid "Allows getting a list of `roles <../../before_start/glossary.html#role>`__ within the system. Allows getting a list of `permissions <../../before_start/glossary.html#permission>`__ associated with a role."
+msgid "Allows getting a list of `roles <../../concepts_architecture/glossary.html#role>`__ within the system. Allows getting a list of `permissions <../../concepts_architecture/glossary.html#permission>`__ associated with a role."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1091
@@ -1284,7 +1284,7 @@ msgid "can_get_all_signatories"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1109
-msgid "Allows getting a list of public keys linked to an `account <../../before_start/glossary.html#account>`__ within the system."
+msgid "Allows getting a list of public keys linked to an `account <../../concepts_architecture/glossary.html#account>`__ within the system."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1111
@@ -1302,7 +1302,7 @@ msgid "can_get_domain_signatories"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1126
-msgid "Allows getting a list of public keys of any `account <../../before_start/glossary.html#account>`__ within the same `domain <../../before_start/glossary.html#domain>`__ as the domain of `query <../../before_start/glossary.html#query>`__ creator account."
+msgid "Allows getting a list of public keys of any `account <../../concepts_architecture/glossary.html#account>`__ within the same `domain <../../concepts_architecture/glossary.html#domain>`__ as the domain of `query <../../concepts_architecture/glossary.html#query>`__ creator account."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1132
@@ -1314,7 +1314,7 @@ msgid "can_get_my_signatories"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1143
-msgid "Allows getting a list of public keys of `query <../../before_start/glossary.html#query>`__ creator `account <../../before_start/glossary.html#account>`__."
+msgid "Allows getting a list of public keys of `query <../../concepts_architecture/glossary.html#query>`__ creator `account <../../concepts_architecture/glossary.html#account>`__."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1149
@@ -1326,7 +1326,7 @@ msgid "can_get_all_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1163
-msgid "Allows getting any `transaction <../../before_start/glossary.html#transaction>`__ by hash."
+msgid "Allows getting any `transaction <../../concepts_architecture/glossary.html#transaction>`__ by hash."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1165
@@ -1343,7 +1343,7 @@ msgid "can_get_my_txs"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1180
-msgid "Allows getting `transaction <../../before_start/glossary.html#transaction>`__ (that was issued by `query <../../before_start/glossary.html#query>`__ creator) by hash."
+msgid "Allows getting `transaction <../../concepts_architecture/glossary.html#transaction>`__ (that was issued by `query <../../concepts_architecture/glossary.html#query>`__ creator) by hash."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1186
@@ -1355,7 +1355,7 @@ msgid "can_get_peers"
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1200
-msgid "Allows to request the list of `peers <../../before_start/glossary.html#peer>`__ in the Iroha network."
+msgid "Allows to request the list of `peers <../../concepts_architecture/glossary.html#peer>`__ in the Iroha network."
 msgstr ""
 
 #: ../../develop/api/permissions.rst:1202

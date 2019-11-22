@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,383 +16,383 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ../../before_start/glossary.rst:2
+#: ../../concepts_architecture/glossary.rst:2
 msgid "Account"
 msgstr ""
 
-#: ../../before_start/glossary.rst:4
+#: ../../concepts_architecture/glossary.rst:4
 msgid "An Iroha entity that is able to perform specified set of actions. Each account belongs to one of existing `domains <#domain>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:7
+#: ../../concepts_architecture/glossary.rst:7
 msgid "An account has some number of `roles <#role>`__ (can be null) — which is a collection of permissions. Only `grantable permissions <#grantable-permission>`__ are assigned to an account directly."
 msgstr ""
 
-#: ../../before_start/glossary.rst:12
+#: ../../concepts_architecture/glossary.rst:12
 msgid "Asset"
 msgstr ""
 
-#: ../../before_start/glossary.rst:14
+#: ../../concepts_architecture/glossary.rst:14
 msgid "Any countable commodity or value. Each asset is related to one of existing `domains <#domain>`__. For example, an asset can represent any kind of such units - currency unit, a bar of gold, real estate unit, etc."
 msgstr ""
 
-#: ../../before_start/glossary.rst:19
+#: ../../concepts_architecture/glossary.rst:19
 msgid "Block"
 msgstr ""
 
-#: ../../before_start/glossary.rst:21
+#: ../../concepts_architecture/glossary.rst:21
 msgid "Transaction data is permanently recorded in files called blocks. Blocks are organized into a linear sequence over time (also known as the block chain) [#f1]_."
 msgstr ""
 
-#: ../../before_start/glossary.rst:24
+#: ../../concepts_architecture/glossary.rst:24
 msgid "Blocks are signed with the cryptographic signatures of Iroha `peers <#peer>`__, voting for this block during `consensus <#consensus>`__. Signable content is called payload, so the structure of a block looks like this:"
 msgstr ""
 
-#: ../../before_start/glossary.rst:32
+#: ../../concepts_architecture/glossary.rst:32
 msgid "*Outside payload*"
 msgstr ""
 
-#: ../../before_start/glossary.rst:34
+#: ../../concepts_architecture/glossary.rst:34
 msgid "signatures — signatures of peers, which voted for the block during consensus round"
 msgstr ""
 
-#: ../../before_start/glossary.rst:36
+#: ../../concepts_architecture/glossary.rst:36
 msgid "*Inside payload*"
 msgstr ""
 
-#: ../../before_start/glossary.rst:38
+#: ../../concepts_architecture/glossary.rst:38
 msgid "height — a number of blocks in the chain up to the block"
 msgstr ""
 
-#: ../../before_start/glossary.rst:39
+#: ../../concepts_architecture/glossary.rst:39
 msgid "timestamp — Unix time (in milliseconds) of block forming by a peer"
 msgstr ""
 
-#: ../../before_start/glossary.rst:40
+#: ../../concepts_architecture/glossary.rst:40
 msgid "array of transactions, which successfully passed validation and consensus step"
 msgstr ""
 
-#: ../../before_start/glossary.rst:41
+#: ../../concepts_architecture/glossary.rst:41
 msgid "hash of a previous block in the chain"
 msgstr ""
 
-#: ../../before_start/glossary.rst:42
+#: ../../concepts_architecture/glossary.rst:42
 msgid "rejected transactions hashes — array of transaction hashes, which did not pass stateful validation step; this field is optional"
 msgstr ""
 
-#: ../../before_start/glossary.rst:46
+#: ../../concepts_architecture/glossary.rst:46
 msgid "Client"
 msgstr ""
 
-#: ../../before_start/glossary.rst:48
+#: ../../concepts_architecture/glossary.rst:48
 msgid "Any application that uses Iroha is treated as a client."
 msgstr ""
 
-#: ../../before_start/glossary.rst:50
+#: ../../concepts_architecture/glossary.rst:50
 msgid "A distinctive feature of Iroha is that all clients are using simple client-server abstractions when they interact with a peer network: they don't use any abstractions which are specific for blockchain-related systems. For example, in Bitcoin clients have to validate blocks, or in HL Fabric they need to poll several peers to make sure that a transaction was written in a block, whereas in HL Iroha a client interacts with any peer similarly to a single server."
 msgstr ""
 
-#: ../../before_start/glossary.rst:54
+#: ../../concepts_architecture/glossary.rst:54
 msgid "Command"
 msgstr ""
 
-#: ../../before_start/glossary.rst:56
+#: ../../concepts_architecture/glossary.rst:56
 msgid "A command is an intention to change the `state <#world-state-view>`__ of the network. For example, in order to create a new `role <#role>`__ in Iroha you have to issue `Create role <../develop/api/commands.html#create-role>`__ command."
 msgstr ""
 
-#: ../../before_start/glossary.rst:60
+#: ../../concepts_architecture/glossary.rst:60
 msgid "Consensus"
 msgstr ""
 
-#: ../../before_start/glossary.rst:62
+#: ../../concepts_architecture/glossary.rst:62
 msgid "A consensus algorithm is a process in computer science used to achieve agreement on a single data value among distributed processes or systems. Consensus algorithms are designed to achieve reliability in a network involving multiple unreliable nodes. Solving that issue -- known as the consensus problem -- is important in distributed computing and multi-agent systems."
 msgstr ""
 
-#: ../../before_start/glossary.rst:66
+#: ../../concepts_architecture/glossary.rst:66
 msgid "*Consensus, as an algorithm*"
 msgstr ""
 
-#: ../../before_start/glossary.rst:68
+#: ../../concepts_architecture/glossary.rst:68
 msgid "An algorithm to achieve agreement on a block among peers in the network. By having it in the system, reliability is increased."
 msgstr ""
 
-#: ../../before_start/glossary.rst:70
+#: ../../concepts_architecture/glossary.rst:70
 msgid "For consensus as Iroha's component, please check `this link <architecture.html#block-consensus-yac>`_."
 msgstr ""
 
-#: ../../before_start/glossary.rst:73
+#: ../../concepts_architecture/glossary.rst:73
 msgid "Domain"
 msgstr ""
 
-#: ../../before_start/glossary.rst:75
+#: ../../concepts_architecture/glossary.rst:75
 msgid "A named abstraction for grouping `accounts <#account>`__ and `assets <#asset>`__. For example, it can represent an organisation in the group of organisations working with Iroha."
 msgstr ""
 
-#: ../../before_start/glossary.rst:79
+#: ../../concepts_architecture/glossary.rst:79
 msgid "Peer"
 msgstr ""
 
-#: ../../before_start/glossary.rst:81
+#: ../../concepts_architecture/glossary.rst:81
 msgid "A node that is a part of Iroha network. It participates in `consensus <#consensus>`_ process."
 msgstr ""
 
-#: ../../before_start/glossary.rst:85
+#: ../../concepts_architecture/glossary.rst:85
 msgid "Permission"
 msgstr ""
 
-#: ../../before_start/glossary.rst:87
+#: ../../concepts_architecture/glossary.rst:87
 msgid "A named rule that gives the privilege to perform a command. Permission **cannot** be granted to an `account <#account>`__ directly, instead, account has roles, which are collections of permissions. Although, there is an exception, see `Grantable Permission <#grantable-permission>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:90
+#: ../../concepts_architecture/glossary.rst:90
 msgid "`List of Iroha permissions <../develop/api/permissions.html>`_."
 msgstr ""
 
-#: ../../before_start/glossary.rst:93
+#: ../../concepts_architecture/glossary.rst:93
 msgid "Grantable Permission"
 msgstr ""
 
-#: ../../before_start/glossary.rst:95
+#: ../../concepts_architecture/glossary.rst:95
 msgid "Only grantable permission is given to an `account <#account>`__ directly. An account that holds grantable permission is allowed to perform some particular action on behalf of another account. For example, if account a@domain1 gives the account b@domain2 a permission that it can transfer assets — then  b@domain2 can transfer assets of a@domain1 to anyone."
 msgstr ""
 
-#: ../../before_start/glossary.rst:100
+#: ../../concepts_architecture/glossary.rst:100
 msgid "Proposal"
 msgstr ""
 
-#: ../../before_start/glossary.rst:102
+#: ../../concepts_architecture/glossary.rst:102
 msgid "A set of `transactions <#transaction>`__ that have passed only `stateless validation <#stateless-validation>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:105
+#: ../../concepts_architecture/glossary.rst:105
 msgid "Verified Proposal"
 msgstr ""
 
-#: ../../before_start/glossary.rst:107
+#: ../../concepts_architecture/glossary.rst:107
 msgid "A set of transactions that have passed both `stateless <#stateless-validation>`__ and `stateful <#stateful-validation>`__ validation, but were not committed yet."
 msgstr ""
 
-#: ../../before_start/glossary.rst:110
+#: ../../concepts_architecture/glossary.rst:110
 msgid "Query"
 msgstr ""
 
-#: ../../before_start/glossary.rst:112
+#: ../../concepts_architecture/glossary.rst:112
 msgid "A request to Iroha that does **not** change the `state <architecture.html#world-state-view>`__ of the network. By performing a query, a client can request data from the state, for example a balance of his account, a history of transactions, etc."
 msgstr ""
 
-#: ../../before_start/glossary.rst:116
+#: ../../concepts_architecture/glossary.rst:116
 msgid "Quorum"
 msgstr ""
 
-#: ../../before_start/glossary.rst:118
+#: ../../concepts_architecture/glossary.rst:118
 msgid "In the context of transactions signing, quorum number is a minimum amount of signatures required to consider a transaction signed. The default value is 1. For `MST transactions <#multisignature-transactions>`__ you will need to increase that number."
 msgstr ""
 
-#: ../../before_start/glossary.rst:122
+#: ../../concepts_architecture/glossary.rst:122
 msgid "Each account can link additional public keys and increase own quorum number."
 msgstr ""
 
-#: ../../before_start/glossary.rst:125
+#: ../../concepts_architecture/glossary.rst:125
 msgid "Role"
 msgstr ""
 
-#: ../../before_start/glossary.rst:127
+#: ../../concepts_architecture/glossary.rst:127
 msgid "A named abstraction that holds a set of `permissions <#permission>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:130
+#: ../../concepts_architecture/glossary.rst:130
 msgid "Signatory"
 msgstr ""
 
-#: ../../before_start/glossary.rst:132
+#: ../../concepts_architecture/glossary.rst:132
 msgid "Represents an entity that can confirm multisignature transactions for an `account <#account>`__. It can be attached to account via `AddSignatory <../develop/api/commands.html#add-signatory>`__ and detached via `RemoveSignatory <../develop/api/commands.html#remove-signatory>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:136
+#: ../../concepts_architecture/glossary.rst:136
 msgid "Transaction"
 msgstr ""
 
-#: ../../before_start/glossary.rst:138
+#: ../../concepts_architecture/glossary.rst:138
 msgid "An ordered set of `commands <#command>`__, which is applied to the ledger atomically. Any non-valid command within a transaction leads to rejection of the whole transaction during the validation process."
 msgstr ""
 
-#: ../../before_start/glossary.rst:142
+#: ../../concepts_architecture/glossary.rst:142
 msgid "Transaction Structure"
 msgstr ""
 
-#: ../../before_start/glossary.rst:144
+#: ../../concepts_architecture/glossary.rst:144
 msgid "**Payload** stores all transaction fields, except signatures:"
 msgstr ""
 
-#: ../../before_start/glossary.rst:146
+#: ../../concepts_architecture/glossary.rst:146
 msgid "Time of creation (unix time, in milliseconds)"
 msgstr ""
 
-#: ../../before_start/glossary.rst:147
+#: ../../concepts_architecture/glossary.rst:147
 msgid "Account ID of transaction creator (username@domain)"
 msgstr ""
 
-#: ../../before_start/glossary.rst:148
+#: ../../concepts_architecture/glossary.rst:148
 msgid "Quorum field (indicates required number of signatures)"
 msgstr ""
 
-#: ../../before_start/glossary.rst:149
+#: ../../concepts_architecture/glossary.rst:149
 msgid "Repeated commands which are described in details in `commands section <../develop/api/commands.html>`__"
 msgstr ""
 
-#: ../../before_start/glossary.rst:150
+#: ../../concepts_architecture/glossary.rst:150
 msgid "Batch meta information (optional part). See `Batch of Transactions`_ for details"
 msgstr ""
 
-#: ../../before_start/glossary.rst:153
+#: ../../concepts_architecture/glossary.rst:153
 msgid "**Signatures** contain one or many signatures (ed25519 public key + signature)"
 msgstr ""
 
-#: ../../before_start/glossary.rst:156
+#: ../../concepts_architecture/glossary.rst:156
 msgid "Reduced Transaction Hash"
 msgstr ""
 
-#: ../../before_start/glossary.rst:158
+#: ../../concepts_architecture/glossary.rst:158
 msgid "Reduced hash is calculated over transaction payload excluding batch meta information. Used in `Batch of Transactions`_."
 msgstr ""
 
-#: ../../before_start/glossary.rst:163
+#: ../../concepts_architecture/glossary.rst:163
 msgid "Transaction Statuses"
 msgstr ""
 
-#: ../../before_start/glossary.rst:165
+#: ../../concepts_architecture/glossary.rst:165
 msgid "Hyperledger Iroha supports both push and pull interaction mode with a client. A client that uses pull mode requests status updates about transactions from Iroha peer by sending transaction hashes and awaiting a response. On the contrary, push interaction is performed by listening of an event stream for each transaction. In any of these modes, the set of transaction statuses is the same:"
 msgstr ""
 
-#: ../../before_start/glossary.rst:173
+#: ../../concepts_architecture/glossary.rst:173
 msgid "We've written a great Medium `article about Status streaming feature in Iroha <https://medium.com/iroha-contributors/status-streaming-in-hl-iroha-5503487ffcfd>`_. Check it out and let us know what you think in the comments!"
 msgstr ""
 
-#: ../../before_start/glossary.rst:177
+#: ../../concepts_architecture/glossary.rst:177
 msgid "Transaction Status Set"
 msgstr ""
 
-#: ../../before_start/glossary.rst:179
+#: ../../concepts_architecture/glossary.rst:179
 msgid "NOT_RECEIVED: requested peer does not have this transaction."
 msgstr ""
 
-#: ../../before_start/glossary.rst:180
+#: ../../concepts_architecture/glossary.rst:180
 msgid "ENOUGH_SIGNATURES_COLLECTED: this is a multisignature transaction which has enough signatures and is going to be validated by the peer."
 msgstr ""
 
-#: ../../before_start/glossary.rst:181
+#: ../../concepts_architecture/glossary.rst:181
 msgid "MST_PENDING: this transaction is a multisignature transaction which has to be signed by more keys (as requested in quorum field)."
 msgstr ""
 
-#: ../../before_start/glossary.rst:182
+#: ../../concepts_architecture/glossary.rst:182
 msgid "MST_EXPIRED: this transaction is a multisignature transaction which is no longer valid and is going to be deleted by this peer."
 msgstr ""
 
-#: ../../before_start/glossary.rst:183
+#: ../../concepts_architecture/glossary.rst:183
 msgid "STATELESS_VALIDATION_FAILED: the transaction was formed with some fields, not meeting stateless validation constraints. This status is returned to a client, who formed transaction, right after the transaction was sent. It would also return the reason — what rule was violated."
 msgstr ""
 
-#: ../../before_start/glossary.rst:184
+#: ../../concepts_architecture/glossary.rst:184
 msgid "STATELESS_VALIDATION_SUCCESS: the transaction has successfully passed stateless validation. This status is returned to a client, who formed transaction, right after the transaction was sent."
 msgstr ""
 
-#: ../../before_start/glossary.rst:185
+#: ../../concepts_architecture/glossary.rst:185
 msgid "STATEFUL_VALIDATION_FAILED: the transaction has commands, which violate validation rules, checking state of the chain (e.g. asset balance, account permissions, etc.). It would also return the reason — what rule was violated."
 msgstr ""
 
-#: ../../before_start/glossary.rst:186
+#: ../../concepts_architecture/glossary.rst:186
 msgid "STATEFUL_VALIDATION_SUCCESS: the transaction has successfully passed stateful validation."
 msgstr ""
 
-#: ../../before_start/glossary.rst:187
+#: ../../concepts_architecture/glossary.rst:187
 msgid "COMMITTED: the transaction is the part of a block, which gained enough votes and is in the block store at the moment."
 msgstr ""
 
-#: ../../before_start/glossary.rst:188
+#: ../../concepts_architecture/glossary.rst:188
 msgid "REJECTED: this exact transaction was rejected by the peer during stateful validation step in previous consensus rounds. Rejected transactions' hashes are stored in `block <#block>`__ store. This is required in order to prevent `replay attacks <https://en.wikipedia.org/wiki/Replay_attack>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:191
+#: ../../concepts_architecture/glossary.rst:191
 msgid "Pending Transactions"
 msgstr ""
 
-#: ../../before_start/glossary.rst:193
+#: ../../concepts_architecture/glossary.rst:193
 msgid "Any transaction that has lesser signatures at the moment than `quorum`_ of transaction creator account is considered as pending. Pending transaction will be submitted for `stateful validation`_ as soon as `multisignature <#multisignature-transactions>`__ mechanism will collect required amount of signatures for quorum."
 msgstr ""
 
-#: ../../before_start/glossary.rst:196
+#: ../../concepts_architecture/glossary.rst:196
 msgid "Transaction that already has quorum of signatures can also be considered as pending in cases when the transaction is a part of `batch of transactions`_ and there is a not fully signed transaction."
 msgstr ""
 
-#: ../../before_start/glossary.rst:200
+#: ../../concepts_architecture/glossary.rst:200
 msgid "Batch of Transactions"
 msgstr ""
 
-#: ../../before_start/glossary.rst:202
+#: ../../concepts_architecture/glossary.rst:202
 msgid "Transactions batch is a feature that allows sending several transactions to Iroha at once preserving their order."
 msgstr ""
 
-#: ../../before_start/glossary.rst:204
+#: ../../concepts_architecture/glossary.rst:204
 msgid "Each transaction within a batch includes batch meta information. Batch meta contains batch type identifier (atomic or ordered) and a list of `reduced hashes <#reduced-transaction-hash>`_ of all transactions within a batch. The order of hashes defines transactions sequence."
 msgstr ""
 
-#: ../../before_start/glossary.rst:208
+#: ../../concepts_architecture/glossary.rst:208
 msgid "Batch can contain transactions created by different accounts. Any transaction within a batch can require single or `multiple <#multisignature-transactions>`__ signatures (depends on quorum set for an account of transaction creator). At least one transaction inside a batch should have at least one signature to let the batch pass `stateless validation`_."
 msgstr ""
 
-#: ../../before_start/glossary.rst:212
+#: ../../concepts_architecture/glossary.rst:212
 msgid "You can read an article about batches on our Contributors' Page on `Medium <https://medium.com/iroha-contributors/batches-in-iroha-117614cf1e88>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:215
+#: ../../concepts_architecture/glossary.rst:215
 msgid "Atomic Batch"
 msgstr ""
 
-#: ../../before_start/glossary.rst:217
+#: ../../concepts_architecture/glossary.rst:217
 msgid "All the transactions within an atomic batch should pass `stateful validation`_ for the batch to be applied to a ledger."
 msgstr ""
 
-#: ../../before_start/glossary.rst:220
+#: ../../concepts_architecture/glossary.rst:220
 msgid "Ordered Batch"
 msgstr ""
 
-#: ../../before_start/glossary.rst:222
+#: ../../concepts_architecture/glossary.rst:222
 msgid "Ordered batch preserves only the sequence of transactions applying to a ledger. All the transactions that able to pass stateful validation within a batch will be applied to a ledger. Validation failure of one transaction would NOT directly imply the failure of the whole batch."
 msgstr ""
 
-#: ../../before_start/glossary.rst:227
+#: ../../concepts_architecture/glossary.rst:227
 msgid "Multisignature Transactions"
 msgstr ""
 
-#: ../../before_start/glossary.rst:229
+#: ../../concepts_architecture/glossary.rst:229
 msgid "A transaction which has the `quorum`_ greater than one is considered as multisignature (also called mst). To achieve `stateful validity <#stateful-validation>`__ the confirmation is required by the `signatories <#signatory>`__ of the creator account. These participants need to send the same transaction with their signature."
 msgstr ""
 
-#: ../../before_start/glossary.rst:234
+#: ../../concepts_architecture/glossary.rst:234
 msgid "Validation"
 msgstr ""
 
-#: ../../before_start/glossary.rst:236
+#: ../../concepts_architecture/glossary.rst:236
 msgid "There are two kinds of validation - stateless and stateful."
 msgstr ""
 
-#: ../../before_start/glossary.rst:239
+#: ../../concepts_architecture/glossary.rst:239
 msgid "Stateless Validation"
 msgstr ""
 
-#: ../../before_start/glossary.rst:241
+#: ../../concepts_architecture/glossary.rst:241
 msgid "Performed in `Torii <architecture.html#torii>`__. Checks if an object is well-formed, including the signatures."
 msgstr ""
 
-#: ../../before_start/glossary.rst:245
+#: ../../concepts_architecture/glossary.rst:245
 msgid "Stateful Validation"
 msgstr ""
 
-#: ../../before_start/glossary.rst:247
+#: ../../concepts_architecture/glossary.rst:247
 msgid "Performed in `Verified Proposal Creator <#verified-proposal-creator>`__. Validates against `World State View <architecture.html#world-state-view>`__."
 msgstr ""
 
-#: ../../before_start/glossary.rst:251
+#: ../../concepts_architecture/glossary.rst:251
 msgid "https://en.bitcoin.it/wiki/Block"
 msgstr ""
 

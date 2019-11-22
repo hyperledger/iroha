@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -113,7 +113,7 @@ msgid "How to create applications around Iroha?"
 msgstr ""
 
 #: ../../overview.rst:55
-msgid "In order to bring the power of blockchain into your application, you should think first of how it is going to interface with Iroha peers. A good start is to check `Before we start section <before_start/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it."
+msgid "In order to bring the power of blockchain into your application, you should think first of how it is going to interface with Iroha peers. A good start is to check `Concepts and Architecture section <concepts_architecture/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it."
 msgstr ""
 
 #: ../../overview.rst:58

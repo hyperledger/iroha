@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Hyperledger Iroha \n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-11-07 16:15+0300\n"
+"POT-Creation-Date: 2019-11-22 14:49+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -29,7 +29,7 @@ msgid "Iroha API follows command-query separation `principle <https://en.wikiped
 msgstr ""
 
 #: ../../develop/api.rst:9
-msgid "Communication between Iroha peer and a client application is maintained via `gRPC <https://grpc.io/about/>`_ framework. Client applications should follow described protocol and form transactions accordingly to their `description <../before_start/glossary.html#transaction>`_."
+msgid "Communication between Iroha peer and a client application is maintained via `gRPC <https://grpc.io/about/>`_ framework. Client applications should follow described protocol and form transactions accordingly to their `description <../concepts_architecture/glossary.html#transaction>`_."
 msgstr ""
 
 #: ../../develop/api.rst:13
@@ -37,10 +37,10 @@ msgid "Table of contents"
 msgstr ""
 
 #: ../../develop/api.rst:21
-msgid "Commands here are parts of `transaction <../before_start/glossary.html#transaction>`_ - a state-changing set of actions in the system. When a transaction passes validation and consensus stages, it is written in a `block <../before_start/glossary.html#block>`_ and saved in immutable block store (blockchain)."
+msgid "Commands here are parts of `transaction <../concepts_architecture/glossary.html#transaction>`_ - a state-changing set of actions in the system. When a transaction passes validation and consensus stages, it is written in a `block <../concepts_architecture/glossary.html#block>`_ and saved in immutable block store (blockchain)."
 msgstr ""
 
 #: ../../develop/api.rst:23
-msgid "Transactions consist of commands, performing an action over an `entity <../before_start/er_model.html>`_ in the system. The entity might be an account, asset, etc."
+msgid "Transactions consist of commands, performing an action over an `entity <../concepts_architecture/er_model.html>`_ in the system. The entity might be an account, asset, etc."
 msgstr ""
 
