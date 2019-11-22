@@ -1,8 +1,8 @@
-.. _before_start:
+.. _concepts_architecture:
 
-===============
-Before we start
-===============
+=========================
+Concepts and Architecture
+=========================
 
 Iroha is a system that can work with different concepts, and for your convenience we would like you to look through them so you could familiarise yourself with what you will be dealing with. That can be done in "Core concepts section".
 
