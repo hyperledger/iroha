@@ -258,8 +258,8 @@ Get Pending Transactions
 Purpose
 -------
 
-GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_
-or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator.
+GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../concepts_architecture/glossary.html#multisignature-transactions>`_
+or `batches of transactions <../../concepts_architecture/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
 .. note:: This query uses pagination for quicker and more convenient query responses.
 
@@ -328,7 +328,7 @@ Response Schema
 Response Structure
 ------------------
 
-The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_,
+The response contains a list of `pending transactions <../../concepts_architecture/glossary.html#pending-transactions>`_,
 the amount of all stored pending transactions for the user
 and the information required to query the subsequent page (if exists).
 
@@ -352,8 +352,8 @@ Get Pending Transactions (deprecated)
 Purpose
 -------
 
-GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../before_start/glossary.html#multisignature-transactions>`_
-or `batches of transactions <../../before_start/glossary.html#batch-of-transactions>`__ issued by account of query creator.
+GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../concepts_architecture/glossary.html#multisignature-transactions>`_
+or `batches of transactions <../../concepts_architecture/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
 Request Schema
 --------------
@@ -375,7 +375,7 @@ Response Schema
 Response Structure
 ------------------
 
-The response contains a list of `pending transactions <../../before_start/glossary.html#pending-transactions>`_.
+The response contains a list of `pending transactions <../../concepts_architecture/glossary.html#pending-transactions>`_.
 
 .. csv-table::
     :header: "Field", "Description", "Constraint", "Example"

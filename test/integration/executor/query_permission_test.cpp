@@ -52,17 +52,17 @@ std::string makeDescription(SpectatorPermissions spectator_permissions,
                             Spectator spectator) {
   static const EnumMap<SpectatorPermissions, std::string>
       kSpectatorPermissionNames{
-          {SpectatorPermissions::kNone, "NoPermissions"},
-          {SpectatorPermissions::kMyself, "PermissionToQueryMyself"},
-          {SpectatorPermissions::kSameDomain, "PermissionToQueryMyDomain"},
-          {SpectatorPermissions::kEveryone, "PermissionToQueryEveryone"},
-          {SpectatorPermissions::kRoot, "RootPermission"}};
+          {SpectatorPermissions::kNone, "no_permissions"},
+          {SpectatorPermissions::kMyself, "permission_to_query_myself"},
+          {SpectatorPermissions::kSameDomain, "permission_to_query_my_domain"},
+          {SpectatorPermissions::kEveryone, "permission_to_query_everyone"},
+          {SpectatorPermissions::kRoot, "root_permission"}};
   static const EnumMap<Spectator, std::string> kSpectatorNames{
-      {Spectator::kMe, "Myself"},
-      {Spectator::kSameDomain, "AnAccountFromMyDomain"},
-      {Spectator::kSecondDomain, "AnAccountFromAnotherDomain"}};
+      {Spectator::kMe, "myself"},
+      {Spectator::kSameDomain, "an_account_from_my_domain"},
+      {Spectator::kSecondDomain, "an_account_from_another_domain"}};
   std::stringstream ss;
-  ss << "Query" << kSpectatorNames.at(spectator) << "Having"
+  ss << "query_" << kSpectatorNames.at(spectator) << "_having_"
      << kSpectatorPermissionNames.at(spectator_permissions);
   return ss.str();
 }
@@ -125,6 +125,6 @@ query_permission_test::getParams(
 std::string query_permission_test::paramToString(
     testing::TestParamInfo<std::tuple<std::shared_ptr<ExecutorTestParam>,
                                       SpecificQueryPermissionTestData>> param) {
-  return std::get<0>(param.param)->toString()
+  return std::get<0>(param.param)->toString() + "___"
       + std::get<1>(param.param).description;
 }

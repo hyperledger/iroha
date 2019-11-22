@@ -156,7 +156,6 @@ Install CMake, Git, Microsoft compilers via chocolatey being in Administrative m
 .. code-block:: shell
 
   choco install cmake git visualstudio2019-workload-vctools ninja
-  # visualstudio2017-workload-vctools should work as well
 
 
 PostgreSQL is not a build dependency, but it is recommended to install it now for the testing later:

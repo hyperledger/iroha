@@ -55,12 +55,19 @@ class CreateAccountTest : public ExecutorTestBase {
       const AccountIdType &issuer,
       const AccountNameType &target_name = kNewName,
       const DomainIdType &target_domain = kSecondDomain,
-      const PubkeyType &pubkey = kNewPubkey) {
+      const PubkeyType &pubkey = kNewPubkey,
+      bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructCreateAccount(
             target_name, target_domain, pubkey),
         issuer,
-        true);
+        validation_enabled);
+  }
+
+  iroha::ametsuchi::CommandResult createDefaultAccount(
+      const AccountIdType &issuer, bool validation_enabled = true) {
+    return createAccount(
+        issuer, kNewName, kSecondDomain, kNewPubkey, validation_enabled);
   }
 };
 
@@ -87,7 +94,7 @@ TEST_P(CreateAccountBasicTest, NameExists) {
       getItf().createUserWithPerms(kNewName, kSecondDomain, kNewPubkey, {}));
   ASSERT_NO_FATAL_FAILURE(checkAccount());
 
-  checkCommandError(createAccount(kAdminId), 4);
+  checkCommandError(createDefaultAccount(kAdminId), 4);
   checkAccount();
 }
 
@@ -109,7 +116,7 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
       *getItf().getMockCommandFactory()->constructCreateDomain(
           kSecondDomain, "target_role"))));
 
-  checkCommandError(createAccount(kUserId), 2);
+  checkCommandError(createDefaultAccount(kUserId), 2);
   checkNoSuchAccount();
 }
 
@@ -125,7 +132,7 @@ TEST_P(CreateAccountPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
-  if (checkResponse(createAccount(getActor()))) {
+  if (checkResponse(createDefaultAccount(getActor(), getValidationEnabled()))) {
     checkAccount();
   } else {
     checkNoSuchAccount();
