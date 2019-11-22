@@ -5,7 +5,7 @@
 
 def read_titles(level_char='='):
     headings = []
-    with open('before_start/glossary.rst') as gfile:
+    with open('concepts_architecture/glossary.rst') as gfile:
         lines = gfile.readlines()
         prevline = ''
         prevlen = 0
@@ -22,6 +22,6 @@ def titles_to_links(titles):
     d = {}
     for title in titles:
         title = title.strip().lower()
-        anchor = '../../before_start/glossary.html#' + title.replace(' ', '-')
+        anchor = '../../concepts_architecture/glossary.html#' + title.replace(' ', '-')
         d[title] = anchor
     return d

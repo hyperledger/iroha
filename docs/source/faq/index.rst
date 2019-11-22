@@ -9,7 +9,7 @@ Hello, newcomer! You are very welcome :)
 There are 2 ways for you to start with Iroha:
 
  1. You can see what Iroha is an how it works by building a simple example network following our `Getting Started Guide <../getting_started/index.html>`_
- 2. You can get acquainted with the `core concepts of Iroha <../before_start/index.html>`_ and start building your own `Iroha network <../deploy/index.html>`_
+ 2. You can get acquainted with the `core concepts of Iroha <../concepts_architecture/index.html>`_ and start building your own `Iroha network <../deploy/index.html>`_
 
 Now you have your Iroha blockchain! Congratulations!
 If you have any questions on it, do not hesitate to contact our community here: https://chat.hyperledger.org/channel/iroha
