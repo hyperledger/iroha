@@ -24,35 +24,33 @@
 #include "backend/protobuf/commands/proto_set_setting_value.hpp"
 #include "backend/protobuf/commands/proto_subtract_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
+#include "commands.pb.h"
 #include "common/variant_transform.hpp"
 
 using namespace shared_model::proto;
 
 using PbCommand = iroha::protocol::Command;
 
-/// unique_ptr shortcut type
-template <typename... Value>
-using UniquePtrVariant = boost::variant<std::unique_ptr<Value>...>;
-
-using ProtoCommandVariantType = UniquePtrVariant<AddAssetQuantity,
-                                                 AddPeer,
-                                                 AddSignatory,
-                                                 AppendRole,
-                                                 CreateAccount,
-                                                 CreateAsset,
-                                                 CreateDomain,
-                                                 CreateRole,
-                                                 DetachRole,
-                                                 GrantPermission,
-                                                 RemoveSignatory,
-                                                 RevokePermission,
-                                                 SetAccountDetail,
-                                                 SetQuorum,
-                                                 SubtractAssetQuantity,
-                                                 TransferAsset,
-                                                 RemovePeer,
-                                                 CompareAndSetAccountDetail,
-                                                 SetSettingValue>;
+using ProtoCommandVariantType =
+    iroha::VariantOfUniquePtr<AddAssetQuantity,
+                              AddPeer,
+                              AddSignatory,
+                              AppendRole,
+                              CreateAccount,
+                              CreateAsset,
+                              CreateDomain,
+                              CreateRole,
+                              DetachRole,
+                              GrantPermission,
+                              RemoveSignatory,
+                              RevokePermission,
+                              SetAccountDetail,
+                              SetQuorum,
+                              SubtractAssetQuantity,
+                              TransferAsset,
+                              RemovePeer,
+                              CompareAndSetAccountDetail,
+                              SetSettingValue>;
 
 namespace {
   iroha::AggregateValueResult<ProtoCommandVariantType::types, std::string>
@@ -119,7 +117,6 @@ struct Command::Impl {
 
 iroha::expected::Result<std::unique_ptr<Command>, std::string> Command::create(
     TransportType &proto) {
-  loadCommandResult(proto);
   return loadCommand(proto) | [](auto &&command) {
     return std::unique_ptr<Command>(
         new Command(std::make_unique<Impl>(std::move(command))));

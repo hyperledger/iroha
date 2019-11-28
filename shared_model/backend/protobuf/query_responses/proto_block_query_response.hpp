@@ -8,7 +8,13 @@
 
 #include "interfaces/query_responses/block_query_response.hpp"
 
-#include "qry_responses.pb.h"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class BlockQueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
@@ -16,7 +22,9 @@ namespace shared_model {
      public:
       using TransportType = iroha::protocol::BlockQueryResponse;
 
-      explicit BlockQueryResponse(TransportType &&block_query_response);
+      static iroha::expected::Result<std::unique_ptr<BlockQueryResponse>,
+                                     std::string>
+      create(TransportType block_query_response);
 
       ~BlockQueryResponse() override;
 
@@ -26,6 +34,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      explicit BlockQueryResponse(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

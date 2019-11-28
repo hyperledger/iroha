@@ -8,8 +8,15 @@
 
 #include "interfaces/commands/command.hpp"
 
-#include "commands.pb.h"
+#include <memory>
+
 #include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Command;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

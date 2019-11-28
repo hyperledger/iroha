@@ -8,20 +8,22 @@
 
 #include "interfaces/query_responses/block_error_response.hpp"
 
-#include "qry_responses.pb.h"
+namespace iroha {
+  namespace protocol {
+    class BlockQueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
     class BlockErrorResponse final : public interface::BlockErrorResponse {
      public:
       explicit BlockErrorResponse(
-          iroha::protocol::BlockQueryResponse &block_query_response);
+          const iroha::protocol::BlockQueryResponse &block_query_response);
 
       const interface::types::DescriptionType &message() const override;
 
      private:
-      const iroha::protocol::BlockErrorResponse &block_error_response;
-
       const interface::types::DescriptionType message_;
     };
   }  // namespace proto

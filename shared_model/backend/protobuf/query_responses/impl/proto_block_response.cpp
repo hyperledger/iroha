@@ -11,18 +11,19 @@
 namespace shared_model {
   namespace proto {
     iroha::expected::Result<std::unique_ptr<BlockResponse>, std::string>
-    BlockResponse::create(iroha::protocol::QueryResponse &query_response) {
-      return Block::create(*query_response.mutable_block_response()
-                                ->mutable_block()
-                                ->mutable_block_v1())
-          | [&](auto &&block) {
-              return std::make_unique<BlockResponse>(std::move(block));
-            };
+    BlockResponse::create(
+        const iroha::protocol::BlockQueryResponse &query_response) {
+      return Block::create(query_response.block_response().block().block_v1()) |
+          [&](auto &&block) {
+            return std::make_unique<BlockResponse>(std::move(block));
+          };
     }
 
     BlockResponse::BlockResponse(
         std::unique_ptr<shared_model::interface::Block> block)
         : block_{std::move(block)} {}
+
+    BlockResponse::~BlockResponse() = default;
 
     const interface::Block &BlockResponse::block() const {
       return *block_;

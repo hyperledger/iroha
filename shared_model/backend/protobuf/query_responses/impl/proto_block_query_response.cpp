@@ -7,51 +7,72 @@
 
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
-#include "common/hexutils.hpp"
-#include "utils/variant_deserializer.hpp"
+//#include "common/hexutils.hpp"
+#include "common/result.hpp"
+#include "common/variant_transform.hpp"
+#include "qry_responses.pb.h"
+
+using namespace shared_model::proto;
 
 namespace {
-  /// type of proto variant
-  using ProtoQueryResponseVariantType =
-      boost::variant<shared_model::proto::BlockResponse,
-                     shared_model::proto::BlockErrorResponse>;
+  using ProtoBlockQueryResponse = iroha::protocol::BlockQueryResponse;
+  using ProtoResponseVariantType =
+      iroha::VariantOfUniquePtr<shared_model::proto::BlockResponse,
+                                shared_model::proto::BlockErrorResponse>;
+
+  iroha::AggregateValueResult<ProtoResponseVariantType::types, std::string>
+  loadAggregateResult(const ProtoBlockQueryResponse &proto) {
+    switch (proto.response_case()) {
+      case ProtoBlockQueryResponse::kBlockResponse:
+        return BlockResponse::create(proto).variant();
+      case ProtoBlockQueryResponse::kBlockErrorResponse:
+        return std::make_unique<BlockErrorResponse>(proto);
+      default:
+        return "Unknown response.";
+    };
+  }
+
+  iroha::expected::Result<ProtoResponseVariantType, std::string> load(
+      const ProtoBlockQueryResponse &proto) {
+    return loadAggregateResult(proto);
+  }
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+struct BlockQueryResponse::Impl {
+  explicit Impl(std::unique_ptr<TransportType> &&proto,
+                ProtoResponseVariantType response_holder)
+      : proto_(std::move(proto)),
+        response_holder_(std::move(response_holder)),
+        response_constref_(boost::apply_visitor(
+            iroha::indirecting_visitor<QueryResponseVariantType>,
+            response_holder_)) {}
 
-    struct BlockQueryResponse::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+  std::unique_ptr<TransportType> proto_;
+  ProtoResponseVariantType response_holder_;
+  QueryResponseVariantType response_constref_;
+};
 
-      TransportType proto_;
+iroha::expected::Result<std::unique_ptr<BlockQueryResponse>, std::string>
+BlockQueryResponse::create(TransportType proto) {
+  // load(TransportType&) keeps the reference to proto, so it must stay valid
+  auto proto_ptr = std::make_unique<TransportType>(std::move(proto));
+  return load(*proto_ptr) | [&](auto &&response) {
+    return std::unique_ptr<BlockQueryResponse>(new BlockQueryResponse(
+        std::make_unique<Impl>(std::move(proto_ptr), std::move(response))));
+  };
+}
 
-      const ProtoQueryResponseVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::
-            variant_impl<ProtoQueryResponseVariantType::types>::template load<
-                ProtoQueryResponseVariantType>(ar, which);
-      }()};
+BlockQueryResponse::BlockQueryResponse(std::unique_ptr<Impl> impl)
+    : impl_(std::move(impl)) {}
 
-      const QueryResponseVariantType ivariant_{variant_};
-    };
+BlockQueryResponse::~BlockQueryResponse() = default;
 
-    BlockQueryResponse::BlockQueryResponse(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+const BlockQueryResponse::QueryResponseVariantType &BlockQueryResponse::get()
+    const {
+  return impl_->response_constref_;
+}
 
-    BlockQueryResponse::~BlockQueryResponse() = default;
-
-    const BlockQueryResponse::QueryResponseVariantType &
-    BlockQueryResponse::get() const {
-      return impl_->ivariant_;
-    }
-
-    const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
-        const {
-      return impl_->proto_;
-    }
-
-  }  // namespace proto
-}  // namespace shared_model
+const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
+    const {
+  return *impl_->proto_;
+}

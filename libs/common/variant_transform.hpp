@@ -6,6 +6,8 @@
 #ifndef IROHA_VARIANT_TRANSFORM_HPP
 #define IROHA_VARIANT_TRANSFORM_HPP
 
+#include <memory>
+
 #include <boost/mpl/transform.hpp>
 #include <boost/variant/variant.hpp>
 #include "common/result_fwd.hpp"
@@ -39,6 +41,9 @@ namespace iroha {
     };
 
   }  // namespace metafunctions
+
+  template <typename... Value>
+  using VariantOfUniquePtr = boost::variant<std::unique_ptr<Value>...>;
 
   template <typename Variant, template <typename> class Metafunction>
   using TransformedVariant = typename boost::make_variant_over<
