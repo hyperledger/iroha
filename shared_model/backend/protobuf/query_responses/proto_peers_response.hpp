@@ -27,6 +27,8 @@ namespace shared_model {
       explicit PeersResponse(
           std::vector<std::unique_ptr<shared_model::interface::Peer>> peers);
 
+      ~PeersResponse() override;
+
       interface::PeersForwardCollectionType peers() const override;
 
      private:

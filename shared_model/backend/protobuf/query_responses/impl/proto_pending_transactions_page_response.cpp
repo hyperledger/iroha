@@ -69,6 +69,9 @@ namespace shared_model {
           transactions_{std::move(transactions)},
           next_batch_info_{std::move(next_batch_info)} {}
 
+    PendingTransactionsPageResponse::~PendingTransactionsPageResponse() =
+        default;
+
     interface::types::TransactionsCollectionType
     PendingTransactionsPageResponse::transactions() const {
       return transactions_ | boost::adaptors::indirected;

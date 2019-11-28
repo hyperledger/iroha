@@ -12,8 +12,8 @@ namespace shared_model {
   namespace proto {
     iroha::expected::Result<std::unique_ptr<BlockResponse>, std::string>
     BlockResponse::create(
-        const iroha::protocol::BlockQueryResponse &query_response) {
-      return Block::create(query_response.block_response().block().block_v1()) |
+        const iroha::protocol::BlockResponse &query_response) {
+      return Block::create(query_response.block().block_v1()) |
           [&](auto &&block) {
             return std::make_unique<BlockResponse>(std::move(block));
           };

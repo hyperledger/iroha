@@ -18,7 +18,7 @@ namespace shared_model {
       return shared_model::crypto::Blob::fromHexString(
                  command.remove_peer().public_key())
           |
-          [&command](auto &&pubkey) {
+          [](auto &&pubkey) {
             return std::make_unique<RemovePeer>(PubkeyType{std::move(pubkey)});
           };
     }

@@ -11,7 +11,7 @@ namespace shared_model {
     iroha::expected::Result<std::unique_ptr<AddPeer>, std::string>
     AddPeer::create(iroha::protocol::Command &command) {
       return Peer::create(*command.mutable_add_peer()->mutable_peer()) |
-          [&command](auto &&peer) { return std::make_unique<AddPeer>(*peer); };
+          [](auto &&peer) { return std::make_unique<AddPeer>(*peer); };
     }
 
     AddPeer::AddPeer(proto::Peer peer) : peer_(std::move(peer)) {}

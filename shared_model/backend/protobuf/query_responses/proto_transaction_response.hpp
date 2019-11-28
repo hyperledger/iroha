@@ -30,6 +30,8 @@ namespace shared_model {
       explicit TransactionsResponse(
           std::vector<std::unique_ptr<Transaction>> transactions);
 
+      ~TransactionsResponse() override;
+
       interface::types::TransactionsCollectionType transactions()
           const override;
 

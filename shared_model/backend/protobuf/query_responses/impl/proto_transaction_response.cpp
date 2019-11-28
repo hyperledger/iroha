@@ -38,6 +38,8 @@ namespace shared_model {
         std::vector<std::unique_ptr<Transaction>> transactions)
         : transactions_{std::move(transactions)} {}
 
+    TransactionsResponse::~TransactionsResponse() = default;
+
     interface::types::TransactionsCollectionType
     TransactionsResponse::transactions() const {
       return transactions_ | boost::adaptors::indirected;

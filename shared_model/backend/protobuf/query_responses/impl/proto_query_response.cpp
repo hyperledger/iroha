@@ -18,69 +18,118 @@
 #include "backend/protobuf/query_responses/proto_signatories_response.hpp"
 #include "backend/protobuf/query_responses/proto_transaction_response.hpp"
 #include "backend/protobuf/query_responses/proto_transactions_page_response.hpp"
-#include "common/byteutils.hpp"
-#include "utils/variant_deserializer.hpp"
+#include "common/result.hpp"
+#include "common/variant_transform.hpp"
+#include "cryptography/blob.hpp"
+#include "qry_responses.pb.h"
+
+using namespace shared_model::proto;
+
+using PbQueryResponse = iroha::protocol::QueryResponse;
 
 namespace {
-  /// type of proto variant
-  using ProtoQueryResponseVariantType =
-      boost::variant<shared_model::proto::AccountAssetResponse,
-                     shared_model::proto::AccountDetailResponse,
-                     shared_model::proto::AccountResponse,
-                     shared_model::proto::ErrorQueryResponse,
-                     shared_model::proto::SignatoriesResponse,
-                     shared_model::proto::TransactionsResponse,
-                     shared_model::proto::AssetResponse,
-                     shared_model::proto::RolesResponse,
-                     shared_model::proto::RolePermissionsResponse,
-                     shared_model::proto::TransactionsPageResponse,
-                     shared_model::proto::PendingTransactionsPageResponse,
-                     shared_model::proto::BlockResponse,
-                     shared_model::proto::PeersResponse>;
+  using ProtoResponseVariantType =
+      iroha::VariantOfUniquePtr<AccountAssetResponse,
+                                AccountDetailResponse,
+                                AccountResponse,
+                                ErrorQueryResponse,
+                                SignatoriesResponse,
+                                TransactionsResponse,
+                                AssetResponse,
+                                RolesResponse,
+                                RolePermissionsResponse,
+                                TransactionsPageResponse,
+                                PendingTransactionsPageResponse,
+                                BlockResponse,
+                                PeersResponse>;
 
-  /// list of types in variant
-  using ProtoQueryResponseListType = ProtoQueryResponseVariantType::types;
+  iroha::AggregateValueResult<ProtoResponseVariantType::types, std::string>
+  loadAggregateResult(PbQueryResponse &proto) {
+    switch (proto.response_case()) {
+      case PbQueryResponse::kAccountAssetsResponse:
+        return std::make_unique<AccountAssetResponse>(proto);
+      case PbQueryResponse::kAccountDetailResponse:
+        return std::make_unique<AccountDetailResponse>(proto);
+      case PbQueryResponse::kAccountResponse:
+        return std::make_unique<AccountResponse>(proto);
+      case PbQueryResponse::kErrorResponse:
+        return ErrorQueryResponse::create(proto).variant();
+      case PbQueryResponse::kSignatoriesResponse:
+        return SignatoriesResponse::create(proto).variant();
+      case PbQueryResponse::kTransactionsResponse:
+        return TransactionsResponse::create(proto).variant();
+      case PbQueryResponse::kAssetResponse:
+        return std::make_unique<AssetResponse>(proto);
+      case PbQueryResponse::kRolesResponse:
+        return std::make_unique<RolesResponse>(proto);
+      case PbQueryResponse::kRolePermissionsResponse:
+        return std::make_unique<RolePermissionsResponse>(proto);
+      case PbQueryResponse::kTransactionsPageResponse:
+        return TransactionsPageResponse::create(proto).variant();
+      case PbQueryResponse::kPendingTransactionsPageResponse:
+        return PendingTransactionsPageResponse::create(proto).variant();
+      case PbQueryResponse::kBlockResponse:
+        return BlockResponse::create(proto.block_response()).variant();
+      case PbQueryResponse::kPeersResponse:
+        return PeersResponse::create(proto).variant();
+      default:
+        return "Unknown response.";
+    };
+  }
+
+  iroha::expected::Result<ProtoResponseVariantType, std::string> load(
+      PbQueryResponse &proto) {
+    return loadAggregateResult(proto);
+  }
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+struct QueryResponse::Impl {
+  explicit Impl(std::unique_ptr<TransportType> &&proto,
+                ProtoResponseVariantType response_holder,
+                shared_model::crypto::Hash &&hash)
+      : proto_(std::move(proto)),
+        response_holder_(std::move(response_holder)),
+        response_constref_(boost::apply_visitor(
+            iroha::indirecting_visitor<QueryResponseVariantType>,
+            response_holder_)),
+        hash_(std::move(hash)) {}
 
-    struct QueryResponse::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+  std::unique_ptr<TransportType> proto_;
+  ProtoResponseVariantType response_holder_;
+  QueryResponseVariantType response_constref_;
+  const shared_model::crypto::Hash hash_;
+};
 
-      TransportType proto_;
+iroha::expected::Result<std::unique_ptr<QueryResponse>, std::string>
+QueryResponse::create(TransportType proto) {
+  // load(TransportType&) keeps the reference to proto, so it must stay valid
+  auto proto_ptr = std::make_unique<TransportType>(std::move(proto));
+  return load(*proto_ptr) | [&](auto &&response) {
+    return shared_model::crypto::Blob::fromHexString(proto_ptr->query_hash()) |
+        [&](auto &&hash) {
+          return std::unique_ptr<QueryResponse>(
+              new QueryResponse(std::make_unique<Impl>(
+                  std::move(proto_ptr),
+                  std::move(response),
+                  shared_model::crypto::Hash{std::move(hash)})));
+        };
+  };
+}
 
-      const ProtoQueryResponseVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::variant_impl<ProtoQueryResponseListType>::
-            template load<ProtoQueryResponseVariantType>(ar, which);
-      }()};
+QueryResponse::QueryResponse(std::unique_ptr<Impl> impl)
+    : impl_(std::move(impl)) {}
 
-      const QueryResponseVariantType ivariant_{variant_};
+QueryResponse::~QueryResponse() = default;
 
-      const crypto::Hash hash_{
-          iroha::hexstringToBytestring(proto_.query_hash()).get()};
-    };
+const QueryResponse::QueryResponseVariantType &QueryResponse::get() const {
+  return impl_->response_constref_;
+}
 
-    QueryResponse::QueryResponse(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+const shared_model::interface::types::HashType &QueryResponse::queryHash()
+    const {
+  return impl_->hash_;
+}
 
-    QueryResponse::~QueryResponse() = default;
-
-    const QueryResponse::QueryResponseVariantType &QueryResponse::get() const {
-      return impl_->ivariant_;
-    }
-
-    const interface::types::HashType &QueryResponse::queryHash() const {
-      return impl_->hash_;
-    }
-
-    const QueryResponse::TransportType &QueryResponse::getTransport() const {
-      return impl_->proto_;
-    }
-
-  }  // namespace proto
-}  // namespace shared_model
+const QueryResponse::TransportType &QueryResponse::getTransport() const {
+  return *impl_->proto_;
+}

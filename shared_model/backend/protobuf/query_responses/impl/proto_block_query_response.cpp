@@ -7,7 +7,6 @@
 
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
-//#include "common/hexutils.hpp"
 #include "common/result.hpp"
 #include "common/variant_transform.hpp"
 #include "qry_responses.pb.h"
@@ -24,7 +23,7 @@ namespace {
   loadAggregateResult(const ProtoBlockQueryResponse &proto) {
     switch (proto.response_case()) {
       case ProtoBlockQueryResponse::kBlockResponse:
-        return BlockResponse::create(proto).variant();
+        return BlockResponse::create(proto.block_response()).variant();
       case ProtoBlockQueryResponse::kBlockErrorResponse:
         return std::make_unique<BlockErrorResponse>(proto);
       default:

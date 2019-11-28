@@ -30,6 +30,8 @@ namespace shared_model {
           boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
               next_batch_info);
 
+      ~PendingTransactionsPageResponse() override;
+
       interface::types::TransactionsCollectionType transactions()
           const override;
 

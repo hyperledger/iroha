@@ -12,7 +12,7 @@
 
 namespace iroha {
   namespace protocol {
-    class BlockQueryResponse;
+    class BlockResponse;
   }
 }  // namespace iroha
 
@@ -24,7 +24,7 @@ namespace shared_model {
      public:
       static iroha::expected::Result<std::unique_ptr<BlockResponse>,
                                      std::string>
-      create(const iroha::protocol::BlockQueryResponse &query_response);
+      create(const iroha::protocol::BlockResponse &query_response);
 
       explicit BlockResponse(
           std::unique_ptr<shared_model::interface::Block> block);

@@ -54,6 +54,8 @@ namespace shared_model {
           transactions_{std::move(transactions)},
           next_hash_{std::move(next_hash)} {}
 
+    TransactionsPageResponse::~TransactionsPageResponse() = default;
+
     interface::types::TransactionsCollectionType
     TransactionsPageResponse::transactions() const {
       return transactions_ | boost::adaptors::indirected;

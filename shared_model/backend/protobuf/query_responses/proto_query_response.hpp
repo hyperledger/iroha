@@ -8,7 +8,13 @@
 
 #include "interfaces/query_responses/query_response.hpp"
 
-#include "qry_responses.pb.h"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class QueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
@@ -16,7 +22,9 @@ namespace shared_model {
      public:
       using TransportType = iroha::protocol::QueryResponse;
 
-      explicit QueryResponse(TransportType &&queryResponse);
+      static iroha::expected::Result<std::unique_ptr<QueryResponse>,
+                                     std::string>
+      create(TransportType queryResponse);
 
       ~QueryResponse() override;
 
@@ -28,6 +36,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      explicit QueryResponse(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

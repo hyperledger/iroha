@@ -37,6 +37,8 @@ namespace shared_model {
         std::vector<std::unique_ptr<shared_model::interface::Peer>> peers)
         : peers_{std::move(peers)} {}
 
+    PeersResponse::~PeersResponse() = default;
+
     interface::PeersForwardCollectionType PeersResponse::peers() const {
       return peers_ | boost::adaptors::indirected;
     }

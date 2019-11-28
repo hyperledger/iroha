@@ -36,6 +36,8 @@ namespace shared_model {
           std::vector<std::unique_ptr<Transaction>> transactions,
           boost::optional<interface::types::HashType> next_hash);
 
+      ~TransactionsPageResponse() override;
+
       interface::types::TransactionsCollectionType transactions()
           const override;
 
