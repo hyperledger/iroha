@@ -20,7 +20,7 @@ namespace shared_model {
     }
 
     BlockResponse::BlockResponse(
-        std::unique_ptr<shared_model::interface::Block> block)
+        std::shared_ptr<shared_model::interface::Block> block)
         : block_{std::move(block)} {}
 
     BlockResponse::~BlockResponse() = default;

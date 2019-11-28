@@ -27,14 +27,14 @@ namespace shared_model {
       create(const iroha::protocol::BlockResponse &query_response);
 
       explicit BlockResponse(
-          std::unique_ptr<shared_model::interface::Block> block);
+          std::shared_ptr<shared_model::interface::Block> block);
 
       ~BlockResponse() override;
 
       const interface::Block &block() const override;
 
      private:
-      std::unique_ptr<shared_model::interface::Block> block_;
+      std::shared_ptr<shared_model::interface::Block> block_;
     };
   }  // namespace proto
 }  // namespace shared_model

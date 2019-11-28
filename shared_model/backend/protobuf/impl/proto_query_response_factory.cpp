@@ -13,6 +13,7 @@
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/peer.hpp"
+#include "qry_responses.pb.h"
 
 using shared_model::interface::QueryErrorType;
 
@@ -34,8 +35,10 @@ namespace {
 
     response_creator(protocol_query_response);
 
-    return std::make_unique<shared_model::proto::QueryResponse>(
-        std::move(protocol_query_response));
+    // the callers are guaranteed to make a valid proto
+    return shared_model::proto::QueryResponse::create(
+               std::move(protocol_query_response))
+        .assumeValue();
   }
 
   /**
@@ -53,8 +56,10 @@ namespace {
 
     response_creator(protocol_query_response);
 
-    return std::make_unique<shared_model::proto::BlockQueryResponse>(
-        std::move(protocol_query_response));
+    // the callers are guaranteed to make a valid proto
+    return shared_model::proto::BlockQueryResponse::create(
+               std::move(protocol_query_response))
+        .assumeValue();
   }
 }  // namespace
 
