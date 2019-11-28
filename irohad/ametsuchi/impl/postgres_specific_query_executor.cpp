@@ -44,6 +44,8 @@
 
 using namespace shared_model::interface::permissions;
 
+using shared_model::interface::QueryErrorType;
+
 namespace {
 
   using namespace iroha;
@@ -533,8 +535,7 @@ namespace iroha {
       if (not hasAccountRolePermission(Role::kGetBlocks, creator_id)) {
         // no permission
         return query_response_factory_->createErrorQueryResponse(
-            shared_model::interface::QueryResponseFactory::ErrorQueryType::
-                kStatefulFailed,
+            QueryErrorType::kStatefulFailed,
             notEnoughPermissionsResponse(perm_converter_, Role::kGetBlocks)(),
             2,
             query_hash);
@@ -1297,8 +1298,7 @@ namespace iroha {
                   switch (error.error) {
                     case iroha::PendingTransactionStorage::ErrorCode::kNotFound:
                       return query_response_factory_->createErrorQueryResponse(
-                          shared_model::interface::QueryResponseFactory::
-                              ErrorQueryType::kStatefulFailed,
+                          QueryErrorType::kStatefulFailed,
                           std::string("The batch with specified first "
                                       "transaction hash not found, the hash: ")
                               + q.paginationMeta()->firstTxHash()->toString(),
@@ -1309,8 +1309,7 @@ namespace iroha {
                                        "Unknown and unhandled type of error "
                                        "happend in pending txs storage");
                       return query_response_factory_->createErrorQueryResponse(
-                          shared_model::interface::QueryResponseFactory::
-                              ErrorQueryType::kStatefulFailed,
+                          QueryErrorType::kStatefulFailed,
                           std::string("Unknown type of error happened: ")
                               + std::to_string(error.error),
                           1,  // unknown internal error

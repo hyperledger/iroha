@@ -5,22 +5,43 @@
 
 #include "interfaces/query_responses/error_query_response.hpp"
 
-#include "utils/visitor_apply_for_all.hpp"
+#include <cassert>
+#include <unordered_map>
 
-namespace shared_model {
-  namespace interface {
+using namespace shared_model::interface;
 
-    std::string ErrorQueryResponse::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("ErrorQueryResponse")
-          .append(boost::apply_visitor(detail::ToStringVisitor(), get()))
-          .appendNamed("errorMessage", errorMessage())
-          .finalize();
+namespace {
+  const std::unordered_map<QueryErrorType, std::string> kReasonToString{
+      {QueryErrorType::kStatelessFailed, "StatelessFailed"},
+      {QueryErrorType::kStatefulFailed, "StatefulFailed"},
+      {QueryErrorType::kNoAccount, "NoAccount"},
+      {QueryErrorType::kNoAccountAssets, "NoAccountAssets"},
+      {QueryErrorType::kNoAccountDetail, "NoAccountDetail"},
+      {QueryErrorType::kNoSignatories, "NoSignatories"},
+      {QueryErrorType::kNotSupported, "NotSupported"},
+      {QueryErrorType::kNoAsset, "NoAsset"},
+      {QueryErrorType::kNoRoles, "NoRoles"}};
+
+  const std::string kUnknownErrorType = "(unknown error type)";
+  const std::string &reasonToString(QueryErrorType reason) {
+    auto it = kReasonToString.find(reason);
+    if (it == kReasonToString.end()) {
+      assert(false);
+      return kUnknownErrorType;
     }
+    return it->second;
+  }
+}  // namespace
 
-    bool ErrorQueryResponse::operator==(const ModelType &rhs) const {
-      return get() == rhs.get();
-    }
+std::string ErrorQueryResponse::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("ErrorQueryResponse")
+      .append(reasonToString(reason()))
+      .appendNamed("errorMessage", errorMessage())
+      .finalize();
+}
 
-  }  // namespace interface
-}  // namespace shared_model
+bool ErrorQueryResponse::operator==(const ModelType &rhs) const {
+  return reason() == rhs.reason() and errorCode() == rhs.errorCode()
+      and errorMessage() == rhs.errorMessage();
+}

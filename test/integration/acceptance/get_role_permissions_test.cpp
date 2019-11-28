@@ -60,7 +60,8 @@ TEST_F(AcceptanceFixture, CanNotGetRolePermissions) {
       .sendTxAwait(
           makeUserWithPerms({}),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(query,
-                 checkQueryErrorResponse<
-                     shared_model::interface::StatefulFailedErrorResponse>());
+      .sendQuery(
+          query,
+          checkQueryErrorResponse(
+              shared_model::interface::QueryErrorType::kStatefulFailed, 2));
 }

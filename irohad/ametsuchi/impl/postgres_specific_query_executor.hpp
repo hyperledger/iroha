@@ -10,6 +10,7 @@
 
 #include <soci/soci.h>
 #include "common/result.hpp"
+#include "interfaces/iroha_internal/error_query_response_reason.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -39,9 +40,6 @@ namespace iroha {
   namespace ametsuchi {
 
     class BlockStorage;
-
-    using QueryErrorType =
-        shared_model::interface::QueryResponseFactory::ErrorQueryType;
 
     using ErrorQueryResponse = shared_model::interface::ErrorQueryResponse;
     using QueryErrorMessageType = ErrorQueryResponse::ErrorMessageType;
@@ -179,7 +177,7 @@ namespace iroha {
        */
       std::unique_ptr<shared_model::interface::QueryResponse>
       logAndReturnErrorResponse(
-          iroha::ametsuchi::QueryErrorType error_type,
+          shared_model::interface::QueryErrorType error_type,
           QueryErrorMessageType error_body,
           QueryErrorCodeType error_code,
           const shared_model::interface::types::HashType &query_hash) const;

@@ -5,11 +5,6 @@
 
 #include "backend/protobuf/commands/proto_command.hpp"
 
-#include <boost/type_index.hpp>
-#define private public
-#include <boost/variant.hpp>
-#undef private
-
 #include "backend/protobuf/commands/proto_add_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"

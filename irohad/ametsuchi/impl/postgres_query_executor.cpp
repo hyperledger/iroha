@@ -9,6 +9,7 @@
 #include <boost/range/size.hpp>
 #include "ametsuchi/specific_query_executor.hpp"
 #include "cryptography/public_key.hpp"
+#include "interfaces/iroha_internal/error_query_response_reason.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
@@ -69,8 +70,7 @@ namespace iroha {
         // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 3
         // with a named constant
         return query_response_factory_->createErrorQueryResponse(
-            shared_model::interface::QueryResponseFactory::ErrorQueryType::
-                kStatefulFailed,
+            shared_model::interface::QueryErrorType::kStatefulFailed,
             "query signatories did not pass validation",
             3,
             query.hash());

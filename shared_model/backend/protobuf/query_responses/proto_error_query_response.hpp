@@ -8,28 +8,43 @@
 
 #include "interfaces/query_responses/error_query_response.hpp"
 
-#include "qry_responses.pb.h"
+#include <memory>
+
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class ErrorResponse;
+    class QueryResponse;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
     class ErrorQueryResponse final : public interface::ErrorQueryResponse {
      public:
-      explicit ErrorQueryResponse(
-          iroha::protocol::QueryResponse &query_response);
+      static iroha::expected::Result<std::unique_ptr<ErrorQueryResponse>,
+                                     std::string>
+      create(const iroha::protocol::QueryResponse &query_response);
+
+      ErrorQueryResponse(const iroha::protocol::QueryResponse &query_response,
+                         shared_model::interface::QueryErrorType error_reason);
 
       ErrorQueryResponse(ErrorQueryResponse &&o) noexcept;
 
       ~ErrorQueryResponse() override;
 
-      const QueryErrorResponseVariantType &get() const override;
+      shared_model::interface::QueryErrorType reason() const override;
 
       const ErrorMessageType &errorMessage() const override;
 
       ErrorCodeType errorCode() const override;
 
      private:
-      struct Impl;
-      std::unique_ptr<Impl> impl_;
+      const iroha::protocol::ErrorResponse &error_response_;
+      shared_model::interface::QueryErrorType error_reason_;
+      const ErrorMessageType &error_message_;
+      ErrorCodeType error_code_;
     };
   }  // namespace proto
 }  // namespace shared_model

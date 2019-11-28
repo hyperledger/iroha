@@ -189,7 +189,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountResponse) {
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
   using ErrorTypes =
-      shared_model::interface::QueryResponseFactory::ErrorQueryType;
+      shared_model::interface::QueryResponseFactory::QueryErrorType;
   const HashType kQueryHash{"my_super_hash"};
 
   const auto kStatelessErrorMsg = "stateless failed";

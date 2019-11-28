@@ -74,7 +74,9 @@ TEST_F(QueriesAcceptanceTest, NonExistentCreatorId) {
   auto query = complete(baseQry(NonExistentUserId).getRoles());
 
   itf.sendQuery(
-      query, checkQueryErrorResponse<interface::StatefulFailedErrorResponse>());
+      query,
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatefulFailed, 2));
 }
 
 /**
@@ -109,7 +111,8 @@ TEST_F(QueriesAcceptanceTest, More24HourOldTime) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -178,7 +181,8 @@ TEST_F(QueriesAcceptanceTest, MoreFiveMinutesFromFuture) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -196,7 +200,8 @@ TEST_F(QueriesAcceptanceTest, TenMinutesFromFuture) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -217,7 +222,8 @@ TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -237,7 +243,8 @@ TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -257,7 +264,8 @@ TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -276,7 +284,8 @@ TEST_F(QueriesAcceptanceTest, EmptySignValidPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -294,7 +303,8 @@ TEST_F(QueriesAcceptanceTest, ValidSignEmptyPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -313,7 +323,8 @@ TEST_F(QueriesAcceptanceTest, FullyEmptyPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -337,7 +348,8 @@ TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }
 
 /**
@@ -365,5 +377,6 @@ TEST_F(QueriesAcceptanceTest, EmptySignInvalidPubKeypair) {
 
   itf.sendQuery(
       query,
-      checkQueryErrorResponse<interface::StatelessFailedErrorResponse>());
+      checkQueryErrorResponse(
+          shared_model::interface::QueryErrorType::kStatelessFailed, 0));
 }

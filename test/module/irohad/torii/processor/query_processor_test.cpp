@@ -124,7 +124,7 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
   auto *qry_resp = query_response_factory
                        ->createErrorQueryResponse(
                            shared_model::interface::QueryResponseFactory::
-                               ErrorQueryType::kStatefulFailed,
+                               QueryErrorType::kStatefulFailed,
                            "query signatories did not pass validation",
                            3,
                            query.hash())
