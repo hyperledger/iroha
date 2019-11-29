@@ -15,9 +15,6 @@ namespace iroha {
        public:
         YacHash makeHash(
             const simulator::BlockCreatorEvent &event) const override;
-
-        shared_model::interface::types::HashType toModelHash(
-            const YacHash &hash) const override;
       };
     }  // namespace yac
   }    // namespace consensus

@@ -164,12 +164,8 @@ namespace iroha {
 
         log_->info("Voted for another block, waiting for sync");
         current_block_ = boost::none;
-        auto model_hash = hash_provider_->toModelHash(hash);
-        return rxcpp::observable<>::just<GateObject>(
-            VoteOther(hash.vote_round,
-                      current_ledger_state_,
-                      std::move(public_keys),
-                      std::move(model_hash)));
+        return rxcpp::observable<>::just<GateObject>(VoteOther(
+            hash.vote_round, current_ledger_state_, std::move(public_keys)));
       }
 
       rxcpp::observable<YacGateImpl::GateObject> YacGateImpl::handleReject(

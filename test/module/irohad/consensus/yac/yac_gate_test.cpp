@@ -268,7 +268,6 @@ TEST_F(YacGateTest, DifferentCommit) {
   // create another block, which will be "received", and generate a commit
   // message with it
   decltype(expected_block) actual_block = std::make_shared<MockBlock>();
-  Hash actual_hash("actual_hash");
   PublicKey actual_pubkey("actual_pubkey");
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
@@ -279,24 +278,19 @@ TEST_F(YacGateTest, DifferentCommit) {
   commit_message = CommitMessage({message});
   expected_commit = commit_message;
 
-  // convert yac hash to model hash
-  EXPECT_CALL(*hash_provider, toModelHash(message.hash))
-      .WillOnce(Return(actual_hash));
-
   // verify that block we voted for is in the cache
   auto cache_block = block_cache->get();
   ASSERT_EQ(cache_block, expected_block);
 
   // verify that yac gate emit expected block
   auto gate_wrapper = make_test_subscriber<CallExact>(gate->onOutcome(), 1);
-  gate_wrapper.subscribe([actual_hash, actual_pubkey](auto outcome) {
+  gate_wrapper.subscribe([actual_pubkey](auto outcome) {
     auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
     auto public_keys = concrete_outcome.public_keys;
     auto hash = concrete_outcome.hash;
 
     ASSERT_EQ(1, public_keys.size());
     ASSERT_EQ(actual_pubkey, public_keys.front());
-    ASSERT_EQ(hash, actual_hash);
   });
 
   outcome_notifier.get_subscriber().on_next(expected_commit);
@@ -397,7 +391,6 @@ class CommitFromTheFuture : public YacGateTest {
     block_notifier.get_subscriber().on_next(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
 
-    Hash actual_hash("actual_hash");
     PublicKey actual_pubkey("actual_pubkey");
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())

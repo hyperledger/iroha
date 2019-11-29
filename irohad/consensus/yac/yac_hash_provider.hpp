@@ -101,14 +101,6 @@ namespace iroha {
         virtual YacHash makeHash(
             const simulator::BlockCreatorEvent &event) const = 0;
 
-        /**
-         * Convert YacHash to model hash
-         * @param hash - for converting
-         * @return HashType of model hash
-         */
-        virtual shared_model::interface::types::HashType toModelHash(
-            const YacHash &hash) const = 0;
-
         virtual ~YacHashProvider() = default;
       };
     }  // namespace yac

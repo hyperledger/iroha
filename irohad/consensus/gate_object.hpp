@@ -55,17 +55,13 @@ namespace iroha {
 
     /// Network votes for another pair and round
     struct VoteOther : public Synchronizable {
-      shared_model::interface::types::HashType hash;
-
       VoteOther(
           consensus::Round round,
           std::shared_ptr<const LedgerState> ledger_state,
-          shared_model::interface::types::PublicKeyCollectionType public_keys,
-          shared_model::interface::types::HashType hash)
+          shared_model::interface::types::PublicKeyCollectionType public_keys)
           : Synchronizable(std::move(round),
                            std::move(ledger_state),
-                           std::move(public_keys)),
-            hash(std::move(hash)) {}
+                           std::move(public_keys)) {}
     };
 
     /// Reject on proposal

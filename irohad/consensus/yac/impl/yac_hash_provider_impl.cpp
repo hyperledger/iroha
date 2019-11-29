@@ -26,14 +26,6 @@ namespace iroha {
         return result;
       }
 
-      shared_model::interface::types::HashType YacHashProviderImpl::toModelHash(
-          const YacHash &hash) const {
-        auto blob = shared_model::crypto::Blob::fromHexString(
-            hash.vote_hashes.block_hash);
-        auto string_blob = shared_model::crypto::toBinaryString(blob);
-        return shared_model::interface::types::HashType(string_blob);
-      }
-
     }  // namespace yac
   }    // namespace consensus
 }  // namespace iroha
