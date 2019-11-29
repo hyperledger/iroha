@@ -15,8 +15,6 @@
 #include "cryptography/hash.hpp"
 #include "endpoint.pb.h"
 
-//#include "utils/variant_deserializer.hpp" TODO remove file?
-
 using namespace shared_model::proto;
 
 namespace {
