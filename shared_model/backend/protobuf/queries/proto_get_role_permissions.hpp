@@ -8,7 +8,12 @@
 
 #include "interfaces/queries/get_role_permissions.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class GetRolePermissions;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

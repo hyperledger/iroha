@@ -8,14 +8,9 @@
 
 #include "interfaces/queries/get_peers.hpp"
 
-#include "queries.pb.h"
-
 namespace shared_model {
   namespace proto {
-    class GetPeers final : public interface::GetPeers {
-     public:
-      explicit GetPeers(iroha::protocol::Query &query);
-    };
+    class GetPeers final : public interface::GetPeers {};
 
   }  // namespace proto
 }  // namespace shared_model

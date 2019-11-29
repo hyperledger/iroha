@@ -9,7 +9,12 @@
 #include "interfaces/queries/asset_pagination_meta.hpp"
 
 #include "interfaces/common_objects/types.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class AssetPaginationMeta;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

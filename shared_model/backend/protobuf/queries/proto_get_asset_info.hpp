@@ -8,7 +8,12 @@
 
 #include "interfaces/queries/get_asset_info.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class GetAssetInfo;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/detach_role.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class DetachRole;
+    class Command;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -7,8 +7,14 @@
 
 #include "interfaces/commands/create_role.hpp"
 
-#include "commands.pb.h"
 #include "interfaces/permissions.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class CreateRole;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

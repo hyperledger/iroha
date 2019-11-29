@@ -11,7 +11,12 @@
 #include "common/result_fwd.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class TxPaginationMeta;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

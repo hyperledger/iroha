@@ -9,7 +9,12 @@
 #include "interfaces/queries/query.hpp"
 
 #include "common/result_fwd.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class Query;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
@@ -20,15 +25,10 @@ namespace shared_model {
       using TransportType = iroha::protocol::Query;
       using SignatureSet = SignatureSetType<std::unique_ptr<Signature>>;
 
-      template <typename T>
       static iroha::expected::Result<std::unique_ptr<Query>, std::string>
-      create(T &&query);
+      create(TransportType proto);
 
-      Query(const Query &o);
       Query(Query &&o) noexcept;
-
-      explicit Query(const TransportType &ref);
-      explicit Query(TransportType &&ref);
 
       ~Query() override;
 

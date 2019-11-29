@@ -12,7 +12,12 @@
 #include "backend/protobuf/queries/proto_account_detail_record_id.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class AccountDetailPaginationMeta;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -76,7 +76,7 @@ namespace shared_model {
             blob_ = makeBlob(proto_);
             return true;
           },
-          [this](const auto &err) { return false; });
+          [](const auto &err) { return false; });
     }
 
     const interface::types::HashType &BlocksQuery::hash() const {

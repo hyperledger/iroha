@@ -8,6 +8,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include "common/result.hpp"
 #include "cryptography/blob.hpp"
+#include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {

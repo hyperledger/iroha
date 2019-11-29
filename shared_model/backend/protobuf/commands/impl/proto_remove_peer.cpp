@@ -5,6 +5,7 @@
 
 #include "backend/protobuf/commands/proto_remove_peer.hpp"
 
+#include "commands.pb.h"
 #include "common/result.hpp"
 #include "cryptography/blob.hpp"
 

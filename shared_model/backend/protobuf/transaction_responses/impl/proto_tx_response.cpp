@@ -79,7 +79,7 @@ struct TransactionResponse::Impl {
   TransportType proto_;
   ProtoResponseVariantType response_holder_;
   ResponseVariantType response_constref_;
-  const crypto::Hash hash_;
+  crypto::Hash hash_;
 };
 
 iroha::expected::Result<std::unique_ptr<TransactionResponse>, std::string>

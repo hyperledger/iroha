@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/queries/proto_query_payload_meta.hpp"
 
+#include "queries.pb.h"
+
 namespace shared_model {
   namespace proto {
 

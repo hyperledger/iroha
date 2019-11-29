@@ -8,7 +8,12 @@
 
 #include "validators/abstract_validator.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class BlocksQuery;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace validation {

@@ -6,6 +6,7 @@
 #include "backend/protobuf/commands/proto_create_role.hpp"
 
 #include "backend/protobuf/permissions.hpp"
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {

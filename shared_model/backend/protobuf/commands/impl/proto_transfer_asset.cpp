@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
 
+#include "commands.pb.h"
+
 namespace shared_model {
   namespace proto {
 

@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "common/result.hpp"
+#include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
@@ -31,6 +32,8 @@ namespace shared_model {
         : account_asset_transactions_{query.payload()
                                           .get_account_asset_transactions()},
           pagination_meta_{std::move(pagination_meta)} {}
+
+    GetAccountAssetTransactions::~GetAccountAssetTransactions() = default;
 
     const interface::types::AccountIdType &
     GetAccountAssetTransactions::accountId() const {

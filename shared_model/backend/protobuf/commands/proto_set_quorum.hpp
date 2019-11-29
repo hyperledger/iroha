@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/set_quorum.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class SetAccountQuorum;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

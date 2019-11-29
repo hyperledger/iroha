@@ -6,6 +6,7 @@
 #include "backend/protobuf/commands/proto_revoke_permission.hpp"
 
 #include "backend/protobuf/permissions.hpp"
+#include "commands.pb.h"
 
 namespace shared_model {
   namespace proto {

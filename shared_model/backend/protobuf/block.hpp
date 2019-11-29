@@ -8,9 +8,14 @@
 
 #include "interfaces/iroha_internal/block.hpp"
 
-#include "block.pb.h"
 #include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Block_v1;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

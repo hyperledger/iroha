@@ -8,8 +8,14 @@
 
 #include "interfaces/commands/add_asset_quantity.hpp"
 
-#include "commands.pb.h"
 #include "interfaces/common_objects/amount.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class AddAssetQuantity;
+    class Command;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

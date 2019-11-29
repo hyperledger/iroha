@@ -6,8 +6,14 @@
 #ifndef IROHA_PROTO_SET_SETTING_VALUE_HPP
 #define IROHA_PROTO_SET_SETTING_VALUE_HPP
 
-#include "commands.pb.h"
 #include "interfaces/commands/set_setting_value.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class SetSettingValue;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

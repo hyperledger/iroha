@@ -22,177 +22,169 @@
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
 #include "common/result.hpp"
-#include "utils/variant_deserializer.hpp"
+#include "common/variant_transform.hpp"
+#include "queries.pb.h"
+
+using namespace shared_model::proto;
+using namespace shared_model::interface::types;
 
 using iroha::expected::Result;
 using iroha::expected::ResultException;
 
+using PbQuery = iroha::protocol::Query;
+
 namespace {
   /// type of proto variant
   using ProtoQueryVariantType =
-      boost::variant<shared_model::proto::GetAccount,
-                     shared_model::proto::GetSignatories,
-                     shared_model::proto::GetAccountTransactions,
-                     shared_model::proto::GetAccountAssetTransactions,
-                     shared_model::proto::GetTransactions,
-                     shared_model::proto::GetAccountAssets,
-                     shared_model::proto::GetAccountDetail,
-                     shared_model::proto::GetRoles,
-                     shared_model::proto::GetRolePermissions,
-                     shared_model::proto::GetAssetInfo,
-                     shared_model::proto::GetPendingTransactions,
-                     shared_model::proto::GetBlock,
-                     shared_model::proto::GetPeers>;
+      iroha::VariantOfUniquePtr<GetAccount,
+                                GetSignatories,
+                                GetAccountTransactions,
+                                GetAccountAssetTransactions,
+                                GetTransactions,
+                                GetAccountAssets,
+                                GetAccountDetail,
+                                GetRoles,
+                                GetRolePermissions,
+                                GetAssetInfo,
+                                GetPendingTransactions,
+                                GetBlock,
+                                GetPeers>;
 
-  /// list of types in proto variant
-  using ProtoQueryListType = ProtoQueryVariantType::types;
+  iroha::AggregateValueResult<ProtoQueryVariantType::types, std::string>
+  loadAggregateResult(PbQuery &pb_query) {
+    switch (pb_query.payload().query_case()) {
+      case PbQuery::Payload::kGetAccount:
+        return std::make_unique<GetAccount>(pb_query);
+      case PbQuery::Payload::kGetSignatories:
+        return std::make_unique<GetSignatories>(pb_query);
+      case PbQuery::Payload::kGetAccountTransactions:
+        return GetAccountTransactions::create(pb_query).variant();
+      case PbQuery::Payload::kGetAccountAssetTransactions:
+        return GetAccountAssetTransactions::create(pb_query).variant();
+      case PbQuery::Payload::kGetTransactions:
+        return GetTransactions::create(pb_query).variant();
+      case PbQuery::Payload::kGetAccountAssets:
+        return std::make_unique<GetAccountAssets>(pb_query);
+      case PbQuery::Payload::kGetAccountDetail:
+        return std::make_unique<GetAccountDetail>(pb_query);
+      case PbQuery::Payload::kGetRoles:
+        return std::make_unique<GetRoles>();
+      case PbQuery::Payload::kGetRolePermissions:
+        return std::make_unique<GetRolePermissions>(pb_query);
+      case PbQuery::Payload::kGetAssetInfo:
+        return std::make_unique<GetAssetInfo>(pb_query);
+      case PbQuery::Payload::kGetPendingTransactions:
+        return GetPendingTransactions::create(pb_query).variant();
+      case PbQuery::Payload::kGetBlock:
+        return std::make_unique<GetBlock>(pb_query);
+      case PbQuery::Payload::kGetPeers:
+        return std::make_unique<GetPeers>();
+      default:
+        return "Unknown query";
+    };
+  }
+
+  iroha::expected::Result<ProtoQueryVariantType, std::string> load(
+      PbQuery &pb_query) {
+    return loadAggregateResult(pb_query);
+  }
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+struct Query::Impl {
+  explicit Impl(std::unique_ptr<TransportType> &&proto,
+                ProtoQueryVariantType query_holder,
+                SignatureSet signatures)
+      : proto_(std::move(proto)),
+        query_holder_(std::move(query_holder)),
+        query_constref_(boost::apply_visitor(
+            iroha::indirecting_visitor<QueryVariantType>, query_holder_)),
+        signatures_(std::move(signatures)) {}
 
-    struct Query::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
-      explicit Impl(const TransportType &ref) : proto_{ref} {}
+  std::unique_ptr<TransportType> proto_;
+  ProtoQueryVariantType query_holder_;
+  QueryVariantType query_constref_;
+  SignatureSet signatures_;
 
-      TransportType proto_;
+  shared_model::crypto::Blob blob_{makeBlob(*proto_)};
+  shared_model::crypto::Blob payload_{makeBlob(proto_->payload())};
+  shared_model::crypto::Hash hash_ = makeHash(payload_);
+};
 
-      ProtoQueryVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which = ar.payload()
-                        .GetDescriptor()
-                        ->FindFieldByNumber(ar.payload().query_case())
-                        ->index_in_oneof();
-        return shared_model::detail::variant_impl<
-            ProtoQueryListType>::template load<ProtoQueryVariantType>(ar,
-                                                                      which);
-      }()};
-
-      QueryVariantType ivariant_{variant_};
-
-      interface::types::BlobType blob_{makeBlob(proto_)};
-
-      interface::types::BlobType payload_{makeBlob(proto_.payload())};
-
-      SignatureSet signatures_{[this] {
-        SignatureSet set;
-        if (proto_.has_signature()) {
-          set.emplace(
-              Signature::create(*proto_.mutable_signature()).assumeValue());
-        }
-        return set;
-      }()};
-
-      interface::types::HashType hash_ = makeHash(payload_);
-    };
-
-    template <typename T>
-    Result<std::unique_ptr<Query>, std::string> Query::create(T &&proto) {
-      try {
-        return std::make_unique<Query>(
-            std::make_unique<Impl>(std::forward<T>(proto)));
-      } catch (const ResultException &e) {
-        return e.what();
-      }
+iroha::expected::Result<std::unique_ptr<Query>, std::string> Query::create(
+    TransportType proto) {
+  SignatureSet signatures;
+  if (proto.has_signature()) {
+    auto signature = Signature::create(proto.signature());
+    if (auto e = iroha::expected::resultToOptionalError(signature)) {
+      return e.value();
     }
+    signatures.emplace(std::move(signature).assumeValue());
+  }
+  // load(TransportType&) keeps the reference to proto, so it must stay valid
+  auto proto_ptr = std::make_unique<TransportType>(std::move(proto));
+  return load(*proto_ptr) | [&](auto &&query) {
+    return std::unique_ptr<Query>(new Query(std::make_unique<Impl>(
+        std::move(proto_ptr), std::move(query), std::move(signatures))));
+  };
+}
 
-    template <>
-    Result<std::unique_ptr<Query>, std::string> Query::create(
-        const TransportType &query);
-    template <>
-    Result<std::unique_ptr<Query>, std::string> Query::create(
-        TransportType &query);
-    template <>
-    Result<std::unique_ptr<Query>, std::string> Query::create(
-        TransportType &&query);
+Query::Query(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
-    /*
-    iroha::expected::Result<Query, std::string> Query::create(
-        const TransportType &query) {
-      try {
-        return std::make_unique<Query>(std::make_unique<Impl>(query));
-      } catch (const ResultException &e) {
-        return e.what();
-      }
-    }
+Query::Query(Query &&o) noexcept = default;
 
-    iroha::expected::Result<Query, std::string> Query::create(
-        TransportType &&query) {
-      try {
-        return std::make_unique<Query>(
-            std::make_unique<Impl>(std::move(query)));
-      } catch (const ResultException &e) {
-        return e.what();
-      }
-    }
-    */
+Query::~Query() = default;
 
-    Query::Query(const Query &o) : Query(o.impl_->proto_) {}
-    Query::Query(Query &&o) noexcept = default;
+const Query::QueryVariantType &Query::get() const {
+  return impl_->query_constref_;
+}
 
-    Query::Query(const TransportType &ref) {
-      impl_ = std::make_unique<Impl>(ref);
-    }
-    Query::Query(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+const AccountIdType &Query::creatorAccountId() const {
+  return impl_->proto_->payload().meta().creator_account_id();
+}
 
-    Query::~Query() = default;
+CounterType Query::queryCounter() const {
+  return impl_->proto_->payload().meta().query_counter();
+}
 
-    const Query::QueryVariantType &Query::get() const {
-      return impl_->ivariant_;
-    }
+const BlobType &Query::blob() const {
+  return impl_->blob_;
+}
 
-    const interface::types::AccountIdType &Query::creatorAccountId() const {
-      return impl_->proto_.payload().meta().creator_account_id();
-    }
+const BlobType &Query::payload() const {
+  return impl_->payload_;
+}
 
-    interface::types::CounterType Query::queryCounter() const {
-      return impl_->proto_.payload().meta().query_counter();
-    }
+SignatureRangeType Query::signatures() const {
+  return impl_->signatures_ | boost::adaptors::indirected;
+}
 
-    const interface::types::BlobType &Query::blob() const {
-      return impl_->blob_;
-    }
+bool Query::addSignature(const shared_model::crypto::Signed &signed_blob,
+                         const shared_model::crypto::PublicKey &public_key) {
+  if (impl_->proto_->has_signature()) {
+    return false;
+  }
 
-    const interface::types::BlobType &Query::payload() const {
-      return impl_->payload_;
-    }
+  auto sig = impl_->proto_->mutable_signature();
+  sig->set_signature(signed_blob.blob().hex());
+  sig->set_public_key(public_key.blob().hex());
 
-    interface::types::SignatureRangeType Query::signatures() const {
-      return impl_->signatures_ | boost::adaptors::indirected;
-    }
+  return Signature::create(*sig).match(
+      [this](auto &&val) {
+        impl_->signatures_.emplace(std::move(val.value));
+        impl_->blob_ = makeBlob(*impl_->proto_);
+        return true;
+      },
+      [](const auto &err) { return false; });
+}
 
-    bool Query::addSignature(const crypto::Signed &signed_blob,
-                             const crypto::PublicKey &public_key) {
-      if (impl_->proto_.has_signature()) {
-        return false;
-      }
+const HashType &Query::hash() const {
+  return impl_->hash_;
+}
 
-      auto sig = impl_->proto_.mutable_signature();
-      sig->set_signature(signed_blob.blob().hex());
-      sig->set_public_key(public_key.blob().hex());
+TimestampType Query::createdTime() const {
+  return impl_->proto_->payload().meta().created_time();
+}
 
-      return Signature::create(*sig).match(
-          [this](auto &&val) {
-            impl_->signatures_.emplace(std::move(val.value));
-            impl_->blob_ = makeBlob(impl_->proto_);
-            return true;
-          },
-          [this](const auto &err) { return false; });
-    }
-
-    const interface::types::HashType &Query::hash() const {
-      return impl_->hash_;
-    }
-
-    interface::types::TimestampType Query::createdTime() const {
-      return impl_->proto_.payload().meta().created_time();
-    }
-
-    const Query::TransportType &Query::getTransport() const {
-      return impl_->proto_;
-    }
-
-  }  // namespace proto
-}  // namespace shared_model
+const Query::TransportType &Query::getTransport() const {
+  return *impl_->proto_;
+}

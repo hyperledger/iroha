@@ -8,8 +8,14 @@
 
 #include "interfaces/commands/transfer_asset.hpp"
 
-#include "commands.pb.h"
 #include "interfaces/common_objects/amount.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class TransferAsset;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

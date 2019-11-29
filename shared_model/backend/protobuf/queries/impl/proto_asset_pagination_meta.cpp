@@ -6,6 +6,7 @@
 #include "backend/protobuf/queries/proto_asset_pagination_meta.hpp"
 
 #include <boost/optional.hpp>
+#include "queries.pb.h"
 
 namespace types = shared_model::interface::types;
 

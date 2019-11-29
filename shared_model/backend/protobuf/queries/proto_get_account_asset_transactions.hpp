@@ -9,7 +9,13 @@
 #include "interfaces/queries/get_account_asset_transactions.hpp"
 
 #include "common/result_fwd.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class GetAccountAssetTransactions;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace interface {
@@ -28,6 +34,8 @@ namespace shared_model {
           const iroha::protocol::Query &query,
           std::unique_ptr<shared_model::interface::TxPaginationMeta>
               pagination_meta);
+
+      ~GetAccountAssetTransactions() override;
 
       const interface::types::AccountIdType &accountId() const override;
 

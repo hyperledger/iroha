@@ -10,7 +10,13 @@
 
 #include <boost/optional.hpp>
 #include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class GetAccountDetail;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

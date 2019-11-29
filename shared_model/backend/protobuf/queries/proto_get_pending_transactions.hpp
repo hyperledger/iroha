@@ -10,7 +10,13 @@
 
 #include <boost/optional.hpp>
 #include "common/result_fwd.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class GetPendingTransactions;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace interface {
@@ -30,6 +36,8 @@ namespace shared_model {
           boost::optional<
               std::unique_ptr<shared_model::interface::TxPaginationMeta>>
               pagination_meta);
+
+      ~GetPendingTransactions() override;
 
       boost::optional<const interface::TxPaginationMeta &> paginationMeta()
           const override;

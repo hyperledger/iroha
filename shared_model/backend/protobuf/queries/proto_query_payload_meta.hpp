@@ -8,7 +8,11 @@
 
 #include "interfaces/queries/query_payload_meta.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class QueryPayloadMeta;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

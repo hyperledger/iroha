@@ -8,7 +8,12 @@
 
 #include "interfaces/queries/get_account.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class GetAccount;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -9,8 +9,13 @@
 #include "interfaces/commands/remove_peer.hpp"
 
 #include "backend/protobuf/common_objects/peer.hpp"
-#include "commands.pb.h"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class Command;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

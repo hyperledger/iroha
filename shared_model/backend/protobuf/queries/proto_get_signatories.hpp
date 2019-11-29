@@ -8,7 +8,12 @@
 
 #include "interfaces/queries/get_signatories.hpp"
 
-#include "queries.pb.h"
+namespace iroha {
+  namespace protocol {
+    class GetSignatories;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

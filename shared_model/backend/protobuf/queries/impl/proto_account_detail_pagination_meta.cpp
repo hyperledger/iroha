@@ -4,6 +4,7 @@
  */
 
 #include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
+#include "queries.pb.h"
 
 using namespace shared_model::proto;
 

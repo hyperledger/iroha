@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/set_account_detail.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class SetAccountDetail;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

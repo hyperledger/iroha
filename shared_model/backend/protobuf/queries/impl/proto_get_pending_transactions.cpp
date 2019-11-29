@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "common/result.hpp"
+#include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
@@ -33,6 +34,8 @@ namespace shared_model {
             pagination_meta)
         : pending_transactions_{query.payload().get_pending_transactions()},
           pagination_meta_{std::move(pagination_meta)} {}
+
+    GetPendingTransactions::~GetPendingTransactions() = default;
 
     boost::optional<const interface::TxPaginationMeta &>
     GetPendingTransactions::paginationMeta() const {

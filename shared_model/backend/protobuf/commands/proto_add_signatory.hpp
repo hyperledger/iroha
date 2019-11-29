@@ -8,9 +8,15 @@
 
 #include "interfaces/commands/add_signatory.hpp"
 
-#include "commands.pb.h"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "cryptography/public_key.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class AddSignatory;
+    class Command;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

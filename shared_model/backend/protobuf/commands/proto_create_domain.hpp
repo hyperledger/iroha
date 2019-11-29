@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/create_domain.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class CreateDomain;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

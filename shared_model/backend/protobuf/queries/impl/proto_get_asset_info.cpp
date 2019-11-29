@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/queries/proto_get_asset_info.hpp"
 
+#include "queries.pb.h"
+
 namespace shared_model {
   namespace proto {
 

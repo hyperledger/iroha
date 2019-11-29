@@ -44,7 +44,6 @@ add_library(shared_model_proto_backend
     queries/impl/proto_get_asset_info.cpp
     queries/impl/proto_get_block.cpp
     queries/impl/proto_get_role_permissions.cpp
-    queries/impl/proto_get_roles.cpp
     queries/impl/proto_get_signatories.cpp
     queries/impl/proto_get_transactions.cpp
     queries/impl/proto_get_pending_transactions.cpp
@@ -54,7 +53,6 @@ add_library(shared_model_proto_backend
     queries/impl/proto_asset_pagination_meta.cpp
     queries/impl/proto_account_detail_pagination_meta.cpp
     queries/impl/proto_account_detail_record_id.cpp
-    queries/impl/proto_get_peers.cpp
     )
 
 if (IROHA_ROOT_PROJECT)

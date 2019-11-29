@@ -9,6 +9,7 @@
 #include "common/result.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
+#include "queries.pb.h"
 
 namespace types = shared_model::interface::types;
 

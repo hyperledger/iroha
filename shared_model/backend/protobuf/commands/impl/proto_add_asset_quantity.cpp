@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/commands/proto_add_asset_quantity.hpp"
 
+#include "commands.pb.h"
+
 namespace shared_model {
   namespace proto {
 

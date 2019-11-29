@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/grant_permission.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class GrantPermission;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -10,7 +10,13 @@
 
 #include "common/result_fwd.hpp"
 #include "cryptography/hash.hpp"
-#include "queries.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class GetTransactions;
+    class Query;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

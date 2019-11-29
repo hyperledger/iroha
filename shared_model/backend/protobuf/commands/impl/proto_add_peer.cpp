@@ -5,6 +5,9 @@
 
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 
+#include "commands.pb.h"
+#include "common/result.hpp"
+
 namespace shared_model {
   namespace proto {
 

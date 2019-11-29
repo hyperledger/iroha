@@ -8,9 +8,15 @@
 
 #include "interfaces/commands/create_account.hpp"
 
-#include "commands.pb.h"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "cryptography/public_key.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class CreateAccount;
+    class Command;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

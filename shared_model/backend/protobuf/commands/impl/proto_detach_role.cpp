@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/commands/proto_detach_role.hpp"
 
+#include "commands.pb.h"
+
 namespace shared_model {
   namespace proto {
 

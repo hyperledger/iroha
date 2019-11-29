@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/append_role.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class AppendRole;
+    class Command;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

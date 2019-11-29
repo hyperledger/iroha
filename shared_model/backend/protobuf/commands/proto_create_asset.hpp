@@ -8,7 +8,12 @@
 
 #include "interfaces/commands/create_asset.hpp"
 
-#include "commands.pb.h"
+namespace iroha {
+  namespace protocol {
+    class Command;
+    class CreateAsset;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {

@@ -5,6 +5,7 @@
 
 #include "backend/protobuf/commands/proto_create_account.hpp"
 
+#include "commands.pb.h"
 #include "common/result.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
