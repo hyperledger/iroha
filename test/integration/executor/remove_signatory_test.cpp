@@ -27,12 +27,12 @@ static const shared_model::crypto::PublicKey kTargetSignatory{
 class RemoveSignatoryTest : public ExecutorTestBase {
  public:
   void addTargetUser(const shared_model::interface::RolePermissionSet &perms) {
-    assertResultValue(getItf().createUserWithPerms(
+    IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
         kUser, kDomain, kUserKeypair.publicKey(), perms));
   }
 
   void addSignatory() {
-    assertResultValue(getItf().executeMaintenanceCommand(
+    IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
         *getItf().getMockCommandFactory()->constructAddSignatory(
             kTargetSignatory, kUserId)));
   }
@@ -59,7 +59,7 @@ using RemoveSignatoryBasicTest = BasicExecutorTest<RemoveSignatoryTest>;
  * @then the command fails
  */
 TEST_P(RemoveSignatoryBasicTest, NonExistentUser) {
-  assertResultValue(
+  IROHA_ASSERT_RESULT_VALUE(
       getItf().createUserWithPerms(kSecondUser,
                                    kDomain,
                                    kSameDomainUserKeypair.publicKey(),
@@ -90,7 +90,7 @@ TEST_P(RemoveSignatoryBasicTest, NoSuchSignatory) {
 TEST_P(RemoveSignatoryBasicTest, SignatoriesLessThanQuorum) {
   ASSERT_NO_FATAL_FAILURE(addTargetUser({Role::kRemoveSignatory}));
   ASSERT_NO_FATAL_FAILURE(addSignatory());
-  assertResultValue(getItf().executeMaintenanceCommand(
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
       *getItf().getMockCommandFactory()->constructSetQuorum(kUserId, 2)));
   ASSERT_NO_FATAL_FAILURE(
       checkSignatories(kUserId, {old_sig_, kTargetSignatory}););

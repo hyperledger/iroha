@@ -4,12 +4,14 @@
  */
 
 #include "crypto/keys_manager.hpp"
+
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <string>
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 
 using namespace iroha;
@@ -58,19 +60,19 @@ class KeyManager : public ::testing::Test {
 };
 
 TEST_F(KeyManager, LoadNonExistentKeyFile) {
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadEmptyPubkey) {
   create_file(pub_key_path, pubkey);
   create_file(pri_key_path, "");
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadEmptyFilesPrikey) {
   create_file(pub_key_path, "");
   create_file(pri_key_path, prikey);
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadInvalidPubkey) {
@@ -78,7 +80,7 @@ TEST_F(KeyManager, LoadInvalidPubkey) {
   create_file(
       pri_key_path,
       std::string(DefaultCryptoAlgorithmType::kPublicKeyLength * 2, '1'));
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadInvalidPrikey) {
@@ -86,47 +88,47 @@ TEST_F(KeyManager, LoadInvalidPrikey) {
       pub_key_path,
       std::string(DefaultCryptoAlgorithmType::kPrivateKeyLength * 2, '1'));
   create_file(pri_key_path, prikey);
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadValid) {
   create_file(pub_key_path, pubkey);
   create_file(pri_key_path, prikey);
-  ASSERT_TRUE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, CreateAndLoad) {
-  ASSERT_TRUE(manager.createKeys());
-  ASSERT_TRUE(manager.loadKeys());
+  ASSERT_TRUE(manager.createKeys(boost::none));
+  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, CreateAndLoadEncrypted) {
   ASSERT_TRUE(manager.createKeys(passphrase));
-  ASSERT_TRUE(manager.loadKeys(passphrase));
+  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(passphrase));
 }
 
 TEST_F(KeyManager, CreateAndLoadEncryptedEmptyKey) {
-  ASSERT_TRUE(manager.createKeys(""));
-  ASSERT_TRUE(manager.loadKeys(""));
+  ASSERT_TRUE(manager.createKeys(std::string{""}));
+  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(std::string{""}));
 }
 
 TEST_F(KeyManager, CreateAndLoadEncryptedInvalidKey) {
   ASSERT_TRUE(manager.createKeys(passphrase));
-  ASSERT_FALSE(manager.loadKeys(passphrase + "123"));
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(passphrase + "123"));
 }
 
 TEST_F(KeyManager, LoadInaccessiblePubkey) {
   create_file(pub_key_path, pubkey);
   create_file(pri_key_path, prikey);
   remove(pub_key_path);
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, LoadInaccessiblePrikey) {
   create_file(pub_key_path, pubkey);
   create_file(pri_key_path, prikey);
   remove(pri_key_path);
-  ASSERT_FALSE(manager.loadKeys());
+  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
 }
 
 TEST_F(KeyManager, CreateKeypairInNonexistentDir) {

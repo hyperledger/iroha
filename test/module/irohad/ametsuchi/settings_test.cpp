@@ -76,7 +76,7 @@ namespace iroha {
      */
     TEST_F(SettingsTest, NoSuchSetting) {
       auto result = setting_query->get();
-      assertResultValue(result);
+      IROHA_ASSERT_RESULT_VALUE(result);
 
       auto settings = std::move(val(result).value().value);
       ASSERT_EQ(settings->max_description_size,
@@ -109,7 +109,7 @@ namespace iroha {
               true);
 
       auto result = setting_query->get();
-      assertResultValue(result);
+      IROHA_ASSERT_RESULT_VALUE(result);
       auto settings = std::move(val(result).value().value);
       ASSERT_EQ(settings->max_description_size, 255);
     }

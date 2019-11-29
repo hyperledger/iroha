@@ -69,12 +69,10 @@ namespace fs = boost::filesystem;
 
 iroha::keypair_t *makeOldModel(const shared_model::crypto::Keypair &keypair) {
   return new iroha::keypair_t{
-      iroha::expected::resultToOptionalValue(
-          iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey())))
-          .value(),
-      iroha::expected::resultToOptionalValue(
-          iroha::privkey_t::from_string(toBinaryString(keypair.privateKey())))
-          .value()};
+      iroha::expected::resultToValue(
+          iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey()))),
+      iroha::expected::resultToValue(
+          iroha::privkey_t::from_string(toBinaryString(keypair.privateKey())))};
 }
 
 int main(int argc, char *argv[]) {
@@ -152,7 +150,7 @@ int main(int argc, char *argv[]) {
     auto keysManager =
         iroha::KeysManagerImpl(FLAGS_account_name, keys_manager_log);
     if (not(FLAGS_pass_phrase.size() == 0
-                ? keysManager.createKeys()
+                ? keysManager.createKeys(boost::none)
                 : keysManager.createKeys(FLAGS_pass_phrase))) {
       logger->error("Keys already exist");
       return EXIT_FAILURE;
@@ -226,12 +224,14 @@ int main(int argc, char *argv[]) {
                                    keys_manager_log);
     auto keypair = FLAGS_pass_phrase.size() != 0
         ? manager.loadKeys(FLAGS_pass_phrase)
-        : manager.loadKeys();
-    if (not keypair) {
+        : manager.loadKeys(boost::none);
+    if (auto e = iroha::expected::resultToOptionalError(keypair)) {
       logger->error(
-          "Cannot load specified keypair, or keypair is invalid. Path: {}, "
-          "keypair name: {}. Use --key_path with path of your keypair. \n"
+          "Keypair error: {}.\n"
+          "keypair path: '{}', name: {}. Use --key_path with path of your "
+          "keypair. \n"
           "Maybe wrong pass phrase (\"{}\")?",
+          e.value(),
           path.string(),
           FLAGS_account_name,
           FLAGS_pass_phrase);
@@ -245,7 +245,8 @@ int main(int argc, char *argv[]) {
         FLAGS_torii_port,
         0,
         std::make_shared<iroha::model::ModelCryptoProviderImpl>(
-            *std::unique_ptr<iroha::keypair_t>(makeOldModel(*keypair))),
+            *std::unique_ptr<iroha::keypair_t>(
+                makeOldModel(iroha::expected::resultToValue(keypair)))),
         response_handler_log_manager,
         pb_qry_factory_log,
         json_qry_factory_log,

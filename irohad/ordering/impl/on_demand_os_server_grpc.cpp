@@ -48,14 +48,13 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
   auto batches = shared_model::interface::parseAndCreateBatches(
       *batch_parser_,
       *batch_factory_,
-      *expected::resultToOptionalValue(std::move(transactions)));
+      expected::resultToValue(std::move(transactions)));
   if (auto e = expected::resultToOptionalError(batches)) {
     log_->warn("Batch deserialization failed: {}", *e);
     return ::grpc::Status::OK;
   }
 
-  ordering_service_->onBatches(
-      *expected::resultToOptionalValue(std::move(batches)));
+  ordering_service_->onBatches(expected::resultToValue(std::move(batches)));
 
   return ::grpc::Status::OK;
 }

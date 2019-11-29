@@ -41,7 +41,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
     SCOPED_TRACE("addSignatories");
     for (size_t i = 0; i < n; ++i) {
       signatories_.emplace_back(makePubKey(i));
-      assertResultValue(getItf().executeMaintenanceCommand(
+      IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
           *getItf().getMockCommandFactory()->constructAddSignatory(
               signatories_.back(), kUserId)));
     }
@@ -50,7 +50,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
   void prepareState(size_t n) {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
-    assertResultValue(getItf().createUserWithPerms(
+    IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
         kUser, kDomain, kUserKeypair.publicKey(), {}));
     addSignatories(n);
   }

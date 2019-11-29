@@ -53,7 +53,7 @@ class CreateRoleTest : public ExecutorTestBase {
   }
 
   void checkNoSuchRole(const RoleIdType &role) {
-    assertResultError(getRolePerms(role).specific_response);
+    IROHA_ASSERT_RESULT_ERROR(getRolePerms(role).specific_response);
   }
 };
 
@@ -67,7 +67,7 @@ using CreateRoleBasicTest = BasicExecutorTest<CreateRoleTest>;
 TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
   getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateRole});
-  assertResultValue(createRole(kUserId, {}));
+  IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {}));
   checkRole(kAnotherRole, {});
 }
 
@@ -77,14 +77,12 @@ TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
  * @then the command does not succeed and the existing role is not changed
  */
 TEST_P(CreateRoleBasicTest, NameExists) {
-  ASSERT_NO_FATAL_FAILURE({
-    getItf().createUserWithPerms(kUser,
-                                 kDomain,
-                                 kUserKeypair.publicKey(),
-                                 {Role::kCreateRole, Role::kCreateAsset});
-    assertResultValue(createRole(kUserId, {Role::kCreateRole}));
-    checkRole(kAnotherRole, {Role::kCreateRole});
-  });
+  getItf().createUserWithPerms(kUser,
+                               kDomain,
+                               kUserKeypair.publicKey(),
+                               {Role::kCreateRole, Role::kCreateAsset});
+  IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {Role::kCreateRole}));
+  ASSERT_NO_FATAL_FAILURE(checkRole(kAnotherRole, {Role::kCreateRole}));
   checkCommandError(createRole(kUserId, {Role::kCreateAsset}), 3);
   checkRole(kAnotherRole, {Role::kCreateRole});
 }

@@ -97,14 +97,13 @@ namespace iroha {
       auto batches = shared_model::interface::parseAndCreateBatches(
           *batch_parser_,
           *batch_factory_,
-          *expected::resultToOptionalValue(std::move(transactions)));
+          expected::resultToValue(std::move(transactions)));
       if (auto e = expected::resultToOptionalError(batches)) {
         return publish_stateless_fail(
             fmt::format("Batch deserialization failed: {}", *e));
       }
 
-      auto opt_batches = expected::resultToOptionalValue(std::move(batches));
-      for (auto &batch : *opt_batches) {
+      for (auto &batch : expected::resultToValue(std::move(batches))) {
         this->command_service_->handleTransactionBatch(std::move(batch));
       }
 

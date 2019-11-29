@@ -85,8 +85,7 @@ class PostgresBlockStorageTest : public ::testing::Test {
   void TearDown() override {
     block_storage_ = nullptr;
     pool_wrapper_ = nullptr;
-    framework::expected::assertResultValue(
-        PgConnectionInit::dropWorkingDatabase(options_));
+    IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::dropWorkingDatabase(options_));
   }
 
   std::shared_ptr<shared_model::proto::ProtoBlockFactory> block_factory_;

@@ -60,8 +60,8 @@ TEST_P(AddSignatoryBasicTest, NonExistentUser) {
  * @and signatory is not added
  */
 TEST_P(AddSignatoryBasicTest, ExistingPubKey) {
-  ASSERT_NO_FATAL_FAILURE(assertResultValue(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {})));
+  IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
+      kUser, kDomain, kUserKeypair.publicKey(), {}));
 
   checkCommandError(addSignatory(kAdminId, kUserId, kUserKeypair.publicKey()),
                     4);

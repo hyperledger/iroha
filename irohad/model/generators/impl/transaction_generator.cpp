@@ -5,6 +5,7 @@
 
 #include "model/generators/transaction_generator.hpp"
 
+#include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 #include "datetime/time.hpp"
@@ -18,14 +19,10 @@ namespace iroha {
       iroha::keypair_t *makeOldModel(
           const shared_model::crypto::Keypair &keypair) {
         return new iroha::keypair_t{
-            iroha::expected::resultToOptionalValue(
-                iroha::pubkey_t::from_string(
-                    toBinaryString(keypair.publicKey())))
-                .value(),
-            iroha::expected::resultToOptionalValue(
-                iroha::privkey_t::from_string(
-                    toBinaryString(keypair.privateKey())))
-                .value()};
+            iroha::expected::resultToValue(iroha::pubkey_t::from_string(
+                toBinaryString(keypair.publicKey()))),
+            iroha::expected::resultToValue(iroha::privkey_t::from_string(
+                toBinaryString(keypair.privateKey())))};
       }
 
       Transaction TransactionGenerator::generateGenesisTransaction(
@@ -40,9 +37,9 @@ namespace iroha {
         for (size_t i = 0; i < peers_address.size(); ++i) {
           KeysManagerImpl manager("node" + std::to_string(i),
                                   keys_manager_logger);
-          manager.createKeys();
-          auto keypair = *std::unique_ptr<iroha::keypair_t>(
-              makeOldModel(*manager.loadKeys()));
+          manager.createKeys(boost::none);
+          auto keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
+              iroha::expected::resultToValue(manager.loadKeys(boost::none))));
           tx.commands.push_back(command_generator.generateAddPeer(
               Peer(peers_address[i], keypair.pubkey)));
         }
@@ -62,15 +59,15 @@ namespace iroha {
             command_generator.generateCreateAsset("coin", "test", precision));
         // Create accounts
         KeysManagerImpl manager("admin@test", keys_manager_logger);
-        manager.createKeys();
-        auto keypair = *std::unique_ptr<iroha::keypair_t>(
-            makeOldModel(*manager.loadKeys()));
+        manager.createKeys(boost::none);
+        auto keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
+            iroha::expected::resultToValue(manager.loadKeys(boost::none))));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "admin", "test", keypair.pubkey));
         manager = KeysManagerImpl("test@test", std::move(keys_manager_logger));
-        manager.createKeys();
-        keypair = *std::unique_ptr<iroha::keypair_t>(
-            makeOldModel(*manager.loadKeys()));
+        manager.createKeys(boost::none);
+        keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
+            iroha::expected::resultToValue(manager.loadKeys(boost::none))));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "test", "test", keypair.pubkey));
 

@@ -63,9 +63,8 @@ void ExecutorTestBase::SetUp() {
   getBackendParam()->clearBackendState();
   auto executor_itf_result =
       ExecutorItf::create(getBackendParam()->getExecutorItfParam());
-  assertResultValue(executor_itf_result);
-  executor_itf_ =
-      resultToOptionalValue((std::move(executor_itf_result))).value();
+  IROHA_ASSERT_RESULT_VALUE(executor_itf_result);
+  executor_itf_ = resultToValue((std::move(executor_itf_result)));
 }
 
 ExecutorItf &ExecutorTestBase::getItf() const {
@@ -76,7 +75,7 @@ void ExecutorTestBase::createAsset(const std::string &name,
                                    const std::string &domain,
                                    PrecisionType precision) const {
   SCOPED_TRACE("createAsset");
-  assertResultValue(getItf().executeMaintenanceCommand(
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
       *getItf().getMockCommandFactory()->constructCreateAsset(
           name, domain, precision)));
 }
@@ -86,10 +85,10 @@ void ExecutorTestBase::addAsset(
     const AssetIdType &asset_id,
     const shared_model::interface::Amount &quantity) {
   SCOPED_TRACE("addAsset");
-  assertResultValue(getItf().executeMaintenanceCommand(
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
       *getItf().getMockCommandFactory()->constructAddAssetQuantity(asset_id,
                                                                    quantity)));
-  assertResultValue(getItf().executeMaintenanceCommand(
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
       *getItf().getMockCommandFactory()->constructTransferAsset(
           kAdminId, dest_account_id, asset_id, "adding asset", quantity)));
 }

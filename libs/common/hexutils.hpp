@@ -5,12 +5,11 @@
 #ifndef IROHA_HEXUTILS_HPP
 #define IROHA_HEXUTILS_HPP
 
-#include <ciso646>
-#include <iomanip>
-#include <sstream>
 #include <string>
 
+#include <boost/algorithm/hex.hpp>
 #include <boost/optional.hpp>
+#include "common/result.hpp"
 
 namespace iroha {
 
@@ -34,28 +33,30 @@ namespace iroha {
    * @return - raw bytes converted string or boost::noneif provided string
    * was not a correct hex string
    */
-  inline boost::optional<std::string> hexstringToBytestring(
+  inline iroha::expected::Result<std::string, std::string>
+  hexstringToBytestringResult(const std::string &str) {
+    using namespace iroha::expected;
+    if (str.empty()) {
+      return makeError("Empty hex string.");
+    }
+    if (str.size() % 2 != 0) {
+      return makeError("Hex string contains uneven number of characters.");
+    }
+    std::string result;
+    result.reserve(str.size() / 2);
+    try {
+      boost::algorithm::unhex(
+          str.begin(), str.end(), std::back_inserter(result));
+    } catch (const boost::algorithm::hex_decode_error &e) {
+      return makeError(e.what());
+    }
+    return iroha::expected::makeValue(std::move(result));
+  }
+
+  [[deprecated]] inline boost::optional<std::string> hexstringToBytestring(
       const std::string &str) {
-    if (str.empty() or str.size() % 2 != 0) {
-      return boost::none;
-    }
-    std::string result(str.size() / 2, 0);
-    for (size_t i = 0; i < result.length(); ++i) {
-      std::string byte = str.substr(i * 2, 2);
-      size_t pos = 0;  // processed characters count
-      try {
-        result.at(i) =
-            static_cast<std::string::value_type>(std::stoul(byte, &pos, 16));
-      } catch (const std::invalid_argument &) {
-        return boost::none;
-      } catch (const std::out_of_range &) {
-        return boost::none;
-      }
-      if (pos != byte.size()) {
-        return boost::none;
-      }
-    }
-    return result;
+    return iroha::expected::resultToOptionalValue(
+        hexstringToBytestringResult(str));
   }
 
 }  // namespace iroha

@@ -35,34 +35,15 @@ namespace iroha {
      */
     KeysManagerImpl(const std::string account_id, logger::LoggerPtr log);
 
-    bool createKeys() override;
+    bool createKeys(const boost::optional<std::string> &pass_phrase) override;
 
-    bool createKeys(const std::string &pass_phrase) override;
-
-    boost::optional<shared_model::crypto::Keypair> loadKeys() override;
-
-    boost::optional<shared_model::crypto::Keypair> loadKeys(
-        const std::string &pass_phrase) override;
+    iroha::expected::Result<shared_model::crypto::Keypair, std::string>
+    loadKeys(const boost::optional<std::string> &pass_phrase) override;
 
     static const std::string kPublicKeyExtension;
     static const std::string kPrivateKeyExtension;
 
    private:
-    /**
-     * Check if keypair provides valid signature
-     * @param keypair - keypair for validation
-     * @return true, if verification of signature is successful
-     */
-    bool validate(const shared_model::crypto::Keypair &keypair) const;
-
-    /**
-     * Tries to read the file
-     * @param path - path to the target file
-     * @return file contents if reading was successful, otherwise - boost::none
-     */
-    boost::optional<std::string> loadFile(
-        const boost::filesystem::path &path) const;
-
     /**
      * Stores strings, that represent public and private keys on disk
      * @param pub is a public key

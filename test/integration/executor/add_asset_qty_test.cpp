@@ -64,8 +64,7 @@ TEST_P(AddAssetQuantityBasicTest, InvalidAsset) {
  */
 TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
   ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 1));
-  ASSERT_NO_FATAL_FAILURE(
-      assertResultValue(addAsset(kAdminId, kAssetId, kAmountPrec1Max)));
+  IROHA_ASSERT_RESULT_VALUE(addAsset(kAdminId, kAssetId, kAmountPrec1Max));
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec1Max}}));
 
@@ -87,8 +86,7 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision1) {
  */
 TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision2) {
   ASSERT_NO_FATAL_FAILURE(createAsset(kAssetName, kDomain, 2));
-  ASSERT_NO_FATAL_FAILURE(
-      assertResultValue(addAsset(kAdminId, kAssetId, kAmountPrec2Max)));
+  IROHA_ASSERT_RESULT_VALUE(addAsset(kAdminId, kAssetId, kAmountPrec2Max));
   ASSERT_NO_FATAL_FAILURE(checkAssetQuantities(
       kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}}));
 

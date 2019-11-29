@@ -76,7 +76,7 @@ grpc::Status MstTransportGrpc::SendState(
   auto batches = shared_model::interface::parseAndCreateBatches(
       *batch_parser_,
       *batch_factory_,
-      *expected::resultToOptionalValue(std::move(transactions)));
+      expected::resultToValue(std::move(transactions)));
   if (auto e = expected::resultToOptionalError(batches)) {
     log_->warn("Batch deserialization failed: {}", *e);
     return ::grpc::Status::OK;

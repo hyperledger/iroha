@@ -9,9 +9,7 @@
 #include <memory>
 #include <string>
 
-#include <boost/optional.hpp>
-
-#include "logger/logger_fwd.hpp"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -29,25 +27,14 @@ namespace iroha {
      */
     class BlockLoader {
      public:
-      explicit BlockLoader(logger::LoggerPtr log);
-
       /**
-       * Parse block from file
-       * @param data - raw presenetation of block
-       * @return object if operation done successfully, nullopt otherwise
+       * Parse block from JSON string
+       * @param data - JSON represenetation of the block
+       * @return model Block if operation done successfully, error otherwise
        */
-      boost::optional<std::shared_ptr<shared_model::interface::Block>>
-      parseBlock(const std::string &data);
-
-      /**
-       * Loading file from target path
-       * @param path - target file
-       * @return string with file content or nullopt
-       */
-      boost::optional<std::string> loadFile(const std::string &path);
-
-     private:
-      logger::LoggerPtr log_;
+      static iroha::expected::
+          Result<std::unique_ptr<shared_model::interface::Block>, std::string>
+          parseBlock(const std::string &data);
     };
 
   }  // namespace main
