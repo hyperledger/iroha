@@ -104,14 +104,8 @@ namespace iroha {
 
     static expected::Result<blob_t<size_>, std::string> from_hexstring(
         const std::string &hex) {
-      auto bytes = iroha::hexstringToBytestring(hex);
-      if (not bytes) {
-        return expected::makeError(
-            std::string{"Provided data ("} + hex
-            + ") is not a valid hex value for blob of size ("
-            + std::to_string(size_) + ").");
-      }
-      return from_string(*bytes);
+      return iroha::hexstringToBytestringResult(hex) |
+          [](auto &&bytes) { return from_string(bytes); };
     }
   };
 }  // namespace iroha

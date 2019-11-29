@@ -9,6 +9,8 @@
 #include <sstream>
 
 #include "common/bind.hpp"
+#include "common/files.hpp"
+#include "common/result.hpp"
 
 using namespace iroha::expected;
 using namespace iroha::network;
@@ -21,18 +23,10 @@ TlsCredentials::TlsCredentials(std::string private_key, std::string certificate)
 
 Result<std::unique_ptr<TlsCredentials>, std::string> TlsCredentials::load(
     const std::string &path) {
-  static const auto read_file = [](const std::string &path) {
-    std::ifstream certificate_file(path);
-    std::stringstream ss;
-    ss << certificate_file.rdbuf();
-    return ss.str();
-  };
   std::unique_ptr<TlsCredentials> creds;
-  try {
-    creds = std::make_unique<TlsCredentials>(read_file(path + ".key"),
-                                             read_file(path + ".crt"));
-  } catch (std::exception e) {
-    return makeError(e.what());
-  }
-  return makeValue(std::move(creds));
+  return iroha::readTextFile(path + ".key") | [&](auto &&key) {
+    return iroha::readTextFile(path + ".crt") | [&](auto &&cert) {
+      return std::make_unique<TlsCredentials>(std::move(key), std::move(cert));
+    };
+  };
 }

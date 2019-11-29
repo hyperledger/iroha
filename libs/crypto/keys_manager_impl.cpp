@@ -7,7 +7,10 @@
 
 #include <fstream>
 
+#include <fmt/core.h>
 #include "common/byteutils.hpp"
+#include "common/files.hpp"
+#include "common/result.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "logger/logger.hpp"
 
@@ -15,16 +18,41 @@ using namespace shared_model::crypto;
 
 using iroha::operator|;
 
+namespace {
+  /**
+   * Check that keypair is valid
+   * @param keypair - keypair for validation
+   * @return error if any, boost::none otherwise
+   */
+  boost::optional<std::string> validate(const Keypair &keypair) {
+    if (keypair.publicKey().blob().size()
+        != DefaultCryptoAlgorithmType::kPublicKeyLength) {
+      return std::string{"Wrong public key size."};
+    }
+    if (keypair.privateKey().blob().size()
+        != DefaultCryptoAlgorithmType::kPrivateKeyLength) {
+      return std::string{"Wrong private key size."};
+    }
+    auto test = Blob("12345");
+    auto sig = DefaultCryptoAlgorithmType::sign(test, keypair);
+    if (not DefaultCryptoAlgorithmType::verify(
+            sig, test, keypair.publicKey())) {
+      return std::string{"Key validation failed."};
+    }
+    return boost::none;
+  }
+}  // namespace
+
 namespace iroha {
   /**
-   * Function for the key encryption via XOR
+   * Function for the key (en|de)cryption via XOR
    * @tparam is a key type
    * @param privkey is a private key
    * @param pass_phrase is a key for encryption
    * @return encrypted string
    */
   template <typename T>
-  static std::string encrypt(const T &key, const std::string &pass_phrase) {
+  static std::string xorCrypt(const T &key, const std::string &pass_phrase) {
     std::string ciphertext(key.size(), '\0');
     const size_t min_pass_size = 1;
     // pass_size will always be > 0
@@ -36,11 +64,6 @@ namespace iroha {
     }
     return ciphertext;
   }
-
-  /**
-   * Function for XOR decryption
-   */
-  static constexpr auto decrypt = encrypt<Blob::Bytes>;
 
   KeysManagerImpl::KeysManagerImpl(
       const std::string &account_id,
@@ -59,76 +82,38 @@ namespace iroha {
                                    logger::LoggerPtr log)
       : KeysManagerImpl(account_id, "", std::move(log)) {}
 
-  bool KeysManagerImpl::validate(const Keypair &keypair) const {
-    try {
-      auto test = Blob("12345");
-      auto sig = DefaultCryptoAlgorithmType::sign(test, keypair);
-      if (not DefaultCryptoAlgorithmType::verify(
-              sig, test, keypair.publicKey())) {
-        log_->error("key validation failed");
-        return false;
-      }
-    } catch (const BadFormatException &exception) {
-      log_->error("Cannot validate keyapir: {}", exception.what());
-      return false;
-    }
-    return true;
+  iroha::expected::Result<Keypair, std::string> KeysManagerImpl::loadKeys(
+      const boost::optional<std::string> &pass_phrase) {
+    auto load_from_file = [this](const auto &extension) {
+      return iroha::readTextFile(
+                 (path_to_keypair_ / (account_id_ + extension)).string())
+          | [](auto &&hex) { return iroha::hexstringToBytestringResult(hex); };
+    };
+
+    return load_from_file(kPublicKeyExtension) | [&](auto &&pubkey_blob) {
+      return load_from_file(kPrivateKeyExtension) | [&](auto &&privkey_blob)
+                 -> iroha::expected::Result<Keypair, std::string> {
+        auto &&decrypted_privkey_blob = pass_phrase
+            ? xorCrypt(privkey_blob, pass_phrase.value())
+            : privkey_blob;
+        Keypair keypair(PublicKey{Blob{pubkey_blob}},
+                        PrivateKey{Blob{decrypted_privkey_blob}});
+
+        return iroha::expected::optionalErrorToResult(validate(keypair),
+                                                      std::move(keypair));
+      };
+    };
   }
 
-  boost::optional<std::string> KeysManagerImpl::loadFile(
-      const boost::filesystem::path &path) const {
-    auto file_path = path.string();
-    std::ifstream file(file_path);
-    if (not file) {
-      log_->error("Cannot read '" + file_path + "'");
-      return {};
-    }
-
-    std::string contents;
-    file >> contents;
-    return contents;
-  }
-
-  boost::optional<Keypair> KeysManagerImpl::loadKeys() {
-    return loadKeys("");
-  }
-
-  boost::optional<Keypair> KeysManagerImpl::loadKeys(
-      const std::string &pass_phrase) {
-    auto public_key =
-        loadFile(path_to_keypair_ / (account_id_ + kPublicKeyExtension));
-    auto private_key =
-        loadFile(path_to_keypair_ / (account_id_ + kPrivateKeyExtension));
-
-    if (not public_key or not private_key) {
-      return boost::none;
-    }
-
-    Keypair keypair = Keypair(
-        PublicKey(Blob::fromHexString(public_key.get())),
-        PrivateKey(decrypt(Blob::fromHexString(private_key.get()).blob(),
-                           pass_phrase)));
-
-    if (keypair.publicKey().size()
-            != DefaultCryptoAlgorithmType::kPublicKeyLength
-        or keypair.privateKey().size()
-            != DefaultCryptoAlgorithmType::kPrivateKeyLength) {
-      return boost::none;
-    }
-
-    return validate(keypair) ? boost::make_optional(keypair) : boost::none;
-  }
-
-  bool KeysManagerImpl::createKeys() {
-    return createKeys("");
-  }
-
-  bool KeysManagerImpl::createKeys(const std::string &pass_phrase) {
+  bool KeysManagerImpl::createKeys(
+      const boost::optional<std::string> &pass_phrase) {
     Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
 
     auto pub = keypair.publicKey().hex();
-    auto priv = bytestringToHexstring(
-        encrypt(keypair.privateKey().blob(), pass_phrase));
+    auto &&priv = pass_phrase
+        ? bytestringToHexstring(
+              xorCrypt(keypair.privateKey().blob(), pass_phrase.value()))
+        : keypair.privateKey().hex();
     return store(pub, priv);
   }
 

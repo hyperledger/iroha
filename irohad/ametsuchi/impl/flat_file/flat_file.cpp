@@ -14,6 +14,7 @@
 #include <boost/range/adaptor/indexed.hpp>
 #include <boost/range/algorithm/find_if.hpp>
 #include "common/files.hpp"
+#include "common/result.hpp"
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
@@ -99,16 +100,8 @@ boost::optional<FlatFile::Bytes> FlatFile::get(Identifier id) const {
     log_->info("get({}) file not found", id);
     return boost::none;
   }
-  const auto fileSize = boost::filesystem::file_size(filename);
-  Bytes buf;
-  buf.resize(fileSize);
-  boost::filesystem::ifstream file(filename, std::ifstream::binary);
-  if (not file.is_open()) {
-    log_->info("get({}) problem with opening file", id);
-    return boost::none;
-  }
-  file.read(reinterpret_cast<char *>(buf.data()), fileSize);
-  return buf;
+  return iroha::expected::resultToOptionalValue(
+      iroha::readBinaryFile(filename.string()));
 }
 
 std::string FlatFile::directory() const {

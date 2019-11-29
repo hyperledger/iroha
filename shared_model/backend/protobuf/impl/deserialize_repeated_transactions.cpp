@@ -21,7 +21,7 @@ shared_model::proto::deserializeTransactions(
       return *e;
     }
     tx_collection.emplace_back(
-        *iroha::expected::resultToOptionalValue(std::move(model_tx)));
+        iroha::expected::resultToValue(std::move(model_tx)));
   }
   return tx_collection;
 }

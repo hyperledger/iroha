@@ -62,15 +62,15 @@ namespace executor_testing {
         using namespace framework::expected;
         // create target user
         target_permissions |= permissions_param_.spectator_permissions;
-        assertResultValue(getItf().createUserWithPerms(
+        IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
         // create spectators
-        assertResultValue(getItf().createUserWithPerms(
+        IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kDomain,
             kSameDomainUserKeypair.publicKey(),
             permissions_param_.spectator_permissions));
-        assertResultValue(getItf().createUserWithPerms(
+        IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kSecondDomain,
             kSecondDomainUserKeypair.publicKey(),

@@ -21,6 +21,7 @@
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "common/bind.hpp"
+#include "common/files.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
 #include "generator/generator.hpp"
@@ -261,7 +262,7 @@ Irohad::RunResult Irohad::initStorage(
     return expected::makeError(std::move(*error));
   }
 
-  pool_wrapper_ = std::move(resultToOptionalValue(pool).value());
+  pool_wrapper_ = resultToValue(std::move(pool));
 
   std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
       std::make_unique<PostgresBlockStorageFactory>(
@@ -378,18 +379,6 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
     return {};
   }
 
-  static const auto read_file =
-      [](const std::string &path) -> Result<std::string, std::string> {
-    try {
-      std::ifstream certificate_file(path);
-      std::stringstream ss;
-      ss << certificate_file.rdbuf();
-      return makeValue(ss.str());
-    } catch (const std::exception &e) {
-      return makeError(e.what());
-    }
-  };
-
   using OptionalPeerCertProvider =
       boost::optional<std::unique_ptr<const PeerTlsCertificatesProvider>>;
   using PeerCertProviderResult = Result<OptionalPeerCertProvider, std::string>;
@@ -398,7 +387,7 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
              inter_peer_tls_config_->peer_certificates,
              [this](const IrohadConfig::InterPeerTls::RootCert &root)
                  -> PeerCertProviderResult {
-               return read_file(root.path) |
+               return readTextFile(root.path) |
                    [&root, this](std::string &&root_cert) {
                      log_->debug("Loaded root TLS certificate from '{}'.",
                                  root.path);

@@ -23,8 +23,7 @@ shared_model::interface::parseAndCreateBatches(
     if (auto e = iroha::expected::resultToOptionalError(batch)) {
       return *e;
     }
-    batches.push_back(
-        *iroha::expected::resultToOptionalValue(std::move(batch)));
+    batches.push_back(iroha::expected::resultToValue(std::move(batch)));
   }
   return batches;
 }

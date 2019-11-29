@@ -59,7 +59,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
   void prepareState(size_t n) {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
-    assertResultValue(getItf().createUserWithPerms(
+    IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
         kUser, kDomain, kUserKeypair.publicKey(), {Role::kReceive}));
     createAndAddAssets(n);
   }
@@ -156,7 +156,7 @@ using GetAccountAssetsBasicTest = BasicExecutorTest<GetAccountAssetsTest>;
  * @then there is an AccountAssetResponse reporting no asset presence
  */
 TEST_P(GetAccountAssetsBasicTest, NoAssets) {
-  assertResultValue(getItf().createUserWithPerms(
+  IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
       kUser, kDomain, kUserKeypair.publicKey(), {}));
 
   checkAssetQuantities(kUserId, {});

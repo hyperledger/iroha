@@ -6,7 +6,7 @@
 #include "main/raw_block_loader.hpp"
 
 #include <gtest/gtest.h>
-#include "framework/test_logger.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/transaction.hpp"
 
@@ -18,7 +18,7 @@ using iroha::main::BlockLoader;
  * @then check that the block is correct
  */
 TEST(BlockLoaderTest, BlockLoaderJsonParsing) {
-  BlockLoader loader(getTestLogger("BlockLoader"));
+  BlockLoader loader;
   auto str =
       R"({
 "block_v1": {
@@ -34,8 +34,8 @@ TEST(BlockLoaderTest, BlockLoaderJsonParsing) {
 
   auto block = loader.parseBlock(str);
 
-  ASSERT_TRUE(block);
-  auto b = block.value();
+  IROHA_ASSERT_RESULT_VALUE(block);
+  auto b = iroha::expected::resultToValue(std::move(block));
 
   ASSERT_EQ(b->transactions().size(), 0);
   ASSERT_EQ(b->height(), 1);

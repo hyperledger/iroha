@@ -48,12 +48,10 @@ namespace iroha {
 
         for (const auto &pb_sig : pb_tx.signatures()) {
           model::Signature sig{};
-          sig.pubkey = iroha::expected::resultToOptionalValue(
-                           pubkey_t::from_hexstring(pb_sig.public_key()))
-                           .value();
-          sig.signature = iroha::expected::resultToOptionalValue(
-                              sig_t::from_hexstring(pb_sig.signature()))
-                              .value();
+          sig.pubkey = iroha::expected::resultToValue(
+              pubkey_t::from_hexstring(pb_sig.public_key()));
+          sig.signature = iroha::expected::resultToValue(
+              sig_t::from_hexstring(pb_sig.signature()));
           tx.signatures.push_back(sig);
         }
 

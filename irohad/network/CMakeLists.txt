@@ -77,6 +77,7 @@ add_library(tls_credentials
     )
 target_link_libraries(tls_credentials
     common
+    libs_files
     )
 
 add_library(peer_tls_certificates_providers

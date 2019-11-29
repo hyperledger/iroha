@@ -46,7 +46,7 @@ class SetAccountDetailTest : public ExecutorTestBase {
 
   void checkDetails(AccountIdType account,
                     DetailsByKeyByWriter reference_details) {
-    assertResultValue(
+    IROHA_ASSERT_RESULT_VALUE(
         getItf()
             .executeQueryAndConvertResult(
                 *getItf().getMockQueryFactory()->constructGetAccountDetail(
@@ -69,7 +69,7 @@ using SetAccountDetailBasicTest = BasicExecutorTest<SetAccountDetailTest>;
  */
 TEST_P(SetAccountDetailBasicTest, Self) {
   getItf().createUserWithPerms(kUser, kDomain, kUserKeypair.publicKey(), {});
-  assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
+  IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
 
@@ -93,7 +93,7 @@ TEST_P(SetAccountDetailBasicTest, NoPerms) {
   getItf().createUserWithPerms(kUser, kDomain, kUserKeypair.publicKey(), {});
   getItf().createUserWithPerms(
       kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
-  assertResultError(setDetail(kSameDomainUserId, kKey, kVal, kUserId));
+  IROHA_ASSERT_RESULT_ERROR(setDetail(kSameDomainUserId, kKey, kVal, kUserId));
   checkDetails(kSameDomainUserId, DetailsByKeyByWriter{});
 }
 
@@ -107,7 +107,7 @@ TEST_P(SetAccountDetailBasicTest, ValidRolePerm) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetDetail});
   getItf().createUserWithPerms(
       kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
-  assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
+  IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
 
@@ -122,12 +122,12 @@ TEST_P(SetAccountDetailBasicTest, ValidGrantablePerm) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail});
   getItf().createUserWithPerms(
       kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
-  assertResultValue(getItf().executeCommandAsAccount(
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructGrantPermission(
           kSameDomainUserId, Grantable::kSetMyAccountDetail),
       kUserId,
       true));
-  assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
+  IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
 
@@ -141,7 +141,7 @@ TEST_P(SetAccountDetailBasicTest, RootPermission) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kRoot});
   getItf().createUserWithPerms(
       kSecondUser, kDomain, kSameDomainUserKeypair.publicKey(), {});
-  assertResultValue(setDetail(kUserId, kKey, kVal, kUserId));
+  IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
 

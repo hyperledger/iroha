@@ -43,7 +43,7 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
   if (auto e = resultToOptionalError(db_manager_result)) {
     throw std::runtime_error(e.value());
   }
-  db_manager_ = resultToOptionalValue(std::move(db_manager_result)).value();
+  db_manager_ = resultToValue(std::move(db_manager_result));
 
   executor_itf_target_ = createPostgresExecutorItfTarget(*db_manager_);
 }
@@ -52,7 +52,7 @@ PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
 
 void PostgresExecutorTestParam::clearBackendState() {
   auto session = db_manager_->getSession();
-  framework::expected::assertResultValue(PgConnectionInit::resetWsv(*session));
+  IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::resetWsv(*session));
 }
 
 ExecutorItfTarget PostgresExecutorTestParam::getExecutorItfParam() const {

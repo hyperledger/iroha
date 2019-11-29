@@ -309,11 +309,8 @@ namespace iroha {
                 std::string> {
           PostgresWsvQuery peer_query(
               sql, log_manager->getChild("WsvQuery")->getLogger());
-          auto peers = peer_query.getPeers();
-          if (peers) {
-            return expected::makeValue(std::move(peers.value()));
-          }
-          return expected::makeError(
+          return expected::optionalValueToResult(
+              peer_query.getPeers(),
               std::string{"Failed to get ledger peers!"});
         };
 
