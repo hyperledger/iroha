@@ -5,8 +5,10 @@
 
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 
+#include "common/result.hpp"
 #include "cryptography/bytes_view.hpp"
 #include "cryptography/hash.hpp"
+#include "endpoint.pb.h"
 #include "interfaces/common_objects/types.hpp"
 
 using namespace shared_model::proto;
@@ -35,8 +37,8 @@ namespace {
    */
   ProtoTxStatusFactory::FactoryReturnType wrap(
       iroha::protocol::ToriiResponse &&value) {
-    return std::make_unique<shared_model::proto::TransactionResponse>(
-        std::move(value));
+    // the callers are guaranteed to make a valid proto
+    return TransactionResponse::create(std::move(value)).assumeValue();
   }
 }  // namespace
 

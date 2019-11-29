@@ -6,8 +6,9 @@
 #ifndef IROHA_PROTO_TX_STATUS_FACTORY_HPP
 #define IROHA_PROTO_TX_STATUS_FACTORY_HPP
 
-#include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "interfaces/iroha_internal/tx_status_factory.hpp"
+
+#include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 
 namespace shared_model {
   namespace proto {

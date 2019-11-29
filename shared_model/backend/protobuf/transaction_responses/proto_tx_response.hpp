@@ -8,7 +8,13 @@
 
 #include "interfaces/transaction_responses/tx_response.hpp"
 
-#include "endpoint.pb.h"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class ToriiResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
@@ -19,11 +25,9 @@ namespace shared_model {
      public:
       using TransportType = iroha::protocol::ToriiResponse;
 
-      TransactionResponse(const TransactionResponse &r);
-      TransactionResponse(TransactionResponse &&r) noexcept;
-
-      explicit TransactionResponse(const TransportType &ref);
-      explicit TransactionResponse(TransportType &&ref);
+      static iroha::expected::Result<std::unique_ptr<TransactionResponse>,
+                                     std::string>
+      create(TransportType proto);
 
       ~TransactionResponse() override;
 
@@ -45,6 +49,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      explicit TransactionResponse(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
 
       int priority() const noexcept override;
