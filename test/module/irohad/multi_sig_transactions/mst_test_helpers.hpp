@@ -73,7 +73,7 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
                                KeyPairs... keypairs) {
   auto create_signature = [&](auto &&key_pair) {
     auto &payload = batch->transactions().at(tx_number)->payload();
-    auto signed_blob = shared_model::crypto::CryptoSigner<>::sign(
+    auto signed_blob = shared_model::crypto::CryptoSigner::sign(
         shared_model::crypto::Blob(payload), key_pair);
     using namespace shared_model::interface::types;
     batch->addSignature(tx_number,

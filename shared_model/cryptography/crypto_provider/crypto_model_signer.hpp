@@ -14,7 +14,7 @@
 namespace shared_model {
 
   namespace crypto {
-    template <typename Algorithm = CryptoSigner<>>
+    template <typename Algorithm = CryptoSigner>
     class CryptoModelSigner
         : public AbstractCryptoModelSigner<interface::Block> {
      public:
