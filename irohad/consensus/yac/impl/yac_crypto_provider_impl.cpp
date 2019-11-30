@@ -50,7 +50,7 @@ namespace iroha {
         const auto &pubkey = keypair_.publicKey();
         const auto &privkey = keypair_.privateKey();
         using namespace shared_model::interface::types;
-        auto signature = shared_model::crypto::CryptoSigner<>::sign(
+        auto signature = shared_model::crypto::CryptoSigner::sign(
             blob,
             shared_model::crypto::Keypair(PublicKeyHexStringView{pubkey},
                                           privkey));

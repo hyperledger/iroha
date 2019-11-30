@@ -168,7 +168,7 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
-  auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
+  auto signedBlob = shared_model::crypto::CryptoSigner::sign(
       shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
   tx.addSignature(
       shared_model::interface::types::SignedHexStringView{signedBlob},
@@ -208,7 +208,7 @@ TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
 TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
-  auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
+  auto signedBlob = shared_model::crypto::CryptoSigner::sign(
       shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
   std::string public_key{
       shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, 'a'};
@@ -231,7 +231,7 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
-  auto wrong_signature = shared_model::crypto::CryptoSigner<>::sign(
+  auto wrong_signature = shared_model::crypto::CryptoSigner::sign(
       shared_model::crypto::Blob(tx.payload()), kUserKeypair);
 
   tx.addSignature(
