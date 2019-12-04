@@ -16,6 +16,7 @@
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
+#include "main/impl/x509_utils.hpp"
 #include "network/peer_tls_certificates_provider.hpp"
 
 using shared_model::interface::types::PubkeyType;
@@ -34,22 +35,17 @@ namespace {
   const auto first = [](const auto &s) { return s.data(); };
   const auto last = [](const auto &s) { return s.data() + s.size(); };
 
-  std::vector<PubkeyType> getRequestCertificateIdentities(
-      grpc::AuthContext const *context) {
-    static const std::string kKeyPrefix("iroha-node-public-key.");
-    return boost::copy_range<std::vector<PubkeyType>>(
-        context->FindPropertyValues("x509_subject_alternative_name")
-        | boost::adaptors::filtered([](const grpc::string_ref &name) {
-            return name.starts_with(kKeyPrefix);
-          })
-        | boost::adaptors::transformed([](const grpc::string_ref &name) {
-            static const auto dns_to_key = !boost::algorithm::is_any_of(".");
-            return PubkeyType{std::string{
-                boost::make_filter_iterator(
-                    dns_to_key, first(name) + kKeyPrefix.size(), last(name)),
-                boost::make_filter_iterator(
-                    dns_to_key, last(name), last(name))}};
-          }));
+  iroha::expected::Result<std::vector<PubkeyType>, std::string>
+  getRequestCertificateIdentities(grpc::AuthContext const *context) {
+    auto cert_props = context->FindPropertyValues("x509_pem_cert");
+    if (cert_props.begin() != cert_props.end()) {
+      if (std::next(cert_props.begin()) != cert_props.end()) {
+        return "Client provided more than one certificate.";
+      }
+      return iroha::getIrohaPubKeysFromX509(cert_props.begin()->data(),
+                                            cert_props.begin()->size());
+    }
+    return std::vector<shared_model::crypto::PublicKey>{};
   }
 
   bool compareCerts(const std::string &a, const grpc::string_ref &b) {
@@ -91,9 +87,15 @@ grpc::Status PeerCertificateAuthMetadataProcessor::Process(
   }
   auto &request_cert = opt_request_cert.value();
 
+  auto certified_keys = getRequestCertificateIdentities(context);
+  if (auto e = iroha::expected::resultToOptionalError(certified_keys)) {
+    this->log_->warn("Could not get keys from peer certificate: ", e.value());
+    return grpc::Status::CANCELLED;
+  }
+
   if (boost::algorithm::any_of(
           iroha::dereferenceOptionals(
-              getRequestCertificateIdentities(context)
+              iroha::expected::resultToOptionalValue(certified_keys).value()
               | boost::adaptors::transformed(get_opt_cert)),
           [&request_cert](const auto &wsv_cert) {
             return compareCerts(wsv_cert, request_cert);
