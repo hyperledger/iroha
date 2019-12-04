@@ -41,6 +41,11 @@ if (TESTING)
 endif ()
 
 #############################
+#          OpenSSL          #
+#############################
+find_package(OpenSSL REQUIRED)
+
+#############################
 #         speedlog          #
 #############################
 find_package(spdlog 1.3.1 REQUIRED)
