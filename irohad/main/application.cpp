@@ -156,6 +156,7 @@ Irohad::RunResult Irohad::init() {
                                       // to be sure it is consistent
   }
   | [this]{ return restoreWsv();}
+  | [this]{ return validateKeypair();}
   | [this]{ return initTlsCredentials();}
   | [this]{ return initPeerCertProvider();}
   | [this]{ return initCryptoProvider();}
@@ -322,6 +323,17 @@ Irohad::RunResult Irohad::restoreWsv() {
     }
     return {};
   };
+}
+
+Irohad::RunResult Irohad::validateKeypair() {
+  auto peers = storage->createPeerQuery() | [this](auto &&peer_query) {
+    return peer_query->getLedgerPeerByPublicKey(keypair.publicKey());
+  };
+  if (not peers) {
+    log_->warn("There is no peer in the ledger with my public key!");
+  }
+
+  return {};
 }
 
 /**

@@ -53,7 +53,7 @@ How to create applications around Iroha?
 ----------------------------------------
 
 In order to bring the power of blockchain into your application, you should think first of how it is going to interface with Iroha peers.
-A good start is to check `Before we start section <before_start/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
+A good start is to check `Concepts and Architecture section <concepts_architecture/index.html>`_, explaining what exactly is a transaction and query, and how users of your application are supposed to interact with it.
 
 We also have several client libraries which provide tools for developers to form building blocks, such as signatures, commands,
 send messages to Iroha peers and check the status.

@@ -66,6 +66,7 @@ void PostgresIndexer::accountAssetTxPosition(const AccountIdType &account_id,
 iroha::expected::Result<void, std::string> PostgresIndexer::flush() {
   try {
     sql_ << statements_;
+    statements_.clear();
   } catch (const std::exception &e) {
     return e.what();
   }

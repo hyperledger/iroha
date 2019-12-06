@@ -144,6 +144,11 @@ class Irohad {
   RunResult restoreWsv();
 
   /**
+   * Check that the provided keypair is present in the ledger
+   */
+  RunResult validateKeypair();
+
+  /**
    * Drop wsv and block store
    */
   virtual void dropStorage();
