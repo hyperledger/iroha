@@ -269,7 +269,6 @@ class Irohad {
 
   std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
 
-  // std::shared_ptr<iroha::network::ChannelPool> inter_peer_channel_pool_;
   std::shared_ptr<iroha::network::GenericClientFactory>
       inter_peer_client_factory_;
 
