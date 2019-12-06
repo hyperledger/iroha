@@ -24,8 +24,13 @@ target_link_libraries(irohad_test
         pg_connection_init
         )
 add_dependencies(irohad_test irohad)
-add_definitions(-DPATHIROHAD="${PROJECT_BINARY_DIR}/bin")
-add_definitions(-DPATHTESTDATA="${CMAKE_CURRENT_SOURCE_DIR}/irohad_test_data")
+target_compile_definitions(irohad_test
+    PRIVATE
+      -DPATH_IROHAD="$<TARGET_FILE:irohad>"
+      -DPATH_TEST_DATA="${STATIC_TEST_DATA_DIR}"
+      -DPATH_TEMP_DIR="${GENERATED_TEST_DATA_DIR}/irohad_test_temp"
+      -DPATH_TORII_TLS_CREDS="${TEST_TORII_TLS_DATA_DIR}"
+    )
 
 if (SANITIZE)
     target_link_libraries(irohad_test asan)

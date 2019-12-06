@@ -19,6 +19,8 @@ target_link_libraries(client_factory_test
     shared_model_cryptography
     shared_model_default_builders
     server_runner
+    test_keys
+    test_p2p_tls_creds
     tls_credentials
     endpoint
     test_logger
