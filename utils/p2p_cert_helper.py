@@ -139,7 +139,7 @@ def get_keys(args: argparse.Namespace) -> typing.Generator[str, None, None]:
     def try_load(loader):
         try:
             return loader(args)
-        except:
+        except Exception:
             return None
 
     something = try_load(get_cert) or try_load(get_csr)
