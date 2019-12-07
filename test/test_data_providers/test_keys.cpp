@@ -37,7 +37,7 @@ namespace iroha {
   }
 
   const PublicKey &getPeer1PublicKey() {
-    static const PublicKey &kPeer1PublicKey{loadHexFile(PEER1_PUBKEY)};
+    static const PublicKey kPeer1PublicKey{loadHexFile(PEER1_PUBKEY)};
     return kPeer1PublicKey;
   }
 
@@ -47,7 +47,7 @@ namespace iroha {
   }
 
   const PublicKey &getPeer2PublicKey() {
-    static const PublicKey &kPeer2PublicKey{loadHexFile(PEER2_PUBKEY)};
+    static const PublicKey kPeer2PublicKey{loadHexFile(PEER2_PUBKEY)};
     return kPeer2PublicKey;
   }
 
@@ -57,7 +57,7 @@ namespace iroha {
   }
 
   const PublicKey &getPeer3PublicKey() {
-    static const PublicKey &kPeer3PublicKey{loadHexFile(PEER3_PUBKEY)};
+    static const PublicKey kPeer3PublicKey{loadHexFile(PEER3_PUBKEY)};
     return kPeer3PublicKey;
   }
 }  // namespace iroha
