@@ -1,6 +1,7 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+find_package(PythonInterp 3.5 REQUIRED)
 
 #### configurable variables ####
 
@@ -31,7 +32,7 @@ function(generate_test_keys privkey_path pubkey_path)
       DEPENDS
         ${CMAKE_SOURCE_DIR}/utils/keys_helper.py
       COMMAND
-        python3 ${CMAKE_SOURCE_DIR}/utils/keys_helper.py
+        ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/utils/keys_helper.py
           --priv-out-path ${privkey_path}
           --pub-out-path ${pubkey_path}
   )
@@ -62,7 +63,7 @@ function(generate_p2p_tls_creds_self_signed pubkey_path tls_key_out tls_cert_out
         ${pubkey_path}
         ${CMAKE_SOURCE_DIR}/utils/p2p_cert_helper.py
       COMMAND
-        python3 ${CMAKE_SOURCE_DIR}/utils/p2p_cert_helper.py
+        ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/utils/p2p_cert_helper.py
           --iroha-pubkey-path ${pubkey_path}
           --create-and-store-tls-key ${tls_key_out}
           -O ${tls_cert_out}
