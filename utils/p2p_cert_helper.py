@@ -225,10 +225,11 @@ if __name__ == '__main__':
         'Output file path. If not provided, contents will be written to stdout.',
         required=False)
     for field in OVERRIDEN_SUBJECT_FIELDS:
-        parser.add_argument(f'--{field}',
-                            help=f'certificate subject {OVERRIDEN_SUBJECT_FIELDS[field]}',
+        parser.add_argument('--{}'.format(field),
+                            help='certificate subject {}'.format(
+                                OVERRIDEN_SUBJECT_FIELDS[field]),
                             required=False)
-    parser.add_argument('command', choices=COMMANDS, help="Action.")
+    parser.add_argument('command', choices=COMMANDS, help='Action.')
     args = parser.parse_args()
 
     output_dest = args.output_file and open(args.output_file,

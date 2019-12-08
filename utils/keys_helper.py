@@ -50,7 +50,7 @@ if __name__ == '__main__':
     try:
         pub_key = IrohaCrypto.derive_public_key(priv_key)
     except:
-        print("Bad private key!")
+        print('Bad private key!')
         raise
 
     if args.priv_out_path:
@@ -58,11 +58,11 @@ if __name__ == '__main__':
             out.write(priv_key)
 
     if args.priv_out:
-        print(f'private key: {priv_key.decode()}')
+        print('private key: {}'.format(priv_key.decode()))
 
     if args.pub_out_path:
         with open(args.pub_out_path, 'wb') as out:
             out.write(pub_key)
 
     if args.pub_out:
-        print(f'public key: {pub_key.decode()}')
+        print('public key:  {}'.format(pub_key.decode()))
