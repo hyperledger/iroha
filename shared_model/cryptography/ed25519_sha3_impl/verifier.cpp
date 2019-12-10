@@ -5,21 +5,22 @@
 
 #include "cryptography/ed25519_sha3_impl/verifier.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 
 namespace shared_model {
   namespace crypto {
-    bool Verifier::verify(const Signed &signedData,
+    bool Verifier::verify(const Signed &signed_data,
                           const BytesView &orig,
-                          const PublicKey &publicKey) {
-      auto blob_hash = iroha::sha3_256(orig.begin(), orig.size());
-      return publicKey.size() == iroha::pubkey_t::size()
-          and signedData.size() == iroha::sig_t::size()
+                          const PublicKey &pubkey) {
+      auto blob_hash = iroha::sha3_256(orig.byteRange());
+      return pubkey.blob().size() == iroha::PubkeyView::size()
+          and signed_data.blob().size() == iroha::SigView::size()
           and iroha::verify(blob_hash.data(),
                             blob_hash.size(),
-                            iroha::pubkey_t::from_raw(publicKey.blob().data()),
-                            iroha::sig_t::from_raw(signedData.blob().data()));
+                            iroha::PubkeyView(pubkey.blob().data()),
+                            iroha::SigView(signed_data.blob().data()));
     }
   }  // namespace crypto
 }  // namespace shared_model

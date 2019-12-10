@@ -23,7 +23,7 @@ namespace shared_model {
        * @param keypair - keypair
        * @return Signed object with signed data
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair);
+      static Signed sign(const BytesView &blob, const Keypair &keypair);
 
       /**
        * Verifies signature.
@@ -33,20 +33,13 @@ namespace shared_model {
        * @return true if verify was OK or false otherwise
        */
       static bool verify(const Signed &signedData,
-                         const Blob &orig,
+                         const BytesView &orig,
                          const PublicKey &publicKey);
       /**
        * Generates new seed
        * @return Seed generated
        */
       static Seed generateSeed();
-
-      /**
-       * Generates new seed from a provided passphrase
-       * @param passphrase - passphrase to generate seed from
-       * @return Seed generated
-       */
-      static Seed generateSeed(const std::string &passphrase);
 
       /**
        * Generates new keypair with a default seed

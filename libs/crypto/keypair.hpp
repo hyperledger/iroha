@@ -14,6 +14,10 @@ namespace iroha {
   using pubkey_t = blob_t<32>;
   using privkey_t = blob_t<32>;
 
+  using SigView = FixedBlobView<sig_t::size()>;
+  using PubkeyView = FixedBlobView<pubkey_t::size()>;
+  using PrivkeyView = FixedBlobView<privkey_t::size()>;
+
   struct keypair_t {
     keypair_t() = default;
 

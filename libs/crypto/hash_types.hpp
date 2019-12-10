@@ -19,5 +19,12 @@ namespace iroha {
   using hash384_t = hash_t<384 / 8>;
   using hash512_t = hash_t<512 / 8>;
 
+  template <typename HashType>
+  using HashView = FixedBlobView<HashType::size()>;
+  using Hash224View = HashView<hash224_t>;
+  using Hash256View = HashView<hash256_t>;
+  using Hash384View = HashView<hash384_t>;
+  using Hash512View = HashView<hash512_t>;
+
 }  // namespace iroha
 #endif  // IROHA_CRYPTO_HASH_TYPES_HPP

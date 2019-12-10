@@ -20,14 +20,9 @@ namespace iroha {
    * @param priv
    * @return
    */
-  sig_t sign(const uint8_t *msg,
-             size_t msgsize,
-             const pubkey_t &pub,
-             const privkey_t &priv);
-
-  sig_t sign(const std::string &msg,
-             const pubkey_t &pub,
-             const privkey_t &priv);
+  sig_t sign(shared_model::interface::types::ConstByteRange msg,
+             const PubkeyView &pub,
+             const PrivkeyView &priv);
 
   /**
    * Verify signature of ed25519 crypto algorithm
@@ -39,22 +34,17 @@ namespace iroha {
    */
   bool verify(const uint8_t *msg,
               size_t msgsize,
-              const pubkey_t &pub,
-              const sig_t &sig);
+              const PubkeyView &pub,
+              const SigView &sig);
 
-  bool verify(const std::string &msg, const pubkey_t &pub, const sig_t &sig);
+  bool verify(const std::string &msg,
+              const PubkeyView &pub,
+              const SigView &sig);
 
   /**
    * Generate random seed reading from /dev/urandom
    */
   blob_t<32> create_seed();
-
-  /**
-   * Generate random seed as sha3_256(passphrase)
-   * @param passphrase
-   * @return
-   */
-  blob_t<32> create_seed(std::string passphrase);
 
   /**
    * Create new keypair

@@ -17,7 +17,7 @@ namespace shared_model {
     class Verifier {
      public:
       static bool verify(const Signed &signedData,
-                         const Blob &orig,
+                         const BytesView &orig,
                          const PublicKey &publicKey);
     };
 

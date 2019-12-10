@@ -10,6 +10,7 @@
 #include <boost/algorithm/hex.hpp>
 #include <boost/optional.hpp>
 #include "common/result.hpp"
+#include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {

@@ -4,6 +4,8 @@
  */
 
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
+
+#include "cryptography/bytes_view.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/signer.hpp"
 #include "cryptography/ed25519_sha3_impl/verifier.hpp"
@@ -11,24 +13,20 @@
 namespace shared_model {
   namespace crypto {
 
-    Signed CryptoProviderEd25519Sha3::sign(const Blob &blob,
+    Signed CryptoProviderEd25519Sha3::sign(const BytesView &blob,
                                            const Keypair &keypair) {
       return Signer::sign(blob, keypair);
     }
 
     bool CryptoProviderEd25519Sha3::verify(const Signed &signedData,
-                                           const Blob &orig,
+                                           const BytesView &orig,
                                            const PublicKey &publicKey) {
       return Verifier::verify(signedData, orig, publicKey);
     }
 
     Seed CryptoProviderEd25519Sha3::generateSeed() {
-      return Seed(iroha::create_seed().to_string());
-    }
-
-    Seed CryptoProviderEd25519Sha3::generateSeed(
-        const std::string &passphrase) {
-      return Seed(iroha::create_seed(passphrase).to_string());
+      return Seed{std::make_shared<shared_model::crypto::Blob>(
+          iroha::create_seed().getView().byteRange())};
     }
 
     Keypair CryptoProviderEd25519Sha3::generateKeypair() {
@@ -36,11 +34,16 @@ namespace shared_model {
     }
 
     Keypair CryptoProviderEd25519Sha3::generateKeypair(const Seed &seed) {
-      assert(seed.size() == kSeedLength);
+      assert(seed.blob().size() == kSeedLength);
+      static_assert(kSeedLength == 32,
+                    "Incompatible seed length");  // 32 comes from
+                                                  // iroha::create_keypair(...)
       auto keypair = iroha::create_keypair(
-          iroha::blob_t<kSeedLength>::from_raw(seed.byteRange()));
-      return Keypair(PublicKey(keypair.pubkey.to_string()),
-                     PrivateKey(keypair.privkey.to_string()));
+          iroha::blob_t<32>::from_raw(seed.blob().byteRange().begin()));
+      return Keypair{PublicKey(std::make_shared<shared_model::crypto::Blob>(
+                         keypair.pubkey.getView().byteRange())),
+                     PrivateKey(std::make_shared<shared_model::crypto::Blob>(
+                         keypair.privkey.getView().byteRange()))};
     }
   }  // namespace crypto
 }  // namespace shared_model
