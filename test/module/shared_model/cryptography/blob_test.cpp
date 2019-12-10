@@ -4,6 +4,7 @@
  */
 
 #include "cryptography/blob.hpp"
+
 #include <gtest/gtest.h>
 #include <memory>
 
@@ -13,9 +14,9 @@ using namespace std::literals::string_literals;
 class BlobMock : public ::testing::Test {
  public:
   void SetUp() override {
-    blob = std::make_shared<Blob>(data);
+    blob = Blob::fromBinaryString(data);
   }
-  std::shared_ptr<Blob> blob;
+  std::unique_ptr<Blob> blob;
   std::string data = "Hello \0World"s;
 };
 
@@ -34,12 +35,11 @@ TEST_F(BlobMock, HexConversionTest) {
  * @then make sure that the blob's blob stores the same data as string
  */
 TEST_F(BlobMock, BlobIsString) {
-  auto bin_str = toBinaryString(*blob);
-  auto binary = blob->blob();
-  size_t sz = binary.size();
+  auto binary = blob->data();
+  size_t sz = blob->size();
 
-  ASSERT_EQ(bin_str.size(), sz);
+  ASSERT_EQ(data.size(), sz);
   for (size_t i = 0; i < sz; ++i) {
-    ASSERT_EQ(binary[i], bin_str[i]);
+    ASSERT_EQ(binary[i], data[i]);
   }
 }

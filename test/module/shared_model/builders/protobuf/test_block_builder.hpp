@@ -6,8 +6,11 @@
 #ifndef IROHA_TEST_BLOCK_BUILDER_HPP
 #define IROHA_TEST_BLOCK_BUILDER_HPP
 
+#include "framework/crypto_dummies.hpp"
 #include "module/shared_model/builders/protobuf/builder_templates/block_template.hpp"
 #include "module/shared_model/validators/validators.hpp"
+
+#include "cryptography/blob.hpp"
 
 /**
  * Builder alias, to build shared model proto block object avoiding validation
@@ -27,10 +30,10 @@ using TestUnsignedBlockBuilder = shared_model::proto::TemplateBlockBuilder<
     shared_model::validation::AlwaysValidValidator,
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block>>;
 
-std::shared_ptr<const shared_model::interface::Block> createBlock(
+std::shared_ptr<shared_model::interface::Block> createBlock(
     std::vector<shared_model::proto::Transaction> txs,
     size_t height = 1,
-    shared_model::crypto::Hash prev_hash = shared_model::crypto::Hash("")) {
+    shared_model::crypto::Hash prev_hash = iroha::createHash()) {
   return clone(
       TestBlockBuilder()
           .transactions(std::vector<shared_model::proto::Transaction>(txs))

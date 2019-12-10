@@ -185,7 +185,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .transactions(std::vector<shared_model::proto::Transaction>{
               std::move(genesis_tx)})
           .height(1)
-          .prevHash(crypto::DefaultHashProvider::makeHash(crypto::Blob("")))
+          .prevHash(crypto::DefaultHashProvider::makeHash(crypto::Blob{}))
           .createdTime(iroha::time::now())
           .build()
           .signAndAddSignature(initial_peer->getKeypair())

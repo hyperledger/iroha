@@ -4,10 +4,12 @@
  */
 
 #include "query_response_handler.hpp"
+
 #include "backend/protobuf/commands/proto_command.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_transaction_response.hpp"
+#include "backend/protobuf/transaction.hpp"
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "model/converters/pb_common.hpp"
@@ -168,9 +170,9 @@ namespace iroha_cli {
 
   void QueryResponseHandler::handleTransactionsResponse(
       const iroha::protocol::QueryResponse &response) {
-    iroha::protocol::QueryResponse response_copy{response};
-    shared_model::proto::TransactionsResponse resp{response_copy};
-    auto txs = resp.transactions();
+    auto resp = shared_model::proto::TransactionsResponse::create(response)
+                    .assumeValue();
+    auto txs = resp->transactions();
     std::for_each(txs.begin(), txs.end(), [this](auto &tx) {
       log_->info("[Transaction]");
       log_->info(prefix.at(kHash), tx.hash().hex());

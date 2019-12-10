@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/indirected.hpp>
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
@@ -23,6 +24,7 @@ using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
 using namespace iroha::network;
 using namespace framework::test_subscriber;
+using namespace iroha::ametsuchi::tx_cache_status_responses;
 
 using ::testing::_;
 using ::testing::AtMost;
@@ -34,6 +36,8 @@ using ::testing::ReturnRefOfCopy;
 using ::testing::Truly;
 using ::testing::UnorderedElementsAre;
 using ::testing::UnorderedElementsAreArray;
+
+using shared_model::crypto::Blob;
 
 class OnDemandOrderingGateTest : public ::testing::Test {
  public:
@@ -50,7 +54,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
             check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
         .WillByDefault(
             Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
-                iroha::ametsuchi::tx_cache_status_responses::Missing())));
+                Missing(iroha::createHash()))));
     ordering_gate = std::make_shared<OnDemandOrderingGate>(
         ordering_service,
         notification,
@@ -63,11 +67,11 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         1000,
         getTestLogger("OrderingGate"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round,
-        shared_model::crypto::Hash{"hash"});
+        iroha::createHash());
   }
 
   /**
@@ -113,7 +117,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
  * @then it is passed to the ordering service
  */
 TEST_F(OnDemandOrderingGateTest, propagateBatch) {
-  auto hash1 = shared_model::interface::types::HashType("");
+  shared_model::interface::types::HashType hash1(Blob::fromBinaryString(""));
   auto batch = createMockBatchWithHash(hash1);
   OdOsNotification::CollectionType collection{batch};
 
@@ -136,8 +140,7 @@ TEST_F(OnDemandOrderingGateTest, BlockEvent) {
       oproposal(std::move(mproposal));
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
-  ON_CALL(*txs[0], hash())
-      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash("")));
+  ON_CALL(*txs[0], hash()).WillByDefault(ReturnRefOfCopy(iroha::createHash()));
   ON_CALL(*proposal, transactions())
       .WillByDefault(Return(txs | boost::adaptors::indirected));
 
@@ -172,8 +175,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEvent) {
       oproposal(std::move(mproposal));
   std::vector<std::shared_ptr<MockTransaction>> txs{
       std::make_shared<MockTransaction>()};
-  ON_CALL(*txs[0], hash())
-      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash("")));
+  ON_CALL(*txs[0], hash()).WillByDefault(ReturnRefOfCopy(iroha::createHash()));
   ON_CALL(*proposal, transactions())
       .WillByDefault(Return(txs | boost::adaptors::indirected));
 
@@ -252,7 +254,8 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
 TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
   // initialize mock transaction
   auto tx1 = std::make_shared<NiceMock<MockTransaction>>();
-  auto hash = shared_model::crypto::Hash("mock code is readable");
+  shared_model::crypto::Hash hash(
+      Blob::fromBinaryString("mock code is readable"));
   ON_CALL(*tx1, hash()).WillByDefault(testing::ReturnRef(testing::Const(hash)));
   std::vector<decltype(tx1)> txs{tx1};
   auto tx_range = txs | boost::adaptors::indirected;
@@ -270,8 +273,8 @@ TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
       .WillOnce(Return(ByMove(std::move(arriving_proposal))));
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
-      .WillOnce(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
-          iroha::ametsuchi::tx_cache_status_responses::Committed())));
+      .WillOnce(Return(
+          boost::make_optional<ametsuchi::TxCacheStatusType>(Committed(hash))));
   // expect proposal to be created without any transactions because it was
   // removed by tx cache
   auto ufactory_proposal = std::make_unique<MockProposal>();
@@ -327,8 +330,7 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
       .WillOnce(Return(ByMove(std::move(arriving_proposal))));
   EXPECT_CALL(*tx_cache,
               check(testing::Matcher<const shared_model::crypto::Hash &>(_)))
-      .WillRepeatedly(Return(boost::make_optional<ametsuchi::TxCacheStatusType>(
-          iroha::ametsuchi::tx_cache_status_responses::Missing())));
+      .Times(::testing::AnyNumber());
 
   auto ufactory_proposal = std::make_unique<MockProposal>();
   auto factory_proposal = ufactory_proposal.get();
@@ -358,10 +360,12 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
  */
 TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
   // prepare internals of mock batches
-  shared_model::interface::types::HashType hash1("hash1");
+  shared_model::interface::types::HashType hash1(
+      Blob::fromBinaryString("hash1"));
   auto tx1 = createMockTransactionWithHash(hash1);
 
-  shared_model::interface::types::HashType hash2("hash2");
+  shared_model::interface::types::HashType hash2(
+      Blob::fromBinaryString("hash2"));
   auto tx2 = createMockTransactionWithHash(hash2);
 
   // prepare batches
@@ -406,8 +410,10 @@ TEST_F(OnDemandOrderingGateTest, PopEmptyBatchesFromTheCache) {
  */
 TEST_F(OnDemandOrderingGateTest, BatchesRemoveFromCache) {
   // prepare hashes for mock batches
-  shared_model::interface::types::HashType hash1("hash1");
-  shared_model::interface::types::HashType hash2("hash2");
+  shared_model::interface::types::HashType hash1(
+      Blob::fromBinaryString("hash1"));
+  shared_model::interface::types::HashType hash2(
+      Blob::fromBinaryString("hash2"));
 
   // prepare batches
   auto batch1 = createMockBatchWithHash(hash1);

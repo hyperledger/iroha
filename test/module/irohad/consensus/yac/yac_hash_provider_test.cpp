@@ -13,6 +13,7 @@
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/shared_container_iterator.hpp>
 #include <boost/shared_ptr.hpp>
+#include "framework/crypto_dummies.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha;
@@ -24,9 +25,9 @@ using ::testing::ReturnRefOfCopy;
 auto makeSignature() {
   auto signature = std::make_unique<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::PublicKey("key")));
+      .WillRepeatedly(ReturnRefOfCopy(iroha::createPublicKey()));
   EXPECT_CALL(*signature, signedData())
-      .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::Signed("data")));
+      .WillRepeatedly(ReturnRefOfCopy(iroha::createSigned()));
   return signature;
 }
 
@@ -40,18 +41,17 @@ auto signature() {
 TEST(YacHashProviderTest, MakeYacHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
-  auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
-  shared_model::crypto::Hash block_hash("hash");
+  auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
+  shared_model::crypto::Hash block_hash{iroha::createHash()};
   auto ledger_state = std::make_shared<LedgerState>(
       shared_model::interface::types::PeerList{std::move(peer)}, 1, block_hash);
   auto proposal = std::make_shared<const MockProposal>();
   EXPECT_CALL(*proposal, hash())
-      .WillRepeatedly(
-          ReturnRefOfCopy(shared_model::crypto::Hash(std::string())));
+      .WillRepeatedly(ReturnRefOfCopy(iroha::createHash()));
   auto block = std::make_shared<MockBlock>();
   EXPECT_CALL(*block, payload())
-      .WillRepeatedly(
-          ReturnRefOfCopy(shared_model::crypto::Blob(std::string())));
+      .WillRepeatedly(ReturnRefOfCopy(
+          *shared_model::crypto::Blob::fromBinaryString(std::string())));
   EXPECT_CALL(*block, hash())
       .WillRepeatedly(testing::ReturnRefOfCopy(block_hash));
 

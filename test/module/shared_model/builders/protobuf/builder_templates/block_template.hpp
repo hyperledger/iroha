@@ -123,11 +123,12 @@ namespace shared_model {
         auto tx_number = block_.payload().transactions().size();
         block_.mutable_payload()->set_tx_number(tx_number);
 
-        auto result = Block(iroha::protocol::Block_v1(block_));
-        if (auto error = stateless_validator_.validate(result)) {
+        auto result =
+            Block::create(iroha::protocol::Block_v1(block_)).assumeValue();
+        if (auto error = stateless_validator_.validate(*result)) {
           throw std::invalid_argument(error->toString());
         }
-        return BT(std::move(result));
+        return BT{std::move(*result)};
       }
 
       static const int total = Fields::TOTAL;

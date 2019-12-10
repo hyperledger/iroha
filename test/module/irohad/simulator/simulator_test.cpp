@@ -5,6 +5,7 @@
 
 #include "simulator/impl/simulator.hpp"
 
+#include <chrono>
 #include <vector>
 
 #include <boost/range/adaptor/transformed.hpp>
@@ -13,6 +14,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "datetime/time.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
@@ -40,6 +42,8 @@ using ::testing::Invoke;
 using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::ReturnArg;
+
+using shared_model::crypto::Blob;
 
 using wBlock = std::shared_ptr<shared_model::interface::Block>;
 
@@ -81,7 +85,7 @@ class SimulatorTest : public ::testing::Test {
 
   std::shared_ptr<Simulator> simulator;
   shared_model::interface::types::PeerList ledger_peers{
-      makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))};
+      makePeer("127.0.0.1", iroha::createPublicKey())};
 };
 
 auto makeProposal(int height) {
@@ -120,7 +124,9 @@ auto makeTx(size_t created_time = iroha::time::now()) {
 
 TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   // proposal with height 2 => height 1 block present => new block generated
-  std::vector<shared_model::proto::Transaction> txs = {makeTx(), makeTx()};
+  using namespace std::chrono_literals;
+  std::vector<shared_model::proto::Transaction> txs{
+      {makeTx(iroha::time::now(0ms)), makeTx(iroha::time::now(1ms))}};
 
   auto validation_result =
       std::make_unique<iroha::validation::VerifiedProposalAndErrors>();
@@ -144,7 +150,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
       .Times(1);
 
   auto ledger_state = std::make_shared<LedgerState>(
-      ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});
+      ledger_peers, proposal->height() - 1, iroha::createHash());
   auto ordering_event =
       OrderingEvent{proposal, consensus::Round{}, ledger_state};
 

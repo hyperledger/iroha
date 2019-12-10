@@ -32,12 +32,7 @@ namespace iroha {
    * @param sig
    * @return true if signature is valid, false otherwise
    */
-  bool verify(const uint8_t *msg,
-              size_t msgsize,
-              const PubkeyView &pub,
-              const SigView &sig);
-
-  bool verify(const std::string &msg,
+  bool verify(shared_model::interface::types::ConstByteRange msg,
               const PubkeyView &pub,
               const SigView &sig);
 

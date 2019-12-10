@@ -66,8 +66,8 @@ namespace shared_model {
       }
 
       auto sig = proto_.mutable_signature();
-      sig->set_signature(signed_blob.blob().hex());
-      sig->set_public_key(public_key.blob().hex());
+      sig->set_signature(signed_blob.hex());
+      sig->set_public_key(public_key.hex());
 
       // TODO: nickaleks IR-120 12.12.2018 remove set
       return Signature::create(*sig).match(

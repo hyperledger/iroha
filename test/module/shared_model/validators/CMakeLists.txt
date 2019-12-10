@@ -9,6 +9,7 @@ addtest(transaction_validator_test
 target_link_libraries(transaction_validator_test
     shared_model_proto_backend
     shared_model_stateless_validation
+    shared_proto_test_common
     )
 
 addtest(query_validator_test
@@ -17,6 +18,7 @@ addtest(query_validator_test
 target_link_libraries(query_validator_test
     shared_model_proto_backend
     shared_model_stateless_validation
+    shared_proto_test_common
     )
 
 addtest(proto_query_validator_test

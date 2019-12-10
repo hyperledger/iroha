@@ -14,6 +14,7 @@
 #include <boost/range/counting_range.hpp>
 #include <boost/range/numeric.hpp>
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
+#include "cryptography/blob.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
@@ -45,9 +46,7 @@ class YacPeerOrdererTest : public ::testing::Test {
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers = [] {
     std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
     for (size_t i = 1; i <= kPeersQuantity; ++i) {
-      auto peer = makePeer(
-          std::to_string(i),
-          shared_model::interface::types::PubkeyType(std::string(32, '0')));
+      auto peer = makePeer(std::to_string(i), iroha::createPublicKeyPadded());
       result.push_back(std::move(peer));
     }
     return result;

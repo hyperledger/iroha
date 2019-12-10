@@ -11,11 +11,15 @@
 #include <boost/optional/optional_io.hpp>
 #include <boost/range/irange.hpp>
 #include "builders/protobuf/transaction.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/backend_proto/common.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/validation_error_output.hpp"
 
 using namespace shared_model;
+
+using shared_model::validation::ValidationError;
 
 class TransactionValidatorTest : public ValidatorsTest {
  public:
@@ -24,6 +28,15 @@ class TransactionValidatorTest : public ValidatorsTest {
 
   auto getCountIgnoredFields() {
     return ignored_fields_.size();
+  }
+
+  void validate(iroha::protocol::Transaction proto,
+                ::testing::Matcher<boost::optional<ValidationError>> matcher) {
+    auto result = shared_model::proto::Transaction::create(std::move(proto));
+    IROHA_ASSERT_RESULT_VALUE(result) << "Could not build transaction.";
+    auto model = std::move(result).assumeValue();
+    auto opt_error = transaction_validator.validate(*model);
+    EXPECT_THAT(opt_error, matcher);
   }
 
  protected:
@@ -51,12 +64,11 @@ TEST_F(TransactionValidatorTest, EmptyTransactionTest) {
   auto tx = generateEmptyTransaction();
   tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
       created_time);
-  auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto error = transaction_validator.validate(result);
-  ASSERT_TRUE(error);
-  ASSERT_THAT(
-      error->my_errors,
-      ::testing::ElementsAre("Transaction must contain at least one command."));
+  using namespace testing;
+  validate(std::move(tx),
+           Optional(Field(
+               &ValidationError::my_errors,
+               ElementsAre("Transaction must contain at least one command."))));
 }
 
 /**
@@ -92,8 +104,7 @@ TEST_F(TransactionValidatorTest, StatelessValidTest) {
       },
       [] {});
 
-  auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  ASSERT_EQ(transaction_validator.validate(result), boost::none);
+  validate(std::move(tx), ::testing::Eq(boost::none));
 }
 
 /**
@@ -107,9 +118,7 @@ TEST_F(TransactionValidatorTest, UnsetCommand) {
       account_id);
   tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
       created_time);
-  auto error = transaction_validator.validate(proto::Transaction(tx));
-  tx.mutable_payload()->mutable_reduced_payload()->add_commands();
-  ASSERT_TRUE(error);
+  validate(std::move(tx), ::testing::Ne(boost::none));
 }
 
 /**
@@ -125,29 +134,30 @@ TEST_F(TransactionValidatorTest, StatelessInvalidTest) {
   iroha::ts64_t invalid_time = 10000000000ull;
   payload->mutable_reduced_payload()->set_created_time(invalid_time);
 
-  // create commands from default constructors, which will have empty, therefore
-  // invalid values
-  iterateContainer(
-      [] { return iroha::protocol::Command::descriptor(); },
-      [&](auto field) {
-        // Add new command to transaction
-        auto command = payload->mutable_reduced_payload()->add_commands();
-        // Set concrete type for new command
-        return command->GetReflection()->MutableMessage(command, field);
-      },
-      [](auto, auto) {
-        // Note that no fields are set
-      },
-      [] {});
+  auto refl = iroha::protocol::Command::GetReflection();
+  auto desc = iroha::protocol::Command::GetDescriptor();
 
-  auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto error = transaction_validator.validate(result);
-  ASSERT_TRUE(error);
+  boost::for_each(boost::irange(0, desc->field_count()), [&](auto i) {
+    if (i == iroha::protocol::Command::COMMAND_NOT_SET) {
+      return;
+    }
+    auto new_command = payload->mutable_reduced_payload()->add_commands();
+    auto field = desc->field(i);
+    auto *msg = refl->GetMessage(*new_command, field).New();
+    iroha::setDummyFieldValues(msg);
+    refl->SetAllocatedMessage(new_command, msg, field);
+  });
 
-  // in total there should be number_of_commands + 1 reasons of bad answer:
-  // number_of_commands for each command + 1 for transaction metadata
-  EXPECT_EQ(error->child_errors.size() + getCountIgnoredFields(),
-            iroha::protocol::Command::descriptor()->field_count() + 1);
+  const size_t expected_number_of_child_errors =
+      // an error for:
+      iroha::protocol::Command::descriptor()->field_count()  // each command
+      - getCountIgnoredFields()  // that is not ignored
+      + 1;                       // and for transaction metadata
+
+  using namespace testing;
+  validate(std::move(tx),
+           Optional(Field(&ValidationError::child_errors,
+                          SizeIs(expected_number_of_child_errors))));
 }
 /**
  * @given transaction made of commands with valid fields
@@ -168,9 +178,7 @@ TEST_F(TransactionValidatorTest, BatchValidTest) {
                 .getTransport();
   shared_model::validation::DefaultUnsignedTransactionValidator
       transaction_validator(iroha::test::kTestsValidatorsConfig);
-  auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-
-  ASSERT_EQ(transaction_validator.validate(result), boost::none);
+  validate(std::move(tx), ::testing::Eq(boost::none));
   ASSERT_EQ(tx.payload().batch().type(),
             static_cast<int>(interface::types::BatchType::ATOMIC));
 }

@@ -167,6 +167,7 @@ MockQueryFactory::constructTxPaginationMeta(
   return createFactoryResult<MockTxPaginationMeta>(
       [&page_size, &first_tx_hash](MockTxPaginationMeta &mock) {
         EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
-        EXPECT_CALL(mock, firstTxHash()).WillRepeatedly(Return(first_tx_hash));
+        EXPECT_CALL(mock, firstTxHash())
+            .WillRepeatedly(ReturnRefOfCopy(first_tx_hash));
       });
 }

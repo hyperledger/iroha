@@ -62,9 +62,9 @@ struct HexKeys : public AcceptanceFixture {
   }
 
   auto composeKeypairFromHex(std::string public_key, std::string private_key) {
-    return crypto::Keypair(
-        crypto::PublicKey(crypto::Blob::fromHexString(public_key)),
-        crypto::PrivateKey(crypto::Blob::fromHexString(private_key)));
+    using namespace shared_model::crypto;
+    return Keypair{PublicKey{Blob::fromHexString(public_key).assumeValue()},
+                   PrivateKey{Blob::fromHexString(private_key).assumeValue()}};
   }
 
   Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();

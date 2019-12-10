@@ -7,6 +7,8 @@
 
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/keypair.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/stateless_valid_field_helpers.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -234,9 +236,9 @@ TEST_F(DomainTest, InvalidDomainInitialization) {
 
 class SignatureTest : public ProtoFixture {
  public:
-  crypto::PublicKey valid_pubkey{framework::padPubKeyString("valid_pubkey")};
-  crypto::Signed valid_data{framework::padSignatureString("valid_signature")};
-  crypto::PublicKey invalid_pubkey{"1234"};
+  crypto::PublicKey valid_pubkey{iroha::createPublicKeyPadded("valid_pubkey")};
+  crypto::Signed valid_data{iroha::createSignedPadded("valid_signature")};
+  crypto::PublicKey invalid_pubkey{iroha::createPublicKey("invalid_pubkey")};
 };
 
 /**

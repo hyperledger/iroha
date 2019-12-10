@@ -7,7 +7,11 @@
 #include "logger/logger.hpp"
 
 #include "builders/protobuf/transaction.hpp"
+#include "cryptography/blob.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
+
+using shared_model::crypto::Blob;
 
 class TransactionFixture : public ::testing::Test {
  public:
@@ -55,10 +59,10 @@ TEST_F(TransactionFixture, checkEqualsOperatorSameOrder) {
   auto tx1 = makeTx();
   auto tx2 = makeTx();
 
-  tx1->addSignature(shared_model::crypto::Signed("signed_blob"),
-                    shared_model::crypto::PublicKey("pub_key"));
-  tx2->addSignature(shared_model::crypto::Signed("signed_blob"),
-                    shared_model::crypto::PublicKey("pub_key"));
+  tx1->addSignature(iroha::createSigned("signed_blob"),
+                    iroha::createPublicKey("pub_key"));
+  tx2->addSignature(iroha::createSigned("signed_blob"),
+                    iroha::createPublicKey("pub_key"));
 
   ASSERT_EQ(*tx1, *tx2);
 }
@@ -75,15 +79,13 @@ TEST_F(TransactionFixture, checkEqualsOperatorDifferentOrder) {
   auto N = 5;
 
   for (int i = 0; i < N; ++i) {
-    tx1->addSignature(
-        shared_model::crypto::Signed("signed_blob_" + std::to_string(i)),
-        shared_model::crypto::PublicKey("pub_key_" + std::to_string(i)));
+    tx1->addSignature(iroha::createSigned("signed_blob_" + std::to_string(i)),
+                      iroha::createPublicKey("pub_key_" + std::to_string(i)));
   }
 
   for (int i = N - 1; i >= 0; --i) {
-    tx2->addSignature(
-        shared_model::crypto::Signed("signed_blob_" + std::to_string(i)),
-        shared_model::crypto::PublicKey("pub_key_" + std::to_string(i)));
+    tx2->addSignature(iroha::createSigned("signed_blob_" + std::to_string(i)),
+                      iroha::createPublicKey("pub_key_" + std::to_string(i)));
   }
 
   ASSERT_EQ(*tx1, *tx2);

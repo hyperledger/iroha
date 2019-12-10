@@ -264,8 +264,10 @@ namespace integration_framework {
      */
     IntegrationTestFramework &sendTxSequence(
         const shared_model::interface::TransactionSequence &tx_sequence,
-        std::function<void(std::vector<shared_model::proto::TransactionResponse>
-                               &)> validation = [](const auto &) {});
+        std::function<void(
+            std::vector<std::shared_ptr<
+                shared_model::interface::TransactionResponse>> &)> validation =
+            [](const auto &) {});
 
     /**
      * Send transactions to Iroha with awaiting proposal and without status

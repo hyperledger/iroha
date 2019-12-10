@@ -57,7 +57,7 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
   auto unprocessed_batches =
       boost::adaptors::filter(batches, [this](const auto &batch) {
         log_->debug("check batch {} for already processed transactions",
-                    batch->reducedHash().hex());
+                    batch->reducedHash().toString());
         return not this->batchAlreadyProcessed(*batch);
       });
   std::for_each(
@@ -218,7 +218,7 @@ bool OnDemandOrderingServiceImpl::batchAlreadyProcessed(
       tx_statuses->begin(), tx_statuses->end(), [this](const auto &tx_status) {
         if (iroha::ametsuchi::isAlreadyProcessed(tx_status)) {
           log_->warn("Duplicate transaction: {}",
-                     iroha::ametsuchi::getHash(tx_status).hex());
+                     iroha::ametsuchi::getHash(tx_status).toString());
           return true;
         }
         return false;

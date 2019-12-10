@@ -10,9 +10,8 @@
 
 namespace shared_model {
   namespace crypto {
-
     class Signed;
-    class Blob;
+    class BytesView;
     class PublicKey;
 
     /**
@@ -31,7 +30,7 @@ namespace shared_model {
        * @return true if signature correct
        */
       static bool verify(const Signed &signedData,
-                         const Blob &source,
+                         const BytesView &source,
                          const PublicKey &pubKey) {
         return Algorithm::verify(signedData, source, pubKey);
       }

@@ -5,14 +5,29 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <boost/optional/optional_io.hpp>
 #include "builders/protobuf/queries.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/backend_proto/common.hpp"
 #include "validators/validation_error_output.hpp"
+
+using shared_model::validation::ValidationError;
 
 class QueryValidatorTest : public ValidatorsTest {
  public:
   QueryValidatorTest() : query_validator(iroha::test::kTestsValidatorsConfig) {}
+
+  void validate(iroha::protocol::Query proto,
+                ::testing::Matcher<boost::optional<ValidationError>> matcher) {
+    auto result = shared_model::proto::Query::create(std::move(proto));
+    IROHA_ASSERT_RESULT_VALUE(result) << "Could not build query.";
+    auto model = std::move(result).assumeValue();
+    auto opt_error = query_validator.validate(*model);
+    EXPECT_THAT(opt_error, matcher);
+  }
 
   shared_model::validation::DefaultUnsignedQueryValidator query_validator;
 };
@@ -52,12 +67,7 @@ TEST_F(QueryValidatorTest, StatelessValidTest) {
           FAIL() << "Missing field setter: " << field->full_name();
         }
       },
-      [&] {
-        auto result = proto::Query(iroha::protocol::Query(qry));
-        auto error = query_validator.validate(result);
-
-        ASSERT_EQ(error, boost::none);
-      });
+      [&] { validate(qry, ::testing::Eq(boost::none)); });
 }
 
 /**
@@ -68,25 +78,19 @@ TEST_F(QueryValidatorTest, StatelessValidTest) {
 TEST_F(QueryValidatorTest, StatelessInvalidTest) {
   iroha::protocol::Query qry;
   auto payload = qry.mutable_payload();
+  payload->set_allocated_meta(new iroha::protocol::QueryPayloadMeta());
 
-  // create queries from default constructors, which will have empty, therefore
-  // invalid values
-  iterateContainer(
-      [] {
-        return iroha::protocol::Query::Payload::descriptor()->FindOneofByName(
-            "query");
-      },
-      [&](auto field) {
-        // Set concrete type for new query
-        return payload->GetReflection()->MutableMessage(payload, field);
-      },
-      [](auto, auto) {
-        // Note that no fields are set
-      },
-      [&] {
-        auto result = proto::Query(iroha::protocol::Query(qry));
-        auto error = query_validator.validate(result);
+  auto refl = iroha::protocol::Query::Payload::GetReflection();
+  auto desc = iroha::protocol::Query::Payload::GetDescriptor();
 
-        ASSERT_TRUE(error);
-      });
+  boost::for_each(boost::irange(0, desc->field_count()), [&](auto i) {
+    if (i == iroha::protocol::Query::Payload::QUERY_NOT_SET) {
+      return;
+    }
+    auto field = desc->field(i);
+    auto *msg = refl->GetMessage(*payload, field).New();
+    iroha::setDummyFieldValues(msg);
+    refl->SetAllocatedMessage(payload, msg, field);
+    validate(qry, ::testing::Ne(boost::none));
+  });
 }

@@ -69,10 +69,8 @@ namespace fs = boost::filesystem;
 
 iroha::keypair_t *makeOldModel(const shared_model::crypto::Keypair &keypair) {
   return new iroha::keypair_t{
-      iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey()))
-          .assumeValue(),
-      iroha::privkey_t::from_string(toBinaryString(keypair.privateKey()))
-          .assumeValue()};
+      iroha::pubkey_t::from_raw(keypair.publicKey().blob().data()),
+      iroha::privkey_t::from_raw(keypair.privateKey().blob().data())};
 }
 
 int main(int argc, char *argv[]) {
@@ -127,10 +125,13 @@ int main(int argc, char *argv[]) {
     auto block = generator.generateGenesisBlock(0, {transaction});
     // Convert to json
     std::ofstream output_file("genesis.block");
-    auto bl = shared_model::proto::Block(
-        iroha::model::converters::PbBlockFactory().serialize(block).block_v1());
+    auto bl = shared_model::proto::Block::create(
+                  iroha::model::converters::PbBlockFactory()
+                      .serialize(block)
+                      .block_v1())
+                  .assumeValue();
 
-    shared_model::proto::ProtoBlockJsonConverter().serialize(bl).match(
+    shared_model::proto::ProtoBlockJsonConverter().serialize(*bl).match(
         [&logger, &output_file](auto &&json) {
           output_file << std::move(json.value);
           logger->info("File saved to genesis.block");
@@ -183,10 +184,12 @@ int main(int argc, char *argv[]) {
         logger->error("Json transaction has wrong format.");
         return EXIT_FAILURE;
       } else {
-        auto tx = shared_model::proto::Transaction(
-            iroha::model::converters::PbTransactionFactory().serialize(
-                *tx_opt));
-        response_handler.handle(client.sendTx(tx));
+        auto tx =
+            shared_model::proto::Transaction::create(
+                iroha::model::converters::PbTransactionFactory().serialize(
+                    *tx_opt))
+                .assumeValue();
+        response_handler.handle(client.sendTx(*tx));
       }
     }
     if (not FLAGS_json_query.empty()) {
@@ -201,10 +204,12 @@ int main(int argc, char *argv[]) {
         logger->error("Json has wrong format.");
         return EXIT_FAILURE;
       } else {
-        auto query = shared_model::proto::Query(
-            *iroha::model::converters::PbQueryFactory(pb_qry_factory_log)
-                 .serialize(*query_opt));
-        auto response = client.sendQuery(query);
+        auto query =
+            shared_model::proto::Query::create(
+                *iroha::model::converters::PbQueryFactory(pb_qry_factory_log)
+                     .serialize(*query_opt))
+                .assumeValue();
+        auto response = client.sendQuery(*query);
         response_handler.handle(response);
       }
     }

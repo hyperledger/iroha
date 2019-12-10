@@ -24,6 +24,9 @@ using namespace framework::test_subscriber;
 using testing::_;
 using testing::Return;
 
+shared_model::crypto::PublicKey kAnotherPeerKey{
+    iroha::createPublicKey("another_pubkey")};
+
 class MstProcessorTest : public testing::Test {
  public:
   // --------------------------------| fields |---------------------------------
@@ -256,12 +259,11 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   auto observers = initObservers(mst_processor, 0, 1, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   auto transported_state = MstState::empty(getTestLogger("MstState"),
                                            std::make_shared<TestCompleter>());
   transported_state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key, transported_state);
+  mst_processor->onNewState(kAnotherPeerKey, transported_state);
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -286,8 +288,8 @@ TEST_F(MstProcessorTest, onNewPropagationUsecase) {
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
-      makePeer("one", shared_model::interface::types::PubkeyType("sign_one")),
-      makePeer("two", shared_model::interface::types::PubkeyType("sign_two"))};
+      makePeer("one", iroha::createPublicKey("one")),
+      makePeer("two", iroha::createPublicKey("two"))};
   propagation_subject.get_subscriber().on_next(peers);
 }
 
@@ -305,8 +307,7 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   EXPECT_CALL(*transport, sendState(_, _)).Times(0);
 
   // ---------------------------------| given |---------------------------------
-  auto another_peer = makePeer(
-      "another", shared_model::interface::types::PubkeyType("sign_one"));
+  auto another_peer = makePeer("another", iroha::createPublicKey());
 
   auto another_peer_state = MstState::empty(
       getTestLogger("MstState"),
@@ -338,12 +339,11 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
   auto observers = initObservers(mst_processor, 0, 0, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   auto transported_state = MstState::empty(getTestLogger("MstState"),
                                            std::make_shared<TestCompleter>());
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
   transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
-  mst_processor->onNewState(another_peer_key, transported_state);
+  mst_processor->onNewState(kAnotherPeerKey, transported_state);
 
   // ---------------------------------| then |----------------------------------
   EXPECT_FALSE(storage->batchInStorage(expired_batch));
@@ -369,8 +369,7 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
                                         std::make_shared<TestCompleter>());
   received_state += batch;
   auto observers = initObservers(mst_processor, 0, 0, 0);
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  mst_processor->onNewState(another_peer_key, received_state);
+  mst_processor->onNewState(kAnotherPeerKey, received_state);
 
   check(observers);
 }

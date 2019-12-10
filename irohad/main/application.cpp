@@ -570,8 +570,9 @@ Irohad::RunResult Irohad::initOrderingGate() {
   decltype(top_height) block_hashes =
       top_height > kNumBlocks ? kNumBlocks : top_height;
 
-  auto hash_stub = shared_model::interface::types::HashType{std::string(
-      shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0')};
+  auto hash_stub = shared_model::interface::types::HashType{
+      shared_model::crypto::Blob::fromBinaryString(std::string(
+          shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0'))};
   std::vector<shared_model::interface::types::HashType> hashes{
       kNumBlocks - block_hashes, hash_stub};
 

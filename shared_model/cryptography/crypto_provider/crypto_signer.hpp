@@ -6,13 +6,14 @@
 #ifndef IROHA_CRYPTO_SIGNER_HPP
 #define IROHA_CRYPTO_SIGNER_HPP
 
-#include "cryptography/blob.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
-#include "cryptography/keypair.hpp"
 #include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace crypto {
+    class BytesView;
+    class Keypair;
+
     /**
      * CryptoSigner - wrapper for generalization signing for different
      * cryptographic algorithms

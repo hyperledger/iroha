@@ -90,8 +90,10 @@ namespace executor_testing {
         if (permissions_param_.enough_permissions) {
           checkSuccessfulResult<SpecificQueryResponse>(response, checker);
         } else {
-          checkQueryError<shared_model::interface::StatefulFailedErrorResponse>(
-              response, error_codes::kNoPermissions);
+          checkQueryError(
+              response,
+              shared_model::interface::QueryErrorType::kStatefulFailed,
+              error_codes::kNoPermissions);
         }
       }
 

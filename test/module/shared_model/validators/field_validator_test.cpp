@@ -23,6 +23,9 @@
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "common/hexutils.hpp"
+#include "common/result.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/field_validator.hpp"
@@ -86,7 +89,7 @@ class FieldValidatorTest : public ValidatorsTest {
         "public_key",
         &FieldValidator::validatePubkey,
         &FieldValidatorTest::public_key,
-        [](auto &&x) { return interface::types::PubkeyType(x); },
+        [](auto &&x) { return iroha::createPublicKey(x); },
         public_key_test_cases));
 
     for (const auto &field : {"role_name", "default_role", "role_id"}) {
@@ -368,7 +371,7 @@ class FieldValidatorTest : public ValidatorsTest {
     return {case_name,
             [&, address, pubkey] {
               this->peer.set_address(address);
-              this->peer.set_peer_key(shared_model::crypto::Hash(pubkey).hex());
+              this->peer.set_peer_key(iroha::bytestringToHexstring(pubkey));
             },
             true,
             ""};
@@ -456,12 +459,8 @@ class FieldValidatorTest : public ValidatorsTest {
       makeInvalidPeerAddressTestCase("empty domain", ":6565", std::string(crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, '0')),
       makeInvalidPeerAddressTestCase("empty domain two : symbols", "::6565:", std::string(crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, '0')),
 
-      // invalid pubkey
-      makeInvalidPeerPubkeyTestCase("invalid_peer_pubkey_length",
-                                    "182.13.35.1:3040",
-                                    std::string(123, '0')),
-      makeInvalidPeerPubkeyTestCase(
-          "invalid_peer_pubkey_empty", "182.13.35.1:3040", "")
+      // invalid pubkey (must be still a valid hex)
+      makeInvalidPeerPubkeyTestCase("invalid_peer_pubkey_length", "182.13.35.1:3040", std::string(124, '0'))
       // clang-format on
   };
 
@@ -639,7 +638,7 @@ class FieldValidatorTest : public ValidatorsTest {
     iroha::protocol::Transaction::Payload::BatchMeta meta;
     meta.set_type(iroha::protocol::Transaction::Payload::BatchMeta::BatchType::
                       Transaction_Payload_BatchMeta_BatchType_ATOMIC);
-    meta.add_reduced_hashes("tst");
+    meta.add_reduced_hashes("BA74");
     std::vector<FieldTestCase> all_cases;
     all_cases.push_back(makeTestCase(
         "batch meta test", &FieldValidatorTest::batch_meta, meta, true, ""));
@@ -723,11 +722,12 @@ class FieldValidatorTest : public ValidatorsTest {
           &FieldValidatorTest::amount,
           [](auto &&x) { return shared_model::interface::Amount(x); },
           amount_test_cases),
-      makeTransformValidator("peer",
-                             &FieldValidator::validatePeer,
-                             &FieldValidatorTest::peer,
-                             [](auto &&x) { return proto::Peer(x); },
-                             peer_test_cases),
+      makeTransformValidator(
+          "peer",
+          &FieldValidator::validatePeer,
+          &FieldValidatorTest::peer,
+          [](auto &&x) { return *proto::Peer::create(x).assumeValue(); },
+          peer_test_cases),
       makeValidator("account_name",
                     &FieldValidator::validateAccountName,
                     &FieldValidatorTest::account_name,
@@ -769,13 +769,15 @@ class FieldValidatorTest : public ValidatorsTest {
           "batch",
           &FieldValidator::validateBatchMeta,
           &FieldValidatorTest::batch_meta,
-          [](auto &&x) { return shared_model::proto::BatchMeta(x); },
+          [](auto &&x) { return *proto::BatchMeta::create(x).assumeValue(); },
           batch_meta_test_cases),
       makeTransformValidator(
           "pagination_meta",
           &FieldValidator::validateTxPaginationMeta,
           &FieldValidatorTest::tx_pagination_meta,
-          [](auto &&x) { return proto::TxPaginationMeta(x); },
+          [](auto &&x) {
+            return *proto::TxPaginationMeta::create(x).assumeValue();
+          },
           tx_pagination_meta_test_cases)};
 };
 

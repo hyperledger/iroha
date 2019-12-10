@@ -8,6 +8,7 @@
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "validators/default_validator.hpp"
@@ -34,7 +35,9 @@ class ProposalFactoryTest : public ::testing::Test {
   std::vector<proto::Transaction> txs;
 
   void SetUp() override {
-    txs.emplace_back(iroha::protocol::Transaction{});
+    auto tx_result = proto::Transaction::create(iroha::protocol::Transaction{});
+    IROHA_ASSERT_RESULT_VALUE(tx_result) << "Failed to create a transaction!";
+    txs.emplace_back(*std::move(tx_result).assumeValue());
   }
 
   void TearDown() override {
@@ -48,9 +51,6 @@ class ProposalFactoryTest : public ::testing::Test {
  * @then proposal is successfully created
  */
 TEST_F(ProposalFactoryTest, ValidProposalTest) {
-  std::vector<proto::Transaction> txs;
-  iroha::protocol::Transaction proto_tx;
-  txs.emplace_back(proto_tx);
   auto proposal = valid_factory.createProposal(height, time, txs);
 
   proposal.match(

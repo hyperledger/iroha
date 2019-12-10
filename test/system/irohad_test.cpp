@@ -296,11 +296,11 @@ class IrohadTest : public AcceptanceFixture {
 
     auto genesis_block =
         shared_model::proto::BlockBuilder()
-            .transactions(
-                std::vector<shared_model::proto::Transaction>{genesis_tx})
+            .transactions(std::vector<shared_model::proto::Transaction>{
+                std::move(genesis_tx)})
             .height(1)
             .prevHash(shared_model::crypto::DefaultHashProvider::makeHash(
-                shared_model::crypto::Blob("")))
+                shared_model::crypto::Blob{}))
             .createdTime(iroha::time::now())
             .build()
             .signAndAddSignature(node0_keys)
@@ -505,10 +505,14 @@ TEST_F(IrohadTest, SendQuery) {
       complete(baseQry(kAdminId).getRoles(), std::move(key_pair).assumeValue());
   auto client = torii_utils::QuerySyncClient(kAddress, kPort);
   client.Find(query.getTransport(), response);
-  shared_model::proto::QueryResponse resp{std::move(response)};
+
+  auto resp_result =
+      shared_model::proto::QueryResponse::create(std::move(response));
+  IROHA_ASSERT_RESULT_VALUE(resp_result) << "Could not parse query response.";
+  auto resp = std::move(resp_result).assumeValue();
 
   ASSERT_NO_THROW(
-      boost::get<const shared_model::interface::RolesResponse &>(resp.get()));
+      boost::get<const shared_model::interface::RolesResponse &>(resp->get()));
 }
 
 /**

@@ -36,6 +36,7 @@
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -299,7 +300,7 @@ namespace integration_framework {
             .transactions(
                 std::vector<shared_model::proto::Transaction>{genesis_tx})
             .height(1)
-            .prevHash(DefaultHashProvider::makeHash(Blob("")))
+            .prevHash(DefaultHashProvider::makeHash(Blob{}))
             .createdTime(iroha::time::now())
             .build()
             .signAndAddSignature(key)
@@ -487,7 +488,14 @@ namespace integration_framework {
     request.set_tx_hash(hash.hex());
     iroha::protocol::ToriiResponse response;
     command_client_->Status(request, response);
-    validation(shared_model::proto::TransactionResponse(std::move(response)));
+    [&response, &validation] {
+      auto model_result =
+          shared_model::proto::TransactionResponse::create(std::move(response));
+      IROHA_ASSERT_RESULT_VALUE(model_result)
+          << "Failed to parse transaction response.";
+      auto model = std::move(model_result).assumeValue();
+      validation(*model);
+    }();
     return *this;
   }
 
@@ -559,8 +567,9 @@ namespace integration_framework {
 
   IntegrationTestFramework &IntegrationTestFramework::sendTxSequence(
       const shared_model::interface::TransactionSequence &tx_sequence,
-      std::function<void(std::vector<shared_model::proto::TransactionResponse>
-                             &)> validation) {
+      std::function<void(std::vector<std::shared_ptr<
+                             shared_model::interface::TransactionResponse>> &)>
+          validation) {
     log_->info("send transactions");
     const auto &transactions = tx_sequence.transactions();
 
@@ -569,7 +578,8 @@ namespace integration_framework {
     bool processed = false;
 
     // subscribe on status bus and save all stateless statuses into a vector
-    std::vector<shared_model::proto::TransactionResponse> statuses;
+    std::vector<std::shared_ptr<shared_model::interface::TransactionResponse>>
+        statuses;
     iroha_instance_->getIrohaInstance()
         ->getStatusBus()
         ->statuses()
@@ -591,16 +601,12 @@ namespace integration_framework {
           return it != transactions.end();
         })
         .take(transactions.size())
-        .subscribe(
-            [&statuses](auto s) {
-              statuses.push_back(*std::static_pointer_cast<
-                                 shared_model::proto::TransactionResponse>(s));
-            },
-            [&cv, &m, &processed] {
-              std::lock_guard<std::mutex> lock(m);
-              processed = true;
-              cv.notify_all();
-            });
+        .subscribe([&statuses](auto s) { statuses.push_back(s); },
+                   [&cv, &m, &processed] {
+                     std::lock_guard<std::mutex> lock(m);
+                     processed = true;
+                     cv.notify_all();
+                   });
 
     // put all transactions to the TxList and send them to iroha
     iroha::protocol::TxList tx_list;
@@ -638,9 +644,14 @@ namespace integration_framework {
 
     iroha::protocol::QueryResponse response;
     query_client_->Find(qry.getTransport(), response);
-    shared_model::proto::QueryResponse query_response{std::move(response)};
-
-    validation(query_response);
+    [&response, &validation] {
+      auto model_result =
+          shared_model::proto::QueryResponse::create(std::move(response));
+      IROHA_ASSERT_RESULT_VALUE(model_result)
+          << "Failed to parse query response.";
+      auto model = std::move(model_result).assumeValue();
+      validation(*model);
+    }();
     return *this;
   }
 

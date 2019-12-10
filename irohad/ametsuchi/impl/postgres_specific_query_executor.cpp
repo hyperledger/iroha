@@ -601,17 +601,31 @@ namespace iroha {
                   QueryErrorType::kNoSignatories, q.accountId(), 0, query_hash);
             }
 
-            auto pubkeys = boost::copy_range<
+            auto pubkeys = iroha::expected::resultsToResultOfValues<
                 std::vector<shared_model::interface::types::PubkeyType>>(
                 range_without_nulls | boost::adaptors::transformed([](auto t) {
-                  return iroha::ametsuchi::apply(t, [&](auto &public_key) {
-                    return shared_model::interface::types::PubkeyType{
-                        shared_model::crypto::Blob::fromHexString(public_key)};
+                  return iroha::ametsuchi::apply(t, [](auto &public_key) {
+                    return shared_model::crypto::Blob::fromHexString(public_key)
+                        | [](auto &&public_key) {
+                            return shared_model::interface::types::PubkeyType{
+                                std::move(public_key)};
+                          };
                   });
                 }));
 
-            return query_response_factory_->createSignatoriesResponse(
-                pubkeys, query_hash);
+            return pubkeys.match(
+                [&query_hash, this](auto &&pubkeys) -> QueryExecutorResult {
+                  return query_response_factory_->createSignatoriesResponse(
+                      std::move(pubkeys.value), query_hash);
+                },
+                [&query_hash, this](auto &&error) -> QueryExecutorResult {
+                  log_->error("Bad public key in database: {}", error.error);
+                  return this->logAndReturnErrorResponse(
+                      QueryErrorType::kStatefulFailed,
+                      std::move(error.error),
+                      1,
+                      query_hash);
+                });
           },
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMySignatories,
@@ -1354,30 +1368,49 @@ namespace iroha {
           },
           query_hash,
           [&](auto range, auto &) {
-            shared_model::interface::types::PeerList peers;
-            for (const auto &row : range) {
-              iroha::ametsuchi::apply(
-                  row,
-                  [this, &peers](
-                      auto &peer_key, auto &address, auto &tls_certificate) {
-                    if (peer_key and address) {
-                      peers.push_back(
-                          std::make_shared<shared_model::plain::Peer>(
-                              *address,
-                              shared_model::interface::types::PubkeyType{
-                                  shared_model::crypto::Blob::fromHexString(
-                                      *peer_key)},
-                              tls_certificate));
-                    } else {
-                      log_->error(
-                          "Address or public key not set for some peer!");
-                      assert(peer_key);
-                      assert(address);
-                    }
-                  });
-            }
-            return query_response_factory_->createPeersResponse(peers,
-                                                                query_hash);
+            auto peers = iroha::expected::resultsToResultOfValues<
+                shared_model::interface::types::PeerList>(
+                range | boost::adaptors::transformed([](auto row) {
+                  return iroha::ametsuchi::apply(
+                      row,
+                      [](auto &peer_key, auto &address, auto &tls_certificate)
+                          -> iroha::expected::Result<
+                              std::shared_ptr<shared_model::interface::Peer>,
+                              std::string> {
+                        if (not peer_key) {
+                          return iroha::expected::makeError(
+                              "Peer key not set.");
+                        }
+                        if (not address) {
+                          return iroha::expected::makeError(
+                              "Peer address not set.");
+                        }
+                        return shared_model::crypto::Blob::fromHexString(
+                                   *peer_key)
+                            | [&address, &tls_certificate](auto &&public_key) {
+                                return std::make_shared<
+                                    shared_model::plain::Peer>(
+                                    *address,
+                                    shared_model::interface::types::PubkeyType{
+                                        std::move(public_key)},
+                                    tls_certificate);
+                              };
+                      });
+                }));
+
+            return peers.match(
+                [&query_hash, this](auto &&peers) -> QueryExecutorResult {
+                  return query_response_factory_->createPeersResponse(
+                      std::move(peers.value), query_hash);
+                },
+                [&query_hash, this](auto &&error) -> QueryExecutorResult {
+                  log_->error("{}", error.error);
+                  return this->logAndReturnErrorResponse(
+                      QueryErrorType::kStatefulFailed,
+                      std::move(error.error),
+                      1,
+                      query_hash);
+                });
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
     }

@@ -95,7 +95,7 @@ TEST_F(OnDemandOsClientGrpcTest, onBatches) {
   collection.push_back(
       std::make_unique<shared_model::interface::TransactionBatchImpl>(
           shared_model::interface::types::SharedTxsCollectionType{
-              std::make_unique<shared_model::proto::Transaction>(tx)}));
+              shared_model::proto::Transaction::create(tx).assumeValue()}));
   client->onBatches(std::move(collection));
 
   ASSERT_EQ(request.transactions()

@@ -7,7 +7,6 @@ add_library(mst_storage
     )
 
 target_link_libraries(mst_storage
-    crypto_blob_hasher
     mst_state
     logger
     )

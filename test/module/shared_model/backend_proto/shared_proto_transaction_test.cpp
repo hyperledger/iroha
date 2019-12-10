@@ -62,7 +62,8 @@ TEST(ProtoTransaction, Builder) {
   auto keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
   auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
-      shared_model::crypto::Blob(proto_tx.payload().SerializeAsString()),
+      *shared_model::crypto::Blob::fromBinaryString(
+          proto_tx.payload().SerializeAsString()),
       keypair);
 
   auto sig = proto_tx.add_signatures();

@@ -125,7 +125,7 @@ TEST_F(OnDemandOsServerGrpcTest, RequestProposal) {
       ->set_creator_account_id(creator);
 
   std::shared_ptr<const shared_model::interface::Proposal> iproposal(
-      std::make_shared<const shared_model::proto::Proposal>(proposal));
+      shared_model::proto::Proposal::create(proposal).assumeValue());
   EXPECT_CALL(*notification, onRequestProposal(round))
       .WillOnce(Return(ByMove(std::move(iproposal))));
 

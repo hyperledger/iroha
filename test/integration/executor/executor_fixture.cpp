@@ -14,6 +14,7 @@
 #include "interfaces/query_responses/signatories_response.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace common_constants;
 using namespace executor_testing;
@@ -32,6 +33,14 @@ namespace executor_testing {
     } else {
       ADD_FAILURE() << "Did not get the expected command error!";
     }
+  }
+
+  void checkQueryError(
+      const iroha::ametsuchi::QueryExecutorResult &response,
+      shared_model::interface::QueryErrorType error_type,
+      shared_model::interface::ErrorQueryResponse::ErrorCodeType error_code) {
+    shared_model::interface::checkForQueryError(
+        *response, error_type, error_code);
   }
 
   std::pair<std::string, std::string> splitNameAndDomain(const std::string &id,

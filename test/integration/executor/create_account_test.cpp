@@ -44,11 +44,11 @@ class CreateAccountTest : public ExecutorTestBase {
   void checkNoSuchAccount(
       const boost::optional<AccountIdType> &account_id = boost::none) {
     auto account_id_val = account_id.value_or(getNewId());
-    checkQueryError<shared_model::interface::NoAccountErrorResponse>(
-        getItf().executeQuery(
-            *getItf().getMockQueryFactory()->constructGetAccount(
-                account_id_val)),
-        0);
+    checkQueryError(getItf().executeQuery(
+                        *getItf().getMockQueryFactory()->constructGetAccount(
+                            account_id_val)),
+                    shared_model::interface::QueryErrorType::kNoAccount,
+                    0);
   }
 
   iroha::ametsuchi::CommandResult createAccount(

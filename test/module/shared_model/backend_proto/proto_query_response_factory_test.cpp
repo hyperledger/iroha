@@ -4,11 +4,13 @@
  */
 
 #include "backend/protobuf/proto_query_response_factory.hpp"
+
 #include <gtest/gtest.h>
 #include <boost/optional.hpp>
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "interfaces/query_responses/account_response.hpp"
@@ -32,6 +34,8 @@ using namespace shared_model::interface::types;
 
 using shared_model::crypto::Blob;
 using shared_model::validation::FieldValidator;
+
+static const HashType kQueryHash{Blob::fromBinaryString("my_super_hash")};
 
 class ProtoQueryResponseFactoryTest : public ::testing::Test {
  public:
@@ -65,8 +69,6 @@ class ProtoQueryResponseFactoryTest : public ::testing::Test {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   constexpr int kAccountAssetsNumber = 5;
   const std::string kAccountId = "doge@meme";
   const std::string kAssetId = "dogecoin#iroha";
@@ -120,8 +122,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const DetailType account_details = "{ fav_meme : doge }";
   const size_t total_number = 999;
   const shared_model::plain::AccountDetailRecordId next_record_id{"pepe@uganda",
@@ -149,8 +149,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAccountResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const AccountIdType kAccountId = "doge@meme";
   const DomainIdType kDomainId = "meme";
   const QuorumType kQuorum = 1;
@@ -188,62 +186,29 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountResponse) {
  * @then that responses are created @and are well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
-  using ErrorTypes =
-      shared_model::interface::QueryResponseFactory::QueryErrorType;
-  const HashType kQueryHash{"my_super_hash"};
+  using namespace shared_model::interface;
 
-  const auto kStatelessErrorMsg = "stateless failed";
-  const auto kStatefulFailedErrorMsg = "stateful failed";
-  const auto kNoSigsErrorMsg = "no signatories";
+  auto test_case = [this](QueryErrorType error_type,
+                          ErrorQueryResponse::ErrorMessageType error_msg,
+                          ErrorQueryResponse::ErrorCodeType error_code) {
+    auto response = response_factory->createErrorQueryResponse(
+        error_type, error_msg, error_code, kQueryHash);
+    ASSERT_TRUE(response);
 
-  auto stateless_invalid_response = response_factory->createErrorQueryResponse(
-      ErrorTypes::kStatelessFailed, kStatelessErrorMsg, 0, kQueryHash);
-  auto stateful_failed_response = response_factory->createErrorQueryResponse(
-      ErrorTypes::kStatefulFailed, kStatefulFailedErrorMsg, 1, kQueryHash);
-  auto no_signatories_response = response_factory->createErrorQueryResponse(
-      ErrorTypes::kNoSignatories, kNoSigsErrorMsg, 0, kQueryHash);
+    EXPECT_EQ(response->queryHash(), kQueryHash);
 
-  ASSERT_TRUE(stateless_invalid_response);
-  ASSERT_EQ(stateless_invalid_response->queryHash(), kQueryHash);
-  ASSERT_NO_THROW({
-    const auto &general_resp =
-        boost::get<const shared_model::interface::ErrorQueryResponse &>(
-            stateless_invalid_response->get());
+    const auto *error_response =
+        boost::get<const ErrorQueryResponse &>(&response->get());
+    ASSERT_TRUE(error_response);
 
-    ASSERT_EQ(general_resp.errorMessage(), kStatelessErrorMsg);
-    ASSERT_EQ(general_resp.errorCode(), 0);
-    (void)boost::get<
-        const shared_model::interface::StatelessFailedErrorResponse &>(
-        general_resp.get());
-  });
+    EXPECT_EQ(error_response->errorMessage(), error_msg);
+    EXPECT_EQ(error_response->errorCode(), error_code);
+    EXPECT_EQ(error_response->reason(), error_type);
+  };
 
-  ASSERT_TRUE(stateful_failed_response);
-  ASSERT_EQ(stateful_failed_response->queryHash(), kQueryHash);
-  ASSERT_NO_THROW({
-    const auto &general_resp =
-        boost::get<const shared_model::interface::ErrorQueryResponse &>(
-            stateful_failed_response->get());
-
-    ASSERT_EQ(general_resp.errorMessage(), kStatefulFailedErrorMsg);
-    ASSERT_EQ(general_resp.errorCode(), 1);
-    (void)boost::get<
-        const shared_model::interface::StatefulFailedErrorResponse &>(
-        general_resp.get());
-  });
-
-  ASSERT_TRUE(no_signatories_response);
-  ASSERT_EQ(no_signatories_response->queryHash(), kQueryHash);
-  ASSERT_NO_THROW({
-    const auto &general_resp =
-        boost::get<const shared_model::interface::ErrorQueryResponse &>(
-            no_signatories_response->get());
-
-    ASSERT_EQ(general_resp.errorMessage(), kNoSigsErrorMsg);
-    ASSERT_EQ(general_resp.errorCode(), 0);
-    (void)
-        boost::get<const shared_model::interface::NoSignatoriesErrorResponse &>(
-            general_resp.get());
-  });
+  test_case(QueryErrorType::kStatelessFailed, "stateless failed", 0);
+  test_case(QueryErrorType::kStatefulFailed, "stateful failed", 1);
+  test_case(QueryErrorType::kNoSignatories, "no signatories", 0);
 }
 
 /**
@@ -253,8 +218,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const auto pub_key =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
           .publicKey();
@@ -280,8 +243,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   constexpr int kTransactionsNumber = 5;
 
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -318,8 +279,8 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-  const HashType kNextTxHash{"next_tx_hash"};
+  const HashType kNextTxHash{
+      shared_model::crypto::Blob::fromBinaryString("next_tx_hash")};
 
   constexpr int kTransactionsNumber = 5;
 
@@ -361,8 +322,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
  */
 TEST_F(ProtoQueryResponseFactoryTest,
        CreateTransactionsPageResponseWithoutNextTxHash) {
-  const HashType kQueryHash{"my_super_hash"};
-
   constexpr int kTransactionsNumber = 5;
 
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>
@@ -401,8 +360,6 @@ TEST_F(ProtoQueryResponseFactoryTest,
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateAssetResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const AssetIdType kAssetId = "doge#coin";
   const DomainIdType kDomainId = "coin";
   const PrecisionType kPrecision = 2;
@@ -434,8 +391,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAssetResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateRolesResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const std::vector<RoleIdType> roles{"admin", "user"};
   auto query_response =
       response_factory->createRolesResponse(roles, kQueryHash);
@@ -458,8 +413,6 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateRolesResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateRolePermissionsResponse) {
-  const HashType kQueryHash{"my_super_hash"};
-
   const shared_model::interface::RolePermissionSet perms{
       shared_model::interface::permissions::Role::kGetMyAccount,
       shared_model::interface::permissions::Role::kAddSignatory};
@@ -487,8 +440,11 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateBlockQueryResponseWithBlock) {
   constexpr HeightType kBlockHeight = 42;
   const auto kCreatedTime = iroha::time::now();
 
-  auto block =
-      TestBlockBuilder().height(kBlockHeight).createdTime(kCreatedTime).build();
+  auto block = TestBlockBuilder()
+                   .height(kBlockHeight)
+                   .createdTime(kCreatedTime)
+                   .prevHash(iroha::createHash())
+                   .build();
   auto response = response_factory->createBlockQueryResponse(
       std::make_unique<Block>(std::move(block)));
 

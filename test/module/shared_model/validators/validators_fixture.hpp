@@ -242,10 +242,10 @@ class ValidatorsTest : public ::testing::Test {
     detail_key = "key";
     writer = "account@domain";
 
-    // size of public_key and hash are twice bigger `public_key_size` because it
-    // is hex representation
+    // size of public_key and hash are multiplied by 2 because of hex
+    // representation
     public_key = std::string(public_key_size * 2, '0');
-    hash = std::string(public_key_size * 2, '0');
+    hash = std::string(hash_size * 2, '0');
 
     role_permission = iroha::protocol::RolePermission::can_append_role;
     grantable_permission =

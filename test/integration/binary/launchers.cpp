@@ -15,6 +15,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/keypair.hpp"
 #include "cryptography/seed.hpp"
+#include "queries.pb.h"
 
 using namespace boost::process;
 
@@ -34,7 +35,8 @@ namespace {
                                kPrivateKeyLength));
     }
     return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair(
-        shared_model::crypto::Seed(*byte_string));
+        shared_model::crypto::Seed(
+            shared_model::crypto::Blob::fromBinaryString(*byte_string)));
   }
 }  // namespace
 
@@ -82,14 +84,18 @@ namespace binary_test {
           case 'T': {
             iroha::protocol::Transaction proto_tx;
             if (proto_tx.ParseFromString(*byte_string)) {
-              transactions.emplace_back(std::move(proto_tx));
+              transactions.emplace_back(
+                  shared_model::proto::Transaction::create(std::move(proto_tx))
+                      .assumeValue());
             }
             break;
           }
           case 'Q': {
             iroha::protocol::Query proto_query;
             if (proto_query.ParseFromString(*byte_string)) {
-              queries.emplace_back(std::move(proto_query));
+              queries.emplace_back(
+                  shared_model::proto::Query::create(std::move(proto_query))
+                      .assumeValue());
             }
             break;
           }

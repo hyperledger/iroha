@@ -4,14 +4,16 @@
  */
 
 #include "torii/query_service.hpp"
+
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/torii/processor/mock_query_processor.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 
 using namespace iroha;
@@ -107,8 +109,12 @@ TEST_F(QueryServiceTest, ValidWhenUniqueHash) {
 
   protocol::QueryResponse response;
   query_service->Find(query->getTransport(), response);
-  shared_model::proto::QueryResponse resp{protocol::QueryResponse{response}};
-  ASSERT_EQ(resp, *getResponse());
+
+  auto resp_result = shared_model::proto::QueryResponse::create(response);
+  IROHA_ASSERT_RESULT_VALUE(resp_result);
+  auto resp = std::move(resp_result).assumeValue();
+
+  ASSERT_EQ(*resp, *getResponse());
 }
 
 /**
@@ -131,9 +137,11 @@ TEST_F(QueryServiceTest, InvalidWhenDuplicateHash) {
   // second call of the same query
   query_service->Find(query->getTransport(), response);
   ASSERT_TRUE(response.has_error_response());
-  shared_model::proto::QueryResponse resp{protocol::QueryResponse{response}};
-  ASSERT_TRUE(boost::apply_visitor(
-      shared_model::interface::QueryErrorResponseChecker<
-          shared_model::interface::StatelessFailedErrorResponse>(),
-      resp.get()));
+
+  auto resp_result = shared_model::proto::QueryResponse::create(response);
+  IROHA_ASSERT_RESULT_VALUE(resp_result);
+  auto resp = std::move(resp_result).assumeValue();
+
+  shared_model::interface::checkForQueryError(
+      *resp, shared_model::interface::QueryErrorType::kStatelessFailed);
 }

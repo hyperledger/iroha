@@ -8,6 +8,8 @@
 
 #include <memory>
 
+#include <fmt/core.h>
+#include <boost/optional/optional.hpp>
 #include "common/result.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -19,7 +21,17 @@ namespace shared_model {
     class AbstractTransportFactory {
      public:
       struct Error {
-        types::HashType hash;
+        std::string toString() const {
+          if (hash) {
+            return fmt::format("TransportFactory::Error, message: {}", error);
+          }
+          return fmt::format(
+              "TransportFactory::Error, object hash: {}, message: {}",
+              hash.value(),
+              error);
+        }
+
+        boost::optional<types::HashType> hash;
         std::string error;
       };
 

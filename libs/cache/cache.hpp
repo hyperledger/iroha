@@ -45,7 +45,13 @@ namespace iroha {
 
       void addItemImpl(const KeyType &key, const ValueType &value) {
         // elements with the same hash should be replaced
-        handler_map_[key] = value;
+        auto it = handler_map_.find(key);
+        if (it != handler_map_.end()) {
+          auto hint = handler_map_.erase(it);
+          it = handler_map_.emplace_hint(hint, key, value);
+        } else {
+          it = handler_map_.emplace(key, value).first;
+        }
         handler_map_index_.push_back(key);
         if (handler_map_.size() > getIndexSizeHighImpl()) {
           while (handler_map_.size() > getIndexSizeLowImpl()) {

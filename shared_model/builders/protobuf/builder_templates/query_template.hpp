@@ -12,6 +12,7 @@
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -289,11 +290,12 @@ namespace shared_model {
             == iroha::protocol::Query_Payload::QueryCase::QUERY_NOT_SET) {
           throw std::invalid_argument("Missing concrete query");
         }
-        auto result = Query(iroha::protocol::Query(query_));
-        if (auto error = stateless_validator_.validate(result)) {
+        auto result =
+            Query::create(iroha::protocol::Query(query_)).assumeValue();
+        if (auto error = stateless_validator_.validate(*result)) {
           throw std::invalid_argument(error->toString());
         }
-        return BT(std::move(result));
+        return BT(std::move(*result));
       }
 
       static const int total = RequiredFields::TOTAL;

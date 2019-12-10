@@ -8,7 +8,7 @@
 
 #include "interfaces/iroha_internal/batch_meta.hpp"
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "transaction.pb.h"

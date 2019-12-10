@@ -13,7 +13,7 @@
 
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
-
+#include "common/forward_like.hpp"
 #include "common/visitor.hpp"
 
 /*
@@ -128,7 +128,6 @@ namespace iroha {
                                   [](Error<OE> &&e) -> Result<V, E> {
                                     return ErrorType{std::move(e.error)};
                                   })) {}
-
 
       const variant_type &variant() const & {
         return *this;
@@ -442,7 +441,7 @@ namespace iroha {
           [&f](auto &&v) {
             return TypeHelper::makeValue(f(std::move(v.value)));
           },
-          [](auto &&e) { return ReturnType(makeError(std::move(e.error))); });
+          [](auto &&e) { return ReturnType(std::move(e)); });
     }
 
     /**
@@ -550,6 +549,24 @@ namespace iroha {
         return makeError(std::move(error).value());
       }
       return makeValue(std::move(value));
+    }
+
+    template <
+        typename OutputCollection,
+        typename InputCollection,
+        typename Element = decltype(*std::declval<InputCollection>().begin())>
+    Result<OutputCollection, typename Element::ErrorInnerType>
+    resultsToResultOfValues(InputCollection &&input) {
+      OutputCollection output;
+      auto inserter = std::inserter(output, output.end());
+      for (auto &&el : input) {
+        if (auto e = resultToOptionalError(el)) {
+          return makeError(std::move(e).value());
+        }
+        *inserter++ =
+            stack_overflow::forward_like<InputCollection>(el).assumeValue();
+      }
+      return makeValue(std::move(output));
     }
   }  // namespace expected
 }  // namespace iroha

@@ -22,11 +22,12 @@ namespace iroha {
             std::begin(msg), std::end(msg), [](const auto &vote) {
               auto serialized =
                   PbConverters::serializeVote(vote).hash().SerializeAsString();
-              auto blob = shared_model::crypto::Blob(serialized);
+              auto signed_message = shared_model::crypto::BytesView(
+                  serialized.data(), serialized.size());
 
               return shared_model::crypto::CryptoVerifier<>::verify(
                   vote.signature->signedData(),
-                  blob,
+                  signed_message,
                   vote.signature->publicKey());
             });
       }
@@ -36,11 +37,12 @@ namespace iroha {
         vote.hash = hash;
         auto serialized =
             PbConverters::serializeVotePayload(vote).hash().SerializeAsString();
-        auto blob = shared_model::crypto::Blob(serialized);
+        auto signed_message = shared_model::crypto::BytesView(
+            serialized.data(), serialized.size());
         const auto &pubkey = keypair_.publicKey();
         const auto &privkey = keypair_.privateKey();
         auto signature = shared_model::crypto::CryptoSigner<>::sign(
-            blob, shared_model::crypto::Keypair(pubkey, privkey));
+            signed_message, shared_model::crypto::Keypair(pubkey, privkey));
 
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote

@@ -17,6 +17,7 @@
 #include "cryptography/public_key.hpp"
 #include "endpoint.pb.h"
 #include "endpoint_mock.grpc.pb.h"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -113,7 +114,6 @@ class CommandServiceTransportGrpcTest : public testing::Test {
   std::vector<iroha::torii::CommandServiceTransportGrpc::ConsensusGateEvent>
       gate_objects{2};
 
-  const size_t kHashLength = 32;
   const size_t kTimes = 5;
 };
 
@@ -126,7 +126,7 @@ TEST_F(CommandServiceTransportGrpcTest, Status) {
   grpc::ServerContext context;
 
   iroha::protocol::TxStatusRequest tx_request;
-  const shared_model::crypto::Hash hash(std::string(kHashLength, '1'));
+  const shared_model::crypto::Hash hash{iroha::createHashPadded("1")};
   tx_request.set_tx_hash(hash.hex());
 
   iroha::protocol::ToriiResponse toriiResponse;
@@ -257,6 +257,7 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiPartialInvalid) {
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
+  request.set_tx_hash("BE600D");
 
   EXPECT_CALL(*command_service, getStatusStream(_))
       .WillOnce(Return(rxcpp::observable<>::empty<std::shared_ptr<
@@ -274,11 +275,12 @@ TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamOnNotReceived) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
+  request.set_tx_hash("BE600D");
   iroha::MockServerWriter<iroha::protocol::ToriiResponse> response_writer;
 
   std::vector<std::shared_ptr<shared_model::interface::TransactionResponse>>
       responses;
-  shared_model::crypto::Hash hash("1");
+  shared_model::crypto::Hash hash{iroha::createHashPadded("1")};
   responses.emplace_back(status_factory->makeNotReceived(hash, {}));
   EXPECT_CALL(*command_service, getStatusStream(_))
       .WillOnce(Return(rxcpp::observable<>::iterate(responses)));

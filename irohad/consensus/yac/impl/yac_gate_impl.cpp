@@ -147,7 +147,7 @@ namespace iroha {
           auto &block = current_block_.value();
           log_->info("consensus: commit top block: height {}, hash {}",
                      block->height(),
-                     block->hash().hex());
+                     block->hash().toString());
           return rxcpp::observable<>::just<GateObject>(PairValid(
               current_hash_.vote_round, current_ledger_state_, block));
         }

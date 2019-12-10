@@ -5,6 +5,7 @@
 
 add_library(ursa_cryptography
     crypto_provider.cpp
+    ursa_blob.cpp
     )
 
 target_link_libraries(ursa_cryptography

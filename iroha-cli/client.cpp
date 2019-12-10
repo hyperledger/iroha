@@ -57,7 +57,8 @@ namespace iroha_cli {
     CliClient::Response<iroha::protocol::QueryResponse> response;
     // Convert to proto and send to Iroha
     iroha::model::converters::PbQueryFactory pb_factory(pb_qry_factory_log_);
-    auto proto_query = static_cast<const shared_model::proto::Query &>(query);
+    const auto &proto_query =
+        static_cast<const shared_model::proto::Query &>(query);
     iroha::protocol::QueryResponse query_response;
     response.status =
         query_client_.Find(proto_query.getTransport(), query_response);

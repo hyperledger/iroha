@@ -10,6 +10,7 @@
 
 #include "client.hpp"
 #include "common/byteutils.hpp"
+#include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "datetime/time.hpp"
@@ -271,11 +272,13 @@ namespace iroha_cli {
 
       CliClient client(
           address.value().first, address.value().second, pb_qry_factory_log_);
-      auto query = shared_model::proto::Query(
-          *iroha::model::converters::PbQueryFactory(pb_qry_factory_log_)
-               .serialize(query_));
+      auto query =
+          shared_model::proto::Query::create(
+              *iroha::model::converters::PbQueryFactory(pb_qry_factory_log_)
+                   .serialize(query_))
+              .assumeValue();
       GrpcResponseHandler{response_handler_log_manager_}.handle(
-          client.sendQuery(query));
+          client.sendQuery(*query));
       printEnd();
       // Stop parsing
       return false;

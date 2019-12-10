@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <boost/optional/optional_io.hpp>
+#include "framework/crypto_dummies.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
@@ -68,8 +69,7 @@ class BlockValidatorTest : public ValidatorsTest {
   }
 
   DefaultUnsignedBlockValidator validator_;
-  const Hash kPrevHash =
-      Hash(std::string(DefaultCryptoAlgorithmType::kHashLength, '0'));
+  const Hash kPrevHash = iroha::createHashPadded("prev_hash");
   const Keypair kDefaultKey = DefaultCryptoAlgorithmType::generateKeypair();
 };
 

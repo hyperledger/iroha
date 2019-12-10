@@ -27,6 +27,7 @@
 #include "common/result.hpp"
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -48,9 +49,22 @@
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace framework::expected;
 using namespace shared_model::interface;
+
+using ErrorCodeType =
+    shared_model::interface::ErrorQueryResponse::ErrorCodeType;
+
+// TODO [IR-1816] Akvinikym 06.12.18: remove these constants after
+// introducing a uniform way to use them in code
+static constexpr ErrorCodeType kNoStatefulError = 0;
+static constexpr ErrorCodeType kNoPermissions = 2;
+static constexpr ErrorCodeType kInvalidPagination = 4;
+static constexpr ErrorCodeType kInvalidAccountId = 5;
+static constexpr ErrorCodeType kInvalidAssetId = 6;
+static constexpr ErrorCodeType kInvalidHeight = 3;
 
 namespace shared_model {
   namespace crypto {
@@ -64,8 +78,6 @@ namespace {
   constexpr types::TransactionsNumberType kTxPageSize(10);
   constexpr types::PrecisionType kAssetPrecision(1);
   // TODO mboldyrev 05.12.2018 IR-57 unify the common constants.
-  constexpr size_t kHashLength = 32;
-  const std::string zero_string(kHashLength, '0');
   const std::string asset_id = "coin#domain";
   const std::string role = "role";
   const shared_model::interface::types::DomainIdType domain_id = "domain";
@@ -102,52 +114,20 @@ namespace iroha {
       }) << exec_result->toString();
     }
 
-    /**
-     * Check that stateful error in query response is the one expected
-     * @tparam ExpectedQueryErrorType - expected sub-type of that query
-     * response
-     * @param exec_result to be checked
-     * @param expected_code, which is to be in the query response
-     */
-    template <typename ExpectedQueryErrorType>
-    void checkStatefulError(
-        const QueryExecutorResult &exec_result,
-        shared_model::interface::ErrorQueryResponse::ErrorCodeType
-            expected_code) {
-      const shared_model::interface::ErrorQueryResponse *error_query_response =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              &exec_result->get());
-      if (not error_query_response) {
-        ADD_FAILURE() << "Result is not an error as it is supposed to be! "
-                         "Actual result is: "
-                      << exec_result->toString();
-        return;
-      }
-      EXPECT_EQ(error_query_response->errorCode(), expected_code);
-      EXPECT_TRUE(boost::get<const ExpectedQueryErrorType &>(
-          &error_query_response->get()))
-          << "Result has wrong error type! Actual result is: "
-          << exec_result->toString();
-    }
-
     class QueryExecutorTest : public AmetsuchiTest {
      public:
       QueryExecutorTest()
           : peer{"127.0.0.1",
-                 shared_model::interface::types::PubkeyType{
-                     shared_model::crypto::Blob::fromHexString(
-                         "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f"
-                         "21800"
-                         "0a5533")},
+                 iroha::createPublicKey("fa6ce0e0c21ce1ceaf4ba38538c18681"),
                  boost::none} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
             shared_model::interface::permissions::Grantable::kAddMySignatory;
         pubkey = std::make_unique<shared_model::interface::types::PubkeyType>(
-            std::string('1', 32));
+            iroha::createPublicKeyPadded("pubkey 1"));
         pubkey2 = std::make_unique<shared_model::interface::types::PubkeyType>(
-            std::string('2', 32));
+            iroha::createPublicKeyPadded("pubkey 2"));
 
         query_response_factory =
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
@@ -260,21 +240,6 @@ namespace iroha {
                 true);
       }
 
-      // TODO [IR-1816] Akvinikym 06.12.18: remove these constants after
-      // introducing a uniform way to use them in code
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kNoStatefulError = 0;
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kNoPermissions = 2;
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kInvalidPagination = 4;
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kInvalidAccountId = 5;
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kInvalidAssetId = 6;
-      static constexpr shared_model::interface::ErrorQueryResponse::
-          ErrorCodeType kInvalidHeight = 3;
-
       void createDefaultAccount() {
         execute(*mock_command_factory->constructCreateAccount(
                     "id2", domain_id, *pubkey2),
@@ -378,7 +343,7 @@ namespace iroha {
                             number_of_blocks = kLedgerHeight) {
         auto ms = createMutableStorage();
 
-        auto prev_hash = shared_model::crypto::Hash(zero_string);
+        auto prev_hash = iroha::createHashPadded("prev_hash");
         for (decltype(number_of_blocks) i = 1; i < number_of_blocks; ++i) {
           auto block =
               createBlock({TestTransactionBuilder()
@@ -436,8 +401,8 @@ namespace iroha {
                        .getBlock(invalid_height)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kInvalidHeight);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kInvalidHeight);
     }
 
     /**
@@ -453,8 +418,8 @@ namespace iroha {
                        .getBlock(height)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**
@@ -512,8 +477,8 @@ namespace iroha {
       auto query =
           TestQueryBuilder().creatorAccountId(account_id).getRoles().build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**
@@ -573,8 +538,7 @@ namespace iroha {
                        .getRolePermissions("some")
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::NoRolesErrorResponse>(
-          std::move(result), kNoStatefulError);
+      checkForQueryError(*result, QueryErrorType::kNoRoles, kNoStatefulError);
     }
 
     /**
@@ -588,8 +552,8 @@ namespace iroha {
                        .getRolePermissions("role")
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**
@@ -625,8 +589,6 @@ namespace iroha {
       }
 
       void commitBlocks() {
-        auto fake_pubkey = shared_model::crypto::PublicKey(zero_string);
-
         std::vector<shared_model::proto::Transaction> txs1;
         txs1.push_back(TestTransactionBuilder()
                            .creatorAccountId(account_id)
@@ -689,11 +651,10 @@ namespace iroha {
       }
 
       const std::string asset_id = "coin#domain";
-      shared_model::crypto::PublicKey fake_pubkey{zero_string};
-      shared_model::crypto::Hash hash1;
-      shared_model::crypto::Hash hash2;
-      shared_model::crypto::Hash hash3;
-      shared_model::crypto::Hash second_block_hash;
+      shared_model::crypto::Hash hash1{iroha::createHash()};
+      shared_model::crypto::Hash hash2{iroha::createHash()};
+      shared_model::crypto::Hash hash3{iroha::createHash()};
+      shared_model::crypto::Hash second_block_hash{iroha::createHash()};
     };
 
     template <typename QueryTxPaginationTest>
@@ -1003,8 +964,8 @@ namespace iroha {
                        .getAccountTransactions(another_account_id, kTxPageSize)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**
@@ -1020,8 +981,8 @@ namespace iroha {
                        .getAccountTransactions("some@domain", kTxPageSize)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kInvalidAccountId);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kInvalidAccountId);
     }
 
     /**
@@ -1179,15 +1140,11 @@ namespace iroha {
     TYPED_TEST(GetPagedTransactionsExecutorTest, InvalidHashInPagination) {
       this->createTransactionsAndCommit(3);
       auto size = 2;
-      char unknown_hash_string[kHashLength];
-      zero_string.copy(unknown_hash_string, kHashLength);
-      std::strcpy(unknown_hash_string, "no such hash!");
       auto query_response =
-          this->queryPage(size, types::HashType(unknown_hash_string));
+          this->queryPage(size, iroha::createHashPadded("no such hash!"));
 
-      checkStatefulError<StatefulFailedErrorResponse>(
-          std::move(query_response),
-          BlocksQueryExecutorTest::kInvalidPagination);
+      checkForQueryError(
+          *query_response, QueryErrorType::kStatefulFailed, kInvalidPagination);
     }
 
     /**
@@ -1251,7 +1208,7 @@ namespace iroha {
 
       std::vector<decltype(hash1)> hashes;
       hashes.push_back(hash1);
-      hashes.emplace_back("AbsolutelyInvalidHash");
+      hashes.emplace_back(iroha::createHash("AbsolutelyInvalidHash"));
       hashes.push_back(hash2);
 
       auto query = TestQueryBuilder()
@@ -1261,8 +1218,7 @@ namespace iroha {
       auto result = executeQuery(query);
       // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
       // with a named constant
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), 4);
+      checkForQueryError(*result, QueryErrorType::kStatefulFailed, 4);
     }
 
     /**
@@ -1381,8 +1337,8 @@ namespace iroha {
                            another_account_id, asset_id, kTxPageSize)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**
@@ -1399,8 +1355,8 @@ namespace iroha {
                            "doge@noaccount", asset_id, kTxPageSize)
                        .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kInvalidAccountId);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kInvalidAccountId);
     }
 
     /**
@@ -1417,8 +1373,8 @@ namespace iroha {
               .getAccountAssetTransactions(account_id, "doge#coin", kTxPageSize)
               .build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kInvalidAssetId);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kInvalidAssetId);
     }
 
     /**
@@ -1465,7 +1421,7 @@ namespace iroha {
      */
     TEST_F(QueryExecutorTest, PendingTxsStorageWrongTxHash) {
       const auto kPageSize = 100u;
-      const auto kFirstTxHash = shared_model::crypto::Hash(zero_string);
+      const auto kFirstTxHash = iroha::createHashPadded("first_hash");
       auto query = TestQueryBuilder()
                        .creatorAccountId(account_id)
                        .getPendingTransactions(kPageSize, kFirstTxHash)
@@ -1476,8 +1432,8 @@ namespace iroha {
           .WillOnce(Return(iroha::expected::makeError(
               PendingTransactionStorage::ErrorCode::kNotFound)));
 
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          executeQuery(query), 4);
+      checkForQueryError(
+          *executeQuery(query), QueryErrorType::kStatefulFailed, 4);
     }
 
     /**
@@ -1583,8 +1539,8 @@ namespace iroha {
       auto query =
           TestQueryBuilder().creatorAccountId(account_id).getPeers().build();
       auto result = executeQuery(query);
-      checkStatefulError<shared_model::interface::StatefulFailedErrorResponse>(
-          std::move(result), kNoPermissions);
+      checkForQueryError(
+          *result, QueryErrorType::kStatefulFailed, kNoPermissions);
     }
 
     /**

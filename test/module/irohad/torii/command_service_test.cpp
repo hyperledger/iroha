@@ -9,6 +9,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "cryptography/hash.hpp"
 #include "cryptography/public_key.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
@@ -67,8 +68,7 @@ class CommandServiceTest : public Test {
  *        @and return CommittedTxResponse status
  */
 TEST_F(CommandServiceTest, getStatusStreamWithAbsentHash) {
-  using HashType = shared_model::crypto::Hash;
-  auto hash = HashType("a");
+  auto hash = iroha::createHash();
   iroha::ametsuchi::TxCacheStatusType ret_value{
       iroha::ametsuchi::tx_cache_status_responses::Committed{hash}};
 
@@ -102,7 +102,7 @@ TEST_F(CommandServiceTest, getStatusStreamWithAbsentHash) {
  * @then  tx_processor batchHandle is invoked
  */
 TEST_F(CommandServiceTest, ProcessBatchOn) {
-  auto hash = shared_model::crypto::Hash("a");
+  auto hash = iroha::createHash("a");
   auto batch = createMockBatchWithTransactions(
       {createMockTransactionWithHash(hash)}, "a");
   EXPECT_CALL(*status_bus_, statuses())
@@ -129,7 +129,7 @@ TEST_F(CommandServiceTest, ProcessBatchOn) {
  * @then  query response tells that the transaction has been rejected
  */
 TEST_F(CommandServiceTest, RejectedTxStatus) {
-  auto hash = shared_model::crypto::Hash("a");
+  auto hash = iroha::createHash("a");
   auto batch = createMockBatchWithTransactions(
       {createMockTransactionWithHash(hash)}, "a");
 

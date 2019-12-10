@@ -21,9 +21,12 @@ namespace shared_model {
         types::SharedTxsCollectionType transactions)
         : transactions_(std::move(transactions)),
           reduced_hash_(TransactionBatchHelpers::calculateReducedBatchHash(
-              transactions_ | boost::adaptors::transformed([](const auto &tx) {
-                return tx->reducedHash();
-              }))) {}
+              transactions_
+                  | boost::adaptors::transformed(
+                        [](const auto &tx) -> const types::HashType & {
+                          return tx->reducedHash();
+                        }),
+              transactions_.size())) {}
 
     const types::SharedTxsCollectionType &TransactionBatchImpl::transactions()
         const {

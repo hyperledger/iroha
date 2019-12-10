@@ -38,7 +38,8 @@ namespace shared_model {
 
 namespace query_validation {
 
-  using QueryIterator = std::vector<shared_model::proto::Query>::iterator;
+  using QueryIterator =
+      std::vector<std::unique_ptr<shared_model::proto::Query>>::iterator;
 
   namespace internal {
 
@@ -79,7 +80,7 @@ namespace query_validation {
         ::query_validation::QueryIterator end,
         integration_framework::IntegrationTestFramework &itf) {
       if (it != end) {
-        itf.sendQuery(*it, checkQueryResponseType<Head>);
+        itf.sendQuery(**it, checkQueryResponseType<Head>);
         _validateQueries<Tail...>(++it, end, itf);
       }
     }
@@ -134,7 +135,7 @@ class BinaryTestFixture : public ::testing::Test {
    * @return - genesis block
    */
   shared_model::proto::Block genesis() {
-    return makeGenesis(launcher.transactions[0], *launcher.admin_key);
+    return makeGenesis(*launcher.transactions[0], *launcher.admin_key);
   }
 
   /**
@@ -171,7 +172,7 @@ class BinaryTestFixture : public ::testing::Test {
               launcher.transactions.begin()),
           launcher.transactions.end(),
           [&itf](const auto &tx) {
-            itf.sendTx(tx).checkBlock(
+            itf.sendTx(*tx).checkBlock(
                 BinaryTestFixture::blockWithTransactionValidation);
           });
 
@@ -195,7 +196,7 @@ class BinaryTestFixture : public ::testing::Test {
         .transactions(std::vector<shared_model::proto::Transaction>{genesis_tx})
         .height(1)
         .prevHash(shared_model::crypto::DefaultHashProvider::makeHash(
-            shared_model::crypto::Blob("")))
+            shared_model::crypto::Blob{}))
         .createdTime(iroha::time::now())
         .build()
         .signAndAddSignature(keypair)

@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_TRANSACTION_HPP
 #define IROHA_SHARED_MODEL_PROTO_TRANSACTION_HPP
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/transaction.hpp"
 #include "transaction.pb.h"
 

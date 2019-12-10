@@ -7,6 +7,7 @@
 
 #include "backend/protobuf/transaction.hpp"
 #include "converters/protobuf/json_proto_converter.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
@@ -26,8 +27,9 @@ template <typename T, typename Checker>
 void jsonToModelCheck(std::string json, Checker &&checker) {
   auto pb_result = jsonToProto<typename T::TransportType>(json);
   IROHA_ASSERT_RESULT_VALUE(pb_result);
-  T proto{std::move(pb_result).assumeValue()};
-  std::forward<Checker>(checker)(std::move(proto));
+  auto proto_result = T::create(std::move(pb_result).assumeValue());
+  IROHA_ASSERT_RESULT_VALUE(proto_result);
+  std::forward<Checker>(checker)(std::move(*proto_result.assumeValue()));
 }
 
 /**
@@ -81,7 +83,10 @@ TEST(JsonProtoConverterTest, JsonToProtoBlockTest) {
 
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(tx_builder.build());
-  auto orig_block = block_builder.transactions(txs).createdTime(123).build();
+  auto orig_block = block_builder.transactions(txs)
+                        .createdTime(123)
+                        .prevHash(iroha::createHash())
+                        .build();
 
   auto json = modelToJson(orig_block);
 

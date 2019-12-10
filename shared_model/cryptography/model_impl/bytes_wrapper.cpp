@@ -17,8 +17,16 @@ const BytesView &BytesWrapper::blob() const {
   return *blob_;
 }
 
+const std::string &BytesWrapper::hex() const {
+  return blob_->hex();
+}
+
 bool BytesWrapper::operator==(const BytesWrapper &rhs) const {
   return *blob_ == rhs.blob();
+}
+
+bool BytesWrapper::operator!=(const BytesWrapper &rhs) const {
+  return not operator==(rhs);
 }
 
 std::size_t BytesWrapper::Hasher::operator()(const BytesWrapper &o) const {

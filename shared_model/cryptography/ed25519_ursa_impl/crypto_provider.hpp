@@ -6,6 +6,7 @@
 #ifndef IROHA_URSA_CRYPTOPROVIDER_HPP
 #define IROHA_URSA_CRYPTOPROVIDER_HPP
 
+#include "cryptography/bytes_view.hpp"
 #include "cryptography/keypair.hpp"
 #include "cryptography/private_key.hpp"
 #include "cryptography/public_key.hpp"
@@ -25,7 +26,7 @@ namespace shared_model {
        * @param keypair - keypair
        * @return Signed object with signed data
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair);
+      static Signed sign(const BytesView &blob, const Keypair &keypair);
 
       /**
        * Verifies signature.
@@ -35,7 +36,7 @@ namespace shared_model {
        * @return true if verify was OK or false otherwise
        */
       static bool verify(const Signed &signed_data,
-                         const Blob &orig,
+                         const BytesView &orig,
                          const PublicKey &public_key);
 
       /**

@@ -12,9 +12,8 @@
 
 #include <boost/foreach.hpp>
 #include "boost/tuple/tuple.hpp"
-#include "logger/logger.hpp"
-
 #include "framework/test_logger.hpp"
+#include "logger/logger.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha::consensus::yac;
@@ -59,7 +58,7 @@ class SupermajorityCheckerTest
     return checker->hasSupermajority(current, all);
   }
 
-  bool isTolerated(PeersNumberType number, PeersNumberType all) const {
+  bool isTolerated(PeersNumberType number, PeersNumberType all) const override {
     return checker->isTolerated(number, all);
   }
 

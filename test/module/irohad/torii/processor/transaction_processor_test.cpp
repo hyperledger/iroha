@@ -11,6 +11,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -63,11 +64,11 @@ class TransactionProcessorTest : public ::testing::Test {
         commit_notifier.get_observable(),
         getTestLogger("TransactionProcessor"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
-        shared_model::crypto::Hash{"hash"});
+        iroha::createHash());
   }
 
   auto base_tx() {
@@ -326,11 +327,10 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnCommitTest) {
       simulator::VerifiedProposalCreatorEvent{
           validation_result, round, ledger_state});
 
-  auto block = TestBlockBuilder().transactions(txs).build();
+  auto block = createBlock(txs);
 
   // 2. Create block and notify transaction processor about it
-  commit_notifier.get_subscriber().on_next(
-      std::shared_ptr<shared_model::interface::Block>(clone(block)));
+  commit_notifier.get_subscriber().on_next(block);
 
   SCOPED_TRACE("Committed status verification");
   validateStatuses<shared_model::interface::CommittedTxResponse>(txs);
@@ -405,6 +405,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
 
   auto block = TestBlockBuilder()
                    .transactions(block_txs)
+                   .prevHash(iroha::createHash("BE600D"))
                    .rejectedTransactions(
                        invalid_txs | boost::adaptors::transformed([](auto &tx) {
                          return tx.hash();

@@ -101,11 +101,10 @@ namespace iroha {
       ++batch_iterator;
     }
     if (account_batches.batches.end() != batch_iterator) {
-      shared_model::interface::PendingTransactionsPageResponse::BatchInfo
-          next_batch_info;
       auto &txs = batch_iterator->get()->transactions();
-      next_batch_info.first_tx_hash = txs.front()->hash();
-      next_batch_info.batch_size = txs.size();
+      shared_model::interface::PendingTransactionsPageResponse::BatchInfo
+          next_batch_info{txs.front()->hash(),
+                          next_batch_info.batch_size = txs.size()};
       response.next_batch_info = std::move(next_batch_info);
     }
     return iroha::expected::makeValue(std::move(response));

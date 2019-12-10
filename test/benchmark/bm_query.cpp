@@ -11,7 +11,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "benchmark/bm_utils.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace benchmark::utils;
 using namespace common_constants;

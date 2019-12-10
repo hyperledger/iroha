@@ -16,6 +16,7 @@
 #include <boost/range/adaptor/map.hpp>
 #include "common/files.hpp"
 #include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "torii/tls_params.hpp"
@@ -357,11 +358,16 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
                });
   }
 
+  auto pubkey_blob = shared_model::crypto::Blob::fromHexString(public_key_str);
+  if (auto e = iroha::expected::resultToOptionalError(pubkey_blob)) {
+    throw std::runtime_error("Failed to load public key for peer at '" + path
+                             + "': " + e.value());
+  }
+
   common_objects_factory_
       ->createPeer(
           address,
-          shared_model::crypto::PublicKey(
-              shared_model::crypto::Blob::fromHexString(public_key_str)),
+          shared_model::crypto::PublicKey{std::move(pubkey_blob).assumeValue()},
           tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {

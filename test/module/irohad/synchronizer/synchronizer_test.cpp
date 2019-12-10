@@ -8,6 +8,7 @@
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
 #include "backend/protobuf/block.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
@@ -116,7 +117,11 @@ class SynchronizerTest : public ::testing::Test {
       shared_model::interface::types::HeightType height = kHeight,
       size_t time = iroha::time::now()) const {
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block> block{
-        TestUnsignedBlockBuilder().height(height).createdTime(time).build()};
+        TestUnsignedBlockBuilder()
+            .height(height)
+            .createdTime(time)
+            .prevHash(iroha::createHash())
+            .build()};
     for (const auto &key : ledger_peer_keys) {
       block.signAndAddSignature(key);
     }
@@ -133,7 +138,7 @@ class SynchronizerTest : public ::testing::Test {
 
   std::shared_ptr<shared_model::interface::Block> commit_message;
   shared_model::interface::types::PublicKeyCollectionType public_keys;
-  shared_model::interface::types::HashType hash;
+  shared_model::interface::types::HashType hash{iroha::createHash()};
   shared_model::interface::types::PeerList ledger_peers;
   std::shared_ptr<LedgerState> ledger_state;
   std::vector<shared_model::crypto::Keypair> ledger_peer_keys;
@@ -169,11 +174,11 @@ class ChainMatcher : public ::testing::MatcherInterface<Chain> {
     return wrapper.validate();
   }
 
-  virtual void DescribeTo(::std::ostream *os) const {
+  virtual void DescribeTo(::std::ostream *os) const override {
     *os << "Tested chain matches expected chain.";
   }
 
-  virtual void DescribeNegationTo(::std::ostream *os) const {
+  virtual void DescribeNegationTo(::std::ostream *os) const override {
     *os << "Tested chain does not match expected chain.";
   }
 
@@ -271,7 +276,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChain) {
   });
 
   gate_outcome.get_subscriber().on_next(
-      consensus::VoteOther(round, ledger_state, public_keys, hash));
+      consensus::VoteOther(round, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -308,7 +313,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
   });
 
   gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      consensus::Round{kHeight, 1}, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -344,7 +349,7 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   wrapper.subscribe();
 
   gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      consensus::Round{kHeight, 1}, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -372,7 +377,7 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
   wrapper.subscribe();
 
   gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      consensus::Round{kHeight, 1}, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -495,7 +500,7 @@ TEST_F(SynchronizerTest, VotedForOtherCommitPrepared) {
   });
 
   gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      consensus::Round{kHeight, 1}, ledger_state, public_keys));
 }
 
 /**
@@ -568,7 +573,7 @@ TEST_F(SynchronizerTest, CommitFailureVoteOther) {
       make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 0);
 
   gate_outcome.get_subscriber().on_next(consensus::VoteOther(
-      consensus::Round{kHeight, 1}, ledger_state, public_keys, hash));
+      consensus::Round{kHeight, 1}, ledger_state, public_keys));
 
   ASSERT_TRUE(wrapper.validate());
 }

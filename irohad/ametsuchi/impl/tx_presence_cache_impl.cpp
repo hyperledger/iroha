@@ -44,18 +44,18 @@ namespace iroha {
       if (not block_query) {
         return boost::none;
       }
-      return block_query->checkTxPresence(hash) |
-          [this, &hash](const auto &status) {
-            visit_in_place(status,
-                           [](const tx_cache_status_responses::Missing &) {
-                             // don't put this hash into cache since "Missing"
-                             // can become "Committed" or "Rejected" later
-                           },
-                           [this, &hash](const auto &status) {
-                             memory_cache_.addItem(hash, status);
-                           });
-            return status;
-          };
+      auto status = block_query->checkTxPresence(hash);
+      status | [this, &hash](const auto &status) {
+        visit_in_place(status,
+                       [](const tx_cache_status_responses::Missing &) {
+                         // don't put this hash into cache since "Missing"
+                         // can become "Committed" or "Rejected" later
+                       },
+                       [this, &hash](const auto &status) {
+                         memory_cache_.addItem(hash, status);
+                       });
+      };
+      return status;
     }
   }  // namespace ametsuchi
 }  // namespace iroha

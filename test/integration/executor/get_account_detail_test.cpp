@@ -365,10 +365,10 @@ TEST_P(GetAccountDetailRecordIdTest, NoDetail) {
  * @then there is an error
  */
 TEST_P(GetAccountDetailRecordIdTest, InvalidNoAccount) {
-  checkQueryError<shared_model::interface::NoAccountDetailErrorResponse>(
-      GetAccountDetailTest::queryPage(
-          makeAccountId(1), makeKey(1), boost::none, 1),
-      error_codes::kNoStatefulError);
+  checkQueryError(GetAccountDetailTest::queryPage(
+                      makeAccountId(1), makeKey(1), boost::none, 1),
+                  shared_model::interface::QueryErrorType::kNoAccountDetail,
+                  error_codes::kNoStatefulError);
 }
 
 /**
@@ -393,8 +393,9 @@ TEST_P(GetAccountDetailRecordIdTest, NonexistentFirstRecordId) {
   ASSERT_NO_FATAL_FAILURE(prepareState(1, 1));
   auto response =
       queryPage(AccountDetailRecordId{makeAccountId(2), makeKey(2)}, 5);
-  checkQueryError<shared_model::interface::StatefulFailedErrorResponse>(
-      response, error_codes::kInvalidPagination);
+  checkQueryError(response,
+                  shared_model::interface::QueryErrorType::kStatefulFailed,
+                  error_codes::kInvalidPagination);
 }
 
 /**

@@ -16,6 +16,7 @@
 
 #include "backend/protobuf/permissions.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -339,11 +340,13 @@ namespace shared_model {
 
       auto build() const {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
-        auto result = Transaction(iroha::protocol::Transaction(transaction_));
-        if (auto error = stateless_validator_.validate(result)) {
+        auto result =
+            Transaction::create(iroha::protocol::Transaction(transaction_))
+                .assumeValue();
+        if (auto error = stateless_validator_.validate(*result)) {
           throw std::invalid_argument(error->toString());
         }
-        return BT(std::move(result));
+        return BT(*std::move(result));
       }
 
       static const int total = RequiredFields::TOTAL;

@@ -9,10 +9,11 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
@@ -65,10 +66,8 @@ class GetTransactions : public AcceptanceFixture {
  */
 TEST_F(GetTransactions, HaveNoGetPerms) {
   auto check = [](auto &status) {
-    ASSERT_TRUE(
-        boost::apply_visitor(interface::QueryErrorResponseChecker<
-                                 interface::StatefulFailedErrorResponse>(),
-                             status.get()));
+    interface::checkForQueryError(status,
+                                  interface::QueryErrorType::kStatefulFailed);
   };
 
   auto dummy_tx = dummyTx();
@@ -159,13 +158,8 @@ TEST_F(GetTransactions, HaveGetMyTx) {
 TEST_F(GetTransactions, InvalidSignatures) {
   auto dummy_tx = dummyTx();
   auto check = [](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &error_rsp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              status.get());
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          error_rsp.get());
-    });
+    checkForQueryError(
+        status, shared_model::interface::QueryErrorType::kStatefulFailed);
   };
 
   auto query = baseQry()
@@ -195,16 +189,10 @@ TEST_F(GetTransactions, InvalidSignatures) {
  */
 TEST_F(GetTransactions, NonexistentHash) {
   auto check = [](auto &status) {
-    ASSERT_NO_THROW({
-      const auto &resp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              status.get());
-      // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
-      // with a named constant
-      ASSERT_EQ(resp.errorCode(), 4);
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          resp.get());
-    });
+    // TODO [IR-1816] Akvinikym 03.12.18: replace magic number 4
+    // with a named constant
+    checkForQueryError(
+        status, shared_model::interface::QueryErrorType::kStatefulFailed, 4);
   };
 
   IntegrationTestFramework(1)
@@ -212,9 +200,7 @@ TEST_F(GetTransactions, NonexistentHash) {
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
-      .sendQuery(makeQuery(crypto::Hash(std::string(
-                     crypto::DefaultCryptoAlgorithmType::kHashLength, '0'))),
-                 check);
+      .sendQuery(makeQuery(iroha::createHashPadded()), check);
 }
 
 /**

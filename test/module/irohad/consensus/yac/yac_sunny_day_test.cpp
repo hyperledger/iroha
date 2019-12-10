@@ -47,8 +47,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveSupermajority) {
 
   for (auto i = 0; i < 3; ++i) {
     auto peer = my_peers.at(i);
-    auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
-    yac->onState({createVote(my_hash, pubkey)});
+    yac->onState({createVote(my_hash, peer->pubkey().blob())});
   };
 }
 

@@ -45,8 +45,8 @@ namespace iroha {
         log_->info(
             "Previous hash {} of block does not match top block hash {} "
             "in storage",
-            block.prevHash().hex(),
-            top_hash.hex());
+            block.prevHash(),
+            top_hash);
       }
 
       return same_prev_hash;
@@ -100,9 +100,8 @@ namespace iroha {
     bool ChainValidatorImpl::validateBlock(
         std::shared_ptr<const shared_model::interface::Block> block,
         const iroha::LedgerState &ledger_state) const {
-      log_->debug("validate block: height {}, hash {}",
-                  block->height(),
-                  block->hash().hex());
+      log_->debug(
+          "validate block: height {}, hash {}", block->height(), block->hash());
 
       return validatePreviousHash(*block, ledger_state.top_block_info.top_hash)
           and validateHeight(*block, ledger_state.top_block_info.height)

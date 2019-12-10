@@ -11,6 +11,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "datetime/time.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
@@ -83,8 +84,8 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
 
 inline auto makeSignature(const std::string &sign,
                           const std::string &public_key) {
-  return std::make_pair(shared_model::crypto::Signed(sign),
-                        shared_model::crypto::PublicKey(public_key));
+  return std::make_pair(iroha::createSigned(sign),
+                        iroha::createPublicKey(public_key));
 }
 
 inline auto makeTx(const shared_model::interface::types::CounterType &counter,

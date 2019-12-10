@@ -14,7 +14,7 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace benchmark::utils;
 using namespace common_constants;

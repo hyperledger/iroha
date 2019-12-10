@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "datetime/time.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace common_constants;
 
@@ -136,10 +136,16 @@ AcceptanceFixture::checkQueryErrorResponse(
     shared_model::interface::QueryErrorType error_type,
     shared_model::interface::ErrorQueryResponse::ErrorCodeType error_code) {
   return [error_type, error_code](auto &response) {
-    EXPECT_EQ(response.reason(), error_type);
-    EXPECT_EQ(response.errorCode(), error_code);
+    shared_model::interface::checkForQueryError(
+        response, error_type, error_code);
   };
 }
+
+template auto AcceptanceFixture::complete<TestUnsignedTransactionBuilder>(
+    TestUnsignedTransactionBuilder builder)
+    -> decltype(builder.build().finish());
+template auto AcceptanceFixture::complete<TestUnsignedQueryBuilder>(
+    TestUnsignedQueryBuilder builder) -> decltype(builder.build().finish());
 
 iroha::time::time_t AcceptanceFixture::getUniqueTime() {
   return initial_time + nonce_counter++;

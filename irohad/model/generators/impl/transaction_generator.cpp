@@ -7,6 +7,7 @@
 
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/bytes_view.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 #include "datetime/time.hpp"
 #include "model/commands/append_role.hpp"
@@ -19,10 +20,8 @@ namespace iroha {
       iroha::keypair_t *makeOldModel(
           const shared_model::crypto::Keypair &keypair) {
         return new iroha::keypair_t{
-            iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey()))
-                .assumeValue(),
-            iroha::privkey_t::from_string(toBinaryString(keypair.privateKey()))
-                .assumeValue()};
+            iroha::pubkey_t::from_raw(keypair.publicKey().blob().data()),
+            iroha::privkey_t::from_raw(keypair.privateKey().blob().data())};
       }
 
       Transaction TransactionGenerator::generateGenesisTransaction(

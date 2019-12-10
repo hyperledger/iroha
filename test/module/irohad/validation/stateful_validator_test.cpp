@@ -11,6 +11,7 @@
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "common/result.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -35,7 +36,9 @@ using ::testing::ReturnArg;
 
 class SignaturesSubset : public testing::Test {
  public:
-  std::vector<PublicKey> keys{PublicKey("a"), PublicKey("b"), PublicKey("c")};
+  std::vector<PublicKey> keys{iroha::createPublicKey("a"),
+                              iroha::createPublicKey("b"),
+                              iroha::createPublicKey("c")};
 };
 
 /**

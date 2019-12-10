@@ -11,6 +11,7 @@
 #include "backend/protobuf/util.hpp"
 #include "block.pb.h"
 #include "common/byteutils.hpp"
+#include "common/result.hpp"
 
 using iroha::expected::Result;
 using iroha::expected::ResultException;
@@ -118,8 +119,8 @@ namespace shared_model {
       }
 
       auto sig = impl_->proto_.add_signatures();
-      sig->set_signature(signed_blob.blob().hex());
-      sig->set_public_key(public_key.blob().hex());
+      sig->set_signature(signed_blob.hex());
+      sig->set_public_key(public_key.hex());
 
       return Signature::create(*sig).match(
           [this](auto &&val) {

@@ -41,10 +41,10 @@ namespace shared_model {
 
       iroha::expected::Result<std::unique_ptr<Interface>, Error> build(
           typename Proto::TransportType m) const override {
+        boost::optional<shared_model::crypto::Hash> hash;
         if (auto error = proto_validator_->validate(m)) {
           auto payload_field_descriptor =
               m.GetDescriptor()->FindFieldByLowercaseName("payload");
-          shared_model::crypto::Hash hash;
           if (payload_field_descriptor) {
             const auto &payload =
                 m.GetReflection()->GetMessage(m, payload_field_descriptor);
@@ -52,17 +52,26 @@ namespace shared_model {
             // IR-422
             hash = HashProvider::makeHash(makeBlob(payload));
           }
-          return iroha::expected::makeError(Error{hash, error->toString()});
-        }
-
-        std::unique_ptr<Interface> result =
-            std::make_unique<Proto>(std::move(m));
-        if (auto error = interface_validator_->validate(*result)) {
           return iroha::expected::makeError(
-              Error{result->hash(), error->toString()});
+              Error{std::move(hash), error->toString()});
         }
 
-        return iroha::expected::makeValue(std::move(result));
+        using ReturnType =
+            iroha::expected::Result<std::unique_ptr<Interface>, Error>;
+        return Proto::create(std::move(m))
+            .match(
+                [this](auto &&v) -> ReturnType {
+                  auto &obj = v.value;
+                  if (auto error = interface_validator_->validate(*obj)) {
+                    return iroha::expected::makeError(
+                        Error{obj->hash(), error->toString()});
+                  }
+                  return iroha::expected::makeValue<std::unique_ptr<Interface>>(
+                      std::move(obj));
+                },
+                [&hash](auto &&e) -> ReturnType {
+                  return Error{hash, e.error};
+                });
       }
 
      private:

@@ -45,12 +45,13 @@ namespace shared_model {
       build(const T &transport) {
         const auto &txs = transport.transactions();
         std::vector<std::shared_ptr<interface::Transaction>> shm_txs;
-        std::transform(txs.begin(),
-                       txs.end(),
-                       std::back_inserter(shm_txs),
-                       [](const iroha::protocol::Transaction &tx) {
-                         return std::make_shared<Transaction>(tx);
-                       });
+        std::transform(
+            txs.begin(),
+            txs.end(),
+            std::back_inserter(shm_txs),
+            [](const iroha::protocol::Transaction &tx) {
+              return shared_model::proto::Transaction::create(tx).assumeValue();
+            });
         return interface::TransactionSequenceFactory::createTransactionSequence(
             shm_txs,
             stateless_validator_,

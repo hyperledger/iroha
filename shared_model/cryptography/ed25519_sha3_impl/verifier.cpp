@@ -17,8 +17,7 @@ namespace shared_model {
       auto blob_hash = iroha::sha3_256(orig.byteRange());
       return pubkey.blob().size() == iroha::PubkeyView::size()
           and signed_data.blob().size() == iroha::SigView::size()
-          and iroha::verify(blob_hash.data(),
-                            blob_hash.size(),
+          and iroha::verify(blob_hash.getView().byteRange(),
                             iroha::PubkeyView(pubkey.blob().data()),
                             iroha::SigView(signed_data.blob().data()));
     }

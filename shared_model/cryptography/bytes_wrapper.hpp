@@ -24,7 +24,13 @@ namespace shared_model {
 
       const BytesView &blob() const;
 
+      /**
+       * @return provides hex representation of blob without leading 0x
+       */
+      const std::string &hex() const;
+
       bool operator==(const BytesWrapper &rhs) const;
+      bool operator!=(const BytesWrapper &rhs) const;
 
       /**
        * Calculates hash from the bytes.

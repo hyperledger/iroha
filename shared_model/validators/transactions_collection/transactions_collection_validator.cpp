@@ -70,13 +70,12 @@ namespace shared_model {
           }
         }
         tx_error_creator |= std::forward<Validator>(validator)(tx.value());
-        error_creator |=
-            std::move(tx_error_creator)
-                .getValidationErrorWithGeneratedName([&] {
-                  return fmt::format("Transaction #{} with hash {}",
-                                     tx.index(),
-                                     tx.value().hash().hex());
-                });
+        error_creator |= std::move(tx_error_creator)
+                             .getValidationErrorWithGeneratedName([&] {
+                               return fmt::format("Transaction #{} with {}",
+                                                  tx.index(),
+                                                  tx.value().hash().toString());
+                             });
       }
 
       interface::TransactionBatchParserImpl batch_parser;

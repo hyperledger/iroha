@@ -17,6 +17,7 @@
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 namespace executor_testing {
 
@@ -71,29 +72,14 @@ namespace executor_testing {
   /**
    * Check that general query response contains a specific error type and
    * execute a callback on it.
-   * @tparam SpecificErrorResponse - Expected specific query error response.
    * @param response - The response to be checked.
+   * @param error_type - Expected specific query error type.
    * @param error_code - The expected error code.
    */
-  template <typename SpecificErrorResponse>
   void checkQueryError(
       const iroha::ametsuchi::QueryExecutorResult &response,
-      shared_model::interface::ErrorQueryResponse::ErrorCodeType error_code) {
-    static const auto error_type = typeid(SpecificErrorResponse).name();
-    if (auto error = boost::strict_get<
-            const shared_model::interface::ErrorQueryResponse &>(
-            &response->get())) {
-      EXPECT_TRUE(
-          boost::strict_get<const SpecificErrorResponse &>(&error->get()))
-          << "Expected an error of type " << error_type << ", but got "
-          << error->toString();
-      EXPECT_EQ(error->errorCode(), error_code)
-          << "Wrong query result error code!";
-    } else {
-      ADD_FAILURE() << "Expected an error of type " << error_type
-                    << ", but got " << response->toString();
-    }
-  }
+      shared_model::interface::QueryErrorType error_type,
+      shared_model::interface::ErrorQueryResponse::ErrorCodeType error_code);
 
   /// Base class for Executor ITF tests.
   class ExecutorTestBase : public ::testing::Test {

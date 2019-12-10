@@ -10,6 +10,7 @@
 
 #include "backend/protobuf/transaction.hpp"
 #include "client.hpp"
+#include "common/result.hpp"
 #include "grpc_response_handler.hpp"
 #include "logger/logger.hpp"
 #include "model/commands/append_role.hpp"
@@ -454,12 +455,14 @@ namespace iroha_cli {
       provider_->sign(tx);
 
       GrpcResponseHandler response_handler(response_handler_log_manager_);
-      auto shared_tx = shared_model::proto::Transaction(
-          iroha::model::converters::PbTransactionFactory().serialize(tx));
+      auto shared_tx =
+          shared_model::proto::Transaction::create(
+              iroha::model::converters::PbTransactionFactory().serialize(tx))
+              .assumeValue();
       response_handler.handle(CliClient(address.value().first,
                                         address.value().second,
                                         pb_qry_factory_log_)
-                                  .sendTx(shared_tx));
+                                  .sendTx(*shared_tx));
 
       printTxHash(tx);
       printEnd();

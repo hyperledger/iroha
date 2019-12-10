@@ -13,6 +13,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -26,8 +27,8 @@ using framework::expected::err;
 using framework::expected::val;
 
 auto zero_string = std::string(32, '0');
-auto fake_hash = shared_model::crypto::Hash(zero_string);
-auto fake_pubkey = shared_model::crypto::PublicKey(zero_string);
+auto fake_hash = iroha::createHash(zero_string);
+auto fake_pubkey = iroha::createPublicKey(zero_string);
 
 // Allows to print amount string in case of test failure
 namespace shared_model {
@@ -170,8 +171,8 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
   ASSERT_TRUE(storage);
   auto wsv = storage->getWsvQuery();
 
-  shared_model::crypto::PublicKey pubkey1(std::string(32, '1'));
-  shared_model::crypto::PublicKey pubkey2(std::string(32, '2'));
+  shared_model::crypto::PublicKey pubkey1{iroha::createPublicKeyPadded("1")};
+  shared_model::crypto::PublicKey pubkey2{iroha::createPublicKeyPadded("2")};
 
   auto user1id = "userone@domain";
   auto user2id = "usertwo@domain";

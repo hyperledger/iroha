@@ -135,7 +135,8 @@ namespace shared_model {
 
     struct MockTxPaginationMeta : public TxPaginationMeta {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
-      MOCK_CONST_METHOD0(firstTxHash, boost::optional<types::HashType>());
+      MOCK_CONST_METHOD0(firstTxHash,
+                         const boost::optional<types::HashType> &());
       MOCK_CONST_METHOD0(clone, TxPaginationMeta *());
     };
 

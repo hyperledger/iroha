@@ -12,6 +12,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/keypair.hpp"
+#include "framework/make_byte_range.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
@@ -86,7 +87,7 @@ namespace iroha {
           baseBlock({tx},
                     1,
                     shared_model::crypto::DefaultHashProvider::makeHash(
-                        shared_model::crypto::Blob("")))
+                        shared_model::crypto::Blob{}))
               .signAndAddSignature(keys.at(0)));
 
       auto ms = createMutableStorage();
@@ -184,7 +185,7 @@ namespace iroha {
         baseBlock({dummyTx(2)},
                   2,
                   shared_model::crypto::DefaultHashProvider::makeHash(
-                      shared_model::crypto::Blob("bad_hash")))
+                      iroha::makeByteRange("wrong_data")))
             .signAndAddSignature(keys.at(0))
             .signAndAddSignature(keys.at(1))
             .signAndAddSignature(keys.at(2))

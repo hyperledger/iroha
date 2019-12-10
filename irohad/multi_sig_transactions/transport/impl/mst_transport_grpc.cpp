@@ -12,6 +12,7 @@
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "cryptography/blob.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/transaction.hpp"
@@ -31,7 +32,7 @@ namespace {
 void sendStateAsyncImpl(
     const shared_model::interface::Peer &to,
     ConstRefState state,
-    const std::string &sender_key,
+    const shared_model::crypto::PublicKey &sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call,
     MstTransportGrpc::SenderFactory sender_factory = default_sender_factory);
 
@@ -54,7 +55,7 @@ MstTransportGrpc::MstTransportGrpc(
       batch_factory_(std::move(transaction_batch_factory)),
       tx_presence_cache_(std::move(tx_presence_cache)),
       mst_completer_(std::move(mst_completer)),
-      my_key_(shared_model::crypto::toBinaryString(my_key)),
+      my_key_(std::move(my_key)),
       mst_state_logger_(std::move(mst_state_logger)),
       log_(std::move(log)),
       sender_factory_(sender_factory) {}
@@ -68,8 +69,7 @@ grpc::Status MstTransportGrpc::SendState(
   auto transactions = shared_model::proto::deserializeTransactions(
       *transaction_factory_, request->transactions());
   if (auto e = expected::resultToOptionalError(transactions)) {
-    log_->warn(
-        "Transaction deserialization failed: hash {}, {}", e->hash, e->error);
+    log_->warn("Transaction deserialization failed: {}", e.value());
     return ::grpc::Status::OK;
   }
 
@@ -107,7 +107,8 @@ grpc::Status MstTransportGrpc::SendState(
 
   log_->info("batches in MstState: {}", new_state.getBatches().size());
 
-  shared_model::crypto::PublicKey source_key(request->source_peer_key());
+  shared_model::crypto::PublicKey source_key(
+      shared_model::crypto::Blob::fromBinaryString(request->source_peer_key()));
   auto key_invalid_reason =
       shared_model::validation::validatePubkey(source_key);
   if (key_invalid_reason) {
@@ -152,18 +153,18 @@ void iroha::network::sendStateAsync(
     ConstRefState state,
     const shared_model::crypto::PublicKey &sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call) {
-  sendStateAsyncImpl(
-      to, state, shared_model::crypto::toBinaryString(sender_key), async_call);
+  sendStateAsyncImpl(to, state, sender_key, async_call);
 }
 
 void sendStateAsyncImpl(const shared_model::interface::Peer &to,
                         ConstRefState state,
-                        const std::string &sender_key,
+                        const shared_model::crypto::PublicKey &sender_key,
                         AsyncGrpcClient<google::protobuf::Empty> &async_call,
                         MstTransportGrpc::SenderFactory sender_factory) {
   auto client = sender_factory(to);
   transport::MstState protoState;
-  protoState.set_source_peer_key(sender_key);
+  protoState.mutable_source_peer_key()->assign(sender_key.blob().char_data(),
+                                               sender_key.blob().size());
   state.iterateTransactions([&protoState](const auto &tx) {
     // TODO (@l4l) 04/03/18 simplify with IR-1040
     *protoState.add_transactions() =

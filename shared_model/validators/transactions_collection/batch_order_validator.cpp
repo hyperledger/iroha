@@ -110,9 +110,9 @@ boost::optional<ValidationError> BatchOrderValidator::validate(
     }
     error_creator |=
         std::move(tx_error_creator).getValidationErrorWithGeneratedName([&] {
-          return fmt::format("Transaction #{} with hash {}",
+          return fmt::format("Transaction #{} with {}",
                              tx.index(),
-                             tx.value().hash().hex());
+                             tx.value().hash().toString());
         });
     if (batch_hash_it != batch_hashes.end()) {
       ++batch_hash_it;
@@ -135,7 +135,7 @@ boost::optional<ValidationError> BatchOrderValidator::validate(
         std::move(hash_error_creator).getValidationErrorWithGeneratedName([&] {
           return fmt::format("Reduced transaction hash #{} {}",
                              hash.index(),
-                             hash.value().hex());
+                             hash.value().toString());
         });
   }
 

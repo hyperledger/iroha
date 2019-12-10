@@ -120,8 +120,8 @@ BENCHMARK_DEFINE_F(BlockBenchmark, TransportCopyTest)(benchmark::State &st) {
     auto block = complete_builder.build();
 
     runBenchmark(st, [&block] {
-      shared_model::proto::Block copy(block.getTransport());
-      checkLoop(copy);
+      auto copy = shared_model::proto::Block::create(block.getTransport());
+      checkLoop(*copy.assumeValue());
     });
   }
 }
@@ -135,8 +135,8 @@ BENCHMARK_DEFINE_F(BlockBenchmark, TransportMoveTest)(benchmark::State &st) {
     auto proto_block = block.getTransport();
 
     runBenchmark(st, [&proto_block] {
-      shared_model::proto::Block copy(std::move(proto_block));
-      checkLoop(copy);
+      auto copy = shared_model::proto::Block::create(std::move(proto_block));
+      checkLoop(*copy.assumeValue());
     });
   }
 }
@@ -177,8 +177,9 @@ BENCHMARK_DEFINE_F(ProposalBenchmark, TransportCopyTest)(benchmark::State &st) {
     auto proposal = complete_builder.build();
 
     runBenchmark(st, [&proposal] {
-      shared_model::proto::Proposal copy(proposal.getTransport());
-      checkLoop(copy);
+      auto copy =
+          shared_model::proto::Proposal::create(proposal.getTransport());
+      checkLoop(*copy.assumeValue());
     });
   }
 }
@@ -192,8 +193,9 @@ BENCHMARK_DEFINE_F(ProposalBenchmark, TransportMoveTest)(benchmark::State &st) {
     iroha::protocol::Proposal proto_proposal = proposal.getTransport();
 
     runBenchmark(st, [&proto_proposal] {
-      shared_model::proto::Proposal copy(std::move(proto_proposal));
-      checkLoop(copy);
+      auto copy =
+          shared_model::proto::Proposal::create(std::move(proto_proposal));
+      checkLoop(*copy.assumeValue());
     });
   }
 }

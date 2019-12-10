@@ -125,8 +125,8 @@ message QueryResponse {
     RolesResponse roles_response = 8;
     RolePermissionsResponse role_permissions_response = 9;
     TransactionsPageResponse transactions_page_response = 11;
-    PendingTransactionsPageResponse pending_transactions_page_response = 13;
     BlockResponse block_response = 12;
+    PendingTransactionsPageResponse pending_transactions_page_response = 13;
     PeersResponse peers_response = 14;
   }
   string query_hash = 10;

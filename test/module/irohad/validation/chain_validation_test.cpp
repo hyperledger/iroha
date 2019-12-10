@@ -6,6 +6,8 @@
 #include "validation/impl/chain_validator_impl.hpp"
 
 #include <boost/range/adaptor/indirected.hpp>
+#include "cryptography/blob.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/mock_mutable_storage.hpp"
 #include "module/irohad/consensus/yac/mock_yac_supermajority_checker.hpp"
@@ -15,6 +17,7 @@ using namespace iroha;
 using namespace iroha::validation;
 using namespace iroha::ametsuchi;
 
+using shared_model::crypto::Blob;
 using ::testing::_;
 using ::testing::A;
 using ::testing::ByRef;
@@ -29,20 +32,18 @@ class ChainValidationTest : public ::testing::Test {
  public:
   void SetUp() override {
     validator = std::make_shared<ChainValidatorImpl>(
-        supermajority_checker, getTestLogger("ChainValidato"));
+        supermajority_checker, getTestLogger("ChainValidator"));
     storage = std::make_shared<MockMutableStorage>();
     peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
     auto peer = std::make_shared<MockPeer>();
     EXPECT_CALL(*peer, pubkey())
-        .WillRepeatedly(ReturnRefOfCopy(
-            shared_model::interface::types::PubkeyType(std::string(32, '0'))));
+        .WillRepeatedly(ReturnRefOfCopy(iroha::createPublicKeyPadded()));
     peers.push_back(peer);
 
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
-        .WillRepeatedly(ReturnRefOfCopy(
-            shared_model::interface::types::PubkeyType(std::string(32, '0'))));
+        .WillRepeatedly(ReturnRefOfCopy(iroha::createPublicKeyPadded()));
     signatures.push_back(signature);
 
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(height));
@@ -51,10 +52,9 @@ class ChainValidationTest : public ::testing::Test {
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(Return(signatures | boost::adaptors::indirected));
     EXPECT_CALL(*block, payload())
-        .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::Blob{"blob"}));
+        .WillRepeatedly(ReturnRefOfCopy(*Blob::fromBinaryString("blob")));
     EXPECT_CALL(*block, hash())
-        .WillRepeatedly(
-            testing::ReturnRefOfCopy(shared_model::crypto::Hash("hash")));
+        .WillRepeatedly(testing::ReturnRefOfCopy(iroha::createHash()));
   }
 
   std::shared_ptr<iroha::consensus::yac::MockSupermajorityChecker>
@@ -65,8 +65,7 @@ class ChainValidationTest : public ::testing::Test {
 
   std::vector<std::shared_ptr<shared_model::interface::Signature>> signatures;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers;
-  shared_model::crypto::Hash prev_hash =
-      shared_model::crypto::Hash("previous top hash");
+  shared_model::crypto::Hash prev_hash{iroha::createHash("previous top hash")};
   shared_model::interface::types::HeightType prev_height = 1;
   shared_model::interface::types::HeightType height = prev_height + 1;
   std::shared_ptr<MockBlock> block = std::make_shared<MockBlock>();
@@ -101,8 +100,8 @@ TEST_F(ChainValidationTest, ValidCase) {
  */
 TEST_F(ChainValidationTest, FailWhenDifferentPrevHash) {
   // Invalid previous hash, has supermajority, correct peers subset => invalid
-  shared_model::crypto::Hash another_hash =
-      shared_model::crypto::Hash(std::string(32, '1'));
+  shared_model::crypto::Hash another_hash(
+      iroha::createHashPadded("another_hash"));
 
   EXPECT_CALL(*supermajority_checker, hasSupermajority(_, _))
       .WillRepeatedly(Return(true));

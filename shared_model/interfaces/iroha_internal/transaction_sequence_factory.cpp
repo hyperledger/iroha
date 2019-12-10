@@ -69,8 +69,8 @@ namespace shared_model {
         // if transaction is valid, try to form batch out of it
         if (auto meta = tx.value()->batchMeta()) {
           auto hashes = meta.get()->reducedHashes();
-          auto batch_hash =
-              TransactionBatchHelpers::calculateReducedBatchHash(hashes);
+          auto batch_hash = TransactionBatchHelpers::calculateReducedBatchHash(
+              hashes, hashes.size());
           extracted_batches[batch_hash].push_back(tx.value());
         } else {
           batch_factory->createTransactionBatch(tx.value())
@@ -86,7 +86,7 @@ namespace shared_model {
                 .getValidationErrorWithGeneratedName([&] {
                   return fmt::format("Transaction #{} with reduced hash {}",
                                      tx.index(),
-                                     tx.value()->reducedHash().hex());
+                                     tx.value()->reducedHash().toString());
                 });
       }
 
@@ -102,7 +102,7 @@ namespace shared_model {
             std::move(batch_error_creator)
                 .getValidationErrorWithGeneratedName([&] {
                   return fmt::format("Batch from meta with reduced hash {}.",
-                                     it.first.hex());
+                                     it.first.toString());
                 });
       }
 

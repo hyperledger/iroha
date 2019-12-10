@@ -232,8 +232,9 @@ TEST_P(GetAccountAssetsBasicTest, PastLastPage) {
 TEST_P(GetAccountAssetsBasicTest, NonexistentStartTx) {
   ASSERT_NO_FATAL_FAILURE(prepareState(10));
   auto response = queryPage(10, 5);
-  checkQueryError<shared_model::interface::StatefulFailedErrorResponse>(
-      response, error_codes::kInvalidPagination);
+  checkQueryError(response,
+                  shared_model::interface::QueryErrorType::kStatefulFailed,
+                  error_codes::kInvalidPagination);
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,

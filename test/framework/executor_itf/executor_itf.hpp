@@ -15,6 +15,7 @@
 #include "ametsuchi/tx_executor.hpp"
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/executor_itf/executor_itf_helper.hpp"
 #include "framework/executor_itf/executor_itf_param.hpp"
 #include "interfaces/commands/command.hpp"
@@ -157,7 +158,7 @@ namespace iroha {
         }
         EXPECT_CALL(query, hash())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::interface::types::HashType{query.toString()}));
+                iroha::createHash(query.toString())));
         return executeQuery(query);
       }
 

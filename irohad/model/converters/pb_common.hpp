@@ -11,6 +11,7 @@
 #include "model/account.hpp"
 #include "model/account_asset.hpp"
 #include "model/asset.hpp"
+#include "model/converters/make_byte_range.hpp"
 #include "model/domain.hpp"
 #include "model/peer.hpp"
 #include "model/signature.hpp"
@@ -41,7 +42,7 @@ namespace iroha {
    */
   template <typename T>
   hash256_t hash(const T &pb) {
-    return sha3_256(pb.payload().SerializeAsString());
+    return sha3_256(model::makeByteRange(pb.payload().SerializeAsString()));
   }
 }  // namespace iroha
 

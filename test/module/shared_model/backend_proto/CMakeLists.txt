@@ -3,11 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+add_library(shared_proto_test_common common.cpp)
+target_link_libraries(shared_proto_test_common
+    protobuf
+    )
+
 addtest(shared_proto_commands_test
     shared_proto_commands_test.cpp
     )
 target_link_libraries(shared_proto_commands_test
     shared_model_proto_backend
+    shared_proto_test_common
     )
 
 addtest(shared_proto_tx_response_test
@@ -34,6 +40,7 @@ target_link_libraries(shared_proto_queries_test
     shared_model_proto_backend
     shared_model_cryptography
     shared_model_stateless_validation
+    shared_proto_test_common
     )
 
 if (IROHA_ROOT_PROJECT)
@@ -44,15 +51,9 @@ if (IROHA_ROOT_PROJECT)
       shared_model_proto_backend
       shared_model_stateless_validation
       shared_model_cryptography
+      shared_proto_test_common
       )
 endif ()
-
-addtest(shared_proto_util_test
-    shared_proto_util_test.cpp
-    )
-target_link_libraries(shared_proto_util_test
-    shared_model_proto_backend
-    )
 
 addtest(permissions_test
     permissions_test.cpp

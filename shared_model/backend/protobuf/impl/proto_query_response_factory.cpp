@@ -31,7 +31,7 @@ namespace {
       QueryResponseCreatorLambda response_creator,
       const shared_model::crypto::Hash &query_hash) {
     iroha::protocol::QueryResponse protocol_query_response;
-    protocol_query_response.set_query_hash(query_hash.blob().hex());
+    protocol_query_response.set_query_hash(query_hash.hex());
 
     response_creator(protocol_query_response);
 
@@ -219,7 +219,7 @@ shared_model::proto::ProtoQueryResponseFactory::createSignatoriesResponse(
         iroha::protocol::SignatoriesResponse *protocol_specific_response =
             protocol_query_response.mutable_signatories_response();
         for (const auto &key : signatories) {
-          protocol_specific_response->add_keys(key.blob().hex());
+          protocol_specific_response->add_keys(key.hex());
         }
       },
       query_hash);
@@ -265,7 +265,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
         }
         if (next_tx_hash) {
           protocol_specific_response->set_next_tx_hash(
-              next_tx_hash.value().blob().hex());
+              next_tx_hash.value().hex());
         }
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);
@@ -300,7 +300,7 @@ std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
           auto *next_batch_info_message =
               protocol_specific_response->mutable_next_batch_info();
           next_batch_info_message->set_first_tx_hash(
-              next_batch_info->first_tx_hash.blob().hex());
+              next_batch_info->first_tx_hash.hex());
           next_batch_info_message->set_batch_size(next_batch_info->batch_size);
         }
       },
@@ -373,7 +373,7 @@ shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
         for (const auto &peer : peers) {
           auto *proto_peer = protocol_specific_response->add_peers();
           proto_peer->set_address(peer->address());
-          proto_peer->set_peer_key(peer->pubkey().blob().hex());
+          proto_peer->set_peer_key(peer->pubkey().hex());
         }
       },
       query_hash);

@@ -11,6 +11,7 @@
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/keypair.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
@@ -45,7 +46,8 @@ class YacGateTest : public ::testing::Test {
 
     auto block = std::make_shared<MockBlock>();
     EXPECT_CALL(*block, payload())
-        .WillRepeatedly(ReturnRefOfCopy(Blob(std::string())));
+        .WillRepeatedly(
+            ReturnRefOfCopy(*Blob::fromBinaryString(std::string())));
     EXPECT_CALL(*block, addSignature(_, _)).WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
     EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
@@ -57,8 +59,8 @@ class YacGateTest : public ::testing::Test {
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(
             Return<shared_model::interface::types::SignatureRangeType>({}));
-    auto prev_hash = Hash("prev hash");
-    auto current_hash = Hash("current hash");
+    Hash current_hash{
+        shared_model::crypto::Blob::fromBinaryString("current hash")};
     EXPECT_CALL(*block, prevHash())
         .WillRepeatedly(testing::ReturnRefOfCopy(prev_hash));
     EXPECT_CALL(*block, hash())
@@ -99,7 +101,7 @@ class YacGateTest : public ::testing::Test {
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
     ledger_state = std::make_shared<iroha::LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         block->height() - 1,
@@ -108,9 +110,9 @@ class YacGateTest : public ::testing::Test {
 
   iroha::consensus::Round round{2, 1};
   boost::optional<ClusterOrdering> alternative_order;
-  PublicKey expected_pubkey{"expected_pubkey"};
-  Signed expected_signed{"expected_signed"};
-  Hash prev_hash{"prev hash"};
+  PublicKey expected_pubkey{iroha::createPublicKey("expected_pubkey")};
+  Signed expected_signed{iroha::createSigned("expected_signed")};
+  Hash prev_hash{iroha::createHash("prev hash")};
   YacHash expected_hash;
   std::shared_ptr<const shared_model::interface::Proposal> expected_proposal;
   std::shared_ptr<shared_model::interface::Block> expected_block;
@@ -268,7 +270,8 @@ TEST_F(YacGateTest, DifferentCommit) {
   // create another block, which will be "received", and generate a commit
   // message with it
   decltype(expected_block) actual_block = std::make_shared<MockBlock>();
-  PublicKey actual_pubkey("actual_pubkey");
+  PublicKey actual_pubkey{
+      shared_model::crypto::Blob::fromBinaryString("actual_pubkey")};
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
       .WillRepeatedly(ReturnRefOfCopy(actual_pubkey));
@@ -287,7 +290,6 @@ TEST_F(YacGateTest, DifferentCommit) {
   gate_wrapper.subscribe([actual_pubkey](auto outcome) {
     auto concrete_outcome = boost::get<iroha::consensus::VoteOther>(outcome);
     auto public_keys = concrete_outcome.public_keys;
-    auto hash = concrete_outcome.hash;
 
     ASSERT_EQ(1, public_keys.size());
     ASSERT_EQ(actual_pubkey, public_keys.front());
@@ -391,7 +393,8 @@ class CommitFromTheFuture : public YacGateTest {
     block_notifier.get_subscriber().on_next(BlockCreatorEvent{
         RoundData{expected_proposal, expected_block}, round, ledger_state});
 
-    PublicKey actual_pubkey("actual_pubkey");
+    PublicKey actual_pubkey{
+        shared_model::crypto::Blob::fromBinaryString("actual_pubkey")};
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
         .WillRepeatedly(ReturnRefOfCopy(actual_pubkey));
@@ -436,7 +439,8 @@ TEST_F(CommitFromTheFuture, BlockReject) {
  * @then peer goes to round (i, j + 1)
  */
 TEST_F(CommitFromTheFuture, ProposalReject) {
-  PublicKey second_actual_pubkey("actual_pubkey_2");
+  PublicKey second_actual_pubkey{
+      shared_model::crypto::Blob::fromBinaryString("actual_pubkey_2")};
   auto second_signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*second_signature, publicKey())
       .WillRepeatedly(ReturnRefOfCopy(second_actual_pubkey));
@@ -515,7 +519,7 @@ TEST_F(YacGateOlderTest, OlderVote) {
 TEST_F(YacGateOlderTest, OlderCommit) {
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey")));
+      .WillRepeatedly(ReturnRefOfCopy(iroha::createPublicKey("actual_pubkey")));
 
   VoteMessage message{YacHash({round.block_round - 1, round.reject_round},
                               "actual_proposal",
@@ -540,9 +544,11 @@ TEST_F(YacGateOlderTest, OlderReject) {
   auto signature1 = std::make_shared<MockSignature>(),
        signature2 = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature1, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey1")));
+      .WillRepeatedly(
+          ReturnRefOfCopy(iroha::createPublicKey("actual_pubkey1")));
   EXPECT_CALL(*signature2, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey2")));
+      .WillRepeatedly(
+          ReturnRefOfCopy(iroha::createPublicKey("actual_pubkey2")));
 
   VoteMessage message1{YacHash({round.block_round - 1, round.reject_round},
                                "actual_proposal1",

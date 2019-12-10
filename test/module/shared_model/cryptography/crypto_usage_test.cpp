@@ -22,8 +22,7 @@ class CryptoUsageTest : public ::testing::Test {
     auto account_id = "b@domain";
 
     // initialize block
-    block = std::make_unique<shared_model::proto::Block>(
-        TestBlockBuilder().height(1).build());
+    block = createBlock({}, 1);
 
     // initialize query
     query = std::make_unique<shared_model::proto::Query>(
@@ -39,15 +38,14 @@ class CryptoUsageTest : public ::testing::Test {
             .creatorAccountId(account_id)
             .setAccountQuorum(account_id, 2)
             .build());
-
-    data = Blob("raw data for signing");
   }
 
   template <typename T>
   void signIncorrect(T &signable) {
     // initialize wrong signature
     auto signedBlob = shared_model::crypto::DefaultCryptoAlgorithmType::sign(
-        shared_model::crypto::Blob("wrong payload"), keypair);
+        *shared_model::crypto::Blob::fromBinaryString("wrong payload"),
+        keypair);
     signable.addSignature(signedBlob, keypair.publicKey());
   }
 
@@ -64,14 +62,14 @@ class CryptoUsageTest : public ::testing::Test {
                         });
   }
 
-  Blob data;
+  std::unique_ptr<Blob> data{Blob::fromBinaryString("raw data for signing")};
   shared_model::crypto::Keypair keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 
   shared_model::crypto::CryptoModelSigner<> signer =
       shared_model::crypto::CryptoModelSigner<>(keypair);
 
-  std::unique_ptr<shared_model::proto::Block> block;
+  std::shared_ptr<shared_model::interface::Block> block;
   std::unique_ptr<shared_model::proto::Query> query;
   std::unique_ptr<shared_model::proto::Transaction> transaction;
 };
@@ -83,9 +81,9 @@ class CryptoUsageTest : public ::testing::Test {
  */
 TEST_F(CryptoUsageTest, RawSignAndVerifyTest) {
   auto signed_blob =
-      shared_model::crypto::DefaultCryptoAlgorithmType::sign(data, keypair);
+      shared_model::crypto::DefaultCryptoAlgorithmType::sign(*data, keypair);
   auto verified = DefaultCryptoAlgorithmType::verify(
-      signed_blob, data, keypair.publicKey());
+      signed_blob, *data, keypair.publicKey());
   ASSERT_TRUE(verified);
 }
 

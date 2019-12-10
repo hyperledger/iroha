@@ -51,7 +51,7 @@ struct ContainerValidatorTest : public ::testing::Test {
         .transactions(txs)
         .height(1)
         .prevHash(shared_model::crypto::DefaultHashProvider::makeHash(
-            shared_model::crypto::Blob("")))
+            *shared_model::crypto::Blob::fromBinaryString("")))
         .createdTime(timestamp)
         .build()
         .signAndAddSignature(keypair)

@@ -29,7 +29,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
    * a zero-padded serial number.
    */
   PubkeyType makePubKey(size_t n) {
-    return PubkeyType{(boost::format("public_key_%04d") % n).str()};
+    return iroha::createPublicKey((boost::format("public_key_%04d") % n).str());
   }
 
   /**
@@ -80,9 +80,10 @@ using GetSignatoriesBasicTest = BasicExecutorTest<GetSignatoriesTest>;
  * @then there is an error
  */
 TEST_P(GetSignatoriesBasicTest, InvalidNoAccount) {
-  checkQueryError<shared_model::interface::NoSignatoriesErrorResponse>(
+  checkQueryError(
       getItf().executeQuery(
           *getItf().getMockQueryFactory()->constructGetSignatories(kUserId)),
+      shared_model::interface::QueryErrorType::kNoSignatories,
       error_codes::kNoStatefulError);
 }
 

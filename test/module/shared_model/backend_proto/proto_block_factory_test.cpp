@@ -7,6 +7,8 @@
 
 #include "backend/protobuf/proto_block_factory.hpp"
 #include "datetime/time.hpp"
+#include "framework/crypto_dummies.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "validators/default_validator.hpp"
 
@@ -34,13 +36,16 @@ class ProtoBlockFactoryTest : public ::testing::Test {
 TEST_F(ProtoBlockFactoryTest, UnsafeBlockCreation) {
   int height = 1;
   auto created_time = iroha::time::now();
-  auto prev_hash = shared_model::crypto::Hash::fromHexString("123456");
+  shared_model::crypto::Hash prev_hash(
+      shared_model::crypto::Blob::fromBinaryString("123456"));
 
   std::vector<shared_model::proto::Transaction> txs;
-  txs.emplace_back(iroha::protocol::Transaction{});
+  auto tx_result = proto::Transaction::create(iroha::protocol::Transaction{});
+  IROHA_ASSERT_RESULT_VALUE(tx_result) << "Failed to create a transaction!";
+  txs.emplace_back(*std::move(tx_result).assumeValue());
 
   std::vector<shared_model::crypto::Hash> rejected_txs{
-      shared_model::crypto::Hash::fromHexString("rubble_devaluation")};
+      iroha::createHash("rubble_devaluation")};
 
   auto block = factory->unsafeCreateBlock(
       height, prev_hash, created_time, txs, rejected_txs);

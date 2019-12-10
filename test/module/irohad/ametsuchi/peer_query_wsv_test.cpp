@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <backend/plain/peer.hpp>
+#include "framework/crypto_dummies.hpp"
 #include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 
 class PeerQueryWSVTest : public ::testing::Test {
@@ -30,12 +31,12 @@ TEST_F(PeerQueryWSVTest, GetPeers) {
   std::shared_ptr<shared_model::interface::Peer> peer1 =
       std::make_shared<shared_model::plain::Peer>(
           "some-address",
-          shared_model::crypto::PublicKey("some-public-key"),
+          iroha::createPublicKey("some-public-key"),
           boost::none);
   std::shared_ptr<shared_model::interface::Peer> peer2 =
       std::make_shared<shared_model::plain::Peer>(
           "another-address",
-          shared_model::crypto::PublicKey("another-public-key"),
+          iroha::createPublicKey("another-public-key"),
           boost::none);
   peers.push_back(peer1);
   peers.push_back(peer2);

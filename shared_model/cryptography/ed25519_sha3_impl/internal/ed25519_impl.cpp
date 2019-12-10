@@ -29,25 +29,14 @@ namespace iroha {
   /**
    * Verify signature
    */
-  bool verify(const uint8_t *msg,
-              size_t msgsize,
+  bool verify(shared_model::interface::types::ConstByteRange msg,
               const PubkeyView &pub,
               const SigView &sig) {
     return 1
         == ed25519_verify(reinterpret_cast<const signature_t *>(sig.data()),
-                          msg,
-                          msgsize,
+                          msg.begin(),
+                          msg.end() - msg.begin(),
                           reinterpret_cast<const public_key_t *>(pub.data()));
-  }
-
-  bool verify(const std::string &msg,
-              const PubkeyView &pub,
-              const SigView &sig) {
-    return 1
-        == verify(reinterpret_cast<const uint8_t *>(msg.data()),
-                  msg.size(),
-                  pub,
-                  sig);
   }
 
   /**

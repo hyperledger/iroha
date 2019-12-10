@@ -16,6 +16,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/keypair.hpp"
+#include "cryptography/signed.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/integration_framework/fake_peer/network/loader_grpc.hpp"
@@ -297,8 +298,9 @@ namespace integration_framework {
     iroha::consensus::yac::VoteMessage FakePeer::makeVote(
         iroha::consensus::yac::YacHash yac_hash) {
       iroha::consensus::yac::YacHash my_yac_hash = yac_hash;
-      my_yac_hash.block_signature = makeSignature(
-          shared_model::crypto::Blob(yac_hash.vote_hashes.block_hash));
+      my_yac_hash.block_signature =
+          makeSignature(*shared_model::crypto::Blob::fromBinaryString(
+              yac_hash.vote_hashes.block_hash));
       return yac_crypto_->getVote(my_yac_hash);
     }
 

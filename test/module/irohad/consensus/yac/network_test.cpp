@@ -8,6 +8,7 @@
 #include <grpc++/grpc++.h>
 
 #include "consensus/yac/transport/yac_pb_converters.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
@@ -44,13 +45,18 @@ namespace iroha {
           network = std::make_shared<NetworkImpl>(
               async_call, client_creator, getTestLogger("YacNetwork"));
 
-          message.hash.vote_hashes.proposal_hash = "proposal";
-          message.hash.vote_hashes.block_hash = "block";
+          message.hash.vote_hashes.proposal_hash =
+              iroha::createHashPadded("proposal").hex();
+          message.hash.vote_hashes.block_hash =
+              iroha::createHashPadded("block").hex();
 
           // getTransport is not used in network at the moment, please check if
           // test fails
-          message.hash.block_signature = createSig("");
-          message.signature = createSig("");
+          message.hash.block_signature =
+              createSig(iroha::createPublicKeyPadded());
+          message.signature = createSig(iroha::createPublicKeyPadded());
+          message.hash.vote_round = {};
+          network->subscribe(notifications);
           message.hash.vote_round = {};
           network->subscribe(notifications);
 

@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_BYTES_VIEW_HPP
 #define IROHA_SHARED_MODEL_BYTES_VIEW_HPP
 
+#include <cstddef>
 #include <string>
 
 #include <boost/optional/optional.hpp>
@@ -16,7 +17,7 @@ namespace shared_model {
   namespace crypto {
 
     /**
-     * BytesView is a wrapper over a byte range with some helper functions.
+     * BytesView is a wrapper over a const byte range.
      */
     class BytesView {
      public:
@@ -26,6 +27,8 @@ namespace shared_model {
 
       BytesView(const shared_model::interface::types::ByteType *begin,
                 size_t length);
+
+      BytesView(const char *begin, size_t length);
 
       virtual ~BytesView();
 
@@ -42,6 +45,9 @@ namespace shared_model {
       /// @return pointer to the first byte.
       const shared_model::interface::types::ByteType *data() const;
 
+      /// @return pointer to the first byte cast to char.
+      const char *char_data() const;
+
       /**
        * @return number of bytes in the blob
        */
@@ -55,10 +61,20 @@ namespace shared_model {
       /// Users of this constructor must initialize range_ themselves.
       BytesView() = default;
 
+      std::size_t getSizeTHash() const;
+
       shared_model::interface::types::ConstByteRange range_;
 
      private:
+      friend class BytesViewHasher;
+
       mutable boost::optional<std::string> hex_repr_cache_;
+      mutable boost::optional<std::size_t> hash_cache_;
+    };
+
+    class BytesViewHasher {
+     public:
+      std::size_t operator()(const BytesView &blob) const;
     };
 
   }  // namespace crypto

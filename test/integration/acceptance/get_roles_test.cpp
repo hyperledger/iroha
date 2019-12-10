@@ -11,7 +11,7 @@
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
-#include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
@@ -60,13 +60,9 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
  */
 TEST_F(AcceptanceFixture, CanNotGetRoles) {
   auto checkQuery = [](auto &query_response) {
-    ASSERT_NO_THROW({
-      const auto &error_rsp =
-          boost::get<const shared_model::interface::ErrorQueryResponse &>(
-              query_response.get());
-      boost::get<const shared_model::interface::StatefulFailedErrorResponse &>(
-          error_rsp.get());
-    });
+    checkForQueryError(
+        query_response,
+        shared_model::interface::QueryErrorType::kStatefulFailed);
   };
 
   auto query = TestUnsignedQueryBuilder()

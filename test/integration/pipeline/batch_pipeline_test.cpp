@@ -287,7 +287,7 @@ TEST_F(BatchPipelineTest, InvalidAtomicBatch) {
             for (const auto &status : statuses) {
               EXPECT_NO_THROW(
                   boost::get<const shared_model::interface::
-                                 StatelessValidTxResponse &>(status.get()));
+                                 StatelessValidTxResponse &>(status->get()));
             }
           })
       .checkStatus(batch_transactions[0]->hash(), CHECK_STATELESS_VALID)

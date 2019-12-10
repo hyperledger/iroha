@@ -14,6 +14,8 @@
 #include "common/bind.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/amount.hpp"
@@ -370,11 +372,11 @@ namespace shared_model {
 
     boost::optional<ValidationError> FieldValidator::validateHash(
         const crypto::Hash &hash) const {
-      if (hash.size() != hash_size) {
-        return ValidationError(
-            "Hash",
-            {fmt::format(
-                "Invalid size: {}, should be {}.", hash.size(), hash_size)});
+      if (hash.blob().size() != hash_size) {
+        return ValidationError("Hash",
+                               {fmt::format("Invalid size: {}, should be {}.",
+                                            hash.blob().size(),
+                                            hash_size)});
       }
       return boost::none;
     }

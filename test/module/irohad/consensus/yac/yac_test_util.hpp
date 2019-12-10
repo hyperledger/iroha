@@ -11,6 +11,7 @@
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 
+#include "framework/crypto_dummies.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
@@ -25,8 +26,7 @@ namespace iroha {
             .WillRepeatedly(::testing::ReturnRefOfCopy(address));
         EXPECT_CALL(*peer, pubkey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::interface::types::PubkeyType(
-                    framework::padPubKeyString(address))));
+                iroha::createPublicKeyPadded(address)));
         EXPECT_CALL(*peer, tlsCertificate())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
                 boost::optional<
@@ -35,30 +35,43 @@ namespace iroha {
         return peer;
       }
 
-      inline VoteMessage createVote(YacHash hash, const std::string &pub_key) {
+      inline VoteMessage createVote(
+          YacHash hash, std::shared_ptr<shared_model::crypto::Blob> pub_key) {
         VoteMessage vote;
 
-        std::string padded_pub_key = framework::padPubKeyString(pub_key);
         auto block_signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*block_signature, publicKey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::PublicKey(padded_pub_key)));
+                shared_model::crypto::PublicKey(pub_key)));
         EXPECT_CALL(*block_signature, signedData())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::Signed(padded_pub_key)));
+                shared_model::crypto::Signed(pub_key)));
         hash.block_signature = block_signature;
         vote.hash = std::move(hash);
 
         auto signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*signature, publicKey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::PublicKey(padded_pub_key)));
+                shared_model::crypto::PublicKey(pub_key)));
         EXPECT_CALL(*signature, signedData())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::Signed(padded_pub_key)));
+                shared_model::crypto::Signed(pub_key)));
 
         vote.signature = signature;
         return vote;
+      }
+
+      inline VoteMessage createVote(
+          YacHash hash, const shared_model::crypto::BytesView &pub_key) {
+        return createVote(
+            std::move(hash),
+            std::make_shared<shared_model::crypto::Blob>(pub_key.byteRange()));
+      }
+
+      inline VoteMessage createVote(YacHash hash, const std::string &pub_key) {
+        return createVote(std::move(hash),
+                          shared_model::crypto::Blob::fromBinaryString(
+                              padPubKeyString(pub_key)));
       }
 
     }  // namespace yac

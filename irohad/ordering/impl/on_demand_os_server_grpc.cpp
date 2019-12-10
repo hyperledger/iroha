@@ -40,8 +40,7 @@ grpc::Status OnDemandOsServerGrpc::SendBatches(
   auto transactions = shared_model::proto::deserializeTransactions(
       *transaction_factory_, request->transactions());
   if (auto e = expected::resultToOptionalError(transactions)) {
-    log_->warn(
-        "Transaction deserialization failed: hash {}, {}", e->hash, e->error);
+    log_->warn("Transaction deserialization failed: {}", e.value());
     return ::grpc::Status::OK;
   }
 

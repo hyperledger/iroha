@@ -9,7 +9,7 @@
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/query_permission_fixture.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace shared_model;
 using namespace integration_framework;
@@ -20,20 +20,17 @@ using BlockType = std::shared_ptr<const shared_model::interface::Block>;
 /**
  * @return a functor that verifies that query response contains specific error
  */
-template <typename TError>
+template <interface::QueryErrorType TError>
 auto inline getQueryErrorChecker() {
   return [](auto &response) {
-    ASSERT_TRUE(boost::apply_visitor(
-        shared_model::interface::QueryErrorResponseChecker<TError>(),
-        response.get()))
-        << "Actual response: " << response.toString();
+    shared_model::interface::checkForQueryError(response, TError);
   };
 }
 
-static auto &getQueryStatefullyInvalidChecker =
-    getQueryErrorChecker<shared_model::interface::StatefulFailedErrorResponse>;
-static auto &getQueryStatelesslyInvalidChecker =
-    getQueryErrorChecker<shared_model::interface::StatelessFailedErrorResponse>;
+static auto &getQueryStatefullyInvalidChecker = getQueryErrorChecker<
+    shared_model::interface::QueryErrorType::kStatefulFailed>;
+static auto &getQueryStatelesslyInvalidChecker = getQueryErrorChecker<
+    shared_model::interface::QueryErrorType::kStatelessFailed>;
 
 /**
  * @return a functor that checks that a block contains exactly the specified

@@ -57,7 +57,6 @@ add_library(grpc_channel_pool
 target_link_libraries(grpc_channel_pool
     PRIVATE
     common
-    crypto_blob_hasher
     grpc_channel_factory
     shared_model_interfaces
     PUBLIC

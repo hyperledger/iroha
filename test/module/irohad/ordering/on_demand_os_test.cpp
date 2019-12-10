@@ -11,6 +11,7 @@
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "datetime/time.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
@@ -64,7 +65,8 @@ class OnDemandOsTest : public ::testing::Test {
             testing::Matcher<const shared_model::interface::TransactionBatch &>(
                 _)))
         .WillByDefault(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-            iroha::ametsuchi::tx_cache_status_responses::Missing()}));
+            iroha::ametsuchi::tx_cache_status_responses::Missing(
+                iroha::createHash())}));
 
     proposal_creation_strategy =
         std::make_shared<MockProposalCreationStrategy>();
@@ -251,7 +253,8 @@ TEST_F(OnDemandOsTest, AlreadyProcessedProposalDiscarded) {
 
   EXPECT_CALL(*mock_cache, check(batchRef(batch)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-          iroha::ametsuchi::tx_cache_status_responses::Committed()}));
+          iroha::ametsuchi::tx_cache_status_responses::Committed(
+              iroha::createHash())}));
 
   os->onBatches(batches);
 
@@ -273,7 +276,8 @@ TEST_F(OnDemandOsTest, PassMissingTransaction) {
 
   EXPECT_CALL(*mock_cache, check(batchRef(batch)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-          iroha::ametsuchi::tx_cache_status_responses::Missing()}));
+          iroha::ametsuchi::tx_cache_status_responses::Missing(
+              iroha::createHash())}));
 
   os->onBatches(batches);
 
@@ -299,13 +303,16 @@ TEST_F(OnDemandOsTest, SeveralTransactionsOneCommited) {
 
   EXPECT_CALL(*mock_cache, check(batchRef(batch1)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-          iroha::ametsuchi::tx_cache_status_responses::Missing()}));
+          iroha::ametsuchi::tx_cache_status_responses::Missing(
+              iroha::createHash())}));
   EXPECT_CALL(*mock_cache, check(batchRef(batch2)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-          iroha::ametsuchi::tx_cache_status_responses::Committed()}));
+          iroha::ametsuchi::tx_cache_status_responses::Committed(
+              iroha::createHash())}));
   EXPECT_CALL(*mock_cache, check(batchRef(batch3)))
       .WillOnce(Return(std::vector<iroha::ametsuchi::TxCacheStatusType>{
-          iroha::ametsuchi::tx_cache_status_responses::Missing()}));
+          iroha::ametsuchi::tx_cache_status_responses::Missing(
+              iroha::createHash())}));
 
   os->onBatches(batches);
 

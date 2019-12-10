@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "cryptography/public_key.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
@@ -22,7 +23,7 @@ using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
 static const shared_model::crypto::PublicKey kTargetSignatory{
-    "target_signatory"};
+    iroha::createPublicKey("target_signatory")};
 
 class RemoveSignatoryTest : public ExecutorTestBase {
  public:

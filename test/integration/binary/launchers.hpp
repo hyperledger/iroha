@@ -51,8 +51,8 @@ namespace binary_test {
                      const unsigned &queries_expected = 0);
 
     boost::optional<shared_model::crypto::Keypair> admin_key;
-    std::vector<shared_model::proto::Transaction> transactions;
-    std::vector<shared_model::proto::Query> queries;
+    std::vector<std::unique_ptr<shared_model::proto::Transaction>> transactions;
+    std::vector<std::unique_ptr<shared_model::proto::Query>> queries;
 
    protected:
     /**

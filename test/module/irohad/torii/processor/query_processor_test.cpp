@@ -10,6 +10,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
@@ -23,7 +24,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "network/ordering_gate.hpp"
 #include "torii/processor/query_processor_impl.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace iroha;
 using namespace iroha::ametsuchi;
@@ -121,23 +122,21 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
                        shared_model::crypto::DefaultCryptoAlgorithmType::
                            generateKeypair())
                    .finish();
-  auto *qry_resp = query_response_factory
-                       ->createErrorQueryResponse(
-                           shared_model::interface::QueryResponseFactory::
-                               QueryErrorType::kStatefulFailed,
-                           "query signatories did not pass validation",
-                           3,
-                           query.hash())
-                       .release();
+  auto *qry_resp =
+      query_response_factory
+          ->createErrorQueryResponse(
+              shared_model::interface::QueryErrorType::kStatefulFailed,
+              "query signatories did not pass validation",
+              3,
+              query.hash())
+          .release();
 
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));
 
   auto response = qpi->queryHandle(query);
   ASSERT_TRUE(response);
-  ASSERT_NO_THROW(boost::apply_visitor(
-      shared_model::interface::QueryErrorResponseChecker<
-          shared_model::interface::StatefulFailedErrorResponse>(),
-      response->get()));
+  shared_model::interface::checkForQueryError(
+      *response, shared_model::interface::QueryErrorType::kStatefulFailed);
 }
 
 /**
@@ -161,8 +160,7 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
     });
   });
   for (int i = 0; i < block_number; i++) {
-    storage->notifier.get_subscriber().on_next(
-        clone(TestBlockBuilder().build()));
+    storage->notifier.get_subscriber().on_next(createBlock({}));
   }
   ASSERT_TRUE(wrapper.validate());
 }
@@ -190,7 +188,7 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
     storage->notifier.get_subscriber().on_next(
         clone(TestBlockBuilder()
                   .height(1)
-                  .prevHash(shared_model::crypto::Hash(std::string(32, '0')))
+                  .prevHash(iroha::createHashPadded())
                   .build()));
   }
   ASSERT_TRUE(wrapper.validate());

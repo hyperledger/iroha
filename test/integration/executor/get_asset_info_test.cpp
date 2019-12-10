@@ -51,8 +51,9 @@ using GetAssetInfoBasicTest = BasicExecutorTest<GetAssetInfoTest>;
  * @then there is an error
  */
 TEST_P(GetAssetInfoBasicTest, InvalidNoAsset) {
-  checkQueryError<shared_model::interface::NoAssetErrorResponse>(
-      query(), error_codes::kNoStatefulError);
+  checkQueryError(query(),
+                  shared_model::interface::QueryErrorType::kNoAsset,
+                  error_codes::kNoStatefulError);
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,

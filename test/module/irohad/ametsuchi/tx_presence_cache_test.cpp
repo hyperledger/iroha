@@ -7,6 +7,7 @@
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "cryptography/public_key.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
@@ -17,6 +18,13 @@
 
 using namespace iroha::ametsuchi;
 using namespace testing;
+
+static const shared_model::crypto::Hash kHash_1{iroha::createHash("1")};
+static const shared_model::crypto::Hash kHash_2{iroha::createHash("2")};
+static const shared_model::crypto::Hash kHash_3{iroha::createHash("3")};
+static const shared_model::crypto::Hash kReducedHash_1{iroha::createHash("r1")};
+static const shared_model::crypto::Hash kReducedHash_2{iroha::createHash("r2")};
+static const shared_model::crypto::Hash kReducedHash_3{iroha::createHash("r3")};
 
 /**
  * Fixture for non-typed tests (TEST_F)
@@ -52,14 +60,13 @@ TYPED_TEST_CASE(TxPresenceCacheTemplateTest, CacheStatusTypes, );
  * @then cache returns {Missing, Rejected, Committed} status
  */
 TYPED_TEST(TxPresenceCacheTemplateTest, StatusHashTest) {
-  shared_model::crypto::Hash hash("1");
-  EXPECT_CALL(*this->mock_block_query, checkTxPresence(hash))
+  EXPECT_CALL(*this->mock_block_query, checkTxPresence(kHash_1))
       .WillOnce(
-          Return(boost::make_optional<TxCacheStatusType>(TypeParam(hash))));
+          Return(boost::make_optional<TxCacheStatusType>(TypeParam(kHash_1))));
   TxPresenceCacheImpl cache(this->mock_storage);
-  TypeParam check_result;
-  ASSERT_NO_THROW(check_result = boost::get<TypeParam>(*cache.check(hash)));
-  ASSERT_EQ(hash, check_result.hash);
+  TypeParam check_result{iroha::createHash()};
+  ASSERT_NO_THROW(check_result = boost::get<TypeParam>(*cache.check(kHash_1)));
+  ASSERT_EQ(kHash_1, check_result.hash);
 }
 
 /**
@@ -69,9 +76,8 @@ TYPED_TEST(TxPresenceCacheTemplateTest, StatusHashTest) {
  */
 TEST_F(TxPresenceCacheTest, BadStorage) {
   EXPECT_CALL(*mock_storage, getBlockQuery()).WillRepeatedly(Return(nullptr));
-  shared_model::crypto::Hash hash("1");
   TxPresenceCacheImpl cache(mock_storage);
-  ASSERT_FALSE(cache.check(hash));
+  ASSERT_FALSE(cache.check(kHash_1));
 }
 
 /**
@@ -80,24 +86,24 @@ TEST_F(TxPresenceCacheTest, BadStorage) {
  * @then cache returns Missing and then Committed status
  */
 TEST_F(TxPresenceCacheTest, MissingThenCommittedHashTest) {
-  shared_model::crypto::Hash hash("1");
-  EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
+  EXPECT_CALL(*mock_block_query, checkTxPresence(kHash_1))
       .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Missing(hash))));
+          tx_cache_status_responses::Missing(kHash_1))));
   TxPresenceCacheImpl cache(mock_storage);
-  tx_cache_status_responses::Missing check_missing_result;
-  ASSERT_NO_THROW(
-      check_missing_result =
-          boost::get<tx_cache_status_responses::Missing>(*cache.check(hash)));
-  ASSERT_EQ(hash, check_missing_result.hash);
-  EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
+  tx_cache_status_responses::Missing check_missing_result{iroha::createHash()};
+  ASSERT_NO_THROW(check_missing_result =
+                      boost::get<tx_cache_status_responses::Missing>(
+                          *cache.check(kHash_1)));
+  ASSERT_EQ(kHash_1, check_missing_result.hash);
+  EXPECT_CALL(*mock_block_query, checkTxPresence(kHash_1))
       .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Committed(hash))));
-  tx_cache_status_responses::Committed check_committed_result;
-  ASSERT_NO_THROW(
-      check_committed_result =
-          boost::get<tx_cache_status_responses::Committed>(*cache.check(hash)));
-  ASSERT_EQ(hash, check_committed_result.hash);
+          tx_cache_status_responses::Committed(kHash_1))));
+  tx_cache_status_responses::Committed check_committed_result{
+      iroha::createHash()};
+  ASSERT_NO_THROW(check_committed_result =
+                      boost::get<tx_cache_status_responses::Committed>(
+                          *cache.check(kHash_1)));
+  ASSERT_EQ(kHash_1, check_committed_result.hash);
 }
 
 /**
@@ -107,68 +113,41 @@ TEST_F(TxPresenceCacheTest, MissingThenCommittedHashTest) {
  * Missing statuses accordingly
  */
 TEST_F(TxPresenceCacheTest, BatchHashTest) {
-  shared_model::crypto::Hash hash1("1");
-  shared_model::crypto::Hash reduced_hash_1("r1");
-
-  shared_model::crypto::Hash hash2("2");
-  shared_model::crypto::Hash reduced_hash_2("r2");
-
-  shared_model::crypto::Hash hash3("3");
-  shared_model::crypto::Hash reduced_hash_3("r3");
-
-  EXPECT_CALL(*mock_block_query, checkTxPresence(hash1))
+  EXPECT_CALL(*mock_block_query, checkTxPresence(kHash_1))
       .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Rejected(hash1))));
-  EXPECT_CALL(*mock_block_query, checkTxPresence(hash2))
+          tx_cache_status_responses::Rejected(kHash_1))));
+  EXPECT_CALL(*mock_block_query, checkTxPresence(kHash_2))
       .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Committed(hash2))));
-  EXPECT_CALL(*mock_block_query, checkTxPresence(hash3))
+          tx_cache_status_responses::Committed(kHash_2))));
+  EXPECT_CALL(*mock_block_query, checkTxPresence(kHash_3))
       .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
-          tx_cache_status_responses::Missing(hash3))));
+          tx_cache_status_responses::Missing(kHash_3))));
   auto tx1 = std::make_shared<MockTransaction>();
-  EXPECT_CALL(*tx1, hash()).WillOnce(ReturnRefOfCopy(hash1));
-  EXPECT_CALL(*tx1, reducedHash()).WillOnce(ReturnRefOfCopy(reduced_hash_1));
+  EXPECT_CALL(*tx1, hash()).WillOnce(ReturnRefOfCopy(kHash_1));
+  EXPECT_CALL(*tx1, reducedHash()).WillOnce(ReturnRefOfCopy(kReducedHash_1));
   auto tx2 = std::make_shared<MockTransaction>();
-  EXPECT_CALL(*tx2, hash()).WillOnce(ReturnRefOfCopy(hash2));
-  EXPECT_CALL(*tx2, reducedHash()).WillOnce(ReturnRefOfCopy(reduced_hash_2));
+  EXPECT_CALL(*tx2, hash()).WillOnce(ReturnRefOfCopy(kHash_2));
+  EXPECT_CALL(*tx2, reducedHash()).WillOnce(ReturnRefOfCopy(kReducedHash_2));
   auto tx3 = std::make_shared<MockTransaction>();
-  EXPECT_CALL(*tx3, hash()).WillOnce(ReturnRefOfCopy(hash3));
-  EXPECT_CALL(*tx3, reducedHash()).WillOnce(ReturnRefOfCopy(reduced_hash_3));
+  EXPECT_CALL(*tx3, hash()).WillOnce(ReturnRefOfCopy(kHash_3));
+  EXPECT_CALL(*tx3, reducedHash()).WillOnce(ReturnRefOfCopy(kReducedHash_3));
 
   shared_model::interface::types::SharedTxsCollectionType txs{tx1, tx2, tx3};
+  shared_model::interface::TransactionBatchImpl batch{std::move(txs)};
+
   TxPresenceCacheImpl cache(mock_storage);
-
-  auto batch_factory = std::make_shared<MockTransactionBatchFactory>();
-  EXPECT_CALL(*batch_factory, createTransactionBatch(txs))
-      .WillOnce(Invoke(
-          [&txs](
-              const shared_model::interface::types::SharedTxsCollectionType &)
-              -> shared_model::interface::TransactionBatchFactory::
-                  FactoryResult<std::unique_ptr<
-                      shared_model::interface::TransactionBatch>> {
-                    return iroha::expected::makeValue<std::unique_ptr<
-                        shared_model::interface::TransactionBatch>>(
-                        std::make_unique<
-                            shared_model::interface::TransactionBatchImpl>(
-                            txs));
-                  }));
-
-  batch_factory->createTransactionBatch(txs).match(
-      [&](const auto &batch) {
-        auto batch_statuses = *cache.check(*batch.value);
-        ASSERT_EQ(3, batch_statuses.size());
-        tx_cache_status_responses::Rejected ts1;
-        tx_cache_status_responses::Committed ts2;
-        tx_cache_status_responses::Missing ts3;
-        ASSERT_NO_THROW(ts1 = boost::get<tx_cache_status_responses::Rejected>(
-                            batch_statuses.at(0)));
-        ASSERT_NO_THROW(ts2 = boost::get<tx_cache_status_responses::Committed>(
-                            batch_statuses.at(1)));
-        ASSERT_NO_THROW(ts3 = boost::get<tx_cache_status_responses::Missing>(
-                            batch_statuses.at(2)));
-        ASSERT_EQ(hash1, ts1.hash);
-        ASSERT_EQ(hash2, ts2.hash);
-        ASSERT_EQ(hash3, ts3.hash);
-      },
-      [&](const auto &error) { FAIL() << error.error; });
+  auto batch_statuses = *cache.check(batch);
+  ASSERT_EQ(3, batch_statuses.size());
+  tx_cache_status_responses::Rejected ts1{iroha::createHash()};
+  tx_cache_status_responses::Committed ts2{iroha::createHash()};
+  tx_cache_status_responses::Missing ts3{iroha::createHash()};
+  ASSERT_NO_THROW(ts1 = boost::get<tx_cache_status_responses::Rejected>(
+                      batch_statuses.at(0)));
+  ASSERT_NO_THROW(ts2 = boost::get<tx_cache_status_responses::Committed>(
+                      batch_statuses.at(1)));
+  ASSERT_NO_THROW(ts3 = boost::get<tx_cache_status_responses::Missing>(
+                      batch_statuses.at(2)));
+  ASSERT_EQ(kHash_1, ts1.hash);
+  ASSERT_EQ(kHash_2, ts2.hash);
+  ASSERT_EQ(kHash_3, ts3.hash);
 }

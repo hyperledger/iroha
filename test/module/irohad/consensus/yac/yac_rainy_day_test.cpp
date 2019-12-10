@@ -127,8 +127,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
     ASSERT_LT(i, peers_number) << "Reject must had already happened when "
                                   "all peers have voted for different hashes.";
     auto peer = my_order->getPeers().at(i);
-    auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
-    votes.push_back(createVote(makeYacHash(i), pubkey));
+    votes.push_back(createVote(makeYacHash(i), peer->pubkey().blob()));
     vote_groups.push_back({1});
   };
 
@@ -138,6 +137,5 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
 
   yac->onState(votes);
   auto peer = my_order->getPeers().back();
-  auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
-  yac->onState({createVote(makeYacHash(peers_number), pubkey)});
+  yac->onState({createVote(makeYacHash(peers_number), peer->pubkey().blob())});
 }

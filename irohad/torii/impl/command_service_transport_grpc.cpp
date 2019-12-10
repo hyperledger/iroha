@@ -89,9 +89,7 @@ namespace iroha {
           *transaction_factory_, request->transactions());
       if (auto e = expected::resultToOptionalError(transactions)) {
         return publish_stateless_fail(
-            fmt::format("Transaction deserialization failed: hash {}, {}",
-                        e->hash,
-                        e->error));
+            fmt::format("Transaction deserialization failed: {}", e.value()));
       }
 
       auto batches = shared_model::interface::parseAndCreateBatches(
@@ -114,27 +112,43 @@ namespace iroha {
         grpc::ServerContext *context,
         const iroha::protocol::TxStatusRequest *request,
         iroha::protocol::ToriiResponse *response) {
-      *response =
-          std::static_pointer_cast<shared_model::proto::TransactionResponse>(
-              command_service_->getStatus(
-                  shared_model::crypto::Hash::fromHexString(
-                      request->tx_hash())))
-              ->getTransport();
-      return grpc::Status::OK;
+      return shared_model::crypto::Blob::fromHexString(request->tx_hash())
+          .match(
+              [&](auto &&tx_hash) {
+                *response =
+                    std::static_pointer_cast<
+                        shared_model::proto::TransactionResponse>(
+                        command_service_->getStatus(shared_model::crypto::Hash{
+                            std::move(tx_hash.value)}))
+                        ->getTransport();
+                return grpc::Status::OK;
+              },
+              [&](const auto &error) {
+                log_->debug("Status({}): {}", request->tx_hash(), error.error);
+                return grpc::Status{grpc::StatusCode::INVALID_ARGUMENT,
+                                    error.error};
+              });
     }
 
     grpc::Status CommandServiceTransportGrpc::StatusStream(
         grpc::ServerContext *context,
         const iroha::protocol::TxStatusRequest *request,
         grpc::ServerWriter<iroha::protocol::ToriiResponse> *response_writer) {
+      auto tx_hash_result =
+          shared_model::crypto::Blob::fromHexString(request->tx_hash());
+      if (auto e = iroha::expected::resultToOptionalError(tx_hash_result)) {
+        log_->debug("StatusStream({}): {}", request->tx_hash(), e.value());
+        return grpc::Status{grpc::StatusCode::INVALID_ARGUMENT, e.value()};
+      }
+      auto hash =
+          shared_model::crypto::Hash{std::move(tx_hash_result).assumeValue()};
+
       rxcpp::schedulers::run_loop rl;
 
       auto current_thread = rxcpp::synchronize_in_one_worker(
           rxcpp::schedulers::make_run_loop(rl));
 
       rxcpp::composite_subscription subscription;
-
-      auto hash = shared_model::crypto::Hash::fromHexString(request->tx_hash());
 
       auto client_id_format = boost::format("Peer: '%s', %s");
       std::string client_id =

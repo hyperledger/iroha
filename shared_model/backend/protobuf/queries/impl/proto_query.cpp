@@ -165,8 +165,8 @@ bool Query::addSignature(const shared_model::crypto::Signed &signed_blob,
   }
 
   auto sig = impl_->proto_->mutable_signature();
-  sig->set_signature(signed_blob.blob().hex());
-  sig->set_public_key(public_key.blob().hex());
+  sig->set_signature(signed_blob.hex());
+  sig->set_public_key(public_key.hex());
 
   return Signature::create(*sig).match(
       [this](auto &&val) {

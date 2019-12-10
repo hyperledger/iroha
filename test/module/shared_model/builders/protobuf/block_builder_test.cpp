@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "framework/crypto_dummies.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 
@@ -28,15 +29,12 @@ TEST(BlockBuilderTest, BlockWithTransactions) {
                             generateKeypair())
                     .finish());
 
-  ASSERT_NO_THROW(
-      BlockBuilder()
-          .createdTime(iroha::time::now())
-          .prevHash(shared_model::crypto::Hash(std::string(
-              shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength,
-              '0')))
-          .height(1)
-          .transactions(txs)
-          .build());
+  ASSERT_NO_THROW(BlockBuilder()
+                      .createdTime(iroha::time::now())
+                      .prevHash(iroha::createHashPadded())
+                      .height(1)
+                      .transactions(txs)
+                      .build());
 }
 
 /**
@@ -50,9 +48,7 @@ TEST(BlockBuilderTest, DISABLED_BlockWithNoTransactions) {
   ASSERT_ANY_THROW(
       BlockBuilder()
           .createdTime(iroha::time::now())
-          .prevHash(shared_model::crypto::Hash(std::string(
-              shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength,
-              '0')))
+          .prevHash(iroha::createHashPadded())
           .height(1)
           .transactions(std::vector<shared_model::proto::Transaction>())
           .build());

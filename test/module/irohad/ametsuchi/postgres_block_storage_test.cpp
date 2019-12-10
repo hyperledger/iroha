@@ -94,8 +94,8 @@ class PostgresBlockStorageTest : public ::testing::Test {
   std::shared_ptr<MockBlock> mock_other_block_ =
       std::make_shared<NiceMock<MockBlock>>();
   shared_model::interface::types::HeightType height_ = 6;
-  shared_model::crypto::Blob blob_ = shared_model::crypto::Blob(
-      shared_model::crypto::Blob::Bytes{0, 1, 5, 17, 66, 255});
+  shared_model::crypto::Blob blob_{
+      shared_model::crypto::Blob::Bytes{0, 1, 5, 17, 66, 255}};
   std::string creator_ = "user1@test";
   std::string test_table_ = "abc";
   int pool_size_ = 10;
@@ -137,12 +137,12 @@ TEST_F(PostgresBlockStorageTest, FetchExisting) {
   auto tx = TestTransactionBuilder().creatorAccountId(creator_).build();
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(std::move(tx));
-  auto block = TestBlockBuilder().height(height_).transactions(txs).build();
+  auto block = createBlock(txs, height_);
 
-  ASSERT_TRUE(block_storage_->insert(clone(block)));
+  ASSERT_TRUE(block_storage_->insert(block));
 
-  auto block_var = *(block_storage_->fetch(block.height()));
-  ASSERT_EQ(block.blob(), block_var->blob());
+  auto block_var = *(block_storage_->fetch(block->height()));
+  ASSERT_EQ(block->blob(), block_var->blob());
 }
 
 /**
@@ -186,21 +186,20 @@ TEST_F(PostgresBlockStorageTest, ForEach) {
   auto tx = TestTransactionBuilder().creatorAccountId(creator_).build();
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(std::move(tx));
-  auto block = TestBlockBuilder().height(height_).transactions(txs).build();
-  auto another_block =
-      TestBlockBuilder().height(height_ + 1).transactions(txs).build();
+  auto block = createBlock(txs, height_);
+  auto another_block = createBlock(txs, height_ + 1);
 
-  ASSERT_TRUE(block_storage_->insert(clone(block)));
-  ASSERT_TRUE(block_storage_->insert(clone(another_block)));
+  ASSERT_TRUE(block_storage_->insert(block));
+  ASSERT_TRUE(block_storage_->insert(another_block));
 
   size_t count = 0;
 
   block_storage_->forEach([&count, &block, &another_block](const auto &b) {
     ++count;
-    if (b->height() == block.height()) {
-      ASSERT_EQ(b->blob(), block.blob());
-    } else if (b->height() == another_block.height()) {
-      ASSERT_EQ(b->blob(), another_block.blob());
+    if (b->height() == block->height()) {
+      ASSERT_EQ(b->blob(), block->blob());
+    } else if (b->height() == another_block->height()) {
+      ASSERT_EQ(b->blob(), another_block->blob());
     } else {
       FAIL() << "Unexpected block height returned: " << b->height();
     }

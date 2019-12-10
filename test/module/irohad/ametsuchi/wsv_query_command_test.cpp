@@ -7,6 +7,7 @@
 
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
@@ -56,7 +57,7 @@ namespace iroha {
       }
       std::shared_ptr<MockPeer> peer;
       shared_model::interface::types::AddressType address{""};
-      shared_model::interface::types::PubkeyType pk{""};
+      shared_model::interface::types::PubkeyType pk{createPublicKey()};
     };
 
     /**

@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
 #include "cryptography/hash.hpp"
+#include "framework/crypto_dummies.hpp"
 
 using shared_model::proto::ProtoTxStatusFactory;
 
@@ -18,7 +19,7 @@ using shared_model::proto::ProtoTxStatusFactory;
  * @then  built object has expected status and hash
  */
 TEST(ProtoTransactionStatusFactoryTest, TestStatusType) {
-  auto expected_hash = shared_model::crypto::Hash(std::string(32, '1'));
+  auto expected_hash = iroha::createHashPadded("expected_hash");
   auto error_cmd = std::string("AddAssets");
   size_t error_cmd_index = 42;
   uint32_t error_code = 228;
@@ -45,7 +46,7 @@ TEST(ProtoTransactionStatusFactoryTest, TestStatusType) {
  * @then  two constructed TransactionStatus objects are identical
  */
 TEST(ProtoTransactionStatusFactoryTest, SeveralObjectsFromOneBuilder) {
-  auto expected_hash = shared_model::crypto::Hash(std::string(32, '1'));
+  auto expected_hash = iroha::createHashPadded("expected_hash");
   auto error_cmd = std::string("AddAssets");
   size_t error_cmd_index = 42;
   uint32_t error_code = 228;

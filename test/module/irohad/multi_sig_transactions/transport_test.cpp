@@ -86,7 +86,7 @@ class TransportTest : public ::testing::Test {
     transport->subscribe(mst_notification_transport_);
 
     shared_model::interface::types::PubkeyType pk(
-        shared_model::crypto::Hash::fromHexString(
+        shared_model::crypto::Blob::fromBinaryString(
             "abcdabcdabcdabcdabcdabcdabcdabcd"));
     peer = makePeer("localhost:0", pk);
   }
@@ -221,8 +221,8 @@ TEST_F(TransportTest, ReplayAttack) {
           iroha::ametsuchi::tx_cache_status_responses::Rejected{second_hash}};
 
   transport::MstState proto_state;
-  proto_state.set_source_peer_key(
-      shared_model::crypto::toBinaryString(my_key_.publicKey()));
+  proto_state.set_source_peer_key(my_key_.publicKey().blob().data(),
+                                  my_key_.publicKey().blob().size());
 
   state.iterateTransactions([&proto_state](const auto &tx) {
     *proto_state.add_transactions() =

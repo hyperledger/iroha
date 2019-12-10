@@ -114,7 +114,7 @@ namespace shared_model {
          */
         template <typename T>
         size_t operator()(const T &sig) const {
-          return std::hash<std::string>{}(sig->publicKey().blob().hex());
+          return std::hash<std::string>{}(sig->publicKey().hex());
         }
 
         /**

@@ -30,9 +30,7 @@ namespace shared_model {
        * Constructs new unsigned object instance
        * @param o - object received from builder
        */
-      explicit UnsignedWrapper(const T &o) : object_(o) {}
-
-      explicit UnsignedWrapper(T && o) : object_(std::move(o)) {}
+      explicit UnsignedWrapper(T o) : object_(std::move(o)) {}
 
       UnsignedWrapper(UnsignedWrapper<T> && w)
           : object_(std::move(w.object_)),
@@ -48,9 +46,6 @@ namespace shared_model {
         return *this;
       }
 
-      UnsignedWrapper(const UnsignedWrapper<T> &o) = default;
-      UnsignedWrapper<T> &operator=(const UnsignedWrapper<T> &w) = default;
-
       /**
        * Add signature and retrieve signed result
        * @param signature - signature to add
@@ -58,7 +53,7 @@ namespace shared_model {
        */
       UnsignedWrapper &signAndAddSignature(const crypto::Keypair &keypair) {
         auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
-            shared_model::crypto::Blob(object_.payload()), keypair);
+            object_.payload(), keypair);
         if (object_finalized_) {
           throw std::runtime_error("object has already been finalized");
         }

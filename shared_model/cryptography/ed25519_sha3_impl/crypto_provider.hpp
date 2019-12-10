@@ -6,12 +6,18 @@
 #ifndef IROHA_CRYPTOPROVIDER_HPP
 #define IROHA_CRYPTOPROVIDER_HPP
 
-#include "cryptography/keypair.hpp"
-#include "cryptography/seed.hpp"
-#include "cryptography/signed.hpp"
+#include <stddef.h>  // for size_t
+
+#include "cryptography/bytes_view.hpp"
 
 namespace shared_model {
   namespace crypto {
+    class BytesView;
+    class Keypair;
+    class PublicKey;
+    class Seed;
+    class Signed;
+
     /**
      * Wrapper class for signing-related stuff.
      */

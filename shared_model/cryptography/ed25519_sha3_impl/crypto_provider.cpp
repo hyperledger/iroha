@@ -9,6 +9,9 @@
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/signer.hpp"
 #include "cryptography/ed25519_sha3_impl/verifier.hpp"
+#include "cryptography/keypair.hpp"
+#include "cryptography/seed.hpp"
+#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace crypto {

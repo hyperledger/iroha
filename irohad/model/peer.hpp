@@ -49,7 +49,10 @@ namespace std {
   template <>
   struct hash<iroha::model::Peer> {
     std::size_t operator()(const iroha::model::Peer &obj) const {
-      return std::hash<std::string>()(obj.address + obj.pubkey.to_string());
+      auto str = obj.address;
+      str.append(reinterpret_cast<const char *>(obj.pubkey.data()),
+                 obj.pubkey.size());
+      return std::hash<std::string>()(str);
     }
   };
 }  // namespace std

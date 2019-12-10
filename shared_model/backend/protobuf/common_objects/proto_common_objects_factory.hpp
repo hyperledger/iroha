@@ -46,12 +46,13 @@ namespace shared_model {
         if (tls_certificate) {
           peer.set_tls_certificate(*tls_certificate);
         }
-        auto proto_peer = std::make_unique<Peer>(std::move(peer));
 
-        auto error = validator_.validatePeer(*proto_peer);
-
-        return validated<std::unique_ptr<interface::Peer>>(
-            std::move(proto_peer), error);
+        return Peer::create(std::move(peer)) | [this](auto &&peer)
+                   -> FactoryResult<std::unique_ptr<interface::Peer>> {
+          auto error = validator_.validatePeer(*peer);
+          return validated<std::unique_ptr<interface::Peer>>(std::move(peer),
+                                                             error);
+        };
       }
 
       FactoryResult<std::unique_ptr<interface::Account>> createAccount(
@@ -130,13 +131,13 @@ namespace shared_model {
         signature.set_public_key(key.hex());
         signature.set_signature(signed_data.hex());
 
-        auto proto_singature =
-            std::make_unique<Signature>(std::move(signature));
-
-        auto error = validator_.validateSignatureForm(*proto_singature);
-
-        return validated<std::unique_ptr<interface::Signature>>(
-            std::move(proto_singature), error);
+        return Signature::create(std::move(signature)) |
+                   [this](auto &&signature)
+                   -> FactoryResult<std::unique_ptr<interface::Signature>> {
+          auto error = validator_.validateSignatureForm(*signature);
+          return validated<std::unique_ptr<interface::Signature>>(
+              std::move(signature), error);
+        };
       }
 
      private:

@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <memory>
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
@@ -16,7 +17,9 @@ auto log_ = getTestLogger("MstStorageTest");
 
 class StorageTest : public testing::Test {
  public:
-  StorageTest() : absent_peer_key("absent") {}
+  StorageTest()
+      : absent_peer_key{
+            shared_model::crypto::Blob::fromBinaryString("absent")} {}
 
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
@@ -50,7 +53,7 @@ TEST_F(StorageTest, StorageWhenApplyOtherState) {
   new_state += makeTestBatch(txBuilder(6, creation_time));
   new_state += makeTestBatch(txBuilder(7, creation_time));
 
-  storage->apply(shared_model::crypto::PublicKey("another"), new_state);
+  storage->apply(iroha::createPublicKey("another"), new_state);
 
   ASSERT_EQ(6,
             storage->getDiffState(absent_peer_key, creation_time)

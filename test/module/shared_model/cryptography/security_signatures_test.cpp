@@ -6,9 +6,15 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "framework/crypto_dummies.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+
+shared_model::crypto::PublicKey public_key_1(
+    iroha::createPublicKey("public key 1"));
+shared_model::crypto::Signed signed_1(iroha::createSigned("signed 1"));
+shared_model::crypto::Signed signed_2(iroha::createSigned("signed 2"));
 
 /**
  * @given Two signatures with same pub key but different signed
@@ -16,19 +22,17 @@
  * @then  Expect true
  */
 TEST(SecuritySignature, SignatureOperatorEqual) {
-  shared_model::crypto::PublicKey pk1("one"), pk2("one");
-  shared_model::crypto::Signed data1("signed_one"), data2("signed_two");
   auto first_signature = std::make_unique<MockSignature>();
   auto second_signature = std::make_unique<MockSignature>();
 
   EXPECT_CALL(*first_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk1));
+      .WillRepeatedly(testing::ReturnRef(public_key_1));
   EXPECT_CALL(*second_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk2));
+      .WillRepeatedly(testing::ReturnRefOfCopy(public_key_1));
   EXPECT_CALL(*first_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data1));
+      .WillRepeatedly(testing::ReturnRef(signed_1));
   EXPECT_CALL(*second_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data2));
+      .WillRepeatedly(testing::ReturnRef(signed_2));
 
   ASSERT_TRUE(*first_signature == *second_signature);
 }
@@ -40,10 +44,8 @@ TEST(SecuritySignature, SignatureOperatorEqual) {
  */
 TEST(SecuritySignature, TransactionAddsignature) {
   auto tx = TestTransactionBuilder().build();
-  ASSERT_TRUE(tx.addSignature(shared_model::crypto::Signed("sign_one"),
-                              shared_model::crypto::PublicKey("key_one")));
-  ASSERT_FALSE(tx.addSignature(shared_model::crypto::Signed("sign_two"),
-                               shared_model::crypto::PublicKey("key_one")));
+  ASSERT_TRUE(tx.addSignature(signed_1, public_key_1));
+  ASSERT_FALSE(tx.addSignature(signed_2, public_key_1));
 }
 
 /**
@@ -52,9 +54,7 @@ TEST(SecuritySignature, TransactionAddsignature) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, BlockAddSignature) {
-  auto block = TestBlockBuilder().build();
-  ASSERT_TRUE(block.addSignature(shared_model::crypto::Signed("sign_one"),
-                                 shared_model::crypto::PublicKey("key_one")));
-  ASSERT_FALSE(block.addSignature(shared_model::crypto::Signed("sign_two"),
-                                  shared_model::crypto::PublicKey("key_one")));
+  auto block = TestBlockBuilder().prevHash(iroha::createHash()).build();
+  ASSERT_TRUE(block.addSignature(signed_1, public_key_1));
+  ASSERT_FALSE(block.addSignature(signed_2, public_key_1));
 }

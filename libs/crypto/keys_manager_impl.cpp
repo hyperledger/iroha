@@ -8,10 +8,13 @@
 #include <fstream>
 
 #include <fmt/core.h>
+#include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "common/files.hpp"
 #include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/signed.hpp"
 #include "logger/logger.hpp"
 
 using namespace shared_model::crypto;
@@ -33,10 +36,10 @@ namespace {
         != DefaultCryptoAlgorithmType::kPrivateKeyLength) {
       return std::string{"Wrong private key size."};
     }
-    auto test = Blob("12345");
-    auto sig = DefaultCryptoAlgorithmType::sign(test, keypair);
+    auto test = Blob::fromBinaryString("12345");
+    auto sig = DefaultCryptoAlgorithmType::sign(*test, keypair);
     if (not DefaultCryptoAlgorithmType::verify(
-            sig, test, keypair.publicKey())) {
+            sig, *test, keypair.publicKey())) {
       return std::string{"Key validation failed."};
     }
     return boost::none;
@@ -53,14 +56,13 @@ namespace iroha {
    */
   template <typename T>
   static std::string xorCrypt(const T &key, const std::string &pass_phrase) {
-    std::string ciphertext(key.size(), '\0');
-    const size_t min_pass_size = 1;
-    // pass_size will always be > 0
-    const auto pass_size = std::max(min_pass_size, pass_phrase.size());
-    // When pass_phrase is empty it, pass_phrase[0] is "\0", so no out_of_range
-    // exception is possible
-    for (size_t i = 0; i < key.size(); i++) {
-      ciphertext[i] = key[i] ^ pass_phrase[i % pass_size];
+    std::string ciphertext(key.begin(), key.end());
+    if (pass_phrase.size() == 0) {
+      return ciphertext;
+    }
+    const auto pass_size = pass_phrase.size();
+    for (size_t i = 0; i < ciphertext.size(); i++) {
+      ciphertext[i] ^= pass_phrase[i % pass_size];
     }
     return ciphertext;
   }
@@ -87,22 +89,24 @@ namespace iroha {
     auto load_from_file = [this](const auto &extension) {
       return iroha::readTextFile(
                  (path_to_keypair_ / (account_id_ + extension)).string())
-          | [](auto &&hex) { return iroha::hexstringToBytestringResult(hex); };
+          | [](auto &&hex) { return Blob::fromHexString(hex); };
     };
 
-    return load_from_file(kPublicKeyExtension) | [&](auto &&pubkey_blob) {
-      return load_from_file(kPrivateKeyExtension) | [&](auto &&privkey_blob)
-                 -> iroha::expected::Result<Keypair, std::string> {
-        auto &&decrypted_privkey_blob = pass_phrase
-            ? xorCrypt(privkey_blob, pass_phrase.value())
-            : privkey_blob;
-        Keypair keypair(PublicKey{Blob{pubkey_blob}},
-                        PrivateKey{Blob{decrypted_privkey_blob}});
+    return load_from_file(kPublicKeyExtension) |
+        [&](std::shared_ptr<Blob> &&pubkey_blob) {
+          return load_from_file(kPrivateKeyExtension) | [&](auto &&privkey_blob)
+                     -> iroha::expected::Result<Keypair, std::string> {
+            auto &&decrypted_privkey_blob = pass_phrase
+                ? std::shared_ptr<Blob>{Blob::fromBinaryString(
+                      xorCrypt(privkey_blob->byteRange(), pass_phrase.value()))}
+                : std::move(privkey_blob);
+            Keypair keypair(PublicKey{pubkey_blob},
+                            PrivateKey{decrypted_privkey_blob});
 
-        return iroha::expected::optionalErrorToResult(validate(keypair),
-                                                      std::move(keypair));
-      };
-    };
+            return iroha::expected::optionalErrorToResult(validate(keypair),
+                                                          std::move(keypair));
+          };
+        };
   }
 
   bool KeysManagerImpl::createKeys(
@@ -111,8 +115,8 @@ namespace iroha {
 
     auto pub = keypair.publicKey().hex();
     auto &&priv = pass_phrase
-        ? bytestringToHexstring(
-              xorCrypt(keypair.privateKey().blob(), pass_phrase.value()))
+        ? bytestringToHexstring(xorCrypt(
+              keypair.privateKey().blob().byteRange(), pass_phrase.value()))
         : keypair.privateKey().hex();
     return store(pub, priv);
   }

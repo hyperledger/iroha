@@ -71,6 +71,20 @@ namespace iroha {
       return iroha::hexstringToBytestringResult(hex) |
           [](auto &&bytes) { return from_string(bytes); };
     }
+
+    /**
+     * Converts current blob to hex string.
+     */
+    std::string to_hexstring() const noexcept {
+      return getView().to_hexstring();
+    }
+
+    /**
+     * Converts current blob to std::string
+     */
+    std::string to_string() const noexcept {
+      return getView().to_string();
+    }
   };
 }  // namespace iroha
 

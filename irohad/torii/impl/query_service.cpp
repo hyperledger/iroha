@@ -31,9 +31,9 @@ namespace iroha {
 
     void QueryService::Find(iroha::protocol::Query const &request,
                             iroha::protocol::QueryResponse &response) {
-      shared_model::crypto::Hash hash;
       auto blobPayload = shared_model::proto::makeBlob(request.payload());
-      hash = shared_model::crypto::DefaultHashProvider::makeHash(blobPayload);
+      auto hash =
+          shared_model::crypto::DefaultHashProvider::makeHash(blobPayload);
 
       if (cache_.findItem(hash)) {
         // Query was already processed

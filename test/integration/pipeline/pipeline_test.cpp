@@ -16,7 +16,7 @@
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
-#include "utils/query_error_response_visitor.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 using namespace common_constants;
 
@@ -85,10 +85,8 @@ TEST_F(PipelineIntegrationTest, SendQuery) {
                    .finish();
 
   auto check = [](auto &status) {
-    ASSERT_TRUE(boost::apply_visitor(
-        shared_model::interface::QueryErrorResponseChecker<
-            shared_model::interface::StatefulFailedErrorResponse>(),
-        status.get()));
+    using namespace shared_model::interface;
+    checkForQueryError(status, QueryErrorType::kStatefulFailed);
   };
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
@@ -145,7 +143,7 @@ TEST_F(PipelineIntegrationTest, DISABLED_SendTxSequence) {
     for (const auto &status : statuses) {
       EXPECT_NO_THROW(
           boost::get<const shared_model::interface::StatelessValidTxResponse &>(
-              status.get()));
+              status->get()));
     }
   };
   auto check_proposal = [&tx_size](auto &proposal) {

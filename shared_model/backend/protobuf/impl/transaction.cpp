@@ -11,6 +11,7 @@
 #include "backend/protobuf/commands/proto_command.hpp"
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/util.hpp"
+#include "common/result.hpp"
 #include "utils/reference_holder.hpp"
 
 using iroha::expected::Result;
@@ -146,8 +147,8 @@ namespace shared_model {
       }
 
       auto sig = impl_->proto_->add_signatures();
-      sig->set_signature(signed_blob.blob().hex());
-      sig->set_public_key(public_key.blob().hex());
+      sig->set_signature(signed_blob.hex());
+      sig->set_public_key(public_key.hex());
 
       return Signature::create(*sig).match(
           [this](auto &&val) {

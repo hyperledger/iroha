@@ -155,7 +155,8 @@ auto createMockBatchWithTransactions(
   ON_CALL(*res, transactions()).WillByDefault(ReturnRefOfCopy(txs));
 
   ON_CALL(*res, reducedHash())
-      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash{hash}));
+      .WillByDefault(ReturnRefOfCopy(shared_model::crypto::Hash{
+          shared_model::crypto::Blob::fromBinaryString(hash)}));
 
   return res;
 }

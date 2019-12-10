@@ -8,10 +8,11 @@
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
-#include "interfaces/query_responses/error_responses/stateless_failed_error_response.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
+#include "utils/query_error_response_checker.hpp"
 
 template <typename BaseType>
 auto makeQuery() {
@@ -26,8 +27,7 @@ auto makeQuery() {
 template <typename Query>
 auto createInvalidQuery(Query query,
                         const shared_model::crypto::Keypair &keypair) {
-  query.addSignature(shared_model::crypto::Signed(std::string(32, 'a')),
-                     keypair.publicKey());
+  query.addSignature(iroha::createSignedPadded(), keypair.publicKey());
   return query;
 }
 
@@ -44,11 +44,8 @@ TEST(QueryTest, FailedQueryTest) {
   auto query_with_broken_signature =
       createInvalidQuery(makeQuery<TestQueryBuilder>(), key_pair);
   auto stateless_invalid_query_response = [](auto &status) {
-    auto &resp =
-        boost::get<const shared_model::interface::ErrorQueryResponse &>(
-            status.get());
-    boost::get<const shared_model::interface::StatelessFailedErrorResponse &>(
-        resp.get());
+    using namespace shared_model::interface;
+    checkForQueryError(status, QueryErrorType::kStatelessFailed);
   };
 
   integration_framework::IntegrationTestFramework itf(1);

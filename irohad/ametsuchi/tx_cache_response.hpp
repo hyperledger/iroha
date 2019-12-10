@@ -23,7 +23,6 @@ namespace iroha {
        * response classes
        */
       struct HashContainer {
-        HashContainer() = default;
         explicit HashContainer(const HashType &h) : hash(h) {}
 
         HashType hash;

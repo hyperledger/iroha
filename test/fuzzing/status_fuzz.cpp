@@ -147,24 +147,24 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   if (size < 1) {
     return 0;
   }
-  boost::optional<iroha::ametsuchi::TxCacheStatusType> presense;
+  using iroha::ametsuchi::TxCacheStatusType;
   using namespace iroha::ametsuchi::tx_cache_status_responses;
-  switch (data[0] % 4) {
-    case 0:
-      presense = {};
-      break;
-    case 1:
-      presense = boost::make_optional(Committed{});
-      break;
-    case 2:
-      presense = boost::make_optional(Rejected{});
-      break;
-    case 3:
-      presense = boost::make_optional(Missing{});
-      break;
-  }
+  auto make_tx_presence_result =
+      [random = data[0]](const shared_model::crypto::Hash &hash)
+      -> boost::optional<TxCacheStatusType> {
+    switch (random % 4) {
+      case 1:
+        return TxCacheStatusType(Committed{hash});
+      case 2:
+        return TxCacheStatusType(Rejected{hash});
+      case 3:
+        return TxCacheStatusType(Missing{hash});
+      default:
+        return boost::none;
+    }
+  };
   EXPECT_CALL(*handler.bq_, checkTxPresence(_))
-      .WillRepeatedly(Return(presense));
+      .WillRepeatedly(::testing::Invoke(make_tx_presence_result));
   iroha::protocol::TxStatusRequest tx;
   if (protobuf_mutator::libfuzzer::LoadProtoInput(
           true, data + 1, size - 1, &tx)) {

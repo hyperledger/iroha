@@ -13,6 +13,7 @@
 #include "common/bind.hpp"
 #include "endpoint.pb.h"
 #include "framework/batch_helper.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
@@ -44,8 +45,6 @@ class TransportBuilderTest : public ::testing::Test {
     account_id2 = "acccount@domain";
     quorum = 2;
     counter = 1048576;
-    hash = shared_model::crypto::Hash(std::string(32, '0'));
-    invalid_hash = shared_model::crypto::Hash("");
     height = 1;
     invalid_account_id = "some#invalid?account@@id";
   }
@@ -179,7 +178,7 @@ class TransportBuilderTest : public ::testing::Test {
               iroha::test::kTestsValidatorsConfig)
               .build(proto_model);
 
-    built_model.match(successCase, failCase);
+    std::move(built_model).match(successCase, failCase);
   }
 
  protected:
@@ -189,8 +188,8 @@ class TransportBuilderTest : public ::testing::Test {
   std::string account_id2;
   uint8_t quorum;
   uint64_t counter;
-  shared_model::crypto::Hash hash;
-  shared_model::crypto::Hash invalid_hash;
+  shared_model::crypto::Hash hash = iroha::createHashPadded();
+  shared_model::crypto::Hash invalid_hash = iroha::createHash("invalid_hash");
   uint64_t height;
 
   std::string invalid_account_id;

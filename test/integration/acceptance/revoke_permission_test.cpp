@@ -180,7 +180,6 @@ namespace grantables {
   struct GrantableType {
     const Role can_grant_permission_;
     const Grantable grantable_permission_;
-    interface::types::HashType tx_hash_;
 
     virtual IntegrationTestFramework &prepare(
         GrantablePermissionsFixture &fixture, IntegrationTestFramework &itf) {

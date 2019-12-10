@@ -4,7 +4,9 @@
  */
 
 #include <boost/variant.hpp>
+#include "framework/crypto_dummies.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 
 using namespace common_constants;
@@ -163,9 +165,9 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
-  auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
-      shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  tx.addSignature(signedBlob, shared_model::crypto::PublicKey(""));
+  auto signedBlob =
+      shared_model::crypto::CryptoSigner<>::sign(tx.payload(), kAdminKeypair);
+  tx.addSignature(signedBlob, iroha::createPublicKey());
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -183,7 +185,7 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
 TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
-  tx.addSignature(shared_model::crypto::Signed(""), kAdminKeypair.publicKey());
+  tx.addSignature(iroha::createSigned(), kAdminKeypair.publicKey());
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -199,13 +201,9 @@ TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
 TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
-  auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
-      shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  tx.addSignature(
-      signedBlob,
-      shared_model::crypto::PublicKey(std::string(
-          shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength,
-          'a')));
+  auto signedBlob =
+      shared_model::crypto::CryptoSigner<>::sign(tx.payload(), kAdminKeypair);
+  tx.addSignature(signedBlob, iroha::createPublicKey());
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -222,11 +220,14 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
-  auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
-      shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  auto raw = signedBlob.blob();
-  raw[0] = (raw[0] == std::numeric_limits<uint8_t>::max() ? 0 : raw[0] + 1);
-  auto wrongBlob = shared_model::crypto::Signed(raw);
+  auto signedBlob =
+      shared_model::crypto::CryptoSigner<>::sign(tx.payload(), kAdminKeypair);
+
+  shared_model::crypto::Blob::Bytes raw{signedBlob.blob().byteRange().begin(),
+                                        signedBlob.blob().byteRange().end()};
+  raw[0] ^= 1;
+  auto wrongBlob = shared_model::crypto::Signed(
+      std::make_unique<shared_model::crypto::Blob>(std::move(raw)));
 
   tx.addSignature(wrongBlob, kAdminKeypair.publicKey());
 
@@ -263,9 +264,12 @@ TEST_F(AcceptanceTest, TransactionValidSignedBlob) {
 TEST_F(AcceptanceTest, EmptySignatures) {
   auto proto_tx = baseTx<TestTransactionBuilder>().build().getTransport();
   proto_tx.clear_signatures();
-  auto tx = shared_model::proto::Transaction(proto_tx);
+
+  auto tx_result = shared_model::proto::Transaction::create(proto_tx);
+  IROHA_ASSERT_RESULT_VALUE(tx_result) << "Could not build the transaction.";
+  auto tx = std::move(tx_result).assumeValue();
 
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
-      .sendTx(tx, CHECK_STATELESS_INVALID);
+      .sendTx(*tx, CHECK_STATELESS_INVALID);
 }

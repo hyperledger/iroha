@@ -4,8 +4,10 @@
  */
 
 #include "model/model_crypto_provider_impl.hpp"
+
 #include <algorithm>
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
+#include "model/converters/make_byte_range.hpp"
 #include "model/queries/get_account.hpp"
 #include "model/queries/get_account_assets.hpp"
 #include "model/queries/get_asset_info.hpp"
@@ -23,44 +25,51 @@ namespace iroha {
       return std::all_of(tx.signatures.begin(),
                          tx.signatures.end(),
                          [tx](const Signature &sig) {
-                           return iroha::verify(iroha::hash(tx).to_string(),
-                                                sig.pubkey,
-                                                sig.signature);
+                           return iroha::verify(
+                               makeByteRange(iroha::hash(tx).to_string()),
+                               sig.pubkey.getView(),
+                               sig.signature.getView());
                          });
     }
 
     bool ModelCryptoProviderImpl::verify(const Query &query) const {
-      return iroha::verify(iroha::hash(query).to_string(),
-                           query.signature.pubkey,
-                           query.signature.signature);
+      return iroha::verify(makeByteRange(iroha::hash(query).to_string()),
+                           query.signature.pubkey.getView(),
+                           query.signature.signature.getView());
     }
 
     bool ModelCryptoProviderImpl::verify(const Block &block) const {
       return std::all_of(
           block.sigs.begin(), block.sigs.end(), [block](const Signature &sig) {
-            return iroha::verify(
-                iroha::hash(block).to_string(), sig.pubkey, sig.signature);
+            return iroha::verify(makeByteRange(iroha::hash(block).to_string()),
+                                 sig.pubkey.getView(),
+                                 sig.signature.getView());
           });
     }
 
     void ModelCryptoProviderImpl::sign(Block &block) const {
-      auto signature = iroha::sign(
-          iroha::hash(block).to_string(), keypair_.pubkey, keypair_.privkey);
+      auto signature =
+          iroha::sign(makeByteRange(iroha::hash(block).to_string()),
+                      keypair_.pubkey.getView(),
+                      keypair_.privkey.getView());
 
       block.sigs.emplace_back(signature, keypair_.pubkey);
     }
 
     void ModelCryptoProviderImpl::sign(Transaction &transaction) const {
-      auto signature = iroha::sign(iroha::hash(transaction).to_string(),
-                                   keypair_.pubkey,
-                                   keypair_.privkey);
+      auto signature =
+          iroha::sign(makeByteRange(iroha::hash(transaction).to_string()),
+                      keypair_.pubkey.getView(),
+                      keypair_.privkey.getView());
 
       transaction.signatures.emplace_back(signature, keypair_.pubkey);
     }
 
     void ModelCryptoProviderImpl::sign(Query &query) const {
-      auto signature = iroha::sign(
-          iroha::hash(query).to_string(), keypair_.pubkey, keypair_.privkey);
+      auto signature =
+          iroha::sign(makeByteRange(iroha::hash(query).to_string()),
+                      keypair_.pubkey.getView(),
+                      keypair_.privkey.getView());
 
       query.signature = Signature{signature, keypair_.pubkey};
     }

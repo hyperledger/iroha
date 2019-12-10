@@ -61,9 +61,10 @@ using GetAccountBasicTest = BasicExecutorTest<GetAccountTest>;
  * @then there is an NoAccountErrorResponse
  */
 TEST_P(GetAccountBasicTest, NonexistentAccount) {
-  checkQueryError<shared_model::interface::NoAccountErrorResponse>(
+  checkQueryError(
       getItf().executeQuery(
           *getItf().getMockQueryFactory()->constructGetAccount(kUserId)),
+      shared_model::interface::QueryErrorType::kNoAccount,
       0);
 }
 

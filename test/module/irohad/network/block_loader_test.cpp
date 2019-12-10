@@ -13,6 +13,7 @@
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
 #include "datetime/time.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
@@ -80,8 +81,7 @@ class BlockLoaderTest : public testing::Test {
   }
 
   auto getBaseBlockBuilder(
-      const Hash &prev_hash =
-          Hash(std::string(DefaultCryptoAlgorithmType::kHashLength, '0')),
+      const Hash &prev_hash = iroha::createHashPadded(),
       shared_model::interface::types::HeightType height = 1) const {
     std::vector<shared_model::proto::Transaction> txs;
     txs.push_back(TestUnsignedTransactionBuilder()

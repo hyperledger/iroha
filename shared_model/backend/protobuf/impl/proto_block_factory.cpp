@@ -33,7 +33,7 @@ ProtoBlockFactory::unsafeCreateBlock(
   iroha::protocol::Block_v1 block;
   auto *block_payload = block.mutable_payload();
   block_payload->set_height(height);
-  block_payload->set_prev_block_hash(prev_hash.blob().hex());
+  block_payload->set_prev_block_hash(prev_hash.hex());
   block_payload->set_created_time(created_time);
 
   // set accepted transactions
@@ -49,7 +49,7 @@ ProtoBlockFactory::unsafeCreateBlock(
                 [block_payload](const auto &hash) {
                   auto *next_hash =
                       block_payload->add_rejected_transactions_hashes();
-                  (*next_hash) = hash.blob().hex();
+                  (*next_hash) = hash.hex();
                 });
 
   iroha::protocol::Block proto_block_container;

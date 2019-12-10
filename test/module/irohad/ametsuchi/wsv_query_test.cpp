@@ -11,6 +11,7 @@
 #include <backend/plain/signature.hpp>
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "framework/test_logger.hpp"
 #include "integration/acceptance/fake_peer_fixture.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
@@ -50,13 +51,13 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::Peer> peer1 =
           std::make_shared<shared_model::plain::Peer>(
               "some-address",
-              shared_model::crypto::PublicKey("some-public-key"),
+              iroha::createPublicKey("some-public-key"),
               boost::none);
       command->insertPeer(*peer1);
       std::shared_ptr<shared_model::interface::Peer> peer2 =
           std::make_shared<shared_model::plain::Peer>(
               "another-address",
-              shared_model::crypto::PublicKey("another-public-key"),
+              iroha::createPublicKey("another-public-key"),
               boost::none);
       command->insertPeer(*peer2);
 
@@ -79,10 +80,10 @@ namespace iroha {
       shared_model::plain::Account account("account", "domain", 1, "{}");
       command->insertAccount(account);
 
-      auto pub_key1 = shared_model::crypto::PublicKey("some-public-key");
+      auto pub_key1 = iroha::createPublicKey("some-public-key");
       command->insertSignatory(pub_key1);
       command->insertAccountSignatory("account", pub_key1);
-      auto pub_key2 = shared_model::crypto::PublicKey("another-public-key");
+      auto pub_key2 = iroha::createPublicKey("another-public-key");
       command->insertSignatory(pub_key2);
       command->insertAccountSignatory("account", pub_key2);
 
