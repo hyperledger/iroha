@@ -5,56 +5,56 @@
 
 #include "cryptography/blob.hpp"
 
+#include <boost/optional/optional.hpp>
+#include "common/bind.hpp"
 #include "common/byteutils.hpp"
+
+using shared_model::interface::types::ByteType;
+using shared_model::interface::types::ConstByteRange;
+using iroha::operator|;
 
 namespace shared_model {
   namespace crypto {
 
-    std::string toBinaryString(const Blob &b) {
-      return std::string(b.blob().begin(), b.blob().end());
-    }
-
-    Blob::Blob(const std::string &blob)
-        : Blob(Bytes(blob.begin(), blob.end())) {}
-
-    Blob::Blob(const Bytes &blob) : Blob(Bytes(blob)) {}
-
-    Blob::Blob(Bytes &&blob) noexcept : blob_(std::move(blob)) {
-      hex_ = iroha::bytestringToHexstring(toBinaryString(*this));
-    }
+    Blob::Blob() noexcept : Blob(Bytes{}) {}
 
     Blob *Blob::clone() const {
-      return new Blob(blob());
+      return new Blob(blob_);
     }
 
-    bool Blob::operator==(const Blob &rhs) const {
-      return blob() == rhs.blob();
+    Blob::Blob(Bytes blob) noexcept : blob_(std::move(blob)) {
+      updateRange();
     }
 
-    Blob Blob::fromHexString(const std::string &hex) {
-      using iroha::operator|;
-      Blob b("");
-      iroha::hexstringToBytestring(hex) | [&](auto &&s) { b = Blob(s); };
-      return b;
+    Blob::Blob(ConstByteRange blob) noexcept : blob_(blob.begin(), blob.end()) {
+      updateRange();
     }
 
-    const Blob::Bytes &Blob::blob() const {
-      return blob_;
+    Blob::Blob(const Blob &other) noexcept : Blob(other.blob_) {}
+
+    Blob::Blob(Blob &&other) noexcept : Blob(std::move(other.blob_)) {}
+
+    Blob &Blob::operator=(Blob &&other) {
+      blob_ = std::move(other.blob_);
+      updateRange();
+      return *this;
     }
 
-    const std::string &Blob::hex() const {
-      return hex_;
+    void Blob::updateRange() {
+      const ByteType *begin = blob_.data();
+      const ByteType *end = begin + blob_.size();
+      BytesView::range_ = ConstByteRange(begin, end);
     }
 
-    size_t Blob::size() const {
-      return blob_.size();
+    std::unique_ptr<Blob> Blob::fromBinaryString(const std::string &binary) {
+      auto begin = reinterpret_cast<const ByteType *>(binary.data());
+      return std::make_unique<Blob>(
+          ConstByteRange(begin, begin + binary.size()));
     }
 
-    std::string Blob::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("Blob")
-          .append(hex())
-          .finalize();
+    boost::optional<Blob> Blob::fromHexString(const std::string &hex) {
+      return iroha::hexstringToBytestring(hex) |
+          [&](auto &&s) { return boost::make_optional(fromBinaryString(s)); };
     }
 
   }  // namespace crypto

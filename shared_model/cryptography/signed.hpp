@@ -6,23 +6,20 @@
 #ifndef IROHA_SHARED_MODEL_SIGNED_HPP
 #define IROHA_SHARED_MODEL_SIGNED_HPP
 
-#include "cryptography/blob.hpp"
+#include "cryptography/bytes_wrapper.hpp"
 
 namespace shared_model {
   namespace crypto {
+
     /**
      * Class for storing signed data. It could be used not only for storing
      * signed hashes but for other signed objects too.
      */
-    class Signed : public Blob {
+    class Signed : BytesWrapper {
      public:
-      explicit Signed(const std::string &blob);
+      using BytesWrapper::BytesWrapper;
 
-      explicit Signed(const Bytes &blob);
-
-      explicit Signed(const Blob &blob);
-
-      std::string toString() const override;
+      std::string toString() const;
     };
   }  // namespace crypto
 }  // namespace shared_model

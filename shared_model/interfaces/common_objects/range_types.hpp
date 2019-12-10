@@ -18,6 +18,8 @@ namespace shared_model {
 
     namespace types {
 
+      using ByteRange = boost::iterator_range<ByteType *>;
+      using ConstByteRange = boost::iterator_range<const ByteType *>;
       /// Type of signature range, which returns when signatures are invoked
       using SignatureRangeType = boost::any_range<interface::Signature,
                                                   boost::forward_traversal_tag,

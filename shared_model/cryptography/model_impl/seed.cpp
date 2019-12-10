@@ -5,18 +5,14 @@
 
 #include "cryptography/seed.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "utils/string_builder.hpp"
 
-namespace shared_model {
-  namespace crypto {
+using namespace shared_model::crypto;
 
-    Seed::Seed(const std::string &seed) : Blob(seed) {}
-
-    std::string Seed::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("Seed")
-          .append(Blob::hex())
-          .finalize();
-    }
-  }  // namespace crypto
-}  // namespace shared_model
+std::string Seed::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("Seed")
+      .append(blob().toString())
+      .finalize();
+}

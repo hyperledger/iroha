@@ -17,6 +17,7 @@ namespace shared_model {
 
   namespace crypto {
     class Blob;
+    class BytesView;
     class Hash;
     class PublicKey;
     class Signed;
@@ -31,6 +32,8 @@ namespace shared_model {
     class Peer;
 
     namespace types {
+      /// Byte type
+      using ByteType = uint8_t;
       /// Type of hash
       using HashType = crypto::Hash;
       /// Blob type

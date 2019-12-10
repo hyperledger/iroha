@@ -5,19 +5,14 @@
 
 #include "cryptography/private_key.hpp"
 
-namespace shared_model {
-  namespace crypto {
+#include "cryptography/bytes_view.hpp"
+#include "utils/string_builder.hpp"
 
-    PrivateKey::PrivateKey(const std::string &private_key)
-        : Blob(private_key) {}
+using namespace shared_model::crypto;
 
-    PrivateKey::PrivateKey(const Blob &blob) : Blob(blob.blob()) {}
-
-    std::string PrivateKey::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("PrivateKey")
-          .append("<Data is hidden>")
-          .finalize();
-    }
-  }  // namespace crypto
-}  // namespace shared_model
+std::string PrivateKey::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("PrivateKey")
+      .append("<Data is hidden>")
+      .finalize();
+}

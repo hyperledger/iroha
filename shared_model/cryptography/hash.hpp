@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_HASH_HPP
 #define IROHA_SHARED_MODEL_HASH_HPP
 
-#include "cryptography/blob.hpp"
+#include "cryptography/bytes_wrapper.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -15,30 +15,11 @@ namespace shared_model {
      * make difference between Hash which should represent a hashing result and
      * a generic Blob which should represent any binary data.
      */
-    class Hash : public Blob {
+    class Hash : public BytesWrapper {
      public:
-      /**
-       * To calculate hash used by some standard containers
-       */
-      struct Hasher {
-        std::size_t operator()(const Hash &h) const;
-      };
+      using BytesWrapper::BytesWrapper;
 
-      Hash();
-
-      explicit Hash(const std::string &hash);
-
-      explicit Hash(const Blob &blob);
-
-      /**
-       * Creates new Hash object from provided hex string
-       * @param hex - string in hex format to create Hash from
-       * @return Hash from provided hex string if it was correct or
-       * Hash from empty string if provided string was not a correct hex string
-       */
-      static Hash fromHexString(const std::string &hex);
-
-      std::string toString() const override;
+      std::string toString() const;
     };
   }  // namespace crypto
 }  // namespace shared_model

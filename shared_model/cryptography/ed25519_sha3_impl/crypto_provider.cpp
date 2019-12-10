@@ -38,7 +38,7 @@ namespace shared_model {
     Keypair CryptoProviderEd25519Sha3::generateKeypair(const Seed &seed) {
       assert(seed.size() == kSeedLength);
       auto keypair = iroha::create_keypair(
-          iroha::blob_t<kSeedLength>::from_raw(seed.blob().data()));
+          iroha::blob_t<kSeedLength>::from_raw(seed.byteRange()));
       return Keypair(PublicKey(keypair.pubkey.to_string()),
                      PrivateKey(keypair.privkey.to_string()));
     }

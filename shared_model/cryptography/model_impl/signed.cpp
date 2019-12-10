@@ -5,22 +5,14 @@
 
 #include "cryptography/signed.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "utils/string_builder.hpp"
 
-namespace shared_model {
-  namespace crypto {
+using namespace shared_model::crypto;
 
-    std::string Signed::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("Signed")
-          .append(Blob::hex())
-          .finalize();
-    }
-
-    Signed::Signed(const std::string &blob) : Blob(blob) {}
-
-    Signed::Signed(const Bytes &blob) : Blob(blob) {}
-
-    Signed::Signed(const Blob &blob) : Blob(blob) {}
-  }  // namespace crypto
-}  // namespace shared_model
+std::string Signed::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("Signed")
+      .append(blob().toString())
+      .finalize();
+}

@@ -11,9 +11,9 @@
 namespace shared_model {
   namespace crypto {
     bool Verifier::verify(const Signed &signedData,
-                          const Blob &orig,
+                          const BytesView &orig,
                           const PublicKey &publicKey) {
-      auto blob_hash = iroha::sha3_256(orig.blob());
+      auto blob_hash = iroha::sha3_256(orig.begin(), orig.size());
       return publicKey.size() == iroha::pubkey_t::size()
           and signedData.size() == iroha::sig_t::size()
           and iroha::verify(blob_hash.data(),

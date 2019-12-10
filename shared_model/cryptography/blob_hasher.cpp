@@ -11,5 +11,5 @@
 using namespace shared_model::crypto;
 
 std::size_t BlobHasher::operator()(const Blob &blob) const {
-  return boost::hash_value(blob.blob());
+  return boost::hash_value(blob.byteRange());
 }

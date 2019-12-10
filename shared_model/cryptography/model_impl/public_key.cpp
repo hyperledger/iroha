@@ -5,21 +5,14 @@
 
 #include "cryptography/public_key.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "utils/string_builder.hpp"
 
-namespace shared_model {
-  namespace crypto {
+using namespace shared_model::crypto;
 
-    PublicKey::PublicKey(const std::string &public_key) : Blob(public_key) {}
-
-    PublicKey::PublicKey(const Blob &blob) : Blob(blob.blob()) {}
-
-    std::string PublicKey::toString() const {
-      return detail::PrettyStringBuilder()
-          .init("PublicKey")
-          .append(Blob::hex())
-          .finalize();
-    }
-
-  }  // namespace crypto
-}  // namespace shared_model
+std::string PublicKey::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("PublicKey")
+      .append(blob().toString())
+      .finalize();
+}

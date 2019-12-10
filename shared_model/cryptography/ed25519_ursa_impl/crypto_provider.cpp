@@ -7,18 +7,22 @@
 
 #include "ursa_crypto.h"
 
+namespace {
+  ByteBuffer makeByteBuffer(const BytesView &blob) {
+    return ByteBuffer{(int64_t)blob.size(), const_cast<uint8_t *>(blob.data())};
+  }
+}  // namespace
+
 namespace shared_model {
   namespace crypto {
-    Signed CryptoProviderEd25519Ursa::sign(const Blob &blob,
+    Signed CryptoProviderEd25519Ursa::sign(const BytesView &blob,
                                            const Keypair &keypair) {
       ByteBuffer signature;
 
-      const ByteBuffer kMessage = {(int64_t)blob.blob().size(),
-                                   const_cast<uint8_t *>(blob.blob().data())};
+      const ByteBuffer kMessage = makeByteBuffer(blob);
 
-      const ByteBuffer kPrivateKey = {
-          (int64_t)keypair.privateKey().blob().size(),
-          const_cast<uint8_t *>(keypair.privateKey().blob().data())};
+      const ByteBuffer kPrivateKey =
+          makeByteBuffer(keypair.privateKey().blob());
 
       ExternError err;
 
@@ -40,16 +44,11 @@ namespace shared_model {
                                            const PublicKey &public_key) {
       ExternError err;
 
-      const ByteBuffer kMessage = {(int64_t)orig.blob().size(),
-                                   const_cast<uint8_t *>(orig.blob().data())};
+      const ByteBuffer kMessage = makeByteBuffer(orig.blob());
 
-      const ByteBuffer kSignature = {
-          (int64_t)signed_data.blob().size(),
-          const_cast<uint8_t *>(signed_data.blob().data())};
+      const ByteBuffer kSignature = makeByteBuffer(signed_data.blob());
 
-      const ByteBuffer kPublicKey = {
-          (int64_t)public_key.blob().size(),
-          const_cast<uint8_t *>(public_key.blob().data())};
+      const ByteBuffer kPublicKey = makeByteBuffer(public_key.blob());
 
       if (!ursa_ed25519_verify(&kMessage, &kSignature, &kPublicKey, &err)) {
         // handle error
@@ -87,8 +86,7 @@ namespace shared_model {
       ByteBuffer public_key;
       ByteBuffer private_key;
 
-      const ByteBuffer kSeed = {(int64_t)seed.blob().size(),
-                                const_cast<uint8_t *>(seed.blob().data())};
+      const ByteBuffer kSeed = makeByteBuffer(seed.blob());
 
       ExternError err;
 

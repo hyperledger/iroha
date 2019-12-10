@@ -8,7 +8,6 @@
 
 #include "cryptography/private_key.hpp"
 #include "cryptography/public_key.hpp"
-#include "interfaces/base/model_primitive.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -16,7 +15,7 @@ namespace shared_model {
     /**
      * Class for holding a keypair: public key and private key
      */
-    class Keypair : public interface::ModelPrimitive<Keypair> {
+    class Keypair {
      public:
       /// Type of public key
       using PublicKeyType = PublicKey;
@@ -37,9 +36,9 @@ namespace shared_model {
        */
       const PrivateKeyType &privateKey() const;
 
-      bool operator==(const Keypair &keypair) const override;
+      bool operator==(const Keypair &keypair) const;
 
-      std::string toString() const override;
+      std::string toString() const;
 
      private:
       PublicKey public_key_;

@@ -14,7 +14,10 @@ namespace shared_model {
     class Sha3_512 {
      public:
       static Hash makeHash(const Blob &blob) {
-        return Hash(iroha::sha3_512(blob.blob()).to_string());
+        Blob::Bytes bytes;
+        bytes.resize(hash512_t::size());
+        iroha::sha3_512(bytes.data(), blob.data(), blob.size());
+        return Hash(std::make_unique<Blob>(std::move(bytes));
       }
     };
   }  // namespace crypto

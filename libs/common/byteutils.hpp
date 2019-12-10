@@ -15,6 +15,7 @@
 #include "common/bind.hpp"
 #include "common/blob.hpp"
 #include "common/hexutils.hpp"
+#include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
   /**
@@ -22,8 +23,10 @@ namespace iroha {
    * @param source - string for conversion
    * @return vector<blob>
    */
-  inline std::vector<uint8_t> stringToBytes(const std::string &source) {
-    return std::vector<uint8_t>(source.begin(), source.end());
+  inline std::vector<shared_model::interface::types::ByteType> stringToBytes(
+      const std::string &source) {
+    return std::vector<shared_model::interface::types::ByteType>(source.begin(),
+                                                                 source.end());
   }
 
   /**
@@ -31,7 +34,8 @@ namespace iroha {
    * @param source - vector for conversion
    * @return result string
    */
-  inline std::string bytesToString(const std::vector<uint8_t> &source) {
+  inline std::string bytesToString(
+      const std::vector<shared_model::interface::types::ByteType> &source) {
     return std::string(source.begin(), source.end());
   }
 

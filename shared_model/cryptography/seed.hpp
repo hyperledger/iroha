@@ -3,23 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_SEED_HPP
-#define IROHA_SEED_HPP
+#ifndef IROHA_SHARED_MODEL_SEED_HPP
+#define IROHA_SHARED_MODEL_SEED_HPP
 
-#include "cryptography/blob.hpp"
+#include "cryptography/bytes_wrapper.hpp"
 
 namespace shared_model {
   namespace crypto {
     /**
      * Class for seed representation.
      */
-    class Seed : public Blob {
+    class Seed : public BytesWrapper {
      public:
-      explicit Seed(const std::string &seed);
+      using BytesWrapper::BytesWrapper;
 
-      std::string toString() const override;
+      std::string toString() const;
     };
   }  // namespace crypto
 }  // namespace shared_model
 
-#endif  // IROHA_SEED_HPP
+#endif

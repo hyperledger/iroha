@@ -5,6 +5,8 @@
 
 add_library(shared_model_cryptography_model
     blob.cpp
+    bytes_view.cpp
+    bytes_wrapper.cpp
     hash.cpp
     keypair.cpp
     private_key.cpp

@@ -5,6 +5,7 @@
 
 #include "cryptography/keypair.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "utils/string_builder.hpp"
 
 namespace shared_model {
@@ -19,8 +20,8 @@ namespace shared_model {
     }
 
     bool Keypair::operator==(const Keypair &keypair) const {
-      return publicKey() == keypair.publicKey()
-          and privateKey() == keypair.privateKey();
+      return publicKey().blob() == keypair.publicKey().blob()
+          and privateKey().blob() == keypair.privateKey().blob();
     }
 
     std::string Keypair::toString() const {

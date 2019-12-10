@@ -6,20 +6,18 @@
 #ifndef IROHA_SHARED_MODEL_PRIVATE_KEY_HPP
 #define IROHA_SHARED_MODEL_PRIVATE_KEY_HPP
 
-#include "cryptography/blob.hpp"
+#include "cryptography/bytes_wrapper.hpp"
 
 namespace shared_model {
   namespace crypto {
     /**
      * A special class for storing private keys.
      */
-    class PrivateKey : public Blob {
+    class PrivateKey : public BytesWrapper {
      public:
-      explicit PrivateKey(const std::string &private_key);
+      using BytesWrapper::BytesWrapper;
 
-      explicit PrivateKey(const Blob &blob);
-
-      std::string toString() const override;
+      std::string toString() const;
     };
   }  // namespace crypto
 }  // namespace shared_model
