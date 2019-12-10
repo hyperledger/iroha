@@ -5,6 +5,11 @@
 
 #include "backend/protobuf/commands/proto_command.hpp"
 
+#include <boost/type_index.hpp>
+#define private public
+#include <boost/variant.hpp>
+#undef private
+
 #include "backend/protobuf/commands/proto_add_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
@@ -24,63 +29,112 @@
 #include "backend/protobuf/commands/proto_set_setting_value.hpp"
 #include "backend/protobuf/commands/proto_subtract_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
-#include "utils/variant_deserializer.hpp"
+#include "common/variant_transform.hpp"
+
+using namespace shared_model::proto;
+
+using PbCommand = iroha::protocol::Command;
+
+/// unique_ptr shortcut type
+template <typename... Value>
+using UniquePtrVariant = boost::variant<std::unique_ptr<Value>...>;
+
+using ProtoCommandVariantType = UniquePtrVariant<AddAssetQuantity,
+                                                 AddPeer,
+                                                 AddSignatory,
+                                                 AppendRole,
+                                                 CreateAccount,
+                                                 CreateAsset,
+                                                 CreateDomain,
+                                                 CreateRole,
+                                                 DetachRole,
+                                                 GrantPermission,
+                                                 RemoveSignatory,
+                                                 RevokePermission,
+                                                 SetAccountDetail,
+                                                 SetQuorum,
+                                                 SubtractAssetQuantity,
+                                                 TransferAsset,
+                                                 RemovePeer,
+                                                 CompareAndSetAccountDetail,
+                                                 SetSettingValue>;
 
 namespace {
-  /// type of proto variant
-  using ProtoCommandVariantType =
-      ::boost::variant<shared_model::proto::AddAssetQuantity,
-                       shared_model::proto::AddPeer,
-                       shared_model::proto::AddSignatory,
-                       shared_model::proto::AppendRole,
-                       shared_model::proto::CreateAccount,
-                       shared_model::proto::CreateAsset,
-                       shared_model::proto::CreateDomain,
-                       shared_model::proto::CreateRole,
-                       shared_model::proto::DetachRole,
-                       shared_model::proto::GrantPermission,
-                       shared_model::proto::RemoveSignatory,
-                       shared_model::proto::RevokePermission,
-                       shared_model::proto::SetAccountDetail,
-                       shared_model::proto::SetQuorum,
-                       shared_model::proto::SubtractAssetQuantity,
-                       shared_model::proto::TransferAsset,
-                       shared_model::proto::RemovePeer,
-                       shared_model::proto::CompareAndSetAccountDetail,
-                       shared_model::proto::SetSettingValue>;
+  iroha::AggregateValueResult<ProtoCommandVariantType::types, std::string>
+  loadCommandResult(PbCommand &pb_command) {
+    switch (pb_command.command_case()) {
+      case PbCommand::kAddAssetQuantity:
+        return std::make_unique<AddAssetQuantity>(pb_command);
+      case PbCommand::kAddPeer:
+        return AddPeer::create(pb_command).variant();
+      case PbCommand::kAddSignatory:
+        return AddSignatory::create(pb_command).variant();
+      case PbCommand::kAppendRole:
+        return std::make_unique<AppendRole>(pb_command);
+      case PbCommand::kCreateAccount:
+        return CreateAccount::create(pb_command).variant();
+      case PbCommand::kCreateAsset:
+        return std::make_unique<CreateAsset>(pb_command);
+      case PbCommand::kCreateDomain:
+        return std::make_unique<CreateDomain>(pb_command);
+      case PbCommand::kCreateRole:
+        return std::make_unique<CreateRole>(pb_command);
+      case PbCommand::kDetachRole:
+        return std::make_unique<DetachRole>(pb_command);
+      case PbCommand::kGrantPermission:
+        return std::make_unique<GrantPermission>(pb_command);
+      case PbCommand::kRemoveSignatory:
+        return RemoveSignatory::create(pb_command).variant();
+      case PbCommand::kRevokePermission:
+        return std::make_unique<RevokePermission>(pb_command);
+      case PbCommand::kSetAccountDetail:
+        return std::make_unique<SetAccountDetail>(pb_command);
+      case PbCommand::kSetAccountQuorum:
+        return std::make_unique<SetQuorum>(pb_command);
+      case PbCommand::kSubtractAssetQuantity:
+        return std::make_unique<SubtractAssetQuantity>(pb_command);
+      case PbCommand::kTransferAsset:
+        return std::make_unique<TransferAsset>(pb_command);
+      case PbCommand::kRemovePeer:
+        return RemovePeer::create(pb_command).variant();
+      case PbCommand::kCompareAndSetAccountDetail:
+        return std::make_unique<CompareAndSetAccountDetail>(pb_command);
+      case PbCommand::kSetSettingValue:
+        return std::make_unique<SetSettingValue>(pb_command);
+      default:
+        return "Unknown command.";
+    };
+  }
 
-  /// list of types in proto variant
-  using ProtoCommandListType = ProtoCommandVariantType::types;
+  iroha::expected::Result<ProtoCommandVariantType, std::string> loadCommand(
+      PbCommand &pb_command) {
+    return loadCommandResult(pb_command);
+  }
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+struct Command::Impl {
+  Impl(ProtoCommandVariantType command_holder)
+      : command_holder_(std::move(command_holder)),
+        command_constref_(boost::apply_visitor(
+            iroha::indirecting_visitor<CommandVariantType>, command_holder_)) {}
 
-    struct Command::Impl {
-      explicit Impl(TransportType &ref) : proto_(ref) {}
+  ProtoCommandVariantType command_holder_;
+  CommandVariantType command_constref_;
+};
 
-      TransportType &proto_;
+iroha::expected::Result<std::unique_ptr<Command>, std::string> Command::create(
+    TransportType &proto) {
+  loadCommandResult(proto);
+  return loadCommand(proto) | [](auto &&command) {
+    return std::unique_ptr<Command>(
+        new Command(std::make_unique<Impl>(std::move(command))));
+  };
+}
 
-      ProtoCommandVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.command_case())->index();
-        return shared_model::detail::variant_impl<ProtoCommandListType>::
-            template load<ProtoCommandVariantType>(ar, which);
-      }()};
+Command::Command(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
-      CommandVariantType ivariant_{variant_};
-    };
+Command::~Command() = default;
 
-    Command::Command(TransportType &ref) {
-      impl_ = std::make_unique<Impl>(ref);
-    }
-
-    Command::~Command() = default;
-
-    const Command::CommandVariantType &Command::get() const {
-      return impl_->ivariant_;
-    }
-
-  }  // namespace proto
-}  // namespace shared_model
+const Command::CommandVariantType &Command::get() const {
+  return impl_->command_constref_;
+}

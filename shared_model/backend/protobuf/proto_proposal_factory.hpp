@@ -12,6 +12,7 @@
 
 #include "backend/protobuf/proposal.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "common/result.hpp"
 #include "proposal.pb.h"
 
 namespace shared_model {
@@ -42,8 +43,9 @@ namespace shared_model {
           interface::types::HeightType height,
           interface::types::TimestampType created_time,
           UnsafeTransactionsCollectionType transactions) override {
-        return std::make_unique<Proposal>(
-            createProtoProposal(height, created_time, transactions));
+        return Proposal::create(
+                   createProtoProposal(height, created_time, transactions))
+            .assumeValue();
       }
 
       /**
@@ -51,7 +53,8 @@ namespace shared_model {
        */
       FactoryResult<std::unique_ptr<interface::Proposal>> createProposal(
           const iroha::protocol::Proposal &proposal) {
-        return validate(std::make_unique<Proposal>(proposal));
+        return Proposal::create(proposal) |
+            [this](auto &&proposal) { return validate(std::move(proposal)); };
       }
 
      private:

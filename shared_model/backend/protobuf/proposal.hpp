@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_PROPOSAL_HPP
 #define IROHA_SHARED_MODEL_PROTO_PROPOSAL_HPP
 
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "proposal.pb.h"
@@ -19,8 +20,10 @@ namespace shared_model {
       Proposal(Proposal &&o) noexcept;
       Proposal &operator=(Proposal &&o) noexcept = default;
 
-      explicit Proposal(const TransportType &ref);
-      explicit Proposal(TransportType &&ref);
+      static iroha::expected::Result<std::unique_ptr<Proposal>, std::string>
+      create(const TransportType &ref);
+      static iroha::expected::Result<std::unique_ptr<Proposal>, std::string>
+      create(TransportType &&ref);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
@@ -39,6 +42,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      Proposal(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

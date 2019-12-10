@@ -12,7 +12,7 @@ namespace shared_model {
     std::string PendingTransactionsPageResponse::BatchInfo::toString() const {
       return detail::PrettyStringBuilder()
           .init("BatchInfo")
-          .appendNamed("first tx hash", first_tx_hash.hex())
+          .appendNamed("first tx", first_tx_hash)
           .appendNamed("size", batch_size)
           .finalize();
     }

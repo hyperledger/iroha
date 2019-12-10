@@ -28,7 +28,7 @@ namespace shared_model {
       /**
        * @return hash of the first transaction from the next page
        */
-      virtual boost::optional<interface::types::HashType> nextTxHash()
+      virtual const boost::optional<interface::types::HashType> &nextTxHash()
           const = 0;
 
       /**

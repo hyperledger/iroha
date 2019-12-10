@@ -44,7 +44,7 @@ namespace shared_model {
       /**
        * @return next batch info to query the following page if exists
        */
-      virtual boost::optional<BatchInfo> nextBatchInfo() const = 0;
+      virtual const boost::optional<BatchInfo> &nextBatchInfo() const = 0;
 
       /**
        * @return total number of transactions for the query

@@ -9,22 +9,27 @@
 #include "interfaces/commands/command.hpp"
 
 #include "commands.pb.h"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace proto {
-
     class Command final : public interface::Command {
      public:
       using TransportType = iroha::protocol::Command;
 
-      explicit Command(TransportType &ref);
+      static iroha::expected::Result<std::unique_ptr<Command>, std::string>
+      create(TransportType &command);
 
       ~Command() override;
 
+      /**
+       * @return reference to const variant with concrete command
+       */
       const CommandVariantType &get() const override;
 
      private:
       struct Impl;
+      explicit Command(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

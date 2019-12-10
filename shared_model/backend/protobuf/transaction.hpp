@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_TRANSACTION_HPP
 #define IROHA_SHARED_MODEL_PROTO_TRANSACTION_HPP
 
+#include "common/result.hpp"
 #include "interfaces/transaction.hpp"
 #include "transaction.pb.h"
 
@@ -15,11 +16,10 @@ namespace shared_model {
      public:
       using TransportType = iroha::protocol::Transaction;
 
-      explicit Transaction(const TransportType &transaction);
-
-      explicit Transaction(TransportType &&transaction);
-
-      explicit Transaction(TransportType &transaction);
+      static iroha::expected::Result<std::unique_ptr<Transaction>, std::string>
+      create(const TransportType &ref);
+      static iroha::expected::Result<std::unique_ptr<Transaction>, std::string>
+      create(TransportType &&ref);
 
       Transaction(const Transaction &transaction);
 
@@ -60,6 +60,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      Transaction(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

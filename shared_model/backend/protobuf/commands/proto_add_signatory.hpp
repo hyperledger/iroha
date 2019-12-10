@@ -9,13 +9,18 @@
 #include "interfaces/commands/add_signatory.hpp"
 
 #include "commands.pb.h"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 
 namespace shared_model {
   namespace proto {
     class AddSignatory final : public interface::AddSignatory {
      public:
-      explicit AddSignatory(iroha::protocol::Command &command);
+      static iroha::expected::Result<std::unique_ptr<AddSignatory>, std::string>
+      create(iroha::protocol::Command &command);
+
+      AddSignatory(iroha::protocol::Command &command,
+                   shared_model::interface::types::PubkeyType pubkey);
 
       const interface::types::AccountIdType &accountId() const override;
 

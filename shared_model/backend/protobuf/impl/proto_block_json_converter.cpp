@@ -37,7 +37,5 @@ ProtoBlockJsonConverter::deserialize(
   if (not status.ok()) {
     return iroha::expected::makeError(status.error_message());
   }
-  std::unique_ptr<interface::Block> result =
-      std::make_unique<Block>(std::move(block.block_v1()));
-  return iroha::expected::makeValue(std::move(result));
+  return Block::create(std::move(block.block_v1()));
 }

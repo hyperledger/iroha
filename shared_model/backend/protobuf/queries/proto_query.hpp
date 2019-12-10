@@ -8,14 +8,21 @@
 
 #include "interfaces/queries/query.hpp"
 
+#include "common/result_fwd.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
   namespace proto {
+    class Signature;
 
     class Query final : public interface::Query {
      public:
       using TransportType = iroha::protocol::Query;
+      using SignatureSet = SignatureSetType<std::unique_ptr<Signature>>;
+
+      template <typename T>
+      static iroha::expected::Result<std::unique_ptr<Query>, std::string>
+      create(T &&query);
 
       Query(const Query &o);
       Query(Query &&o) noexcept;
@@ -48,7 +55,11 @@ namespace shared_model {
       const TransportType &getTransport() const;
 
      private:
+      template <typename T>
+      iroha::expected::Result<Query, std::string> createImpl(T &&proto);
+
       struct Impl;
+      Query(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
 

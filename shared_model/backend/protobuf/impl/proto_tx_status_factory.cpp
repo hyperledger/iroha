@@ -5,6 +5,7 @@
 
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 
+#include "cryptography/bytes_view.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -21,7 +22,7 @@ namespace {
       ProtoTxStatusFactory::TransactionError tx_error,
       iroha::protocol::TxStatus status) {
     iroha::protocol::ToriiResponse response;
-    response.set_tx_hash(hash.hex());
+    response.set_tx_hash(hash.blob().hex());
     response.set_err_or_cmd_name(tx_error.cmd_name_);
     response.set_failed_cmd_index(tx_error.cmd_index_);
     response.set_error_code(tx_error.error_code_);

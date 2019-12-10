@@ -52,9 +52,12 @@ namespace shared_model {
           ConstByteRange(begin, begin + binary.size()));
     }
 
-    boost::optional<Blob> Blob::fromHexString(const std::string &hex) {
-      return iroha::hexstringToBytestring(hex) |
-          [&](auto &&s) { return boost::make_optional(fromBinaryString(s)); };
+    iroha::expected::Result<std::unique_ptr<Blob>, std::string>
+    Blob::fromHexString(const std::string &hex) {
+      if (auto bytes = iroha::hexstringToBytestring(hex)) {
+        return fromBinaryString(bytes.value());
+      }
+      return "Failed to parse hex string.";
     }
 
   }  // namespace crypto

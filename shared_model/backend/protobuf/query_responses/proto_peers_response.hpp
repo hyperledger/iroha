@@ -8,21 +8,29 @@
 
 #include "interfaces/query_responses/peers_response.hpp"
 
-#include "backend/protobuf/common_objects/peer.hpp"
-#include "qry_responses.pb.h"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class QueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
     class PeersResponse final : public interface::PeersResponse {
      public:
-      explicit PeersResponse(iroha::protocol::QueryResponse &query_response);
+      static iroha::expected::Result<std::unique_ptr<PeersResponse>,
+                                     std::string>
+      create(iroha::protocol::QueryResponse &query_response);
+
+      explicit PeersResponse(
+          std::vector<std::unique_ptr<shared_model::interface::Peer>> peers);
 
       interface::PeersForwardCollectionType peers() const override;
 
      private:
-      const iroha::protocol::PeersResponse &peers_response_;
-
-      std::vector<Peer> peers_;
+      std::vector<std::unique_ptr<shared_model::interface::Peer>> peers_;
     };
   }  // namespace proto
 }  // namespace shared_model

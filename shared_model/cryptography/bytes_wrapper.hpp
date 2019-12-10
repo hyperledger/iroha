@@ -24,6 +24,8 @@ namespace shared_model {
 
       const BytesView &blob() const;
 
+      bool operator==(const BytesWrapper &rhs) const;
+
       /**
        * Calculates hash from the bytes.
        */

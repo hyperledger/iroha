@@ -45,7 +45,7 @@ namespace shared_model {
     std::string TransactionResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("TransactionResponse")
-          .appendNamed("transactionHash", transactionHash().hex())
+          .appendNamed("transactionHash", transactionHash())
           .append(boost::apply_visitor(detail::ToStringVisitor(), get()))
           .appendNamed("statelessErrorOrCmdName", statelessErrorOrCommandName())
           .appendNamed("failedCmdIndex", failedCommandIndex())

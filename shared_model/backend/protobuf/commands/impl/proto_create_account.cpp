@@ -5,16 +5,31 @@
 
 #include "backend/protobuf/commands/proto_create_account.hpp"
 
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
+
+using shared_model::interface::types::PubkeyType;
 
 namespace shared_model {
   namespace proto {
 
-    CreateAccount::CreateAccount(iroha::protocol::Command &command)
-        : create_account_{command.create_account()},
-          pubkey_{crypto::Hash::fromHexString(create_account_.public_key())} {}
+    iroha::expected::Result<std::unique_ptr<CreateAccount>, std::string>
+    CreateAccount::create(iroha::protocol::Command &command) {
+      return shared_model::crypto::Blob::fromHexString(
+                 command.create_account().public_key())
+          | [&command](auto &&pubkey) {
+              return std::make_unique<CreateAccount>(
+                  command, PubkeyType{std::move(pubkey)});
+            };
+    }
 
-    const interface::types::PubkeyType &CreateAccount::pubkey() const {
+    CreateAccount::CreateAccount(iroha::protocol::Command &command,
+                                 PubkeyType pubkey)
+        : create_account_{command.create_account()},
+          pubkey_(std::move(pubkey)) {}
+
+    const PubkeyType &CreateAccount::pubkey() const {
       return pubkey_;
     }
 

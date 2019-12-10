@@ -8,6 +8,7 @@
 
 #include "interfaces/query_responses/signatories_response.hpp"
 
+#include "common/result_fwd.hpp"
 #include "cryptography/public_key.hpp"
 #include "qry_responses.pb.h"
 
@@ -15,8 +16,13 @@ namespace shared_model {
   namespace proto {
     class SignatoriesResponse final : public interface::SignatoriesResponse {
      public:
+      static iroha::expected::Result<std::unique_ptr<SignatoriesResponse>,
+                                     std::string>
+      create(const iroha::protocol::QueryResponse &query_response);
+
       explicit SignatoriesResponse(
-          iroha::protocol::QueryResponse &query_response);
+          const iroha::protocol::QueryResponse &query_response,
+          interface::types::PublicKeyCollectionType keys);
 
       const interface::types::PublicKeyCollectionType &keys() const override;
 

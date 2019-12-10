@@ -14,9 +14,9 @@ namespace shared_model {
     std::string Block::toString() const {
       return detail::PrettyStringBuilder()
           .init("Block")
-          .appendNamed("hash", hash().hex())
+          .appendNamed("hash", hash())
           .appendNamed("height", height())
-          .appendNamed("prevHash", prevHash().hex())
+          .appendNamed("prevHash", prevHash())
           .appendNamed("txsNumber", txsNumber())
           .appendNamed("createdtime", createdTime())
           .appendNamed("transactions", transactions())

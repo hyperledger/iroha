@@ -7,6 +7,7 @@ add_library(shared_model_proto_backend
     impl/block.cpp
     impl/proposal.cpp
     impl/permissions.cpp
+    impl/proto_batch_meta.cpp
     impl/proto_block_factory.cpp
     impl/proto_block_json_converter.cpp
     impl/proto_query_response_factory.cpp
@@ -73,7 +74,6 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/proto_block_query_response.cpp
       query_responses/impl/proto_block_response.cpp
       query_responses/impl/proto_block_error_response.cpp
-      query_responses/impl/proto_get_block_response.cpp
       query_responses/impl/proto_peers_response.cpp
       transaction_responses/impl/proto_tx_response.cpp
       )

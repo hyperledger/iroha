@@ -4,46 +4,78 @@
  */
 
 #include "backend/protobuf/query_responses/proto_pending_transactions_page_response.hpp"
+
+#include <boost/range/adaptor/indirected.hpp>
+#include "backend/protobuf/transaction.hpp"
 #include "common/byteutils.hpp"
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
+#include "cryptography/hash.hpp"
 
 namespace shared_model {
   namespace proto {
+    iroha::expected::Result<std::unique_ptr<PendingTransactionsPageResponse>,
+                            std::string>
+    PendingTransactionsPageResponse::create(
+        const iroha::protocol::QueryResponse &query_response) {
+      using namespace iroha::expected;
+      const auto &proto = query_response.pending_transactions_page_response();
+
+      std::vector<std::unique_ptr<Transaction>> txs;
+      for (const auto &proto : proto.transactions()) {
+        if (auto e = resultToOptionalError(
+                Transaction::create(proto) |
+                    [&txs](auto &&tx) -> Result<void, std::string> {
+                  txs.emplace_back(std::move(tx));
+                  return {};
+                })) {
+          return e.value();
+        }
+      }
+
+      if (proto.has_next_batch_info()) {
+        auto &next = proto.next_batch_info();
+        using shared_model::interface::types::TransactionsNumberType;
+        using ProtoTransactionsNumberType = decltype(next.batch_size());
+        static_assert(
+            std::numeric_limits<TransactionsNumberType>::min()
+                == std::numeric_limits<ProtoTransactionsNumberType>::min(),
+            "Lower bounds don't match.");
+        if (next.batch_size()
+            > std::numeric_limits<TransactionsNumberType>::max()) {
+          return "Batch size does not fit the variable type.";
+        }
+        auto batch_size =
+            static_cast<TransactionsNumberType>(next.batch_size());
+        return shared_model::crypto::Blob::fromHexString(next.first_tx_hash()) |
+            [&](auto &&next_hash) {
+              return std::make_unique<PendingTransactionsPageResponse>(
+                  query_response,
+                  std::move(txs),
+                  BatchInfo{shared_model::crypto::Hash{std::move(next_hash)},
+                            batch_size});
+            };
+      }
+      return std::make_unique<PendingTransactionsPageResponse>(
+          query_response, std::move(txs), boost::none);
+    }
 
     PendingTransactionsPageResponse::PendingTransactionsPageResponse(
-        iroha::protocol::QueryResponse &query_response)
+        const iroha::protocol::QueryResponse &query_response,
+        std::vector<std::unique_ptr<Transaction>> transactions,
+        boost::optional<BatchInfo> next_batch_info)
         : pending_transactions_page_response_{query_response
                                                   .pending_transactions_page_response()},
-          transactions_{
-              query_response.mutable_pending_transactions_page_response()
-                  ->mutable_transactions()
-                  ->begin(),
-              query_response.mutable_pending_transactions_page_response()
-                  ->mutable_transactions()
-                  ->end()},
-          next_batch_info_{
-              [this]()
-                  -> boost::optional<
-                      interface::PendingTransactionsPageResponse::BatchInfo> {
-                if (pending_transactions_page_response_.has_next_batch_info()) {
-                  auto &next =
-                      pending_transactions_page_response_.next_batch_info();
-                  interface::PendingTransactionsPageResponse::BatchInfo
-                      next_batch;
-                  next_batch.first_tx_hash =
-                      crypto::Hash::fromHexString(next.first_tx_hash());
-                  next_batch.batch_size = next.batch_size();
-                  return next_batch;
-                }
-                return boost::none;
-              }()} {}
+          transactions_{std::move(transactions)},
+          next_batch_info_{std::move(next_batch_info)} {}
 
     interface::types::TransactionsCollectionType
     PendingTransactionsPageResponse::transactions() const {
-      return transactions_;
+      return transactions_ | boost::adaptors::indirected;
     }
 
-    boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
-    PendingTransactionsPageResponse::nextBatchInfo() const {
+    const boost::optional<PendingTransactionsPageResponse::BatchInfo>
+        &PendingTransactionsPageResponse::nextBatchInfo() const {
       return next_batch_info_;
     }
 

@@ -8,7 +8,7 @@
 
 #include "interfaces/iroha_internal/batch_meta.hpp"
 
-#include <boost/range/adaptor/transformed.hpp>
+#include "common/result.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "transaction.pb.h"
@@ -17,34 +17,17 @@ namespace shared_model {
   namespace proto {
     class BatchMeta final : public interface::BatchMeta {
      public:
-      explicit BatchMeta(
-          iroha::protocol::Transaction::Payload::BatchMeta &batch_meta)
-          : batch_meta_{batch_meta},
-            type_{[this] {
-              unsigned which = batch_meta_.GetDescriptor()
-                                   ->FindFieldByName("type")
-                                   ->enum_type()
-                                   ->FindValueByNumber(batch_meta_.type())
-                                   ->index();
-              return static_cast<interface::types::BatchType>(which);
-            }()},
-            reduced_hashes_{boost::copy_range<ReducedHashesType>(
-                batch_meta.reduced_hashes()
-                | boost::adaptors::transformed([](const auto &hash) {
-                    return crypto::Hash::fromHexString(hash);
-                  }))} {}
+      static iroha::expected::Result<std::unique_ptr<BatchMeta>, std::string>
+      create(iroha::protocol::Transaction::Payload::BatchMeta &batch_meta);
 
-      interface::types::BatchType type() const override {
-        return type_;
-      }
+      BatchMeta(interface::types::BatchType type,
+                ReducedHashesType reduced_hashes);
 
-      const ReducedHashesType &reducedHashes() const override {
-        return reduced_hashes_;
-      }
+      interface::types::BatchType type() const override;
+
+      const ReducedHashesType &reducedHashes() const override;
 
      private:
-      const iroha::protocol::Transaction::Payload::BatchMeta &batch_meta_;
-
       interface::types::BatchType type_;
 
       const ReducedHashesType reduced_hashes_;

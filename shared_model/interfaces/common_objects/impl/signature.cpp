@@ -17,8 +17,8 @@ namespace shared_model {
     std::string Signature::toString() const {
       return detail::PrettyStringBuilder()
           .init("Signature")
-          .appendNamed("publicKey", publicKey().hex())
-          .appendNamed("signedData", signedData().hex())
+          .appendNamed("publicKey", publicKey())
+          .appendNamed("signedData", signedData())
           .finalize();
     }
   }  // namespace interface

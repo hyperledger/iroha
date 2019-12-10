@@ -45,9 +45,15 @@ namespace iroha {
           typename = std::enable_if_t<std::is_constructible<T, Args...>::value>>
       Value(Args &&... args) : value(std::forward<Args>(args)...) {}
       T value;
+
       template <typename V>
-      operator Value<V>() {
-        return {value};
+      operator Value<V>() & {
+        return value;
+      }
+
+      template <typename V>
+      operator Value<V>() && {
+        return std::forward<T>(value);
       }
     };
 
@@ -64,9 +70,14 @@ namespace iroha {
           typename = std::enable_if_t<std::is_constructible<E, Args...>::value>>
       Error(Args &&... args) : error(std::forward<Args>(args)...) {}
       E error;
+
       template <typename V>
-      operator Error<V>() {
-        return {error};
+      operator Error<V>() & {
+        return error;
+      }
+      template <typename V>
+      operator Error<V>() && {
+        return std::forward<E>(error);
       }
     };
 
@@ -117,6 +128,19 @@ namespace iroha {
                                   [](Error<OE> &&e) -> Result<V, E> {
                                     return ErrorType{std::move(e.error)};
                                   })) {}
+
+
+      const variant_type &variant() const & {
+        return *this;
+      };
+
+      variant_type &variant() & {
+        return *this;
+      };
+
+      variant_type &&variant() && {
+        return std::move(*this);
+      };
 
       /**
        * match is a function which allows working with result's underlying

@@ -5,8 +5,11 @@
 
 #include "backend/protobuf/proposal.hpp"
 
+#include <boost/range/adaptor/indirected.hpp>
+#include <boost/range/adaptor/transformed.hpp>
 #include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/util.hpp"
+#include "common/result.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -19,11 +22,12 @@ namespace shared_model {
 
       TransportType proto_;
 
-      const std::vector<proto::Transaction> transactions_{[this] {
-        return std::vector<proto::Transaction>(
-            proto_.mutable_transactions()->begin(),
-            proto_.mutable_transactions()->end());
-      }()};
+      const std::vector<std::unique_ptr<Transaction>> transactions_{
+          boost::copy_range<std::vector<std::unique_ptr<Transaction>>>(
+              *proto_.mutable_transactions()
+              | boost::adaptors::transformed([](auto &proto) {
+                  return Transaction::create(proto).assumeValue();
+                }))};
 
       interface::types::BlobType blob_{[this] { return makeBlob(proto_); }()};
 
@@ -33,16 +37,30 @@ namespace shared_model {
 
     Proposal::Proposal(Proposal &&o) noexcept = default;
 
-    Proposal::Proposal(const TransportType &ref) {
-      impl_ = std::make_unique<Proposal::Impl>(ref);
+    iroha::expected::Result<std::unique_ptr<Proposal>, std::string>
+    Proposal::create(const TransportType &ref) {
+      try {
+        return std::unique_ptr<Proposal>(
+            new Proposal(std::make_unique<Impl>(ref)));
+      } catch (const iroha::expected::ResultException &e) {
+        return e.what();
+      }
     }
 
-    Proposal::Proposal(TransportType &&ref) {
-      impl_ = std::make_unique<Proposal::Impl>(std::move(ref));
+    iroha::expected::Result<std::unique_ptr<Proposal>, std::string>
+    Proposal::create(TransportType &&ref) {
+      try {
+        return std::unique_ptr<Proposal>(
+            new Proposal(std::make_unique<Impl>(std::move(ref))));
+      } catch (const iroha::expected::ResultException &e) {
+        return e.what();
+      }
     }
+
+    Proposal::Proposal(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
     TransactionsCollectionType Proposal::transactions() const {
-      return impl_->transactions_;
+      return impl_->transactions_ | boost::adaptors::indirected;
     }
 
     TimestampType Proposal::createdTime() const {

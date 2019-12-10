@@ -10,6 +10,7 @@
 
 #include "backend/protobuf/common_objects/peer.hpp"
 #include "commands.pb.h"
+#include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
 namespace shared_model {
@@ -17,12 +18,14 @@ namespace shared_model {
 
     class AddPeer final : public interface::AddPeer {
      public:
-      explicit AddPeer(iroha::protocol::Command &command);
+      static iroha::expected::Result<std::unique_ptr<AddPeer>, std::string>
+      create(iroha::protocol::Command &command);
+
+      explicit AddPeer(proto::Peer peer);
 
       const interface::Peer &peer() const override;
 
      private:
-      const iroha::protocol::AddPeer &add_peer_;
       proto::Peer peer_;
     };
   }  // namespace proto

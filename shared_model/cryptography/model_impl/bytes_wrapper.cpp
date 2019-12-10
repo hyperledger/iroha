@@ -17,12 +17,11 @@ const BytesView &BytesWrapper::blob() const {
   return *blob_;
 }
 
+bool BytesWrapper::operator==(const BytesWrapper &rhs) const {
+  return *blob_ == rhs.blob();
+}
+
 std::size_t BytesWrapper::Hasher::operator()(const BytesWrapper &o) const {
   auto range = o.blob().byteRange();
   return boost::hash_range(range.begin(), range.end());
-}
-
-bool BytesWrapper::Equality::operator()(const BytesWrapper &lhs,
-                                        const BytesWrapper &rhs) const {
-  return lhs.blob() == rhs.blob();
 }

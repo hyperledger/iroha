@@ -20,7 +20,8 @@ namespace shared_model {
       virtual types::TransactionsNumberType pageSize() const = 0;
 
       /// Get the first requested transaction hash, if provided.
-      virtual boost::optional<types::HashType> firstTxHash() const = 0;
+      virtual const boost::optional<interface::types::HashType> &firstTxHash()
+          const = 0;
 
       std::string toString() const override;
 

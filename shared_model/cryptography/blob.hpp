@@ -13,6 +13,7 @@
 
 #include <boost/optional/optional_fwd.hpp>
 #include "common/cloneable.hpp"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -48,7 +49,7 @@ namespace shared_model {
        * Create blob from a binary string.
        * @param blob - string to create blob from
        */
-      static Blob fromBinaryString(const std::string &binary);
+      static std::unique_ptr<Blob> fromBinaryString(const std::string &binary);
 
       /**
        * Creates new Blob object from provided hex string
@@ -56,7 +57,8 @@ namespace shared_model {
        * @return Blob from provided hex string if it was correct or
        * boost::none otherwise
        */
-      static boost::optional<Blob> fromHexString(const std::string &hex);
+      static iroha::expected::Result<std::unique_ptr<Blob>, std::string>
+      fromHexString(const std::string &hex);
 
      protected:
       void updateRange();

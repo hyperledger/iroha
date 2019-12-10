@@ -8,23 +8,34 @@
 
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
-#include "backend/protobuf/transaction.hpp"
+#include <boost/optional/optional.hpp>
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
+    class Transaction;
+
     class PendingTransactionsPageResponse final
         : public interface::PendingTransactionsPageResponse {
      public:
-      explicit PendingTransactionsPageResponse(
-          iroha::protocol::QueryResponse &query_response);
+      static iroha::expected::
+          Result<std::unique_ptr<PendingTransactionsPageResponse>, std::string>
+          create(const iroha::protocol::QueryResponse &query_response);
+
+      PendingTransactionsPageResponse(
+          const iroha::protocol::QueryResponse &query_response,
+          std::vector<std::unique_ptr<Transaction>> transactions,
+          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+              next_batch_info);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
-      nextBatchInfo() const override;
+      const boost::optional<
+          interface::PendingTransactionsPageResponse::BatchInfo>
+          &nextBatchInfo() const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
           const override;
@@ -32,7 +43,7 @@ namespace shared_model {
      private:
       const iroha::protocol::PendingTransactionsPageResponse
           &pending_transactions_page_response_;
-      const std::vector<Transaction> transactions_;
+      const std::vector<std::unique_ptr<Transaction>> transactions_;
       boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
           next_batch_info_;
     };

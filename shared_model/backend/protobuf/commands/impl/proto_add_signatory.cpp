@@ -5,20 +5,34 @@
 
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
 
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
+
+using shared_model::interface::types::PubkeyType;
 
 namespace shared_model {
   namespace proto {
 
-    AddSignatory::AddSignatory(iroha::protocol::Command &command)
-        : add_signatory_{command.add_signatory()},
-          pubkey_{crypto::Hash::fromHexString(add_signatory_.public_key())} {}
+    iroha::expected::Result<std::unique_ptr<AddSignatory>, std::string>
+    AddSignatory::create(iroha::protocol::Command &command) {
+      return shared_model::crypto::Blob::fromHexString(
+                 command.add_signatory().public_key())
+          | [&command](auto &&pubkey) {
+              return std::make_unique<AddSignatory>(
+                  command, PubkeyType{std::move(pubkey)});
+            };
+    }
+
+    AddSignatory::AddSignatory(iroha::protocol::Command &command,
+                               PubkeyType pubkey)
+        : add_signatory_{command.add_signatory()}, pubkey_(std::move(pubkey)) {}
 
     const interface::types::AccountIdType &AddSignatory::accountId() const {
       return add_signatory_.account_id();
     }
 
-    const interface::types::PubkeyType &AddSignatory::pubkey() const {
+    const PubkeyType &AddSignatory::pubkey() const {
       return pubkey_;
     }
 

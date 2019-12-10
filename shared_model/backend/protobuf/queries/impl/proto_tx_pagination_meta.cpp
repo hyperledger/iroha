@@ -6,24 +6,36 @@
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 
 #include <boost/optional.hpp>
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
 
 namespace types = shared_model::interface::types;
 
 using namespace shared_model::proto;
 
-TxPaginationMeta::TxPaginationMeta(iroha::protocol::TxPaginationMeta &meta)
-    : meta_{meta} {}
+iroha::expected::Result<std::unique_ptr<TxPaginationMeta>, std::string>
+TxPaginationMeta::create(const iroha::protocol::TxPaginationMeta &meta) {
+  if (meta.opt_first_tx_hash_case()
+      == iroha::protocol::TxPaginationMeta::OptFirstTxHashCase::kFirstTxHash) {
+    return shared_model::crypto::Blob::fromHexString(meta.first_tx_hash()) |
+        [&](auto &&blob) {
+          return std::make_unique<TxPaginationMeta>(
+              meta, shared_model::crypto::Hash{std::move(blob)});
+        };
+  }
+  return std::make_unique<TxPaginationMeta>(meta, boost::none);
+}
+
+TxPaginationMeta::TxPaginationMeta(
+    const iroha::protocol::TxPaginationMeta &meta,
+    boost::optional<types::HashType> first_tx_hash)
+    : meta_{meta}, first_tx_hash_(std::move(first_tx_hash)) {}
 
 types::TransactionsNumberType TxPaginationMeta::pageSize() const {
   return meta_.page_size();
 }
 
-boost::optional<types::HashType> TxPaginationMeta::firstTxHash() const {
-  if (meta_.opt_first_tx_hash_case()
-      == iroha::protocol::TxPaginationMeta::OptFirstTxHashCase::
-             OPT_FIRST_TX_HASH_NOT_SET) {
-    return boost::none;
-  }
-  return types::HashType::fromHexString(meta_.first_tx_hash());
+const boost::optional<types::HashType> &TxPaginationMeta::firstTxHash() const {
+  return first_tx_hash_;
 }

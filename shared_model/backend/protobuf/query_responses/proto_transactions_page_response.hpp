@@ -8,29 +8,46 @@
 
 #include "interfaces/query_responses/transactions_page_response.hpp"
 
-#include "backend/protobuf/transaction.hpp"
+#include <boost/optional/optional.hpp>
+#include "common/result_fwd.hpp"
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "qry_responses.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class QueryResponse;
+    class TransactionsPageResponse;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
+    class Transaction;
+
     class TransactionsPageResponse final
         : public interface::TransactionsPageResponse {
      public:
-      explicit TransactionsPageResponse(
-          iroha::protocol::QueryResponse &query_response);
+      static iroha::expected::Result<std::unique_ptr<TransactionsPageResponse>,
+                                     std::string>
+      create(const iroha::protocol::QueryResponse &query_response);
+
+      TransactionsPageResponse(
+          const iroha::protocol::QueryResponse &query_response,
+          std::vector<std::unique_ptr<Transaction>> transactions,
+          boost::optional<interface::types::HashType> next_hash);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      boost::optional<interface::types::HashType> nextTxHash() const override;
+      const boost::optional<interface::types::HashType> &nextTxHash()
+          const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
           const override;
 
      private:
       const iroha::protocol::TransactionsPageResponse &transactionPageResponse_;
-      std::vector<proto::Transaction> transactions_;
+      std::vector<std::unique_ptr<Transaction>> transactions_;
       boost::optional<interface::types::HashType> next_hash_;
     };
   }  // namespace proto

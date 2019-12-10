@@ -8,22 +8,31 @@
 
 #include "interfaces/query_responses/block_response.hpp"
 
-#include "backend/protobuf/block.hpp"
-#include "qry_responses.pb.h"
+#include "common/result_fwd.hpp"
+
+namespace iroha {
+  namespace protocol {
+    class QueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
+    class Block;
+
     class BlockResponse final : public interface::BlockResponse {
      public:
-      explicit BlockResponse(
-          iroha::protocol::BlockQueryResponse &block_query_response);
+      static iroha::expected::Result<std::unique_ptr<BlockResponse>,
+                                     std::string>
+      create(iroha::protocol::QueryResponse &query_response);
 
-      const Block &block() const override;
+      explicit BlockResponse(
+          std::unique_ptr<shared_model::interface::Block> block);
+
+      const interface::Block &block() const override;
 
      private:
-      const iroha::protocol::BlockResponse &block_response_;
-
-      Block block_;
+      std::unique_ptr<shared_model::interface::Block> block_;
     };
   }  // namespace proto
 }  // namespace shared_model

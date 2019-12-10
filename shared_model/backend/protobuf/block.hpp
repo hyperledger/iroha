@@ -9,6 +9,7 @@
 #include "interfaces/iroha_internal/block.hpp"
 
 #include "block.pb.h"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -19,8 +20,11 @@ namespace shared_model {
 
       Block(Block &&o) noexcept;
       Block &operator=(Block &&o) noexcept = default;
-      explicit Block(const TransportType &ref);
-      explicit Block(TransportType &&ref);
+
+      static iroha::expected::Result<std::unique_ptr<Block>, std::string>
+      create(const TransportType &ref);
+      static iroha::expected::Result<std::unique_ptr<Block>, std::string>
+      create(TransportType &&ref);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
@@ -55,6 +59,7 @@ namespace shared_model {
 
      private:
       struct Impl;
+      explicit Block(std::unique_ptr<Impl> impl);
       std::unique_ptr<Impl> impl_;
     };
   }  // namespace proto

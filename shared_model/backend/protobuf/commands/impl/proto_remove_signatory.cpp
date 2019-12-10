@@ -5,21 +5,35 @@
 
 #include "backend/protobuf/commands/proto_remove_signatory.hpp"
 
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
+
+using shared_model::interface::types::PubkeyType;
 
 namespace shared_model {
   namespace proto {
 
-    RemoveSignatory::RemoveSignatory(iroha::protocol::Command &command)
-        : remove_signatory_{command.remove_signatory()},
-          pubkey_{crypto::Hash::fromHexString(remove_signatory_.public_key())} {
+    iroha::expected::Result<std::unique_ptr<RemoveSignatory>, std::string>
+    RemoveSignatory::create(iroha::protocol::Command &command) {
+      return shared_model::crypto::Blob::fromHexString(
+                 command.remove_signatory().public_key())
+          | [&](auto &&pubkey) {
+              return std::make_unique<RemoveSignatory>(
+                  command, PubkeyType{std::move(pubkey)});
+            };
     }
+
+    RemoveSignatory::RemoveSignatory(iroha::protocol::Command &command,
+                                     PubkeyType pubkey)
+        : remove_signatory_{command.remove_signatory()},
+          pubkey_(std::move(pubkey)) {}
 
     const interface::types::AccountIdType &RemoveSignatory::accountId() const {
       return remove_signatory_.account_id();
     }
 
-    const interface::types::PubkeyType &RemoveSignatory::pubkey() const {
+    const PubkeyType &RemoveSignatory::pubkey() const {
       return pubkey_;
     }
 

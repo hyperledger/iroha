@@ -9,6 +9,7 @@
 
 #include <boost/assert.hpp>
 #include "backend/protobuf/block.hpp"
+#include "common/result.hpp"
 
 using namespace shared_model;
 using namespace shared_model::proto;
@@ -32,7 +33,7 @@ ProtoBlockFactory::unsafeCreateBlock(
   iroha::protocol::Block_v1 block;
   auto *block_payload = block.mutable_payload();
   block_payload->set_height(height);
-  block_payload->set_prev_block_hash(prev_hash.hex());
+  block_payload->set_prev_block_hash(prev_hash.blob().hex());
   block_payload->set_created_time(created_time);
 
   // set accepted transactions
@@ -48,7 +49,7 @@ ProtoBlockFactory::unsafeCreateBlock(
                 [block_payload](const auto &hash) {
                   auto *next_hash =
                       block_payload->add_rejected_transactions_hashes();
-                  (*next_hash) = hash.hex();
+                  (*next_hash) = hash.blob().hex();
                 });
 
   iroha::protocol::Block proto_block_container;
@@ -57,7 +58,7 @@ ProtoBlockFactory::unsafeCreateBlock(
   proto_block_container.release_block_v1();
 
   auto model_proto_block =
-      std::make_unique<shared_model::proto::Block>(std::move(block));
+      shared_model::proto::Block::create(std::move(block)).assumeValue();
   assert(not interface_validator_->validate(*model_proto_block));
 
   return model_proto_block;
@@ -70,11 +71,13 @@ ProtoBlockFactory::createBlock(iroha::protocol::Block block) {
     return iroha::expected::makeError(error->toString());
   }
 
-  std::unique_ptr<shared_model::interface::Block> proto_block =
-      std::make_unique<Block>(std::move(block.block_v1()));
-  if (auto error = interface_validator_->validate(*proto_block)) {
-    return iroha::expected::makeError(error->toString());
-  }
-
-  return iroha::expected::makeValue(std::move(proto_block));
+  return Block::create(std::move(block.block_v1())) | [this](auto &&block)
+             -> iroha::expected::Result<
+                 std::unique_ptr<shared_model::interface::Block>,
+                 std::string> {
+    if (auto error = interface_validator_->validate(*block)) {
+      return iroha::expected::makeError(error->toString());
+    }
+    return std::move(block);
+  };
 }

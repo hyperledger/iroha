@@ -9,6 +9,7 @@
 #include "interfaces/commands/remove_signatory.hpp"
 
 #include "commands.pb.h"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 
 namespace shared_model {
@@ -16,7 +17,12 @@ namespace shared_model {
 
     class RemoveSignatory final : public interface::RemoveSignatory {
      public:
-      explicit RemoveSignatory(iroha::protocol::Command &command);
+      static iroha::expected::Result<std::unique_ptr<RemoveSignatory>,
+                                     std::string>
+      create(iroha::protocol::Command &command);
+
+      RemoveSignatory(iroha::protocol::Command &command,
+                      shared_model::interface::types::PubkeyType pubkey);
 
       const interface::types::AccountIdType &accountId() const override;
 

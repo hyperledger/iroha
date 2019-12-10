@@ -8,24 +8,33 @@
 
 #include "interfaces/query_responses/transactions_response.hpp"
 
-#include "backend/protobuf/transaction.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "qry_responses.pb.h"
+
+namespace iroha {
+  namespace protocol {
+    class QueryResponse;
+  }
+}  // namespace iroha
 
 namespace shared_model {
   namespace proto {
+    class Transaction;
+
     class TransactionsResponse final : public interface::TransactionsResponse {
      public:
+      static iroha::expected::Result<std::unique_ptr<TransactionsResponse>,
+                                     std::string>
+      create(const iroha::protocol::QueryResponse &query_response);
+
       explicit TransactionsResponse(
-          iroha::protocol::QueryResponse &query_response);
+          std::vector<std::unique_ptr<Transaction>> transactions);
 
       interface::types::TransactionsCollectionType transactions()
           const override;
 
      private:
-      const iroha::protocol::TransactionsResponse &transaction_response_;
-
-      const std::vector<proto::Transaction> transactions_;
+      const std::vector<std::unique_ptr<Transaction>> transactions_;
     };
   }  // namespace proto
 }  // namespace shared_model

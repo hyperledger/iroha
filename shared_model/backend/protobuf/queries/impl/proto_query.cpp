@@ -5,6 +5,7 @@
 
 #include "backend/protobuf/queries/proto_query.hpp"
 
+#include <boost/range/adaptor/indirected.hpp>
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/queries/proto_get_account.hpp"
 #include "backend/protobuf/queries/proto_get_account_asset_transactions.hpp"
@@ -20,7 +21,11 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
+#include "common/result.hpp"
 #include "utils/variant_deserializer.hpp"
+
+using iroha::expected::Result;
+using iroha::expected::ResultException;
 
 namespace {
   /// type of proto variant
@@ -69,16 +74,58 @@ namespace shared_model {
 
       interface::types::BlobType payload_{makeBlob(proto_.payload())};
 
-      SignatureSetType<proto::Signature> signatures_{[this] {
-        SignatureSetType<proto::Signature> set;
+      SignatureSet signatures_{[this] {
+        SignatureSet set;
         if (proto_.has_signature()) {
-          set.emplace(*proto_.mutable_signature());
+          set.emplace(
+              Signature::create(*proto_.mutable_signature()).assumeValue());
         }
         return set;
       }()};
 
       interface::types::HashType hash_ = makeHash(payload_);
     };
+
+    template <typename T>
+    Result<std::unique_ptr<Query>, std::string> Query::create(T &&proto) {
+      try {
+        return std::make_unique<Query>(
+            std::make_unique<Impl>(std::forward<T>(proto)));
+      } catch (const ResultException &e) {
+        return e.what();
+      }
+    }
+
+    template <>
+    Result<std::unique_ptr<Query>, std::string> Query::create(
+        const TransportType &query);
+    template <>
+    Result<std::unique_ptr<Query>, std::string> Query::create(
+        TransportType &query);
+    template <>
+    Result<std::unique_ptr<Query>, std::string> Query::create(
+        TransportType &&query);
+
+    /*
+    iroha::expected::Result<Query, std::string> Query::create(
+        const TransportType &query) {
+      try {
+        return std::make_unique<Query>(std::make_unique<Impl>(query));
+      } catch (const ResultException &e) {
+        return e.what();
+      }
+    }
+
+    iroha::expected::Result<Query, std::string> Query::create(
+        TransportType &&query) {
+      try {
+        return std::make_unique<Query>(
+            std::make_unique<Impl>(std::move(query)));
+      } catch (const ResultException &e) {
+        return e.what();
+      }
+    }
+    */
 
     Query::Query(const Query &o) : Query(o.impl_->proto_) {}
     Query::Query(Query &&o) noexcept = default;
@@ -113,7 +160,7 @@ namespace shared_model {
     }
 
     interface::types::SignatureRangeType Query::signatures() const {
-      return impl_->signatures_;
+      return impl_->signatures_ | boost::adaptors::indirected;
     }
 
     bool Query::addSignature(const crypto::Signed &signed_blob,
@@ -123,14 +170,16 @@ namespace shared_model {
       }
 
       auto sig = impl_->proto_.mutable_signature();
-      sig->set_signature(signed_blob.hex());
-      sig->set_public_key(public_key.hex());
+      sig->set_signature(signed_blob.blob().hex());
+      sig->set_public_key(public_key.blob().hex());
 
-      impl_->signatures_ =
-          SignatureSetType<proto::Signature>{proto::Signature{*sig}};
-      impl_->blob_ = makeBlob(impl_->proto_);
-
-      return true;
+      return Signature::create(*sig).match(
+          [this](auto &&val) {
+            impl_->signatures_.emplace(std::move(val.value));
+            impl_->blob_ = makeBlob(impl_->proto_);
+            return true;
+          },
+          [this](const auto &err) { return false; });
     }
 
     const interface::types::HashType &Query::hash() const {

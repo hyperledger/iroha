@@ -6,6 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_BATCH_META_HPP
 #define IROHA_SHARED_MODEL_BATCH_META_HPP
 
+#include <boost/range/algorithm/equal.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 

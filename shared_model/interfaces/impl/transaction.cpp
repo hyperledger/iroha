@@ -15,7 +15,7 @@ namespace shared_model {
     std::string Transaction::toString() const {
       return detail::PrettyStringBuilder()
           .init("Transaction")
-          .appendNamed("hash", hash().hex())
+          .appendNamed("hash", hash())
           .appendNamed("creatorAccountId", creatorAccountId())
           .appendNamed("createdTime", createdTime())
           .appendNamed("quorum", quorum())

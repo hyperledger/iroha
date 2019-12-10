@@ -9,6 +9,7 @@
 #include "interfaces/queries/blocks_query.hpp"
 
 #include "backend/protobuf/common_objects/signature.hpp"
+#include "common/result_fwd.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
@@ -16,9 +17,12 @@ namespace shared_model {
     class BlocksQuery final : public interface::BlocksQuery {
      public:
       using TransportType = iroha::protocol::BlocksQuery;
+      using SignatureSet = SignatureSetType<std::unique_ptr<Signature>>;
 
-      explicit BlocksQuery(const TransportType &query);
-      explicit BlocksQuery(TransportType &&query);
+      static iroha::expected::Result<std::unique_ptr<BlocksQuery>, std::string>
+      create(TransportType query);
+
+      explicit BlocksQuery(TransportType &&query, SignatureSet signatures);
 
       const interface::types::AccountIdType &creatorAccountId() const override;
 
@@ -48,7 +52,7 @@ namespace shared_model {
 
       const interface::types::BlobType payload_;
 
-      SignatureSetType<proto::Signature> signatures_;
+      SignatureSet signatures_;
 
       interface::types::HashType hash_;
     };

@@ -9,8 +9,8 @@
 #include "backend/protobuf/query_responses/proto_account_detail_response.hpp"
 #include "backend/protobuf/query_responses/proto_account_response.hpp"
 #include "backend/protobuf/query_responses/proto_asset_response.hpp"
+#include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "backend/protobuf/query_responses/proto_error_query_response.hpp"
-#include "backend/protobuf/query_responses/proto_get_block_response.hpp"
 #include "backend/protobuf/query_responses/proto_peers_response.hpp"
 #include "backend/protobuf/query_responses/proto_pending_transactions_page_response.hpp"
 #include "backend/protobuf/query_responses/proto_role_permissions_response.hpp"
@@ -35,7 +35,7 @@ namespace {
                      shared_model::proto::RolePermissionsResponse,
                      shared_model::proto::TransactionsPageResponse,
                      shared_model::proto::PendingTransactionsPageResponse,
-                     shared_model::proto::GetBlockResponse,
+                     shared_model::proto::BlockResponse,
                      shared_model::proto::PeersResponse>;
 
   /// list of types in variant

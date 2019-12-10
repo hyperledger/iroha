@@ -7,6 +7,7 @@
 #define IROHA_PROTO_SIGNATURE_HPP
 
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "cryptography/signed.hpp"
 #include "interfaces/common_objects/signature.hpp"
@@ -18,12 +19,36 @@ namespace shared_model {
                                                 iroha::protocol::Signature> {
      public:
       template <typename SignatureType>
-      explicit Signature(SignatureType &&signature)
-          : TrivialProto(std::forward<SignatureType>(signature)) {}
+      static iroha::expected::Result<std::unique_ptr<Signature>, std::string>
+      create(SignatureType &&proto) {
+        using shared_model::crypto::Blob;
+        return Blob::fromHexString(proto.public_key()) |
+            [&](auto &&public_key) {
+              return Blob::fromHexString(proto.signature()) |
+                  [&](auto &&signature) {
+                    return std::make_unique<Signature>(
+                        std::forward<SignatureType>(proto),
+                        PublicKeyType{std::move(public_key)},
+                        SignedType{std::move(signature)});
+                  };
+            };
+      }
 
-      Signature(const Signature &o) : Signature(o.proto_) {}
+      template <typename SignatureType>
+      explicit Signature(SignatureType &&signature,
+                         PublicKeyType public_key,
+                         SignedType signed_data)
+          : TrivialProto(std::forward<SignatureType>(signature)),
+            public_key_(std::move(public_key)),
+            signed_(std::move(signed_data)) {}
 
-      Signature(Signature &&o) noexcept : Signature(std::move(o.proto_)) {}
+      Signature(const Signature &o)
+          : Signature(o.proto_, o.public_key_, o.signed_) {}
+
+      Signature(Signature &&o) noexcept
+          : Signature(std::move(o.proto_),
+                      std::move(o.public_key_),
+                      std::move(o.signed_)) {}
 
       const PublicKeyType &publicKey() const override {
         return public_key_;
@@ -35,13 +60,11 @@ namespace shared_model {
 
      private:
       interface::Signature *clone() const override {
-        return new Signature(proto_);
+        return new Signature(*this);
       }
 
-      const PublicKeyType public_key_{
-          PublicKeyType::fromHexString(proto_->public_key())};
-
-      const SignedType signed_{SignedType::fromHexString(proto_->signature())};
+      const PublicKeyType public_key_;
+      const SignedType signed_;
     };
   }  // namespace proto
 }  // namespace shared_model

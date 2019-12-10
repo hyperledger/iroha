@@ -16,10 +16,8 @@ namespace shared_model {
     class Sha3_256 {
      public:
       static Hash makeHash(const BytesView &blob) {
-        Blob::Bytes bytes;
-        bytes.resize(hash256_t::size());
-        iroha::sha3_256(bytes.data(), blob.data(), blob.size());
-        return Hash(std::make_unique<Blob>(std::move(bytes));
+        return Hash(std::make_unique<Blob>(
+            iroha::sha3_256(blob.byteRange()).getView().byteRange()));
       }
     };
   }  // namespace crypto

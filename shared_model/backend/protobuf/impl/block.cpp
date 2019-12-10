@@ -11,6 +11,10 @@
 #include "backend/protobuf/util.hpp"
 #include "common/byteutils.hpp"
 
+using iroha::expected::Result;
+using iroha::expected::ResultException;
+using shared_model::crypto::Blob;
+
 namespace shared_model {
   namespace proto {
 
@@ -23,37 +27,33 @@ namespace shared_model {
       TransportType proto_;
       iroha::protocol::Block_v1::Payload &payload_{*proto_.mutable_payload()};
 
-      std::vector<proto::Transaction> transactions_{[this] {
-        return std::vector<proto::Transaction>(
-            payload_.mutable_transactions()->begin(),
-            payload_.mutable_transactions()->end());
-      }()};
+      std::vector<std::unique_ptr<Transaction>> transactions_{
+          boost::copy_range<std::vector<std::unique_ptr<Transaction>>>(
+              *payload_.mutable_transactions()
+              | boost::adaptors::transformed([](auto &proto) {
+                  return Transaction::create(proto).assumeValue();
+                }))};
 
       interface::types::BlobType blob_{[this] { return makeBlob(proto_); }()};
 
-      interface::types::HashType prev_hash_{[this] {
-        return interface::types::HashType(
-            crypto::Hash::fromHexString(proto_.payload().prev_block_hash()));
-      }()};
+      interface::types::HashType prev_hash_{
+          Blob::fromHexString(proto_.payload().prev_block_hash())
+              .assumeValue()};
 
-      SignatureSetType<proto::Signature> signatures_{[this] {
-        auto signatures = *proto_.mutable_signatures()
-            | boost::adaptors::transformed(
-                  [](auto &x) { return proto::Signature(x); });
-        return SignatureSetType<proto::Signature>(signatures.begin(),
-                                                  signatures.end());
-      }()};
+      SignatureSetType<std::unique_ptr<Signature>> signatures_{
+          boost::copy_range<decltype(signatures_)>(
+              *proto_.mutable_signatures()
+              | boost::adaptors::transformed([](auto &proto) {
+                  return proto::Signature::create(proto).assumeValue();
+                }))};
 
       std::vector<interface::types::HashType> rejected_transactions_hashes_{
-          [this] {
-            std::vector<interface::types::HashType> hashes;
-            for (const auto &hash :
-                 *payload_.mutable_rejected_transactions_hashes()) {
-              hashes.emplace_back(
-                  shared_model::crypto::Hash::fromHexString(hash));
-            }
-            return hashes;
-          }()};
+          boost::copy_range<std::vector<interface::types::HashType>>(
+              *payload_.mutable_rejected_transactions_hashes()
+              | boost::adaptors::transformed([](const auto &hash) {
+                  return interface::types::HashType{
+                      Blob::fromHexString(hash).assumeValue()};
+                }))};
 
       interface::types::BlobType payload_blob_{
           [this] { return makeBlob(payload_); }()};
@@ -63,16 +63,29 @@ namespace shared_model {
 
     Block::Block(Block &&o) noexcept = default;
 
-    Block::Block(const TransportType &ref) {
-      impl_ = std::make_unique<Block::Impl>(ref);
+    Result<std::unique_ptr<Block>, std::string> Block::create(
+        const TransportType &ref) {
+      try {
+        return std::unique_ptr<Block>(new Block(std::make_unique<Impl>(ref)));
+      } catch (const ResultException &e) {
+        return e.what();
+      }
     }
 
-    Block::Block(TransportType &&ref) {
-      impl_ = std::make_unique<Block::Impl>(std::move(ref));
+    Result<std::unique_ptr<Block>, std::string> Block::create(
+        TransportType &&ref) {
+      try {
+        return std::unique_ptr<Block>(
+            new Block(std::make_unique<Impl>(std::move(ref))));
+      } catch (const ResultException &e) {
+        return e.what();
+      }
     }
+
+    Block::Block(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
     interface::types::TransactionsCollectionType Block::transactions() const {
-      return impl_->transactions_;
+      return impl_->transactions_ | boost::adaptors::indirected;
     }
 
     interface::types::HeightType Block::height() const {
@@ -88,7 +101,7 @@ namespace shared_model {
     }
 
     interface::types::SignatureRangeType Block::signatures() const {
-      return impl_->signatures_;
+      return impl_->signatures_ | boost::adaptors::indirected;
     }
 
     bool Block::addSignature(const crypto::Signed &signed_blob,
@@ -97,26 +110,26 @@ namespace shared_model {
       if (std::find_if(impl_->signatures_.begin(),
                        impl_->signatures_.end(),
                        [&public_key](const auto &signature) {
-                         return signature.publicKey() == public_key;
+                         return signature->publicKey() == public_key;
                        })
           != impl_->signatures_.end()) {
         return false;
       }
 
       auto sig = impl_->proto_.add_signatures();
-      sig->set_signature(signed_blob.hex());
-      sig->set_public_key(public_key.hex());
+      sig->set_signature(signed_blob.blob().hex());
+      sig->set_public_key(public_key.blob().hex());
 
-      impl_->signatures_ = [this] {
-        auto signatures = *impl_->proto_.mutable_signatures()
-            | boost::adaptors::transformed(
-                  [](auto &x) { return proto::Signature(x); });
-        return SignatureSetType<proto::Signature>(signatures.begin(),
-                                                  signatures.end());
-      }();
-      impl_->blob_ = makeBlob(impl_->proto_);
-
-      return true;
+      return Signature::create(*sig).match(
+          [this](auto &&val) {
+            impl_->signatures_.emplace(std::move(val.value));
+            impl_->blob_ = makeBlob(impl_->proto_);
+            return true;
+          },
+          [this](const auto &err) {
+            impl_->proto_.mutable_signatures()->RemoveLast();
+            return false;
+          });
     }
 
     const interface::types::HashType &Block::hash() const {
@@ -145,7 +158,7 @@ namespace shared_model {
     }
 
     Block::ModelType *Block::clone() const {
-      return new Block(impl_->proto_);
+      return new Block(std::make_unique<Impl>(impl_->proto_));
     }
 
     Block::~Block() = default;
