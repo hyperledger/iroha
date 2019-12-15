@@ -11,11 +11,10 @@ namespace shared_model {
     std::string GetAccountDetail::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetAccountDetail")
-          .append("account_id", accountId())
-          .append("key", key() ? *key() : "")
-          .append("writer", writer() ? *writer() : "")
-          .append("pagination_meta",
-                  paginationMeta() ? paginationMeta()->toString() : "(not set)")
+          .appendNamed("account_id", accountId())
+          .appendNamed("key", key())
+          .appendNamed("writer", writer())
+          .appendNamed("pagination_meta", paginationMeta())
           .finalize();
     }
 

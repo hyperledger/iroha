@@ -19,15 +19,8 @@ namespace shared_model {
      public:
       virtual types::BatchType type() const = 0;
 
-      std::string toString() const override {
-        return detail::PrettyStringBuilder()
-            .init("BatchMeta")
-            .append("Type",
-                    type() == types::BatchType::ATOMIC ? "ATOMIC" : "ORDERED")
-            .appendAll(reducedHashes(),
-                       [](auto &hash) { return hash.toString(); })
-            .finalize();
-      }
+      std::string toString() const override;
+
       /// type of hashes collection
       using ReducedHashesType = std::vector<interface::types::HashType>;
 
@@ -35,15 +28,13 @@ namespace shared_model {
        * @return Hashes of transactions to fetch
        */
       virtual const ReducedHashesType &reducedHashes() const = 0;
+
       /**
        * Checks equality of objects inside
        * @param rhs - other wrapped value
        * @return true, if wrapped objects are same
        */
-      bool operator==(const ModelType &rhs) const override {
-        return boost::equal(reducedHashes(), rhs.reducedHashes())
-            and type() == rhs.type();
-      }
+      bool operator==(const ModelType &rhs) const override;
     };
   }  // namespace interface
 }  // namespace shared_model

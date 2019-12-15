@@ -14,7 +14,7 @@ namespace shared_model {
       return detail::PrettyStringBuilder()
           .init("ErrorQueryResponse")
           .append(boost::apply_visitor(detail::ToStringVisitor(), get()))
-          .append("errorMessage", errorMessage())
+          .appendNamed("errorMessage", errorMessage())
           .finalize();
     }
 

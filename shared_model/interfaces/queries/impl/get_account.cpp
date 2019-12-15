@@ -11,7 +11,7 @@ namespace shared_model {
     std::string GetAccount::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetAccount")
-          .append("account_id", accountId())
+          .appendNamed("account_id", accountId())
           .finalize();
     }
 

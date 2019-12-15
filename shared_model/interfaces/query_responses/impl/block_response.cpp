@@ -13,7 +13,7 @@ namespace shared_model {
     std::string BlockResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("BlockResponse")
-          .append(block().toString())
+          .append(block())
           .finalize();
     }
 

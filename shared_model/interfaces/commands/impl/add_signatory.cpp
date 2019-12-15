@@ -13,8 +13,8 @@ namespace shared_model {
     std::string AddSignatory::toString() const {
       return detail::PrettyStringBuilder()
           .init("AddSignatory")
-          .append("pubkey", pubkey().toString())
-          .append("account_id", accountId())
+          .appendNamed("pubkey", pubkey())
+          .appendNamed("account_id", accountId())
           .finalize();
     }
 

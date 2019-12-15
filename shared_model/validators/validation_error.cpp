@@ -36,11 +36,10 @@ ValidationError &ValidationError::operator|=(ValidationError other) {
 std::string ValidationError::toString() const {
   auto string_builder = detail::PrettyStringBuilder().init(name);
   if (not my_errors.empty()) {
-    string_builder = string_builder.appendAllNamed("Errors", my_errors);
+    string_builder = string_builder.appendNamed("Errors", my_errors);
   }
   if (not child_errors.empty()) {
-    string_builder =
-        string_builder.appendAllNamed("Child errors", child_errors);
+    string_builder = string_builder.appendNamed("Child errors", child_errors);
   }
   return string_builder.finalize();
 }

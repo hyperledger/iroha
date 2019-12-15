@@ -11,7 +11,7 @@ namespace shared_model {
     std::string GetRolePermissions::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetRolePermissions")
-          .append("role_id", roleId())
+          .appendNamed("role_id", roleId())
           .finalize();
     }
 

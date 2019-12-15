@@ -11,8 +11,8 @@ namespace shared_model {
     std::string DetachRole::toString() const {
       return detail::PrettyStringBuilder()
           .init("DetachRole")
-          .append("role_name", roleName())
-          .append("account_id", accountId())
+          .appendNamed("role_name", roleName())
+          .appendNamed("account_id", accountId())
           .finalize();
     }
 

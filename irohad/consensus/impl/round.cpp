@@ -41,8 +41,8 @@ namespace iroha {
     std::string Round::toString() const {
       return shared_model::detail::PrettyStringBuilder()
           .init("Round")
-          .append("block", std::to_string(block_round))
-          .append("reject", std::to_string(reject_round))
+          .appendNamed("block", block_round)
+          .appendNamed("reject", reject_round)
           .finalize();
     }
   }  // namespace consensus

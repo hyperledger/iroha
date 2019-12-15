@@ -11,8 +11,8 @@ namespace shared_model {
     std::string AppendRole::toString() const {
       return detail::PrettyStringBuilder()
           .init("AppendRole")
-          .append("role_name", roleName())
-          .append("account_id", accountId())
+          .appendNamed("role_name", roleName())
+          .appendNamed("account_id", accountId())
           .finalize();
     }
 

@@ -16,10 +16,10 @@ bool TxPaginationMeta::operator==(const ModelType &rhs) const {
 std::string TxPaginationMeta::toString() const {
   auto pretty_builder = detail::PrettyStringBuilder()
                             .init("TxPaginationMeta")
-                            .append("page_size", std::to_string(pageSize()));
+                            .appendNamed("page_size", pageSize());
   auto first_tx_hash = firstTxHash();
   if (first_tx_hash) {
-    pretty_builder.append("first_tx_hash", first_tx_hash->toString());
+    pretty_builder.appendNamed("first_tx_hash", first_tx_hash);
   }
   return pretty_builder.finalize();
 }

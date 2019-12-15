@@ -13,9 +13,9 @@ namespace shared_model {
     std::string GetAccountAssetTransactions::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetAccountAssetTransactions")
-          .append("account_id", accountId())
-          .append("asset_id", assetId())
-          .append("pagination_meta", paginationMeta().toString())
+          .appendNamed("account_id", accountId())
+          .appendNamed("asset_id", assetId())
+          .appendNamed("pagination_meta", paginationMeta())
           .finalize();
     }
 

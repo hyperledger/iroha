@@ -32,9 +32,8 @@ namespace shared_model {
     std::string CreateRole::toString() const {
       return detail::PrettyStringBuilder()
           .init("CreateRole")
-          .append("role_name", roleName())
-          .appendAll(permissions::toString(rolePermissions()),
-                     [](auto p) { return p; })
+          .appendNamed("role_name", roleName())
+          .append(permissions::toString(rolePermissions()))
           .finalize();
     }
 

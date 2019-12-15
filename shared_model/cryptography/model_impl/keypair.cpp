@@ -26,8 +26,8 @@ namespace shared_model {
     std::string Keypair::toString() const {
       return detail::PrettyStringBuilder()
           .init("Keypair")
-          .append("publicKey", publicKey().toString())
-          .append("privateKey", privateKey().toString())
+          .appendNamed("publicKey", publicKey())
+          .appendNamed("privateKey", privateKey())
           .finalize();
     }
 

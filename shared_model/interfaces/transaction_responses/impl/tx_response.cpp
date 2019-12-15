@@ -45,11 +45,11 @@ namespace shared_model {
     std::string TransactionResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("TransactionResponse")
-          .append("transactionHash", transactionHash().hex())
+          .appendNamed("transactionHash", transactionHash().hex())
           .append(boost::apply_visitor(detail::ToStringVisitor(), get()))
-          .append("statelessErrorOrCmdName", statelessErrorOrCommandName())
-          .append("failedCmdIndex", std::to_string(failedCommandIndex()))
-          .append("errorCode", std::to_string(errorCode()))
+          .appendNamed("statelessErrorOrCmdName", statelessErrorOrCommandName())
+          .appendNamed("failedCmdIndex", failedCommandIndex())
+          .appendNamed("errorCode", errorCode())
           .finalize();
     }
 

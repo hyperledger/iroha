@@ -14,9 +14,9 @@ namespace shared_model {
     std::string Peer::toString() const {
       return detail::PrettyStringBuilder()
           .init("Peer")
-          .append("address", address())
-          .append("pubkey", pubkey().toString())
-          .append("tlsCertificate", bool(tlsCertificate()))
+          .appendNamed("address", address())
+          .appendNamed("pubkey", pubkey())
+          .appendNamed("tlsCertificate", bool(tlsCertificate()))
           .finalize();
     }
 

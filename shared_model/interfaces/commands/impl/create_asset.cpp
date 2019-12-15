@@ -11,9 +11,9 @@ namespace shared_model {
     std::string CreateAsset::toString() const {
       return detail::PrettyStringBuilder()
           .init("CreateAsset")
-          .append("asset_name", assetName())
-          .append("domain_id", domainId())
-          .append("precision", std::to_string(precision()))
+          .appendNamed("asset_name", assetName())
+          .appendNamed("domain_id", domainId())
+          .appendNamed("precision", precision())
           .finalize();
     }
 

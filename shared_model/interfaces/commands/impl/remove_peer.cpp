@@ -13,7 +13,7 @@ namespace shared_model {
     std::string RemovePeer::toString() const {
       return detail::PrettyStringBuilder()
           .init("RemovePeer")
-          .append(pubkey().toString())
+          .append(pubkey())
           .finalize();
     }
 

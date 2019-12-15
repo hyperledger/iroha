@@ -11,8 +11,8 @@ namespace shared_model {
     std::string SetQuorum::toString() const {
       return detail::PrettyStringBuilder()
           .init("SetQuorum")
-          .append("account_id", accountId())
-          .append("quorum", std::to_string(newQuorum()))
+          .appendNamed("account_id", accountId())
+          .appendNamed("quorum", newQuorum())
           .finalize();
     }
 
