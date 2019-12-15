@@ -37,8 +37,8 @@ namespace shared_model {
     std::string Query::toString() const {
       return detail::PrettyStringBuilder()
           .init("Query")
-          .append("creatorId", creatorAccountId())
-          .append("queryCounter", std::to_string(queryCounter()))
+          .appendNamed("creatorId", creatorAccountId())
+          .appendNamed("queryCounter", queryCounter())
           .append(Signable::toString())
           .append(boost::apply_visitor(detail::ToStringVisitor(), get()))
           .finalize();

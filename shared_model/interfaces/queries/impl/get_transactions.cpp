@@ -14,8 +14,7 @@ namespace shared_model {
     std::string GetTransactions::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetTransactions")
-          .appendAll(transactionHashes(),
-                     [](const auto &s) { return s.toString(); })
+          .append(transactionHashes())
           .finalize();
     }
 

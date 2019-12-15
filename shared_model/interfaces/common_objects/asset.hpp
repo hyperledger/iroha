@@ -40,9 +40,9 @@ namespace shared_model {
       std::string toString() const override {
         return detail::PrettyStringBuilder()
             .init("Asset")
-            .append("assetId", assetId())
-            .append("domainId", domainId())
-            .append("precision", std::to_string(precision()))
+            .appendNamed("assetId", assetId())
+            .appendNamed("domainId", domainId())
+            .appendNamed("precision", precision())
             .finalize();
       }
 

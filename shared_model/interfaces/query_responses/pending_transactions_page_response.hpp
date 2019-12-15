@@ -32,6 +32,8 @@ namespace shared_model {
           return first_tx_hash == rhs.first_tx_hash
               and batch_size == rhs.batch_size;
         }
+
+        std::string toString() const;
       };
 
       /**

@@ -14,7 +14,7 @@ namespace shared_model {
       auto builder =
           detail::PrettyStringBuilder().init("GetPendingTransactions");
       if (paginationMeta()) {
-        builder.append("pagination_meta", paginationMeta()->toString());
+        builder.appendNamed("pagination_meta", paginationMeta());
       }
       return builder.finalize();
     }

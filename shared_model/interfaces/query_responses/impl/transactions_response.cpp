@@ -13,7 +13,7 @@ namespace shared_model {
     std::string TransactionsResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("TransactionsResponse")
-          .appendAll(transactions(), [](auto &tx) { return tx.toString(); })
+          .append(transactions())
           .finalize();
     }
 

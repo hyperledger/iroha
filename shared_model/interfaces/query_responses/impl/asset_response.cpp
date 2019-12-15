@@ -12,7 +12,7 @@ namespace shared_model {
     std::string AssetResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("AssetResponse")
-          .append(asset().toString())
+          .append(asset())
           .finalize();
     }
 

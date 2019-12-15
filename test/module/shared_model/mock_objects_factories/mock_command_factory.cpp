@@ -4,6 +4,7 @@
  */
 
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
+
 #include "backend/protobuf/permissions.hpp"
 #include "utils/string_builder.hpp"
 
@@ -152,10 +153,9 @@ namespace shared_model {
                 .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("CreateRole")
-                        .append("role_name", role_id)
-                        .appendAll(shared_model::proto::permissions::toString(
-                                       role_permissions),
-                                   [](auto p) { return p; })
+                        .appendNamed("role_name", role_id)
+                        .append(shared_model::proto::permissions::toString(
+                            role_permissions))
                         .finalize()));
             return specific_cmd_mock;
           });
@@ -191,10 +191,10 @@ namespace shared_model {
                 .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("GrantPermission")
-                        .append("account_id", account_id)
-                        .append("permission",
-                                shared_model::proto::permissions::toString(
-                                    permission))
+                        .appendNamed("account_id", account_id)
+                        .appendNamed("permission",
+                                     shared_model::proto::permissions::toString(
+                                         permission))
                         .finalize()));
             return specific_cmd_mock;
           });
@@ -230,10 +230,10 @@ namespace shared_model {
                 .WillRepeatedly(Return(
                     detail::PrettyStringBuilder()
                         .init("RevokePermission")
-                        .append("account_id", account_id)
-                        .append("permission",
-                                shared_model::proto::permissions::toString(
-                                    permission))
+                        .appendNamed("account_id", account_id)
+                        .appendNamed("permission",
+                                     shared_model::proto::permissions::toString(
+                                         permission))
                         .finalize()));
             return specific_cmd_mock;
           });

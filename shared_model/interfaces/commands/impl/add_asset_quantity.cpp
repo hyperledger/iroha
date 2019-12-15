@@ -11,8 +11,8 @@ namespace shared_model {
     std::string AddAssetQuantity::toString() const {
       return detail::PrettyStringBuilder()
           .init("AddAssetQuantity")
-          .append("asset_id", assetId())
-          .append("amount", amount().toString())
+          .appendNamed("asset_id", assetId())
+          .appendNamed("amount", amount())
           .finalize();
     }
 

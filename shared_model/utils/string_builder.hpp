@@ -31,125 +31,40 @@ namespace shared_model {
        */
       PrettyStringBuilder &removeLevel();
 
+      ///  ----------  Single element undecorated append.  ----------  ///
+
+      PrettyStringBuilder &append(const std::string &o);
+
+      template <typename T>
+      auto append(const T &o) -> std::enable_if_t<
+          std::is_same<decltype(std::to_string(o)), std::string>::value,
+          PrettyStringBuilder &>;
+
+      template <typename T>
+      auto append(const T &o) -> std::enable_if_t<
+          std::is_same<typename std::decay_t<decltype(o.toString())>,
+                       std::string>::value,
+          PrettyStringBuilder &>;
+
+      /// Append pointers and optionals.
+      template <typename T>
+      auto append(const T &o) -> std::enable_if_t<not std::is_array<T>::value,
+                                                  decltype(append(*o))>;
+
+      ///  ----------     Augmented appending functions.   ----------  ///
+
+      /// Append a plain collection.
+      template <typename T>
+      auto append(const T &c) -> decltype(append(*c.begin()));
+
       /**
        * Appends new field to string as a "name=value" pair
        * @param name - field name to append
        * @param value - field value
        */
-      PrettyStringBuilder &append(const std::string &name,
-                                  const std::string &value);
-
-      /**
-       * Appends new field to string as a "name=value" pair
-       * @param name - field name to append
-       * @param value = field value (as a bool)
-       */
-      PrettyStringBuilder &append(const std::string &name, bool value);
-
-      /**
-       * Appends new single value to string
-       * @param value - value to append
-       */
-      PrettyStringBuilder &append(const std::string &value);
-
-      /**
-       * Appends a new collection to string
-       * @tparam Collection - type of collection
-       * @tparam Transform - type of transformation function
-       * @param c - collection to append
-       * @param t - transformation function
-       */
-      template <typename Collection, typename Transform>
-      PrettyStringBuilder &appendAll(Collection &&c, Transform &&t) {
-        insertLevel();
-        for (auto &val : c) {
-          append(t(val));
-        }
-        removeLevel();
-        return *this;
-      }
-
-      /**
-       * Appends a new named collection to string
-       * @tparam Collection - type of collection
-       * @tparam Transform - type of transformation function
-       * @param name - field name to append
-       * @param c - collection to append
-       * @param t - transformation function
-       */
-      template <typename Collection, typename Transform>
-      PrettyStringBuilder &appendAll(const std::string &name,
-                                     Collection &&c,
-                                     Transform &&t) {
-        result_.append(name);
-        result_.append(keyValueSeparator);
-        appendAll(c, t);
-        result_.append(singleFieldsSeparator);
-        result_.append(spaceSeparator);
-        return *this;
-      }
-
-      /**
-       * Appends a new named collection to string
-       * @param c - iterable collection to append using toString method
-       */
-      template <typename Collection>
-      std::enable_if_t<
-          std::is_same<
-              typename std::decay<decltype(
-                  std::declval<Collection>().begin()->toString())>::type,
-              std::string>::value,
-          PrettyStringBuilder &>
-      appendAll(Collection &&c) {
-        appendAll(c, [](const auto &o) { return o.toString(); });
-        return *this;
-      }
-
-      /**
-       * Appends a collection of strings
-       * @param c - iterable collection of strings to append
-       */
-      template <typename Collection>
-      auto appendAll(Collection &&c)
-          -> std::enable_if_t<std::is_same<typename std::decay<decltype(
-                                               std::string{*c.begin()})>::type,
-                                           std::string>::value,
-                              PrettyStringBuilder &> {
-        appendAll(c, [](const auto &o) { return o; });
-        return *this;
-      }
-
-      /**
-       * Appends a new named collection to string
-       * @param c - iterable collection of pointers
-       */
-      template <typename Collection>
-      std::enable_if_t<std::is_same<typename std::decay<decltype(
-                                        (*std::declval<Collection>().begin())
-                                            ->toString())>::type,
-                                    std::string>::value,
-                       PrettyStringBuilder &>
-      appendAll(Collection &&c) {
-        appendAll(c, [](const auto &o) { return o->toString(); });
-        return *this;
-      }
-
-      /**
-       * Appends a new named collection to string
-       * @tparam Collection - type of collection
-       * @param name - field name to append
-       * @param c - collection to append
-       */
-      template <typename Collection>
-      auto appendAllNamed(const std::string &name, Collection &&c)
-          -> decltype(appendAll(c)) {
-        result_.append(name);
-        result_.append(keyValueSeparator);
-        appendAll(c);
-        result_.append(singleFieldsSeparator);
-        result_.append(spaceSeparator);
-        return *this;
-      }
+      template <typename Value>
+      PrettyStringBuilder &appendNamed(const std::string &name,
+                                       const Value &value);
 
       /**
        * Finalizes appending and returns constructed string.
@@ -158,7 +73,10 @@ namespace shared_model {
       std::string finalize();
 
      private:
+      void appendPartial(const std::string &);
+      void setElementBoundary();
       std::string result_;
+      bool need_field_separator_;
       static const std::string beginBlockMarker;
       static const std::string endBlockMarker;
       static const std::string keyValueSeparator;
@@ -166,6 +84,60 @@ namespace shared_model {
       static const std::string initSeparator;
       static const std::string spaceSeparator;
     };
+
+    template <typename T>
+    auto PrettyStringBuilder::append(const T &o) -> std::enable_if_t<
+        std::is_same<decltype(std::to_string(o)), std::string>::value,
+        PrettyStringBuilder &> {
+      return append(std::to_string(o));
+    }
+
+    template <typename T>
+    auto PrettyStringBuilder::append(const T &o) -> std::enable_if_t<
+        std::is_same<typename std::decay_t<decltype(o.toString())>,
+                     std::string>::value,
+        PrettyStringBuilder &> {
+      return append(o.toString());
+    }
+
+    /// Append pointers and optionals.
+    template <typename T>
+    auto PrettyStringBuilder::append(const T &o)
+        -> std::enable_if_t<not std::is_array<T>::value, decltype(append(*o))> {
+      if (o) {
+        return append(*o);
+      } else {
+        return append("(not set)");
+      }
+    }
+
+    ///  ----------     Augmented appending functions.   ----------  ///
+
+    /// Append a plain collection.
+    template <typename T>
+    auto PrettyStringBuilder::append(const T &c)
+        -> decltype(append(*c.begin())) {
+      insertLevel();
+      for (auto &o : c) {
+        append(o);
+      }
+      removeLevel();
+      return *this;
+    }
+
+    /**
+     * Appends new field to string as a "name=value" pair
+     * @param name - field name to append
+     * @param value - field value
+     */
+    template <typename Value>
+    PrettyStringBuilder &PrettyStringBuilder::appendNamed(
+        const std::string &name, const Value &value) {
+      appendPartial(name);
+      appendPartial(keyValueSeparator);
+      return append(value);
+    }
+
   }  // namespace detail
 }  // namespace shared_model
 

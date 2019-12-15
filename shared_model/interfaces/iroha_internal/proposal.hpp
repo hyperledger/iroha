@@ -43,10 +43,8 @@ namespace shared_model {
       std::string toString() const override {
         return detail::PrettyStringBuilder()
             .init("Proposal")
-            .append("height", std::to_string(height()))
-            .append("transactions")
-            .appendAll(transactions(),
-                       [](auto &transaction) { return transaction.toString(); })
+            .appendNamed("height", height())
+            .appendNamed("transactions", transactions())
             .finalize();
       }
     };

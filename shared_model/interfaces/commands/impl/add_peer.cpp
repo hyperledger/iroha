@@ -13,7 +13,7 @@ namespace shared_model {
     std::string AddPeer::toString() const {
       return detail::PrettyStringBuilder()
           .init("AddPeer")
-          .append("peer", peer().toString())
+          .appendNamed("peer", peer())
           .finalize();
     }
 

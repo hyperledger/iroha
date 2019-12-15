@@ -11,7 +11,7 @@ namespace shared_model {
     std::string GetAssetInfo::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetAssetInfo")
-          .append("asset_id", assetId())
+          .appendNamed("asset_id", assetId())
           .finalize();
     }
 

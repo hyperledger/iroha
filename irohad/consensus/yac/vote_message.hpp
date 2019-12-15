@@ -35,8 +35,7 @@ namespace iroha {
           return shared_model::detail::PrettyStringBuilder()
               .init("VoteMessage")
               .append("yac hash", hash.toString())
-              .append("signature",
-                      signature ? signature->toString() : "not set")
+              .appendNamed("signature", signature)
               .finalize();
         }
       };

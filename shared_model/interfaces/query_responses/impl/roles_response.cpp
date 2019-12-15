@@ -12,7 +12,7 @@ namespace shared_model {
     std::string RolesResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("RolesResponse")
-          .appendAll(roles(), [](auto s) { return s; })
+          .append(roles())
           .finalize();
     }
 

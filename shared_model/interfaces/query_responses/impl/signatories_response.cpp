@@ -14,7 +14,7 @@ namespace shared_model {
     std::string SignatoriesResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("SignatoriesResponse")
-          .appendAll(keys(), [](auto &key) { return key.toString(); })
+          .append(keys())
           .finalize();
     }
 
