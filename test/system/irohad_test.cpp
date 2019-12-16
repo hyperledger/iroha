@@ -50,7 +50,6 @@ using namespace boost::filesystem;
 using namespace std::chrono_literals;
 using namespace common_constants;
 using iroha::operator|;
-using iroha::expected::resultToValue;
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
   static logger::LoggerManagerTreePtr irohad_test_logger_manager;
@@ -86,7 +85,7 @@ class IrohadTest : public AcceptanceFixture {
   void SetUp() override {
     setPaths();
     root_ca_ =
-        resultToValue(iroha::readTextFile(path_root_certificate_.string()));
+        iroha::readTextFile(path_root_certificate_.string()).assumeValue();
 
     rapidjson::Document doc;
     std::ifstream ifs_iroha(path_config_.string());
@@ -228,15 +227,15 @@ class IrohadTest : public AcceptanceFixture {
 
     auto admin_keys_result = keys_manager_admin_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(admin_keys_result);
-    auto admin_keys = resultToValue(std::move(admin_keys_result));
+    auto admin_keys = std::move(admin_keys_result).assumeValue();
 
     auto node0_keys_result = keys_manager_node_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(node0_keys_result);
-    auto node0_keys = resultToValue(std::move(node0_keys_result));
+    auto node0_keys = std::move(node0_keys_result).assumeValue();
 
     auto user_keys_result = keys_manager_testuser_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(user_keys_result);
-    auto user_keys = resultToValue(std::move(user_keys_result));
+    auto user_keys = std::move(user_keys_result).assumeValue();
 
     shared_model::interface::RolePermissionSet admin_perms{
         shared_model::interface::permissions::Role::kAddPeer,
@@ -444,7 +443,7 @@ TEST_F(IrohadTest, SendTx) {
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   SCOPED_TRACE("From send transaction test");
-  sendDefaultTxAndCheck(resultToValue(std::move(key_pair)));
+  sendDefaultTxAndCheck(std::move(key_pair).assumeValue());
 }
 
 /**
@@ -462,7 +461,7 @@ TEST_F(IrohadTest, SendTxSecure) {
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   SCOPED_TRACE("From secure send transaction test");
-  sendDefaultTxAndCheck(resultToValue(std::move(key_pair)), true);
+  sendDefaultTxAndCheck(std::move(key_pair).assumeValue(), true);
 }
 
 /**
@@ -478,7 +477,7 @@ TEST_F(IrohadTest, SendTxInsecureWithTls) {
   auto key_pair = keys_manager_admin_.loadKeys(boost::none);
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
-  auto tx = createDefaultTx(resultToValue(std::move(key_pair)));
+  auto tx = createDefaultTx(std::move(key_pair).assumeValue());
 
   auto client = createToriiClient(false, kSecurePort);
   auto response = client.Torii(tx.getTransport());
@@ -502,8 +501,8 @@ TEST_F(IrohadTest, SendQuery) {
   IROHA_ASSERT_RESULT_VALUE(key_pair);
 
   iroha::protocol::QueryResponse response;
-  auto query = complete(baseQry(kAdminId).getRoles(),
-                        resultToValue(std::move(key_pair)));
+  auto query =
+      complete(baseQry(kAdminId).getRoles(), std::move(key_pair).assumeValue());
   auto client = torii_utils::QuerySyncClient(kAddress, kPort);
   client.Find(query.getTransport(), response);
   shared_model::proto::QueryResponse resp{std::move(response)};
@@ -527,7 +526,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
 
   auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
   IROHA_ASSERT_RESULT_VALUE(key_pair_result);
-  auto key_pair = resultToValue(std::move(key_pair_result));
+  auto key_pair = std::move(key_pair_result).assumeValue();
 
   SCOPED_TRACE("From restart with --overwrite-ledger flag test");
   sendDefaultTxAndCheck(key_pair);
@@ -559,7 +558,7 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
 
   auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
   IROHA_ASSERT_RESULT_VALUE(key_pair_result);
-  auto key_pair = resultToValue(std::move(key_pair_result));
+  auto key_pair = std::move(key_pair_result).assumeValue();
 
   SCOPED_TRACE("From restart without resetting test");
   sendDefaultTxAndCheck(key_pair);

@@ -85,7 +85,7 @@ namespace iroha {
           std::terminate();
         }
 
-        pool_wrapper_ = expected::resultToValue(std::move(pool));
+        pool_wrapper_ = std::move(pool).assumeValue();
 
         StorageImpl::create(std::move(options),
                             std::move(pool_wrapper_),

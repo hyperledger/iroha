@@ -262,7 +262,7 @@ Irohad::RunResult Irohad::initStorage(
     return expected::makeError(std::move(*error));
   }
 
-  pool_wrapper_ = resultToValue(std::move(pool));
+  pool_wrapper_ = std::move(pool).assumeValue();
 
   std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
       std::make_unique<PostgresBlockStorageFactory>(

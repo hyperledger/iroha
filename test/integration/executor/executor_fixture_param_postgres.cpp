@@ -43,7 +43,7 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
   if (auto e = resultToOptionalError(db_manager_result)) {
     throw std::runtime_error(e.value());
   }
-  db_manager_ = resultToValue(std::move(db_manager_result));
+  db_manager_ = std::move(db_manager_result).assumeValue();
 
   executor_itf_target_ = createPostgresExecutorItfTarget(*db_manager_);
 }

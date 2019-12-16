@@ -15,8 +15,6 @@ using namespace shared_model::proto;
 using namespace shared_model::converters::protobuf;
 using namespace shared_model;
 
-using iroha::expected::resultToValue;
-
 /**
  * Converts json into arbitrary transaction shared model object
  * @tparam T type of shared model object converted from json

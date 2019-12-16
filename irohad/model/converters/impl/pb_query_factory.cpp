@@ -107,8 +107,8 @@ namespace iroha {
                              pb_cast.tx_hashes().end(),
                              std::back_inserter(query.tx_hashes),
                              [](auto tx_hash) {
-                               return iroha::expected::resultToValue(
-                                   iroha::hash256_t::from_hexstring(tx_hash));
+                               return iroha::hash256_t::from_hexstring(tx_hash)
+                                   .assumeValue();
                              });
               val = std::make_shared<GetTransactions>(query);
               break;
@@ -138,10 +138,10 @@ namespace iroha {
         const auto &pb_sign = pb_query.signature();
 
         Signature sign{};
-        sign.pubkey = iroha::expected::resultToValue(
-            pubkey_t::from_hexstring(pb_sign.public_key()));
-        sign.signature = iroha::expected::resultToValue(
-            sig_t::from_hexstring(pb_sign.signature()));
+        sign.pubkey =
+            pubkey_t::from_hexstring(pb_sign.public_key()).assumeValue();
+        sign.signature =
+            sig_t::from_hexstring(pb_sign.signature()).assumeValue();
 
         val->query_counter = pl.meta().query_counter();
         val->signature = sign;

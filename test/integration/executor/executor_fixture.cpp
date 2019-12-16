@@ -64,7 +64,7 @@ void ExecutorTestBase::SetUp() {
   auto executor_itf_result =
       ExecutorItf::create(getBackendParam()->getExecutorItfParam());
   IROHA_ASSERT_RESULT_VALUE(executor_itf_result);
-  executor_itf_ = resultToValue((std::move(executor_itf_result)));
+  executor_itf_ = std::move(executor_itf_result).assumeValue();
 }
 
 ExecutorItf &ExecutorTestBase::getItf() const {
