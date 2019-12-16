@@ -155,7 +155,7 @@ int main(int argc, char *argv[]) {
     log->error("Failed reading the configuration file: {}", e.value());
     return EXIT_FAILURE;
   }
-  auto config = iroha::expected::resultToValue(std::move(config_result));
+  auto config = std::move(config_result).assumeValue();
 
   if (not log_manager) {
     log_manager = config.logger_manager.value_or(getDefaultLogManager());
@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      iroha::expected::resultToValue(std::move(keypair)),
+      std::move(keypair).assumeValue(),
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
@@ -274,7 +274,7 @@ int main(int argc, char *argv[]) {
         log->error("Failed to parse genesis block: {}", e.value());
         return EXIT_FAILURE;
       }
-      auto block = iroha::expected::resultToValue(std::move(block_result));
+      auto block = std::move(block_result).assumeValue();
 
       if (not blockstore and overwrite) {
         log->warn(

@@ -19,10 +19,10 @@ namespace iroha {
       iroha::keypair_t *makeOldModel(
           const shared_model::crypto::Keypair &keypair) {
         return new iroha::keypair_t{
-            iroha::expected::resultToValue(iroha::pubkey_t::from_string(
-                toBinaryString(keypair.publicKey()))),
-            iroha::expected::resultToValue(iroha::privkey_t::from_string(
-                toBinaryString(keypair.privateKey())))};
+            iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey()))
+                .assumeValue(),
+            iroha::privkey_t::from_string(toBinaryString(keypair.privateKey()))
+                .assumeValue()};
       }
 
       Transaction TransactionGenerator::generateGenesisTransaction(
@@ -38,8 +38,8 @@ namespace iroha {
           KeysManagerImpl manager("node" + std::to_string(i),
                                   keys_manager_logger);
           manager.createKeys(boost::none);
-          auto keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
-              iroha::expected::resultToValue(manager.loadKeys(boost::none))));
+          auto keypair = *std::unique_ptr<iroha::keypair_t>(
+              makeOldModel(manager.loadKeys(boost::none).assumeValue()));
           tx.commands.push_back(command_generator.generateAddPeer(
               Peer(peers_address[i], keypair.pubkey)));
         }
@@ -60,14 +60,14 @@ namespace iroha {
         // Create accounts
         KeysManagerImpl manager("admin@test", keys_manager_logger);
         manager.createKeys(boost::none);
-        auto keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
-            iroha::expected::resultToValue(manager.loadKeys(boost::none))));
+        auto keypair = *std::unique_ptr<iroha::keypair_t>(
+            makeOldModel(manager.loadKeys(boost::none).assumeValue()));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "admin", "test", keypair.pubkey));
         manager = KeysManagerImpl("test@test", std::move(keys_manager_logger));
         manager.createKeys(boost::none);
-        keypair = *std::unique_ptr<iroha::keypair_t>(makeOldModel(
-            iroha::expected::resultToValue(manager.loadKeys(boost::none))));
+        keypair = *std::unique_ptr<iroha::keypair_t>(
+            makeOldModel(manager.loadKeys(boost::none).assumeValue()));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "test", "test", keypair.pubkey));
 

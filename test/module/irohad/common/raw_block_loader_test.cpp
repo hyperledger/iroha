@@ -35,7 +35,7 @@ TEST(BlockLoaderTest, BlockLoaderJsonParsing) {
   auto block = loader.parseBlock(str);
 
   IROHA_ASSERT_RESULT_VALUE(block);
-  auto b = iroha::expected::resultToValue(std::move(block));
+  auto b = std::move(block).assumeValue();
 
   ASSERT_EQ(b->transactions().size(), 0);
   ASSERT_EQ(b->height(), 1);
