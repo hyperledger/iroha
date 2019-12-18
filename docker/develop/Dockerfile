@@ -86,7 +86,7 @@ RUN set -e; \
     java -version
 
 RUN set -e; \
-    add-apt-repository -y ppa:jonathonf/python-3.6; \
+    add-apt-repository -y ppa:deadsnakes/ppa; \
     apt-get update; \
     apt-get -y install python3.6-dev
 
