@@ -2,7 +2,6 @@
 
 import argparse
 import asn1
-import binascii
 import datetime
 import os
 import sys
