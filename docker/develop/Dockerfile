@@ -83,7 +83,7 @@ RUN set -e; \
 # python bindings dependencies
 RUN set -e; \
     pip install grpcio_tools pysha3; \
-    pip3 install grpcio_tools pysha3 iroha==0.0.5.4 cryptography==2.8
+    pip3 install grpcio_tools pysha3 iroha==0.0.5.4 cryptography==2.8 asn1==2.2.0
 
 # install lcov
 RUN set -e; \
