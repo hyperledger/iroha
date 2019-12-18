@@ -14,7 +14,7 @@ RUN apt-get update && \
 # add repos
 RUN set -e; \
     add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
-    wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -; \
+    wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1 apt-key add -; \
     echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-6.0 main' >> /etc/apt/sources.list; \
     echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-7 main' >> /etc/apt/sources.list; \
     apt-get update
@@ -28,7 +28,7 @@ RUN set -e; \
         # Pythons
         python-pip python3-pip python3-setuptools python-dev \
         # other
-        curl file gdb gdbserver ccache \
+        curl file gdb gdbserver ccache python3.6-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
     apt-get -y clean
 
@@ -74,11 +74,6 @@ RUN set -e; \
     apt-get update; \
     apt-get -y install openjdk-8-jre; \
     java -version
-
-RUN set -e; \
-    add-apt-repository -y ppa:jonathonf/python-3.6; \
-    apt-get update; \
-    apt-get -y install python3.6-dev
 
 # python bindings dependencies
 RUN set -e; \
