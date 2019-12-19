@@ -26,14 +26,19 @@ bool PostgresBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
   auto inserted_height = block->height();
 
-  auto opt_range = getBlockHeightsRange();
-  if (opt_range and inserted_height != opt_range->max + 1) {
-    log_->warn(
-        "Only blocks with sequential heights could be inserted. "
-        "Last block height: {}, inserting: {}",
-        opt_range->max,
-        inserted_height);
-    return false;
+  if (block_height_range_) {
+    auto &current_top = block_height_range_->max;
+    if (inserted_height != current_top + 1) {
+      log_->warn(
+          "Only blocks with sequential heights could be inserted. "
+          "Last block height: {}, inserting: {}",
+          current_top,
+          inserted_height);
+      return false;
+    }
+    ++current_top;
+  } else {
+    block_height_range_ = HeightRange{inserted_height, inserted_height};
   }
 
   auto b = block->blob().hex();
@@ -98,7 +103,7 @@ PostgresBlockStorage::fetch(
 }
 
 size_t PostgresBlockStorage::size() const {
-  return (getBlockHeightsRange() |
+  return (block_height_range_ |
           [](auto range) {
             return boost::make_optional(range.max - range.min + 1);
           })
@@ -110,6 +115,7 @@ void PostgresBlockStorage::clear() {
   soci::statement st = (sql.prepare << "TRUNCATE " << table_);
   try {
     st.execute(true);
+    block_height_range_ = boost::none;
   } catch (const std::exception &e) {
     log_->warn("Failed to clear {} table, reason {}", table_, e.what());
   }
@@ -117,34 +123,12 @@ void PostgresBlockStorage::clear() {
 
 void PostgresBlockStorage::forEach(
     iroha::ametsuchi::BlockStorage::FunctionType function) const {
-  soci::session sql(*pool_wrapper_->connection_pool_);
-  getBlockHeightsRange() | [this, &function](auto range) {
+  block_height_range_ | [this, &function](auto range) {
+    soci::session sql(*pool_wrapper_->connection_pool_);
     while (range.min <= range.max) {
       function(*this->fetch(range.min));
       ++range.min;
     }
-  };
-}
-
-boost::optional<PostgresBlockStorage::HeightRange>
-PostgresBlockStorage::getBlockHeightsRange() const {
-  // TODO: IR-577 Add caching if it will gain a performance boost
-  // luckychess 29.06.2019
-  soci::session sql(*pool_wrapper_->connection_pool_);
-  using QueryTuple =
-      boost::tuple<boost::optional<size_t>, boost::optional<size_t>>;
-  QueryTuple row;
-  try {
-    sql << "SELECT MIN(height), MAX(height) FROM " << table_, soci::into(row);
-  } catch (const std::exception &e) {
-    log_->error("Failed to execute query: {}", e.what());
-    return boost::none;
-  }
-  return rebind(viewQuery<QueryTuple>(row)) | [](auto row) {
-    return iroha::ametsuchi::apply(row, [](size_t min, size_t max) {
-      assert(max >= min);
-      return boost::make_optional(HeightRange{min, max});
-    });
   };
 }
 
