@@ -44,8 +44,7 @@ namespace iroha {
         shared_model::interface::types::HeightType max;
       };
 
-      /// Get the range of stored block heights.
-      boost::optional<HeightRange> getBlockHeightsRange() const;
+      mutable boost::optional<HeightRange> block_height_range_;
 
      protected:
       std::shared_ptr<PoolWrapper> pool_wrapper_;
