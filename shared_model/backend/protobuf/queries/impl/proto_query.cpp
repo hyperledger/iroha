@@ -128,6 +128,8 @@ namespace shared_model {
 
       impl_->signatures_ =
           SignatureSetType<proto::Signature>{proto::Signature{*sig}};
+      impl_->blob_ = makeBlob(impl_->proto_);
+
       return true;
     }
 

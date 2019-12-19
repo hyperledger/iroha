@@ -44,7 +44,7 @@ namespace shared_model {
       // ------------------------------| fields |-------------------------------
       TransportType proto_;
 
-      const interface::types::BlobType blob_;
+      interface::types::BlobType blob_;
 
       const interface::types::BlobType payload_;
 
