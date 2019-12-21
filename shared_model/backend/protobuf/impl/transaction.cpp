@@ -139,6 +139,7 @@ namespace shared_model {
         return SignatureSetType<proto::Signature>(signatures.begin(),
                                                   signatures.end());
       }();
+      impl_->blob_ = makeBlob(*impl_->proto_);
 
       return true;
     }
