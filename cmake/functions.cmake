@@ -25,7 +25,7 @@ function(addtest test_name SOURCES)
     set(test_xml_output --gtest_output=xml:${REPORT_DIR}/xunit-${test_name}.xml)
   endif ()
   add_executable(${test_name} ${SOURCES})
-  target_link_libraries(${test_name} gtest::main gmock::main)
+  target_link_libraries(${test_name} GTest::gtest_main GTest::gmock_main)
   target_include_directories(${test_name} PUBLIC ${PROJECT_SOURCE_DIR}/test)
 
   # fetch directory after test in source dir call
@@ -63,18 +63,12 @@ endfunction()
 function(compile_proto_to_cpp PROTO)
   string(REGEX REPLACE "\\.proto$" ".pb.h" GEN_PB_HEADER ${PROTO})
   string(REGEX REPLACE "\\.proto$" ".pb.cc" GEN_PB ${PROTO})
-  if (MSVC OR VCPKG_TOOLCHAIN)
-    set(GEN_COMMAND "${Protobuf_PROTOC_EXECUTABLE}")
-    set(GEN_ARGS ${Protobuf_INCLUDE_DIR})
-  else()
-    set(GEN_COMMAND ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${protobuf_LIBRARY_DIR}:$ENV{LD_LIBRARY_PATH} "${protoc_EXECUTABLE}")
-    set(GEN_ARGS ${protobuf_INCLUDE_DIR})
-  endif()
+  get_target_property(Protobuf_INCLUDE_DIR protobuf::libprotobuf
+    INTERFACE_INCLUDE_DIRECTORIES)
   add_custom_command(
       OUTPUT ${SCHEMA_OUT_DIR}/${GEN_PB_HEADER} ${SCHEMA_OUT_DIR}/${GEN_PB}
-      COMMAND ${GEN_COMMAND}
-      ARGS -I${GEN_ARGS} -I${CMAKE_CURRENT_SOURCE_DIR} ${ARGN} --cpp_out=${SCHEMA_OUT_DIR} ${PROTO}
-      DEPENDS protoc ${SCHEMA_PATH}/${PROTO}
+      COMMAND protobuf::protoc -I${Protobuf_INCLUDE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR} ${ARGN} --cpp_out=${SCHEMA_OUT_DIR} ${PROTO}
+      DEPENDS protobuf::protoc ${SCHEMA_PATH}/${PROTO}
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       )
 endfunction()
@@ -88,20 +82,12 @@ function(compile_proto_only_grpc_to_cpp PROTO)
     string(REGEX REPLACE "\\.proto$" "_mock.grpc.pb.h" GEN_GRPC_PB_MOCK_HEADER ${PROTO})
     set(TEST_OUTPUT ${SCHEMA_OUT_DIR}/${GEN_GRPC_PB_MOCK_HEADER})
   endif(TESTING)
-  if (MSVC OR VCPKG_TOOLCHAIN)
-    set(GEN_COMMAND "${Protobuf_PROTOC_EXECUTABLE}")
-    set(GEN_ARGS ${Protobuf_INCLUDE_DIR})
-    set(GEN_PLUGIN "${gRPC_CPP_PLUGIN_EXECUTABLE}")
-  else()
-    set(GEN_COMMAND ${CMAKE_COMMAND} -E env LD_LIBRARY_PATH=${protobuf_LIBRARY_DIR}:$ENV{LD_LIBRARY_PATH} "${protoc_EXECUTABLE}")
-    set(GEN_ARGS ${protobuf_INCLUDE_DIR})
-    set(GEN_PLUGIN "${grpc_CPP_PLUGIN}")
-  endif()
+  get_target_property(Protobuf_INCLUDE_DIR protobuf::libprotobuf
+    INTERFACE_INCLUDE_DIRECTORIES)
   add_custom_command(
       OUTPUT ${SCHEMA_OUT_DIR}/${GEN_GRPC_PB_HEADER} ${SCHEMA_OUT_DIR}/${GEN_GRPC_PB} ${TEST_OUTPUT}
-      COMMAND ${GEN_COMMAND}
-      ARGS -I${GEN_ARGS} -I${CMAKE_CURRENT_SOURCE_DIR} ${ARGN} --grpc_out=${GENERATE_MOCKS}${SCHEMA_OUT_DIR} --plugin=protoc-gen-grpc=${GEN_PLUGIN} ${PROTO}
-      DEPENDS grpc_cpp_plugin ${SCHEMA_PATH}/${PROTO}
+      COMMAND protobuf::protoc -I${Protobuf_INCLUDE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR} ${ARGN} --grpc_out=${GENERATE_MOCKS}${SCHEMA_OUT_DIR} --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin> ${PROTO}
+      DEPENDS gRPC::grpc_cpp_plugin ${SCHEMA_PATH}/${PROTO}
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       )
 endfunction()
@@ -157,7 +143,6 @@ macro(get_git_revision commit)
 endmacro()
 
 macro(append_build_flags)
-  string(REPLACE ";" " " SPACE_ARGS "${ARGN}")
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SPACE_ARGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SPACE_ARGS}")
+  add_compile_options(${ARGN})
+  add_link_options(${ARGN})
 endmacro()

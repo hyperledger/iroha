@@ -15,7 +15,7 @@ add_library(common INTERFACE
   # visitor.hpp
   )
 target_link_libraries(common INTERFACE
-  boost
+  Boost::boost
   )
 
 add_library(libs_files
@@ -24,6 +24,7 @@ add_library(libs_files
 target_link_libraries(libs_files
   logger
   common
+  Boost::filesystem
   )
 
 add_library(libs_timeout INTERFACE

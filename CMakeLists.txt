@@ -1,7 +1,7 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.11.4)
+cmake_minimum_required(VERSION 3.14.0)
 
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -113,7 +113,6 @@ option(PACKAGE_TGZ           "Create TGZ package"                       OFF)
 option(PACKAGE_RPM           "Create RPM package"                       OFF)
 option(PACKAGE_DEB           "Create DEB package"                       OFF)
 option(ENABLE_LIBS_PACKAGING "Enable libs packaging"                    ON)
-option(USE_LIBIROHA          "Use external model library"               OFF)
 option(USE_LIBURSA           "Use Hyperledger Ursa cryptography"        OFF)
 option(SANITIZE_THREAD       "Build with thread sanitizer"              OFF)
 option(SANITIZE_ADDRESS      "Build with address sanitizer"             OFF)
@@ -160,14 +159,10 @@ set(IROHA_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/schema")
 set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")
 set(SCHEMA_OUT_DIR ${CMAKE_BINARY_DIR}/schema)
 include_directories(
+  ${PROJECT_SOURCE_DIR}/shared_model
   ${PROJECT_SOURCE_DIR}/irohad
   ${PROJECT_SOURCE_DIR}/libs
 )
-
-# fallback to local shared_model
-if (NOT USE_LIBIROHA)
-  include_directories(${PROJECT_SOURCE_DIR}/shared_model)
-endif()
 
 SET(IROHA_ROOT_PROJECT ON)
 
@@ -188,11 +183,7 @@ add_subdirectory(schema)
 add_subdirectory(libs)
 add_subdirectory(irohad)
 add_subdirectory(iroha-cli)
-
-# fallback to local shared_model
-if (NOT USE_LIBIROHA)
-  add_subdirectory(shared_model)
-endif()
+add_subdirectory(shared_model)
 
 if(TESTING)
   enable_testing()

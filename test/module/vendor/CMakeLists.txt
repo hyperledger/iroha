@@ -10,5 +10,5 @@ target_link_libraries(rxcpp_subject_usage
 
 addtest(tbb_test tbb_test.cpp)
 target_link_libraries(tbb_test
-    tbb
+    TBB::tbb
     )

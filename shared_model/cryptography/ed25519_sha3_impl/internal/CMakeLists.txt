@@ -8,8 +8,8 @@ add_library(hash
         )
 
 target_link_libraries(hash
-        ed25519
-        boost
+        iroha::ed25519
+        common
         )
 
 add_library(ed25519_crypto

@@ -12,7 +12,7 @@ add_library(json_model_converters
     )
 target_link_libraries(json_model_converters
     model
-    rapidjson
+    RapidJSON::rapidjson
     schema
     ed25519_crypto
     common
@@ -31,6 +31,6 @@ target_link_libraries(pb_model_converters
     schema
     ed25519_crypto
     common
-    boost
+    Boost::boost
     logger
     )

@@ -22,7 +22,7 @@ add_library(schema
     ${SCHEMA_OUT_DIR}/endpoint.pb.cc)
 
 target_link_libraries(schema
-    protobuf
+    protobuf::libprotobuf
     )
 target_include_directories(schema PUBLIC
     ${SCHEMA_OUT_DIR}

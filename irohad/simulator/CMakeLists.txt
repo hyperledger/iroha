@@ -20,12 +20,12 @@ add_library(verified_proposal_creator_common
     verified_proposal_creator_common.cpp
     )
 target_link_libraries(verified_proposal_creator_common
-    boost
+    Boost::boost
     )
 
 add_library(block_creator_common
     block_creator_common.cpp
     )
 target_link_libraries(block_creator_common
-    boost
+    Boost::boost
     )

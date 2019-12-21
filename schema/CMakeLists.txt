@@ -14,7 +14,7 @@ add_library(endpoint
     endpoint.grpc.pb.cc
     )
 target_link_libraries(endpoint
-    grpc++
+    gRPC::grpc++
     schema
     )
 
@@ -23,8 +23,8 @@ add_library(yac_grpc
     yac.grpc.pb.cc
     )
 target_link_libraries(yac_grpc
-    protobuf
-    grpc++
+    protobuf::libprotobuf
+    gRPC::grpc++
     )
 
 add_library(ordering_grpc
@@ -33,7 +33,7 @@ add_library(ordering_grpc
     )
 target_link_libraries(ordering_grpc
     schema
-    grpc++
+    gRPC::grpc++
     )
 
 add_library(loader_grpc
@@ -42,7 +42,7 @@ add_library(loader_grpc
     )
 target_link_libraries(loader_grpc
     schema
-    grpc++
+    gRPC::grpc++
     )
 
 add_library(mst_grpc
@@ -51,5 +51,5 @@ add_library(mst_grpc
     )
 target_link_libraries(mst_grpc
     schema
-    grpc++
+    gRPC::grpc++
     )

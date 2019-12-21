@@ -10,8 +10,8 @@ add_library(server_runner
     )
 target_link_libraries(server_runner
     logger
-    grpc++
-    boost
+    gRPC::grpc++
+    Boost::boost
     common
     )
 
@@ -81,7 +81,7 @@ target_link_libraries(irohad
     application
     raw_block_loader
     gflags
-    rapidjson
+    RapidJSON::rapidjson
     keys_manager
     common
     iroha_conf_loader
@@ -96,7 +96,7 @@ target_link_libraries(iroha_conf_loader
     iroha_conf_literals
     logger_manager
     libs_files
-    rapidjson
+    RapidJSON::rapidjson
     )
 
 add_library(iroha_conf_literals iroha_conf_literals.cpp)

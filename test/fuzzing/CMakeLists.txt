@@ -15,8 +15,8 @@ add_executable(torii_fuzz torii_fuzz.cpp)
 target_link_libraries(torii_fuzz
   protobuf-mutator
   rxcpp
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   ametsuchi
   torii_service
   ${fuzzing_engine}
@@ -26,8 +26,8 @@ add_executable(status_fuzz status_fuzz.cpp)
 target_link_libraries(status_fuzz
   protobuf-mutator
   rxcpp
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   ametsuchi
   torii_service
   ${fuzzing_engine}
@@ -37,8 +37,8 @@ add_executable(find_fuzz find_fuzz.cpp)
 target_link_libraries(find_fuzz
   protobuf-mutator
   rxcpp
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   ametsuchi
   torii_service
   ${fuzzing_engine}
@@ -47,8 +47,8 @@ target_link_libraries(find_fuzz
 add_executable(send_batches_fuzz send_batches_fuzz.cpp)
 target_link_libraries(send_batches_fuzz
   protobuf-mutator
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   ametsuchi
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
@@ -60,8 +60,8 @@ target_link_libraries(request_proposal_fuzz
   protobuf-mutator
   ametsuchi
   rxcpp
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
   ${fuzzing_engine}
@@ -70,8 +70,8 @@ target_link_libraries(request_proposal_fuzz
 add_executable(retrieve_block_fuzz retrieve_block_fuzz.cpp)
 target_link_libraries(retrieve_block_fuzz
   protobuf-mutator
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   block_loader_service
   shared_model_default_builders
   ${fuzzing_engine}
@@ -80,8 +80,8 @@ target_link_libraries(retrieve_block_fuzz
 add_executable(retrieve_blocks_fuzz retrieve_blocks_fuzz.cpp)
 target_link_libraries(retrieve_blocks_fuzz
   protobuf-mutator
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   block_loader_service
   shared_model_default_builders
   ${fuzzing_engine}
@@ -90,8 +90,8 @@ target_link_libraries(retrieve_blocks_fuzz
 add_executable(consensus_fuzz consensus_fuzz.cpp)
 target_link_libraries(consensus_fuzz
   protobuf-mutator
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   yac_transport
   yac
   test_logger
@@ -101,8 +101,8 @@ target_link_libraries(consensus_fuzz
 add_executable(mst_fuzz mst_fuzz.cpp)
 target_link_libraries(mst_fuzz
   protobuf-mutator
-  gtest::gtest
-  gmock::gmock
+  GTest::gtest
+  GTest::gmock
   mst_transport
   ametsuchi
   ${fuzzing_engine}
