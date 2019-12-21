@@ -96,8 +96,14 @@ namespace iroha {
                 soci::use(public_key.hex(), "public_key"));
       });
 
-      return getPeersFromSociRowSet(result) | [](auto &&peers) {
-        return boost::make_optional(std::move(peers.front()));
+      return getPeersFromSociRowSet(result) | [](auto &&peers)
+                 -> boost::optional<
+                     std::shared_ptr<shared_model::interface::Peer>> {
+        if (!peers.empty()) {
+          assert(peers.size() == 1);
+          return boost::make_optional(std::move(peers.front()));
+        }
+        return boost::none;
       };
     }
   }  // namespace ametsuchi

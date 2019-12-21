@@ -113,3 +113,10 @@ if (IROHA_ROOT_PROJECT)
       shared_model_stateless_validation
       )
 endif()
+
+addtest(shared_proto_add_signature_test
+    shared_proto_add_signature_test.cpp
+    )
+target_link_libraries(shared_proto_add_signature_test
+    shared_model_proto_backend
+    )

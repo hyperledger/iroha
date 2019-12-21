@@ -22,7 +22,7 @@ RUN set -e; \
 RUN set -e; \
     apt-get -y --no-install-recommends install libtool \
         # compilers (gcc-7, gcc-9, clang-6)
-        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-9 \
+        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-9 ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # Pythons

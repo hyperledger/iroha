@@ -58,6 +58,8 @@ namespace shared_model {
       sig->set_public_key(public_key.hex());
       // TODO: nickaleks IR-120 12.12.2018 remove set
       signatures_.emplace(*proto_.mutable_signature());
+      blob_ = makeBlob(proto_);
+
       return true;
     }
 

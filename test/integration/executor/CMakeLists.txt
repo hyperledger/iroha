@@ -62,6 +62,13 @@ target_link_libraries(create_account_test
     executor_fixture_param_provider
     )
 
+addtest(create_role_test create_role_test.cpp)
+target_link_libraries(create_role_test
+    command_permission_test
+    executor_fixture
+    executor_fixture_param_provider
+    )
+
 addtest(get_account_assets_test get_account_assets_test.cpp)
 target_link_libraries(get_account_assets_test
     executor_fixture
@@ -118,4 +125,12 @@ target_link_libraries(get_signatories_test
     executor_fixture_param_provider
     common_test_constants
     query_permission_test
+    )
+
+addtest(remove_signatory_test remove_signatory_test.cpp)
+target_link_libraries(remove_signatory_test
+    command_permission_test
+    common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
     )

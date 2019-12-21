@@ -37,12 +37,6 @@ target_link_libraries(create_domain_test
     integration_framework
     )
 
-addtest(create_role_test create_role_test.cpp)
-target_link_libraries(create_role_test
-    acceptance_fixture
-    integration_framework
-    )
-
 addtest(get_transactions_test get_transactions_test.cpp)
 target_link_libraries(get_transactions_test
     acceptance_fixture
@@ -130,14 +124,6 @@ query_permission_test_base.cpp;\
 query_permission_test_txs.cpp"
     )
 target_link_libraries(query_permissions_common_test
-    acceptance_fixture
-    integration_framework
-    )
-
-addtest(remove_signatory_test
-    remove_signatory_test.cpp
-    )
-target_link_libraries(remove_signatory_test
     acceptance_fixture
     integration_framework
     )
