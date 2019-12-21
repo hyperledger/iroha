@@ -16,7 +16,7 @@ add_library(on_demand_ordering_service
 
 target_link_libraries(on_demand_ordering_service
     on_demand_common
-    tbb
+    TBB::tbb
     mst_hash
     mst_state
     shared_model_interfaces
@@ -47,7 +47,7 @@ target_link_libraries(on_demand_connection_manager
     shared_model_interfaces
     consensus_round
     rxcpp
-    boost
+    Boost::boost
     logger
     )
 
@@ -60,7 +60,7 @@ target_link_libraries(on_demand_ordering_gate
     on_demand_common
     consensus_round
     rxcpp
-    boost
+    Boost::boost
     logger
     common
     )

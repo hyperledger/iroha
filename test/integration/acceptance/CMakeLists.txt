@@ -5,8 +5,8 @@
 
 add_library(acceptance_fixture acceptance_fixture.cpp)
 target_link_libraries(acceptance_fixture
-    gtest::gtest
-    gmock::gmock
+    GTest::gtest
+    GTest::gmock
     common_test_constants
     shared_model_default_builders
     )

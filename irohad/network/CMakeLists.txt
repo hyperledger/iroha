@@ -38,15 +38,17 @@ add_library(ordering_gate_common
     ordering_gate_common.cpp
     )
 target_link_libraries(ordering_gate_common
-    boost
+    Boost::boost
     )
 
 add_library(grpc_generic_client_factory
     impl/generic_client_factory.cpp
     )
 target_link_libraries(grpc_generic_client_factory
+    PRIVATE
+    common
     PUBLIC
-    grpc++
+    gRPC::grpc++
     )
 
 add_library(grpc_channel_pool
@@ -59,7 +61,7 @@ target_link_libraries(grpc_channel_pool
     grpc_channel_factory
     shared_model_interfaces
     PUBLIC
-    grpc++
+    gRPC::grpc++
     )
 
 add_library(grpc_channel_factory
@@ -67,7 +69,7 @@ add_library(grpc_channel_factory
     )
 target_link_libraries(grpc_channel_factory
     PUBLIC
-    grpc++
+    gRPC::grpc++
     )
 
 add_library(tls_credentials
@@ -89,7 +91,7 @@ target_link_libraries(peer_tls_certificates_providers
 add_library(grpc_channel_factory_tls impl/channel_factory_tls.cpp)
 target_link_libraries(grpc_channel_factory_tls
     grpc_channel_factory
-    grpc++
+    gRPC::grpc++
     logger
     peer_tls_certificates_providers
     shared_model_interfaces

@@ -3,13 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-
 add_library(keys_manager
     keys_manager_impl.cpp
     )
 
 target_link_libraries(keys_manager
-    boost
+    Boost::boost
+    Boost::filesystem
     shared_model_cryptography
     logger
     )

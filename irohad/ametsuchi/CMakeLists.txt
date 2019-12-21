@@ -33,7 +33,8 @@ target_link_libraries(flat_file_storage
     libs_files
     shared_model_proto_backend
     logger
-    boost
+    Boost::boost
+    Boost::filesystem
     )
 
 add_library(postgres_storage

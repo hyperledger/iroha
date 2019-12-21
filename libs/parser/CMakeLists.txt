@@ -5,6 +5,6 @@
 
 add_library(parser parser.cpp)
 
-target_link_libraries( parser
-    boost
+target_link_libraries(parser
+    Boost::boost
     )

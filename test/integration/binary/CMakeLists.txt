@@ -10,7 +10,7 @@ add_executable(binary_test
     binaries_test.cpp
     )
 target_link_libraries(binary_test
-    gtest::main
+    GTest::gtest_main
     integration_framework
     shared_model_cryptography
     )

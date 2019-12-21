@@ -18,7 +18,7 @@ add_library(shared_model_stateless_validation
         )
 
 target_link_libraries(shared_model_stateless_validation
-        fmt
+        fmt::fmt
         schema
         shared_model_interfaces
         )

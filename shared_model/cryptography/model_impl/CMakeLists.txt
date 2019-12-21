@@ -15,6 +15,6 @@ add_library(shared_model_cryptography_model
 
 target_link_libraries(shared_model_cryptography_model
     shared_model_utils
-    boost
+    Boost::boost
     common
     )
