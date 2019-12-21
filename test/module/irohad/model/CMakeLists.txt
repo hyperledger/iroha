@@ -28,11 +28,6 @@ target_link_libraries(block_converter_test
     sha3_hash
     )
 
-addtest(query_responses_test converters/pb_query_responses_test.cpp)
-target_link_libraries(query_responses_test
-    pb_model_converters
-    )
-
 addtest(model_operators_test operators/model_operators_test.cpp)
 target_link_libraries(model_operators_test
     model

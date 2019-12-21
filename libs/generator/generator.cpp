@@ -5,6 +5,9 @@
 
 #include "generator/generator.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+
 namespace generator {
 
   std::string randomString(size_t len) {

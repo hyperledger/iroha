@@ -6,19 +6,9 @@
 #ifndef IROHA_GENERATOR_HPP
 #define IROHA_GENERATOR_HPP
 
-#include <algorithm>
-
-#include "common/blob.hpp"
+#include <string>
 
 namespace generator {
-
-  template <size_t size_>
-  iroha::blob_t<size_> random_blob(size_t seed) {
-    iroha::blob_t<size_> v;
-    srand(seed);
-    std::generate_n(v.begin(), size_, [] { return rand() % 256; });
-    return v;
-  }
 
   /**
    * Generates new random string from lower-case letters
