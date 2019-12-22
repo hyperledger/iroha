@@ -6,10 +6,11 @@
 #ifndef IROHA_PROTO_BLOCK_FACTORY_HPP
 #define IROHA_PROTO_BLOCK_FACTORY_HPP
 
+#include "interfaces/iroha_internal/unsafe_block_factory.hpp"
+
 #include "backend/protobuf/transaction.hpp"
 #include "block.pb.h"
 #include "common/result.hpp"
-#include "interfaces/iroha_internal/unsafe_block_factory.hpp"
 #include "validators/abstract_validator.hpp"
 
 namespace shared_model {

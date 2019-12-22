@@ -7,7 +7,7 @@
 
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/transaction.hpp"
-#include "validators/answer.hpp"
+#include "validators/validation_error_helpers.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -22,8 +22,8 @@ namespace shared_model {
         const types::SharedTxsCollectionType &transactions) const {
       std::unique_ptr<TransactionBatch> batch_ptr =
           std::make_unique<TransactionBatchImpl>(transactions);
-      if (auto answer = batch_validator_->validate(*batch_ptr)) {
-        return iroha::expected::makeError(answer.reason());
+      if (auto error = batch_validator_->validate(*batch_ptr)) {
+        return iroha::expected::makeError(error->toString());
       }
       return iroha::expected::makeValue(std::move(batch_ptr));
     }

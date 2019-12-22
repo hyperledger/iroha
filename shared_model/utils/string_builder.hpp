@@ -106,6 +106,20 @@ namespace shared_model {
       }
 
       /**
+       * Appends a collection of strings
+       * @param c - iterable collection of strings to append
+       */
+      template <typename Collection>
+      auto appendAll(Collection &&c)
+          -> std::enable_if_t<std::is_same<typename std::decay<decltype(
+                                               std::string{*c.begin()})>::type,
+                                           std::string>::value,
+                              PrettyStringBuilder &> {
+        appendAll(c, [](const auto &o) { return o; });
+        return *this;
+      }
+
+      /**
        * Appends a new named collection to string
        * @param c - iterable collection of pointers
        */
@@ -117,6 +131,23 @@ namespace shared_model {
                        PrettyStringBuilder &>
       appendAll(Collection &&c) {
         appendAll(c, [](const auto &o) { return o->toString(); });
+        return *this;
+      }
+
+      /**
+       * Appends a new named collection to string
+       * @tparam Collection - type of collection
+       * @param name - field name to append
+       * @param c - collection to append
+       */
+      template <typename Collection>
+      auto appendAllNamed(const std::string &name, Collection &&c)
+          -> decltype(appendAll(c)) {
+        result_.append(name);
+        result_.append(keyValueSeparator);
+        appendAll(c);
+        result_.append(singleFieldsSeparator);
+        result_.append(spaceSeparator);
         return *this;
       }
 

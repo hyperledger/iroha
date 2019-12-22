@@ -57,6 +57,7 @@
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 #include "torii/status_bus.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_proposal_validator.hpp"
 
 using namespace shared_model::crypto;
@@ -183,7 +184,7 @@ namespace integration_framework {
         batch_parser_(std::make_shared<
                       shared_model::interface::TransactionBatchParserImpl>()),
         batch_validator_(
-            std::make_shared<shared_model::validation::BatchValidator>(
+            std::make_shared<shared_model::validation::DefaultBatchValidator>(
                 iroha::test::kTestsValidatorsConfig)),
         transaction_batch_factory_(
             std::make_shared<

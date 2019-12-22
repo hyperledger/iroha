@@ -18,6 +18,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
 using namespace testing;
@@ -54,7 +55,7 @@ namespace fuzzing {
       std::shared_ptr<shared_model::validation::AbstractValidator<
           shared_model::interface::TransactionBatch>>
           batch_validator =
-              std::make_shared<shared_model::validation::BatchValidator>(
+              std::make_shared<shared_model::validation::DefaultBatchValidator>(
                   iroha::test::kTestsValidatorsConfig);
       auto batch_factory = std::make_shared<
           shared_model::interface::TransactionBatchFactoryImpl>(

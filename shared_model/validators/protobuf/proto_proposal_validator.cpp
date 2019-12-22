@@ -4,6 +4,11 @@
  */
 #include "validators/protobuf/proto_proposal_validator.hpp"
 
+#include <fmt/core.h>
+#include <boost/range/adaptor/indexed.hpp>
+#include "proposal.pb.h"
+#include "validators/validation_error_helpers.hpp"
+
 namespace shared_model {
   namespace validation {
 
@@ -11,23 +16,21 @@ namespace shared_model {
         ProtoValidatorType transaction_validator)
         : transaction_validator_(std::move(transaction_validator)) {}
 
-    Answer ProtoProposalValidator::validate(
+    boost::optional<ValidationError> ProtoProposalValidator::validate(
         const iroha::protocol::Proposal &proposal) const {
-      Answer answer;
-      std::string tx_reason_name = "Protobuf Proposal";
-      ReasonsGroupType reason{tx_reason_name, GroupedReasons()};
+      ValidationErrorCreator error_creator;
 
-      for (const auto &tx : proposal.transactions()) {
-        if (auto tx_answer = transaction_validator_->validate(tx)) {
-          reason.second.emplace_back(tx_answer.reason());
-        }
+      for (const auto &tx :
+           proposal.transactions() | boost::adaptors::indexed(1)) {
+        ValidationErrorCreator tx_error_creator;
+        tx_error_creator |= transaction_validator_->validate(tx.value());
+        error_creator |=
+            std::move(tx_error_creator)
+                .getValidationErrorWithGeneratedName(
+                    [&] { return fmt::format("Transaction #{}", tx.index()); });
       }
 
-      if (not reason.second.empty()) {
-        answer.addReason(std::move(reason));
-      }
-
-      return answer;
+      return std::move(error_creator).getValidationError("Protobuf Proposal");
     }
 
   }  // namespace validation

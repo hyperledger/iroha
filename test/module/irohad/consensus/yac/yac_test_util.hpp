@@ -26,7 +26,7 @@ namespace iroha {
         EXPECT_CALL(*peer, pubkey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
                 shared_model::interface::types::PubkeyType(
-                    padPubKeyString(address))));
+                    framework::padPubKeyString(address))));
         EXPECT_CALL(*peer, tlsCertificate())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
                 boost::optional<
@@ -38,7 +38,7 @@ namespace iroha {
       inline VoteMessage createVote(YacHash hash, const std::string &pub_key) {
         VoteMessage vote;
 
-        std::string padded_pub_key = padPubKeyString(pub_key);
+        std::string padded_pub_key = framework::padPubKeyString(pub_key);
         auto block_signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*block_signature, publicKey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(

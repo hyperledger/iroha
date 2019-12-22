@@ -18,12 +18,11 @@ namespace shared_model {
     // classes
 
     struct AlwaysValidValidator {
-      AlwaysValidValidator(
-          std::shared_ptr<shared_model::validation::ValidatorsConfig>) {}
+      AlwaysValidValidator(std::shared_ptr<ValidatorsConfig>) {}
 
       template <typename T>
-      Answer validate(const T &) const {
-        return {};
+      boost::optional<ValidationError> validate(const T &) const {
+        return boost::none;
       }
     };
 
@@ -31,9 +30,9 @@ namespace shared_model {
     class MockValidator : public AbstractValidator<T> {
      public:
       MockValidator() = default;
-      MockValidator(
-          std::shared_ptr<shared_model::validation::ValidatorsConfig>){};
-      MOCK_CONST_METHOD1_T(validate, Answer(const T &));
+      MockValidator(std::shared_ptr<ValidatorsConfig>){};
+      MOCK_CONST_METHOD1_T(validate,
+                           boost::optional<ValidationError>(const T &));
     };
 
   }  // namespace validation

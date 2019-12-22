@@ -75,10 +75,8 @@ namespace shared_model {
 
       FactoryResult<std::unique_ptr<interface::Proposal>> validate(
           std::unique_ptr<Proposal> proposal) {
-        auto errors = validator_.validate(*proposal);
-
-        if (errors) {
-          return iroha::expected::makeError(errors.reason());
+        if (auto error = validator_.validate(*proposal)) {
+          return iroha::expected::makeError(error->toString());
         }
 
         return iroha::expected::makeValue<std::unique_ptr<interface::Proposal>>(

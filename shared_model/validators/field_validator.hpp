@@ -12,18 +12,23 @@
 #include "interfaces/base/signable.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
-#include "validators/answer.hpp"
+#include "validators/validation_error.hpp"
 #include "validators/validators_common.hpp"
 
 namespace shared_model {
 
   namespace interface {
-    class Amount;
-    class BatchMeta;
-    class Peer;
-    class AssetPaginationMeta;
-    class TxPaginationMeta;
+    class Account;
+    class AccountAsset;
     class AccountDetailPaginationMeta;
+    class AccountDetailRecordId;
+    class Amount;
+    class Asset;
+    class AssetPaginationMeta;
+    class BatchMeta;
+    class Domain;
+    class Peer;
+    class TxPaginationMeta;
   }  // namespace interface
 
   namespace validation {
@@ -43,31 +48,28 @@ namespace shared_model {
                        return iroha::time::now();
                      });
 
-      void validateAccountId(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountId(
           const interface::types::AccountIdType &account_id) const;
 
-      void validateAssetId(ReasonsGroupType &reason,
-                           const interface::types::AssetIdType &asset_id) const;
+      boost::optional<ValidationError> validateAssetId(
+          const interface::types::AssetIdType &asset_id) const;
 
-      void validatePeer(ReasonsGroupType &reason,
-                        const interface::Peer &peer) const;
+      boost::optional<ValidationError> validatePeer(
+          const interface::Peer &peer) const;
 
-      void validateAmount(ReasonsGroupType &reason,
-                          const interface::Amount &amount) const;
+      boost::optional<ValidationError> validateAmount(
+          const interface::Amount &amount) const;
 
-      void validatePubkey(ReasonsGroupType &reason,
-                          const interface::types::PubkeyType &pubkey) const;
+      boost::optional<ValidationError> validatePubkey(
+          const interface::types::PubkeyType &pubkey) const;
 
-      void validatePeerAddress(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validatePeerAddress(
           const interface::types::AddressType &address) const;
 
-      void validateRoleId(ReasonsGroupType &reason,
-                          const interface::types::RoleIdType &role_id) const;
+      boost::optional<ValidationError> validateRoleId(
+          const interface::types::RoleIdType &role_id) const;
 
-      void validateAccountName(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountName(
           const interface::types::AccountNameType &account_name) const;
 
       // clang-format off
@@ -92,117 +94,100 @@ namespace shared_model {
        * If the validation is not successful reason is updated with corresponding message
        */
       // clang-format on
-      void validateDomainId(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateDomainId(
           const interface::types::DomainIdType &domain_id) const;
 
-      void validateAssetName(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateDomain(
+          const interface::Domain &domain) const;
+
+      boost::optional<ValidationError> validateAssetName(
           const interface::types::AssetNameType &asset_name) const;
 
-      void validateAccountDetailKey(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountDetailKey(
           const interface::types::AccountDetailKeyType &key) const;
 
-      void validateAccountDetailValue(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountDetailValue(
           const interface::types::AccountDetailValueType &value) const;
 
-      void validateOldAccountDetailValue(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateOldAccountDetailValue(
           const boost::optional<interface::types::AccountDetailValueType>
               &old_value) const;
 
-      void validatePrecision(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validatePrecision(
           const interface::types::PrecisionType &precision) const;
 
-      void validateRolePermission(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateRolePermission(
           const interface::permissions::Role &permission) const;
 
-      void validateGrantablePermission(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateGrantablePermission(
           const interface::permissions::Grantable &permission) const;
 
-      void validateQuorum(ReasonsGroupType &reason,
-                          const interface::types::QuorumType &quorum) const;
+      boost::optional<ValidationError> validateQuorum(
+          const interface::types::QuorumType &quorum) const;
 
-      void validateCreatorAccountId(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateCreatorAccountId(
           const interface::types::AccountIdType &account_id) const;
+
+      boost::optional<ValidationError> validateAccount(
+          const interface::Account &account) const;
 
       /**
        * Validate timestamp against now
        */
-      void validateCreatedTime(ReasonsGroupType &reason,
-                               interface::types::TimestampType timestamp,
-                               interface::types::TimestampType now) const;
+      boost::optional<ValidationError> validateCreatedTime(
+          interface::types::TimestampType timestamp,
+          interface::types::TimestampType now) const;
 
       /**
        * Validate timestamp against time_provider_
        */
-      void validateCreatedTime(ReasonsGroupType &reason,
-                               interface::types::TimestampType timestamp) const;
+      boost::optional<ValidationError> validateCreatedTime(
+          interface::types::TimestampType timestamp) const;
 
-      void validateCounter(ReasonsGroupType &reason,
-                           const interface::types::CounterType &counter) const;
+      boost::optional<ValidationError> validateCounter(
+          const interface::types::CounterType &counter) const;
 
-      void validateSignatures(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateSignatureForm(
+          const interface::Signature &signature) const;
+
+      boost::optional<ValidationError> validateSignatures(
           const interface::types::SignatureRangeType &signatures,
           const crypto::Blob &source) const;
 
-      void validateQueryPayloadMeta(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateQueryPayloadMeta(
           const interface::QueryPayloadMeta &meta) const;
 
-      void validateDescription(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateDescription(
           const interface::types::DescriptionType &description) const;
 
-      void validateBatchMeta(ReasonsGroupType &reason,
-                             const interface::BatchMeta &description) const;
+      boost::optional<ValidationError> validateBatchMeta(
+          const interface::BatchMeta &description) const;
 
-      void validateHeight(ReasonsGroupType &reason,
-                          const interface::types::HeightType &height) const;
+      boost::optional<ValidationError> validateHeight(
+          const interface::types::HeightType &height) const;
 
-      void validateHash(ReasonsGroupType &reason,
-                        const crypto::Hash &hash) const;
+      boost::optional<ValidationError> validateHash(
+          const crypto::Hash &hash) const;
 
-      void validateTxPaginationMeta(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateTxPaginationMeta(
           const interface::TxPaginationMeta &tx_pagination_meta) const;
 
-      void validateAssetPaginationMeta(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountAsset(
+          const interface::AccountAsset &account_asset) const;
+
+      boost::optional<ValidationError> validateAsset(
+          const interface::Asset &asset) const;
+
+      boost::optional<ValidationError> validateAssetPaginationMeta(
           const interface::AssetPaginationMeta &asset_pagination_meta) const;
 
-      void validateAccountDetailPaginationMeta(
-          ReasonsGroupType &reason,
+      boost::optional<ValidationError> validateAccountDetailRecordId(
+          const interface::AccountDetailRecordId &record_id) const;
+
+      boost::optional<ValidationError> validateAccountDetailPaginationMeta(
           const interface::AccountDetailPaginationMeta &pagination_meta) const;
 
      private:
-      const static std::string account_name_pattern_;
-      const static std::string asset_name_pattern_;
-      const static std::string domain_pattern_;
-      const static std::string ip_v4_pattern_;
-      const static std::string peer_address_pattern_;
-      const static std::string account_id_pattern_;
-      const static std::string asset_id_pattern_;
-      const static std::string detail_key_pattern_;
-      const static std::string role_id_pattern_;
-
-      const static std::regex account_name_regex_;
-      const static std::regex asset_name_regex_;
-      const static std::regex domain_regex_;
-      const static std::regex ip_v4_regex_;
-      const static std::regex peer_address_regex_;
-      const static std::regex account_id_regex_;
-      const static std::regex asset_id_regex_;
-      const static std::regex detail_key_regex_;
-      const static std::regex role_id_regex_;
-
       // gap for future transactions
       time_t future_gap_;
       // time provider callback
@@ -224,7 +209,7 @@ namespace shared_model {
       size_t max_description_size;
     };
 
-    boost::optional<ConcreteReasonType> validatePubkey(
+    boost::optional<ValidationError> validatePubkey(
         const interface::types::PubkeyType &pubkey);
 
   }  // namespace validation

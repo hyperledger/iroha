@@ -17,6 +17,7 @@
 
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
+#include "framework/stateless_valid_field_helpers.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "logger/logger_manager.hpp"
@@ -47,11 +48,10 @@ auto mk_local_peer(uint64_t num) {
 class FixedCryptoProvider : public MockYacCryptoProvider {
  public:
   explicit FixedCryptoProvider(const std::string &public_key) {
-    std::string key(
-        shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, 0);
-    std::copy(public_key.begin(), public_key.end(), key.begin());
-    pubkey = clone(shared_model::crypto::PublicKey(key));
-    data = std::make_unique<shared_model::crypto::Signed>("");
+    pubkey = clone(shared_model::crypto::PublicKey{
+        framework::padPubKeyString(public_key)});
+    data = std::make_unique<shared_model::crypto::Signed>(
+        framework::padSignatureString("signed_data"));
   }
 
   VoteMessage getVote(YacHash hash) override {

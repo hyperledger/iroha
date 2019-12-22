@@ -504,7 +504,7 @@ Irohad::RunResult Irohad::initFactories() {
                                           std::move(proto_proposal_validator));
 
   auto batch_validator =
-      std::make_shared<shared_model::validation::BatchValidator>(
+      std::make_shared<shared_model::validation::DefaultBatchValidator>(
           validators_config_);
   // transaction factories
   transaction_batch_factory_ =

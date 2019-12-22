@@ -6,9 +6,10 @@
 #ifndef IROHA_SHARED_MODEL_TRANSACTION_VALIDATOR_HPP
 #define IROHA_SHARED_MODEL_TRANSACTION_VALIDATOR_HPP
 
-#include <boost/format.hpp>
+#include <boost/range/adaptor/indexed.hpp>
 #include <boost/variant.hpp>
 
+#include "common/bind.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
@@ -31,7 +32,7 @@
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/transaction.hpp"
 #include "validators/abstract_validator.hpp"
-#include "validators/answer.hpp"
+#include "validators/validation_error_helpers.hpp"
 
 namespace shared_model {
   namespace validation {
@@ -44,239 +45,212 @@ namespace shared_model {
      */
     template <typename FieldValidator>
     class CommandValidatorVisitor
-        : public boost::static_visitor<ReasonsGroupType> {
+        : public boost::static_visitor<boost::optional<ValidationError>> {
       CommandValidatorVisitor(FieldValidator validator)
           : validator_(std::move(validator)) {}
 
      public:
-      CommandValidatorVisitor(const CommandValidatorVisitor &) = delete;
-      CommandValidatorVisitor &operator=(const CommandValidatorVisitor &) =
-          delete;
-
       CommandValidatorVisitor(std::shared_ptr<ValidatorsConfig> config)
           : CommandValidatorVisitor(FieldValidator{std::move(config)}) {}
 
-      ReasonsGroupType operator()(
-          const interface::AddAssetQuantity &aaq) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "AddAssetQuantity");
-
-        validator_.validateAssetId(reason, aaq.assetId());
-        validator_.validateAmount(reason, aaq.amount());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::AddAssetQuantity &add_asset_quantity) const {
+        return aggregateErrors(
+            "AddAssetQuantity",
+            {},
+            {validator_.validateAssetId(add_asset_quantity.assetId()),
+             validator_.validateAmount(add_asset_quantity.amount())});
       }
 
-      ReasonsGroupType operator()(const interface::AddPeer &ap) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "AddPeer");
-
-        validator_.validatePeer(reason, ap.peer());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::AddPeer &add_peer) const {
+        return aggregateErrors(
+            "AddPeer", {}, {validator_.validatePeer(add_peer.peer())});
       }
 
-      ReasonsGroupType operator()(const interface::AddSignatory &as) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "AddSignatory");
-
-        validator_.validateAccountId(reason, as.accountId());
-        validator_.validatePubkey(reason, as.pubkey());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::AddSignatory &add_signatory) const {
+        return aggregateErrors(
+            "AddSignatory",
+            {},
+            {validator_.validateAccountId(add_signatory.accountId()),
+             validator_.validatePubkey(add_signatory.pubkey())});
       }
 
-      ReasonsGroupType operator()(const interface::AppendRole &ar) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "AppendRole");
-
-        validator_.validateAccountId(reason, ar.accountId());
-        validator_.validateRoleId(reason, ar.roleName());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::AppendRole &append_role) const {
+        return aggregateErrors(
+            "AppendRole",
+            {},
+            {validator_.validateAccountId(append_role.accountId()),
+             validator_.validateRoleId(append_role.roleName())});
       }
 
-      ReasonsGroupType operator()(const interface::CreateAccount &ca) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "CreateAccount");
-
-        validator_.validatePubkey(reason, ca.pubkey());
-        validator_.validateAccountName(reason, ca.accountName());
-        validator_.validateDomainId(reason, ca.domainId());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::CreateAccount &create_account) const {
+        return aggregateErrors(
+            "CreateAccount",
+            {},
+            {validator_.validatePubkey(create_account.pubkey()),
+             validator_.validateAccountName(create_account.accountName()),
+             validator_.validateDomainId(create_account.domainId())});
       }
 
-      ReasonsGroupType operator()(const interface::CreateAsset &ca) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "CreateAsset");
-
-        validator_.validateAssetName(reason, ca.assetName());
-        validator_.validateDomainId(reason, ca.domainId());
-        validator_.validatePrecision(reason, ca.precision());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::CreateAsset &create_asset) const {
+        return aggregateErrors(
+            "CreateAsset",
+            {},
+            {validator_.validateAssetName(create_asset.assetName()),
+             validator_.validateDomainId(create_asset.domainId()),
+             validator_.validatePrecision(create_asset.precision())});
       }
 
-      ReasonsGroupType operator()(const interface::CreateDomain &cd) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "CreateDomain");
-
-        validator_.validateDomainId(reason, cd.domainId());
-        validator_.validateRoleId(reason, cd.userDefaultRole());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::CreateDomain &create_domain) const {
+        return aggregateErrors(
+            "CreateDomain",
+            {},
+            {validator_.validateDomainId(create_domain.domainId()),
+             validator_.validateRoleId(create_domain.userDefaultRole())});
       }
 
-      ReasonsGroupType operator()(const interface::CreateRole &cr) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "CreateRole");
+      boost::optional<ValidationError> operator()(
+          const interface::CreateRole &create_role) const {
+        ValidationErrorCreator error_creator;
+        error_creator |= validator_.validateRoleId(create_role.roleName());
 
-        validator_.validateRoleId(reason, cr.roleName());
-        cr.rolePermissions().iterate([&reason, this](auto i) {
-          validator_.validateRolePermission(reason, i);
+        create_role.rolePermissions().iterate([&error_creator, this](auto i) {
+          error_creator |= validator_.validateRolePermission(i);
         });
-
-        return reason;
+        return std::move(error_creator).getValidationError("CreateRole");
       }
 
-      ReasonsGroupType operator()(const interface::DetachRole &dr) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "DetachRole");
-
-        validator_.validateAccountId(reason, dr.accountId());
-        validator_.validateRoleId(reason, dr.roleName());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::DetachRole &detach_role) const {
+        return aggregateErrors(
+            "DetachRole",
+            {},
+            {validator_.validateAccountId(detach_role.accountId()),
+             validator_.validateRoleId(detach_role.roleName())});
       }
 
-      ReasonsGroupType operator()(const interface::GrantPermission &gp) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "GrantPermission");
-
-        validator_.validateAccountId(reason, gp.accountId());
-        validator_.validateGrantablePermission(reason, gp.permissionName());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GrantPermission &grant_permission) const {
+        return aggregateErrors(
+            "GrantPermission",
+            {},
+            {validator_.validateAccountId(grant_permission.accountId()),
+             validator_.validateGrantablePermission(
+                 grant_permission.permissionName())});
       }
 
-      ReasonsGroupType operator()(const interface::RemovePeer &rp) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "RemovePeer");
-
-        validator_.validatePubkey(reason, rp.pubkey());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::RemovePeer &remove_peer) const {
+        return aggregateErrors(
+            "RemovePeer",
+            {},
+            {validator_.validatePubkey(remove_peer.pubkey())});
       }
 
-      ReasonsGroupType operator()(const interface::RemoveSignatory &rs) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "RemoveSignatory");
-
-        validator_.validateAccountId(reason, rs.accountId());
-        validator_.validatePubkey(reason, rs.pubkey());
-
-        return reason;
-      }
-      ReasonsGroupType operator()(const interface::RevokePermission &rp) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "RevokePermission");
-
-        validator_.validateAccountId(reason, rp.accountId());
-        validator_.validateGrantablePermission(reason, rp.permissionName());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::RemoveSignatory &remove_signatory) const {
+        return aggregateErrors(
+            "RemoveSignatory",
+            {},
+            {validator_.validateAccountId(remove_signatory.accountId()),
+             validator_.validatePubkey(remove_signatory.pubkey())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::SetAccountDetail &sad) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "SetAccountDetail");
-
-        validator_.validateAccountId(reason, sad.accountId());
-        validator_.validateAccountDetailKey(reason, sad.key());
-        validator_.validateAccountDetailValue(reason, sad.value());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::RevokePermission &revoke_permission) const {
+        return aggregateErrors(
+            "RevokePermission",
+            {},
+            {validator_.validateAccountId(revoke_permission.accountId()),
+             validator_.validateGrantablePermission(
+                 revoke_permission.permissionName())});
       }
 
-      ReasonsGroupType operator()(const interface::SetQuorum &sq) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "SetQuorum");
-
-        validator_.validateAccountId(reason, sq.accountId());
-        validator_.validateQuorum(reason, sq.newQuorum());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::SetAccountDetail &set_account_detail) const {
+        return aggregateErrors(
+            "SetAccountDetail",
+            {},
+            {validator_.validateAccountId(set_account_detail.accountId()),
+             validator_.validateAccountDetailKey(set_account_detail.key()),
+             validator_.validateAccountDetailValue(
+                 set_account_detail.value())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::SubtractAssetQuantity &saq) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "SubtractAssetQuantity");
-
-        validator_.validateAssetId(reason, saq.assetId());
-        validator_.validateAmount(reason, saq.amount());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::SetQuorum &set_quorum) const {
+        return aggregateErrors(
+            "SetQuorum",
+            {},
+            {validator_.validateAccountId(set_quorum.accountId()),
+             validator_.validateQuorum(set_quorum.newQuorum())});
       }
 
-      ReasonsGroupType operator()(const interface::TransferAsset &ta) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "TransferAsset");
-
-        if (ta.srcAccountId() == ta.destAccountId()) {
-          reason.second.emplace_back(
-              "Source and destination accounts cannot be the same");
-        }
-
-        validator_.validateAccountId(reason, ta.srcAccountId());
-        validator_.validateAccountId(reason, ta.destAccountId());
-        validator_.validateAssetId(reason, ta.assetId());
-        validator_.validateAmount(reason, ta.amount());
-        validator_.validateDescription(reason, ta.description());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::SubtractAssetQuantity &subtract_asset_quantity)
+          const {
+        return aggregateErrors(
+            "SubtractAssetQuantity",
+            {},
+            {validator_.validateAssetId(subtract_asset_quantity.assetId()),
+             validator_.validateAmount(subtract_asset_quantity.amount())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::CompareAndSetAccountDetail &casad) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "CompareAndSetAccountDetail");
+      boost::optional<ValidationError> operator()(
+          const interface::TransferAsset &transfer_asset) const {
+        return aggregateErrors(
+            "TransferAsset",
+            {[&]() -> boost::optional<std::string> {
+              if (transfer_asset.srcAccountId()
+                  == transfer_asset.destAccountId()) {
+                return std::string{
+                    "Source and destination accounts are the same."};
+              }
+              return boost::none;
+            }()},
+            {validator_.validateAccountId(transfer_asset.srcAccountId()),
+             validator_.validateAccountId(transfer_asset.destAccountId()),
+             validator_.validateAssetId(transfer_asset.assetId()),
+             validator_.validateAmount(transfer_asset.amount()),
+             validator_.validateDescription(transfer_asset.description())});
+      }
 
+      boost::optional<ValidationError> operator()(
+          const interface::CompareAndSetAccountDetail
+              &compare_and_set_account_detail) const {
         using iroha::operator|;
-
-        validator_.validateAccountId(reason, casad.accountId());
-        validator_.validateAccountDetailKey(reason, casad.key());
-        validator_.validateAccountDetailValue(reason, casad.value());
-        casad.oldValue() | [&reason, this](const auto &oldValue) {
-          this->validator_.validateOldAccountDetailValue(reason, oldValue);
-        };
-        return reason;
+        return aggregateErrors(
+            "CompareAndSetAccountDetail",
+            {},
+            {validator_.validateAccountId(
+                 compare_and_set_account_detail.accountId()),
+             validator_.validateAccountDetailKey(
+                 compare_and_set_account_detail.key()),
+             validator_.validateAccountDetailValue(
+                 compare_and_set_account_detail.value()),
+             compare_and_set_account_detail.oldValue() |
+                 [this](
+                     const auto &oldValue) -> boost::optional<ValidationError> {
+               return this->validator_.validateOldAccountDetailValue(oldValue);
+             }});
       }
 
-      ReasonsGroupType operator()(const interface::SetSettingValue &ssv) const {
-        ReasonsGroupType reason;
-        addInvalidCommand(reason, "SetSettingValue");
-
-        reason.second.emplace_back(
-            "The command can only be called from genesis block");
-        // genesis block is not required to pass stateless validation
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::SetSettingValue &set_setting_value) const {
+        // genesis block does not undergo stateless validation
+        return ValidationError(
+            "SetSettingValue",
+            {"The command can only be called from genesis block"});
       }
 
      private:
       FieldValidator validator_;
-      mutable int command_counter{0};
-
-      // adds command to a reason, appends and increments counter
-      void addInvalidCommand(ReasonsGroupType &reason,
-                             const std::string &command_name) const {
-        reason.first =
-            (boost::format("%d %s") % command_counter % command_name).str();
-        command_counter++;
-      }
     };
 
     /**
@@ -289,58 +263,54 @@ namespace shared_model {
         : public AbstractValidator<interface::Transaction> {
      private:
       template <typename CreatedTimeValidator>
-      Answer validateImpl(const interface::Transaction &tx,
-                          CreatedTimeValidator &&validator) const {
-        Answer answer;
-        std::string tx_reason_name = "Transaction";
-        ReasonsGroupType tx_reason(tx_reason_name, GroupedReasons());
+      boost::optional<ValidationError> validateImpl(
+          const interface::Transaction &tx,
+          CreatedTimeValidator &&validator) const {
+        using iroha::operator|;
+
+        ValidationErrorCreator error_creator;
 
         if (tx.commands().empty()) {
-          tx_reason.second.push_back(
-              "Transaction should contain at least one command");
+          error_creator.addReason(
+              "Transaction must contain at least one command.");
         }
 
-        field_validator_.validateCreatorAccountId(tx_reason,
-                                                  tx.creatorAccountId());
-        std::forward<CreatedTimeValidator>(validator)(tx_reason,
-                                                      tx.createdTime());
-        field_validator_.validateQuorum(tx_reason, tx.quorum());
-        if (tx.batchMeta() != boost::none)
-          field_validator_.validateBatchMeta(tx_reason, **tx.batchMeta());
+        error_creator |=
+            field_validator_.validateCreatorAccountId(tx.creatorAccountId());
+        error_creator |=
+            std::forward<CreatedTimeValidator>(validator)(tx.createdTime());
+        error_creator |= field_validator_.validateQuorum(tx.quorum());
+        error_creator |= tx.batchMeta() | [this](const auto &batch_meta) {
+          return field_validator_.validateBatchMeta(*batch_meta);
+        };
 
-        if (not tx_reason.second.empty()) {
-          answer.addReason(std::move(tx_reason));
+        for (const auto &cmd : tx.commands() | boost::adaptors::indexed(1)) {
+          boost::apply_visitor(command_validator_visitor_, cmd.value().get()) |
+              [&cmd, &error_creator](auto error) {
+                error_creator.addChildError(ValidationError{
+                    std::string{"Command #"} + std::to_string(cmd.index()),
+                    {},
+                    {error}});
+              };
         }
 
-        for (const auto &command : tx.commands()) {
-          auto reason = boost::apply_visitor(
-              CommandValidator(validators_config_), command.get());
-          if (not reason.second.empty()) {
-            answer.addReason(std::move(reason));
-          }
-        }
-
-        return answer;
+        return std::move(error_creator).getValidationError("Transaction");
       }
-
-      explicit TransactionValidator(const FieldValidator &field_validator)
-          : field_validator_(field_validator) {}
 
      public:
       explicit TransactionValidator(
           const std::shared_ptr<ValidatorsConfig> &config)
-          : TransactionValidator(FieldValidator{config}) {
-        validators_config_ = config;
-      }
+          : field_validator_(config), command_validator_visitor_(config) {}
 
       /**
        * Applies validation to given transaction
        * @param tx - transaction to validate
-       * @return Answer containing found error if any
+       * @return found error if any
        */
-      Answer validate(const interface::Transaction &tx) const override {
-        return validateImpl(tx, [this](auto &reason, auto time) {
-          field_validator_.validateCreatedTime(reason, time);
+      boost::optional<ValidationError> validate(
+          const interface::Transaction &tx) const override {
+        return validateImpl(tx, [this](auto time) {
+          return field_validator_.validateCreatedTime(time);
         });
       }
 
@@ -348,18 +318,17 @@ namespace shared_model {
        * Validates transaction against current_timestamp instead of time
        * provider
        */
-      Answer validate(const interface::Transaction &tx,
-                      interface::types::TimestampType current_timestamp) const {
-        return validateImpl(tx,
-                            [this, current_timestamp](auto &reason, auto time) {
-                              field_validator_.validateCreatedTime(
-                                  reason, time, current_timestamp);
-                            });
+      boost::optional<ValidationError> validate(
+          const interface::Transaction &tx,
+          interface::types::TimestampType current_timestamp) const {
+        return validateImpl(tx, [this, current_timestamp](auto time) {
+          return field_validator_.validateCreatedTime(time, current_timestamp);
+        });
       }
 
      protected:
       FieldValidator field_validator_;
-      std::shared_ptr<ValidatorsConfig> validators_config_;
+      CommandValidator command_validator_visitor_;
     };
 
   }  // namespace validation
