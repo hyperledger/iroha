@@ -96,7 +96,7 @@ Similarly, run postgres server, attaching it to the network you have created bef
     -e POSTGRES_PASSWORD=mysecretpassword \
     -p 5432:5432 \
     --network=iroha-network \
-    -d postgres:9.5
+    -d postgres:12.1
 
 Create volume for block storage
 """""""""""""""""""""""""""""""

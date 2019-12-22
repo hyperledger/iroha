@@ -75,7 +75,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         docker network create ${env.IROHA_NETWORK}
         docker run -td -e POSTGRES_USER=${env.IROHA_POSTGRES_USER} \
            -e POSTGRES_PASSWORD=${env.IROHA_POSTGRES_PASSWORD} --name ${env.IROHA_POSTGRES_HOST} \
-           --network=${env.IROHA_NETWORK} postgres:9.5 -c 'max_prepared_transactions=100'
+           --network=${env.IROHA_NETWORK} postgres:12.1 -c 'max_prepared_transactions=100'
       fi
     """
     referenceBranchOrCommit = 'master'

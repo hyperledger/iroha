@@ -323,5 +323,5 @@ Alternatively, you can run the following command in the ``build`` folder
     -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=mysecretpassword \
     -p 5432:5432 \
-    -d postgres:9.5 \
+    -d postgres:12.1 \
     -c 'max_prepared_transactions=100'

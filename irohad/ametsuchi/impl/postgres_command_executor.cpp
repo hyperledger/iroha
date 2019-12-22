@@ -543,7 +543,7 @@ namespace iroha {
           SELECT CASE
               %s
               WHEN EXISTS (SELECT * FROM inserted LIMIT 1) THEN 0
-              ELSE (SELECT code FROM checks WHERE not result LIMIT 1)
+              ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result;)",
           {(boost::format(R"(has_perm AS (%s),)")
             % checkAccountDomainRoleOrGlobalRolePermission(
@@ -1300,7 +1300,7 @@ namespace iroha {
           SELECT CASE
               WHEN EXISTS (SELECT * FROM insert_dest LIMIT 1) THEN 0
               %s
-              ELSE (SELECT code FROM checks WHERE not result LIMIT 1)
+              ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result)",
           {(boost::format(R"(
               has_role_perm AS (%s),

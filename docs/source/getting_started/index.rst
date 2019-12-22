@@ -53,7 +53,7 @@ you have created before, and expose ports for communication:
   -e POSTGRES_PASSWORD=mysecretpassword \
   -p 5432:5432 \
   --network=iroha-network \
-  -d postgres:9.5 \
+  -d postgres:12.1 \
   -c 'max_prepared_transactions=100'
 
 .. note:: If you already have Postgres running on a host system on default port (5432),

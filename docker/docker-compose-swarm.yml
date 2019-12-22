@@ -10,7 +10,7 @@ services:
     tty: true
 
   postgres:
-    image: postgres:9.5
+    image: postgres:12.1
     environment:
       - POSTGRES_USER=iroha
       - IROHA_POSTGRES_PASSWORD=helloworld

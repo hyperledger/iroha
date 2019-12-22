@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 PG_CONTAINER_NAME="postgres"
-PG_IMAGE_NAME="postgres:9.5"
+PG_IMAGE_NAME="postgres:12.1"
 PG_CONTAINER_DATA="/var/lib/postgresql/data"
 PG_USER="iroha"
 PG_PASS="mysecretpassword"
