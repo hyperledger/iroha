@@ -6,8 +6,10 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 
 #include <gmock/gmock-matchers.h>
+#include <boost/optional/optional_io.hpp>
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "queries.pb.h"
+#include "validators/validation_error_output.hpp"
 
 using testing::HasSubstr;
 
@@ -27,9 +29,9 @@ TEST_F(ProtoQueryValidatorTest, UnsetQuery) {
   qry.mutable_payload()->mutable_meta()->set_creator_account_id(account_id);
   qry.mutable_payload()->mutable_meta()->set_query_counter(counter);
 
-  auto answer = validator.validate(qry);
-  ASSERT_TRUE(answer.hasErrors());
-  ASSERT_THAT(answer.reason(), HasSubstr("undefined"));
+  auto error = validator.validate(qry);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), HasSubstr("undefined"));
 }
 
 /**
@@ -41,8 +43,7 @@ TEST_F(ProtoQueryValidatorTest, SetQuery) {
   iroha::protocol::Query qry;
   qry.mutable_payload()->mutable_get_account()->set_account_id(account_id);
 
-  auto answer = validator.validate(qry);
-  ASSERT_FALSE(answer.hasErrors());
+  ASSERT_EQ(validator.validate(qry), boost::none);
 }
 
 iroha::protocol::Query generateGetAccountAssetTransactionsQuery(
@@ -75,9 +76,8 @@ class ValidProtoPaginationQueryValidatorTest
       public ::testing::WithParamInterface<iroha::protocol::Query> {};
 
 TEST_P(ValidProtoPaginationQueryValidatorTest, ValidPaginationQuery) {
-  auto answer = validator.validate(GetParam());
-  ASSERT_FALSE(answer.hasErrors()) << GetParam().DebugString() << std::endl
-                                   << answer.reason();
+  ASSERT_EQ(validator.validate(GetParam()), boost::none)
+      << GetParam().DebugString();
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -93,8 +93,7 @@ class InvalidProtoPaginationQueryTest
       public ::testing::WithParamInterface<iroha::protocol::Query> {};
 
 TEST_P(InvalidProtoPaginationQueryTest, InvalidPaginationQuery) {
-  auto answer = validator.validate(GetParam());
-  ASSERT_TRUE(answer.hasErrors()) << GetParam().DebugString();
+  ASSERT_TRUE(validator.validate(GetParam())) << GetParam().DebugString();
 }
 
 INSTANTIATE_TEST_CASE_P(

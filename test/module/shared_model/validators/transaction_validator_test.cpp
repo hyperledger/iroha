@@ -8,10 +8,12 @@
 #include <type_traits>
 
 #include <gtest/gtest.h>
+#include <boost/optional/optional_io.hpp>
 #include <boost/range/irange.hpp>
 #include "builders/protobuf/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "validators/validation_error_output.hpp"
 
 using namespace shared_model;
 
@@ -50,8 +52,11 @@ TEST_F(TransactionValidatorTest, EmptyTransactionTest) {
   tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
       created_time);
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto answer = transaction_validator.validate(result);
-  ASSERT_EQ(answer.getReasonsMap().size(), 1);
+  auto error = transaction_validator.validate(result);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(
+      error->my_errors,
+      ::testing::ElementsAre("Transaction must contain at least one command."));
 }
 
 /**
@@ -88,9 +93,7 @@ TEST_F(TransactionValidatorTest, StatelessValidTest) {
       [] {});
 
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto answer = transaction_validator.validate(result);
-
-  ASSERT_FALSE(answer.hasErrors()) << answer.reason();
+  ASSERT_EQ(transaction_validator.validate(result), boost::none);
 }
 
 /**
@@ -104,9 +107,9 @@ TEST_F(TransactionValidatorTest, UnsetCommand) {
       account_id);
   tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
       created_time);
-  auto answer = transaction_validator.validate(proto::Transaction(tx));
+  auto error = transaction_validator.validate(proto::Transaction(tx));
   tx.mutable_payload()->mutable_reduced_payload()->add_commands();
-  ASSERT_TRUE(answer.hasErrors());
+  ASSERT_TRUE(error);
 }
 
 /**
@@ -138,11 +141,12 @@ TEST_F(TransactionValidatorTest, StatelessInvalidTest) {
       [] {});
 
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto answer = transaction_validator.validate(result);
+  auto error = transaction_validator.validate(result);
+  ASSERT_TRUE(error);
 
   // in total there should be number_of_commands + 1 reasons of bad answer:
   // number_of_commands for each command + 1 for transaction metadata
-  ASSERT_EQ(answer.getReasonsMap().size() + getCountIgnoredFields(),
+  EXPECT_EQ(error->child_errors.size() + getCountIgnoredFields(),
             iroha::protocol::Command::descriptor()->field_count() + 1);
 }
 /**
@@ -165,9 +169,8 @@ TEST_F(TransactionValidatorTest, BatchValidTest) {
   shared_model::validation::DefaultUnsignedTransactionValidator
       transaction_validator(iroha::test::kTestsValidatorsConfig);
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  auto answer = transaction_validator.validate(result);
 
-  ASSERT_FALSE(answer.hasErrors()) << answer.reason();
+  ASSERT_EQ(transaction_validator.validate(result), boost::none);
   ASSERT_EQ(tx.payload().batch().type(),
             static_cast<int>(interface::types::BatchType::ATOMIC));
 }

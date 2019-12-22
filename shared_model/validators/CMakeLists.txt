@@ -4,6 +4,8 @@
 add_library(shared_model_stateless_validation
         field_validator.cpp
         validators_common.cpp
+        validation_error.cpp
+        validation_error_helpers.cpp
         transactions_collection/transactions_collection_validator.cpp
         transactions_collection/batch_order_validator.cpp
         protobuf/proto_block_validator.cpp
@@ -16,6 +18,7 @@ add_library(shared_model_stateless_validation
         )
 
 target_link_libraries(shared_model_stateless_validation
+        fmt
         schema
         shared_model_interfaces
         )

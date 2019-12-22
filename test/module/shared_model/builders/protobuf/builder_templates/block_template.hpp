@@ -124,10 +124,8 @@ namespace shared_model {
         block_.mutable_payload()->set_tx_number(tx_number);
 
         auto result = Block(iroha::protocol::Block_v1(block_));
-        auto answer = stateless_validator_.validate(result);
-
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
+        if (auto error = stateless_validator_.validate(result)) {
+          throw std::invalid_argument(error->toString());
         }
         return BT(std::move(result));
       }

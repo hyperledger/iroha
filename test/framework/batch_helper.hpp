@@ -14,6 +14,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "validators/default_validator.hpp"
 
 namespace framework {
   namespace batch {
@@ -216,7 +217,7 @@ namespace framework {
       }
 
       auto batch_validator =
-          std::make_shared<shared_model::validation::BatchValidator>(
+          std::make_shared<shared_model::validation::DefaultBatchValidator>(
               iroha::test::kTestsValidatorsConfig);
       std::shared_ptr<shared_model::interface::TransactionBatchFactory>
           batch_factory = std::make_shared<
@@ -237,7 +238,7 @@ namespace framework {
     inline auto createBatchFromSingleTransaction(
         std::shared_ptr<shared_model::interface::Transaction> tx) {
       auto batch_validator =
-          std::make_shared<shared_model::validation::BatchValidator>(
+          std::make_shared<shared_model::validation::DefaultBatchValidator>(
               iroha::test::kTestsValidatorsConfig);
       auto batch_factory = std::make_shared<
           shared_model::interface::TransactionBatchFactoryImpl>(

@@ -236,7 +236,7 @@ TEST_F(BlockLoaderTest, ValidWhenBlockPresent) {
   EXPECT_CALL(*peer_query, getLedgerPeers())
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*validator, validate(RefAndPointerEq(block)))
-      .WillOnce(Return(Answer{}));
+      .WillOnce(Return(boost::none));
   EXPECT_CALL(*storage, getBlock(_)).Times(0);
   auto retrieved_block = loader->retrieveBlock(peer_key, block->height());
 

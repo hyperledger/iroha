@@ -7,45 +7,105 @@
 
 #include <limits>
 
+#include <fmt/core.h>
 #include <boost/algorithm/string_regex.hpp>
 #include <boost/format.hpp>
+#include <boost/range/adaptor/indexed.hpp>
 #include "common/bind.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
+#include "interfaces/common_objects/account.hpp"
+#include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/amount.hpp"
+#include "interfaces/common_objects/asset.hpp"
+#include "interfaces/common_objects/domain.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/queries/account_detail_pagination_meta.hpp"
+#include "interfaces/queries/account_detail_record_id.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/field_validator.hpp"
+#include "validators/validation_error_helpers.hpp"
 
 // TODO: 15.02.18 nickaleks Change structure to compositional IR-978
 
 using iroha::operator|;
 
+namespace {
+  class RegexValidator {
+   public:
+    RegexValidator(
+        std::string name,
+        std::string pattern,
+        boost::optional<const char *> format_description = boost::none)
+        : name_(std::move(name)),
+          pattern_(std::move(pattern)),
+          regex_(pattern_),
+          format_description_(
+              std::move(format_description) | [](std::string description) {
+                return std::string{" "} + std::move(description);
+              }) {}
+
+    boost::optional<shared_model::validation::ValidationError> validate(
+        const std::string &value) const {
+      if (not std::regex_match(value, regex_)) {
+        return shared_model::validation::ValidationError(
+            name_,
+            {fmt::format("passed value: '{}' does not match regex '{}'.{}",
+                         value,
+                         pattern_,
+                         format_description_)});
+      }
+      return boost::none;
+    }
+
+    std::string getPattern() const {
+      return pattern_;
+    }
+
+   private:
+    std::string name_;
+    std::string pattern_;
+    std::regex regex_;
+    std::string format_description_;
+  };
+
+  const RegexValidator kAccountNameValidator{"AccountName",
+                                             R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kAssetNameValidator{"AssetName", R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kDomainValidator{
+      "Domain",
+      R"#(([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*)#"
+      R"#([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)#"};
+  static const std::string kIpV4Pattern{
+      R"#(^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3})#"
+      R"#(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])))#"};
+  static const std::string kPortPattern{
+      R"#((6553[0-5]|655[0-2]\d|65[0-4]\d\d|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3}|0)$)#"};
+  const RegexValidator kPeerAddressValidator{
+      "PeerAddress",
+      fmt::format("(({})|({})):{}",
+                  kIpV4Pattern,
+                  kDomainValidator.getPattern(),
+                  kPortPattern),
+      "Field should have a valid 'host:port' format where host is "
+      "IPv4 or a hostname following RFC1035, RFC1123 specifications"};
+  const RegexValidator kAccountIdValidator{"AccountId",
+                                           kAccountNameValidator.getPattern()
+                                               + R"#(\@)#"
+                                               + kDomainValidator.getPattern()};
+  const RegexValidator kAssetIdValidator{"AssetId",
+                                         kAssetNameValidator.getPattern()
+                                             + R"#(\#)#"
+                                             + kDomainValidator.getPattern()};
+  const RegexValidator kAccountDetailKeyValidator{"DetailKey",
+                                                  R"([A-Za-z0-9_]{1,64})"};
+  const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+}  // namespace
+
 namespace shared_model {
   namespace validation {
-
-    const std::string FieldValidator::account_name_pattern_ =
-        R"#([a-z_0-9]{1,32})#";
-    const std::string FieldValidator::asset_name_pattern_ =
-        R"#([a-z_0-9]{1,32})#";
-    const std::string FieldValidator::domain_pattern_ =
-        R"#(([a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)#";
-    const std::string FieldValidator::ip_v4_pattern_ =
-        R"#(^((([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3})#"
-        R"#(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])))#";
-    const std::string FieldValidator::peer_address_pattern_ = "(("
-        + ip_v4_pattern_ + ")|(" + domain_pattern_ + ")):"
-        + R"#((6553[0-5]|655[0-2]\d|65[0-4]\d\d|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3}|0)$)#";
-    const std::string FieldValidator::account_id_pattern_ =
-        account_name_pattern_ + R"#(\@)#" + domain_pattern_;
-    const std::string FieldValidator::asset_id_pattern_ =
-        asset_name_pattern_ + R"#(\#)#" + domain_pattern_;
-    const std::string FieldValidator::detail_key_pattern_ =
-        R"([A-Za-z0-9_]{1,64})";
-    const std::string FieldValidator::role_id_pattern_ = R"#([a-z_0-9]{1,32})#";
 
     const size_t FieldValidator::public_key_size =
         crypto::DefaultCryptoAlgorithmType::kPublicKeyLength;
@@ -56,16 +116,6 @@ namespace shared_model {
     /// limit for the set account detail size in bytes
     const size_t FieldValidator::value_size = 4 * 1024 * 1024;
 
-    const std::regex FieldValidator::account_name_regex_(account_name_pattern_);
-    const std::regex FieldValidator::asset_name_regex_(asset_name_pattern_);
-    const std::regex FieldValidator::domain_regex_(domain_pattern_);
-    const std::regex FieldValidator::ip_v4_regex_(ip_v4_pattern_);
-    const std::regex FieldValidator::peer_address_regex_(peer_address_pattern_);
-    const std::regex FieldValidator::account_id_regex_(account_id_pattern_);
-    const std::regex FieldValidator::asset_id_regex_(asset_id_pattern_);
-    const std::regex FieldValidator::detail_key_regex_(detail_key_pattern_);
-    const std::regex FieldValidator::role_id_regex_(role_id_pattern_);
-
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
@@ -73,370 +123,351 @@ namespace shared_model {
           time_provider_(time_provider),
           max_description_size(config->settings->max_description_size) {}
 
-    void FieldValidator::validateAccountId(
-        ReasonsGroupType &reason,
+    boost::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
-      if (not std::regex_match(account_id, account_id_regex_)) {
-        auto message =
-            (boost::format("Wrongly formed account_id, passed value: '%s'. "
-                           "Field should match regex '%s'")
-             % account_id % account_id_pattern_)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
+      return kAccountIdValidator.validate(account_id);
     }
 
-    void FieldValidator::validateAssetId(
-        ReasonsGroupType &reason,
+    boost::optional<ValidationError> FieldValidator::validateAssetId(
         const interface::types::AssetIdType &asset_id) const {
-      if (not std::regex_match(asset_id, asset_id_regex_)) {
-        auto message = (boost::format("Wrongly formed asset_id, passed value: "
-                                      "'%s'. Field should match regex '%s'")
-                        % asset_id % asset_id_pattern_)
-                           .str();
-        reason.second.push_back(std::move(message));
-      }
+      return kAssetIdValidator.validate(asset_id);
     }
 
-    void FieldValidator::validatePeer(ReasonsGroupType &reason,
-                                      const interface::Peer &peer) const {
-      validatePeerAddress(reason, peer.address());
-      validatePubkey(reason, peer.pubkey());
+    boost::optional<ValidationError> FieldValidator::validatePeer(
+        const interface::Peer &peer) const {
+      return aggregateErrors(
+          "Peer",
+          {},
+          {validatePeerAddress(peer.address()), validatePubkey(peer.pubkey())});
     }
 
-    void FieldValidator::validateAmount(ReasonsGroupType &reason,
-                                        const interface::Amount &amount) const {
+    boost::optional<ValidationError> FieldValidator::validateAmount(
+        const interface::Amount &amount) const {
       if (amount.sign() <= 0) {
-        reason.second.push_back(
-            "Invalid number, amount must be greater than 0");
-      }
-    }
-
-    void FieldValidator::validatePubkey(
-        ReasonsGroupType &reason,
-        const interface::types::PubkeyType &pubkey) const {
-      auto opt_reason = shared_model::validation::validatePubkey(pubkey);
-      if (opt_reason) {
-        reason.second.push_back(std::move(*opt_reason));
-      }
-    }
-
-    void FieldValidator::validatePeerAddress(
-        ReasonsGroupType &reason,
-        const interface::types::AddressType &address) const {
-      if (not std::regex_match(address, peer_address_regex_)) {
-        auto message =
-            (boost::format("Wrongly formed peer address, passed value: '%s'. "
-                           "Field should have a valid 'host:port' format where "
-                           "host is IPv4 or a "
-                           "hostname following RFC1035, RFC1123 specifications")
-             % address)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateRoleId(
-        ReasonsGroupType &reason,
-        const interface::types::RoleIdType &role_id) const {
-      if (not std::regex_match(role_id, role_id_regex_)) {
-        auto message = (boost::format("Wrongly formed role_id, passed value: "
-                                      "'%s'. Field should match regex '%s'")
-                        % role_id % role_id_pattern_)
-                           .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateAccountName(
-        ReasonsGroupType &reason,
-        const interface::types::AccountNameType &account_name) const {
-      if (not std::regex_match(account_name, account_name_regex_)) {
-        auto message =
-            (boost::format("Wrongly formed account_name, passed value: '%s'. "
-                           "Field should match regex '%s'")
-             % account_name % account_name_pattern_)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateDomainId(
-        ReasonsGroupType &reason,
-        const interface::types::DomainIdType &domain_id) const {
-      if (not std::regex_match(domain_id, domain_regex_)) {
-        auto message = (boost::format("Wrongly formed domain_id, passed value: "
-                                      "'%s'. Field should match regex '%s'")
-                        % domain_id % domain_pattern_)
-                           .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateAssetName(
-        ReasonsGroupType &reason,
-        const interface::types::AssetNameType &asset_name) const {
-      if (not std::regex_match(asset_name, asset_name_regex_)) {
-        auto message =
-            (boost::format("Wrongly formed asset_name, passed value: '%s'. "
-                           "Field should match regex '%s'")
-             % asset_name % asset_name_pattern_)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateAccountDetailKey(
-        ReasonsGroupType &reason,
-        const interface::types::AccountDetailKeyType &key) const {
-      if (not std::regex_match(key, detail_key_regex_)) {
-        auto message = (boost::format("Wrongly formed key, passed value: '%s'. "
-                                      "Field should match regex '%s'")
-                        % key % detail_key_pattern_)
-                           .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateAccountDetailValue(
-        ReasonsGroupType &reason,
-        const interface::types::AccountDetailValueType &value) const {
-      if (value.size() > value_size) {
-        auto message =
-            (boost::format("Detail value size should be less or equal '%d'")
-             % value_size)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateOldAccountDetailValue(
-        ReasonsGroupType &reason,
-        const boost::optional<interface::types::AccountDetailValueType>
-            &old_value) const {
-      if (old_value) {
-        validateAccountDetailValue(reason, old_value.value());
-      }
-    }
-
-    void FieldValidator::validatePrecision(
-        ReasonsGroupType &reason,
-        const interface::types::PrecisionType &precision) const {
-      /* The following validation is pointless since PrecisionType is already
-       * uint8_t, but it is going to be changed and the validation will become
-       * meaningful.
-       */
-      interface::types::PrecisionType min = std::numeric_limits<uint8_t>::min();
-      interface::types::PrecisionType max = std::numeric_limits<uint8_t>::max();
-      if (precision < min or precision > max) {
-        auto message =
-            (boost::format(
-                 "Precision value (%d) is out of allowed range [%d; %d]")
-             % precision % min % max)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateRolePermission(
-        ReasonsGroupType &reason,
-        const interface::permissions::Role &permission) const {
-      if (not isValid(permission)) {
-        reason.second.emplace_back("Provided role permission does not exist");
-      }
-    }
-
-    void FieldValidator::validateGrantablePermission(
-        ReasonsGroupType &reason,
-        const interface::permissions::Grantable &permission) const {
-      if (not isValid(permission)) {
-        reason.second.emplace_back(
-            "Provided grantable permission does not exist");
-      }
-    }
-
-    void FieldValidator::validateQuorum(
-        ReasonsGroupType &reason,
-        const interface::types::QuorumType &quorum) const {
-      if (quorum == 0 or quorum > 128) {
-        reason.second.emplace_back("Quorum should be within range (0, 128]");
-      }
-    }
-
-    void FieldValidator::validateCreatorAccountId(
-        ReasonsGroupType &reason,
-        const interface::types::AccountIdType &account_id) const {
-      if (not std::regex_match(account_id, account_id_regex_)) {
-        auto message =
-            (boost::format("Wrongly formed creator_account_id, passed value: "
-                           "'%s'. Field should match regex '%s'")
-             % account_id % account_id_pattern_)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateCreatedTime(
-        ReasonsGroupType &reason,
-        interface::types::TimestampType timestamp,
-        interface::types::TimestampType now) const {
-      if (now + future_gap_ < timestamp) {
-        auto message = (boost::format("bad timestamp: sent from future, "
-                                      "timestamp: %llu, now: %llu")
-                        % timestamp % now)
-                           .str();
-        reason.second.push_back(std::move(message));
-      }
-
-      if (now > kMaxDelay + timestamp) {
-        auto message =
-            (boost::format("bad timestamp: too old, timestamp: %llu, now: %llu")
-             % timestamp % now)
-                .str();
-        reason.second.push_back(std::move(message));
-      }
-    }
-
-    void FieldValidator::validateCreatedTime(
-        ReasonsGroupType &reason,
-        interface::types::TimestampType timestamp) const {
-      validateCreatedTime(reason, timestamp, time_provider_());
-    }
-
-    void FieldValidator::validateCounter(
-        ReasonsGroupType &reason,
-        const interface::types::CounterType &counter) const {
-      if (counter <= 0) {
-        auto message =
-            (boost::format("Counter should be > 0, passed value: %d") % counter)
-                .str();
-        reason.second.push_back(message);
-      }
-    }
-
-    void FieldValidator::validateSignatures(
-        ReasonsGroupType &reason,
-        const interface::types::SignatureRangeType &signatures,
-        const crypto::Blob &source) const {
-      if (boost::empty(signatures)) {
-        reason.second.emplace_back("Signatures cannot be empty");
-      }
-      for (const auto &signature : signatures) {
-        const auto &sign = signature.signedData();
-        const auto &pkey = signature.publicKey();
-        bool is_valid = true;
-
-        if (sign.blob().size() != signature_size) {
-          reason.second.push_back(
-              (boost::format("Invalid signature: %s") % sign.hex()).str());
-          is_valid = false;
-        }
-
-        if (pkey.blob().size() != public_key_size) {
-          reason.second.push_back(
-              (boost::format("Invalid pubkey: %s") % pkey.hex()).str());
-          is_valid = false;
-        }
-
-        if (is_valid
-            && not shared_model::crypto::CryptoVerifier<>::verify(
-                   sign, source, pkey)) {
-          reason.second.push_back((boost::format("Wrong signature [%s;%s]")
-                                   % sign.hex() % pkey.hex())
-                                      .str());
-        }
-      }
-    }
-
-    void FieldValidator::validateQueryPayloadMeta(
-        ReasonsGroupType &reason,
-        const interface::QueryPayloadMeta &meta) const {}
-
-    void FieldValidator::validateDescription(
-        shared_model::validation::ReasonsGroupType &reason,
-        const shared_model::interface::types::DescriptionType &description)
-        const {
-      if (description.size() > max_description_size) {
-        reason.second.push_back(
-            (boost::format("Description size should be less or equal '%d'")
-             % max_description_size)
-                .str());
-      }
-    }
-    void FieldValidator::validateBatchMeta(
-        shared_model::validation::ReasonsGroupType &reason,
-        const interface::BatchMeta &batch_meta) const {}
-
-    void FieldValidator::validateHeight(
-        shared_model::validation::ReasonsGroupType &reason,
-        const shared_model::interface::types::HeightType &height) const {
-      if (height <= 0) {
-        auto message =
-            (boost::format("Height should be > 0, passed value: %d") % height)
-                .str();
-        reason.second.push_back(message);
-      }
-    }
-
-    void FieldValidator::validateHash(ReasonsGroupType &reason,
-                                      const crypto::Hash &hash) const {
-      if (hash.size() != hash_size) {
-        reason.second.push_back(
-            (boost::format("Hash has invalid size: %d") % hash.size()).str());
-      }
-    }
-
-    boost::optional<ConcreteReasonType> validatePubkey(
-        const interface::types::PubkeyType &pubkey) {
-      if (pubkey.blob().size() != FieldValidator::public_key_size) {
-        return (boost::format("Public key has wrong size, passed size: "
-                              "%d. Expected size: %d")
-                % pubkey.blob().size() % FieldValidator::public_key_size)
-            .str();
+        return ValidationError(
+            "Amount", {"Invalid number, amount must be greater than 0"});
       }
       return boost::none;
     }
 
-    void validatePaginationMetaPageSize(ReasonsGroupType &reason,
-                                        const size_t &page_size) {
+    boost::optional<ValidationError> FieldValidator::validatePubkey(
+        const interface::types::PubkeyType &pubkey) const {
+      return shared_model::validation::validatePubkey(pubkey);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validatePeerAddress(
+        const interface::types::AddressType &address) const {
+      return kPeerAddressValidator.validate(address);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateRoleId(
+        const interface::types::RoleIdType &role_id) const {
+      return kRoleIdValidator.validate(role_id);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAccountName(
+        const interface::types::AccountNameType &account_name) const {
+      return kAccountNameValidator.validate(account_name);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateDomainId(
+        const interface::types::DomainIdType &domain_id) const {
+      return kDomainValidator.validate(domain_id);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateDomain(
+        const interface::Domain &domain) const {
+      return aggregateErrors("Domain",
+                             {},
+                             {validateDomainId(domain.domainId()),
+                              validateRoleId(domain.defaultRole())});
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAssetName(
+        const interface::types::AssetNameType &asset_name) const {
+      return kAssetNameValidator.validate(asset_name);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAccountDetailKey(
+        const interface::types::AccountDetailKeyType &key) const {
+      return kAccountDetailKeyValidator.validate(key);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAccountDetailValue(
+        const interface::types::AccountDetailValueType &value) const {
+      if (value.size() > value_size) {
+        return ValidationError(
+            "AccountDetailValue",
+            {fmt::format(
+                "Detail value size should be less or equal '{}' characters",
+                value_size)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError>
+    FieldValidator::validateOldAccountDetailValue(
+        const boost::optional<interface::types::AccountDetailValueType>
+            &old_value) const {
+      if (old_value) {
+        return validateAccountDetailValue(old_value.value());
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validatePrecision(
+        const interface::types::PrecisionType &precision) const {
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateRolePermission(
+        const interface::permissions::Role &permission) const {
+      if (not isValid(permission)) {
+        return ValidationError("RolePermission",
+                               {"Provided role permission does not exist"});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError>
+    FieldValidator::validateGrantablePermission(
+        const interface::permissions::Grantable &permission) const {
+      if (not isValid(permission)) {
+        return ValidationError(
+            "GrantablePermission",
+            {"Provided grantable permission does not exist"});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateQuorum(
+        const interface::types::QuorumType &quorum) const {
+      if (quorum < 1 or quorum > 128) {
+        return ValidationError("Quorum",
+                               {"Quorum should be within range [1, 128]"});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateCreatorAccountId(
+        const interface::types::AccountIdType &account_id) const {
+      return kAccountIdValidator.validate(account_id);
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAccount(
+        const interface::Account &account) const {
+      return aggregateErrors("Account",
+                             {},
+                             {validateAccountId(account.accountId()),
+                              validateDomainId(account.domainId()),
+                              validateQuorum(account.quorum())});
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateCreatedTime(
+        interface::types::TimestampType timestamp,
+        interface::types::TimestampType now) const {
+      if (now + future_gap_ < timestamp) {
+        return ValidationError(
+            "CreatedTime",
+            {fmt::format(
+                "sent from future, timestamp: {}, now: {}", timestamp, now)});
+      } else if (now > kMaxDelay + timestamp) {
+        return ValidationError(
+            "CreatedTime",
+            {fmt::format("too old, timestamp: {}, now: {}", timestamp, now)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateCreatedTime(
+        interface::types::TimestampType timestamp) const {
+      return validateCreatedTime(timestamp, time_provider_());
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateCounter(
+        const interface::types::CounterType &counter) const {
+      if (counter <= 0) {
+        return ValidationError(
+            "Counter",
+            {fmt::format("Counter should be > 0, passed value: {}", counter)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateSignatureForm(
+        const interface::Signature &signature) const {
+      ValidationErrorCreator error_creator;
+      const auto passed_size = signature.signedData().blob().size();
+      if (passed_size != signature_size) {
+        error_creator.addReason(fmt::format(
+            "Invalid size: {} instead of {}.", passed_size, signature_size));
+      }
+      error_creator |= validatePubkey(signature.publicKey());
+      return std::move(error_creator).getValidationError("Signature");
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateSignatures(
+        const interface::types::SignatureRangeType &signatures,
+        const crypto::Blob &source) const {
+      ValidationErrorCreator error_creator;
+      if (boost::empty(signatures)) {
+        error_creator.addReason("Signatures are empty.");
+      }
+
+      for (const auto &signature : signatures | boost::adaptors::indexed(1)) {
+        ValidationErrorCreator sig_error_creator;
+
+        auto sig_format_error = validateSignatureForm(signature.value());
+        sig_error_creator |= sig_format_error;
+
+        if (not sig_format_error
+            and not shared_model::crypto::CryptoVerifier<>::verify(
+                    signature.value().signedData(),
+                    source,
+                    signature.value().publicKey())) {
+          sig_error_creator.addReason("Crypto verification failed.");
+        }
+        error_creator |= std::move(sig_error_creator)
+                             .getValidationErrorWithGeneratedName([&] {
+                               return fmt::format("Signature #{} ({})",
+                                                  signature.index(),
+                                                  signature.value().toString());
+                             });
+      }
+      return std::move(error_creator).getValidationError("Signatures list");
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateQueryPayloadMeta(
+        const interface::QueryPayloadMeta &meta) const {
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateDescription(
+        const interface::types::DescriptionType &description) const {
+      if (description.size() > max_description_size) {
+        return ValidationError(
+            "Description",
+            {fmt::format("Size should be less or equal '{}'.",
+                         max_description_size)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateBatchMeta(
+        const interface::BatchMeta &batch_meta) const {
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateHeight(
+        const interface::types::HeightType &height) const {
+      if (height <= 0) {
+        return ValidationError(
+            "Height",
+            {fmt::format("Should be > 0, passed value: {}.", height)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateHash(
+        const crypto::Hash &hash) const {
+      if (hash.size() != hash_size) {
+        return ValidationError(
+            "Hash",
+            {fmt::format(
+                "Invalid size: {}, should be {}.", hash.size(), hash_size)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> validatePubkey(
+        const interface::types::PubkeyType &pubkey) {
+      if (pubkey.blob().size() != FieldValidator::public_key_size) {
+        return ValidationError("PublicKey",
+                               {fmt::format("Wrong size: {}, should be {}.",
+                                            pubkey.blob().size(),
+                                            FieldValidator::public_key_size)});
+      }
+      return boost::none;
+    }
+
+    boost::optional<ValidationError> validatePaginationMetaPageSize(
+        const size_t &page_size) {
       if (page_size <= 0) {
-        reason.second.push_back(
-            (boost::format(
-                 "Page size is %s (%d), while it must be a non-zero positive.")
-             % (page_size == 0 ? "zero" : "negative") % page_size)
-                .str());
+        return ValidationError(
+            "PageSize",
+            {fmt::format("Passed value is {} ({}), while it must be a non-zero "
+                         "positive.",
+                         (page_size == 0 ? "zero" : "negative"),
+                         page_size)});
       }
+      return boost::none;
     }
 
-    void FieldValidator::validateTxPaginationMeta(
-        ReasonsGroupType &reason,
+    boost::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
         const interface::TxPaginationMeta &tx_pagination_meta) const {
-      validatePaginationMetaPageSize(reason, tx_pagination_meta.pageSize());
-      const auto first_hash = tx_pagination_meta.firstTxHash();
-      if (first_hash) {
-        validateHash(reason, *first_hash);
-      }
+      using iroha::operator|;
+      return aggregateErrors(
+          "TxPaginationMeta",
+          {},
+          {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
+           tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
+             return validateHash(first_hash);
+           }});
     }
 
-    void FieldValidator::validateAssetPaginationMeta(
-        ReasonsGroupType &reason,
+    boost::optional<ValidationError> FieldValidator::validateAsset(
+        const interface::Asset &asset) const {
+      return aggregateErrors("Asset",
+                             {},
+                             {validateDomainId(asset.domainId()),
+                              validateAssetId(asset.assetId()),
+                              validatePrecision(asset.precision())});
+    }
+
+    boost::optional<ValidationError> FieldValidator::validateAccountAsset(
+        const interface::AccountAsset &account_asset) const {
+      return aggregateErrors("AccountAsset",
+                             {},
+                             {validateAccountId(account_asset.accountId()),
+                              validateAssetId(account_asset.assetId()),
+                              validateAmount(account_asset.balance())});
+    }
+
+    boost::optional<ValidationError>
+    FieldValidator::validateAssetPaginationMeta(
         const interface::AssetPaginationMeta &asset_pagination_meta) const {
-      validatePaginationMetaPageSize(reason, asset_pagination_meta.pageSize());
-      const auto first_asset_id = asset_pagination_meta.firstAssetId();
-      if (first_asset_id) {
-        validateAssetId(reason, *first_asset_id);
-      }
+      using iroha::operator|;
+      return aggregateErrors(
+          "AssetPaginationMeta",
+          {},
+          {validatePaginationMetaPageSize(asset_pagination_meta.pageSize()),
+           asset_pagination_meta.firstAssetId() |
+               [this](const auto &first_asset_id) {
+                 return validateAssetId(first_asset_id);
+               }});
     }
 
-    void FieldValidator::validateAccountDetailPaginationMeta(
-        ReasonsGroupType &reason,
+    boost::optional<ValidationError>
+    FieldValidator::validateAccountDetailRecordId(
+        const interface::AccountDetailRecordId &record_id) const {
+      return aggregateErrors("AccountDetailRecordId",
+                             {},
+                             {validateAccountId(record_id.writer()),
+                              validateAccountDetailKey(record_id.key())});
+    }
+
+    boost::optional<ValidationError>
+    FieldValidator::validateAccountDetailPaginationMeta(
         const interface::AccountDetailPaginationMeta &pagination_meta) const {
-      validatePaginationMetaPageSize(reason, pagination_meta.pageSize());
-      pagination_meta.firstRecordId() |
-          [&reason, this](const auto &first_record_id) {
-            this->validateAccountId(reason, first_record_id.writer());
-            this->validateAccountDetailKey(reason, first_record_id.key());
-          };
+      using iroha::operator|;
+      return aggregateErrors(
+          "AccountDetailPaginationMeta",
+          {},
+          {validatePaginationMetaPageSize(pagination_meta.pageSize()),
+           pagination_meta.firstRecordId() |
+               [this](const auto &first_record_id) {
+                 return validateAccountDetailRecordId(first_record_id);
+               }});
     }
 
   }  // namespace validation

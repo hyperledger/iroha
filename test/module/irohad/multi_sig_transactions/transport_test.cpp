@@ -20,6 +20,7 @@
 #include "module/shared_model/validators/validators.hpp"
 #include "mst_mock.grpc.pb.h"
 #include "multi_sig_transactions/state/mst_state.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
@@ -44,7 +45,7 @@ class TransportTest : public ::testing::Test {
         getTestLogger("AsyncClient"));
     parser_ = std::make_shared<TransactionBatchParserImpl>();
     batch_validator_ =
-        std::make_shared<shared_model::validation::BatchValidator>(
+        std::make_shared<shared_model::validation::DefaultBatchValidator>(
             iroha::test::kTestsValidatorsConfig);
     batch_factory_ =
         std::make_shared<TransactionBatchFactoryImpl>(batch_validator_);

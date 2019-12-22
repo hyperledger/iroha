@@ -53,40 +53,27 @@ ProtoBlockFactory::unsafeCreateBlock(
 
   iroha::protocol::Block proto_block_container;
   proto_block_container.set_allocated_block_v1(&block);
-  auto proto_block_validation_result =
-      proto_validator_->validate(proto_block_container);
+  assert(not proto_validator_->validate(proto_block_container));
   proto_block_container.release_block_v1();
 
   auto model_proto_block =
       std::make_unique<shared_model::proto::Block>(std::move(block));
-  auto interface_block_validation_result =
-      interface_validator_->validate(*model_proto_block);
+  assert(not interface_validator_->validate(*model_proto_block));
 
-  bool block_is_stateless_valid =
-      not(proto_block_validation_result.hasErrors()
-          or interface_block_validation_result.hasErrors());
-  std::stringstream validaton_results;
-  validaton_results << "ProtoBlockFactory has created stateless invalid block: "
-                    << "Proto validator response: "
-                    << proto_block_validation_result.reason()
-                    << "; Interface validator response: "
-                    << interface_block_validation_result.reason() << ";"
-                    << std::endl;
-  BOOST_ASSERT_MSG(block_is_stateless_valid, validaton_results.str().c_str());
   return model_proto_block;
 }
 
 iroha::expected::Result<std::unique_ptr<shared_model::interface::Block>,
                         std::string>
 ProtoBlockFactory::createBlock(iroha::protocol::Block block) {
-  if (auto errors = proto_validator_->validate(block)) {
-    return iroha::expected::makeError(errors.reason());
+  if (auto error = proto_validator_->validate(block)) {
+    return iroha::expected::makeError(error->toString());
   }
 
   std::unique_ptr<shared_model::interface::Block> proto_block =
       std::make_unique<Block>(std::move(block.block_v1()));
-  if (auto errors = interface_validator_->validate(*proto_block)) {
-    return iroha::expected::makeError(errors.reason());
+  if (auto error = interface_validator_->validate(*proto_block)) {
+    return iroha::expected::makeError(error->toString());
   }
 
   return iroha::expected::makeValue(std::move(proto_block));

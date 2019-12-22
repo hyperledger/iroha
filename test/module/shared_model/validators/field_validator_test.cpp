@@ -11,6 +11,7 @@
 #include <google/protobuf/descriptor.h>
 #include <google/protobuf/dynamic_message.h>
 #include <boost/format.hpp>
+#include <boost/optional/optional_io.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/join.hpp>
 #include "block.pb.h"
@@ -25,6 +26,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/field_validator.hpp"
+#include "validators/validation_error_output.hpp"
 
 using namespace shared_model;
 
@@ -33,7 +35,8 @@ class FieldValidatorTest : public ValidatorsTest {
 
  protected:
   // Function which performs validation
-  using ValidationFunction = std::function<validation::ReasonsGroupType()>;
+  using ValidationFunction =
+      std::function<boost::optional<validation::ValidationError>()>;
   // Function which initializes field, allows to have one type when dealing
   // with various types of fields
   using InitFieldFunction = std::function<void()>;
@@ -185,18 +188,16 @@ class FieldValidatorTest : public ValidatorsTest {
       // Initialize field
       testcase.init_func();
       // Perform validation
-      auto reason = validate();
-      // if value supposed to be invalid, check that there is a reason
+      auto error = validate();
+      // if value supposed to be invalid, check that there is an error
       // and that error message is as expected.
-      // If value supposed to be valid, check for empty reason.
+      // If value supposed to be valid, check for empty error.
       if (!testcase.value_is_valid) {
-        ASSERT_TRUE(!reason.second.empty())
-            << testFailMessage(field_name, testcase.name);
+        ASSERT_TRUE(error) << testFailMessage(field_name, testcase.name);
         // TODO IR-1183 add returned message check 29.03.2018
       } else {
-        EXPECT_TRUE(reason.second.empty())
-            << testFailMessage(field_name, testcase.name)
-            << "Message: " << reason.second.at(0) << "\n";
+        EXPECT_EQ(error, boost::none)
+            << testFailMessage(field_name, testcase.name);
       }
     }
   }
@@ -691,9 +692,7 @@ class FieldValidatorTest : public ValidatorsTest {
       const std::vector<FieldTestCase> &cases) {
     return {field_name,
             {[&, field, value] {
-               validation::ReasonsGroupType reason;
-               (field_validator.*field)(reason, transform(this->*value));
-               return reason;
+               return (field_validator.*field)(transform(this->*value));
              },
              cases}};
   }
@@ -751,9 +750,9 @@ class FieldValidatorTest : public ValidatorsTest {
                     counter_test_cases),
       makeValidator(
           "created_time",
-          static_cast<void (FieldValidator::*)(validation::ReasonsGroupType &,
-                                               interface::types::TimestampType)
-                          const>(&FieldValidator::validateCreatedTime),
+          static_cast<boost::optional<validation::ValidationError> (
+              FieldValidator::*)(interface::types::TimestampType) const>(
+              &FieldValidator::validateCreatedTime),
           &FieldValidatorTest::created_time,
           created_time_test_cases),
       makeTransformValidator(
@@ -879,11 +878,9 @@ TEST_F(FieldValidatorTest, QueryContainerFieldsValidation) {
 TEST_F(FieldValidatorTest, TryReachDefaultLimit) {
   validation::FieldValidator custom_field_validator(validators_custom_config);
 
-  shared_model::validation::ReasonsGroupType reason;
-  custom_field_validator.validateDescription(
-      reason,
+  auto error = custom_field_validator.validateDescription(
       std::string(shared_model::validation::kDefaultDescriptionSize + 1, 0));
-  ASSERT_TRUE(reason.second.empty());
+  ASSERT_EQ(error, boost::none);
 }
 
 /**
@@ -894,10 +891,9 @@ TEST_F(FieldValidatorTest, TryReachDefaultLimit) {
 TEST_F(FieldValidatorTest, TryReachNewMaxSize) {
   validation::FieldValidator custom_field_validator(validators_custom_config);
 
-  shared_model::validation::ReasonsGroupType reason;
-  custom_field_validator.validateDescription(
-      reason, std::string(kCustomMaxDescriptionSize, 0));
-  ASSERT_TRUE(reason.second.empty());
+  auto error = custom_field_validator.validateDescription(
+      std::string(kCustomMaxDescriptionSize, 0));
+  ASSERT_EQ(error, boost::none);
 }
 
 /**
@@ -908,8 +904,7 @@ TEST_F(FieldValidatorTest, TryReachNewMaxSize) {
 TEST_F(FieldValidatorTest, TrySetSizeMoreThatNewMax) {
   validation::FieldValidator custom_field_validator(validators_custom_config);
 
-  shared_model::validation::ReasonsGroupType reason;
-  custom_field_validator.validateDescription(
-      reason, std::string(kCustomMaxDescriptionSize + 1, 0));
-  ASSERT_FALSE(reason.second.empty());
+  auto error = custom_field_validator.validateDescription(
+      std::string(kCustomMaxDescriptionSize + 1, 0));
+  ASSERT_TRUE(error);
 }

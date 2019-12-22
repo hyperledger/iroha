@@ -10,22 +10,12 @@
 
 #include "consensus/yac/yac_crypto_provider.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
-
+#include "framework/stateless_valid_field_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 namespace iroha {
   namespace consensus {
     namespace yac {
-
-      // TODO 15.03.2019 mboldyrev IR-402
-      // fix the tests that impose requirements on mock public key format
-      std::string padPubKeyString(const std::string &str) {
-        using shared_model::crypto::DefaultCryptoAlgorithmType;
-        assert(str.size() <= DefaultCryptoAlgorithmType::kPublicKeyLength);
-        std::string padded(DefaultCryptoAlgorithmType::kPublicKeyLength, '0');
-        std::copy(str.begin(), str.end(), padded.begin());
-        return padded;
-      }
 
       /**
        * Creates test signature with empty signed data, and provided pubkey
@@ -33,14 +23,16 @@ namespace iroha {
        * @return new signature
        */
       std::shared_ptr<shared_model::interface::Signature> createSig(
-          const std::string &pub_key) {
+          const std::string &pub_key, const std::string &signature = "") {
         auto sig = std::make_shared<MockSignature>();
         EXPECT_CALL(*sig, publicKey())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::PublicKey(padPubKeyString(pub_key))));
+            .WillRepeatedly(
+                ::testing::ReturnRefOfCopy(shared_model::crypto::PublicKey(
+                    framework::padPubKeyString(pub_key))));
         EXPECT_CALL(*sig, signedData())
             .WillRepeatedly(
-                ::testing::ReturnRefOfCopy(shared_model::crypto::Signed("")));
+                ::testing::ReturnRefOfCopy(shared_model::crypto::Signed(
+                    framework::padSignatureString(signature))));
 
         return sig;
       }

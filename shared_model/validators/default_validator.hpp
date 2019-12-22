@@ -86,7 +86,9 @@ namespace shared_model {
      * transactions WITHOUT signatures
      */
     using DefaultUnsignedTransactionsValidator =
-        TransactionsCollectionValidator<DefaultUnsignedTransactionValidator>;
+        TransactionsCollectionValidator<DefaultUnsignedTransactionValidator,
+                                        BatchOrderValidator,
+                                        false>;
 
     /**
      * Transactions collection validator that checks stateless validness of
@@ -95,6 +97,7 @@ namespace shared_model {
      */
     using DefaultUnsignedOptionalTransactionsValidator =
         TransactionsCollectionValidator<DefaultUnsignedTransactionValidator,
+                                        BatchOrderValidator,
                                         true>;
 
     /**
@@ -102,7 +105,9 @@ namespace shared_model {
      * validness of transactions
      */
     using DefaultSignedTransactionsValidator =
-        TransactionsCollectionValidator<DefaultSignedTransactionValidator>;
+        TransactionsCollectionValidator<DefaultSignedTransactionValidator,
+                                        BatchOrderValidator,
+                                        false>;
 
     /**
      * Proposal validator which checks stateless validation of proposal
@@ -125,6 +130,8 @@ namespace shared_model {
         SignableModelValidator<DefaultUnsignedBlockValidator,
                                const interface::Block &,
                                FieldValidator>;
+
+    using DefaultBatchValidator = BatchValidator<BatchOrderValidator>;
 
   }  // namespace validation
 }  // namespace shared_model

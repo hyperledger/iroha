@@ -5,8 +5,16 @@
 #ifndef IROHA_PROTO_PROPOSAL_VALIDATOR_HPP
 #define IROHA_PROTO_PROPOSAL_VALIDATOR_HPP
 
-#include "proposal.pb.h"
 #include "validators/abstract_validator.hpp"
+
+#include <memory>
+
+namespace iroha {
+  namespace protocol {
+    class Proposal;
+    class Transaction;
+  }  // namespace protocol
+}  // namespace iroha
 
 namespace shared_model {
   namespace validation {
@@ -19,7 +27,8 @@ namespace shared_model {
 
       ProtoProposalValidator(ProtoValidatorType transaction_validator);
 
-      Answer validate(const iroha::protocol::Proposal &proposal) const override;
+      boost::optional<ValidationError> validate(
+          const iroha::protocol::Proposal &proposal) const override;
 
      private:
       ProtoValidatorType transaction_validator_;

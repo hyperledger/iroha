@@ -18,13 +18,6 @@ using ::testing::A;
 using ::testing::Return;
 using ::testing::Test;
 
-shared_model::validation::Answer createAnswerWithErrors() {
-  shared_model::validation::Answer answer;
-  answer.addReason(
-      std::make_pair("transaction", std::vector<std::string>{"some reason"}));
-  return answer;
-}
-
 class TransactionSequenceTestFixture : public ::testing::Test {
  public:
   TransactionSequenceTestFixture()
@@ -120,13 +113,13 @@ TEST_F(TransactionSequenceTestFixture, CreateBatches) {
   ASSERT_TRUE(tx_sequence)
       << framework::expected::err(tx_sequence_opt).value().error;
 
-  ASSERT_EQ(boost::size(tx_sequence->value.batches()),
+  EXPECT_EQ(boost::size(tx_sequence->value.batches()),
             batches_number + single_transactions);
 
-  size_t total_transactions = boost::accumulate(
-      tx_sequence->value.batches(), 0ul, [](auto sum, const auto &batch) {
-        return sum + boost::size(batch->transactions());
-      });
-  ASSERT_EQ(total_transactions,
+  size_t total_transactions = 0;
+  for (const auto &batch : tx_sequence->value.batches()) {
+    total_transactions += boost::size(batch->transactions());
+  }
+  EXPECT_EQ(total_transactions,
             batches_number * txs_in_batch + single_transactions);
 }
