@@ -387,7 +387,7 @@ namespace iroha {
             command_name_(std::move(command_name)),
             perm_converter_(std::move(perm_converter)) {
         arguments_string_builder_.init(command_name_)
-            .append("Validation", enable_validation);
+            .appendNamed("Validation", enable_validation);
       }
 
       template <typename T,
