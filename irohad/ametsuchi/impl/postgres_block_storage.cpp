@@ -6,21 +6,51 @@
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 
 #include "common/hexutils.hpp"
+#include "common/result.hpp"
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
 
 using shared_model::interface::types::HeightType;
 
+iroha::expected::Result<std::unique_ptr<PostgresBlockStorage>, std::string>
+PostgresBlockStorage::create(
+    std::shared_ptr<PoolWrapper> pool_wrapper,
+    std::shared_ptr<BlockTransportFactory> block_factory,
+    std::string table_name,
+    bool drop_table_at_destruction,
+    logger::LoggerPtr log) {
+  soci::session sql(*pool_wrapper->connection_pool_);
+  return queryBlockHeightsRange(sql, table_name) | [&](auto height_range) {
+    return std::unique_ptr<PostgresBlockStorage>(
+        new PostgresBlockStorage(std::move(pool_wrapper),
+                                 std::move(block_factory),
+                                 std::move(table_name),
+                                 drop_table_at_destruction,
+                                 height_range,
+                                 std::move(log)));
+  };
+}
+
 PostgresBlockStorage::PostgresBlockStorage(
     std::shared_ptr<PoolWrapper> pool_wrapper,
     std::shared_ptr<BlockTransportFactory> block_factory,
-    std::string table,
+    std::string table_name,
+    bool drop_table_at_destruction,
+    boost::optional<HeightRange> height_range,
     logger::LoggerPtr log)
-    : pool_wrapper_(std::move(pool_wrapper)),
+    : block_height_range_(std::move(height_range)),
+      pool_wrapper_(std::move(pool_wrapper)),
       block_factory_(std::move(block_factory)),
-      table_(std::move(table)),
+      table_name_(std::move(table_name)),
+      drop_table_at_destruction_(drop_table_at_destruction),
       log_(std::move(log)) {}
+
+PostgresBlockStorage::~PostgresBlockStorage() {
+  if (drop_table_at_destruction_) {
+    dropTable();
+  }
+}
 
 bool PostgresBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
@@ -44,7 +74,7 @@ bool PostgresBlockStorage::insert(
   auto b = block->blob().hex();
 
   soci::session sql(*pool_wrapper_->connection_pool_);
-  soci::statement st = (sql.prepare << "INSERT INTO " << table_
+  soci::statement st = (sql.prepare << "INSERT INTO " << table_name_
                                     << " (height, block_data) VALUES(:height, "
                                        ":block_data)",
                         soci::use(inserted_height),
@@ -67,7 +97,8 @@ PostgresBlockStorage::fetch(
   using QueryTuple = boost::tuple<boost::optional<std::string>>;
   QueryTuple row;
   try {
-    sql << "SELECT block_data FROM " << table_ << " WHERE height = :height",
+    sql << "SELECT block_data FROM " << table_name_
+        << " WHERE height = :height",
         soci::use(height), soci::into(row);
   } catch (const std::exception &e) {
     log_->error("Failed to execute query: {}", e.what());
@@ -112,12 +143,12 @@ size_t PostgresBlockStorage::size() const {
 
 void PostgresBlockStorage::clear() {
   soci::session sql(*pool_wrapper_->connection_pool_);
-  soci::statement st = (sql.prepare << "TRUNCATE " << table_);
+  soci::statement st = (sql.prepare << "TRUNCATE " << table_name_);
   try {
     st.execute(true);
     block_height_range_ = boost::none;
   } catch (const std::exception &e) {
-    log_->warn("Failed to clear {} table, reason {}", table_, e.what());
+    log_->warn("Failed to clear {} table, reason {}", table_name_, e.what());
   }
 }
 
@@ -132,22 +163,33 @@ void PostgresBlockStorage::forEach(
   };
 }
 
-PostgresTemporaryBlockStorage::PostgresTemporaryBlockStorage(
-    std::shared_ptr<PoolWrapper> pool_wrapper,
-    std::shared_ptr<BlockTransportFactory> block_factory,
-    std::string table,
-    logger::LoggerPtr log)
-    : PostgresBlockStorage(std::move(pool_wrapper),
-                           std::move(block_factory),
-                           std::move(table),
-                           std::move(log)) {}
+iroha::expected::Result<boost::optional<PostgresBlockStorage::HeightRange>,
+                        std::string>
+PostgresBlockStorage::queryBlockHeightsRange(soci::session &sql,
+                                             const std::string &table_name) {
+  using QueryTuple =
+      boost::tuple<boost::optional<size_t>, boost::optional<size_t>>;
+  QueryTuple row;
+  try {
+    sql << "SELECT MIN(height), MAX(height) FROM " << table_name,
+        soci::into(row);
+  } catch (const std::exception &e) {
+    return fmt::format("Failed to execute query: {}", e.what());
+  }
+  return rebind(viewQuery<QueryTuple>(row)) | [](auto row) {
+    return iroha::ametsuchi::apply(row, [](size_t min, size_t max) {
+      assert(max >= min);
+      return boost::make_optional(HeightRange{min, max});
+    });
+  };
+}
 
-PostgresTemporaryBlockStorage::~PostgresTemporaryBlockStorage() {
+void PostgresBlockStorage::dropTable() {
   soci::session sql(*pool_wrapper_->connection_pool_);
-  soci::statement st = (sql.prepare << "DROP TABLE IF EXISTS " << table_);
+  soci::statement st = (sql.prepare << "DROP TABLE IF EXISTS " << table_name_);
   try {
     st.execute(true);
   } catch (const std::exception &e) {
-    log_->warn("Failed to drop {} table, reason {}", table_, e.what());
+    log_->error("Failed to drop {} table, reason {}", table_name_, e.what());
   }
 }

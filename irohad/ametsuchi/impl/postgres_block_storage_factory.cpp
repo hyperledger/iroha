@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 
+#include "common/result.hpp"
 #include "logger/logger.hpp"
 
 using namespace iroha::ametsuchi;
@@ -19,16 +20,14 @@ PostgresBlockStorageFactory::PostgresBlockStorageFactory(
       table_name_provider_(std::move(table_name_provider)),
       log_(std::move(log)) {}
 
-std::unique_ptr<BlockStorage> PostgresBlockStorageFactory::create() {
+iroha::expected::Result<std::unique_ptr<BlockStorage>, std::string>
+PostgresBlockStorageFactory::create() {
   soci::session sql(*pool_wrapper_->connection_pool_);
-  auto table = table_name_provider_();
-  auto create_table_result = createTable(sql, table);
-  if (boost::get<expected::Error<std::string>>(&create_table_result)) {
-    return nullptr;
-  }
-
-  return std::make_unique<PostgresTemporaryBlockStorage>(
-      pool_wrapper_, block_factory_, std::move(table), log_);
+  auto table_name = table_name_provider_();
+  return createTable(sql, table_name) | [this, &table_name] {
+    return PostgresBlockStorage::create(
+        pool_wrapper_, block_factory_, std::move(table_name), true, log_);
+  };
 }
 
 iroha::expected::Result<void, std::string>

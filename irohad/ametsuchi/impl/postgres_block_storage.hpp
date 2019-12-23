@@ -12,6 +12,7 @@
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/proto_block_factory.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -21,10 +22,16 @@ namespace iroha {
      public:
       using BlockTransportFactory = shared_model::proto::ProtoBlockFactory;
 
-      PostgresBlockStorage(std::shared_ptr<PoolWrapper> pool_wrapper,
-                           std::shared_ptr<BlockTransportFactory> block_factory,
-                           std::string table,
-                           logger::LoggerPtr log);
+      static iroha::expected::Result<std::unique_ptr<PostgresBlockStorage>,
+                                     std::string>
+      create(std::shared_ptr<PoolWrapper> pool_wrapper,
+             std::shared_ptr<BlockTransportFactory> block_factory,
+             std::string table_name,
+             // IR-910 23.09.2020 @lebdron: refactor with separate classes
+             bool drop_table_at_destruction,
+             logger::LoggerPtr log);
+
+      ~PostgresBlockStorage() override;
 
       bool insert(
           std::shared_ptr<const shared_model::interface::Block> block) override;
@@ -44,24 +51,26 @@ namespace iroha {
         shared_model::interface::types::HeightType max;
       };
 
-      mutable boost::optional<HeightRange> block_height_range_;
+      PostgresBlockStorage(std::shared_ptr<PoolWrapper> pool_wrapper,
+                           std::shared_ptr<BlockTransportFactory> block_factory,
+                           std::string table,
+                           bool drop_table_at_destruction,
+                           boost::optional<HeightRange> height_range,
+                           logger::LoggerPtr log);
 
-     protected:
+      static iroha::expected::Result<boost::optional<HeightRange>, std::string>
+      queryBlockHeightsRange(soci::session &sql, const std::string &table_name);
+
+      void dropTable();
+
+      mutable boost::optional<HeightRange> block_height_range_;
       std::shared_ptr<PoolWrapper> pool_wrapper_;
       std::shared_ptr<BlockTransportFactory> block_factory_;
-      std::string table_;
+      std::string table_name_;
+      bool drop_table_at_destruction_;
       logger::LoggerPtr log_;
     };
 
-    class PostgresTemporaryBlockStorage : public PostgresBlockStorage {
-     public:
-      PostgresTemporaryBlockStorage(
-          std::shared_ptr<PoolWrapper> pool_wrapper,
-          std::shared_ptr<BlockTransportFactory> block_factory,
-          std::string table,
-          logger::LoggerPtr log);
-      ~PostgresTemporaryBlockStorage() override;
-    };
   }  // namespace ametsuchi
 }  // namespace iroha
 

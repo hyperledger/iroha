@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "ametsuchi/block_storage.hpp"
+#include "common/result_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -17,7 +18,9 @@ namespace iroha {
      */
     class BlockStorageFactory {
      public:
-      virtual std::unique_ptr<BlockStorage> create() = 0;
+      virtual iroha::expected::Result<std::unique_ptr<BlockStorage>,
+                                      std::string>
+      create() = 0;
 
       virtual ~BlockStorageFactory() = default;
     };
