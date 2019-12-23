@@ -8,3 +8,6 @@ choco feature enable -n allowGlobalConfirmation
 
 # Install all required dependencies with choco
 choco install c:\Windows\Temp\packages.config
+
+# Print chocolatey log
+cat C:\ProgramData\chocolatey\logs\chocolatey.log
