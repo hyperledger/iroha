@@ -6,9 +6,11 @@
 #include "ametsuchi/impl/in_memory_block_storage_factory.hpp"
 
 #include "ametsuchi/impl/in_memory_block_storage.hpp"
+#include "common/result.hpp"
 
 using namespace iroha::ametsuchi;
 
-std::unique_ptr<BlockStorage> InMemoryBlockStorageFactory::create() {
+iroha::expected::Result<std::unique_ptr<BlockStorage>, std::string>
+InMemoryBlockStorageFactory::create() {
   return std::make_unique<InMemoryBlockStorage>();
 }

@@ -39,15 +39,14 @@ namespace {
       logger::LoggerManagerTreePtr log_manager) {
     auto flat_file = FlatFile::create(
         block_storage_dir, log_manager->getChild("FlatFile")->getLogger());
-    if (not flat_file) {
-      throw StorageInitException{
-          "Unable to create FlatFile for persistent storage"};
+    if (auto err = iroha::expected::resultToOptionalError(flat_file)) {
+      throw StorageInitException{err.value()};
     }
     std::shared_ptr<shared_model::interface::BlockJsonConverter>
         block_converter =
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     return std::make_unique<FlatFileBlockStorage>(
-        std::move(flat_file.get()),
+        std::move(flat_file.assumeValue()),
         block_converter,
         log_manager->getChild("FlatFileBlockStorage")->getLogger());
   }
@@ -59,15 +58,21 @@ namespace {
     auto sql = std::make_unique<soci::session>(*pool_wrapper->connection_pool_);
     const std::string persistent_table("blocks");
 
-    PostgresBlockStorageFactory::createTable(*sql, persistent_table);
     if (auto err = iroha::expected::resultToOptionalError(
             PostgresBlockStorageFactory::createTable(*sql, persistent_table))) {
       throw StorageInitException{err.value()};
     }
-    return std::make_unique<PostgresBlockStorage>(std::move(pool_wrapper),
-                                                  block_factory,
-                                                  persistent_table,
-                                                  log_manager->getLogger());
+
+    auto block_storage = PostgresBlockStorage::create(std::move(pool_wrapper),
+                                                      block_factory,
+                                                      persistent_table,
+                                                      false,
+                                                      log_manager->getLogger());
+    if (auto err = iroha::expected::resultToOptionalError(block_storage)) {
+      throw StorageInitException{err.value()};
+    }
+
+    return std::move(block_storage).assumeValue();
   }
 }  // namespace
 

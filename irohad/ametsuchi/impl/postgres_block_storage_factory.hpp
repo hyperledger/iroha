@@ -20,7 +20,9 @@ namespace iroha {
           std::shared_ptr<shared_model::proto::ProtoBlockFactory> block_factory,
           std::function<std::string()> table_name_provider,
           logger::LoggerPtr log);
-      std::unique_ptr<BlockStorage> create() override;
+
+      iroha::expected::Result<std::unique_ptr<BlockStorage>, std::string>
+      create() override;
 
       static iroha::expected::Result<void, std::string> createTable(
           soci::session &sql, const std::string &table);

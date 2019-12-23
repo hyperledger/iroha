@@ -20,7 +20,9 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
               json_block_converter,
           logger::LoggerManagerTreePtr log_manager);
-      std::unique_ptr<BlockStorage> create() override;
+
+      iroha::expected::Result<std::unique_ptr<BlockStorage>, std::string>
+      create() override;
 
      private:
       std::function<std::string()> path_provider_;

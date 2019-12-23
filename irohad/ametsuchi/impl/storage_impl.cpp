@@ -203,7 +203,7 @@ namespace iroha {
       return std::make_unique<MutableStorageImpl>(
           ledger_state_,
           std::move(postgres_command_executor),
-          storage_factory.create(),
+          storage_factory.create().assumeValue(),
           log_manager_->getChild("MutableStorageImpl"));
     }
 
