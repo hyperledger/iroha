@@ -44,6 +44,9 @@
 #include "torii/query_client.hpp"
 #include "util/utility_client.hpp"
 
+// workaround for Windows includes which redefine GetObject
+#undef GetObject
+
 #include "framework/config_helper.hpp"
 
 using namespace boost::process;
@@ -115,7 +118,8 @@ class IrohadTest : public AcceptanceFixture {
     doc[config_members::ToriiTlsParams]
         .GetObject()[config_members::KeyPairPath]
         .SetString(path_tls_keypair_.string().data(),
-                   path_tls_keypair_.string().size());
+                   path_tls_keypair_.string().size(),
+                   doc.GetAllocator());
     {
       using namespace rapidjson;
       Value utility_service_node(kObjectType);
@@ -315,7 +319,7 @@ class IrohadTest : public AcceptanceFixture {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer("0.0.0.0:10001",
+            .addPeer("127.0.0.1:10001",
                      PublicKeyHexStringView{node0_keys.publicKey()})
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
@@ -516,7 +520,7 @@ TEST_F(IrohadTest, SendTxSecure) {
  * data. (well you surely can, but it will not be processed)
  * @given running Iroha with an open TLS port
  * @when a client sends a transaction to Iroha without using TLS
- * @then client request fails with UNAVAILABLE status code
+ * @then client request fails
  */
 TEST_F(IrohadTest, SendTxInsecureWithTls) {
   launchIroha();
@@ -529,10 +533,7 @@ TEST_F(IrohadTest, SendTxInsecureWithTls) {
   auto client = createToriiClient(false, kSecurePort);
   auto response = client.Torii(tx.getTransport());
 
-  // gRPC will close the socket with status code UNAVAILABLE, and
-  // message "Socket closed" so, this seems to be a good enough way to
-  // test this behaviour
-  ASSERT_EQ(grpc::StatusCode::UNAVAILABLE, response.error_code());
+  ASSERT_NE(grpc::StatusCode::OK, response.error_code());
 }
 
 /**

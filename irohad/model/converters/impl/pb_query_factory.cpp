@@ -164,7 +164,8 @@ namespace iroha {
 
       boost::optional<protocol::Query> PbQueryFactory::serialize(
           std::shared_ptr<const Query> query) const {
-        auto it = serializers_.find(typeid(*query));
+        auto qry = query.get();
+        auto it = serializers_.find(typeid(*qry));
         if (it != serializers_.end()) {
           return (this->*it->second)(query);
         }

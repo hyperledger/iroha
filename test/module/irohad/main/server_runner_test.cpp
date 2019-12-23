@@ -12,7 +12,7 @@
 
 using iroha::network::ServerRunner;
 
-boost::format address{"0.0.0.0:%d"};
+boost::format address{"127.0.0.1:%d"};
 auto port_visitor = iroha::make_visitor(
     [](iroha::expected::Value<int> x) { return x.value; },
     [](iroha::expected::Error<std::string> x) { return 0; });
@@ -40,6 +40,9 @@ TEST(ServerRunnerTest, SamePortNoReuse) {
   ASSERT_EQ(0, port);
 }
 
+// port reuse is not supported on Windows
+#ifndef GPR_WINDOWS
+
 /**
  * @given a running ServerRunner
  * @when another ServerRunner tries to run on the same port with port reuse
@@ -62,3 +65,5 @@ TEST(ServerRunnerTest, SamePortWithReuse) {
   port = boost::apply_visitor(port_visitor, result);
   ASSERT_NE(0, port);
 }
+
+#endif  // GPR_WINDOWS

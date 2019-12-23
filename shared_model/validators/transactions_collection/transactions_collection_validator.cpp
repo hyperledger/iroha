@@ -59,7 +59,7 @@ namespace shared_model {
                          size_t,
                          shared_model::crypto::Hash::Hasher>
           tx_number_by_hash;
-      for (const auto &tx : transactions | boost::adaptors::indexed(1)) {
+      for (auto tx : transactions | boost::adaptors::indexed(1)) {
         ValidationErrorCreator tx_error_creator;
         if (not txs_duplicates_allowed_) {
           auto emplace_result =

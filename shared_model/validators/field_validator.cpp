@@ -323,7 +323,7 @@ namespace shared_model {
         error_creator.addReason("Signatures are empty.");
       }
 
-      for (const auto &signature : signatures | boost::adaptors::indexed(1)) {
+      for (auto signature : signatures | boost::adaptors::indexed(1)) {
         ValidationErrorCreator sig_error_creator;
 
         auto sig_format_error = validateSignatureForm(signature.value());

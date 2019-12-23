@@ -20,8 +20,7 @@ namespace shared_model {
         const iroha::protocol::Proposal &proposal) const {
       ValidationErrorCreator error_creator;
 
-      for (const auto &tx :
-           proposal.transactions() | boost::adaptors::indexed(1)) {
+      for (auto tx : proposal.transactions() | boost::adaptors::indexed(1)) {
         ValidationErrorCreator tx_error_creator;
         tx_error_creator |= transaction_validator_->validate(tx.value());
         error_creator |=

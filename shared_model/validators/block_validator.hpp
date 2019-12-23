@@ -50,7 +50,7 @@ namespace shared_model {
                            size_t,
                            shared_model::crypto::Hash::Hasher>
             rejected_hashes;
-        for (const auto &hash : block.rejected_transactions_hashes()
+        for (auto hash : block.rejected_transactions_hashes()
                  | boost::adaptors::indexed(1)) {
           ValidationErrorCreator hash_error_creator;
           auto emplace_result =
@@ -69,8 +69,7 @@ namespace shared_model {
                   });
         }
 
-        for (const auto &tx :
-             block.transactions() | boost::adaptors::indexed(1)) {
+        for (auto tx : block.transactions() | boost::adaptors::indexed(1)) {
           auto it = rejected_hashes.find(tx.value().hash());
           if (it != rejected_hashes.end()) {
             error_creator.addReason(

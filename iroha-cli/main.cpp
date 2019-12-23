@@ -39,7 +39,7 @@ DEFINE_string(pass_phrase, "", "Account pass-phrase");
 DEFINE_string(key_path, ".", "Path to user keys");
 
 // Iroha peer to connect with
-DEFINE_string(peer_ip, "0.0.0.0", "Address of the Iroha node");
+DEFINE_string(peer_ip, "127.0.0.1", "Address of the Iroha node");
 DEFINE_int32(torii_port, 50051, "Port of Iroha's Torii");
 
 // Send already signed and formed transaction to Iroha peer

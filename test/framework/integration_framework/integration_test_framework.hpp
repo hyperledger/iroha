@@ -8,6 +8,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <map>
 #include <mutex>
 
 #include <rxcpp/rx-observable-fwd.hpp>
