@@ -468,12 +468,16 @@ node ('master') {
 
   def x64WinBuildSteps
   def x64WinBuildPostSteps = new Builder.PostSteps()
+  def x64WinEnvironmentList = environmentList.clone()
+  // Windows workers use localhost PostgreSQL deployment with default settings
+  x64WinEnvironmentList.removeAll { it.contains("IROHA_POSTGRES") }
+  print x64WinEnvironmentList
   if(!win_compiler_list.isEmpty()){
     x64WinBuildSteps = [{x64WinBuildScript.buildSteps(parallelism==0 ?x64WinWorker.cpusAvailable : parallelism,
-      win_compiler_list, build_type, false, testing, testList, packageBuild, useBTF, environmentList)}]
+      win_compiler_list, build_type, /*coverage*/false, testing, testList, packageBuild, benchmarking, useBTF, x64WinEnvironmentList)}]
     x64WinBuildPostSteps = new Builder.PostSteps(
-      always: [{x64WinBuildScript.alwaysPostSteps(environmentList)}],
-      success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
+      always: [{x64WinBuildScript.alwaysPostSteps(x64WinEnvironmentList)}],
+      success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, x64WinEnvironmentList)}])
   }
 
   if(!win_compiler_list.isEmpty()){

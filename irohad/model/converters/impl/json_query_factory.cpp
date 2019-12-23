@@ -167,8 +167,9 @@ namespace iroha {
 
         doc.AddMember("signature", signature, allocator);
 
+        auto qry = model_query.get();
         makeMethodInvoke(
-            *this, doc, model_query)(serializers_.at(typeid(*model_query)));
+            *this, doc, model_query)(serializers_.at(typeid(*qry)));
         return jsonToString(doc);
       }
 

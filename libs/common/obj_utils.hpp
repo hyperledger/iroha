@@ -19,7 +19,7 @@ namespace iroha {
    * nullopt otherwise
    */
   template <typename C>
-  auto makeOptionalGet(C map) {
+  auto makeOptionalGet(C &map) {
     return [&map](auto key) -> boost::optional<typename C::mapped_type> {
       auto it = map.find(key);
       if (it != std::end(map)) {

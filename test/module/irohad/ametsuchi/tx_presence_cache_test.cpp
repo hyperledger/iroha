@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -54,9 +56,9 @@ TYPED_TEST(TxPresenceCacheTemplateTest, StatusHashTest) {
   shared_model::crypto::Hash hash("1");
   EXPECT_CALL(*this->mock_block_query, checkTxPresence(hash))
       .WillOnce(Return(std::make_optional<TxCacheStatusType>(TypeParam(hash))));
-  TxPresenceCacheImpl cache(this->mock_storage);
+  auto cache = std::make_unique<TxPresenceCacheImpl>(this->mock_storage);
   TypeParam check_result;
-  ASSERT_NO_THROW(check_result = std::get<TypeParam>(*cache.check(hash)));
+  ASSERT_NO_THROW(check_result = std::get<TypeParam>(*cache->check(hash)));
   ASSERT_EQ(hash, check_result.hash);
 }
 
@@ -68,8 +70,8 @@ TYPED_TEST(TxPresenceCacheTemplateTest, StatusHashTest) {
 TEST_F(TxPresenceCacheTest, BadStorage) {
   EXPECT_CALL(*mock_storage, getBlockQuery()).WillRepeatedly(Return(nullptr));
   shared_model::crypto::Hash hash("1");
-  TxPresenceCacheImpl cache(mock_storage);
-  ASSERT_FALSE(cache.check(hash));
+  auto cache = std::make_unique<TxPresenceCacheImpl>(mock_storage);
+  ASSERT_FALSE(cache->check(hash));
 }
 
 /**
@@ -82,11 +84,11 @@ TEST_F(TxPresenceCacheTest, MissingThenCommittedHashTest) {
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
       .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Missing(hash))));
-  TxPresenceCacheImpl cache(mock_storage);
+  auto cache = std::make_unique<TxPresenceCacheImpl>(mock_storage);
   tx_cache_status_responses::Missing check_missing_result;
   ASSERT_NO_THROW(
       check_missing_result =
-          std::get<tx_cache_status_responses::Missing>(*cache.check(hash)));
+          std::get<tx_cache_status_responses::Missing>(*cache->check(hash)));
   ASSERT_EQ(hash, check_missing_result.hash);
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
       .WillOnce(Return(std::make_optional<TxCacheStatusType>(
@@ -94,7 +96,7 @@ TEST_F(TxPresenceCacheTest, MissingThenCommittedHashTest) {
   tx_cache_status_responses::Committed check_committed_result;
   ASSERT_NO_THROW(
       check_committed_result =
-          std::get<tx_cache_status_responses::Committed>(*cache.check(hash)));
+          std::get<tx_cache_status_responses::Committed>(*cache->check(hash)));
   ASSERT_EQ(hash, check_committed_result.hash);
 }
 
@@ -134,7 +136,7 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
   EXPECT_CALL(*tx3, reducedHash()).WillOnce(ReturnRefOfCopy(reduced_hash_3));
 
   shared_model::interface::types::SharedTxsCollectionType txs{tx1, tx2, tx3};
-  TxPresenceCacheImpl cache(mock_storage);
+  auto cache = std::make_unique<TxPresenceCacheImpl>(mock_storage);
 
   auto batch_factory = std::make_shared<MockTransactionBatchFactory>();
   EXPECT_CALL(*batch_factory, createTransactionBatch(txs))
@@ -153,7 +155,7 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
 
   batch_factory->createTransactionBatch(txs).match(
       [&](const auto &batch) {
-        auto batch_statuses = *cache.check(*batch.value);
+        auto batch_statuses = *cache->check(*batch.value);
         ASSERT_EQ(3, batch_statuses.size());
         tx_cache_status_responses::Rejected ts1;
         tx_cache_status_responses::Committed ts2;

@@ -494,7 +494,7 @@ namespace iroha {
             std::map<uint64_t, std::vector<uint64_t>> index;
             // unpack results to get map from block height to index of tx in
             // a block
-            for (const auto &t : range_without_nulls) {
+            for (auto t : range_without_nulls) {
               iroha::ametsuchi::apply(
                   t, [&index](auto &height, auto &idx, auto &) {
                     index[height].push_back(idx);
@@ -1560,8 +1560,7 @@ namespace iroha {
             for (const auto &row : range) {
               iroha::ametsuchi::apply(
                   row,
-                  [&q,
-                   &store_record,
+                  [&store_record,
                    &store_log,
                    &record,
                    &log,

@@ -298,7 +298,7 @@ namespace shared_model {
           return field_validator_.validateBatchMeta(*batch_meta);
         };
 
-        for (const auto &cmd : tx.commands() | boost::adaptors::indexed(1)) {
+        for (auto cmd : tx.commands() | boost::adaptors::indexed(1)) {
           boost::apply_visitor(command_validator_visitor_, cmd.value().get()) |
               [&cmd, &error_creator](auto error) {
                 error_creator.addChildError(ValidationError{
