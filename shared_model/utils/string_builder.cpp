@@ -37,7 +37,7 @@ namespace shared_model {
 
     PrettyStringBuilder &PrettyStringBuilder::append(const std::string &value) {
       appendPartial(value);
-      setElementBoundary();
+      need_field_separator_ = true;
       return *this;
     }
 
@@ -47,10 +47,6 @@ namespace shared_model {
         need_field_separator_ = false;
       }
       result_.append(value);
-    }
-
-    void PrettyStringBuilder::setElementBoundary() {
-      need_field_separator_ = true;
     }
 
     std::string PrettyStringBuilder::finalize() {
