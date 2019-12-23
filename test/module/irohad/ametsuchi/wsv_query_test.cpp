@@ -5,12 +5,12 @@
 
 #include <gmock/gmock.h>
 
-#include <backend/plain/account.hpp>
-#include <backend/plain/domain.hpp>
-#include <backend/plain/peer.hpp>
-#include <backend/plain/signature.hpp>
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "backend/plain/account.hpp"
+#include "backend/plain/domain.hpp"
+#include "backend/plain/peer.hpp"
+#include "backend/plain/signature.hpp"
 #include "framework/make_peer_pointee_matcher.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
@@ -51,20 +51,16 @@ namespace iroha {
      * @then peer list successfully received
      */
     TEST_F(WsvQueryTest, GetPeers) {
-      std::shared_ptr<shared_model::interface::Peer> peer1 =
-          std::make_shared<shared_model::plain::Peer>(
-              "some-address", "0a", std::nullopt);
-      command->insertPeer(*peer1);
-      std::shared_ptr<shared_model::interface::Peer> peer2 =
-          std::make_shared<shared_model::plain::Peer>(
-              "another-address", "0b", std::nullopt);
-      command->insertPeer(*peer2);
+      shared_model::plain::Peer peer1{"some-address", "0a", std::nullopt};
+      command->insertPeer(peer1);
+      shared_model::plain::Peer peer2{"another-address", "0b", std::nullopt};
+      command->insertPeer(peer2);
 
       auto result = query->getPeers();
       ASSERT_TRUE(result);
       ASSERT_THAT(*result,
-                  testing::ElementsAre(makePeerPointeeMatcher(peer1),
-                                       makePeerPointeeMatcher(peer2)));
+                  testing::ElementsAre(testing::Pointee(testing::Eq(peer1)),
+                                       testing::Pointee(testing::Eq(peer2))));
     }
 
     /**

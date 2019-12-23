@@ -35,7 +35,7 @@ using iroha::operator|;
   switch (v) { BOOST_PP_REPEAT(NUM_ELEMS, SWL, ) }
 
 #define SW_ALL_RIGHT(v) \
-  switch (v) { BOOST_PP_REPEAT(NUM_ELEMS, SWR, ) }
+  switch (v) { BOOST_PP_REPEAT(NUM_ELEMS, SWR, ) default : break; }
 
 namespace iroha {
   namespace utility_service {

@@ -55,7 +55,7 @@ namespace shared_model {
       if (transactions.empty()) {
         error_creator.addReason("Sequence is empty.");
       }
-      for (const auto &tx : transactions | boost::adaptors::indexed(1)) {
+      for (auto tx : transactions | boost::adaptors::indexed(1)) {
         validation::ValidationErrorCreator tx_error_creator;
         // perform stateless validation checks
         // check signatures validness

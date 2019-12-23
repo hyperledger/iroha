@@ -75,7 +75,7 @@ def genesis_block(admin, alice, test_permissions, multidomain=False):
     :return: a list of Iroha.command's
     """
     peer = primitive_pb2.Peer()
-    peer.address = '0.0.0.0:50541'
+    peer.address = '127.0.0.1:50541'
     peer.peer_key = IrohaCrypto.derive_public_key(admin['key'])
     commands = [
         command('AddPeer', peer=peer),

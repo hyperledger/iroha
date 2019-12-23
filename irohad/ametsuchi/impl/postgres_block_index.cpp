@@ -73,7 +73,7 @@ PostgresBlockIndex::PostgresBlockIndex(std::unique_ptr<Indexer> indexer,
 
 void PostgresBlockIndex::index(const shared_model::interface::Block &block) {
   auto height = block.height();
-  for (const auto &tx : block.transactions() | boost::adaptors::indexed(0)) {
+  for (auto tx : block.transactions() | boost::adaptors::indexed(0)) {
     const auto &creator_id = tx.value().creatorAccountId();
     const TxPosition position{height, static_cast<size_t>(tx.index())};
 

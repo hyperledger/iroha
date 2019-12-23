@@ -15,13 +15,12 @@ target_link_libraries(binary_test
     shared_model_cryptography
     )
 target_include_directories(binary_test PUBLIC ${PROJECT_SOURCE_DIR}/test)
-
-if (NOT USE_LIBURSA)
-    add_test(
-        NAME python_binary_test
-        COMMAND ${CMAKE_COMMAND} -E env
-        "PYTHON_INTERPRETER=${Python3_EXECUTABLE}"
-        "ROOT_DIR=${PROJECT_SOURCE_DIR}"
-        $<TARGET_FILE:binary_test> --gtest_filter=*/0*
+target_compile_definitions(binary_test PRIVATE
+    PYTHON_INTERPRETER="${Python3_EXECUTABLE}"
+    ROOT_DIR="${PROJECT_SOURCE_DIR}"
     )
-endif()
+
+add_test(
+    NAME python_binary_test
+    COMMAND $<TARGET_FILE:binary_test> --gtest_filter=*/0*
+)

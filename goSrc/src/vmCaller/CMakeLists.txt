@@ -3,8 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-find_library(golang REQUIRED)
-
 set(GOPATH_GENERATED "${CMAKE_BINARY_DIR}/gopath")
 
 if(NOT IS_DIRECTORY("${GOPATH_GENERATED}"))

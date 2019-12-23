@@ -5,6 +5,7 @@
 
 #include "integration/binary/launchers.hpp"
 
+#include <filesystem>
 #include <future>
 #include <sstream>
 #include <string>
@@ -70,6 +71,9 @@ namespace binary_test {
     std::string raw_payload;
     while (iss and std::getline(iss, packed_line) and packed_line.size() > 1) {
       raw_payload = packed_line.substr(1);
+      if (raw_payload.back() == '\r') {
+        raw_payload.pop_back();
+      }
       if (auto byte_string = iroha::hexstringToBytestring(raw_payload)) {
         auto binary_type = packed_line.at(0);
         switch (binary_type) {
@@ -114,11 +118,11 @@ namespace binary_test {
 
   std::string PythonLauncher::launchCommand(const std::string &example) {
     std::stringstream s;
-    // TODO, igor-egorov, 2018-06-30, IR-1488, avoid bash and use
-    // boost::filesystem
-    s << "bash -c \"${PYTHON_INTERPRETER} "
-         "${ROOT_DIR}/example/python/permissions/"
-      << example << ".py\"";
+    s << std::filesystem::path(PYTHON_INTERPRETER).string() << " "
+      << (std::filesystem::path(ROOT_DIR) / "example" / "python" / "permissions"
+          / example)
+             .replace_extension(".py")
+             .string();
     return s.str();
   }
 
