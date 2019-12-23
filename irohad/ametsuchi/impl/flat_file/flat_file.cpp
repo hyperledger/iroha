@@ -41,13 +41,13 @@ boost::optional<Identifier> FlatFile::name_to_id(const std::string &name) {
   }
 }
 
-boost::optional<std::unique_ptr<FlatFile>> FlatFile::create(
-    const std::string &path, logger::LoggerPtr log) {
+iroha::expected::Result<std::unique_ptr<FlatFile>, std::string>
+FlatFile::create(const std::string &path, logger::LoggerPtr log) {
   boost::system::error_code err;
   if (not boost::filesystem::is_directory(path, err)
       and not boost::filesystem::create_directory(path, err)) {
-    log->error("Cannot create storage dir: {}\n{}", path, err.message());
-    return boost::none;
+    return fmt::format(
+        "Cannot create storage dir '{}': {}", path, err.message());
   }
 
   BlockIdCollectionType files_found;

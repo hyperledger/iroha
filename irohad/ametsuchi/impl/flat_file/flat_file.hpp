@@ -11,6 +11,7 @@
 #include <memory>
 #include <set>
 
+#include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {
@@ -60,8 +61,8 @@ namespace iroha {
        * @param log - logger
        * @return created storage
        */
-      static boost::optional<std::unique_ptr<FlatFile>> create(
-          const std::string &path, logger::LoggerPtr log);
+      static iroha::expected::Result<std::unique_ptr<FlatFile>, std::string>
+      create(const std::string &path, logger::LoggerPtr log);
 
       bool add(Identifier id, const Bytes &blob) override;
 
