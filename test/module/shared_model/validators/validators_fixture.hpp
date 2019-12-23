@@ -6,6 +6,8 @@
 #ifndef IROHA_VALIDATORS_FIXTURE_HPP
 #define IROHA_VALIDATORS_FIXTURE_HPP
 
+#include <ciso646>
+
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>

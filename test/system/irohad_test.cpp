@@ -43,6 +43,9 @@
 // workaround for redefining -WERROR problem
 #undef RAPIDJSON_HAS_STDSTRING
 
+// workaround for Windows includes which redefine GetObject
+#undef GetObject
+
 #include "framework/config_helper.hpp"
 
 using namespace boost::process;

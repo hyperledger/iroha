@@ -7,6 +7,8 @@
 #define IROHA_QUERY_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/get_account.hpp"

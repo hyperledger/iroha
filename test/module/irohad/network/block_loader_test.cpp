@@ -68,11 +68,11 @@ class BlockLoaderTest : public testing::Test {
     grpc::ServerBuilder builder;
     int port = 0;
     builder.AddListeningPort(
-        "0.0.0.0:0", grpc::InsecureServerCredentials(), &port);
+        "127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
     builder.RegisterService(service.get());
     server = builder.BuildAndStart();
 
-    address = "0.0.0.0:" + std::to_string(port);
+    address = "127.0.0.1:" + std::to_string(port);
     peer = makePeer(address, peer_key);
 
     ASSERT_TRUE(server);

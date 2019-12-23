@@ -307,6 +307,8 @@ struct GetAccountDetailRecordIdTest
         requestedWriter(), requestedKey(), boost::none, page_size);
   }
 
+  using GetAccountDetailTest::validatePageResponse;
+
   void validatePageResponse(
       const QueryExecutorResult &response,
       boost::optional<shared_model::plain::AccountDetailRecordId>
