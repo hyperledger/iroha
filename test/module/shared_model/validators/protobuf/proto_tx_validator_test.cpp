@@ -6,7 +6,9 @@
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
 #include <gtest/gtest.h>
+#include <boost/optional/optional_io.hpp>
 #include "module/shared_model/validators/validators_fixture.hpp"
+#include "validators/validation_error_output.hpp"
 
 const static std::string rolename = "rolename";
 const static std::string account_id = "account@domain";
@@ -133,10 +135,7 @@ class ValidProtoTxValidatorTest
  */
 TEST_P(ValidProtoTxValidatorTest, ValidTxsTest) {
   auto tx = GetParam();
-
-  auto answer = validator.validate(tx);
-  ASSERT_FALSE(answer.hasErrors()) << answer.reason() << std::endl
-                                   << tx.DebugString();
+  ASSERT_EQ(validator.validate(tx), boost::none) << tx.DebugString();
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -165,9 +164,7 @@ class InvalidProtoTxValidatorTest
  */
 TEST_P(InvalidProtoTxValidatorTest, InvalidTxssTest) {
   auto tx = GetParam();
-
-  auto answer = validator.validate(tx);
-  ASSERT_TRUE(answer.hasErrors()) << tx.DebugString();
+  ASSERT_TRUE(validator.validate(tx)) << tx.DebugString();
 }
 
 INSTANTIATE_TEST_CASE_P(

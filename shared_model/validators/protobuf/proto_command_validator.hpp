@@ -20,7 +20,8 @@ namespace shared_model {
     class ProtoCommandValidator
         : public AbstractValidator<iroha::protocol::Command> {
      public:
-      Answer validate(const iroha::protocol::Command &command) const override;
+      boost::optional<ValidationError> validate(
+          const iroha::protocol::Command &command) const override;
     };
   }  // namespace validation
 }  // namespace shared_model

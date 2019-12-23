@@ -89,9 +89,8 @@ namespace shared_model {
       Proposal build() {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         auto result = Proposal(iroha::protocol::Proposal(proposal_));
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
+        if (auto error = stateless_validator_.validate(result)) {
+          throw std::invalid_argument(error->toString());
         }
         return result;
       }

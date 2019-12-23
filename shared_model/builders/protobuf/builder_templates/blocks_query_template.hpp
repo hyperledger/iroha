@@ -99,9 +99,8 @@ namespace shared_model {
       auto build() const {
         static_assert(S == (1 << TOTAL) - 1, "Required fields are not set");
         auto result = BlocksQuery(iroha::protocol::BlocksQuery(query_));
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          throw std::invalid_argument(answer.reason());
+        if (auto error = stateless_validator_.validate(result)) {
+          throw std::invalid_argument(error->toString());
         }
         return BT(std::move(result));
       }

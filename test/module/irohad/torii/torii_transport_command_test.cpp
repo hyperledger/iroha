@@ -157,10 +157,10 @@ TEST_F(CommandServiceTransportGrpcTest, ListTorii) {
 
   EXPECT_CALL(*proto_tx_validator, validate(_))
       .Times(kTimes)
-      .WillRepeatedly(Return(shared_model::validation::Answer{}));
+      .WillRepeatedly(Return(boost::none));
   EXPECT_CALL(*tx_validator, validate(_))
       .Times(kTimes)
-      .WillRepeatedly(Return(shared_model::validation::Answer{}));
+      .WillRepeatedly(Return(boost::none));
   EXPECT_CALL(
       *batch_factory,
       createTransactionBatch(
@@ -186,11 +186,10 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiInvalid) {
     request.add_transactions();
   }
 
-  shared_model::validation::Answer error;
-  error.addReason(std::make_pair("some error", std::vector<std::string>{}));
+  shared_model::validation::ValidationError error{"some error", {}};
   EXPECT_CALL(*proto_tx_validator, validate(_))
       .Times(AtLeast(1))
-      .WillRepeatedly(Return(shared_model::validation::Answer{}));
+      .WillRepeatedly(Return(boost::none));
   EXPECT_CALL(*tx_validator, validate(_))
       .Times(AtLeast(1))
       .WillRepeatedly(Return(error));
@@ -221,16 +220,17 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiPartialInvalid) {
   size_t counter = 0;
   EXPECT_CALL(*proto_tx_validator, validate(_))
       .Times(kTimes)
-      .WillRepeatedly(Return(shared_model::validation::Answer{}));
+      .WillRepeatedly(Return(boost::none));
   EXPECT_CALL(*tx_validator, validate(_))
       .Times(kTimes)
-      .WillRepeatedly(Invoke([this, &counter, kError](const auto &) mutable {
-        shared_model::validation::Answer res;
-        if (counter++ == kTimes - 1) {
-          res.addReason(std::make_pair(kError, std::vector<std::string>{}));
-        }
-        return res;
-      }));
+      .WillRepeatedly(
+          Invoke([this, &counter, kError](const auto &) mutable
+                 -> boost::optional<shared_model::validation::ValidationError> {
+            if (counter++ == kTimes - 1) {
+              return shared_model::validation::ValidationError{kError, {}};
+            }
+            return boost::none;
+          }));
   EXPECT_CALL(
       *batch_factory,
       createTransactionBatch(

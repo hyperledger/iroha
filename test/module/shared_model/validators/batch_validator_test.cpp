@@ -6,9 +6,12 @@
 #include "validators/transaction_batch_validator.hpp"
 
 #include <gtest/gtest.h>
+#include <boost/optional/optional_io.hpp>
 #include "framework/batch_helper.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "validators/default_validator.hpp"
+#include "validators/validation_error_output.hpp"
 
 struct BatchValidatorFixture : public ::testing::Test {
   auto getValidator(bool allow_partial_ordered_batches) {
@@ -17,7 +20,8 @@ struct BatchValidatorFixture : public ::testing::Test {
         shared_model::validation::getDefaultSettings(),
         allow_partial_ordered_batches);
     auto validator =
-        std::make_shared<shared_model::validation::BatchValidator>(config);
+        std::make_shared<shared_model::validation::DefaultBatchValidator>(
+            config);
     return validator;
   }
 };
@@ -35,8 +39,7 @@ TEST_F(BatchValidatorFixture, PartialOrderedWhenPartialsAllowed) {
   txs.pop_back();
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  auto result = validator->validate(*batch);
-  ASSERT_FALSE(result.hasErrors());
+  ASSERT_EQ(validator->validate(*batch), boost::none);
 }
 
 /**
@@ -52,10 +55,10 @@ TEST_F(BatchValidatorFixture, AtomicBatchWithMissingTransactions) {
   txs.pop_back();
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  auto result = validator->validate(*batch);
-  ASSERT_TRUE(result.hasErrors());
-  ASSERT_THAT(
-      result.reason(),
+  auto error = validator->validate(*batch);
+  ASSERT_TRUE(error);
+  EXPECT_THAT(
+      error->toString(),
       ::testing::HasSubstr(
           "Sizes of batch_meta and provided transactions are different"));
 }
@@ -72,8 +75,7 @@ TEST_F(BatchValidatorFixture, ComleteOrderedWhenPartialsDisallowed) {
       {"alice@iroha", "bob@iroha", "donna@iroha"});
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  auto result = validator->validate(*batch);
-  ASSERT_FALSE(result.hasErrors());
+  ASSERT_EQ(validator->validate(*batch), boost::none);
 }
 
 /**
@@ -93,11 +95,11 @@ TEST_F(BatchValidatorFixture,
   std::swap(txs[0], txs[1]);
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  auto result = validator->validate(*batch);
-  ASSERT_TRUE(result.hasErrors());
-  ASSERT_THAT(result.reason(),
-              ::testing::HasSubstr("Hashes of provided transactions and ones "
-                                   "in batch_meta are different"));
+  auto error = validator->validate(*batch);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(),
+              ::testing::HasSubstr(
+                  "The corresponding hash in batch meta is out of order."));
 }
 
 /**
@@ -112,8 +114,7 @@ TEST_F(BatchValidatorFixture, DuplicateTransactions) {
       {"alice@iroha", "bob@iroha", "alice@iroha"});
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  auto result = validator->validate(*batch);
-  ASSERT_TRUE(result.hasErrors());
-  ASSERT_THAT(result.reason(),
-              ::testing::HasSubstr("Batch contains duplicate transactions"));
+  auto error = validator->validate(*batch);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), ::testing::HasSubstr("Duplicates hash #1"));
 }

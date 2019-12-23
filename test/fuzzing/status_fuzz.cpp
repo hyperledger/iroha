@@ -107,7 +107,7 @@ struct CommandFixture {
     std::shared_ptr<shared_model::validation::AbstractValidator<
         shared_model::interface::TransactionBatch>>
         batch_validator =
-            std::make_shared<shared_model::validation::BatchValidator>(
+            std::make_shared<shared_model::validation::DefaultBatchValidator>(
                 iroha::test::kTestsValidatorsConfig);
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory = std::make_shared<

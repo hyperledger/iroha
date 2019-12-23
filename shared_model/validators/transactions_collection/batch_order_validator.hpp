@@ -6,28 +6,25 @@
 #ifndef IROHA_BATCH_ORDER_VALIDATOR_HPP
 #define IROHA_BATCH_ORDER_VALIDATOR_HPP
 
-#include "validators/transactions_collection/order_validator.hpp"
-
-#include <boost/optional.hpp>
+#include <boost/optional/optional_fwd.hpp>
+#include "interfaces/common_objects/transaction_sequence_common.hpp"
+#include "validators/validators_common.hpp"
 
 namespace shared_model {
   namespace validation {
-    class BatchOrderValidator : public OrderValidator {
-     private:
-      /**
-       * check order of transaction, recieves 2 consequtive transactions in
-       * sequence and check weater they can be a part of correct sequence
-       * @param t1, t2 transactions to check the order of boost::none to specify
-       * beginning or end of sequence
-       * @return empty string if order is correct or error message
-       */
-      std::string canFollow(
-          boost::optional<std::shared_ptr<interface::Transaction>> tr1,
-          boost::optional<std::shared_ptr<interface::Transaction>> tr2) const;
+    struct ValidationError;
 
+    class BatchOrderValidator {
      public:
-      virtual Answer validate(const interface::types::SharedTxsCollectionType
-                                  &transactions) const override;
+      BatchOrderValidator(std::shared_ptr<ValidatorsConfig> config);
+
+      boost::optional<ValidationError> validate(
+          const interface::types::TransactionsForwardCollectionType
+              &transactions) const;
+
+     private:
+      const uint64_t max_batch_size_;
+      const bool partial_ordered_batches_are_valid_;
     };
   }  // namespace validation
 }  // namespace shared_model
