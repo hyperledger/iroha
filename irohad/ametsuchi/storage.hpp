@@ -15,7 +15,7 @@
 #include "ametsuchi/query_executor_factory.hpp"
 #include "ametsuchi/setting_query_factory.hpp"
 #include "ametsuchi/temporary_factory.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace interface {

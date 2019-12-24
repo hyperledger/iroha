@@ -7,6 +7,7 @@
 
 #include <boost/range/size.hpp>
 #include "common/bind.hpp"
+#include "common/result.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
@@ -39,32 +40,42 @@ namespace iroha {
           });
     }
 
-    std::unique_ptr<shared_model::interface::QueryResponse>
+    iroha::expected::Result<
+        std::unique_ptr<shared_model::interface::QueryResponse>,
+        std::string>
     QueryProcessorImpl::queryHandle(const shared_model::interface::Query &qry) {
-      auto executor = qry_exec_->createQueryExecutor(pending_transactions_,
-                                                     response_factory_);
-      if (not executor) {
-        log_->error("Cannot create query executor");
-        return nullptr;
-      }
-
-      return executor.value()->validateAndExecute(qry, true);
+      return qry_exec_->createQueryExecutor(pending_transactions_,
+                                            response_factory_)
+          | [&](auto &&executor) {
+              return executor->validateAndExecute(qry, true);
+            };
     }
 
     rxcpp::observable<
         std::shared_ptr<shared_model::interface::BlockQueryResponse>>
     QueryProcessorImpl::blocksQueryHandle(
         const shared_model::interface::BlocksQuery &qry) {
-      auto exec = qry_exec_->createQueryExecutor(pending_transactions_,
-                                                 response_factory_);
-      if (not exec or not(exec | [&qry](const auto &executor) {
-            return executor->validate(qry, true);
-          })) {
-        std::shared_ptr<shared_model::interface::BlockQueryResponse> response =
-            response_factory_->createBlockQueryResponse("stateful invalid");
+      using shared_model::interface::BlockQueryResponse;
+      auto make_error = [this](std::string &&error)
+          -> rxcpp::observable<std::shared_ptr<BlockQueryResponse>> {
+        std::shared_ptr<BlockQueryResponse> response =
+            response_factory_->createBlockQueryResponse(std::move(error));
         return rxcpp::observable<>::just(std::move(response));
-      }
-      return blocks_query_subject_.get_observable();
+      };
+
+      return qry_exec_
+          ->createQueryExecutor(pending_transactions_, response_factory_)
+          .match(
+              [&](const auto &executor) {
+                if (executor.value->validate(qry, true)) {
+                  return blocks_query_subject_.get_observable();
+                }
+                return make_error("stateful invalid");
+              },
+              [&](const auto &e) {
+                log_->error("Could not validate query: {}", e.error);
+                return make_error("Internal error during query validation.");
+              });
     }
 
   }  // namespace torii
