@@ -285,9 +285,7 @@ Packaging Specific Parameters
 +-----------------------+-----------------+---------+--------------------------------------------+
 | Parameter             | Possible values | Default | Description                                |
 +=======================+=================+=========+============================================+
-| ENABLE_LIBS_PACKAGING |      ON/OFF     | ON      | Enables or disables all types of packaging |
-+-----------------------+                 +---------+--------------------------------------------+
-| PACKAGE_ZIP           |                 | OFF     | Enables or disables zip packaging          |
+| PACKAGE_ZIP           |      ON/OFF     | OFF     | Enables or disables zip packaging          |
 +-----------------------+                 +---------+--------------------------------------------+
 | PACKAGE_TGZ           |                 | OFF     | Enables or disables tar.gz packaging       |
 +-----------------------+                 +---------+--------------------------------------------+
