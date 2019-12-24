@@ -43,9 +43,15 @@ set_target_properties(RapidJSON::rapidjson PROPERTIES
 )
 
 ##########################
-#           pq           #
+#         libpq          #
 ##########################
-find_package(pq)
+find_package(PostgreSQL REQUIRED)
+
+find_package(OpenSSL REQUIRED)
+target_link_libraries(PostgreSQL::PostgreSQL
+  INTERFACE
+  OpenSSL::SSL
+  )
 
 ##########################
 #          SOCI          #
@@ -75,12 +81,6 @@ find_package(Boost 1.65.0 REQUIRED
     filesystem
     thread
     )
-
-if(ENABLE_LIBS_PACKAGING)
-  foreach (library ${Boost_LIBRARIES})
-    add_install_step_for_lib(${library})
-  endforeach(library)
-endif()
 
 ##########################
 #       benchmark        #
