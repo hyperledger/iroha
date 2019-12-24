@@ -24,6 +24,7 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
        boolean packageBuild, boolean useBTF, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
+    buildDir = 'build'
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
         bat '''
@@ -31,7 +32,16 @@ cmake -H.\\ -B.\\build -DBENCHMARKING=ON -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scrip
 cmake --build .\\build
         '''
       }
-    }
+      if (testing) {
+          stage("Test ${compiler}") {
+            // coverage ? build.initialCoverage(buildDir) : echo('Skipping initial coverage...')
+            testSteps(buildDir, environment, testList)
+            // coverage ? build.postCoverage(buildDir, '/tmp/lcov_cobertura.py') : echo('Skipping post coverage...')
+            // We run coverage once, using the first compiler as it is enough
+            // coverage = false
+          }
+        } //end if
+    } //end for
   }
 }
 
