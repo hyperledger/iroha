@@ -61,7 +61,7 @@ class ToriiQueriesTest : public testing::Test {
         ip + ":0", getTestLogger("ServerRunner"));
     wsv_query = std::make_shared<MockWsvQuery>();
     block_query = std::make_shared<MockBlockQuery>();
-    query_executor = std::make_shared<MockQueryExecutor>();
+    query_executor = new MockQueryExecutor();
     storage = std::make_shared<MockStorage>();
     pending_txs_storage =
         std::make_shared<iroha::MockPendingTransactionStorage>();
@@ -72,9 +72,9 @@ class ToriiQueriesTest : public testing::Test {
 
     EXPECT_CALL(*storage, getWsvQuery()).WillRepeatedly(Return(wsv_query));
     EXPECT_CALL(*storage, getBlockQuery()).WillRepeatedly(Return(block_query));
-    EXPECT_CALL(*storage, createQueryExecutor(_, _))
-        .WillRepeatedly(Return(boost::make_optional(
-            std::shared_ptr<QueryExecutor>(query_executor))));
+    EXPECT_CALL(*storage, createQueryExecutorRaw(_, _))
+        .Times(::testing::AtMost(1))
+        .WillRepeatedly(Return(query_executor));
 
     auto qpi = std::make_shared<iroha::torii::QueryProcessorImpl>(
         storage,
@@ -134,7 +134,7 @@ class ToriiQueriesTest : public testing::Test {
 
   std::shared_ptr<MockWsvQuery> wsv_query;
   std::shared_ptr<MockBlockQuery> block_query;
-  std::shared_ptr<MockQueryExecutor> query_executor;
+  MockQueryExecutor *query_executor;
   std::shared_ptr<MockStorage> storage;
   std::shared_ptr<iroha::MockPendingTransactionStorage> pending_txs_storage;
   std::shared_ptr<shared_model::interface::QueryResponseFactory>
