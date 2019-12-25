@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
@@ -53,7 +54,7 @@ TEST_F(FlatFileBlockStorageTest, Creation) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
           .create();
-  ASSERT_TRUE(block_storage);
+  IROHA_ASSERT_RESULT_VALUE(block_storage);
 }
 
 /**
@@ -64,7 +65,8 @@ TEST_F(FlatFileBlockStorageTest, Creation) {
 TEST_F(FlatFileBlockStorageTest, Insert) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   ASSERT_TRUE(block_storage->insert(block_));
   ASSERT_FALSE(block_storage->insert(block_));
 }
@@ -77,7 +79,8 @@ TEST_F(FlatFileBlockStorageTest, Insert) {
 TEST_F(FlatFileBlockStorageTest, FetchExisting) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   ASSERT_TRUE(block_storage->insert(block_));
 
   shared_model::interface::Block *raw_block;
@@ -107,7 +110,8 @@ TEST_F(FlatFileBlockStorageTest, FetchExisting) {
 TEST_F(FlatFileBlockStorageTest, FetchNonexistent) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   auto block_var = block_storage->fetch(height_);
   ASSERT_FALSE(block_var);
 }
@@ -120,7 +124,8 @@ TEST_F(FlatFileBlockStorageTest, FetchNonexistent) {
 TEST_F(FlatFileBlockStorageTest, Size) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   ASSERT_TRUE(block_storage->insert(block_));
 
   ASSERT_EQ(1, block_storage->size());
@@ -134,7 +139,8 @@ TEST_F(FlatFileBlockStorageTest, Size) {
 TEST_F(FlatFileBlockStorageTest, Clear) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   ASSERT_TRUE(block_storage->insert(block_));
 
   block_storage->clear();
@@ -152,7 +158,8 @@ TEST_F(FlatFileBlockStorageTest, Clear) {
 TEST_F(FlatFileBlockStorageTest, ForEach) {
   auto block_storage =
       FlatFileBlockStorageFactory(path_provider_, converter_, log_manager_)
-          .create();
+          .create()
+          .assumeValue();
   ASSERT_TRUE(block_storage->insert(block_));
 
   shared_model::interface::Block *raw_block;

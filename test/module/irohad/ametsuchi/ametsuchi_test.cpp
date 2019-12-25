@@ -409,7 +409,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenInsertBlock) {
   log->info("Try insert block");
 
   auto inserted = storage->insertBlock(getBlock());
-  ASSERT_TRUE(inserted);
+  IROHA_ASSERT_RESULT_VALUE(inserted);
 
   log->info("Request ledger information");
 
@@ -506,7 +506,7 @@ class RestoreWsvTest : public AmetsuchiTest {
   void rewriteBlockStorage(const std::vector<BlockPtr> &blocks) {
     destroyWsvStorage();
     block_storage_->clear();
-    block_storage_ = InMemoryBlockStorageFactory{}.create();
+    block_storage_ = InMemoryBlockStorageFactory{}.create().assumeValue();
     for (const auto &block : blocks) {
       EXPECT_TRUE(block_storage_->insert(block));
     }

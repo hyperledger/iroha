@@ -75,7 +75,8 @@ class PostgresBlockStorageTest : public ::testing::Test {
                                     block_factory_,
                                     [&]() { return test_table_; },
                                     getTestLogger("PostgresBlockStorage"))
-            .create();
+            .create()
+            .assumeValue();
   }
 
   void TearDown() override {

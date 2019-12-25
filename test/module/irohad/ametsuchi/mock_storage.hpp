@@ -29,7 +29,8 @@ namespace iroha {
           std::unique_ptr<TemporaryWsv>(std::shared_ptr<CommandExecutor>));
       MOCK_METHOD1(
           createMutableStorage,
-          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>));
+          iroha::expected::Result<std::unique_ptr<MutableStorage>, std::string>(
+              std::shared_ptr<CommandExecutor>));
       MOCK_CONST_METHOD0(createPeerQuery,
                          boost::optional<std::shared_ptr<PeerQuery>>());
       MOCK_CONST_METHOD0(createBlockQuery,
@@ -49,11 +50,12 @@ namespace iroha {
           commitPrepared,
           CommitResult(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(insertBlock,
-                   bool(std::shared_ptr<const shared_model::interface::Block>));
+                   iroha::expected::Result<void, std::string>(
+                       std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD2(
           createMutableStorage,
-          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>,
-                                          BlockStorageFactory &));
+          iroha::expected::Result<std::unique_ptr<MutableStorage>, std::string>(
+              std::shared_ptr<CommandExecutor>, BlockStorageFactory &));
 
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(
