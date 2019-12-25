@@ -28,7 +28,8 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
         bat '''
-cmake -H.\\ -B.\\build -DBENCHMARKING=ON -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake -G "Visual Studio 16 2019" -A x64 -T host=x64 &&^
+call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat" &&^
+cmake -H.\\ -B.\\build -DBENCHMARKING=ON -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake -GNinja &&^
 cmake --build .\\build
         '''
       }
