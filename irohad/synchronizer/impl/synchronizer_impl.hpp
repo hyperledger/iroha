@@ -12,6 +12,7 @@
 #include "ametsuchi/commit_result.hpp"
 #include "ametsuchi/mutable_factory.hpp"
 #include "ametsuchi/peer_query_factory.hpp"
+#include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 #include "network/block_loader.hpp"
 #include "network/consensus_gate.hpp"
@@ -68,7 +69,9 @@ namespace iroha {
           const consensus::Synchronizable &msg,
           shared_model::interface::types::HeightType required_height);
 
-      std::unique_ptr<ametsuchi::MutableStorage> getStorage();
+      iroha::expected::Result<std::unique_ptr<ametsuchi::MutableStorage>,
+                              std::string>
+      getStorage();
 
       std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor_;
 

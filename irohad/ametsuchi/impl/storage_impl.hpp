@@ -60,7 +60,8 @@ namespace iroha {
       std::unique_ptr<TemporaryWsv> createTemporaryWsv(
           std::shared_ptr<CommandExecutor> command_executor) override;
 
-      std::unique_ptr<MutableStorage> createMutableStorage(
+      iroha::expected::Result<std::unique_ptr<MutableStorage>, std::string>
+      createMutableStorage(
           std::shared_ptr<CommandExecutor> command_executor) override;
 
       boost::optional<std::shared_ptr<PeerQuery>> createPeerQuery()
@@ -78,15 +79,15 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory) const override;
 
-      bool insertBlock(
+      iroha::expected::Result<void, std::string> insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
       expected::Result<void, std::string> insertPeer(
           const shared_model::interface::Peer &peer) override;
 
-      std::unique_ptr<MutableStorage> createMutableStorage(
-          std::shared_ptr<CommandExecutor> command_executor,
-          BlockStorageFactory &storage_factory) override;
+      iroha::expected::Result<std::unique_ptr<MutableStorage>, std::string>
+      createMutableStorage(std::shared_ptr<CommandExecutor> command_executor,
+                           BlockStorageFactory &storage_factory) override;
 
       void resetPeers() override;
 

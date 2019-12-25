@@ -64,7 +64,7 @@ namespace iroha {
             integration_framework::kDefaultWorkingDatabaseName,
             storage_logger_);
 
-        block_storage_ = InMemoryBlockStorageFactory{}.create();
+        block_storage_ = InMemoryBlockStorageFactory{}.create().assumeValue();
 
         initializeStorage();
       }
@@ -177,7 +177,7 @@ namespace iroha {
 
       /// Create mutable storage from initialized storage
       std::unique_ptr<ametsuchi::MutableStorage> createMutableStorage() {
-        return storage->createMutableStorage(command_executor);
+        return storage->createMutableStorage(command_executor).assumeValue();
       }
 
       // this is for resolving private visibility issues

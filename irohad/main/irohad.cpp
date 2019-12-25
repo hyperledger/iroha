@@ -368,8 +368,9 @@ int main(int argc, char *argv[]) {
       irohad->dropStorage();
 
       const auto txs_num = block->transactions().size();
-      if (not irohad->storage->insertBlock(std::move(block))) {
-        log->critical("Could not apply genesis block!");
+      if (auto e = iroha::expected::resultToOptionalError(
+              irohad->storage->insertBlock(std::move(block)))) {
+        log->critical("Could not apply genesis block: {}", e.value());
         return EXIT_FAILURE;
       }
       log->info("Genesis block inserted, number of transactions: {}", txs_num);

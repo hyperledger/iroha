@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/block.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
@@ -42,7 +43,7 @@ class InMemoryBlockStorageTest : public ::testing::Test {
 TEST(InMemoryBlockStorageFactoryTest, Creation) {
   InMemoryBlockStorageFactory factory;
 
-  ASSERT_TRUE(factory.create());
+  IROHA_ASSERT_RESULT_VALUE(factory.create());
 }
 
 /**
