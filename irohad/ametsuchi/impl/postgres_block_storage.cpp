@@ -54,10 +54,10 @@ PostgresBlockStorage::~PostgresBlockStorage() {
 
 bool PostgresBlockStorage::insert(
     std::shared_ptr<const shared_model::interface::Block> block) {
-  auto inserted_height = block->height();
+  const auto inserted_height = block->height();
 
   if (block_height_range_) {
-    auto &current_top = block_height_range_->max;
+    const auto current_top = block_height_range_->max;
     if (inserted_height != current_top + 1) {
       log_->warn(
           "Only blocks with sequential heights could be inserted. "
@@ -66,9 +66,6 @@ bool PostgresBlockStorage::insert(
           inserted_height);
       return false;
     }
-    ++current_top;
-  } else {
-    block_height_range_ = HeightRange{inserted_height, inserted_height};
   }
 
   auto b = block->blob().hex();
@@ -82,6 +79,14 @@ bool PostgresBlockStorage::insert(
   log_->debug("insert block {}: {}", inserted_height, b);
   try {
     st.execute(true);
+
+    if (block_height_range_) {
+      assert(block_height_range_->max + 1 == inserted_height);
+      ++block_height_range_->max;
+    } else {
+      block_height_range_ = HeightRange{inserted_height, inserted_height};
+    }
+
     return true;
   } catch (const std::exception &e) {
     log_->warn(
