@@ -105,15 +105,15 @@ namespace {
   }
 }  // namespace
 
-namespace iroha {
-  namespace ametsuchi {
-    CommitResult WsvRestorerImpl::restoreWsv(Storage &storage) {
-      return storage.createCommandExecutor() |
-                 [&storage](auto &&command_executor) -> CommitResult {
-        BlockStorageStubFactory storage_factory;
+namespace iroha::ametsuchi {
+  CommitResult WsvRestorerImpl::restoreWsv(Storage &storage) {
+    return storage.createCommandExecutor() |
+               [&storage](auto &&command_executor) -> CommitResult {
+      BlockStorageStubFactory storage_factory;
 
-        auto mutable_storage = storage.createMutableStorage(
-            std::move(command_executor), storage_factory);
+      return storage.createMutableStorage(std::move(command_executor),
+                                          storage_factory)
+                 | [&storage](auto &&mutable_storage) -> CommitResult {
         auto block_query = storage.getBlockQuery();
         if (not block_query) {
           return expected::makeError("Cannot create BlockQuery");
@@ -134,8 +134,8 @@ namespace iroha {
                 wsv_ledger_height,
                 last_block_in_storage);
           }
-          // check that a block with that height is present in the block storage
-          // and that its hash matches
+          // check that a block with that height is present in the block
+          // storage and that its hash matches
           auto check_top_block =
               block_query->getBlock(wsv_top_block_info.height)
                   .match(
@@ -175,6 +175,6 @@ namespace iroha {
                              wsv_ledger_height + 1,
                              last_block_in_storage);
       };
-    }
-  }  // namespace ametsuchi
-}  // namespace iroha
+    };
+  }
+}  // namespace iroha::ametsuchi

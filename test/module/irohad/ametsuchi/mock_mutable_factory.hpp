@@ -17,7 +17,8 @@ namespace iroha {
      public:
       MOCK_METHOD1(
           createMutableStorage,
-          std::unique_ptr<MutableStorage>(std::shared_ptr<CommandExecutor>));
+          iroha::expected::Result<std::unique_ptr<MutableStorage>, std::string>(
+              std::shared_ptr<CommandExecutor>));
 
       CommitResult commit(
           std::unique_ptr<MutableStorage> mutableStorage) override {

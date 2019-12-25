@@ -51,7 +51,7 @@ namespace iroha {
        * @param block - block for insertion
        * @return true if inserted
        */
-      virtual bool insertBlock(
+      virtual iroha::expected::Result<void, std::string> insertBlock(
           std::shared_ptr<const shared_model::interface::Block> block) = 0;
 
       /**
@@ -75,9 +75,10 @@ namespace iroha {
        * Creates a mutable storage from the current state
        * @return Created mutable storage.
        */
-      virtual std::unique_ptr<MutableStorage> createMutableStorage(
-          std::shared_ptr<CommandExecutor> command_executor,
-          BlockStorageFactory &storage_factory) = 0;
+      virtual iroha::expected::Result<std::unique_ptr<MutableStorage>,
+                                      std::string>
+      createMutableStorage(std::shared_ptr<CommandExecutor> command_executor,
+                           BlockStorageFactory &storage_factory) = 0;
 
       /**
        * method called when block is written to the storage

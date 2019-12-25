@@ -11,7 +11,7 @@
 #include <boost/optional.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/commit_result.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -31,7 +31,9 @@ namespace iroha {
        * Mutable storage is the only way to commit the block to the ledger.
        * @return Created mutable storage
        */
-      virtual std::unique_ptr<MutableStorage> createMutableStorage(
+      virtual iroha::expected::Result<std::unique_ptr<MutableStorage>,
+                                      std::string>
+      createMutableStorage(
           std::shared_ptr<CommandExecutor> command_executor) = 0;
 
       /**

@@ -10,6 +10,7 @@
 #include <boost/filesystem/fstream.hpp>
 #include "common/byteutils.hpp"
 #include "common/files.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
 
@@ -36,8 +37,8 @@ class BlStore_Test : public ::testing::Test {
 
 TEST_F(BlStore_Test, Read_Write_Test) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto id = 1u;
 
   bl_store->add(id, block);
@@ -67,8 +68,8 @@ TEST_F(BlStore_Test, BlockStoreWhenRemoveBlock) {
         "|----------");
 
     auto store = FlatFile::create(block_store_path, flat_file_log_);
-    ASSERT_TRUE(store);
-    auto bl_store = std::move(*store);
+    IROHA_ASSERT_RESULT_VALUE(store);
+    auto bl_store = std::move(store).assumeValue();
 
     // Adding three blocks
     auto id = 1u;
@@ -82,8 +83,8 @@ TEST_F(BlStore_Test, BlockStoreWhenRemoveBlock) {
   log_->info("----------| remove second and init new storage |----------");
   fs::remove(fs::path(block_store_path) / "0000000000000002");
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto res = bl_store->last_id();
   ASSERT_EQ(res, 3);
 }
@@ -94,8 +95,8 @@ TEST_F(BlStore_Test, BlockStoreWhenAbsentFolder) {
       "make storage => remove storage |----------");
   fs::remove_all(block_store_path);
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto id = 1u;
   bl_store->add(id, block);
   auto res = bl_store->last_id();
@@ -110,8 +111,8 @@ TEST_F(BlStore_Test, BlockStoreWhenAbsentFolder) {
  */
 TEST_F(BlStore_Test, BlockStoreInitializationFromNonemptyFolder) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store1 = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store1 = std::move(store).assumeValue();
 
   // Add two blocks to storage
   bl_store1->add(1u, std::vector<uint8_t>(1000, 5));
@@ -119,8 +120,8 @@ TEST_F(BlStore_Test, BlockStoreInitializationFromNonemptyFolder) {
 
   // create second block storage from the same folder
   auto store2 = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store2);
-  auto bl_store2 = std::move(*store2);
+  IROHA_ASSERT_RESULT_VALUE(store2);
+  auto bl_store2 = std::move(store2).assumeValue();
 
   // check that last ids of both block storages are the same
   ASSERT_EQ(bl_store1->last_id(), bl_store2->last_id());
@@ -133,8 +134,8 @@ TEST_F(BlStore_Test, BlockStoreInitializationFromNonemptyFolder) {
  */
 TEST_F(BlStore_Test, GetNonExistingFile) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   Identifier id = 98759385;  // random number that does not exist
   auto res = bl_store->get(id);
   ASSERT_FALSE(res);
@@ -147,8 +148,8 @@ TEST_F(BlStore_Test, GetNonExistingFile) {
  */
 TEST_F(BlStore_Test, GetDirectory) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   ASSERT_EQ(bl_store->directory(), block_store_path);
 }
 
@@ -159,8 +160,8 @@ TEST_F(BlStore_Test, GetDirectory) {
  */
 TEST_F(BlStore_Test, GetDeniedBlock) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto id = 1u;
   bl_store->add(id, block);
 
@@ -178,8 +179,8 @@ TEST_F(BlStore_Test, GetDeniedBlock) {
  */
 TEST_F(BlStore_Test, AddExistingId) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto id = 1u;
   const auto file_name = fs::path(block_store_path) / FlatFile::id_to_name(id);
   std::ofstream fout(file_name.string());
@@ -196,7 +197,7 @@ TEST_F(BlStore_Test, AddExistingId) {
  */
 TEST_F(BlStore_Test, WriteEmptyFolder) {
   auto bl_store = FlatFile::create("", flat_file_log_);
-  ASSERT_FALSE(bl_store);
+  IROHA_ASSERT_RESULT_ERROR(bl_store);
 }
 
 /**
@@ -206,8 +207,8 @@ TEST_F(BlStore_Test, WriteEmptyFolder) {
  */
 TEST_F(BlStore_Test, WriteDeniedFolder) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   auto id = 1u;
 
   fs::remove(fs::path(block_store_path));
@@ -222,8 +223,8 @@ TEST_F(BlStore_Test, WriteDeniedFolder) {
  */
 TEST_F(BlStore_Test, RandomNumbers) {
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
   bl_store->add(5, block);
   bl_store->add(22, block);
   bl_store->add(11, block);
@@ -242,8 +243,8 @@ TEST_F(BlStore_Test, RandomNumbers) {
 TEST_F(BlStore_Test, RemoveAndCreateNew) {
   {
     auto store = FlatFile::create(block_store_path, flat_file_log_);
-    ASSERT_TRUE(store);
-    auto bl_store = std::move(*store);
+    IROHA_ASSERT_RESULT_VALUE(store);
+    auto bl_store = std::move(store).assumeValue();
 
     bl_store->add(4, block);
     bl_store->add(17, block);
@@ -251,8 +252,8 @@ TEST_F(BlStore_Test, RemoveAndCreateNew) {
   }
 
   auto store = FlatFile::create(block_store_path, flat_file_log_);
-  ASSERT_TRUE(store);
-  auto bl_store = std::move(*store);
+  IROHA_ASSERT_RESULT_VALUE(store);
+  auto bl_store = std::move(store).assumeValue();
 
   ASSERT_TRUE(bl_store->get(4));
   ASSERT_TRUE(bl_store->get(17));

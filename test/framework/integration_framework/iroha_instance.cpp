@@ -83,8 +83,9 @@ namespace integration_framework {
 
   void IrohaInstance::rawInsertBlock(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    if (not instance_->storage->insertBlock(block)) {
-      log_->warn("Could not insert block {}!", block->height());
+    if (auto e = iroha::expected::resultToOptionalError(
+            instance_->storage->insertBlock(block))) {
+      log_->warn("Could not insert block {}: {}", block->height(), e.value());
     }
   }
 

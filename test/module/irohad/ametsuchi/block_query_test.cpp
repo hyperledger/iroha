@@ -15,6 +15,7 @@
 #include "converters/protobuf/json_proto_converter.hpp"
 #include "datetime/time.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/irohad/ametsuchi/mock_block_storage.hpp"
@@ -31,8 +32,8 @@ class BlockQueryTest : public AmetsuchiTest {
     AmetsuchiTest::SetUp();
 
     auto tmp = FlatFile::create(block_store_path, getTestLogger("FlatFile"));
-    ASSERT_TRUE(tmp);
-    file = std::move(*tmp);
+    IROHA_ASSERT_RESULT_VALUE(tmp);
+    file = std::move(tmp).assumeValue();
     mock_block_storage = std::make_shared<MockBlockStorage>();
     sql = std::make_unique<soci::session>(*soci::factory_postgresql(), pgopt_);
 
@@ -42,7 +43,7 @@ class BlockQueryTest : public AmetsuchiTest {
         std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
     auto block_storage_factory = std::make_unique<FlatFileBlockStorageFactory>(
         []() { return block_store_path; }, converter, getTestLoggerManager());
-    block_storage = block_storage_factory->create();
+    block_storage = block_storage_factory->create().assumeValue();
     blocks = std::make_shared<PostgresBlockQuery>(
         *sql, *block_storage, getTestLogger("BlockQuery"));
     empty_blocks = std::make_shared<PostgresBlockQuery>(

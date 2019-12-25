@@ -594,8 +594,8 @@ namespace iroha {
         auto block_storage_persistent_factory =
             std::make_unique<InMemoryBlockStorageFactory>();
         auto block_store = block_storage_persistent_factory->create();
-        ASSERT_TRUE(block_store);
-        this->block_store = std::move(block_store);
+        IROHA_ASSERT_RESULT_VALUE(block_store);
+        this->block_store = std::move(block_store).assumeValue();
         createDefaultAccount();
         createDefaultAsset();
       }
