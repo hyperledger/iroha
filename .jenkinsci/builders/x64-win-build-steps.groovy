@@ -10,13 +10,12 @@
 
 def testSteps(String buildDir, List environment, String testList) {
   withEnv(environment) {
-    bat 'cd .\\build & ctest --output-on-failure --no-compress-output'
-    // sh "cd ${buildDir}; rm -f Testing/*/Test.xml; ctest --output-on-failure --no-compress-output --tests-regex '${testList}'  --test-action Test || true"
-    // sh """ python .jenkinsci/helpers/platform_tag.py "Linux \$(uname -m)" \$(ls ${buildDir}/Testing/*/Test.xml) """
+    bat "cd .\\${buildDir} & del /q /f /s Test.xml & ctest --output-on-failure --no-compress-output --tests-regex \"${testList}\" --test-action Test || exit 0"
+    bat "for /f \"usebackq tokens=*\" %%a in (`dir .\\${buildDir} /s /b ^| findstr Testing ^| findstr Test.xml`) do python .\\.jenkinsci\\helpers\\platform_tag.py \"Windows %PROCESSOR_ARCHITECTURE%\" %%a"
     // Mark build as UNSTABLE if there are any failed tests (threshold <100%)
-    // xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
-      // tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
-      // pattern: "${buildDir}/Testing/**/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
+    xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
+      tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
+      pattern: "${buildDir}/Testing/**/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
   }
 }
 
@@ -27,11 +26,11 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
     buildDir = 'build'
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
-        bat '''
-call "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat" &&^
-cmake -H.\\ -B.\\build -DBENCHMARKING=ON -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake -GNinja &&^
-cmake --build .\\build
-        '''
+        bat """
+call \"C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat\" &&^
+cmake -H.\\ -B.\\${buildDir} -DBENCHMARKING=ON -DCMAKE_TOOLCHAIN_FILE=C:\\vcpkg\\scripts\\buildsystems\\vcpkg.cmake -GNinja &&^
+cmake --build .\\${buildDir}
+        """
       }
       if (testing) {
           stage("Test ${compiler}") {
