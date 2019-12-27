@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="(empty)"
+	BuildStamp="20191228-0830-Experimental"
+	Name="(empty)"
+	Generator="ctest-3.14.0"
+	CompilerName=""
+	CompilerVersion=""
+	OSName="Linux"
+	Hostname="24c704e1e49e"
+	OSRelease="4.15.0-33-generic"
+	OSVersion="#36-Ubuntu SMP Wed Aug 15 16:00:05 UTC 2018"
+	OSPlatform="x86_64"
+	Is64Bits="1"
+	VendorString="GenuineIntel"
+	VendorID="Intel Corporation"
+	FamilyID="6"
+	ModelID="85"
+	ProcessorCacheSize="16384"
+	NumberOfLogicalCPU="6"
+	NumberOfPhysicalCPU="6"
+	TotalVirtualMemory="0"
+	TotalPhysicalMemory="16040"
+	LogicalProcessorsPerPhysical="1"
+	ProcessorClockFrequency="2593.9"
+	>
+	<Testing>
+		<StartDateTime>Dec 28 08:30 UTC</StartDateTime>
+		<StartTestTime>1577521819</StartTestTime>
+		<TestList>
+			<Test>./test/module/shared_model/interface/common_objects/module_amount_test</Test>
+		</TestList>
+		<Test Status="passed">
+			<Name>module_amount_test</Name>
+			<Path>./test/module/shared_model/interface/common_objects</Path>
+			<FullName>./test/module/shared_model/interface/common_objects/module_amount_test</FullName>
+			<FullCommandLine>/tmp/build/test_bin/amount_test</FullCommandLine>
+			<Results>
+				<NamedMeasurement type="numeric/double" name="Execution Time">
+					<Value>0.00371842</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="numeric/double" name="Processors">
+					<Value>1</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Completion Status">
+					<Value>Completed</Value>
+				</NamedMeasurement>
+				<NamedMeasurement type="text/string" name="Command Line">
+					<Value>/tmp/build/test_bin/amount_test</Value>
+				</NamedMeasurement>
+				<Measurement>
+					<Value>Running main() from /tmp/vcpkg/buildtrees/gtest/src/59f4ade3fb-b1f973195c/googletest/src/gtest_main.cc
+[==========] Running 3 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 3 tests from AmountTest
+[ RUN      ] AmountTest.Basic
+[       OK ] AmountTest.Basic (0 ms)
+[ RUN      ] AmountTest.Strange
+[       OK ] AmountTest.Strange (0 ms)
+[ RUN      ] AmountTest.Invalid
+[       OK ] AmountTest.Invalid (0 ms)
+[----------] 3 tests from AmountTest (0 ms total)
+
+[----------] Global test environment tear-down
+[==========] 3 tests from 1 test suite ran. (0 ms total)
+[  PASSED  ] 3 tests.
+</Value>
+				</Measurement>
+			</Results>
+		</Test>
+		<EndDateTime>Dec 28 08:30 UTC</EndDateTime>
+		<EndTestTime>1577521819</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>

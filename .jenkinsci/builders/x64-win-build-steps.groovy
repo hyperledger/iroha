@@ -23,7 +23,10 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
        boolean packageBuild, boolean useBTF, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
-    buildDir = 'build'
+    xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
+      tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
+      pattern: "Testing/20191228-0830/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
+    /*buildDir = 'build'
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
         bat """
@@ -41,7 +44,7 @@ cmake --build .\\${buildDir}
             // coverage = false
           }
         } //end if
-    } //end for
+    } //end for*/
   }
 }
 
