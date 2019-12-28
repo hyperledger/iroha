@@ -4,6 +4,7 @@
  */
 
 #include "common/result.hpp"
+
 #include <gtest/gtest.h>
 
 using namespace iroha::expected;
@@ -240,51 +241,4 @@ TEST(ResultTest, MapErrorBlank) {
   map_error<int>(result, [](auto i) { return i * 2; })
       .match([](Value<int> v) { ASSERT_EQ(5, v.value); },
              makeFailCase<Error<int>>(kErrorCaseMessage));
-}
-
-/// Polymorphic result tests
-
-/// Base and Derived are classes, which can be used to test polymorphic behavior
-class Base {
- public:
-  virtual int getNumber() {
-    return 0;
-  }
-  virtual ~Base() = default;
-};
-
-class Derived : public Base {
- public:
-  virtual int getNumber() override {
-    return 1;
-  }
-};
-
-/**
- * @given Polymorphic Result of Base class type with value of derived class
- * @when match function is invoked
- * @then Value case is invoked, and polymorphic behavior persists
- */
-TEST(PolyMorphicResultTest, PolymorphicValueConstruction) {
-  PolymorphicResult<Base, std::string> result =
-      makeValue(std::make_shared<Derived>());
-  result.match(
-      [](Value<std::shared_ptr<Base>> &v) {
-        ASSERT_EQ(1, v.value->getNumber());
-      },
-      makeFailCase<Error<std::shared_ptr<std::string>>>(kErrorCaseMessage));
-}
-
-/**
- * @given Polymorphic Result of Base class type with error
- * @when match function is invoked
- * @then Error case is invoked
- */
-TEST(PolyMorphicResultTest, PolymorphicErrorConstruction) {
-  PolymorphicResult<Base, std::string> result =
-      makeError(std::make_shared<std::string>(kErrorMessage));
-  result.match(makeFailCase<Value<std::shared_ptr<Base>>>(kValueCaseMessage),
-               [](Error<std::shared_ptr<std::string>> &e) {
-                 ASSERT_EQ(kErrorMessage, *e.error);
-               });
 }
