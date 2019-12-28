@@ -414,25 +414,6 @@ namespace iroha {
     }
 
     /**
-     * Polymorphic Result is simple alias for result type, which can be used to
-     * work with polymorphic objects. It is achieved by wrapping V and E in a
-     * polymorphic container (std::shared_ptr is used by default). This
-     * simplifies declaration of polymorphic result.
-     *
-     * Note: ordinary result itself stores both V and E directly inside itself
-     * (on the stack), polymorphic result stores objects wherever VContainer and
-     * EContainer store them, but since you need polymorphic behavior, it will
-     * probably be on the heap. That is why polymorphic result is generally
-     * slower, and should be used ONLY when polymorphic behaviour is required,
-     * hence the name. For all other use cases, stick to basic Result
-     */
-    template <typename V,
-              typename E,
-              typename VContainer = std::shared_ptr<V>,
-              typename EContainer = std::shared_ptr<E>>
-    using PolymorphicResult = Result<VContainer, EContainer>;
-
-    /**
      * Checkers of the Result type.
      */
 
