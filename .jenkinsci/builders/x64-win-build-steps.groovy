@@ -23,6 +23,12 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
        boolean packageBuild, boolean useBTF, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
+    print "11 convert to CTest2JUnit.xsl"
+    bat ".\\.jenkinsci\\helpers\\msxsl.exe Testing\\20191228-0830\\Test.xml .jenkinsci\\helpers\\CTest2JUnit.xsl -o Testing\\20191228-0830\\JTest.xml"
+
+    print "download junit"
+    junit 'Testing/20191228-0830/JTest.xml'
+    print "done"
     xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
       tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
       pattern: "Testing/20191228-0830/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
