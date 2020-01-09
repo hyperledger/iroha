@@ -48,8 +48,6 @@ namespace iroha {
         PostgresCommandExecutor::prepareStatements(*sql);
         executor =
             std::make_unique<PostgresCommandExecutor>(*sql, perm_converter);
-
-        *sql << init_;
       }
 
       void TearDown() override {

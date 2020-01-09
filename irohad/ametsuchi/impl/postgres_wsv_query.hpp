@@ -28,6 +28,9 @@ namespace iroha {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() override;
 
+      iroha::expected::Result<iroha::TopBlockInfo, std::string>
+      getTopBlockInfo() const override;
+
      private:
       /**
        * Executes given lambda of type F, catches exceptions if any, logs the

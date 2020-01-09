@@ -95,6 +95,8 @@ namespace iroha {
                                     const std::string &,
                                     const std::string &,
                                     const std::string &));
+      MOCK_CONST_METHOD1(WsvCommandResult,
+                         WsvCommandResult(const TopBlockInfo &top_block_info));
     };
 
     class MockTemporaryWsv : public TemporaryWsv {

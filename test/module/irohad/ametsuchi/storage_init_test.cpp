@@ -92,8 +92,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
       integration_framework::kDefaultWorkingDatabaseName,
       storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(*options).match(
-      [](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  PgConnectionInit::prepareWorkingDatabase(false, *options)
+      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       *options,
@@ -109,7 +109,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
 
   std::shared_ptr<StorageImpl> storage;
   StorageImpl::create(block_store_path,
-                      std::move(options),
+                      *options,
                       std::move(pool_wrapper),
                       converter,
                       perm_converter_,
@@ -128,7 +128,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
          ":dbname",
       soci::into(size), soci::use(dbname_);
   ASSERT_EQ(size, 1);
-  storage->dropStorage();
+  storage->dropBlockStorage();
+  PgConnectionInit::dropSchema(*options);
 }
 
 /**
@@ -145,12 +146,6 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                           integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(options).match(
-      [](auto &&val) {},
-      [&](auto &&error) {
-        storage_log_manager_->getLogger()->error("Database creation error: {}",
-                                                 error.error);
-      });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,

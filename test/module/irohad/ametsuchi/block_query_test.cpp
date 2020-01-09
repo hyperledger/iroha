@@ -43,8 +43,6 @@ class BlockQueryTest : public AmetsuchiTest {
     empty_blocks = std::make_shared<PostgresBlockQuery>(
         *sql, *mock_file, converter, getTestLogger("PostgresBlockQueryEmpty"));
 
-    *sql << init_;
-
     // First transaction in block1
     auto txn1_1 = TestTransactionBuilder().creatorAccountId(creator1).build();
     tx_hashes.push_back(txn1_1.hash());

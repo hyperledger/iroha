@@ -23,6 +23,9 @@ namespace iroha {
           getPeers,
           boost::optional<
               std::vector<std::shared_ptr<shared_model::interface::Peer>>>());
+      MOCK_CONST_METHOD0(
+          getTopBlockInfo,
+          iroha::expected::Result<iroha::TopBlockInfo, std::string>());
     };
 
   }  // namespace ametsuchi

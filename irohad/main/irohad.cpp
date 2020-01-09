@@ -83,6 +83,8 @@ DEFINE_validator(keypair_name, &validate_keypair_name);
  */
 DEFINE_bool(overwrite_ledger, false, "Overwrite ledger data if existing");
 
+DEFINE_bool(reuse_state, false, "Try to reuse existing state data at startup.");
+
 static bool validateVerbosity(const char *flagname, const std::string &val) {
   if (val == kLogSettingsFromConfigFile) {
     return true;
@@ -215,7 +217,8 @@ int main(int argc, char *argv[]) {
       std::move(config.initial_peers),
       log_manager->getChild("Irohad"),
       boost::make_optional(config.mst_support,
-                           iroha::GossipPropagationStrategyParams{}));
+                           iroha::GossipPropagationStrategyParams{}),
+      FLAGS_reuse_state);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {
@@ -289,10 +292,15 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     } else {
       if (overwrite) {
-        log->warn(
-            "No new genesis block is specified - blockstore cannot be "
-            "overwritten. If you want overwrite ledger state, please "
-            "specify new genesis block using --genesis_block parameter.");
+        irohad.resetWsv();
+        if (not FLAGS_reuse_state) {
+          log->warn(
+              "No new genesis block is specified - blockstore will not be "
+              "overwritten. If you want overwrite ledger state, please "
+              "specify new genesis block using --genesis_block parameter. "
+              "If you want to reuse existing state data (WSV), consider the "
+              "--reuse_state flag.");
+        }
       }
     }
   }

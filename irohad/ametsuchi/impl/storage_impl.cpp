@@ -12,16 +12,19 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
 #include <boost/range/algorithm/replace_if.hpp>
+#include <boost/tuple/tuple.hpp>
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 #include "ametsuchi/impl/peer_query_wsv.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
@@ -31,6 +34,29 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+
+namespace {
+  iroha::expected::Result<iroha::TopBlockInfo, std::string> getTopBlockInfo(
+      soci::session &sql) {
+    try {
+      soci::rowset<boost::tuple<size_t, std::string>> rowset(
+          sql.prepare << "select height, hash from top_block_info;");
+      auto range = boost::make_iterator_range(rowset.begin(), rowset.end());
+      if (range.empty()) {
+        return "No top block information in WSV.";
+      }
+      shared_model::interface::types::HeightType height = 0;
+      std::string hex_hash;
+      boost::tie(height, hex_hash) = range.front();
+      shared_model::crypto::Hash hash(
+          shared_model::crypto::Blob::fromHexString(hex_hash));
+      assert(not hash.blob().empty());
+      return iroha::TopBlockInfo{height, hash};
+    } catch (std::exception &e) {
+      return e.what();
+    }
+  }
+}  // namespace
 
 namespace iroha {
   namespace ametsuchi {
@@ -45,7 +71,7 @@ namespace iroha {
 
     StorageImpl::StorageImpl(
         boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
-        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+        const ametsuchi::PostgresOptions &postgres_options,
         std::unique_ptr<KeyValueStorage> block_store,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
@@ -54,8 +80,7 @@ namespace iroha {
         std::unique_ptr<BlockStorageFactory> block_storage_factory,
         size_t pool_size,
         logger::LoggerManagerTreePtr log_manager)
-        : postgres_options_(std::move(postgres_options)),
-          block_store_(std::move(block_store)),
+        : block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
           connection_(pool_wrapper_.connection_pool_),
           notifier_(notifier_lifetime_),
@@ -67,7 +92,7 @@ namespace iroha {
           pool_size_(pool_size),
           prepared_blocks_enabled_(pool_wrapper_.enable_prepared_transactions_),
           block_is_prepared_(false),
-          prepared_block_name_(postgres_options_->preparedBlockName()),
+          prepared_block_name_(postgres_options.preparedBlockName()),
           ledger_state_(std::move(ledger_state)) {}
 
     expected::Result<std::unique_ptr<TemporaryWsv>, std::string>
@@ -179,29 +204,6 @@ namespace iroha {
               log_manager_->getChild("MutableStorageImpl")));
     }
 
-    void StorageImpl::reset() {
-      resetWsv().match(
-          [this](auto &&v) {
-            log_->debug("drop blocks from disk");
-            block_store_->dropAll();
-          },
-          [this](auto &&e) {
-            log_->warn("Failed to drop WSV. Reason: {}", e.error);
-          });
-    }
-
-    expected::Result<void, std::string> StorageImpl::resetWsv() {
-      log_->debug("drop wsv records from db tables");
-      try {
-        soci::session sql(*connection_);
-        // rollback possible prepared transaction
-        tryRollback(sql);
-        return PgConnectionInit::resetWsv(sql);
-      } catch (std::exception &e) {
-        return expected::makeError(e.what());
-      }
-    }
-
     void StorageImpl::resetPeers() {
       log_->info("Remove everything from peers table");
       soci::session sql(*connection_);
@@ -209,31 +211,19 @@ namespace iroha {
           [this](const auto &e) { this->log_->error("{}", e); };
     }
 
-    void StorageImpl::dropStorage() {
-      log_->info("drop storage");
-      if (connection_ == nullptr) {
-        log_->warn("Tried to drop storage without active connection");
-        return;
-      }
-
-      std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
-      log_->info("Drop database {}", postgres_options_->workingDbName());
-      freeConnections();
-      soci::session sql(*soci::factory_postgresql(),
-                        postgres_options_->maintenanceConnectionString());
-      // perform dropping
-      try {
-        sql << "DROP DATABASE " + postgres_options_->workingDbName();
-      } catch (std::exception &e) {
-        log_->warn("Drop database was failed. Reason: {}", e.what());
-      }
-
-      // erase blocks
-      log_->info("drop block store");
+    expected::Result<void, std::string> StorageImpl::dropBlockStorage() {
+      log_->info("drop block storage");
       block_store_->dropAll();
+      return iroha::expected::Value<void>{};
+    }
+
+    boost::optional<std::shared_ptr<const iroha::LedgerState>>
+    StorageImpl::getLedgerState() const {
+      return ledger_state_;
     }
 
     void StorageImpl::freeConnections() {
+      std::unique_lock<std::shared_timed_mutex> lock(drop_mutex_);
       if (connection_ == nullptr) {
         log_->warn("Tried to free connections without active connection");
         return;
@@ -272,7 +262,7 @@ namespace iroha {
     expected::Result<std::shared_ptr<StorageImpl>, std::string>
     StorageImpl::create(
         std::string block_store_dir,
-        std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+        const ametsuchi::PostgresOptions &postgres_options,
         PoolWrapper pool_wrapper,
         std::shared_ptr<shared_model::interface::BlockJsonConverter> converter,
         std::shared_ptr<shared_model::interface::PermissionToString>
@@ -284,34 +274,14 @@ namespace iroha {
           [&](auto &&ctx) {
             auto opt_ledger_state = [&] {
               soci::session sql{*pool_wrapper.connection_pool_};
-
-              using BlockInfoResult =
-                  expected::Result<iroha::TopBlockInfo, std::string>;
-              auto get_top_block_info = [&]() -> BlockInfoResult {
-                PostgresBlockQuery block_query(
-                    sql,
-                    *ctx.block_store,
-                    converter,
-                    log_manager->getChild("PostgresBlockQuery")->getLogger());
-                const auto ledger_height = block_query.getTopBlockHeight();
-                return block_query.getBlock(ledger_height)
-                    .match(
-                        [&ledger_height](const auto &block) -> BlockInfoResult {
-                          return expected::makeValue(iroha::TopBlockInfo{
-                              ledger_height, block.value->hash()});
-                        },
-                        [](auto &&err) -> BlockInfoResult {
-                          return std::move(err).error.message;
-                        });
-              };
+              PostgresWsvQuery wsv_query(
+                  sql, log_manager->getChild("WsvQuery")->getLogger());
 
               auto get_ledger_peers =
                   [&]() -> expected::Result<std::vector<std::shared_ptr<
                                                 shared_model::interface::Peer>>,
                                             std::string> {
-                PostgresWsvQuery peer_query(
-                    sql, log_manager->getChild("WsvQuery")->getLogger());
-                auto peers = peer_query.getPeers();
+                auto peers = wsv_query.getPeers();
                 if (peers) {
                   return expected::makeValue(std::move(peers.value()));
                 }
@@ -320,7 +290,7 @@ namespace iroha {
               };
 
               return expected::resultToOptionalValue(
-                  get_top_block_info() | [&](auto &&top_block_info) {
+                  wsv_query.getTopBlockInfo() | [&](auto &&top_block_info) {
                     return get_ledger_peers().match(
                         [&top_block_info](auto &&ledger_peers_value)
                             -> expected::Result<
@@ -341,7 +311,7 @@ namespace iroha {
 
             return expected::makeValue(std::shared_ptr<StorageImpl>(
                 new StorageImpl(std::move(opt_ledger_state),
-                                std::move(postgres_options),
+                                postgres_options,
                                 std::move(ctx.block_store),
                                 std::move(pool_wrapper),
                                 converter,
@@ -356,25 +326,19 @@ namespace iroha {
         std::unique_ptr<MutableStorage> mutable_storage) {
       auto storage = static_cast<MutableStorageImpl *>(mutable_storage.get());
 
-      try {
-        *(storage->sql_) << "COMMIT";
-      } catch (std::exception &e) {
-        storage->committed = false;
-        return expected::makeError(e.what());
-      }
-      storage->committed = true;
+      return storage->commit() | [&storage, this]() -> CommitResult {
+        storage->block_storage_->forEach(
+            [this](const auto &block) { this->storeBlock(block); });
 
-      storage->block_storage_->forEach(
-          [this](const auto &block) { this->storeBlock(block); });
-
-      ledger_state_ = storage->getLedgerState();
-      if (ledger_state_) {
-        return expected::makeValue(ledger_state_.value());
-      } else {
-        return expected::makeError(
-            "This should never happen - a missing ledger state after a "
-            "successful commit!");
-      }
+        ledger_state_ = storage->getLedgerState();
+        if (ledger_state_) {
+          return expected::makeValue(ledger_state_.value());
+        } else {
+          return expected::makeError(
+              "This should never happen - a missing ledger state after a "
+              "successful commit!");
+        }
+      };
     }
 
     bool StorageImpl::preparedCommitEnabled() const {
@@ -407,6 +371,12 @@ namespace iroha {
             sql, log_manager_->getChild("BlockIndex")->getLogger());
         block_index.index(*block);
         block_is_prepared_ = false;
+
+        if (auto e = expected::resultToOptionalError(
+                PostgresWsvCommand{sql}.setTopBlockInfo(
+                    TopBlockInfo{block->height(), block->hash()}))) {
+          throw std::runtime_error(e.value());
+        }
 
         return storeBlock(block) | [this, &sql, &block]() -> CommitResult {
           decltype(

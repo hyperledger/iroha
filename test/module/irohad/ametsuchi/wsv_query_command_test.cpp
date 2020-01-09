@@ -7,7 +7,10 @@
 
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "ametsuchi/ledger_state.hpp"
+#include "cryptography/hash.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -27,8 +30,6 @@ namespace iroha {
         command = std::make_unique<PostgresWsvCommand>(*sql);
         query =
             std::make_unique<PostgresWsvQuery>(*sql, getTestLogger("WsvQuery"));
-
-        *sql << init_;
       }
 
       void TearDown() override {
@@ -47,6 +48,27 @@ namespace iroha {
     TEST_F(RoleTest, InsertTwoRole) {
       ASSERT_TRUE(val(command->insertRole("role")));
       ASSERT_TRUE(err(command->insertRole("role")));
+    }
+
+    /**
+     * @given WSV state
+     * @when we set top block info with wsv command
+     * @then we get same top block info with wsv query
+     */
+    TEST_F(WsvQueryCommandTest, SetAndGetTopBlockInfo) {
+      iroha::TopBlockInfo top_block_info_set{
+          1234, shared_model::crypto::Hash{"hash"}};
+      framework::expected::expectResultValue(
+          command->setTopBlockInfo(top_block_info_set));
+      auto top_block_info_read = query->getTopBlockInfo();
+      ASSERT_NO_FATAL_FAILURE(
+          framework::expected::assertResultValue(top_block_info_read));
+      EXPECT_EQ(top_block_info_set.top_hash,
+                iroha::expected::resultToOptionalValue(top_block_info_read)
+                    ->top_hash);
+      EXPECT_EQ(
+          top_block_info_set.height,
+          iroha::expected::resultToOptionalValue(top_block_info_read)->height);
     }
 
     class DeletePeerTest : public WsvQueryCommandTest {

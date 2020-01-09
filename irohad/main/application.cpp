@@ -73,6 +73,9 @@ using namespace std::chrono_literals;
 static constexpr iroha::consensus::yac::ConsistencyModel
     kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
 
+/// Database connection pool size. Limits the number of similtaneous accesses.
+static constexpr int kDbPoolSize = 10;
+
 /**
  * Configuring iroha daemon
  */
@@ -92,7 +95,8 @@ Irohad::Irohad(const std::string &block_store_dir,
                    opt_alternative_peers,
                logger::LoggerManagerTreePtr logger_manager,
                const boost::optional<GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params)
+                   &opt_mst_gossip_params,
+               bool reuse_wsv_at_startup)
     : block_store_dir_(block_store_dir),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
@@ -107,6 +111,7 @@ Irohad::Irohad(const std::string &block_store_dir,
       opt_alternative_peers_(std::move(opt_alternative_peers)),
       opt_mst_gossip_params_(opt_mst_gossip_params),
       keypair(keypair),
+      pg_opt_(std::move(pg_opt)),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
@@ -117,7 +122,7 @@ Irohad::Irohad(const std::string &block_store_dir,
   // Initializing storage at this point in order to insert genesis block before
   // initialization of iroha daemon
   if (auto e =
-          expected::resultToOptionalError(initStorage(std::move(pg_opt)))) {
+          expected::resultToOptionalError(initStorage(reuse_wsv_at_startup))) {
     log_->error("Storage initialization failed: {}", e.value());
   }
 }
@@ -174,68 +179,56 @@ Irohad::RunResult Irohad::init() {
   // clang-format on
 }
 
-/**
- * Dropping iroha daemon storage
- */
-void Irohad::dropStorage() {
-  storage->reset();
+Irohad::RunResult Irohad::dropStorage() {
+  return storage->dropBlockStorage() | [this] { return resetWsv(); };
+}
+
+Irohad::RunResult Irohad::resetWsv() {
+  storage.reset();
+
+  log_->info("Recreating schema.");
+  return initStorage(false);
 }
 
 /**
  * Initializing iroha daemon storage
  */
-Irohad::RunResult Irohad::initStorage(
-    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
-  auto perm_converter =
-      std::make_shared<shared_model::proto::ProtoPermissionToString>();
-  auto block_converter =
-      std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-  auto block_storage_factory = std::make_unique<FlatFileBlockStorageFactory>(
-      []() {
-        return (boost::filesystem::temp_directory_path()
-                / boost::filesystem::unique_path())
-            .string();
-      },
-      block_converter,
-      log_manager_);
-
-  boost::optional<std::string> string_res = boost::none;
-
-  // create database if it does not exist
-  PgConnectionInit::createDatabaseIfNotExist(*pg_opt).match(
-      [](auto &&val) {},
-      [&string_res](auto &&error) { string_res = error.error; });
-
-  if (string_res) {
-    return expected::makeError(string_res.value());
-  }
-
-  const int pool_size = 10;
-  auto pool = PgConnectionInit::prepareConnectionPool(
-      iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      *pg_opt,
-      pool_size,
-      log_manager_);
-
-  if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
-    return expected::makeError(std::move(e->error));
-  }
-
-  auto pool_wrapper =
-      std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
-
-  return StorageImpl::create(block_store_dir_,
-                             std::move(pg_opt),
-                             std::move(pool_wrapper),
-                             std::move(block_converter),
-                             perm_converter,
-                             std::move(block_storage_factory),
-                             log_manager_->getChild("Storage"))
-             | [&](auto &&v) -> RunResult {
-    storage = std::move(v);
-    log_->info("[Init] => storage");
-    return {};
-  };
+Irohad::RunResult Irohad::initStorage(bool keep_wsv_data) {
+  return PgConnectionInit::prepareWorkingDatabase(keep_wsv_data, *pg_opt_) |
+      [this] {
+        return PgConnectionInit::prepareConnectionPool(
+            iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+            *pg_opt_,
+            kDbPoolSize,
+            log_manager_);
+      }
+  | [this](auto &&pool_wrapper) {
+      auto perm_converter =
+          std::make_shared<shared_model::proto::ProtoPermissionToString>();
+      auto block_converter =
+          std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
+      auto block_storage_factory =
+          std::make_unique<FlatFileBlockStorageFactory>(
+              []() {
+                return (boost::filesystem::temp_directory_path()
+                        / boost::filesystem::unique_path())
+                    .string();
+              },
+              block_converter,
+              log_manager_);
+      return StorageImpl::create(block_store_dir_,
+                                 *pg_opt_,
+                                 std::move(pool_wrapper),
+                                 std::move(block_converter),
+                                 perm_converter,
+                                 std::move(block_storage_factory),
+                                 log_manager_->getChild("Storage"))
+                 | [&](auto &&v) -> RunResult {
+        storage = std::move(v);
+        log_->info("[Init] => storage");
+        return {};
+      };
+    };
 }
 
 Irohad::RunResult Irohad::restoreWsv() {
