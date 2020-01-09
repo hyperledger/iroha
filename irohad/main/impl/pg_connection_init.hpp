@@ -88,6 +88,13 @@ namespace iroha {
       /// Create tables in the given session. Left public for tests.
       static void prepareTables(soci::session &session);
 
+      /**
+       * Creates schema. Working database must not exist when calling this.
+       * @return void value in case of success or an error message otherwise.
+       */
+      static expected::Result<void, std::string> createSchema(
+          const PostgresOptions &postgres_options);
+
      private:
       /**
        * Function initializes existing connection pool

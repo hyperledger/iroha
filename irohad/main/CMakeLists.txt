@@ -28,6 +28,7 @@ target_link_libraries(pg_connection_init
     SOCI::postgresql
     SOCI::core
     failover_callback
+    irohad_version
     pool_wrapper
     logger
     )

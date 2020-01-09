@@ -9,7 +9,9 @@ if(CCACHE_PROGRAM)
   message(STATUS "ccache enabled (${CCACHE_PROGRAM})")
 endif()
 
-PROJECT(iroha C CXX)
+PROJECT(iroha
+  VERSION 1.2.0
+  LANGUAGES C CXX)
 
 SET(CMAKE_CXX_STANDARD 17)
 
