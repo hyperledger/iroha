@@ -18,6 +18,7 @@
 #include "main/impl/on_demand_ordering_init.hpp"
 #include "main/iroha_conf_loader.hpp"
 #include "main/server_runner.hpp"
+#include "main/startup_params.hpp"
 #include "multi_sig_transactions/gossip_propagation_strategy_params.hpp"
 #include "torii/tls_params.hpp"
 
@@ -103,12 +104,13 @@ class Irohad {
    * consecutive status emissions
    * @param opt_alternative_peers - optional alternative initial peers list
    * @param logger_manager - the logger manager to use
+   * @param startup_wsv_data_policy - @see StartupWsvDataPolicy
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
-   * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    * @param torii_tls_params - optional TLS params for torii.
    * @see iroha::torii::TlsParams
    * @param inter_peer_tls_config - set up TLS in peer-to-peer communication
+   * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
   Irohad(const boost::optional<std::string> &block_store_dir,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
@@ -125,6 +127,7 @@ class Irohad {
          boost::optional<shared_model::interface::types::PeerList>
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
+         iroha::StartupWsvDataPolicy startup_wsv_data_policy,
          const boost::optional<iroha::GossipPropagationStrategyParams>
              &opt_mst_gossip_params = boost::none,
          const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
@@ -151,7 +154,9 @@ class Irohad {
   /**
    * Drop wsv and block store
    */
-  virtual void dropStorage();
+  virtual RunResult dropStorage();
+
+  RunResult resetWsv();
 
   /**
    * Run worker threads for start performing
@@ -164,7 +169,7 @@ class Irohad {
  protected:
   // -----------------------| component initialization |------------------------
   virtual RunResult initStorage(
-      std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy);
 
   RunResult initTlsCredentials();
 
@@ -257,6 +262,7 @@ class Irohad {
   // ------------------------| internal dependencies |-------------------------
  public:
   shared_model::crypto::Keypair keypair;
+  std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:

@@ -25,6 +25,8 @@ namespace shared_model {
 }  // namespace shared_model
 
 namespace iroha {
+  struct TopBlockInfo;
+
   namespace ametsuchi {
 
     /**
@@ -220,6 +222,14 @@ namespace iroha {
        */
       virtual WsvCommandResult insertDomain(
           const shared_model::interface::Domain &domain) = 0;
+
+      /**
+       * Set the top block info in ledger state.
+       * @param top_block_info the info to be written to wsv
+       * @return WsvCommandResult, which will contain error in case of failure
+       */
+      virtual WsvCommandResult setTopBlockInfo(
+          const TopBlockInfo &top_block_info) const = 0;
     };
 
   }  // namespace ametsuchi

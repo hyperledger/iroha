@@ -16,7 +16,6 @@
 #include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
-#include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -29,16 +28,19 @@ namespace shared_model {
     class QueryResponseFactory;
   }  // namespace interface
 }  // namespace shared_model
-
 namespace iroha {
 
   class PendingTransactionStorage;
 
   namespace ametsuchi {
+
+    class AmetsuchiTest;
+    class PostgresOptions;
+
     class StorageImpl : public Storage {
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
-          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+          const PostgresOptions &postgres_options,
           std::shared_ptr<PoolWrapper> pool_wrapper,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
@@ -46,7 +48,7 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               query_response_factory,
           std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
-          std::unique_ptr<BlockStorage> persistent_block_storage,
+          std::shared_ptr<BlockStorage> persistent_block_storage,
           logger::LoggerManagerTreePtr log_manager,
           size_t pool_size = 10);
 
@@ -84,13 +86,12 @@ namespace iroha {
           std::shared_ptr<CommandExecutor> command_executor,
           BlockStorageFactory &storage_factory) override;
 
-      void reset() override;
-
-      expected::Result<void, std::string> resetWsv() override;
-
       void resetPeers() override;
 
-      void dropStorage() override;
+      expected::Result<void, std::string> dropBlockStorage() override;
+
+      boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      getLedgerState() const override;
 
       void freeConnections() override;
 
@@ -117,8 +118,8 @@ namespace iroha {
       StorageImpl(
           boost::optional<std::shared_ptr<const iroha::LedgerState>>
               ledger_state,
-          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
-          std::unique_ptr<BlockStorage> block_store,
+          const PostgresOptions &postgres_options,
+          std::shared_ptr<BlockStorage> block_store,
           std::shared_ptr<PoolWrapper> pool_wrapper,
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
@@ -129,11 +130,10 @@ namespace iroha {
           size_t pool_size,
           logger::LoggerManagerTreePtr log_manager);
 
-      // db info
-      const std::unique_ptr<ametsuchi::PostgresOptions> postgres_options_;
-
      private:
       using StoreBlockResult = iroha::expected::Result<void, std::string>;
+
+      friend class ::iroha::ametsuchi::AmetsuchiTest;
 
       /**
        * add block to block storage
@@ -146,7 +146,7 @@ namespace iroha {
        */
       void tryRollback(soci::session &session);
 
-      std::unique_ptr<BlockStorage> block_store_;
+      std::shared_ptr<BlockStorage> block_store_;
 
       std::shared_ptr<PoolWrapper> pool_wrapper_;
 

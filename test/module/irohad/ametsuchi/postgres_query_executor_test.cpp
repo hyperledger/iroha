@@ -153,14 +153,6 @@ namespace iroha {
       void SetUp() override {
         AmetsuchiTest::SetUp();
 
-        auto factory =
-            std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-                shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
-        executor = std::make_unique<PostgresCommandExecutor>(
-            std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                            pgopt_),
-            perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
 
         auto query_executor_result = storage->createQueryExecutor(
@@ -188,6 +180,7 @@ namespace iroha {
       }
 
       void TearDown() override {
+        query_executor_.reset();
         AmetsuchiTest::TearDown();
       }
 
@@ -204,7 +197,8 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
+        IROHA_ASSERT_RESULT_VALUE(
+            command_executor->execute(cmd, creator, not do_validation));
       }
 
       void addPerms(
@@ -292,7 +286,6 @@ namespace iroha {
       std::unique_ptr<shared_model::interface::Command> command;
 
       std::shared_ptr<QueryExecutor> query_executor_;
-      std::unique_ptr<CommandExecutor> executor;
       std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
 
       std::unique_ptr<BlockStorage> block_store;

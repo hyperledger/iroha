@@ -10,6 +10,7 @@
 
 #include <soci/soci.h>
 #include "ametsuchi/block_storage.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -19,6 +20,7 @@ namespace iroha {
     class BlockIndex;
     class PeerQuery;
     class PostgresCommandExecutor;
+    class PostgresWsvCommand;
     class TransactionExecutor;
 
     class MutableStorageImpl : public MutableStorage {
@@ -42,6 +44,8 @@ namespace iroha {
       boost::optional<std::shared_ptr<const iroha::LedgerState>>
       getLedgerState() const;
 
+      expected::Result<void, std::string> commit() override;
+
       ~MutableStorageImpl() override;
 
      private:
@@ -63,6 +67,7 @@ namespace iroha {
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state_;
 
       soci::session &sql_;
+      std::unique_ptr<PostgresWsvCommand> wsv_command_;
       std::unique_ptr<PeerQuery> peer_query_;
       std::unique_ptr<BlockIndex> block_index_;
       std::shared_ptr<TransactionExecutor> transaction_executor_;

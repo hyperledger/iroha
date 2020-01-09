@@ -55,7 +55,8 @@ TEST(RegressionTest, SequentialInitialization) {
       + boost::uuids::to_string(boost::uuids::random_generator()())
             .substr(0, 8);
   {
-    integration_framework::IntegrationTestFramework(1, dbname, false, false)
+    integration_framework::IntegrationTestFramework(
+        1, dbname, iroha::StartupWsvDataPolicy::kDrop, false, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx, check_stateless_valid_status)
         .skipProposal()
@@ -66,7 +67,8 @@ TEST(RegressionTest, SequentialInitialization) {
             [](auto block) { ASSERT_EQ(block->transactions().size(), 0); });
   }
   {
-    integration_framework::IntegrationTestFramework(1, dbname, true, false)
+    integration_framework::IntegrationTestFramework(
+        1, dbname, iroha::StartupWsvDataPolicy::kReuse, true, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx, check_stateless_valid_status)
         .checkProposal(checkProposal)
@@ -126,7 +128,8 @@ TEST(RegressionTest, StateRecovery) {
             .substr(0, 8);
 
   {
-    integration_framework::IntegrationTestFramework(1, dbname, false, false)
+    integration_framework::IntegrationTestFramework(
+        1, dbname, iroha::StartupWsvDataPolicy::kDrop, false)
         .setInitialState(kAdminKeypair)
         .sendTx(tx)
         .checkProposal(checkOne)
@@ -135,7 +138,8 @@ TEST(RegressionTest, StateRecovery) {
         .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
   }
   {
-    integration_framework::IntegrationTestFramework(1, dbname, true, false)
+    integration_framework::IntegrationTestFramework(
+        1, dbname, iroha::StartupWsvDataPolicy::kReuse, false)
         .recoverState(kAdminKeypair)
         .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
   }
@@ -158,5 +162,6 @@ TEST(RegressionTest, DoubleCallOfDone) {
  * @then no exceptions are risen
  */
 TEST(RegressionTest, DestructionOfNonInitializedItf) {
-  integration_framework::IntegrationTestFramework itf(1, {}, true);
+  integration_framework::IntegrationTestFramework itf(
+      1, {}, iroha::StartupWsvDataPolicy::kDrop, true);
 }

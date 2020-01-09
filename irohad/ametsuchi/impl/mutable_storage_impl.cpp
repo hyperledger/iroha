@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
+#include <fmt/core.h>
 #include <boost/variant/apply_visitor.hpp>
 #include <rxcpp/operators/rx-all.hpp>
 #include "ametsuchi/command_executor.hpp"
@@ -30,6 +31,7 @@ namespace iroha {
         logger::LoggerManagerTreePtr log_manager)
         : ledger_state_(std::move(ledger_state)),
           sql_(command_executor->getSession()),
+          wsv_command_(std::make_unique<PostgresWsvCommand>(sql_)),
           peer_query_(
               std::make_unique<PeerQueryWsv>(std::make_shared<PostgresWsvQuery>(
                   sql_, log_manager->getChild("WsvQuery")->getLogger()))),
@@ -67,6 +69,13 @@ namespace iroha {
                           block->transactions().end(),
                           execute_transaction);
       if (block_applied) {
+        if (auto e =
+                expected::resultToOptionalError(wsv_command_->setTopBlockInfo(
+                    TopBlockInfo{block->height(), block->hash()}))) {
+          log_->error("{}", e.value());
+          return false;
+        }
+
         block_storage_->insert(block);
         block_index_->index(*block);
 
@@ -124,6 +133,19 @@ namespace iroha {
     boost::optional<std::shared_ptr<const iroha::LedgerState>>
     MutableStorageImpl::getLedgerState() const {
       return ledger_state_;
+    }
+
+    expected::Result<void, std::string> MutableStorageImpl::commit() {
+      if (committed) {
+        return "Tried to commit mutable storage twice.";
+      }
+      try {
+        sql_ << "COMMIT";
+        committed = true;
+      } catch (std::exception &e) {
+        return expected::makeError(e.what());
+      }
+      return expected::Value<void>{};
     }
 
     MutableStorageImpl::~MutableStorageImpl() {

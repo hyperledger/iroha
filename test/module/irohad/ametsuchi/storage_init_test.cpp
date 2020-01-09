@@ -21,6 +21,7 @@
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
 
@@ -90,8 +91,9 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
       integration_framework::kDefaultWorkingDatabaseName,
       storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(*options).match(
-      [](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
+  PgConnectionInit::prepareWorkingDatabase(iroha::StartupWsvDataPolicy::kDrop,
+                                           *options)
+      .match([](auto &&val) {}, [&](auto &&error) { FAIL() << error.error; });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       *options,
@@ -107,7 +109,7 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
           .value);
 
   std::shared_ptr<StorageImpl> storage;
-  StorageImpl::create(std::move(options),
+  StorageImpl::create(*options,
                       std::move(pool_wrapper),
                       perm_converter_,
                       pending_txs_storage_,
@@ -128,7 +130,8 @@ TEST_F(StorageInitTest, CreateStorageWithDatabase) {
          ":dbname",
       soci::into(size), soci::use(dbname_);
   ASSERT_EQ(size, 1);
-  storage->dropStorage();
+  storage->dropBlockStorage();
+  PgConnectionInit::dropWorkingDatabase(*options);
 }
 
 /**
@@ -145,12 +148,6 @@ TEST_F(StorageInitTest, CreateStorageWithInvalidPgOpt) {
                           integration_framework::kDefaultWorkingDatabaseName,
                           storage_log_manager_->getLogger());
 
-  PgConnectionInit::createDatabaseIfNotExist(options).match(
-      [](auto &&val) {},
-      [&](auto &&error) {
-        storage_log_manager_->getLogger()->error("Database creation error: {}",
-                                                 error.error);
-      });
   auto pool = PgConnectionInit::prepareConnectionPool(
       *reconnection_strategy_factory_,
       options,
