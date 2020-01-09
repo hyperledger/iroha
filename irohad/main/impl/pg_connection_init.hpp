@@ -60,12 +60,18 @@ namespace iroha {
        */
       static expected::Result<void, std::string> resetPeers(soci::session &sql);
 
+      /**
+       * Creates schema. Working database must not exist when calling this.
+       * @return void value in case of success or an error message otherwise.
+       */
+      static expected::Result<void, std::string> createSchema(
+          const PostgresOptions &postgres_options);
+
      private:
       /**
        * Function initializes existing connection pool
        * @param connection_pool - pool with connections
        * @param pool_size - number of connections in pool
-       * @param prepare_tables_sql - sql code for db initialization
        * @param try_rollback - function which performs blocks rollback before
        * initialization
        * @param callback_factory - factory for reconnect callbacks
@@ -80,7 +86,6 @@ namespace iroha {
       static void initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
-          const std::string &prepare_tables_sql,
           RollbackFunction try_rollback,
           FailoverCallbackHolder &callback_factory,
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
@@ -88,7 +93,8 @@ namespace iroha {
           logger::LoggerManagerTreePtr log_manager);
 
      public:
-      static const std::string init_;
+      static const std::string prepare_database_sql_;
+      static const std::string prepare_tables_sql_;
     };
   }  // namespace ametsuchi
 }  // namespace iroha
