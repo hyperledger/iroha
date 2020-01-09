@@ -18,6 +18,7 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/ametsuchi/mock_block_storage.hpp"
+#include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
@@ -52,7 +53,8 @@ PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
 
 void PostgresExecutorTestParam::clearBackendState() {
   auto session = db_manager_->getSession();
-  IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::resetWsv(*session));
+  assert(session);
+  iroha::ametsuchi::truncateWsv(*session);
 }
 
 ExecutorItfTarget PostgresExecutorTestParam::getExecutorItfParam() const {

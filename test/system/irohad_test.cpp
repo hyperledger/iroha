@@ -607,7 +607,10 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
 
   terminateIroha();
 
-  launchIroha(config_copy_, {}, path_keypair_node_.string(), {});
+  launchIroha(config_copy_,
+              {},
+              path_keypair_node_.string(),
+              std::string{"--reuse_state"});
 
   ASSERT_EQ(getBlockCount(), height);
 

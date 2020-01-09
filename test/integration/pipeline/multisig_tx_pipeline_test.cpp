@@ -22,7 +22,8 @@ using shared_model::interface::types::PublicKeyHexStringView;
 
 class MstPipelineTest : public AcceptanceFixture {
  public:
-  MstPipelineTest() : mst_itf_{1, {}, true, true} {}
+  MstPipelineTest()
+      : mst_itf_{1, {}, iroha::StartupWsvDataPolicy::kDrop, true, true} {}
 
   /**
    * Creates a mst user

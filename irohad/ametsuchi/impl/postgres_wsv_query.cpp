@@ -8,6 +8,7 @@
 #include <soci/boost-tuple.h>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/result.hpp"
 #include "logger/logger.hpp"
@@ -102,5 +103,27 @@ namespace iroha {
         return boost::none;
       };
     }
+
+    iroha::expected::Result<iroha::TopBlockInfo, std::string>
+    PostgresWsvQuery::getTopBlockInfo() const {
+      try {
+        soci::rowset<boost::tuple<size_t, std::string>> rowset(
+            sql_.prepare << "select height, hash from top_block_info;");
+        auto range = boost::make_iterator_range(rowset.begin(), rowset.end());
+        if (range.empty()) {
+          return "No top block information in WSV.";
+        }
+        shared_model::interface::types::HeightType height = 0;
+        std::string hex_hash;
+        boost::tie(height, hex_hash) = range.front();
+        shared_model::crypto::Hash hash(
+            shared_model::crypto::Blob::fromHexString(hex_hash));
+        assert(not hash.blob().empty());
+        return iroha::TopBlockInfo{height, hash};
+      } catch (std::exception &e) {
+        return e.what();
+      }
+    }
+
   }  // namespace ametsuchi
 }  // namespace iroha

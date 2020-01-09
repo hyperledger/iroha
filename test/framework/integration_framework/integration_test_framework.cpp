@@ -41,6 +41,7 @@
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
@@ -137,6 +138,7 @@ namespace integration_framework {
   IntegrationTestFramework::IntegrationTestFramework(
       size_t maximum_proposal_size,
       const boost::optional<std::string> &dbname,
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
       bool cleanup_on_exit,
       bool mst_support,
       const boost::optional<std::string> block_store_path,
@@ -165,6 +167,7 @@ namespace integration_framework {
                                             internal_port_,
                                             log_manager_->getChild("Irohad"),
                                             log_,
+                                            startup_wsv_data_policy,
                                             dbname)),
         command_client_(std::make_unique<torii::CommandSyncClient>(
             iroha::network::createClient<iroha::protocol::CommandService_v1>(

@@ -12,6 +12,7 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "main/startup_params.hpp"
 
 using namespace framework::expected;
 using namespace integration_framework;
@@ -19,7 +20,7 @@ using namespace iroha::ametsuchi;
 using namespace iroha::expected;
 using namespace iroha::integration_framework;
 
-static constexpr size_t kMaxRandomDbNameAttempts = 8;
+static constexpr size_t kMaxCreateDbAttempts = 8;
 static constexpr size_t kMaxReconnectionAttempts = 8;
 
 /// Drops a database on destruction.
@@ -41,44 +42,40 @@ class TestDbManager::DbDropper {
 Result<std::unique_ptr<TestDbManager>, std::string>
 TestDbManager::createWithRandomDbName(
     size_t sessions, logger::LoggerManagerTreePtr log_manager) {
-  size_t random_db_name_attempts = 0;
+  size_t create_db_attempts = 0;
   static const auto default_creds = getPostgresCredsOrDefault();
-  while (random_db_name_attempts++ < kMaxRandomDbNameAttempts) {
+  while (create_db_attempts++ < kMaxCreateDbAttempts) {
     auto pg_opts = std::make_unique<PostgresOptions>(
         default_creds,
         getRandomDbName(),
         log_manager->getChild("PostgresOptions")->getLogger());
-    auto db_exists_result =
-        PgConnectionInit::checkIfWorkingDatabaseExists(*pg_opts);
-    if (auto e = resultToOptionalError(db_exists_result)) {
-      return std::move(e).value();
-    }
-    const bool db_exists = db_exists_result.assumeValue();
-    if (not db_exists) {
-      return PgConnectionInit::createDatabaseIfNotExist(*pg_opts) |
-          [&](bool db_was_created) {
-            EXPECT_TRUE(db_was_created);
-            return PgConnectionInit::prepareConnectionPool(
-                KTimesReconnectionStrategyFactory{kMaxReconnectionAttempts},
-                *pg_opts,
-                sessions,
-                log_manager->getChild("DbConnectionPool"));
-          }
-      | [&pg_opts](auto &&pool_wrapper) {
-          auto db_dropper = std::make_unique<DbDropper>(
-              std::make_unique<soci::session>(
-                  *soci::factory_postgresql(),
-                  pg_opts->maintenanceConnectionString()),
-              pg_opts->workingDbName());
-          return std::unique_ptr<TestDbManager>(
-              new TestDbManager(std::move(pool_wrapper)->connection_pool_,
-                                std::move(db_dropper)));
-        };
+    auto create_db_result = PgConnectionInit::prepareWorkingDatabase(
+                                iroha::StartupWsvDataPolicy::kDrop, *pg_opts)
+        |
+        [&] {
+          return PgConnectionInit::prepareConnectionPool(
+              KTimesReconnectionStrategyFactory{kMaxReconnectionAttempts},
+              *pg_opts,
+              sessions,
+              log_manager->getChild("DbConnectionPool"));
+        }
+        | [&pg_opts](auto &&pool_wrapper) {
+            auto db_dropper = std::make_unique<DbDropper>(
+                std::make_unique<soci::session>(
+                    *soci::factory_postgresql(),
+                    pg_opts->maintenanceConnectionString()),
+                pg_opts->workingDbName());
+            return std::unique_ptr<TestDbManager>(
+                new TestDbManager(std::move(pool_wrapper)->connection_pool_,
+                                  std::move(db_dropper)));
+          };
+    if (iroha::expected::hasValue(create_db_result)) {
+      return std::move(create_db_result).assumeValue();
     }
   }
   return makeError(
       std::string{"Failed to create new database with random name after "}
-      + std::to_string(random_db_name_attempts) + " attempts.");
+      + std::to_string(create_db_attempts) + " attempts.");
 }
 
 TestDbManager::~TestDbManager() = default;

@@ -7,20 +7,25 @@
 
 #include <gtest/gtest.h>
 
+#include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/postgres_block_query.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "common/byteutils.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
+using namespace common_constants;
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
@@ -28,9 +33,53 @@ using namespace shared_model::interface::types;
 using framework::expected::err;
 using framework::expected::val;
 
-auto zero_string = std::string(32, '0');
-auto fake_hash = shared_model::crypto::Hash(zero_string);
-const PublicKeyHexStringView fake_pubkey{zero_string};
+namespace {
+  auto zero_string = std::string(32, '0');
+  auto fake_hash = shared_model::crypto::Hash(zero_string);
+  const PublicKeyHexStringView fake_pubkey{zero_string};
+  const shared_model::interface::Amount base_balance{"5.00"};
+
+  const shared_model::proto::Transaction &getGenesisTx() {
+    static auto genesis_tx =
+        shared_model::proto::TransactionBuilder()
+            .creatorAccountId(kUserId)
+            .createdTime(iroha::time::now())
+            .quorum(1)
+            .createRole(kRole,
+                        {Role::kCreateDomain,
+                         Role::kCreateAccount,
+                         Role::kAddAssetQty,
+                         Role::kAddPeer,
+                         Role::kReceive,
+                         Role::kTransfer})
+            .createDomain(kDomain, kRole)
+            .createAccount(kUser,
+                           kDomain,
+                           PublicKeyHexStringView{kUserKeypair.publicKey()})
+            .createAccount(
+                kSecondUser,
+                kDomain,
+                PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()})
+            .createAsset(kAssetName, kDomain, 2)
+            .addAssetQuantity(kAssetId, base_balance.toStringRepr())
+            .build()
+            .signAndAddSignature(kUserKeypair)
+            .finish();
+    std::cerr << std::endl << genesis_tx.toString() << std::endl;
+    return genesis_tx;
+  }
+
+  shared_model::proto::Transaction createAddAsset(const std::string &amount) {
+    return shared_model::proto::TransactionBuilder()
+        .creatorAccountId(kUserId)
+        .createdTime(iroha::time::now())
+        .quorum(1)
+        .addAssetQuantity(kAssetId, amount)
+        .build()
+        .signAndAddSignature(kUserKeypair)
+        .finish();
+  }
+}  // namespace
 
 // Allows to print amount string in case of test failure
 namespace shared_model {
@@ -397,57 +446,220 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
 }
 
 /**
- * @given spoiled WSV
- * @when WSV is restored
+ * @given empty WSV and a genesis block in block storage
+ * @when WSV is restored from block storage
  * @then WSV is valid
  */
-TEST_F(AmetsuchiTest, TestRestoreWSV) {
+TEST_F(AmetsuchiTest, TestRestoreWsvFromBlockStorage) {
   // initialize storage with genesis block
-  std::string default_domain = "test";
-  std::string default_role = "admin";
-
-  std::vector<shared_model::proto::Transaction> genesis_tx;
-  genesis_tx.push_back(
-      shared_model::proto::TransactionBuilder()
-          .creatorAccountId("admin@test")
-          .createdTime(iroha::time::now())
-          .quorum(1)
-          .createRole(default_role,
-                      {Role::kCreateDomain,
-                       Role::kCreateAccount,
-                       Role::kAddAssetQty,
-                       Role::kAddPeer,
-                       Role::kReceive,
-                       Role::kTransfer})
-          .createDomain(default_domain, default_role)
-          .build()
-          .signAndAddSignature(
-              shared_model::crypto::DefaultCryptoAlgorithmType::
-                  generateKeypair())
-          .finish());
-
-  auto genesis_block = createBlock(genesis_tx);
-
+  auto genesis_block = createBlock({getGenesisTx()});
   apply(storage, genesis_block);
 
-  auto res = sql_query->getDomain("test");
+  auto res = sql_query->getDomain(kDomain);
   EXPECT_TRUE(res);
 
-  // spoil WSV
-  *sql << "DELETE FROM domain";
+  const auto height = block_storage_->size();
+  const auto top_hash = block_storage_->fetch(height).value()->hash();
+
+  // clear WSV
+  truncateWsv();
+  destroyWsvStorage();
+  initializeStorage();
+
+  // block storage should not be altered
+  EXPECT_EQ(storage->getLedgerState(), boost::none);
+  EXPECT_EQ(block_storage_->size(), height);
+  EXPECT_EQ(block_storage_->fetch(height).value()->hash(), top_hash);
 
   // check there is no data in WSV
-  res = sql_query->getDomain("test");
+  res = sql_query->getDomain(kDomain);
   EXPECT_FALSE(res);
 
-  // recover storage and check it is recovered
+  // recover WSV from block storage and check it is recovered
   WsvRestorerImpl wsvRestorer;
-  wsvRestorer.restoreWsv(*storage).match(
-      [](const auto &) {},
-      [&](const auto &error) { FAIL() << "Failed to recover WSV"; });
+  wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
+                                         [&](const auto &error) {
+                                           FAIL() << "Failed to recover WSV: "
+                                                  << error.error;
+                                         });
 
-  res = sql_query->getDomain("test");
+  res = sql_query->getDomain(kDomain);
   EXPECT_TRUE(res);
+}
+
+class RestoreWsvTest : public AmetsuchiTest {
+ public:
+  using BlockPtr = decltype(createBlock({}));
+
+  void commitToWsvAndBlockStorage(const std::vector<BlockPtr> &blocks) {
+    for (const auto &block : blocks) {
+      apply(storage, block);
+    }
+  }
+
+  void commitToBlockStorageOnly(const std::vector<BlockPtr> &blocks) {
+    for (const auto &block : blocks) {
+      storeBlock(block);
+    }
+  }
+
+  void rewriteBlockStorage(const std::vector<BlockPtr> &blocks) {
+    destroyWsvStorage();
+    block_storage_->clear();
+    block_storage_ = InMemoryBlockStorageFactory{}.create();
+    for (const auto &block : blocks) {
+      EXPECT_TRUE(block_storage_->insert(block));
+    }
+    EXPECT_EQ(block_storage_->size(), blocks.size());
+    initializeStorage(true);
+    EXPECT_EQ(block_storage_->size(), blocks.size());
+    assert(storage);
+    EXPECT_EQ(storage->getBlockQuery()->getTopBlockHeight(), blocks.size())
+        << "Failed to rewrite block storage.";
+  }
+
+  void restoreWsv() {
+    WsvRestorerImpl wsvRestorer;
+    wsvRestorer.restoreWsv(*storage).match([](const auto &) {},
+                                           [&](const auto &error) {
+                                             FAIL() << "Failed to recover WSV: "
+                                                    << error.error;
+                                           });
+  }
+
+  void checkRestoreWsvError(const std::string error_substr) {
+    WsvRestorerImpl wsvRestorer;
+    wsvRestorer.restoreWsv(*storage).match(
+        [](const auto &) { FAIL() << "Should have failed to recover WSV."; },
+        [&](const auto &error) {
+          EXPECT_THAT(error.error, ::testing::HasSubstr(error_substr));
+        });
+  }
+};
+
+/**
+ * @given valid WSV matching genesis block. block store contains genesis block
+ * and one more block.
+ * @when WSV is restored from block storage reusing present data
+ * @then the missing block is applied to WSV @and WSV is valid
+ */
+TEST_F(RestoreWsvTest, TestRestoreWsvFromBlockStorageReuseOlderState) {
+  // initialize storage with genesis block
+  auto genesis_block = createBlock({getGenesisTx()});
+  commitToWsvAndBlockStorage({genesis_block});
+
+  // apply second block that adds asset qty to block storage only
+  auto block2 = createBlock({createAddAsset("5.00")}, 2, genesis_block->hash());
+  commitToBlockStorageOnly({block2});
+
+  // WSV keeps unchanged
+  validateAccountAsset(sql_query, kUserId, kAssetId, base_balance);
+
+  // recover WSV from block storage and check it is recovered
+  restoreWsv();
+  shared_model::interface::Amount updated_qty("10.00");
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+}
+
+/**
+ * @given valid WSV matching block storage
+ * @when WSV is restored from block storage reusing present data
+ * @then WSV is valid
+ */
+TEST_F(RestoreWsvTest, TestRestoreWsvFromBlockStorageReuseMatchingState) {
+  // initialize storage with genesis block and a block that adds asset qty
+  auto genesis_block = createBlock({getGenesisTx()});
+  auto block2 = createBlock({createAddAsset("5.00")}, 2, genesis_block->hash());
+  commitToWsvAndBlockStorage({genesis_block, block2});
+
+  shared_model::interface::Amount updated_qty("10.00");
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+
+  // recover WSV from block storage and check that WSV keeps unchanged
+  restoreWsv();
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+}
+
+/**
+ * @given WSV after 2 blocks and block storage with 2 other blocks
+ * @when WSV is restored from block storage reusing present data
+ * @then restoration fails
+ */
+TEST_F(RestoreWsvTest, TestRestoreWsvFromBlockStorageReuseMismatchingState) {
+  // initialize storage with genesis block and a block that adds asset qty
+  auto genesis_block = createBlock({getGenesisTx()});
+  auto block2 = createBlock({createAddAsset("5.00")}, 2, genesis_block->hash());
+  commitToWsvAndBlockStorage({genesis_block, block2});
+
+  shared_model::interface::Amount updated_qty("10.00");
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+
+  // rewrite different blocks and recreate the storage
+  auto block2_another =
+      createBlock({createAddAsset("50.00")}, 2, genesis_block->hash());
+  rewriteBlockStorage({genesis_block, block2_another});
+
+  EXPECT_EQ((*storage->getLedgerState())->top_block_info.top_hash,
+            block2->hash());
+  EXPECT_EQ(block_storage_->fetch(block2_another->height()).value()->hash(),
+            block2_another->hash());
+
+  // try to recover WSV from block storage and check it fails
+  checkRestoreWsvError(
+      "does not match the hash of the block from block storage");
+
+  // WSV keeps unchanged
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+}
+
+/**
+ * @given valid WSV as after applying 2 blocks. block storage contains only the
+ * first of them.
+ * @when WSV is restored from block storage reusing present data
+ * @then restoration fails
+ */
+TEST_F(RestoreWsvTest, TestRestoreWsvFromBlockStorageReuseNewerState) {
+  // initialize storage with genesis block and a block that adds asset qty
+  auto genesis_block = createBlock({getGenesisTx()});
+  auto block2 = createBlock({createAddAsset("5.00")}, 2, genesis_block->hash());
+  commitToWsvAndBlockStorage({genesis_block, block2});
+
+  shared_model::interface::Amount updated_qty("10.00");
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+
+  // leave only the genesis block in block storage
+  rewriteBlockStorage({genesis_block});
+
+  ASSERT_EQ((*storage->getLedgerState())->top_block_info.height, 2);
+
+  // try to recover WSV from block storage and check it fails
+  checkRestoreWsvError(
+      "WSV state (height 2) is more recent than block storage (height 1).");
+
+  // WSV keeps unchanged
+  validateAccountAsset(sql_query, kUserId, kAssetId, updated_qty);
+}
+
+/**
+ * @given valid WSV matching block storage, but incompatible schema version
+ * @when WSV is restored from block storage reusing present data
+ * @then error occurs
+ */
+TEST_F(RestoreWsvTest, TestRestoreWsvFromIncompatibleSchema) {
+  // initialize storage with genesis block and a block that adds asset qty
+  auto genesis_block = createBlock({getGenesisTx()});
+  auto block2 = createBlock({createAddAsset("5.00")}, 2, genesis_block->hash());
+  commitToWsvAndBlockStorage({genesis_block, block2});
+
+  // alter schema version
+  *sql << "update schema_version set iroha_major = iroha_major + 1";
+
+  // try connect to the WSV DB keeping the state
+  auto db_pool_result_error = err(PgConnectionInit::prepareWorkingDatabase(
+      iroha::StartupWsvDataPolicy::kReuse, *options_));
+  ASSERT_TRUE(db_pool_result_error) << "Must have failed reusing WSV.";
+  EXPECT_THAT(db_pool_result_error->error,
+              ::testing::HasSubstr("The schema is not compatible."));
 }
 
 /**
@@ -460,45 +672,23 @@ TEST_F(AmetsuchiTest, TestRestoreWSV) {
 TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
   ASSERT_TRUE(storage);
 
-  shared_model::crypto::Keypair key{
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()};
-
-  auto genesis_tx =
-      shared_model::proto::TransactionBuilder()
-          .creatorAccountId("admin@test")
-          .createdTime(iroha::time::now())
-          .quorum(1)
-          .createRole("admin",
-                      {Role::kCreateDomain,
-                       Role::kCreateAccount,
-                       Role::kAddAssetQty,
-                       Role::kAddPeer,
-                       Role::kReceive,
-                       Role::kTransfer})
-          .createDomain("test", "admin")
-          .createAccount(
-              "admin", "test", PublicKeyHexStringView{key.publicKey()})
-          .createAccount(
-              "receiver", "test", PublicKeyHexStringView{key.publicKey()})
-          .createAsset("coin", "test", 2)
-          .addAssetQuantity("coin#test", "20.00")
-          .build()
-          .signAndAddSignature(key)
-          .finish();
-
-  auto genesis_block = createBlock({genesis_tx});
+  auto genesis_block = createBlock({getGenesisTx()});
   apply(storage, genesis_block);
 
-  auto add_ast_tx =
-      shared_model::proto::TransactionBuilder()
-          .creatorAccountId("admin@test")
-          .createdTime(iroha::time::now())
-          .quorum(1)
-          .transferAsset(
-              "admin@test", "receiver@test", "coin#test", "deal", "10.00")
-          .build()
-          .signAndAddSignature(key)
-          .finish();
+  shared_model::interface::Amount transferredAmount("1.00");
+
+  auto add_ast_tx = shared_model::proto::TransactionBuilder()
+                        .creatorAccountId(kUserId)
+                        .createdTime(iroha::time::now())
+                        .quorum(1)
+                        .transferAsset(kUserId,
+                                       kSameDomainUserId,
+                                       kAssetId,
+                                       "deal",
+                                       transferredAmount.toStringRepr())
+                        .build()
+                        .signAndAddSignature(kSameDomainUserKeypair)
+                        .finish();
 
   auto expected_block = createBlock({add_ast_tx}, 2, genesis_block->hash());
 
@@ -506,9 +696,8 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
       make_test_subscriber<CallExact>(storage->on_commit(), 1);
   wrapper.subscribe([&](const auto &block) {
     ASSERT_EQ(*block, *expected_block);
-    shared_model::interface::Amount resultingAmount("10.00");
     validateAccountAsset(
-        sql_query, "receiver@test", "coin#test", resultingAmount);
+        sql_query, kSameDomainUserId, kAssetId, transferredAmount);
   });
 
   apply(storage, expected_block);
@@ -519,59 +708,17 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
 
 class PreparedBlockTest : public AmetsuchiTest {
  public:
-  PreparedBlockTest()
-      : key(shared_model::crypto::DefaultCryptoAlgorithmType::
-                generateKeypair()) {}
-
-  shared_model::proto::Transaction createAddAsset(const std::string &amount) {
-    return shared_model::proto::TransactionBuilder()
-        .creatorAccountId("admin@test")
-        .createdTime(iroha::time::now())
-        .quorum(1)
-        .addAssetQuantity("coin#test", amount)
-        .build()
-        .signAndAddSignature(key)
-        .finish();
-  }
-
   void SetUp() override {
     AmetsuchiTest::SetUp();
-    genesis_tx =
-        clone(shared_model::proto::TransactionBuilder()
-                  .creatorAccountId("admin@test")
-                  .createdTime(iroha::time::now())
-                  .quorum(1)
-                  .createRole(default_role,
-                              {Role::kCreateDomain,
-                               Role::kCreateAccount,
-                               Role::kAddAssetQty,
-                               Role::kAddPeer,
-                               Role::kReceive,
-                               Role::kTransfer})
-                  .createDomain(default_domain, default_role)
-                  .createAccount(
-                      "admin", "test", PublicKeyHexStringView{key.publicKey()})
-                  .createAsset("coin", default_domain, 2)
-                  .addAssetQuantity("coin#test", base_balance.toStringRepr())
-                  .build()
-                  .signAndAddSignature(key)
-                  .finish());
-    genesis_block = createBlock({*genesis_tx});
+    genesis_block = createBlock({getGenesisTx()});
     initial_tx = clone(createAddAsset("5.00"));
     apply(storage, genesis_block);
-    command_executor = std::move(val(storage->createCommandExecutor())->value);
     temp_wsv = storage->createTemporaryWsv(command_executor);
   }
 
-  shared_model::crypto::Keypair key;
-  std::string default_domain{"test"};
-  std::string default_role{"admin"};
-  std::unique_ptr<shared_model::proto::Transaction> genesis_tx;
   std::unique_ptr<shared_model::proto::Transaction> initial_tx;
   std::shared_ptr<const shared_model::interface::Block> genesis_block;
-  std::shared_ptr<iroha::ametsuchi::CommandExecutor> command_executor;
   std::unique_ptr<iroha::ametsuchi::TemporaryWsv> temp_wsv;
-  shared_model::interface::Amount base_balance{"5.00"};
 };
 
 /**
@@ -580,17 +727,14 @@ class PreparedBlockTest : public AmetsuchiTest {
  * @then state of the ledger remains unchanged
  */
 TEST_F(PreparedBlockTest, PrepareBlockNoStateChanged) {
-  validateAccountAsset(sql_query,
-                       "admin@test",
-                       "coin#test",
-                       shared_model::interface::Amount(base_balance));
+  validateAccountAsset(sql_query, kUserId, kAssetId, base_balance);
 
   auto result = temp_wsv->apply(*initial_tx);
   ASSERT_FALSE(framework::expected::err(result));
   storage->prepareBlock(std::move(temp_wsv));
 
   // balance remains unchanged
-  validateAccountAsset(sql_query, "admin@test", "coin#test", base_balance);
+  validateAccountAsset(sql_query, kUserId, kAssetId, base_balance);
 }
 
 /**
@@ -607,14 +751,21 @@ TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
   ASSERT_FALSE(framework::expected::err(result));
   storage->prepareBlock(std::move(temp_wsv));
 
-  auto commited = storage->commitPrepared(block);
-
-  ASSERT_TRUE(val(commited))
-      << "Error in commitPrepared: " << err(commited)->error;
+  auto commited_res = storage->commitPrepared(block);
+  IROHA_ASSERT_RESULT_VALUE(commited_res);
 
   shared_model::interface::Amount resultingAmount("10.00");
 
-  validateAccountAsset(sql_query, "admin@test", "coin#test", resultingAmount);
+  validateAccountAsset(sql_query, kUserId, kAssetId, resultingAmount);
+
+  auto ledger_state = std::move(commited_res).assumeValue();
+  ASSERT_NE(ledger_state, nullptr);
+  PostgresWsvQuery wsv_query{*sql, getTestLogger("WsvQuery")};
+  auto top_block_info =
+      iroha::expected::resultToOptionalValue(wsv_query.getTopBlockInfo());
+  ASSERT_TRUE(top_block_info) << "Failed to get top block info.";
+  EXPECT_EQ(top_block_info->height, ledger_state->top_block_info.height);
+  EXPECT_EQ(top_block_info->top_hash, ledger_state->top_block_info.top_hash);
 }
 
 /**
@@ -636,7 +787,7 @@ TEST_F(PreparedBlockTest, PrepareBlockCommitDifferentBlock) {
   apply(storage, block);
 
   shared_model::interface::Amount resultingBalance{"15.00"};
-  validateAccountAsset(sql_query, "admin@test", "coin#test", resultingBalance);
+  validateAccountAsset(sql_query, kUserId, kAssetId, resultingBalance);
 }
 
 /**
@@ -664,7 +815,7 @@ TEST_F(PreparedBlockTest, CommitPreparedFailsAfterCommit) {
   EXPECT_TRUE(err(commited));
 
   shared_model::interface::Amount resultingBalance{"15.00"};
-  validateAccountAsset(sql_query, "admin@test", "coin#test", resultingBalance);
+  validateAccountAsset(sql_query, kUserId, kAssetId, resultingBalance);
 }
 
 /**

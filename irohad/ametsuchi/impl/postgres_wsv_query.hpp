@@ -32,6 +32,9 @@ namespace iroha {
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
                              public_key) override;
 
+      iroha::expected::Result<iroha::TopBlockInfo, std::string>
+      getTopBlockInfo() const override;
+
      private:
       /**
        * Executes given lambda of type F, catches exceptions if any, logs the

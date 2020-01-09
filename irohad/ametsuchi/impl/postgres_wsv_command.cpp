@@ -11,6 +11,7 @@
 #include <boost/format.hpp>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
+#include "ametsuchi/ledger_state.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
@@ -406,6 +407,21 @@ namespace iroha {
       };
 
       return execute(st, msg);
+    }
+
+    WsvCommandResult PostgresWsvCommand::setTopBlockInfo(
+        const TopBlockInfo &top_block_info) const {
+      try {
+        sql_ << "insert into top_block_info (height, hash) "
+                "values (:height, :hash) "
+                "on conflict (lock) do update "
+                "set height = :height, hash = :hash;",
+            soci::use(top_block_info.height, "height"),
+            soci::use(top_block_info.top_hash.hex(), "hash");
+        return expected::Value<void>{};
+      } catch (std::exception &e) {
+        return fmt::format("Failed to set top_block_info: {}.", e.what());
+      }
     }
   }  // namespace ametsuchi
 }  // namespace iroha

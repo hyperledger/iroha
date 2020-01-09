@@ -10,6 +10,7 @@
 
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "ametsuchi/ledger_state.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -58,6 +59,9 @@ namespace iroha {
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
               blocks,
           MutableStoragePredicate predicate) = 0;
+
+      /// Apply the local changes made to this MutableStorage to the global WSV.
+      virtual expected::Result<void, std::string> commit() = 0;
 
       virtual ~MutableStorage() = default;
     };

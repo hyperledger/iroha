@@ -88,6 +88,9 @@ using shared_model::interface::types::PublicKeyHexStringView;
 static constexpr iroha::consensus::yac::ConsistencyModel
     kConsensusConsistencyModel = iroha::consensus::yac::ConsistencyModel::kCft;
 
+/// Database connection pool size. Limits the number of similtaneous accesses.
+static constexpr int kDbPoolSize = 10;
+
 /**
  * Configuring iroha daemon
  */
@@ -107,6 +110,7 @@ Irohad::Irohad(
     boost::optional<shared_model::interface::types::PeerList>
         opt_alternative_peers,
     logger::LoggerManagerTreePtr logger_manager,
+    StartupWsvDataPolicy startup_wsv_data_policy,
     const boost::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
     const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
@@ -129,6 +133,7 @@ Irohad::Irohad(
       pending_txs_storage_init(
           std::make_unique<PendingTransactionStorageInit>()),
       keypair(keypair),
+      pg_opt_(std::move(pg_opt)),
       ordering_init(logger_manager->getLogger()),
       yac_init(std::make_unique<iroha::consensus::yac::YacInit>()),
       consensus_gate_objects(consensus_gate_objects_lifetime),
@@ -141,7 +146,7 @@ Irohad::Irohad(
   // initialization of iroha daemon
 
   if (auto e = expected::resultToOptionalError(initPendingTxsStorage() | [&] {
-        return initStorage(std::move(pg_opt));
+        return initStorage(startup_wsv_data_policy);
       })) {
     log_->error("Storage initialization failed: {}", e.value());
   }
@@ -189,11 +194,15 @@ Irohad::RunResult Irohad::init() {
   // clang-format on
 }
 
-/**
- * Dropping iroha daemon storage
- */
-void Irohad::dropStorage() {
-  storage->reset();
+Irohad::RunResult Irohad::dropStorage() {
+  return storage->dropBlockStorage() | [this] { return resetWsv(); };
+}
+
+Irohad::RunResult Irohad::resetWsv() {
+  storage.reset();
+
+  log_->info("Recreating schema.");
+  return initStorage(StartupWsvDataPolicy::kDrop);
 }
 
 /**
@@ -234,79 +243,68 @@ Irohad::RunResult Irohad::initValidatorsConfigs() {
  * Initializing iroha daemon storage
  */
 Irohad::RunResult Irohad::initStorage(
-    std::unique_ptr<ametsuchi::PostgresOptions> pg_opt) {
-  query_response_factory_ =
-      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-  auto perm_converter =
-      std::make_shared<shared_model::proto::ProtoPermissionToString>();
+    StartupWsvDataPolicy startup_wsv_data_policy) {
+  return PgConnectionInit::prepareWorkingDatabase(startup_wsv_data_policy,
+                                                  *pg_opt_)
+             |
+             [this] {
+               return PgConnectionInit::prepareConnectionPool(
+                   iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+                   *pg_opt_,
+                   kDbPoolSize,
+                   log_manager_);
+             }
+             | [this](auto &&pool_wrapper) -> RunResult {
+    pool_wrapper_ = std::move(pool_wrapper);
+    query_response_factory_ =
+        std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
+    auto perm_converter =
+        std::make_shared<shared_model::proto::ProtoPermissionToString>();
 
-  // TODO: luckychess IR-308 05.08.2019 stateless validation for genesis block
-  auto block_transport_factory =
-      std::make_shared<shared_model::proto::ProtoBlockFactory>(
-          std::make_unique<shared_model::validation::AlwaysValidValidator<
-              shared_model::interface::Block>>(),
-          std::make_unique<shared_model::validation::ProtoBlockValidator>());
+    // TODO: luckychess IR-308 05.08.2019 stateless validation for genesis
+    // block
+    auto block_transport_factory =
+        std::make_shared<shared_model::proto::ProtoBlockFactory>(
+            std::make_unique<shared_model::validation::AlwaysValidValidator<
+                shared_model::interface::Block>>(),
+            std::make_unique<shared_model::validation::ProtoBlockValidator>());
 
-  boost::optional<std::string> string_res = boost::none;
+    std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
+        std::make_unique<PostgresBlockStorageFactory>(
+            pool_wrapper_,
+            block_transport_factory,
+            []() { return generator::randomString(20); },
+            log_manager_->getChild("TemporaryBlockStorage")->getLogger());
 
-  // create database if it does not exist
-  PgConnectionInit::createDatabaseIfNotExist(*pg_opt).match(
-      [](auto &&val) {},
-      [&string_res](auto &&error) { string_res = error.error; });
+    std::unique_ptr<BlockStorage> persistent_block_storage;
+    if (block_store_dir_) {
+      auto flat_file = FlatFile::create(
+          *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
+      if (not flat_file) {
+        return expected::makeError(
+            "Unable to create FlatFile for persistent storage");
+      }
+      std::shared_ptr<shared_model::interface::BlockJsonConverter>
+          block_converter =
+              std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
+      persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
+          std::move(flat_file.get()),
+          block_converter,
+          log_manager_->getChild("FlatFileBlockStorage")->getLogger());
+    } else {
+      auto sql =
+          std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
+      const std::string persistent_table("blocks");
 
-  if (string_res) {
-    return expected::makeError(string_res.value());
-  }
-
-  const int pool_size = 10;
-  auto pool = PgConnectionInit::prepareConnectionPool(
-      iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
-      *pg_opt,
-      pool_size,
-      log_manager_);
-
-  if (auto error = resultToOptionalError(pool)) {
-    return expected::makeError(std::move(*error));
-  }
-
-  pool_wrapper_ = std::move(pool).assumeValue();
-
-  std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory =
-      std::make_unique<PostgresBlockStorageFactory>(
-          pool_wrapper_,
-          block_transport_factory,
-          []() { return generator::randomString(20); },
-          log_manager_->getChild("TemporaryBlockStorage")->getLogger());
-
-  std::unique_ptr<BlockStorage> persistent_block_storage;
-  if (block_store_dir_) {
-    auto flat_file = FlatFile::create(
-        *block_store_dir_, log_manager_->getChild("FlatFile")->getLogger());
-    if (not flat_file) {
-      return expected::makeError(
-          "Unable to create FlatFile for persistent storage");
+      auto create_table_result =
+          PostgresBlockStorageFactory::createTable(*sql, persistent_table);
+      if (boost::get<expected::Error<std::string>>(&create_table_result)) {
+        return create_table_result;
+      }
+      persistent_block_storage = std::make_unique<PostgresBlockStorage>(
+          pool_wrapper_, block_transport_factory, persistent_table, log_);
     }
-    std::shared_ptr<shared_model::interface::BlockJsonConverter>
-        block_converter =
-            std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-    persistent_block_storage = std::make_unique<FlatFileBlockStorage>(
-        std::move(flat_file.get()),
-        block_converter,
-        log_manager_->getChild("FlatFileBlockStorage")->getLogger());
-  } else {
-    auto sql =
-        std::make_unique<soci::session>(*pool_wrapper_->connection_pool_);
-    const std::string persistent_table("blocks");
-
-    auto create_table_result =
-        PostgresBlockStorageFactory::createTable(*sql, persistent_table);
-    if (boost::get<expected::Error<std::string>>(&create_table_result)) {
-      return create_table_result;
-    }
-    persistent_block_storage = std::make_unique<PostgresBlockStorage>(
-        pool_wrapper_, block_transport_factory, persistent_table, log_);
-  }
-  return StorageImpl::create(std::move(pg_opt),
+  return StorageImpl::create(*pg_opt_,
                              pool_wrapper_,
                              perm_converter,
                              pending_txs_storage_,
@@ -330,6 +328,7 @@ Irohad::RunResult Irohad::initStorage(
             .ref_count();
     log_->info("[Init] => storage");
     return {};
+    };
   };
 }
 
