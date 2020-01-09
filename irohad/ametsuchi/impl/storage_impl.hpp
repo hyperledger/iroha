@@ -16,7 +16,6 @@
 #include <boost/optional.hpp>
 #include "ametsuchi/block_storage_factory.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
-#include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
@@ -29,7 +28,9 @@
 namespace iroha {
   namespace ametsuchi {
 
+    class AmetsuchiTest;
     class FlatFile;
+    class PostgresOptions;
 
     struct ConnectionContext {
       explicit ConnectionContext(std::unique_ptr<KeyValueStorage> block_store);
@@ -45,7 +46,7 @@ namespace iroha {
      public:
       static expected::Result<std::shared_ptr<StorageImpl>, std::string> create(
           std::string block_store_dir,
-          std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+          const PostgresOptions &postgres_options,
           PoolWrapper pool_wrapper,
           std::shared_ptr<shared_model::interface::BlockJsonConverter>
               converter,
@@ -81,13 +82,12 @@ namespace iroha {
       expected::Result<std::unique_ptr<MutableStorage>, std::string>
       createMutableStorage(BlockStorageFactory &storage_factory) override;
 
-      void reset() override;
-
-      expected::Result<void, std::string> resetWsv() override;
-
       void resetPeers() override;
 
-      void dropStorage() override;
+      expected::Result<void, std::string> dropBlockStorage() override;
+
+      boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      getLedgerState() const override;
 
       void freeConnections() override;
 
@@ -113,7 +113,7 @@ namespace iroha {
      protected:
       StorageImpl(boost::optional<std::shared_ptr<const iroha::LedgerState>>
                       ledger_state,
-                  std::unique_ptr<ametsuchi::PostgresOptions> postgres_options,
+                  const PostgresOptions &postgres_options,
                   std::unique_ptr<KeyValueStorage> block_store,
                   PoolWrapper pool_wrapper,
                   std::shared_ptr<shared_model::interface::BlockJsonConverter>
@@ -124,11 +124,10 @@ namespace iroha {
                   size_t pool_size,
                   logger::LoggerManagerTreePtr log_manager);
 
-      // db info
-      const std::unique_ptr<ametsuchi::PostgresOptions> postgres_options_;
-
      private:
       using StoreBlockResult = iroha::expected::Result<void, std::string>;
+
+      friend class ::iroha::ametsuchi::AmetsuchiTest;
 
       /**
        * revert prepared transaction

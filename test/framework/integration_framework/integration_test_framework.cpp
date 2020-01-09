@@ -38,6 +38,7 @@
 #include "interfaces/permissions.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
+#include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/ametsuchi/tx_presence_cache_stub.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
@@ -773,8 +774,11 @@ namespace integration_framework {
     log_->info("removing storage");
     if (iroha_instance_->getIrohaInstance()
         and iroha_instance_->getIrohaInstance()->storage) {
-      iroha_instance_->getIrohaInstance()->storage->dropStorage();
+      iroha_instance_->getIrohaInstance()->storage.reset();
       boost::filesystem::remove_all(iroha_instance_->block_store_dir_);
+      // iroha_instance_->getIrohaInstance()->dropSchema();
+      iroha::ametsuchi::PgConnectionInit::dropSchema(
+          *iroha_instance_->getIrohaInstance()->pg_opt_);
     }
   }
 

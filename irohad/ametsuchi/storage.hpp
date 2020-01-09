@@ -78,27 +78,17 @@ namespace iroha {
       on_commit() = 0;
 
       /**
-       * Remove all records from the tables and remove all the blocks
-       */
-      virtual void reset() = 0;
-
-      /*
-       * Remove all records from the tables
-       * @return error message if reset has failed
-       */
-      virtual expected::Result<void, std::string> resetWsv() = 0;
-
-      /**
        * Removes all peers from WSV
        */
       virtual void resetPeers() = 0;
 
       /**
-       * Remove all information from ledger
-       * Tables and the database will be removed too
-       * TODO: 2019-05-22 @muratovv move method to TestStorage IR-493
+       * Remove all blocks from block storage.
        */
-      virtual void dropStorage() = 0;
+      virtual expected::Result<void, std::string> dropBlockStorage() = 0;
+
+      virtual boost::optional<std::shared_ptr<const iroha::LedgerState>>
+      getLedgerState() const = 0;
 
       virtual void freeConnections() = 0;
 

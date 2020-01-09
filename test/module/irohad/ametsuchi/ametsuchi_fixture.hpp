@@ -45,48 +45,58 @@ namespace iroha {
                 iroha::test::kTestsValidatorsConfig);
         perm_converter_ =
             std::make_shared<shared_model::proto::ProtoPermissionToString>();
-        auto converter =
+        converter_ =
             std::make_shared<shared_model::proto::ProtoBlockJsonConverter>();
-        auto block_storage_factory =
-            std::make_unique<InMemoryBlockStorageFactory>();
 
         reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
 
-        auto options = std::make_unique<PostgresOptions>(
+        options_ = std::make_unique<PostgresOptions>(
             pgopt_,
             integration_framework::kDefaultWorkingDatabaseName,
             storage_logger_);
 
-        PgConnectionInit::createDatabaseIfNotExist(*options).match(
-            [](auto &&val) {},
-            [&](auto &&error) {
-              storage_logger_->error("Database creation error: {}",
-                                     error.error);
-              std::terminate();
-            });
+        initializeStorage();
+      }
 
-        auto pool = PgConnectionInit::prepareConnectionPool(
-            *reconnection_strategy_factory_,
-            *options,
-            pool_size_,
-            getTestLoggerManager()->getChild("Storage"));
-
-        if (auto e = boost::get<expected::Error<std::string>>(&pool)) {
-          storage_logger_->error("Pool initialization error: {}", e->error);
-          std::terminate();
+      static void initializeStorage() {
+        bool wsv_is_dirty = false;
+        auto db_result =
+            PgConnectionInit::prepareWorkingDatabase(true, *options_);
+        if (iroha::expected::hasError(db_result)) {
+          db_result = db_result.or_res(
+              PgConnectionInit::prepareWorkingDatabase(false, *options_));
+          wsv_is_dirty = true;
         }
 
-        pool_wrapper_ =
-            std::move(boost::get<expected::Value<PoolWrapper>>(pool).value);
+        (std::move(db_result) |
+         [&] {
+           return PgConnectionInit::prepareConnectionPool(
+               *reconnection_strategy_factory_,
+               *options_,
+               pool_size_,
+               getTestLoggerManager()->getChild("Storage"));
+         }
+         |
+         [&](auto &&pool_wrapper) {
+           sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
+                                                 pgopt_);
+           sql_query =
+               std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
 
-        StorageImpl::create(block_store_path,
-                            std::move(options),
-                            std::move(pool_wrapper_),
-                            converter,
-                            perm_converter_,
-                            std::move(block_storage_factory),
-                            getTestLoggerManager()->getChild("Storage"))
+           if (wsv_is_dirty) {
+             truncateWsv();
+           }
+
+           return StorageImpl::create(
+               block_store_path,
+               *options_,
+               std::move(pool_wrapper),
+               converter_,
+               perm_converter_,
+               std::make_unique<InMemoryBlockStorageFactory>(),
+               getTestLoggerManager()->getChild("Storage"));
+         })
             .match([&](const auto &_storage) { storage = _storage.value; },
                    [](const auto &error) {
                      storage_logger_->error(
@@ -94,21 +104,63 @@ namespace iroha {
                      // TODO: 2019-05-29 @muratovv find assert workaround IR-522
                      std::terminate();
                    });
-        sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
-        sql_query =
-            std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
       }
 
       static void TearDownTestCase() {
+        storage_logger_->info("TearDownTestCase()");
         sql->close();
-        storage->dropStorage();
+        sql.reset();
+        storage->dropBlockStorage();
+        storage.reset();
+        PgConnectionInit::dropSchema(*options_);
         boost::filesystem::remove_all(block_store_path);
       }
 
-      void TearDown() override {
-        storage->reset();
+      static void truncateWsv() {
+        storage_logger_->info("truncateWsv()");
+        assert(sql);
+        *sql <<
+            R"(
+              TRUNCATE TABLE top_block_info RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE account_has_signatory RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE account_has_asset RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE role_has_permissions RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE account_has_roles RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE account_has_grantable_permissions RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE account RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE asset RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE domain RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE signatory RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE role RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE height_by_account_set RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE index_by_creator_height RESTART IDENTITY CASCADE;
+              TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
+            )";
       }
+
+      void TearDown() override {
+        storage_logger_->info("TearDown()");
+        storage->dropBlockStorage();
+        assert(sql);
+        storage->tryRollback(*sql);
+        truncateWsv();
+      }
+
+#define PROXY_STORAGE_IMPL_FUNCTION(function)                               \
+  template <typename... T>                                                  \
+  auto function(T &&... args)                                               \
+      ->decltype(                                                           \
+          std::declval<StorageImpl>().function(std::forward<T>(args)...)) { \
+    return storage->function(std::forward<T>(args)...);                     \
+  }
+
+      PROXY_STORAGE_IMPL_FUNCTION(storeBlock)
+      PROXY_STORAGE_IMPL_FUNCTION(tryRollback)
+
+#undef PROXY_STORAGE_IMPL_FUNCTION
 
      protected:
       static std::shared_ptr<soci::session> sql;
@@ -124,6 +176,8 @@ namespace iroha {
        *  static storage
        */
       static logger::LoggerPtr storage_logger_;
+      static std::shared_ptr<shared_model::interface::BlockJsonConverter>
+          converter_;
       static std::shared_ptr<StorageImpl> storage;
       static std::unique_ptr<framework::ametsuchi::SqlQuery> sql_query;
 
@@ -139,103 +193,9 @@ namespace iroha {
       static std::string dbname_;
 
       static std::string pgopt_;
-
-      static iroha::ametsuchi::PoolWrapper pool_wrapper_;
+      static std::unique_ptr<PostgresOptions> options_;
 
       static std::string block_store_path;
-
-      // TODO(warchant): IR-1019 hide SQLs under some interface
-      // TODO igor-egorov 24-05-2019 IR-517 Refactor SQL in test
-      // (remove sql from here and use it from the application init funcs)
-      const std::string init_ = R"(
-CREATE TABLE IF NOT EXISTS role (
-    role_id character varying(32),
-    PRIMARY KEY (role_id)
-);
-CREATE TABLE IF NOT EXISTS domain (
-    domain_id character varying(255),
-    default_role character varying(32) NOT NULL REFERENCES role(role_id),
-    PRIMARY KEY (domain_id)
-);
-CREATE TABLE IF NOT EXISTS signatory (
-    public_key varchar NOT NULL,
-    PRIMARY KEY (public_key)
-);
-CREATE TABLE IF NOT EXISTS account (
-    account_id character varying(288),
-    domain_id character varying(255) NOT NULL REFERENCES domain,
-    quorum int NOT NULL,
-    data JSONB,
-    PRIMARY KEY (account_id)
-);
-CREATE TABLE IF NOT EXISTS account_has_signatory (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    public_key varchar NOT NULL REFERENCES signatory,
-    PRIMARY KEY (account_id, public_key)
-);
-CREATE TABLE IF NOT EXISTS peer (
-    public_key varchar NOT NULL,
-    address character varying(261) NOT NULL UNIQUE,
-    PRIMARY KEY (public_key)
-);
-CREATE TABLE IF NOT EXISTS asset (
-    asset_id character varying(288),
-    domain_id character varying(255) NOT NULL REFERENCES domain,
-    precision int NOT NULL,
-    data json,
-    PRIMARY KEY (asset_id)
-);
-CREATE TABLE IF NOT EXISTS account_has_asset (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    asset_id character varying(288) NOT NULL REFERENCES asset,
-    amount decimal NOT NULL,
-    PRIMARY KEY (account_id, asset_id)
-);
-CREATE TABLE IF NOT EXISTS role_has_permissions (
-    role_id character varying(32) NOT NULL REFERENCES role,
-    permission_id character varying(45),
-    PRIMARY KEY (role_id, permission_id)
-);
-CREATE TABLE IF NOT EXISTS account_has_roles (
-    account_id character varying(288) NOT NULL REFERENCES account,
-    role_id character varying(32) NOT NULL REFERENCES role,
-    PRIMARY KEY (account_id, role_id)
-);
-CREATE TABLE IF NOT EXISTS account_has_grantable_permissions (
-    permittee_account_id character varying(288) NOT NULL REFERENCES account,
-    account_id character varying(288) NOT NULL REFERENCES account,
-    permission_id character varying(45),
-    PRIMARY KEY (permittee_account_id, account_id, permission_id)
-);
-CREATE TABLE IF NOT EXISTS position_by_hash (
-    hash varchar,
-    height bigint,
-    index bigint
-);
-
-CREATE TABLE IF NOT EXISTS tx_status_by_hash (
-    hash varchar,
-    status boolean
-);
-CREATE INDEX IF NOT EXISTS tx_status_by_hash_hash_index ON tx_status_by_hash USING hash (hash);
-
-CREATE TABLE IF NOT EXISTS height_by_account_set (
-    account_id text,
-    height bigint
-);
-CREATE TABLE IF NOT EXISTS index_by_creator_height (
-    id serial,
-    creator_id text,
-    height bigint,
-    index bigint
-);
-CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
-    id text,
-    height bigint,
-    asset_id text,
-    index bigint
-);
-)";
     };
 
     std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
@@ -250,9 +210,10 @@ CREATE TABLE IF NOT EXISTS index_by_id_height_asset (
               .substr(0, 8);
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
+    std::unique_ptr<PostgresOptions> AmetsuchiTest::options_ = nullptr;
 
-    iroha::ametsuchi::PoolWrapper AmetsuchiTest::pool_wrapper_ =
-        iroha::ametsuchi::PoolWrapper(nullptr, nullptr, false);
+    std::shared_ptr<shared_model::interface::BlockJsonConverter>
+        AmetsuchiTest::converter_ = nullptr;
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;

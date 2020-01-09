@@ -99,6 +99,8 @@ class Irohad {
    * @param logger_manager - the logger manager to use
    * @param opt_mst_gossip_params - parameters for Gossip MST propagation
    * (optional). If not provided, disables mst processing support
+   * @param reuse_wsv_at_startup - try to reuse existing data in the WSV tables
+   * at startup
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
   Irohad(const std::string &block_store_dir,
@@ -117,7 +119,8 @@ class Irohad {
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none);
+             &opt_mst_gossip_params = boost::none,
+         bool reuse_wsv_at_startup = false);
 
   /**
    * Initialization of whole objects in system
@@ -141,7 +144,9 @@ class Irohad {
   /**
    * Drop wsv and block store
    */
-  virtual void dropStorage();
+  virtual RunResult dropStorage();
+
+  RunResult resetWsv();
 
   /**
    * Run worker threads for start performing
@@ -153,8 +158,7 @@ class Irohad {
 
  protected:
   // -----------------------| component initialization |------------------------
-  virtual RunResult initStorage(
-      std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt);
+  virtual RunResult initStorage(bool keep_wsv_data);
 
   virtual RunResult initCryptoProvider();
 
@@ -217,6 +221,7 @@ class Irohad {
   // ------------------------| internal dependencies |-------------------------
  public:
   shared_model::crypto::Keypair keypair;
+  std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt_;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:

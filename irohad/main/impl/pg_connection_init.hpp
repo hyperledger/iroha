@@ -31,6 +31,9 @@ namespace iroha {
                               std::string>
       initPostgresConnection(std::string &options_str, size_t pool_size);
 
+      static expected::Result<void, std::string> prepareWorkingDatabase(
+          const bool keep_wsv_data, const PostgresOptions &options);
+
       static expected::Result<PoolWrapper, std::string> prepareConnectionPool(
           const ReconnectionStrategyFactory &reconnection_strategy_factory,
           const PostgresOptions &options,
@@ -45,15 +48,6 @@ namespace iroha {
       static iroha::expected::Result<void, std::string> rollbackPrepared(
           soci::session &sql, const std::string &prepared_block_name);
 
-      static expected::Result<bool, std::string> createDatabaseIfNotExist(
-          const PostgresOptions &pg_opt);
-
-      /*
-       * Remove all records from the tables
-       * @return error message if reset has failed
-       */
-      static expected::Result<void, std::string> resetWsv(soci::session &sql);
-
       /**
        * Removes all peers from WSV
        * @return error message if reset has failed
@@ -65,6 +59,14 @@ namespace iroha {
        * @return void value in case of success or an error message otherwise.
        */
       static expected::Result<void, std::string> createSchema(
+          const PostgresOptions &postgres_options);
+
+      /*
+       * Drop the working database if it exists.
+       * @param postgres_options Database options.
+       * @return Result of void value on success, otherwise error message
+       */
+      static expected::Result<void, std::string> dropSchema(
           const PostgresOptions &postgres_options);
 
      private:
@@ -81,9 +83,10 @@ namespace iroha {
        * reconnect
        * @param log_manager - log manager of storage
        * @tparam RollbackFunction - type of rollback function
+       * @return void value on success or string error
        */
       template <typename RollbackFunction>
-      static void initializeConnectionPool(
+      static expected::Result<void, std::string> initializeConnectionPool(
           soci::connection_pool &connection_pool,
           size_t pool_size,
           RollbackFunction try_rollback,

@@ -26,6 +26,7 @@ namespace iroha {
                    bool(std::shared_ptr<const shared_model::interface::Block>));
       MOCK_METHOD1(applyPrepared,
                    bool(std::shared_ptr<const shared_model::interface::Block>));
+      MOCK_METHOD0(commit, expected::Result<void, std::string>());
     };
 
   }  // namespace ametsuchi
