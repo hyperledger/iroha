@@ -12,10 +12,8 @@ def testSteps(String buildDir, List environment, String testList) {
   withEnv(environment) {
     bat "cd .\\${buildDir} & del /q /f /s Test.xml & ctest --output-on-failure --no-compress-output --tests-regex \"${testList}\" --test-action Test || exit 0"
     bat "for /f \"usebackq tokens=*\" %%a in (`dir .\\${buildDir} /s /b ^| findstr Testing ^| findstr Test.xml`) do python .\\.jenkinsci\\helpers\\platform_tag.py \"Windows %PROCESSOR_ARCHITECTURE%\" %%a"
-    // Mark build as UNSTABLE if there are any failed tests (threshold <100%)
-    xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
-      tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
-      pattern: "${buildDir}/Testing/**/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
+    bat "for /f \"usebackq tokens=*\" %%a in (`dir .\\${buildDir} /s /b ^| findstr Testing ^| findstr Test.xml`) do .\\.jenkinsci\\helpers\\msxsl.exe %%a .jenkinsci\\helpers\\CTest2JUnit.xsl -o %%a"
+    junit 'build/Testing/**/Test.xml'
   }
 }
 
@@ -23,16 +21,7 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
        boolean packageBuild, boolean useBTF, List environment) {
   withEnv(environment) {
     scmVars = checkout scm
-    print "11 convert to CTest2JUnit.xsl"
-    bat ".\\.jenkinsci\\helpers\\msxsl.exe Testing\\20191228-0830\\Test.xml .jenkinsci\\helpers\\CTest2JUnit.xsl -o Testing\\20191228-0830\\JTest.xml"
-
-    print "download junit"
-    junit 'Testing/20191228-0830/JTest.xml'
-    print "done"
-    xunit testTimeMargin: '3000', thresholdMode: 2, thresholds: [passed(unstableThreshold: '100')], \
-      tools: [CTest(deleteOutputFiles: true, failIfNotNew: false, \
-      pattern: "Testing/20191228-0830/Test.xml", skipNoTestFiles: false, stopProcessingIfError: true)]
-    /*buildDir = 'build'
+    buildDir = 'build'
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
         bat """
@@ -50,7 +39,7 @@ cmake --build .\\${buildDir}
             // coverage = false
           }
         } //end if
-    } //end for*/
+    } //end for
   }
 }
 
