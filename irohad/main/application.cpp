@@ -123,6 +123,8 @@ Irohad::Irohad(const std::string &block_store_dir,
 }
 
 Irohad::~Irohad() {
+  consensus_gate->stop();
+  async_call_->stop();
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
 }
