@@ -8,6 +8,7 @@
 
 #include "ordering/on_demand_os_transport.hpp"
 
+#include <atomic>
 #include <shared_mutex>
 
 #include <rxcpp/rx.hpp>
@@ -90,6 +91,7 @@ namespace iroha {
       CurrentConnections connections_;
 
       std::shared_timed_mutex mutex_;
+      std::atomic_bool stop_requested_{false};
     };
 
   }  // namespace ordering

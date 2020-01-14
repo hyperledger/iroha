@@ -66,7 +66,7 @@ namespace iroha {
        */
       auto createGate(
           std::shared_ptr<ordering::OnDemandOrderingService> ordering_service,
-          std::shared_ptr<ordering::transport::OdOsNotification> network_client,
+          std::unique_ptr<ordering::transport::OdOsNotification> network_client,
           std::shared_ptr<ordering::cache::OrderingGateCache> cache,
           std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
               proposal_factory,

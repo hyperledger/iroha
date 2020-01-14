@@ -36,7 +36,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
  public:
   void SetUp() override {
     ordering_service = std::make_shared<MockOnDemandOrderingService>();
-    notification = std::make_shared<MockOdOsNotification>();
+    notification = new MockOdOsNotification();
     cache = std::make_shared<cache::MockOrderingGateCache>();
     auto ufactory = std::make_unique<NiceMock<MockUnsafeProposalFactory>>();
     factory = ufactory.get();
@@ -48,7 +48,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
                 iroha::ametsuchi::tx_cache_status_responses::Missing())));
     ordering_gate = std::make_shared<OnDemandOrderingGate>(
         ordering_service,
-        notification,
+        std::unique_ptr<OdOsNotification>(notification),
         processed_tx_hashes.get_observable(),
         rounds.get_observable(),
         cache,
@@ -69,7 +69,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
       processed_tx_hashes;
   rxcpp::subjects::subject<OnDemandOrderingGate::RoundSwitch> rounds;
   std::shared_ptr<MockOnDemandOrderingService> ordering_service;
-  std::shared_ptr<MockOdOsNotification> notification;
+  MockOdOsNotification *notification;
   NiceMock<MockUnsafeProposalFactory> *factory;
   std::shared_ptr<ametsuchi::MockTxPresenceCache> tx_cache;
   std::shared_ptr<OnDemandOrderingGate> ordering_gate;
