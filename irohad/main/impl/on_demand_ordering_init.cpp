@@ -170,7 +170,7 @@ namespace iroha {
                        .with_latest_from(latest_hashes)
                        .map(map_peers);
 
-      return std::make_shared<ordering::OnDemandConnectionManager>(
+      return std::make_unique<ordering::OnDemandConnectionManager>(
           createNotificationFactory(std::move(async_call),
                                     std::move(proposal_transport_factory),
                                     delay,
@@ -181,7 +181,7 @@ namespace iroha {
 
     auto OnDemandOrderingInit::createGate(
         std::shared_ptr<ordering::OnDemandOrderingService> ordering_service,
-        std::shared_ptr<ordering::transport::OdOsNotification> network_client,
+        std::unique_ptr<ordering::transport::OdOsNotification> network_client,
         std::shared_ptr<ordering::cache::OrderingGateCache> cache,
         std::shared_ptr<shared_model::interface::UnsafeProposalFactory>
             proposal_factory,

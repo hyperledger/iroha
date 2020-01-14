@@ -153,6 +153,12 @@ Irohad::Irohad(
 }
 
 Irohad::~Irohad() {
+  if (consensus_gate) {
+    consensus_gate->stop();
+  }
+  if (ordering_gate) {
+    ordering_gate->stop();
+  }
   consensus_gate_objects_lifetime.unsubscribe();
   consensus_gate_events_subscription.unsubscribe();
 }

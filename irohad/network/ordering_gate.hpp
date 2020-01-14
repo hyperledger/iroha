@@ -41,6 +41,9 @@ namespace iroha {
       virtual rxcpp::observable<OrderingEvent> onProposal() = 0;
 
       virtual ~OrderingGate() = default;
+
+      /// Prevent any new outgoing network activity. Be passive.
+      virtual void stop() = 0;
     };
   }  // namespace network
 }  // namespace iroha

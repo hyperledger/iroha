@@ -68,6 +68,8 @@ namespace iroha {
 
         void onState(std::vector<VoteMessage> state) override;
 
+        void stop() override;
+
        private:
         // ------|Private interface|------
 

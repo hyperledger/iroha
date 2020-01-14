@@ -73,7 +73,10 @@ namespace integration_framework {
 
   void IrohaInstance::makeGenesis(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    instance_->dropStorage();
+    if (auto e =
+            iroha::expected::resultToOptionalError(instance_->dropStorage())) {
+      throw std::runtime_error(e.value());
+    }
     rawInsertBlock(block);
   }
 
