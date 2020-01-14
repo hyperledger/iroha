@@ -69,6 +69,10 @@ namespace iroha {
         notifier_lifetime_.unsubscribe();
       }
 
+      void Yac::stop() {
+        network_->stop();
+      }
+
       // ------|Hash gate|------
 
       void Yac::vote(YacHash hash,
@@ -193,7 +197,7 @@ namespace iroha {
 
         log_->info("Vote {} to peer {}", vote, current_leader);
 
-        network_->sendState(current_leader, {vote});
+        propagateStateDirectly(current_leader, {vote});
         cluster_order.switchToNext();
         lock.unlock();
         timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });

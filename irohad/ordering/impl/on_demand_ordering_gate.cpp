@@ -24,7 +24,7 @@ using namespace iroha::ordering;
 
 OnDemandOrderingGate::OnDemandOrderingGate(
     std::shared_ptr<OnDemandOrderingService> ordering_service,
-    std::shared_ptr<transport::OdOsNotification> network_client,
+    std::unique_ptr<transport::OdOsNotification> network_client,
     rxcpp::observable<
         std::shared_ptr<const cache::OrderingGateCache::HashesSetType>>
         processed_tx_hashes,
@@ -52,6 +52,12 @@ OnDemandOrderingGate::OnDemandOrderingGate(
                std::move(proposal_creation_strategy)](auto event) {
             log_->debug("Current: {}", event.next_round);
 
+            std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+            if (stop_requested_) {
+              log_->warn("Not doing anything because stop was requested.");
+              return;
+            }
+
             // notify our ordering service about new round
             proposal_creation_strategy->onCollaborationOutcome(
                 event.next_round, event.ledger_state->ledger_peers.size());
@@ -74,13 +80,17 @@ OnDemandOrderingGate::OnDemandOrderingGate(
       proposal_notifier_(proposal_notifier_lifetime_) {}
 
 OnDemandOrderingGate::~OnDemandOrderingGate() {
-  proposal_notifier_lifetime_.unsubscribe();
-  processed_tx_hashes_subscription_.unsubscribe();
-  round_switch_subscription_.unsubscribe();
+  stop();
 }
 
 void OnDemandOrderingGate::propagateBatch(
     std::shared_ptr<shared_model::interface::TransactionBatch> batch) {
+  std::shared_lock<std::shared_timed_mutex> stop_lock(stop_mutex_);
+  if (stop_requested_) {
+    log_->warn("Not propagating {} because stop was requested.", *batch);
+    return;
+  }
+
   cache_->addToBack({batch});
 
   network_client_->onBatches(
@@ -89,6 +99,18 @@ void OnDemandOrderingGate::propagateBatch(
 
 rxcpp::observable<network::OrderingEvent> OnDemandOrderingGate::onProposal() {
   return proposal_notifier_.get_observable();
+}
+
+void OnDemandOrderingGate::stop() {
+  std::lock_guard<std::shared_timed_mutex> stop_lock(stop_mutex_);
+  if (not stop_requested_) {
+    stop_requested_ = true;
+    log_->info("Stopping.");
+    proposal_notifier_lifetime_.unsubscribe();
+    processed_tx_hashes_subscription_.unsubscribe();
+    round_switch_subscription_.unsubscribe();
+    network_client_.reset();
+  }
 }
 
 boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
@@ -109,6 +131,7 @@ OnDemandOrderingGate::processProposalRequest(
 }
 
 void OnDemandOrderingGate::sendCachedTransactions() {
+  assert(not stop_mutex_.try_lock());  // lock must be taken before
   // TODO mboldyrev 22.03.2019 IR-425
   // make cache_->getBatchesForRound(current_round) that respects sync
   auto batches = cache_->pop();

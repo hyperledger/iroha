@@ -19,8 +19,13 @@ OnDemandConnectionManager::OnDemandConnectionManager(
     logger::LoggerPtr log)
     : log_(std::move(log)),
       factory_(std::move(factory)),
-      subscription_(peers.subscribe(
-          [this](const auto &peers) { this->initializeConnections(peers); })) {}
+      subscription_(peers.subscribe([this](const auto &peers) {
+        // `this' is captured raw and needs protection during destruction of
+        // OnDemandConnectionManager. We assert that
+        // OnDemandConnectionManager::initializeConnections locks the mutex and
+        // does not use `this' if stop_requested_ reads `true'.
+        this->initializeConnections(peers);
+      })) {}
 
 OnDemandConnectionManager::OnDemandConnectionManager(
     std::shared_ptr<transport::OdOsNotificationFactory> factory,
@@ -34,6 +39,8 @@ OnDemandConnectionManager::OnDemandConnectionManager(
 
 OnDemandConnectionManager::~OnDemandConnectionManager() {
   subscription_.unsubscribe();
+  stop_requested_.store(true);
+  std::lock_guard<std::shared_timed_mutex> lock(mutex_);
 }
 
 void OnDemandConnectionManager::onBatches(CollectionType batches) {
@@ -52,7 +59,9 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 
   auto propagate = [&](auto consumer) {
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);
-    connections_.peers[consumer]->onBatches(batches);
+    if (not stop_requested_.load(std::memory_order_relaxed)) {
+      connections_.peers[consumer]->onBatches(batches);
+    }
   };
 
   propagate(kRejectRejectConsumer);
@@ -64,6 +73,9 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
 boost::optional<std::shared_ptr<const OnDemandConnectionManager::ProposalType>>
 OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
+  if (stop_requested_.load(std::memory_order_relaxed)) {
+    return boost::none;
+  }
 
   log_->debug("onRequestProposal, {}", round);
 
@@ -72,8 +84,12 @@ OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
 
 void OnDemandConnectionManager::initializeConnections(
     const CurrentPeers &peers) {
+  std::lock_guard<std::shared_timed_mutex> lock(mutex_);
+  if (stop_requested_.load(std::memory_order_relaxed)) {
+    // Object was destroyed and `this' is no longer valid.
+    return;
+  }
   auto create_assign = [this](auto &ptr, auto &peer) {
-    std::lock_guard<std::shared_timed_mutex> lock(mutex_);
     ptr = factory_->create(*peer);
   };
 
