@@ -72,6 +72,8 @@ namespace iroha {
       MOCK_METHOD0(onProposal, rxcpp::observable<OrderingEvent>());
 
       MOCK_METHOD1(setPcs, void(const PeerCommunicationService &));
+
+      MOCK_METHOD0(stop, void());
     };
 
     class MockConsensusGate : public ConsensusGate {
@@ -79,6 +81,8 @@ namespace iroha {
       MOCK_METHOD1(vote, void(const simulator::BlockCreatorEvent &));
 
       MOCK_METHOD0(onOutcome, rxcpp::observable<GateObject>());
+
+      MOCK_METHOD0(stop, void());
     };
 
   }  // namespace network

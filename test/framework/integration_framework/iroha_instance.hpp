@@ -74,6 +74,9 @@ namespace integration_framework {
     //      IR-1885              refactoring requested.
     std::shared_ptr<TestIrohad> &getIrohaInstance();
 
+    /// Terminate Iroha instance and clean the resources up.
+    void terminateAndCleanup();
+
     // config area
     const std::string block_store_dir_;
     const std::string working_dbname_;

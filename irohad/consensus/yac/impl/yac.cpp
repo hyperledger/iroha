@@ -85,6 +85,10 @@ namespace iroha {
         notifier_lifetime_.unsubscribe();
       }
 
+      void Yac::stop() {
+        network_->stop();
+      }
+
       // ------|Hash gate|------
 
       void Yac::vote(YacHash hash, ClusterOrdering order) {
@@ -170,7 +174,7 @@ namespace iroha {
                    vote.hash.vote_hashes.block_hash,
                    current_leader);
 
-        network_->sendState(current_leader, {vote});
+        propagateStateDirectly(current_leader, {vote});
         cluster_order_.switchToNext();
         auto has_next = cluster_order_.hasNext();
         lock.unlock();

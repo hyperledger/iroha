@@ -461,9 +461,6 @@ namespace integration_framework {
                         const WaitTime &wait,
                         const std::string &error_reason);
 
-    /// Cleanup the resources
-    void cleanup();
-
     logger::LoggerPtr log_;
     logger::LoggerManagerTreePtr log_manager_;
 

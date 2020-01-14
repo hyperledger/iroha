@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <sstream>
 
+#include <boost/filesystem.hpp>
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/storage.hpp"
 #include "cryptography/keypair.hpp"
@@ -67,7 +68,10 @@ namespace integration_framework {
 
   void IrohaInstance::makeGenesis(
       std::shared_ptr<const shared_model::interface::Block> block) {
-    instance_->dropStorage();
+    if (auto e =
+            iroha::expected::resultToOptionalError(instance_->dropStorage())) {
+      throw std::runtime_error(e.value());
+    }
     rawInsertBlock(block);
   }
 
@@ -120,6 +124,22 @@ namespace integration_framework {
 
   std::shared_ptr<TestIrohad> &IrohaInstance::getIrohaInstance() {
     return instance_;
+  }
+
+  void IrohaInstance::terminateAndCleanup() {
+    if (not instance_ or not instance_->storage) {
+      log_->warn("Iroha instance or its storage are not initialized");
+      return;
+    }
+    auto storage = instance_->storage;
+    log_->info("stopping irohad");
+    auto pg_opt_copy = *getIrohaInstance()->pg_opt_;
+    instance_.reset();
+    log_->info("removing storage");
+    storage->dropBlockStorage();
+    storage.reset();
+    iroha::ametsuchi::PgConnectionInit::dropSchema(pg_opt_copy);
+    boost::filesystem::remove_all(block_store_dir_);
   }
 
 }  // namespace integration_framework
