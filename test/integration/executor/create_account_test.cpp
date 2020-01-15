@@ -112,9 +112,9 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
       kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateAccount}));
   ASSERT_NO_FATAL_FAILURE(
       getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));
-  ASSERT_NO_FATAL_FAILURE(assertResultValue(getItf().executeMaintenanceCommand(
-      *getItf().getMockCommandFactory()->constructCreateDomain(
-          kSecondDomain, "target_role"))));
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
+      *getItf().getMockCommandFactory()->constructCreateDomain(kSecondDomain,
+                                                               "target_role")));
 
   checkCommandError(createDefaultAccount(kUserId), 2);
   checkNoSuchAccount();

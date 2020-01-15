@@ -9,7 +9,7 @@ add_library(stateful_validator
 target_link_libraries(stateful_validator
     ametsuchi
     shared_model_interfaces
-    boost
+    Boost::boost
     common
     logger
     )

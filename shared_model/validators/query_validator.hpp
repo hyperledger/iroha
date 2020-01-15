@@ -25,7 +25,7 @@
 #include "interfaces/queries/query.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 #include "validators/abstract_validator.hpp"
-#include "validators/answer.hpp"
+#include "validators/validation_error_helpers.hpp"
 
 namespace shared_model {
   namespace validation {
@@ -36,7 +36,7 @@ namespace shared_model {
      */
     template <typename FieldValidator>
     class QueryValidatorVisitor
-        : public boost::static_visitor<ReasonsGroupType> {
+        : public boost::static_visitor<boost::optional<ValidationError>> {
       QueryValidatorVisitor(FieldValidator validator)
           : validator_(std::move(validator)) {}
 
@@ -46,149 +46,143 @@ namespace shared_model {
       QueryValidatorVisitor(std::shared_ptr<ValidatorsConfig> config)
           : QueryValidatorVisitor(FieldValidator{std::move(config)}) {}
 
-      ReasonsGroupType operator()(const interface::GetAccount &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAccount";
-
-        validator_.validateAccountId(reason, qry.accountId());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetAccount &get_account) const {
+        return aggregateErrors(
+            "GetAccount",
+            {},
+            {validator_.validateAccountId(get_account.accountId())});
       }
 
-      ReasonsGroupType operator()(const interface::GetBlock &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetBlock";
-
-        validator_.validateHeight(reason, qry.height());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetBlock &get_block) const {
+        return aggregateErrors(
+            "GetBlock", {}, {validator_.validateHeight(get_block.height())});
       }
 
-      ReasonsGroupType operator()(const interface::GetSignatories &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetSignatories";
-
-        validator_.validateAccountId(reason, qry.accountId());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetSignatories &get_signatories) const {
+        return aggregateErrors(
+            "GetSignatories",
+            {},
+            {validator_.validateAccountId(get_signatories.accountId())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::GetAccountTransactions &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAccountTransactions";
-
-        validator_.validateAccountId(reason, qry.accountId());
-        validator_.validateTxPaginationMeta(reason, qry.paginationMeta());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetAccountTransactions &get_account_transactions)
+          const {
+        return aggregateErrors(
+            "GetAccountTransactions",
+            {},
+            {validator_.validateAccountId(get_account_transactions.accountId()),
+             validator_.validateTxPaginationMeta(
+                 get_account_transactions.paginationMeta())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::GetAccountAssetTransactions &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAccountAssetTransactions";
-
-        validator_.validateAccountId(reason, qry.accountId());
-        validator_.validateAssetId(reason, qry.assetId());
-        validator_.validateTxPaginationMeta(reason, qry.paginationMeta());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetAccountAssetTransactions
+              &get_account_asset_transactions) const {
+        return aggregateErrors(
+            "GetAccountAssetTransactions",
+            {},
+            {validator_.validateAccountId(
+                 get_account_asset_transactions.accountId()),
+             validator_.validateAssetId(
+                 get_account_asset_transactions.assetId()),
+             validator_.validateTxPaginationMeta(
+                 get_account_asset_transactions.paginationMeta())});
       }
 
-      ReasonsGroupType operator()(const interface::GetTransactions &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetTransactions";
+      boost::optional<ValidationError> operator()(
+          const interface::GetTransactions &get_transactions) const {
+        ValidationErrorCreator error_creator;
 
-        const auto &hashes = qry.transactionHashes();
+        const auto &hashes = get_transactions.transactionHashes();
         if (hashes.size() == 0) {
-          reason.second.push_back("tx_hashes cannot be empty");
+          error_creator.addReason("tx_hashes cannot be empty");
         }
 
         for (const auto &h : hashes) {
-          validator_.validateHash(reason, h);
+          error_creator |= validator_.validateHash(h);
         }
 
-        return reason;
+        return std::move(error_creator).getValidationError("GetTransactions");
       }
 
-      ReasonsGroupType operator()(
-          const interface::GetAccountAssets &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAccountAssets";
-
-        validator_.validateAccountId(reason, qry.accountId());
-        if (qry.paginationMeta()) {
-          validator_.validateAssetPaginationMeta(reason, *qry.paginationMeta());
-        }
-        return reason;
-      }
-
-      ReasonsGroupType operator()(
-          const interface::GetAccountDetail &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAccountDetail";
-
+      boost::optional<ValidationError> operator()(
+          const interface::GetAccountAssets &get_account_assets) const {
         using iroha::operator|;
-
-        validator_.validateAccountId(reason, qry.accountId());
-        qry.key() | [&reason, this](const auto &key) {
-          this->validator_.validateAccountDetailKey(reason, key);
-        };
-        qry.writer() | [&reason, this](const auto &writer) {
-          this->validator_.validateAccountId(reason, writer);
-        };
-        qry.paginationMeta() | [&reason, this](const auto &pagination_meta) {
-          this->validator_.validateAccountDetailPaginationMeta(reason,
-                                                               pagination_meta);
-        };
-
-        return reason;
+        return aggregateErrors(
+            "GetAccountAssets",
+            {},
+            {validator_.validateAccountId(get_account_assets.accountId()),
+             get_account_assets.paginationMeta() |
+                 [this](const auto &pagination_meta) {
+                   return validator_.validateAssetPaginationMeta(
+                       pagination_meta);
+                 }});
       }
 
-      ReasonsGroupType operator()(const interface::GetRoles &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetRoles";
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetAccountDetail &get_account_detail) const {
+        using iroha::operator|;
+        return aggregateErrors(
+            "GetAccountDetail",
+            {},
+            {validator_.validateAccountId(get_account_detail.accountId()),
+             get_account_detail.key() |
+                 [this](const auto &key) {
+                   return validator_.validateAccountDetailKey(key);
+                 },
+             get_account_detail.writer() |
+                 [this](const auto &writer) {
+                   return validator_.validateAccountId(writer);
+                 },
+             get_account_detail.paginationMeta() |
+                 [this](const auto &pagination_meta) {
+                   return validator_.validateAccountDetailPaginationMeta(
+                       pagination_meta);
+                 }});
       }
 
-      ReasonsGroupType operator()(
-          const interface::GetRolePermissions &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetRolePermissions";
-
-        validator_.validateRoleId(reason, qry.roleId());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetRoles &get_roles) const {
+        return boost::none;
       }
 
-      ReasonsGroupType operator()(const interface::GetAssetInfo &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetAssetInfo";
-
-        validator_.validateAssetId(reason, qry.assetId());
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetRolePermissions &get_role_permissions) const {
+        return aggregateErrors(
+            "GetRolePermissions",
+            {},
+            {validator_.validateRoleId(get_role_permissions.roleId())});
       }
 
-      ReasonsGroupType operator()(
-          const interface::GetPendingTransactions &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetPendingTransactions";
-        if (qry.paginationMeta()) {
-          // TODO igor-egorov 2019-06-06 IR-516 Make meta non-optional
-          validator_.validateTxPaginationMeta(reason, *qry.paginationMeta());
-        }
-
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetAssetInfo &get_asset_info) const {
+        return aggregateErrors(
+            "GetAssetInfo",
+            {},
+            {validator_.validateAssetId(get_asset_info.assetId())});
       }
 
-      ReasonsGroupType operator()(const interface::GetPeers &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetPeers";
+      boost::optional<ValidationError> operator()(
+          const interface::GetPendingTransactions &get_pending_transactions)
+          const {
+        using iroha::operator|;
+        return aggregateErrors(
+            "GetPendingTransactions",
+            {},
+            {// TODO igor-egorov 2019-06-06 IR-516 Make meta non-optional
+             get_pending_transactions.paginationMeta() |
+             [this](const auto &pagination_meta) {
+               return validator_.validateTxPaginationMeta(pagination_meta);
+             }});
+      }
 
-        return reason;
+      boost::optional<ValidationError> operator()(
+          const interface::GetPeers &get_peers) const {
+        return boost::none;
       }
 
      private:
@@ -215,33 +209,24 @@ namespace shared_model {
       /**
        * Applies validation to given query
        * @param qry - query to validate
-       * @return Answer containing found error if any
+       * @return found error if any
        */
-      Answer validate(const interface::Query &qry) const override {
-        Answer answer;
-        std::string qry_reason_name = "Query";
-        ReasonsGroupType qry_reason(qry_reason_name, GroupedReasons());
+      boost::optional<ValidationError> validate(
+          const interface::Query &qry) const override {
+        ValidationErrorCreator error_creator;
 
-        field_validator_.validateCreatorAccountId(qry_reason,
-                                                  qry.creatorAccountId());
-        field_validator_.validateCreatedTime(qry_reason, qry.createdTime());
-        field_validator_.validateCounter(qry_reason, qry.queryCounter());
-
-        if (not qry_reason.second.empty()) {
-          answer.addReason(std::move(qry_reason));
-        }
-
-        auto field_reason =
+        error_creator |=
+            field_validator_.validateCreatorAccountId(qry.creatorAccountId());
+        error_creator |=
+            field_validator_.validateCreatedTime(qry.createdTime());
+        error_creator |= field_validator_.validateCounter(qry.queryCounter());
+        error_creator |=
             boost::apply_visitor(query_field_validator_, qry.get());
-        if (not field_reason.second.empty()) {
-          answer.addReason(std::move(field_reason));
-        }
 
-        return answer;
+        return std::move(error_creator).getValidationError("Query");
       }
 
      protected:
-      Answer answer_;
       FieldValidator field_validator_;
       QueryFieldValidator query_field_validator_;
     };

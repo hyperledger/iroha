@@ -20,13 +20,10 @@ static_assert(NUM_TEST_KEYS == 3,
               "Wrong number of generated test credentials!");
 
 namespace {
-  std::string loadFile(const char *path) {
-    return iroha::expected::resultToOptionalValue(iroha::readFile(path))
-        .value();
-  }
-
   Blob loadHexFile(const char *path) {
-    return Blob{iroha::hexstringToBytestring(loadFile(path)).value()};
+    return Blob{iroha::hexstringToBytestringResult(
+                    iroha::readTextFile(path).assumeValue())
+                    .assumeValue()};
   }
 }  // namespace
 

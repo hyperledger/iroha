@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/optional/optional_io.hpp>
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -14,6 +15,7 @@
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/default_validator.hpp"
+#include "validators/validation_error_output.hpp"
 
 using namespace shared_model::validation;
 
@@ -85,8 +87,7 @@ TEST_F(ProposalValidatorTest, IncompleteBatch) {
           .transactions(proto_txs)
           .build());
 
-  auto answer = validator_.validate(*proposal);
-  ASSERT_TRUE(answer);
+  ASSERT_TRUE(validator_.validate(*proposal));
 }
 
 /**
@@ -100,8 +101,7 @@ TEST_F(ProposalValidatorTest, TransportProposalWithDuplicateTransactions) {
   shared_model::validation::DefaultProposalValidator validator(
       iroha::test::kProposalTestsValidatorsConfig);
 
-  auto answer = validator.validate(proposal);
-  ASSERT_FALSE(answer.hasErrors());
+  ASSERT_EQ(validator.validate(proposal), boost::none);
 }
 
 /**
@@ -112,7 +112,7 @@ TEST_F(ProposalValidatorTest, TransportProposalWithDuplicateTransactions) {
 TEST_F(ProposalValidatorTest, ProposalWithDuplicateTransactions) {
   auto proposal = createProposalWithDuplicateTransactions();
 
-  auto answer = validator_.validate(proposal);
-  ASSERT_TRUE(answer.hasErrors());
-  ASSERT_THAT(answer.reason(), testing::HasSubstr("Transaction with hash"));
+  auto error = validator_.validate(proposal);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), testing::HasSubstr("Duplicates transaction"));
 }

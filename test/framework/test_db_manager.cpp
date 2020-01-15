@@ -53,7 +53,7 @@ TestDbManager::createWithRandomDbName(
     if (auto e = resultToOptionalError(db_exists_result)) {
       return std::move(e).value();
     }
-    const bool db_exists = resultToOptionalValue(db_exists_result).value();
+    const bool db_exists = db_exists_result.assumeValue();
     if (not db_exists) {
       return PgConnectionInit::createDatabaseIfNotExist(*pg_opts) |
           [&](bool db_was_created) {

@@ -6,15 +6,17 @@
 #ifndef IROHA_BLOCK_VALIDATOR_HPP
 #define IROHA_BLOCK_VALIDATOR_HPP
 
-#include <boost/format.hpp>
+#include <unordered_map>
+
+#include <fmt/core.h>
 #include <boost/range/adaptor/indexed.hpp>
 #include "datetime/time.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/transaction.hpp"
 #include "validators/abstract_validator.hpp"
-#include "validators/answer.hpp"
-#include "validators/container_validator.hpp"
+#include "validators/validation_error_helpers.hpp"
+#include "validators/validators_common.hpp"
 
 namespace shared_model {
   namespace validation {
@@ -23,65 +25,69 @@ namespace shared_model {
      * Class that validates block
      */
     template <typename FieldValidator, typename TransactionsCollectionValidator>
-    class BlockValidator
-        : public ContainerValidator<interface::Block,
-                                    FieldValidator,
-                                    TransactionsCollectionValidator>,
-          public AbstractValidator<interface::Block> {
+    class BlockValidator : public AbstractValidator<interface::Block> {
      public:
-      using ContainerValidator<
-          interface::Block,
-          FieldValidator,
-          TransactionsCollectionValidator>::ContainerValidator;
+      BlockValidator(std::shared_ptr<ValidatorsConfig> config)
+          : transactions_collection_validator_(
+                TransactionsCollectionValidator{config}),
+            field_validator_(FieldValidator{config}) {}
+
       /**
        * Applies validation on block
        * @param block
-       * @return Answer containing found error if any
+       * @return found error if any
        */
-      Answer validate(const interface::Block &block) const override {
-        Answer answer = ContainerValidator<interface::Block,
-                                           FieldValidator,
-                                           TransactionsCollectionValidator>::
-            validate(block, "Block", [this](auto &reason, const auto &cont) {
-              this->field_validator_.validateHash(reason, cont.prevHash());
-            });
+      boost::optional<ValidationError> validate(
+          const interface::Block &block) const override {
+        ValidationErrorCreator error_creator;
 
-        validation::ReasonsGroupType block_reason;
-        std::unordered_set<std::string> hashes = {};
+        error_creator |= field_validator_.validateHeight(block.height());
+        error_creator |= field_validator_.validateHash(block.prevHash());
+        error_creator |= transactions_collection_validator_.validate(
+            block.transactions(), block.createdTime());
 
-        auto rejected_hashes = block.rejected_transactions_hashes();
+        std::unordered_map<shared_model::crypto::Hash,
+                           size_t,
+                           shared_model::crypto::Hash::Hasher>
+            rejected_hashes;
+        for (const auto &hash : block.rejected_transactions_hashes()
+                 | boost::adaptors::indexed(1)) {
+          ValidationErrorCreator hash_error_creator;
+          auto emplace_result =
+              rejected_hashes.emplace(hash.value(), hash.index());
+          if (not emplace_result.second) {
+            hash_error_creator.addReason(fmt::format(
+                "Duplicates hash #{}", emplace_result.first->second));
+          }
+          hash_error_creator |= field_validator_.validateHash(hash.value());
+          error_creator |=
+              std::move(hash_error_creator)
+                  .getValidationErrorWithGeneratedName([&] {
+                    return fmt::format("Rejected transaction hash #{} {}",
+                                       hash.index(),
+                                       hash.value().hex());
+                  });
+        }
 
-        for (const auto &hash : rejected_hashes | boost::adaptors::indexed(0)) {
-          if (hashes.count(hash.value().hex())) {
-            block_reason.second.emplace_back(
-                (boost::format("Rejected hash '%s' with index "
-                               "'%d' has already appeared in a block")
-                 % hash.value().hex() % hash.index())
-                    .str());
-          } else {
-            hashes.insert(hash.value().hex());
+        for (const auto &tx :
+             block.transactions() | boost::adaptors::indexed(1)) {
+          auto it = rejected_hashes.find(tx.value().hash());
+          if (it != rejected_hashes.end()) {
+            error_creator.addReason(
+                fmt::format("Hash '{}' of transaction #{} has already "
+                            "appeared in rejected hashes (#{}).",
+                            tx.value().hash().hex(),
+                            tx.index(),
+                            it->second));
           }
         }
 
-        auto transaction = block.transactions();
-
-        for (const auto &tx : transaction | boost::adaptors::indexed(0)) {
-          auto hex = tx.value().hash().hex();
-          if (hashes.count(hex)) {
-            block_reason.second.emplace_back(
-                (boost::format("Hash '%s' of transaction "
-                               "'%d' has already appeared in rejected hashes")
-                 % hex % tx.index())
-                    .str());
-          }
-        }
-
-        if (not block_reason.second.empty()) {
-          answer.addReason(std::move(block_reason));
-        }
-
-        return answer;
+        return std::move(error_creator).getValidationError("Block");
       }
+
+     private:
+      TransactionsCollectionValidator transactions_collection_validator_;
+      FieldValidator field_validator_;
     };
 
   }  // namespace validation

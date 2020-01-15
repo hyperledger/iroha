@@ -5,8 +5,10 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
+#include <boost/optional/optional_io.hpp>
 #include "builders/protobuf/queries.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "validators/validation_error_output.hpp"
 
 class QueryValidatorTest : public ValidatorsTest {
  public:
@@ -20,7 +22,7 @@ using namespace shared_model;
 /**
  * @given Protobuf query object
  * @when Each query type created with valid fields
- * @then Answer has no errors
+ * @then there are no validation errors
  */
 TEST_F(QueryValidatorTest, StatelessValidTest) {
   iroha::protocol::Query qry;
@@ -52,16 +54,16 @@ TEST_F(QueryValidatorTest, StatelessValidTest) {
       },
       [&] {
         auto result = proto::Query(iroha::protocol::Query(qry));
-        auto answer = query_validator.validate(result);
+        auto error = query_validator.validate(result);
 
-        ASSERT_FALSE(answer.hasErrors()) << answer.reason();
+        ASSERT_EQ(error, boost::none);
       });
 }
 
 /**
  * @given Protobuf query object
  * @when Query has no fields set, and each query type has no fields set
- * @then Answer contains error
+ * @then there is a validation error
  */
 TEST_F(QueryValidatorTest, StatelessInvalidTest) {
   iroha::protocol::Query qry;
@@ -83,8 +85,8 @@ TEST_F(QueryValidatorTest, StatelessInvalidTest) {
       },
       [&] {
         auto result = proto::Query(iroha::protocol::Query(qry));
-        auto answer = query_validator.validate(result);
+        auto error = query_validator.validate(result);
 
-        ASSERT_TRUE(answer.hasErrors());
+        ASSERT_TRUE(error);
       });
 }

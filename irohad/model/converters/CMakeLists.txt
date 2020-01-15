@@ -12,7 +12,7 @@ add_library(json_model_converters
     )
 target_link_libraries(json_model_converters
     model
-    rapidjson
+    RapidJSON::rapidjson
     schema
     ed25519_crypto
     common
@@ -23,7 +23,6 @@ add_library(pb_model_converters
     impl/pb_block_factory.cpp
     impl/pb_command_factory.cpp
     impl/pb_query_factory.cpp
-    impl/pb_query_response_factory.cpp
     impl/pb_transaction_factory.cpp
     impl/pb_common.cpp
     )
@@ -32,6 +31,6 @@ target_link_libraries(pb_model_converters
     schema
     ed25519_crypto
     common
-    boost
+    Boost::boost
     logger
     )

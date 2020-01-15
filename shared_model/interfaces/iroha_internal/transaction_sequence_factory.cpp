@@ -7,12 +7,14 @@
 
 #include <unordered_map>
 
+#include <fmt/core.h>
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_helpers.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/transaction.hpp"
-#include "validators/answer.hpp"
+#include "validators/transactions_collection/batch_order_validator.hpp"
+#include "validators/validation_error_helpers.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -25,16 +27,15 @@ namespace shared_model {
           std::make_shared<validation::ValidatorsConfig>(kTestsMaxBatchSize);
     }  // namespace
     auto batch_validator =
-        std::make_shared<validation::BatchValidator>(kValidatorsConfig);
+        std::make_shared<validation::DefaultBatchValidator>(kValidatorsConfig);
     const std::unique_ptr<TransactionBatchFactory> batch_factory =
         std::make_unique<TransactionBatchFactoryImpl>(batch_validator);
 
-    template <typename TransactionValidator, typename FieldValidator>
+    template <typename TransactionsCollectionValidator, typename FieldValidator>
     iroha::expected::Result<TransactionSequence, std::string>
     TransactionSequenceFactory::createTransactionSequence(
         const types::SharedTxsCollectionType &transactions,
-        const validation::TransactionsCollectionValidator<TransactionValidator>
-            &validator,
+        const TransactionsCollectionValidator &validator,
         const FieldValidator &field_validator) {
       std::unordered_map<interface::types::HashType,
                          std::vector<std::shared_ptr<Transaction>>,
@@ -50,60 +51,64 @@ namespace shared_model {
             batches.push_back(std::move(value.value));
           };
 
-      validation::Answer result;
+      validation::ValidationErrorCreator error_creator;
       if (transactions.empty()) {
-        result.addReason(std::make_pair(
-            "Transaction collection error",
-            std::vector<std::string>{"sequence can not be empty"}));
+        error_creator.addReason("Sequence is empty.");
       }
-      for (const auto &tx : transactions) {
+      for (const auto &tx : transactions | boost::adaptors::indexed(1)) {
+        validation::ValidationErrorCreator tx_error_creator;
         // perform stateless validation checks
-        validation::ReasonsGroupType reason;
-        reason.first = "Transaction: ";
         // check signatures validness
-        if (not boost::empty(tx->signatures())) {
-          field_validator.validateSignatures(
-              reason, tx->signatures(), tx->payload());
-          if (not reason.second.empty()) {
-            result.addReason(std::move(reason));
-            continue;
-          }
+        if (not boost::empty(tx.value()->signatures())) {
+          tx_error_creator |= field_validator.validateSignatures(
+              tx.value()->signatures(), tx.value()->payload());
         }
         // check transaction validness
-        auto tx_errors = transaction_validator.validate(*tx);
-        if (tx_errors) {
-          reason.second.emplace_back(tx_errors.reason());
-          result.addReason(std::move(reason));
-          continue;
-        }
+        tx_error_creator |= transaction_validator.validate(*tx.value());
 
         // if transaction is valid, try to form batch out of it
-        if (auto meta = tx->batchMeta()) {
+        if (auto meta = tx.value()->batchMeta()) {
           auto hashes = meta.get()->reducedHashes();
           auto batch_hash =
               TransactionBatchHelpers::calculateReducedBatchHash(hashes);
-          extracted_batches[batch_hash].push_back(tx);
+          extracted_batches[batch_hash].push_back(tx.value());
         } else {
-          batch_factory->createTransactionBatch(tx).match(
-              insert_batch, [&tx, &result](const auto &err) {
-                result.addReason(std::make_pair(
-                    std::string("Error in transaction with reduced hash: ")
-                        + tx->reducedHash().hex(),
-                    std::vector<std::string>{err.error}));
+          batch_factory->createTransactionBatch(tx.value())
+              .match(insert_batch, [&tx_error_creator](const auto &err) {
+                tx_error_creator.addReason(fmt::format(
+                    "Could not create transaction batch from this tx: {}.",
+                    err.error));
               });
         }
+
+        error_creator |=
+            std::move(tx_error_creator)
+                .getValidationErrorWithGeneratedName([&] {
+                  return fmt::format("Transaction #{} with reduced hash {}",
+                                     tx.index(),
+                                     tx.value()->reducedHash().hex());
+                });
       }
 
       for (const auto &it : extracted_batches) {
+        validation::ValidationErrorCreator batch_error_creator;
         batch_factory->createTransactionBatch(it.second).match(
-            insert_batch, [&it, &result](const auto &err) {
-              result.addReason(std::make_pair(
-                  it.first.toString(), std::vector<std::string>{err.error}));
+            insert_batch, [&batch_error_creator](const auto &err) {
+              batch_error_creator.addReason(fmt::format(
+                  "Could not create transaction batch: {}.", err.error));
             });
+
+        error_creator |=
+            std::move(batch_error_creator)
+                .getValidationErrorWithGeneratedName([&] {
+                  return fmt::format("Batch from meta with reduced hash {}.",
+                                     it.first.hex());
+                });
       }
 
-      if (result.hasErrors()) {
-        return iroha::expected::makeError(result.reason());
+      if (auto error = std::move(error_creator)
+                           .getValidationError("TransactionSequence")) {
+        return error.value().toString();
       }
 
       return iroha::expected::makeValue(TransactionSequence(batches));

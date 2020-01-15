@@ -16,8 +16,7 @@ static_assert(NUM_TEST_P2P_TLS_CREDS == 3,
 
 namespace {
   std::string loadFile(const char *path) {
-    return iroha::expected::resultToOptionalValue(iroha::readFile(path))
-        .value();
+    return iroha::readTextFile(path).assumeValue();
   }
 }  // namespace
 

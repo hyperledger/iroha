@@ -21,7 +21,6 @@
 #include "model/model_crypto_provider.hpp"  // for ModelCryptoProvider
 #include "model/queries/get_asset_info.hpp"
 #include "model/queries/get_roles.hpp"
-#include "model/sha3_hash.hpp"
 
 using namespace iroha::model;
 

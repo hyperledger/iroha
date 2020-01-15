@@ -44,6 +44,7 @@ target_link_libraries(integration_framework
     PRIVATE
     test_client_factory
     yac_transport
+    Boost::thread
     PUBLIC
     application
     integration_framework_config_helper
@@ -71,7 +72,7 @@ add_library(integration_framework_config_helper
     )
 target_include_directories(integration_framework_config_helper PUBLIC ${PROJECT_SOURCE_DIR}/test)
 target_link_libraries(integration_framework_config_helper
-    boost
+    Boost::boost
     )
 
 add_library(framework_sql_query
@@ -89,7 +90,7 @@ target_compile_definitions(framework_sql_query
 
 add_library(test_db_manager test_db_manager.cpp)
 target_link_libraries(test_db_manager
-    gtest::main
+    GTest::gtest
     integration_framework_config_helper
     k_times_reconnection_strategy
     logger_manager

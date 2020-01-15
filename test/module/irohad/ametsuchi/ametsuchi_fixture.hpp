@@ -22,6 +22,7 @@
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "framework/config_helper.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/sql_query.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger.hpp"
@@ -84,8 +85,7 @@ namespace iroha {
           std::terminate();
         }
 
-        pool_wrapper_ =
-            std::move(expected::resultToOptionalValue(pool).value());
+        pool_wrapper_ = std::move(pool).assumeValue();
 
         StorageImpl::create(std::move(options),
                             std::move(pool_wrapper_),
@@ -136,8 +136,7 @@ namespace iroha {
                  std::shared_ptr<const shared_model::interface::Block> block) {
         auto ms = createMutableStorage();
         ASSERT_TRUE(ms->apply(block));
-        ASSERT_TRUE(
-            expected::resultToOptionalValue(storage->commit(std::move(ms))));
+        IROHA_ASSERT_RESULT_VALUE(storage->commit(std::move(ms)));
       }
 
       /// Create mutable storage from initialized storage

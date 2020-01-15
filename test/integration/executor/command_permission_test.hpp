@@ -82,14 +82,14 @@ namespace executor_testing {
         }
 
         // create target user
-        assertResultValue(getItf().createUserWithPerms(
+        IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
 
         if (getActor() != kUserId) {
           auto &actor_permissions = additional_actor_permissions;
           actor_permissions |= permissions_param_.actor_role_permissions;
           auto split_actor_id = splitAccountId(getActor());
-          assertResultValue(
+          IROHA_ASSERT_RESULT_VALUE(
               getItf().createUserWithPerms(split_actor_id.first,
                                            split_actor_id.second,
                                            kSameDomainUserKeypair.publicKey(),
@@ -98,7 +98,7 @@ namespace executor_testing {
 
         // grant current actor the permissions
         if (permissions_param_.actor_grantable_permission) {
-          assertResultValue(getItf().executeCommandAsAccount(
+          IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
               *getItf().getMockCommandFactory()->constructGrantPermission(
                   permissions_param_.actor,
                   permissions_param_.actor_grantable_permission.value()),

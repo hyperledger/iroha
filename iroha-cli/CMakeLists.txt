@@ -25,7 +25,7 @@ target_link_libraries(client
     ed25519_crypto
     grpc_channel_factory
     logger
-    rapidjson
+    RapidJSON::rapidjson
     pb_model_converters
     json_model_converters
     model_generators
@@ -50,7 +50,8 @@ target_link_libraries(iroha-cli
     client
     cli-flags_validators
     keys_manager
-    boost
+    Boost::boost
+    Boost::filesystem
     logger
     logger_manager
     )

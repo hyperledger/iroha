@@ -12,6 +12,7 @@
 #include "ametsuchi/storage.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/bind.hpp"
+#include "common/files.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
@@ -149,8 +150,14 @@ int main(int argc, char *argv[]) {
   }
 
   // Reading iroha configuration file
-  const auto config =
+  auto config_result =
       parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
+  if (auto e = iroha::expected::resultToOptionalError(config_result)) {
+    log->error("Failed reading the configuration file: {}", e.value());
+    return EXIT_FAILURE;
+  }
+  auto config = std::move(config_result).assumeValue();
+
   if (not log_manager) {
     log_manager = config.logger_manager.value_or(getDefaultLogManager());
     log = log_manager->getChild("Init")->getLogger();
@@ -169,11 +176,11 @@ int main(int argc, char *argv[]) {
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
       FLAGS_keypair_name, log_manager->getChild("KeysManager")->getLogger());
-  auto keypair = keysManager.loadKeys();
+  auto keypair = keysManager.loadKeys(boost::none);
   // Check if both keys are read properly
-  if (not keypair) {
+  if (auto e = iroha::expected::resultToOptionalError(keypair)) {
     // Abort execution if not
-    log->error("Failed to load keypair");
+    log->error("Failed to load keypair: {}", e.value());
     return EXIT_FAILURE;
   }
 
@@ -209,7 +216,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      *keypair,
+      std::move(keypair).assumeValue(),
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
@@ -261,15 +268,16 @@ int main(int argc, char *argv[]) {
           "Passed genesis block will be ignored without --overwrite_ledger "
           "flag. Restoring existing state.");
     } else {
-      iroha::main::BlockLoader loader(
-          log_manager->getChild("GenesisBlockLoader")->getLogger());
-      auto file = loader.loadFile(FLAGS_genesis_block);
-      auto block = loader.parseBlock(file.value());
+      auto block_result =
+          iroha::readTextFile(FLAGS_genesis_block) | [](const auto &json) {
+            return iroha::main::BlockLoader::parseBlock(json);
+          };
 
-      if (not block) {
-        log->error("Failed to parse genesis block.");
+      if (auto e = iroha::expected::resultToOptionalError(block_result)) {
+        log->error("Failed to parse genesis block: {}", e.value());
         return EXIT_FAILURE;
       }
+      auto block = std::move(block_result).assumeValue();
 
       if (not blockstore and overwrite) {
         log->warn(
@@ -280,12 +288,12 @@ int main(int argc, char *argv[]) {
       // clear previous storage if any
       irohad.dropStorage();
 
-      if (not irohad.storage->insertBlock(block.value())) {
+      const auto txs_num = block->transactions().size();
+      if (not irohad.storage->insertBlock(std::move(block))) {
         log->critical("Could not apply genesis block!");
         return EXIT_FAILURE;
       }
-      log->info("Genesis block inserted, number of transactions: {}",
-                block.value()->transactions().size());
+      log->info("Genesis block inserted, number of transactions: {}", txs_num);
     }
   } else {  // genesis block file is not specified
     if (not blockstore) {

@@ -18,63 +18,150 @@ namespace shared_model {
 
     struct AlwaysValidFieldValidator final {
       AlwaysValidFieldValidator(std::shared_ptr<ValidatorsConfig>) {}
+
       template <typename... Args>
-      void validateAccountId(Args...) const {}
+      boost::optional<ValidationError> validateAccountId(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAssetId(Args...) const {}
+      boost::optional<ValidationError> validateAssetId(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validatePeer(Args...) const {}
+      boost::optional<ValidationError> validatePeer(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAmount(Args...) const {}
+      boost::optional<ValidationError> validateAmount(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validatePubkey(Args...) const {}
+      boost::optional<ValidationError> validatePubkey(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validatePeerAddress(Args...) const {}
+      boost::optional<ValidationError> validatePeerAddress(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateRoleId(Args...) const {}
+      boost::optional<ValidationError> validateRoleId(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAccountName(Args...) const {}
+      boost::optional<ValidationError> validateAccountName(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateDomainId(Args...) const {}
+      boost::optional<ValidationError> validateDomainId(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAssetName(Args...) const {}
+      boost::optional<ValidationError> validateDomain(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAccountDetailKey(Args...) const {}
+      boost::optional<ValidationError> validateAssetName(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateAccountDetailValue(Args...) const {}
+      boost::optional<ValidationError> validateAccountDetailKey(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validatePrecision(Args...) const {}
+      boost::optional<ValidationError> validateAccountDetailValue(
+          Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateRolePermission(Args...) const {}
+      boost::optional<ValidationError> validatePrecision(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateGrantablePermission(Args...) const {}
+      boost::optional<ValidationError> validateRolePermission(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateQuorum(Args...) const {}
+      boost::optional<ValidationError> validateGrantablePermission(
+          Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateCreatorAccountId(Args...) const {}
+      boost::optional<ValidationError> validateQuorum(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateCreatedTime(Args...) const {}
+      boost::optional<ValidationError> validateCreatorAccountId(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateCounter(Args...) const {}
+      boost::optional<ValidationError> validateAccount(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateSignatures(Args...) const {}
+      boost::optional<ValidationError> validateCreatedTime(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateQueryPayloadMeta(Args...) const {}
+      boost::optional<ValidationError> validateCounter(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateDescription(Args...) const {}
+      boost::optional<ValidationError> validateSignatureForm(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateBatchMeta(Args...) const {}
+      boost::optional<ValidationError> validateSignatures(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateHeight(Args...) const {}
+      boost::optional<ValidationError> validateQueryPayloadMeta(Args...) const {
+        return boost::none;
+      }
       template <typename... Args>
-      void validateHash(Args...) const {}
+      boost::optional<ValidationError> validateDescription(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateBatchMeta(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateHeight(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateHash(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateTxPaginationMeta(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateAccountAsset(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateAsset(Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateAccountDetailRecordId(
+          Args...) const {
+        return boost::none;
+      }
+      template <typename... Args>
+      boost::optional<ValidationError> validateAccountDetailPaginationMeta(
+          Args...) const {
+        return boost::none;
+      }
     };
 
     template <typename Model>
     struct AlwaysValidModelValidator final : public AbstractValidator<Model> {
      public:
-      Answer validate(const Model &m) const override {
-        return {};
+      boost::optional<ValidationError> validate(const Model &m) const override {
+        return boost::none;
       };
     };
 

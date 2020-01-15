@@ -9,7 +9,7 @@ add_library(mst_transport
 target_link_libraries(mst_transport
     mst_grpc
     mst_state
-    boost
+    Boost::boost
     common
     endpoint
     grpc_generic_client_factory

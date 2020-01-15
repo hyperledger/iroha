@@ -404,16 +404,16 @@ namespace integration_framework {
                                   std::chrono::milliseconds timeout) const {
       using iroha::ordering::transport::OnDemandOsClientGrpcFactory;
       auto on_demand_os_transport =
-          framework::expected::assertAndGetResultValue(
-              OnDemandOsClientGrpcFactory(
-                  async_call_,
-                  proposal_factory_,
-                  [] { return std::chrono::system_clock::now(); },
-                  timeout,
-                  ordering_log_manager_->getChild("NetworkClient")->getLogger(),
-                  iroha::network::makeTransportClientFactory<
-                      OnDemandOsClientGrpcFactory>(client_factory_))
-                  .create(*real_peer_));
+          OnDemandOsClientGrpcFactory(
+              async_call_,
+              proposal_factory_,
+              [] { return std::chrono::system_clock::now(); },
+              timeout,
+              ordering_log_manager_->getChild("NetworkClient")->getLogger(),
+              iroha::network::makeTransportClientFactory<
+                  OnDemandOsClientGrpcFactory>(client_factory_))
+              .create(*real_peer_)
+              .assumeValue();
       return on_demand_os_transport->onRequestProposal(round);
     }
 

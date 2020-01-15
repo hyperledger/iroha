@@ -54,19 +54,19 @@ struct GetAccountDetailTest : public ExecutorTestBase {
                   const size_t num_keys_per_account) {
     SCOPED_TRACE("addDetails");
     for (size_t acc = 0; acc < num_accounts; ++acc) {
-      assertResultValue(
+      IROHA_ASSERT_RESULT_VALUE(
           getItf().createUserWithPerms(makeAccountName(acc),
                                        kDomain,
                                        kSameDomainUserKeypair.publicKey(),
                                        {}));
-      assertResultValue(getItf().executeCommandAsAccount(
+      IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructGrantPermission(
               makeAccountId(acc), Grantable::kSetMyAccountDetail),
           kUserId,
           true));
       auto &added_writer = added_data_[makeAccountId(acc)];
       for (size_t key = 0; key < num_keys_per_account; ++key) {
-        assertResultValue(getItf().executeCommandAsAccount(
+        IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
             *getItf().getMockCommandFactory()->constructSetAccountDetail(
                 kUserId, makeKey(key), makeValue(acc, key)),
             makeAccountId(acc),
@@ -107,7 +107,7 @@ struct GetAccountDetailTest : public ExecutorTestBase {
                     const size_t num_keys_per_account) {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
-    assertResultValue(getItf().createUserWithPerms(
+    IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
         kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail}));
     addDetails(num_accounts, num_keys_per_account);
   }

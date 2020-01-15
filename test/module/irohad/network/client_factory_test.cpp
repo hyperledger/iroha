@@ -96,11 +96,12 @@ class ClientFactoryTest : public ::testing::Test {
   auto makeClient(
       const std::unique_ptr<iroha::network::GenericClientFactory> &factory,
       const std::string &address) {
-    return framework::expected::assertAndGetResultValue(
-        factory->createClient<iroha::protocol::QueryService_v1>(
+    return factory
+        ->createClient<iroha::protocol::QueryService_v1>(
             *makePeer(address,
                       iroha::getPeer1PublicKey(),
-                      iroha::getPeer2TlsCreds().certificate)));
+                      iroha::getPeer2TlsCreds().certificate))
+        .assumeValue();
   }
 
   std::string insecure_address_;

@@ -59,19 +59,14 @@ namespace iroha {
 
         block.txs_number = static_cast<uint16_t>(pl.tx_number());
         block.height = pl.height();
-        block.prev_hash = iroha::expected::resultToOptionalValue(
-                              hash256_t::from_string(pl.prev_block_hash()))
-                              .value();
+        block.prev_hash =
+            hash256_t::from_string(pl.prev_block_hash()).assumeValue();
         block.created_ts = pl.created_time();
 
         for (const auto &pb_sig : pb_block.block_v1().signatures()) {
           model::Signature sig;
-          sig.signature = iroha::expected::resultToOptionalValue(
-                              sig_t::from_string(pb_sig.signature()))
-                              .value();
-          sig.pubkey = iroha::expected::resultToOptionalValue(
-                           pubkey_t::from_string(pb_sig.public_key()))
-                           .value();
+          sig.signature = sig_t::from_string(pb_sig.signature()).assumeValue();
+          sig.pubkey = pubkey_t::from_string(pb_sig.public_key()).assumeValue();
           block.sigs.push_back(std::move(sig));
         }
 

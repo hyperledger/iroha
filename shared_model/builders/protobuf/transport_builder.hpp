@@ -33,9 +33,8 @@ namespace shared_model {
       iroha::expected::Result<T, std::string> build(
           typename T::TransportType transport) {
         auto result = T(transport);
-        auto answer = stateless_validator_.validate(result);
-        if (answer.hasErrors()) {
-          return iroha::expected::makeError(answer.reason());
+        if (auto error = stateless_validator_.validate(result)) {
+          return iroha::expected::makeError(error->toString());
         }
         return iroha::expected::makeValue(T(std::move(transport)));
       }

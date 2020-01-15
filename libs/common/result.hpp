@@ -6,7 +6,10 @@
 #ifndef IROHA_RESULT_HPP
 #define IROHA_RESULT_HPP
 
+#include "common/result_fwd.hpp"
+
 #include <ciso646>
+#include <type_traits>
 
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
@@ -69,6 +72,10 @@ namespace iroha {
 
     template <>
     struct Error<void> {};
+
+    class ResultException : public std::runtime_error {
+      using std::runtime_error::runtime_error;
+    };
 
     struct ResultBase {};
 
@@ -172,6 +179,60 @@ namespace iroha {
             *this,
             [](ValueType val) -> Result<Value, E> { return val; },
             [res = new_res](ErrorType) { return res; });
+      }
+
+      using AssumeValueHelper =
+          std::conditional_t<std::is_void<ValueInnerType>::value,
+                             void *,
+                             ValueInnerType>;
+
+      /// @return value if present, otherwise throw ResultException
+      template <typename ReturnType = AssumeValueHelper &>
+      std::enable_if_t<not std::is_void<ValueInnerType>::value, ReturnType>
+      assumeValue() & {
+        auto val = boost::get<ValueType>(this);
+        if (val != nullptr) {
+          return val->value;
+        }
+        throw ResultException("Value expected, but got an Error.");
+      }
+
+      /// @return value if present, otherwise throw ResultException
+      template <typename ReturnType = AssumeValueHelper &&>
+      std::enable_if_t<not std::is_void<ValueInnerType>::value, ReturnType>
+      assumeValue() && {
+        auto val = boost::get<ValueType>(this);
+        if (val != nullptr) {
+          return std::move(val->value);
+        }
+        throw ResultException("Value expected, but got an Error.");
+      }
+
+      using AssumeErrorHelper =
+          std::conditional_t<std::is_void<ErrorInnerType>::value,
+                             void *,
+                             ErrorInnerType>;
+
+      /// @return error if present, otherwise throw ResultException
+      template <typename ReturnType = AssumeErrorHelper &>
+      std::enable_if_t<not std::is_void<ErrorInnerType>::value, ReturnType>
+      assumeError() & {
+        auto val = boost::get<ErrorType>(this);
+        if (val != nullptr) {
+          return val->value;
+        }
+        throw ResultException("Error expected, but got a Value.");
+      }
+
+      /// @return error if present, otherwise throw ResultException
+      template <typename ReturnType = AssumeErrorHelper &&>
+      std::enable_if_t<not std::is_void<ErrorInnerType>::value, ReturnType>
+      assumeError() && {
+        auto val = boost::get<ErrorType>(this);
+        if (val != nullptr) {
+          return std::move(val->value);
+        }
+        throw ResultException("Error expected, but got a Value.");
       }
     };
 
@@ -422,13 +483,22 @@ namespace iroha {
       return {};
     }
 
-    template <typename Error, typename Value>
-    Result<Value, Error> optionalToResult(boost::optional<Value> value,
-                                          Error error) {
+    template <typename E, typename V>
+    Result<typename V::value_type, std::decay_t<E>> optionalValueToResult(
+        V &&value, E &&error) {
       if (value) {
-        return value.value();
+        return makeValue(std::move(value).value());
       }
-      return makeError<Error>(std::move(error));
+      return makeError(std::move(error));
+    }
+
+    template <typename V, typename E>
+    Result<std::decay_t<V>, typename E::value_type> optionalErrorToResult(
+        E &&error, V &&value) {
+      if (error) {
+        return makeError(std::move(error).value());
+      }
+      return makeValue(std::move(value));
     }
   }  // namespace expected
 }  // namespace iroha

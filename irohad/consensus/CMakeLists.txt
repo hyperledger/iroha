@@ -7,7 +7,7 @@ add_library(consensus_round
     impl/round.cpp
     )
 target_link_libraries(consensus_round
-    boost
+    Boost::boost
     shared_model_utils
     )
 
@@ -15,5 +15,5 @@ add_library(gate_object
     impl/gate_object.cpp
     )
 target_link_libraries(gate_object
-    boost
+    Boost::boost
     )

@@ -40,9 +40,9 @@ RUN set -e; \
       apt-get -y clean; \
     fi
 
-# install cmake 3.11.4
+# install cmake 3.14.0
 RUN set -e; \
-    curl -L -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.11.4/cmake-3.11.4-Linux-x86_64.sh; \
+    curl -L -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.14.0/cmake-3.14.0-Linux-x86_64.sh; \
     sh /tmp/cmake.sh --prefix=/usr/local --skip-license; \
     rm /tmp/cmake.sh
 

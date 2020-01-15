@@ -20,8 +20,7 @@ shared_model::proto::deserializeTransactions(
     if (auto e = iroha::expected::resultToOptionalError(model_tx)) {
       return *e;
     }
-    tx_collection.emplace_back(
-        *iroha::expected::resultToOptionalValue(std::move(model_tx)));
+    tx_collection.emplace_back(std::move(model_tx).assumeValue());
   }
   return tx_collection;
 }

@@ -60,6 +60,7 @@
 #include "torii/command_client.hpp"
 #include "torii/query_client.hpp"
 #include "torii/status_bus.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_proposal_validator.hpp"
 
 using namespace shared_model::crypto;
@@ -193,7 +194,7 @@ namespace integration_framework {
         batch_parser_(std::make_shared<
                       shared_model::interface::TransactionBatchParserImpl>()),
         batch_validator_(
-            std::make_shared<shared_model::validation::BatchValidator>(
+            std::make_shared<shared_model::validation::DefaultBatchValidator>(
                 iroha::test::kTestsValidatorsConfig)),
         transaction_batch_factory_(
             std::make_shared<
@@ -666,7 +667,7 @@ namespace integration_framework {
 
   IntegrationTestFramework &IntegrationTestFramework::sendBatches(
       const std::vector<TransactionBatchSPtr> &batches) {
-    auto on_demand_os_transport = framework::expected::assertAndGetResultValue(
+    auto on_demand_os_transport =
         iroha::ordering::transport::OnDemandOsClientGrpcFactory(
             async_call_,
             proposal_factory_,
@@ -679,7 +680,8 @@ namespace integration_framework {
             makeTransportClientFactory<
                 iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
                 client_factory_))
-            .create(*this_peer_));
+            .create(*this_peer_)
+            .assumeValue();
     on_demand_os_transport->onBatches(batches);
     return *this;
   }
@@ -687,7 +689,7 @@ namespace integration_framework {
   boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
   IntegrationTestFramework::requestProposal(
       const iroha::consensus::Round &round, std::chrono::milliseconds timeout) {
-    auto on_demand_os_transport = framework::expected::assertAndGetResultValue(
+    auto on_demand_os_transport =
         iroha::ordering::transport::OnDemandOsClientGrpcFactory(
             async_call_,
             proposal_factory_,
@@ -697,17 +699,18 @@ namespace integration_framework {
             makeTransportClientFactory<
                 iroha::ordering::transport::OnDemandOsClientGrpcFactory>(
                 client_factory_))
-            .create(*this_peer_));
+            .create(*this_peer_)
+            .assumeValue();
     return on_demand_os_transport->onRequestProposal(round);
   }
 
   IntegrationTestFramework &IntegrationTestFramework::sendMstState(
       const shared_model::crypto::PublicKey &src_key,
       const iroha::MstState &mst_state) {
-    auto client = framework::expected::assertAndGetResultValue(
-        makeTransportClientFactory<iroha::network::MstTransportGrpc>(
-            client_factory_)
-            ->createClient(*this_peer_));
+    auto client = makeTransportClientFactory<iroha::network::MstTransportGrpc>(
+                      client_factory_)
+                      ->createClient(*this_peer_)
+                      .assumeValue();
     iroha::network::sendStateAsync(
         mst_state,
         shared_model::crypto::toBinaryString(src_key),

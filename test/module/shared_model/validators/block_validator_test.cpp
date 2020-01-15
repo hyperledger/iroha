@@ -7,10 +7,12 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/optional/optional_io.hpp>
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/default_validator.hpp"
+#include "validators/validation_error_output.hpp"
 
 using namespace shared_model::crypto;
 using namespace shared_model::validation;
@@ -82,8 +84,7 @@ TEST_F(BlockValidatorTest, ValidBlock) {
   auto valid_block =
       generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
-  auto validation_result = validator_.validate(valid_block);
-  ASSERT_FALSE(validation_result.hasErrors());
+  ASSERT_EQ(validator_.validate(valid_block), boost::none);
 }
 
 /**
@@ -96,8 +97,7 @@ TEST_F(BlockValidatorTest, EmptyBlock) {
       generateBlock(std::vector<shared_model::proto::Transaction>{},
                     std::vector<shared_model::crypto::Hash>{});
 
-  auto validation_result = validator_.validate(empty_block);
-  ASSERT_FALSE(validation_result.hasErrors());
+  ASSERT_EQ(validator_.validate(empty_block), boost::none);
 }
 
 /**
@@ -111,8 +111,7 @@ TEST_F(BlockValidatorTest, InvalidBlock) {
   auto invalid_block =
       generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
-  auto validation_result = validator_.validate(invalid_block);
-  ASSERT_TRUE(validation_result.hasErrors());
+  ASSERT_TRUE(validator_.validate(invalid_block));
 }
 
 /**
@@ -128,9 +127,11 @@ TEST_F(BlockValidatorTest, DuplicateRejectedHash) {
   rejected_hashes.push_back(tx.hash());
   auto invalid_block = generateBlock(txs, rejected_hashes);
 
-  auto validation_result = validator_.validate(invalid_block);
-  ASSERT_TRUE(validation_result.hasErrors());
-  ASSERT_THAT(validation_result.reason(), testing::HasSubstr("Rejected hash"));
+  auto error = validator_.validate(invalid_block);
+  ASSERT_TRUE(error);
+  EXPECT_THAT(error->toString(),
+              testing::HasSubstr("Rejected transaction hash"));
+  EXPECT_THAT(error->toString(), testing::HasSubstr("Duplicates hash"));
 }
 
 /**
@@ -147,9 +148,9 @@ TEST_F(BlockValidatorTest, CommitedHashInRejectedHash) {
   rejected_hashes.push_back(tx.hash());
   auto invalid_block = generateBlock(txs, rejected_hashes);
 
-  auto validation_result = validator_.validate(invalid_block);
-  ASSERT_TRUE(validation_result.hasErrors());
-  ASSERT_THAT(validation_result.reason(),
+  auto error = validator_.validate(invalid_block);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(),
               testing::HasSubstr("has already appeared in rejected hashes"));
 }
 
@@ -167,8 +168,7 @@ TEST_F(BlockValidatorTest, DuplicateTransactionsInBlock) {
   auto invalid_block =
       generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
-  auto validation_result = validator_.validate(invalid_block);
-  ASSERT_TRUE(validation_result.hasErrors());
-  ASSERT_THAT(validation_result.reason(),
-              testing::HasSubstr("Transaction with hash"));
+  auto error = validator_.validate(invalid_block);
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), testing::HasSubstr("Duplicates transaction"));
 }

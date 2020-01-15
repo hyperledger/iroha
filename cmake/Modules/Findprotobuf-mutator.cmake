@@ -34,7 +34,3 @@ set_target_properties(protobuf-mutator PROPERTIES
     INTERFACE_LINK_LIBRARIES ${protobuf_mutator_LIBRARY}
     IMPORTED_LOCATION ${binary_dir}/src/libfuzzer/${libfuzzer_LIB}
     )
-
-if(ENABLE_LIBS_PACKAGING)
-  add_install_step_for_lib(${protobuf_mutator_LIBRARY})
-endif()

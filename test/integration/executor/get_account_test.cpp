@@ -30,7 +30,7 @@ struct GetAccountTest : public ExecutorTestBase {
   void prepareTargetAccount() {
     SCOPED_TRACE("GetAccountTest::prepareTargetAccount");
     const auto &detail = *details_.at(kAdminId).begin();
-    assertResultValue(getItf().executeMaintenanceCommand(
+    IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
         *getItf().getMockCommandFactory()->constructSetAccountDetail(
             kUserId, detail.first, detail.second)));
   }

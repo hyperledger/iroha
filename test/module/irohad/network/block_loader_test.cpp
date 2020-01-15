@@ -121,7 +121,7 @@ class BlockLoaderTest : public testing::Test {
       const shared_model::interface::types::HeightType height,
       const shared_model::interface::Block &ref_block) {
     auto retrieved_block =
-        assertAndGetResultValue(loader->retrieveBlock(peer_key, height));
+        loader->retrieveBlock(peer_key, height).assumeValue();
     EXPECT_EQ(ref_block, *retrieved_block);
   }
 
@@ -154,7 +154,7 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
   auto retrieved_blocks =
-      assertAndGetResultValue(loader->retrieveBlocks(1, peer->pubkey()));
+      loader->retrieveBlocks(1, peer->pubkey()).assumeValue();
   auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 0);
   wrapper.subscribe();
 
@@ -189,8 +189,7 @@ TEST_F(BlockLoaderTest, ValidWhenOneBlock) {
   EXPECT_CALL(*storage, getBlock(top_block.height()))
       .WillOnce(Return(ByMove(iroha::expected::makeValue(
           clone<shared_model::interface::Block>(top_block)))));
-  auto retrieved_blocks =
-      assertAndGetResultValue(loader->retrieveBlocks(1, peer_key));
+  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
   auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, 1);
   wrapper.subscribe([&top_block](auto block) { ASSERT_EQ(*block, top_block); });
 
@@ -230,8 +229,7 @@ TEST_F(BlockLoaderTest, ValidWhenMultipleBlocks) {
   }
 
   setPeerQuery();
-  auto retrieved_blocks =
-      assertAndGetResultValue(loader->retrieveBlocks(1, peer_key));
+  auto retrieved_blocks = loader->retrieveBlocks(1, peer_key).assumeValue();
   auto wrapper = make_test_subscriber<CallExact>(retrieved_blocks, num_blocks);
   auto height = next_height;
   wrapper.subscribe(
@@ -257,7 +255,7 @@ TEST_F(BlockLoaderTest, ValidWhenBlockPresent) {
 
   setPeerQuery();
   EXPECT_CALL(*validator, validate(RefAndPointerEq(block)))
-      .WillOnce(Return(Answer{}));
+      .WillOnce(Return(boost::none));
   EXPECT_CALL(*storage, getBlock(_)).Times(0);
 
   retrieveBlockAndCompare(block->height(), *block);
@@ -324,5 +322,5 @@ TEST_F(BlockLoaderTest, NoBlocksInStorage) {
           Return(ByMove(iroha::expected::makeError(BlockQuery::GetBlockError{
               BlockQuery::GetBlockError::Code::kNoBlock, "no block"}))));
 
-  assertResultError(loader->retrieveBlock(peer_key, 1));
+  IROHA_ASSERT_RESULT_ERROR(loader->retrieveBlock(peer_key, 1));
 }

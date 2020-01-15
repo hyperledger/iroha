@@ -114,7 +114,7 @@ Result<std::unique_ptr<Block>, std::string> BlockLoaderImpl::retrieveBlock(
 Result<std::shared_ptr<shared_model::interface::Peer>, std::string>
 BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
   return peer_query_factory_->createPeerQuery() | [&pubkey](const auto &query) {
-    return optionalToResult(
+    return optionalValueToResult(
         query->getLedgerPeerByPublicKey(pubkey),
         fmt::format("Cannot find peer with public key {}.", pubkey));
   };

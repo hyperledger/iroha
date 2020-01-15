@@ -4,12 +4,14 @@
  */
 
 #include <gtest/gtest.h>
+#include <boost/optional/optional_io.hpp>
 #include "cryptography/default_hash_provider.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/default_validator.hpp"
+#include "validators/validation_error_output.hpp"
 
 using ::testing::HasSubstr;
 
@@ -73,9 +75,7 @@ TEST_F(ContainerValidatorTest, OldProposal) {
       iroha::test::kTestsValidatorsConfig);
   auto proposal = makeProposal(old_timestamp, makeTransaction(old_timestamp));
 
-  auto result = validator.validate(proposal);
-
-  ASSERT_FALSE(result.hasErrors()) << result.reason();
+  ASSERT_EQ(validator.validate(proposal), boost::none);
 }
 
 /**
@@ -88,9 +88,7 @@ TEST_F(ContainerValidatorTest, OldBlock) {
       iroha::test::kTestsValidatorsConfig);
   auto block = makeBlock(old_timestamp, makeTransaction(old_timestamp));
 
-  auto result = validator.validate(block);
-
-  ASSERT_FALSE(result.hasErrors()) << result.reason();
+  ASSERT_EQ(validator.validate(block), boost::none);
 }
 
 /**
@@ -104,11 +102,10 @@ TEST_F(ContainerValidatorTest, OldProposalNewTransaction) {
   auto proposal =
       makeProposal(old_timestamp, makeTransaction(current_timestamp));
 
-  auto result = validator.validate(proposal);
+  auto error = validator.validate(proposal);
 
-  ASSERT_TRUE(result.hasErrors());
-  ASSERT_THAT(result.reason(),
-              HasSubstr("Transaction: [[bad timestamp: sent from future"));
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), HasSubstr("sent from future"));
 }
 
 /**
@@ -121,9 +118,8 @@ TEST_F(ContainerValidatorTest, OldBlockNewTransaction) {
       iroha::test::kTestsValidatorsConfig);
   auto block = makeBlock(old_timestamp, makeTransaction(current_timestamp));
 
-  auto result = validator.validate(block);
+  auto error = validator.validate(block);
 
-  ASSERT_TRUE(result.hasErrors());
-  ASSERT_THAT(result.reason(),
-              HasSubstr("Transaction: [[bad timestamp: sent from future"));
+  ASSERT_TRUE(error);
+  ASSERT_THAT(error->toString(), HasSubstr("sent from future"));
 }

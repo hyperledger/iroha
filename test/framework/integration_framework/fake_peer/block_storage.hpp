@@ -10,7 +10,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <boost/thread/shared_mutex.hpp>
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_fwd.hpp"

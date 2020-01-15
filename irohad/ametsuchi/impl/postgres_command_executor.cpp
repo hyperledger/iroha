@@ -1468,8 +1468,10 @@ namespace iroha {
       executor.use("have_expected_value",
                    static_cast<bool>(command.oldValue()));
       executor.use("expected_value", expected_json_value);
-      executor.use("creator_domain", getDomainFromName(creator_account_id));
-      executor.use("target_domain", getDomainFromName(command.accountId()));
+      auto creator_domain = getDomainFromName(creator_account_id);
+      executor.use("creator_domain", creator_domain);
+      auto target_domain = getDomainFromName(command.accountId());
+      executor.use("target_domain", target_domain);
 
       return executor.execute();
     }

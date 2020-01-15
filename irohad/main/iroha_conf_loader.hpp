@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_manager.hpp"
@@ -63,7 +64,7 @@ struct IrohadConfig {
  * @param conf_path is a path to iroha's config
  * @return a parsed equivalent of that file
  */
-IrohadConfig parse_iroha_config(
+iroha::expected::Result<IrohadConfig, std::string> parse_iroha_config(
     const std::string &conf_path,
     std::shared_ptr<shared_model::interface::CommonObjectsFactory>
         common_objects_factory);

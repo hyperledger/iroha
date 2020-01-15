@@ -23,6 +23,7 @@
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "validators/default_validator.hpp"
 #include "validators/transactions_collection/batch_order_validator.hpp"
 
 using namespace shared_model;
@@ -30,12 +31,9 @@ using namespace shared_model::proto;
 using namespace iroha::expected;
 using iroha::operator|;
 
-using TransactionSequenceBuilder = TransportBuilder<
-    interface::TransactionSequence,
-    validation::TransactionsCollectionValidator<
-        validation::TransactionValidator<
-            validation::FieldValidator,
-            validation::CommandValidatorVisitor<validation::FieldValidator>>>>;
+using TransactionSequenceBuilder =
+    TransportBuilder<interface::TransactionSequence,
+                     validation::DefaultUnsignedTransactionsValidator>;
 
 class TransportBuilderTest : public ::testing::Test {
  protected:

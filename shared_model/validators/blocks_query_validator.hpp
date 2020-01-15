@@ -7,7 +7,8 @@
 #define IROHA_SHARED_MODEL_BLOCKS_QUERY_VALIDATOR_HPP
 
 #include "interfaces/queries/blocks_query.hpp"
-#include "validators/answer.hpp"
+#include "validators/validation_error_helpers.hpp"
+#include "validators/validators_common.hpp"
 
 namespace shared_model {
   namespace validation {
@@ -28,26 +29,22 @@ namespace shared_model {
       /**
        * Applies validation to given query
        * @param qry - query to validate
-       * @return Answer containing found error if any
+       * @return found error if any
        */
-      Answer validate(const interface::BlocksQuery &qry) const {
-        Answer answer;
-        std::string qry_reason_name = "Blocks query";
-        ReasonsGroupType qry_reason(qry_reason_name, GroupedReasons());
+      boost::optional<ValidationError> validate(
+          const interface::BlocksQuery &qry) const {
+        ValidationErrorCreator error_creator;
 
-        field_validator_.validateCreatorAccountId(qry_reason,
-                                                  qry.creatorAccountId());
-        field_validator_.validateCreatedTime(qry_reason, qry.createdTime());
-        field_validator_.validateCounter(qry_reason, qry.queryCounter());
+        error_creator |=
+            field_validator_.validateCreatorAccountId(qry.creatorAccountId());
+        error_creator |=
+            field_validator_.validateCreatedTime(qry.createdTime());
+        error_creator |= field_validator_.validateCounter(qry.queryCounter());
 
-        if (not qry_reason.second.empty()) {
-          answer.addReason(std::move(qry_reason));
-        }
-        return answer;
+        return std::move(error_creator).getValidationError("Blocks query");
       }
 
      protected:
-      Answer answer_;
       FieldValidator field_validator_;
     };
   }  // namespace validation
