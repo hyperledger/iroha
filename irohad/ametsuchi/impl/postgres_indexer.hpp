@@ -8,6 +8,9 @@
 
 #include "ametsuchi/indexer.hpp"
 
+#include <string>
+#include <vector>
+
 namespace soci {
   class session;
 }
@@ -40,13 +43,35 @@ namespace iroha {
       iroha::expected::Result<void, std::string> flush() override;
 
      private:
+      struct TxHashPosition {
+        std::vector<std::string> hash;
+        std::vector<size_t> height;
+        std::vector<size_t> index;
+      } tx_hash_position_;
+
+      struct TxHashStatus {
+        std::vector<std::string> hash;
+        std::vector<std::string> status;
+      } tx_hash_status_;
+
+      struct TxPositionByCreator {
+        std::vector<std::string> creator;
+        std::vector<size_t> height;
+        std::vector<size_t> index;
+      } tx_position_by_creator_;
+
+      struct AccountAssetTxPosition {
+        std::vector<std::string> account_id;
+        std::vector<std::string> asset_id;
+        std::vector<size_t> height;
+        std::vector<size_t> index;
+      } account_asset_tx_position_;
+
       /// Index tx status by its hash.
-      void txHashStatus(
-          const shared_model::interface::types::HashType &rejected_tx_hash,
-          bool is_committed);
+      void txHashStatus(const shared_model::interface::types::HashType &tx_hash,
+                        bool is_committed);
 
       soci::session &sql_;
-      std::string statements_;  ///< A bunch of SQL to be committed on flush().
     };
 
   }  // namespace ametsuchi
