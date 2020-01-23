@@ -6,8 +6,6 @@
 #ifndef IROHA_ON_DEMAND_ORDERING_INIT_HPP
 #define IROHA_ON_DEMAND_ORDERING_INIT_HPP
 
-#include <random>
-
 #include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/storage.hpp"
 #include "ametsuchi/tx_presence_cache.hpp"
@@ -171,11 +169,6 @@ namespace iroha {
 
       /// permutations for peers lists
       std::array<std::vector<size_t>, kCount> permutations_;
-
-      /// random generator for peer list permutations
-      // TODO andrei 08.11.2018 IR-1850 Refactor default_random_engine usages
-      // with platform-independent class
-      std::default_random_engine gen_;
     };
   }  // namespace network
 }  // namespace iroha
