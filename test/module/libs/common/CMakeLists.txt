@@ -33,3 +33,6 @@ target_compile_definitions(lib_files_test
         )
 
 addtest(permutation_generator_test permutation_generator_test.cpp)
+target_link_libraries(permutation_generator_test
+    permutation_generator
+    )
