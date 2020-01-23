@@ -31,3 +31,5 @@ target_compile_definitions(lib_files_test
         PRIVATE
           -DPATH_TEST_DIR="${LIB_FILES_TEST_DATA_DIR}"
         )
+
+addtest(permutation_generator_test permutation_generator_test.cpp)
