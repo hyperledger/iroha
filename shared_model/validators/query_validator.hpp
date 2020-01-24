@@ -186,14 +186,10 @@ namespace shared_model {
         return std::nullopt;
       }
 
-      ReasonsGroupType operator()(
+      boost::optional<ValidationError> operator()(
           const interface::GetEngineResponse &qry) const {
-        ReasonsGroupType reason;
-        reason.first = "GetEngineResponse";
-
-        validator_.validateHash(reason, qry.txHash());
-
-        return reason;
+        return validator_.validateHash(
+            crypto::Hash::fromHexString(qry.txHash()));
       }
 
      private:

@@ -14,8 +14,7 @@ namespace shared_model {
     std::string EngineResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("EngineResponse")
-          .appendAll(engineResponseRecords(),
-                     [](auto &resp) { return resp.toString(); })
+          .append(engineResponseRecords())
           .finalize();
     }
 

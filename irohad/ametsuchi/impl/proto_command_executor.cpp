@@ -32,24 +32,25 @@ Iroha_CommandError Iroha_ProtoCommandExecutorExecute(void *executor,
     return result;
   }
 
-  if (auto answer = shared_model::validation::ProtoCommandValidator().validate(
-          protocol_command)) {
+  if (auto maybe_error =
+          shared_model::validation::ProtoCommandValidator().validate(
+              protocol_command)) {
     result.error_code = 200;
-    result.error_extra = clone(answer.reason());
+    result.error_extra = clone(maybe_error.value().toString());
     return result;
   }
 
   shared_model::proto::Command proto_command(protocol_command);
 
-  auto reasons = boost::apply_visitor(
+  auto maybe_error = boost::apply_visitor(
       shared_model::validation::CommandValidatorVisitor<
           shared_model::validation::FieldValidator>{
           std::make_shared<shared_model::validation::ValidatorsConfig>(0)},
       proto_command.get());
 
-  if (not reasons.second.empty()) {
+  if (maybe_error) {
     result.error_code = 300;
-    result.error_extra = clone(reasons.second.front());
+    result.error_extra = clone(maybe_error.value().toString());
     return result;
   }
 

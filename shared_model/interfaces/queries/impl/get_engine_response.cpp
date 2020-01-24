@@ -13,7 +13,7 @@ namespace shared_model {
     std::string GetEngineResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetEngineResponse")
-          .append("tx_hash", txHash())
+          .appendNamed("tx_hash", txHash())
           .finalize();
     }
 

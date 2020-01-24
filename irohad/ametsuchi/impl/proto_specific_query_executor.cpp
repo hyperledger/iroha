@@ -45,21 +45,22 @@ Iroha_ProtoQueryResponse Iroha_ProtoSpecificQueryExecutorExecute(void *executor,
     return serialize(makeErrorResponse(100, "Deserialization failed"));
   }
 
-  if (auto answer = shared_model::validation::ProtoQueryValidator().validate(
-          protocol_query)) {
-    return serialize(makeErrorResponse(200, answer.reason()));
+  if (auto maybe_error =
+          shared_model::validation::ProtoQueryValidator().validate(
+              protocol_query)) {
+    return serialize(makeErrorResponse(200, maybe_error.value().toString()));
   }
 
   shared_model::proto::Query proto_query(protocol_query);
 
-  if (auto answer =
+  if (auto maybe_error =
           shared_model::validation::QueryValidator<
               shared_model::validation::FieldValidator,
               shared_model::validation::QueryValidatorVisitor<
                   shared_model::validation::FieldValidator>>(
               std::make_shared<shared_model::validation::ValidatorsConfig>(0))
               .validate(proto_query)) {
-    return serialize(makeErrorResponse(300, answer.reason()));
+    return serialize(makeErrorResponse(300, maybe_error.value().toString()));
   }
 
   auto response =
