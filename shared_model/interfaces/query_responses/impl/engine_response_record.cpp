@@ -14,7 +14,7 @@ bool EngineResponseRecord::operator==(const ModelType &rhs) const {
 std::string EngineResponseRecord::toString() const {
   return detail::PrettyStringBuilder()
       .init("EngineResponseRecord")
-      .appendNamed("command_index", std::to_string(commandIndex()))
+      .appendNamed("command_index", commandIndex())
       .appendNamed("reponse", response())
       .finalize();
 }
