@@ -8,3 +8,4 @@ Hardware requirements, deployment process in details, aspects related to securit
     :caption: Table of contents
 
     permissions.rst
+    restarting_node.rst
