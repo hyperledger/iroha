@@ -23,24 +23,6 @@ struct TestSeeder : public Seeder {
   }
 };
 
-TEST(ShufflerTest, StdSeedSeqPortable) {
-  std::vector<size_t> generated_now(10, 0);
-  std::seed_seq(kSeedString, kSeedString + sizeof(kSeedString))
-      .generate(generated_now.begin(), generated_now.end());
-
-  std::vector<size_t> generated_before{{3500580016,
-                                        2487152681,
-                                        890682050,
-                                        2703780814,
-                                        180547361,
-                                        4244110869,
-                                        995692298,
-                                        2794135049,
-                                        28909055,
-                                        3881973278}};
-  EXPECT_EQ(generated_now, generated_before);
-}
-
 TEST(PermutationTest, SeederPortable) {
   TestSeeder seeder;
   seeder.feed(kSeedString, sizeof(kSeedString));
@@ -61,17 +43,6 @@ TEST(PermutationTest, PrngPortable) {
   EXPECT_EQ(prng(), 4375420897913288132ull);
   EXPECT_EQ(prng(), 3961499137579268468ull);
   EXPECT_EQ(prng(), 563129626573376221ull);
-}
-
-TEST(PermutationTest, StdShufflePortable) {
-  std::vector<size_t> generated_now(10, 0);
-  std::iota(generated_now.begin(), generated_now.end(), 0);
-
-  auto prng = makeSeededPrng(kSeedString, sizeof(kSeedString));
-  std::shuffle(generated_now.begin(), generated_now.end(), prng);
-
-  const std::vector<size_t> generated_before{{5, 3, 0, 8, 9, 7, 1, 2, 6, 4}};
-  EXPECT_EQ(generated_now, generated_before);
 }
 
 TEST(PermutationTest, PermutationPortable) {
