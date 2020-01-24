@@ -6,15 +6,14 @@ namespace shared_model {
     std::string EngineCall::toString() const {
       return detail::PrettyStringBuilder()
           .init("EngineCall")
-          .append("callee", callee())
-          .append("input", input())
+          .appendNamed("callee", callee())
+          .appendNamed("input", input())
           .finalize();
     }
 
     bool EngineCall::operator==(const ModelType &rhs) const {
-      return callee() == rhs.callee()
-          && input() == rhs.input();
-;
+      return callee() == rhs.callee() && input() == rhs.input();
+      ;
     }
 
   }  // namespace interface
