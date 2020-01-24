@@ -6,7 +6,6 @@
 #ifndef IROHA_ASYNC_GRPC_CLIENT_HPP
 #define IROHA_ASYNC_GRPC_CLIENT_HPP
 
-#include <atomic>
 #include <ciso646>
 #include <thread>
 
@@ -36,10 +35,6 @@ namespace iroha {
         void *got_tag;
         auto ok = false;
         while (cq_.Next(&got_tag, &ok)) {
-          if (stop_requested_.load(std::memory_order_relaxed)) {
-            log_->warn("Not performing a call because stop was requested.");
-            continue;
-          }
           auto call = static_cast<AsyncClientCall *>(got_tag);
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
@@ -55,11 +50,6 @@ namespace iroha {
         }
       }
 
-      void stop() {
-        stop_requested_.store(true);
-      }
-
-      std::atomic_bool stop_requested_{false};
       grpc::CompletionQueue cq_;
       std::thread thread_;
 
