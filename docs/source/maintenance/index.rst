@@ -8,5 +8,6 @@ Hardware requirements, deployment process in details, aspects related to securit
     :maxdepth: 3
     :caption: Table of contents
 
+    restarting_node.rst
     sec-install.rst
     shepherd.rst
