@@ -7,6 +7,7 @@
 
 #include <grpc++/grpc++.h>
 #include <memory>
+#include <mutex>
 
 #include "consensus/yac/storage/yac_common.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
@@ -41,6 +42,9 @@ namespace iroha {
 
       void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                   const std::vector<VoteMessage> &state) {
+        std::mutex mutex;
+        std::lock_guard<std::mutex> lock(mutex);
+
         createPeerConnection(to);
 
         proto::State request;
