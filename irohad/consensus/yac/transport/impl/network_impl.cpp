@@ -7,7 +7,6 @@
 
 #include <grpc++/grpc++.h>
 #include <memory>
-#include <mutex>
 
 #include "consensus/yac/storage/yac_common.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
@@ -40,10 +39,18 @@ namespace iroha {
         handler_ = handler;
       }
 
+      void NetworkImpl::stop() {
+        std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+        stop_requested_ = true;
+      }
+
       void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                   const std::vector<VoteMessage> &state) {
-        std::mutex mutex;
-        std::lock_guard<std::mutex> lock(mutex);
+        std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+        if (stop_requested_) {
+          log_->warn("Not sending state to {} because stop was requested.", to);
+          return;
+        }
 
         createPeerConnection(to);
 

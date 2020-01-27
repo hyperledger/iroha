@@ -43,6 +43,8 @@ namespace iroha {
 
         rxcpp::observable<GateObject> onOutcome() override;
 
+        void stop() override;
+
        private:
         /**
          * Update current block with signatures from commit message
