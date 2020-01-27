@@ -38,9 +38,6 @@ namespace iroha {
          */
         virtual rxcpp::observable<Answer> onOutcome() = 0;
 
-        /// Prevent any new outgoing network activity. Be passive.
-        virtual void stop() = 0;
-
         virtual ~HashGate() = default;
       };
     }  // namespace yac

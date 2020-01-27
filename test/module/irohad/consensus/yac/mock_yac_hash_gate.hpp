@@ -20,8 +20,6 @@ namespace iroha {
 
         MOCK_METHOD0(onOutcome, rxcpp::observable<Answer>());
 
-        MOCK_METHOD0(stop, void());
-
         MockHashGate() = default;
 
         MockHashGate(const MockHashGate &rhs) {}

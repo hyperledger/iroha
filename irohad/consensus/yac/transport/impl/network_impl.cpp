@@ -39,19 +39,8 @@ namespace iroha {
         handler_ = handler;
       }
 
-      void NetworkImpl::stop() {
-        std::lock_guard<std::mutex> stop_lock(stop_mutex_);
-        stop_requested_ = true;
-      }
-
       void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                   const std::vector<VoteMessage> &state) {
-        std::lock_guard<std::mutex> stop_lock(stop_mutex_);
-        if (stop_requested_) {
-          log_->warn("Not sending state to {} because stop was requested.", to);
-          return;
-        }
-
         createPeerConnection(to);
 
         proto::State request;

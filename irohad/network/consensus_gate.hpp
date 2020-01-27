@@ -43,9 +43,6 @@ namespace iroha {
        */
       virtual rxcpp::observable<consensus::GateObject> onOutcome() = 0;
 
-      /// Prevent any new outgoing network activity. Be passive.
-      virtual void stop() = 0;
-
       virtual ~ConsensusGate() = default;
     };
 

@@ -10,7 +10,6 @@
 #include "yac.grpc.pb.h"
 
 #include <memory>
-#include <mutex>
 #include <unordered_map>
 
 #include "consensus/yac/outcome_messages.hpp"
@@ -53,8 +52,6 @@ namespace iroha {
             const ::iroha::consensus::yac::proto::State *request,
             ::google::protobuf::Empty *response) override;
 
-        void stop() override;
-
        private:
         /**
          * Create GRPC connection for given peer if it does not exist in
@@ -87,9 +84,6 @@ namespace iroha {
         std::function<std::unique_ptr<proto::Yac::StubInterface>(
             const shared_model::interface::Peer &)>
             client_creator_;
-
-        std::mutex stop_mutex_;
-        bool stop_requested_{false};
 
         logger::LoggerPtr log_;
       };

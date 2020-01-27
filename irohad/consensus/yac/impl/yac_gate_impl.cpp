@@ -99,10 +99,6 @@ namespace iroha {
         return published_events_;
       }
 
-      void YacGateImpl::stop() {
-        hash_gate_->stop();
-      }
-
       void YacGateImpl::copySignatures(const CommitMessage &commit) {
         for (const auto &vote : commit.votes) {
           auto sig = vote.hash.block_signature;
