@@ -21,7 +21,8 @@ extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.ifconfig',
     'sphinx.ext.viewcode',
-    'm2r'
+    'm2r',
+    'sphinx_extensions.iroha_permissions'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -140,3 +141,7 @@ texinfo_documents = [
      author, project, description,
      'C++'),
 ]
+
+
+# -- Options for iroha_permissions extension ------------------------------
+iroha_permissions_glossary_path = 'core_concepts/glossary.rst'
