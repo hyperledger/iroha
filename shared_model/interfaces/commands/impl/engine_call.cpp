@@ -1,3 +1,7 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include "interfaces/commands/engine_call.hpp"
 
 namespace shared_model {

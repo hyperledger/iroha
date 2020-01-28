@@ -1,3 +1,7 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #ifndef IROHA_SHARED_MODEL_ENGINE_CALL_HPP
 #define IROHA_SHARED_MODEL_ENGINE_CALL_HPP
 
@@ -7,7 +11,7 @@
 namespace shared_model {
   namespace interface {
     /**
-     * Smart contract code class
+     * Call a smart contracts engine
      */
     class EngineCall : public ModelPrimitive<EngineCall> {
       public:
@@ -18,7 +22,7 @@ namespace shared_model {
         virtual const types::AccountIdType &callee() const = 0;
 
         /**
-         * @return Input of the smart contract as hex bytecode
+         * @return EVM call data (contract code or a method params) as hex bytecode
          */
         virtual const types::SmartContractCodeType &input() const = 0;
 
