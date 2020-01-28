@@ -103,6 +103,8 @@ contract C {
 
 */
 
+  const shared_model::crypto::Hash query_hash{"query_hash"};
+
   char *deploySCdata = const_cast<char *>(
       "606060405260a18060106000396000f360606040526000357c0100000000000000000000"
       "00000000000000000000000000000000000090048063d46300fd146043578063ee919d50"
@@ -184,7 +186,7 @@ contract C {
       std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
   EXPECT_CALL(specific_query_executor, execute(::testing::_))
-      .WillRepeatedly([query_response_factory, &testAccounts](
+      .WillRepeatedly([query_response_factory, &testAccounts, query_hash](
                           const shared_model::interface::Query &query) {
         // Try to cast to GetAccount query.
         // If fail, then it is GetIrohaAccountDetail,
@@ -202,7 +204,7 @@ contract C {
           // Check the requested account exists in testAccounts
           if (testAccounts.find(accountId) != testAccounts.end()) {
             return query_response_factory->createAccountResponse(
-                accountId, "@evm", 1, {}, {"user"}, {});
+                accountId, "@evm", 1, {}, {"user"}, query_hash);
           } else {
             // TODO(IvanTyulyandin): Fix magic number 2
             return query_response_factory->createErrorQueryResponse(
@@ -210,7 +212,7 @@ contract C {
                     kNoAccount,
                 "No account " + accountId,
                 2,
-                {});
+                query_hash);
           }
         } else {
           // Get data from GetAccountDetail
@@ -231,7 +233,7 @@ contract C {
               std::string response = "{\"evm@evm\": {\"" + key + "\": \""
                   + (*iterToValue).second + "\"}}";
               return query_response_factory->createAccountDetailResponse(
-                  response, 1, {}, {});
+                  response, 1, {}, query_hash);
             } else {
               // TODO(IvanTyulyandin): Fix magic number 3
               return query_response_factory->createErrorQueryResponse(
@@ -239,7 +241,7 @@ contract C {
                       ErrorQueryType::kNoAccountDetail,
                   "No detail " + key + " for account " + accountId,
                   3,
-                  {});
+                  query_hash);
             }
           } else {
             // TODO(IvanTyulyandin): Fix magic number 4
@@ -248,7 +250,7 @@ contract C {
                     kNoAccount,
                 "No account " + accountId + " for query detail " + key,
                 4,
-                {});
+                query_hash);
           }
         }
       });
