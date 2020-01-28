@@ -46,11 +46,14 @@ namespace iroha {
 
       void NetworkImpl::sendState(const shared_model::interface::Peer &to,
                                   const std::vector<VoteMessage> &state) {
+        log_->info("NetworkImpl::sendState() [BEGIN]");
         std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+        log_->info("NetworkImpl::sendState() [have mutex]");
         if (stop_requested_) {
           log_->warn("Not sending state to {} because stop was requested.", to);
           return;
         }
+        log_->info("NetworkImpl::sendState() [stop not requested]");
 
         createPeerConnection(to);
 
@@ -104,6 +107,7 @@ namespace iroha {
 
       void NetworkImpl::createPeerConnection(
           const shared_model::interface::Peer &peer) {
+        log_->info("NetworkImpl::createPeerConnection()");
         peers_[peer.address()] = client_creator_(peer);
       }
 

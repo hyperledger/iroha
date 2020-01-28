@@ -37,9 +37,11 @@ namespace iroha {
         while (cq_.Next(&got_tag, &ok)) {
           auto call = static_cast<AsyncClientCall *>(got_tag);
           if (not call->status.ok()) {
-            log_->warn("RPC failed: {}", call->status.error_message());
+            log_->warn("RPC failed: {}; tag = {}", call->status.error_message(), got_tag);
           }
+          log_->info("AsyncClientCall::asyncCompleteRpc()::while_loop; tag = {} [before deleting call]", got_tag);
           delete call;
+          log_->info("AsyncClientCall::asyncCompleteRpc()::while_loop; tag = {} [after deleting call]", got_tag);
         }
       }
 
@@ -75,8 +77,10 @@ namespace iroha {
       template <typename F>
       void Call(F &&lambda) {
         auto call = new AsyncClientCall;
+        log_->info("AsyncClientCall::Call(); tag = {} [BEGIN]", static_cast<void *>(call));
         call->response_reader = lambda(&call->context, &cq_);
         call->response_reader->Finish(&call->reply, &call->status, call);
+        log_->info("AsyncClientCall::Call(); tag = {} [END]", static_cast<void *>(call));
       }
 
      private:
