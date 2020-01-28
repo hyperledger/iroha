@@ -80,8 +80,6 @@ endif()
 
 include(cmake/functions.cmake)
 
-set(SANITIZE_ADDRESS ON)
-
 if(SANITIZE_THREAD)
   append_build_flags(-fsanitize=thread)
 endif()
