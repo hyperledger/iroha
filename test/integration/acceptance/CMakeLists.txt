@@ -128,13 +128,15 @@ target_link_libraries(query_permissions_common_test
     integration_framework
     )
 
-addtest(engine_call_test
-    engine_call_test.cpp
-    )
-target_link_libraries(engine_call_test
-    acceptance_fixture
-    integration_framework
-    )
+if(USE_BURROW)
+    addtest(engine_call_test
+        engine_call_test.cpp
+        )
+    target_link_libraries(engine_call_test
+        acceptance_fixture
+        integration_framework
+        )
+endif()
 
 addtest(get_role_permissions_test
     get_role_permissions_test.cpp
