@@ -161,6 +161,7 @@ class FieldValidatorTest : public ValidatorsTest {
                               "commands",
                               "quorum",
                               "tx_hashes",
+                              "tx_hash",
                               // permissions are always valid
                               "permissions"}) {
       field_validators.insert(makeNullValidator(field));
