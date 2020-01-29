@@ -121,13 +121,24 @@ if(USE_BURROW)
         impl/postgres_burrow_storage.cpp
         )
     target_link_libraries(postgres_burrow_storage common)
-endif()
 
-add_library(vmCall STATIC IMPORTED GLOBAL)
-set_property(TARGET vmCall PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/vmCall.a")
-target_link_libraries(vmCall INTERFACE
-    proto_command_executor
-    proto_specific_query_executor
+    add_library(vmCall STATIC IMPORTED GLOBAL)
+    set_property(TARGET vmCall PROPERTY IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/vmCall.a")
+    target_link_libraries(vmCall INTERFACE
+        proto_command_executor
+        proto_specific_query_executor
+        )
+    target_link_libraries(ametsuchi
+        vmCall
+        )
+
+    set(DEFAULT_VM_CALL_INCLUDE "ametsuchi/vmCall.h")
+else()
+    set(DEFAULT_VM_CALL_INCLUDE "ametsuchi/impl/vm_call_stub.hpp")
+endif()
+configure_file (
+    "${PROJECT_SOURCE_DIR}/irohad/ametsuchi/default_vm_call.hpp.in"
+    "${PROJECT_BINARY_DIR}/irohad/ametsuchi/default_vm_call.hpp"
     )
 
 target_link_libraries(ametsuchi
@@ -148,8 +159,10 @@ target_link_libraries(ametsuchi
     failover_callback
     SOCI::postgresql
     SOCI::core
-    vmCall
     postgres_query_executor
+    )
+target_include_directories(ametsuchi PRIVATE
+    "${PROJECT_BINARY_DIR}/irohad"
     )
 
 target_compile_definitions(ametsuchi
