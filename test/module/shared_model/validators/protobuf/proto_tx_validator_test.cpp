@@ -149,7 +149,7 @@ INSTANTIATE_TEST_SUITE_P(
         generateAddPeerTransaction(valid_pubkey),
         generateCreateRoleTransaction(valid_role_permission),
         generateGrantPermissionTransaction(valid_grantable_permission),
-        generateRevokePermissionTransaction(valid_grantable_permission)), );
+        generateRevokePermissionTransaction(valid_grantable_permission)));
 
 // invalid transaction tests
 
@@ -178,4 +178,4 @@ INSTANTIATE_TEST_SUITE_P(
         generateAddPeerTransaction(invalid_pubkey),
         generateCreateRoleTransaction(invalid_role_permission),
         generateGrantPermissionTransaction(invalid_grantable_permission),
-        generateRevokePermissionTransaction(invalid_grantable_permission)), );
+        generateRevokePermissionTransaction(invalid_grantable_permission)));
