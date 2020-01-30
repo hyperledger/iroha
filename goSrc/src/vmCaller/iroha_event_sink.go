@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"github.com/hyperledger/burrow/execution/errors"
-	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
 )
 
-var _ evm.EventSink = &IrohaEventSink{}
+var _ exec.EventSink = &IrohaEventSink{}
 
 type IrohaEventSink struct{}
 

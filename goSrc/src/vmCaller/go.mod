@@ -6,7 +6,7 @@ replace github.com/go-interpreter/wagon v0.0.0 => github.com/perlin-network/wago
 
 require (
 	github.com/golang/protobuf v1.3.2
-	github.com/hyperledger/burrow v0.0.0-20190802153950-fd379f4e9784
+	github.com/hyperledger/burrow v0.29.7
 	github.com/tmthrgd/go-hex v0.0.0-20190303111820-0bdcb15db631
-	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
+	golang.org/x/crypto v0.0.0-20190820162420-60c769a6c586
 )

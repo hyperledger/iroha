@@ -173,7 +173,7 @@ func (ias *IrohaAppState) createIrohaEvmAccount(addr crypto.Address) (err error)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Create Iroha account with name $s, result: ", accountName)
+	fmt.Printf("Create Iroha account with name %s, result: ", accountName)
 	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
 		return fmt.Errorf("Error while creating tied account in Iroha at addr %s", addr.String())

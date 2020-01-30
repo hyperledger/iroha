@@ -2,15 +2,19 @@ package main
 
 import "C"
 import (
+	"encoding/binary"
 	"fmt"
+	"time"
 
 	"vmCaller/state"
 
 	"github.com/hyperledger/burrow/acm"
-	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
+	"github.com/hyperledger/burrow/execution/engine"
+	"github.com/hyperledger/burrow/execution/errors"
 	"github.com/hyperledger/burrow/execution/evm"
-	"github.com/hyperledger/burrow/logging"
+	"github.com/hyperledger/burrow/execution/exec"
+	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 	"github.com/tmthrgd/go-hex"
 	"golang.org/x/crypto/ripemd160"
@@ -20,12 +24,26 @@ import (
 
 const defaultPermissions permission.PermFlag = permission.Send | permission.Call | permission.CreateContract | permission.CreateAccount
 
-func newParams() evm.Params {
-	return evm.Params{
-		BlockHeight: 0,
-		BlockTime:   0,
-		GasLimit:    0,
+type blockchain struct {
+	blockHeight uint64
+	blockTime   time.Time
+}
+
+func (b *blockchain) LastBlockHeight() uint64 {
+	return b.blockHeight
+}
+
+func (b *blockchain) LastBlockTime() time.Time {
+	return b.blockTime
+}
+
+func (b *blockchain) BlockHash(height uint64) ([]byte, error) {
+	if height > b.blockHeight {
+		return nil, errors.Codes.InvalidBlockNumber
 	}
+	bs := make([]byte, 32)
+	binary.BigEndian.PutUint64(bs[24:], height)
+	return bs, nil
 }
 
 // toEVMaddress converts any string to EVM address
@@ -35,15 +53,11 @@ func toEVMaddress(name string) crypto.Address {
 	return crypto.MustAddressFromBytes(hasher.Sum(nil))
 }
 
-func blockHashGetter(height uint64) []byte {
-	return binary.LeftPadWord256([]byte(fmt.Sprintf("block_hash_%d", height))).Bytes()
-}
-
 // Real application state
 var appState = state.NewIrohaAppState()
 
 // Create EVM instance
-var burrowEVM = evm.NewVM(newParams(), crypto.ZeroAddress, nil, logging.NewNoopLogger())
+var burrowEVM = evm.Default()
 
 //export VmCall
 func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, queryExecutor unsafe.Pointer) (*C.char, bool) {
@@ -56,7 +70,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 	// Contains real application state (here it is the appState) and it's cache.
 	// Since Iroha state changes are possible between VmCall invocations,
 	// cache should be synced with appState to prevent using of invalid data.
-	var evmState = state.NewState(appState, blockHashGetter)
+	var evmState = state.NewState(appState)
 
 	// Convert strings into EVM addresses
 	evmCaller := toEVMaddress(C.GoString(caller))
@@ -65,9 +79,24 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 	goInput := hex.MustDecodeString(C.GoString(input))
 
 	// Check if caller account exists
-	if !evmState.Exists(evmCaller) {
-		evmState.CreateAccount(evmCaller)
-		evmState.SetPermission(evmCaller, defaultPermissions, true)
+	callerAccount, err := evmState.GetAccount(evmCaller)
+	if err != nil {
+		fmt.Println(err, "Error while getting account at caller addr: ", evmCaller.String())
+		return nil, false
+	}
+	if callerAccount == nil {
+		err := native.CreateAccount(evmState, evmCaller)
+		if err != nil {
+			fmt.Println(err, "Error while creating account at caller addr: ", evmCaller.String())
+			return nil, false
+		}
+		err = native.UpdateAccount(evmState, evmCaller, func(acc *acm.Account) error {
+			return acc.Permissions.Base.Set(defaultPermissions, true)
+		})
+		if err != nil {
+			fmt.Println(err, "Error while setting permissions for account at caller addr: ", evmCaller.String())
+			return nil, false
+		}
 		// TODO: study if storing the original Iroha accountID of the caller is necessary
 		// appState.SetParentID(evmCaller, "ParentID", []byte(C.GoString(caller)))
 	}
@@ -77,31 +106,56 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 
 	var gas uint64 = 1000000
 	var output acm.Bytecode
-	var err error
 
-	if !evmState.Exists(evmCallee) {
+	calleeAccount, err := evmState.GetAccount(evmCallee)
+	if err != nil {
+		fmt.Println(err, "Error while getting account at callee addr: ", evmCallee.String())
+		return nil, false
+	}
+	if calleeAccount == nil {
 		// Then smart contract should be deployed
 		fmt.Printf("No EVM account exists for the callee %s. Creating account\n", evmCallee)
-		evmState.CreateAccount(evmCallee)
+		err := native.CreateAccount(evmState, evmCallee)
+		if err != nil {
+			fmt.Println(err, "Error while creating account at callee addr: ", evmCallee.String())
+			return nil, false
+		}
 		// Pass goInput as deployment data
-		output, err = burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
-			goInput, []byte{}, 0, &gas)
+		params := engine.CallParams{
+			Caller: evmCaller,
+			Callee: evmCallee,
+			Input:  []byte{},
+			Value:  0,
+			Gas:    &gas,
+		}
+		output, err = burrowEVM.Execute(evmState, new(blockchain), exec.NewNoopEventSink(), params, goInput)
 		if err != nil {
 			fmt.Println(err)
 			fmt.Println("Error while deploying smart contract at addr ", evmCallee.String(), ", input ", goInput)
 			return nil, false
 		}
-		evmState.InitCode(evmCallee, output)
-		evmState.SetPermission(evmCallee, defaultPermissions, true)
-	} else {
-		var calleeAcc *acm.Account
-		calleeAcc, err = appState.GetAccount(evmCallee)
+		err = native.InitCode(evmState, evmCallee, output)
 		if err != nil {
-			fmt.Println(err, "Error while getting account at callee addr: ", evmCallee.String())
+			fmt.Println(err, "Error while initializing code for account at callee addr: ", evmCallee.String())
+			return nil, false
 		}
+		err = native.UpdateAccount(evmState, evmCallee, func(acc *acm.Account) error {
+			return acc.Permissions.Base.Set(defaultPermissions, true)
+		})
+		if err != nil {
+			fmt.Println(err, "Error while setting permissions for account at callee addr: ", evmCallee.String())
+			return nil, false
+		}
+	} else {
 		// Pass goInput as function call
-		output, err = burrowEVM.Call(evmState, evm.NewNoopEventSink(), evmCaller, evmCallee,
-			calleeAcc.EVMCode, goInput, 0, &gas)
+		params := engine.CallParams{
+			Caller: evmCaller,
+			Callee: evmCallee,
+			Input:  goInput,
+			Value:  0,
+			Gas:    &gas,
+		}
+		output, err = burrowEVM.Execute(evmState, new(blockchain), exec.NewNoopEventSink(), params, calleeAccount.EVMCode)
 		if err != nil {
 			fmt.Println(err)
 			fmt.Println("Error while calling smart contract at addr ", evmCallee.String(), ", input ", goInput)
@@ -110,7 +164,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, query
 	}
 
 	// If there is no errors after smart contract execution, cache data is written to Iroha.
-	if err = evmState.Sync(); err != nil {
+	if err = evmState.Sync(appState); err != nil {
 		fmt.Println(err, "Sync error")
 		return nil, false
 	}
