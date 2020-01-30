@@ -347,7 +347,7 @@ INSTANTIATE_TEST_SUITE_P(BatchPipelineParameterizedTest,
                          // note additional comma is needed to make it compile
                          // https://github.com/google/googletest/issues/1419
                          Values(interface::types::BatchType::ATOMIC,
-                                interface::types::BatchType::ORDERED), );
+                                interface::types::BatchType::ORDERED));
 
 /**
  * Test that a batch would not be passed to stateful validation when one

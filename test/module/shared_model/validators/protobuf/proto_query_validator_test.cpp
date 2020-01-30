@@ -84,7 +84,7 @@ INSTANTIATE_TEST_SUITE_P(
     ProtoPaginationQueryTest,
     ValidProtoPaginationQueryValidatorTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(valid_tx_hash),
-                      generateGetAccountTransactionsQuery(valid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(valid_tx_hash)));
 
 // invalid pagination query tests
 
@@ -100,4 +100,4 @@ INSTANTIATE_TEST_SUITE_P(
     InvalidProtoPaginationQueryTest,
     InvalidProtoPaginationQueryTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(invalid_tx_hash),
-                      generateGetAccountTransactionsQuery(invalid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(invalid_tx_hash)));
