@@ -86,10 +86,10 @@ TEST_P(GetSignatoriesBasicTest, InvalidNoAccount) {
       error_codes::kNoStatefulError);
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        GetSignatoriesBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         GetSignatoriesBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using GetSignatoriesPermissionTest =
     query_permission_test::QueryPermissionTest<GetSignatoriesTest>;
@@ -103,7 +103,7 @@ TEST_P(GetSignatoriesPermissionTest, QueryPermissionTest) {
       });
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     GetSignatoriesPermissionTest,
     query_permission_test::getParams({Role::kGetMySignatories},
