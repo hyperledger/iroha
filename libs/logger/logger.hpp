@@ -11,6 +11,7 @@
 #include <string>
 
 #include <fmt/core.h>
+#include <fmt/format.h>
 // Windows includes transitively included by format.h define interface as
 // struct, leading to compilation issues
 #undef interface
