@@ -138,7 +138,7 @@ TEST_P(ValidProtoTxValidatorTest, ValidTxsTest) {
   ASSERT_EQ(validator.validate(tx), boost::none) << tx.DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ValidProtoTxs,
     ValidProtoTxValidatorTest,
     ::testing::Values(
@@ -167,7 +167,7 @@ TEST_P(InvalidProtoTxValidatorTest, InvalidTxssTest) {
   ASSERT_TRUE(validator.validate(tx)) << tx.DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InvalidProtoTxs,
     InvalidProtoTxValidatorTest,
     ::testing::Values(

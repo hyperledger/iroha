@@ -236,10 +236,10 @@ TEST_P(GetAccountAssetsBasicTest, NonexistentStartTx) {
       response, error_codes::kInvalidPagination);
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        GetAccountAssetsBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         GetAccountAssetsBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using GetAccountAssetsPermissionTest =
     query_permission_test::QueryPermissionTest<GetAccountAssetsTest>;
@@ -255,7 +255,7 @@ TEST_P(GetAccountAssetsPermissionTest, QueryPermissionTest) {
       });
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     GetAccountAssetsPermissionTest,
     query_permission_test::getParams({Role::kGetMyAccAst},

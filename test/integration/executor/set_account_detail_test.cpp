@@ -145,10 +145,10 @@ TEST_P(SetAccountDetailBasicTest, RootPermission) {
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        SetAccountDetailBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         SetAccountDetailBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using SetAccountDetailPermissionTest =
     command_permission_test::CommandPermissionTest<SetAccountDetailTest>;
@@ -165,7 +165,7 @@ TEST_P(SetAccountDetailPermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     SetAccountDetailPermissionTest,
     command_permission_test::getParams(boost::none,

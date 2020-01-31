@@ -96,10 +96,10 @@ TEST_P(AddAssetQuantityBasicTest, DestOverflowPrecision2) {
   checkAssetQuantities(kAdminId, {AssetQuantity{kAssetId, kAmountPrec2Max}});
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        AddAssetQuantityBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         AddAssetQuantityBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using AddAssetQuantityPermissionTest =
     command_permission_test::CommandPermissionTest<AddAssetQuantityTest>;
@@ -117,7 +117,7 @@ TEST_P(AddAssetQuantityPermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     AddAssetQuantityPermissionTest,
     command_permission_test::getParams(

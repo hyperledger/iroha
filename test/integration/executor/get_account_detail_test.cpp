@@ -446,7 +446,7 @@ TEST_P(GetAccountDetailRecordIdTest, LastPage) {
                                2);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Base,
     GetAccountDetailRecordIdTest,
     ::testing::Combine(executor_testing::getExecutorTestParams(),
@@ -470,7 +470,7 @@ TEST_P(GetAccountDetailPermissionTest, QueryPermissionTest) {
       });
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     GetAccountDetailPermissionTest,
     query_permission_test::getParams({Role::kGetMyAccDetail},
