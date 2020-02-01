@@ -12,7 +12,9 @@ To start up a node quicker, it is now possible to reuse an existing WSV database
 For that, ``hash`` of the top block and the ``height`` of the blockstorage are included in the WSV.
 
 .. warning::
-	It is up to Administrators of the node to make sure the WSV is not edited in any way thus not compromising the consistency of the network.
+	It is up to Administrators of the node to make sure the WSV is not edited manually – only by Iroha or the `migration script <#changing-iroha-version-migration>`__.
+	Manual editing or editing of the migration script not following a trustworthy guideline can lead to inconsistent network.
+	Only do so at your own risk (we warned you).
 
 Although it can be a great idea for some of the cases, but please consider that there are certain specifics of reusing WSV, compared to restoring it from blockstorage:
 
