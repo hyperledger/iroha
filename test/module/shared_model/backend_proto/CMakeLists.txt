@@ -5,7 +5,7 @@
 
 add_library(shared_proto_test_common common.cpp)
 target_link_libraries(shared_proto_test_common
-    protobuf
+    protobuf::libprotobuf
     )
 
 addtest(shared_proto_commands_test
