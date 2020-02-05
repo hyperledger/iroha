@@ -51,9 +51,6 @@ namespace iroha {
   inline iroha::expected::Result<std::string, std::string>
   hexstringToBytestringResult(const std::string &str) {
     using namespace iroha::expected;
-    if (str.empty()) {
-      return makeError("Empty hex string.");
-    }
     if (str.size() % 2 != 0) {
       return makeError("Hex string contains uneven number of characters.");
     }
