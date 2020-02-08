@@ -93,7 +93,7 @@ TEST(ToStringTest, UnsetDereferenceable) {
   auto test = [](const auto &o) { EXPECT_EQ(toString(o), "(not set)"); };
   test(std::unique_ptr<int>{});
   test(std::shared_ptr<int>{});
-  test(static_cast<int *>(0));
+  test(std::unique_ptr<int>{static_cast<int *>(0)});
   test(boost::optional<int>());
   test(boost::none);
 }
@@ -129,4 +129,16 @@ TEST(ToStringTest, BoostAnyRangeOfSharedPointers) {
   EXPECT_EQ(toString(range), "[]");
   range = vec;
   EXPECT_EQ(toString(range), "[el1, el2, (not set)]");
+}
+
+/**
+ * @given objects: first can and second can not be converted to string
+ * @when tryToString is called on them
+ * @then first result is a valid string, second is boost::none
+ */
+TEST(ToStringTest, tryToString) {
+  struct NotToStringable {};
+  using namespace testing;
+  EXPECT_THAT(tryToString(makeObj()), Optional(Eq(kTestString)));
+  EXPECT_EQ(tryToString(NotToStringable{}), boost::none);
 }

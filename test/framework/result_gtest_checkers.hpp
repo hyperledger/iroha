@@ -10,60 +10,16 @@
 
 #include <gtest/gtest.h>
 #include "common/bind.hpp"
+#include "common/to_string.hpp"
 
 namespace framework {
   namespace expected {
     namespace detail {
-      template <typename T>
-      class ObjectToMessage {
-        using MessageType = std::string;
-        using NoMessageType = void;
-
-       public:
-        static NoMessageType getMessage(...);
-
-        static MessageType getMessage(const std::string &s) {
-          return s;
-        }
-
-        template <typename T2>
-        static auto getMessage(const T2 &o) -> std::enable_if_t<
-            std::is_same<decltype(o.toString()), std::string>::value,
-            MessageType> {
-          return o.toString();
-        }
-
-        template <typename T2>
-        static auto getMessage(const T2 &o) -> std::enable_if_t<
-            std::is_same<decltype(o->toString()), std::string>::value,
-            MessageType> {
-          return o->toString();
-        }
-
-        static constexpr bool HasMessage =
-            std::is_same<decltype(getMessage(std::declval<T>())),
-                         MessageType>::value;
-      };
-
-      template <typename T, bool has_message = ObjectToMessage<T>::HasMessage>
-      struct ObjectDescription {
-        static std::string describe(const T &o) {
-          return ObjectToMessage<T>::getMessage(o);
-        }
-      };
-
-      template <typename T>
-      struct ObjectDescription<T, false> {
-        static std::string describe(const T &o) {
-          return "Could not get the message from Result.";
-        }
-      };
-
       template <typename V, typename E>
       inline std::string getValueMessage(
           const iroha::expected::Result<V, E> &r) {
-        return ObjectDescription<std::remove_reference_t<V>>::describe(
-            r.assumeValue());
+        return iroha::to_string::tryToString(r.assumeValue())
+            .value_or("(could not get text info)");
       }
 
       template <typename E>
@@ -74,8 +30,8 @@ namespace framework {
 
       template <typename V, typename E>
       inline auto getErrorMessage(const iroha::expected::Result<V, E> &r) {
-        return ObjectDescription<std::remove_reference_t<E>>::describe(
-            r.assumeError());
+        return iroha::to_string::tryToString(r.assumeError())
+            .value_or("(could not get text info)");
       }
 
       template <typename V>
