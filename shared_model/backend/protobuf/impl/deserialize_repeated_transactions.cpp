@@ -5,6 +5,8 @@
 
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 
+#include "common/result.hpp"
+
 using namespace shared_model;
 using namespace shared_model::proto;
 

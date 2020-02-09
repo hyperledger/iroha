@@ -30,6 +30,7 @@ add_library(flat_file_storage
     )
 
 target_link_libraries(flat_file_storage
+    common_result
     libs_files
     shared_model_proto_backend
     logger
@@ -64,7 +65,7 @@ add_library(k_times_reconnection_strategy
 
 add_library(tx_executor impl/tx_executor.cpp)
 target_link_libraries(tx_executor
-    common
+    common_result
     )
 
 add_library(ametsuchi
@@ -89,6 +90,7 @@ add_library(ametsuchi
     )
 
 target_link_libraries(ametsuchi
+    common_result
     pg_connection_init
     flat_file_storage
     k_times_reconnection_strategy

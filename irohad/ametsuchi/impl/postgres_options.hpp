@@ -6,8 +6,9 @@
 #ifndef IROHA_POSTGRES_OPTIONS_HPP
 #define IROHA_POSTGRES_OPTIONS_HPP
 
+#include <string>
 #include <unordered_map>
-#include "common/result.hpp"
+
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

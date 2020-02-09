@@ -7,6 +7,7 @@
 
 #include <grpcpp/server_context.h>
 #include <grpcpp/support/status.h>
+#include "common/result.hpp"
 #include "endpoint.grpc.pb.h"
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"

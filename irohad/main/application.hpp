@@ -6,6 +6,7 @@
 #ifndef IROHA_APPLICATION_HPP
 #define IROHA_APPLICATION_HPP
 
+#include "common/result_fwd.hpp"
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"

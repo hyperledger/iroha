@@ -5,6 +5,7 @@
 
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 
+#include "common/result.hpp"
 #include "interfaces/transaction.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 

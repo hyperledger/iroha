@@ -1,6 +1,13 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+add_library(common_result INTERFACE
+  # result.hpp
+  )
+target_link_libraries(common_result INTERFACE
+  fmt::fmt
+  )
+
 add_library(common INTERFACE
   # bind.hpp
   # blob.hpp
@@ -16,6 +23,7 @@ add_library(common INTERFACE
   )
 target_link_libraries(common INTERFACE
   Boost::boost
+  common_result
   )
 
 add_library(libs_files
@@ -24,6 +32,7 @@ add_library(libs_files
 target_link_libraries(libs_files
   logger
   common
+  common_result
   Boost::filesystem
   )
 

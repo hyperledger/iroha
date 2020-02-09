@@ -9,7 +9,7 @@
 #include "ametsuchi/specific_query_executor.hpp"
 
 #include <soci/soci.h>
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "logger/logger_fwd.hpp"
 

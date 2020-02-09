@@ -6,6 +6,7 @@
 add_library(executor_itf executor_itf.cpp)
 target_link_libraries(executor_itf
     commands_mocks_factory
+    common_result
     common_test_constants
     integration_framework_config_helper
     query_mocks_factory

@@ -7,7 +7,7 @@
 #define IROHA_SETTING_QUERY_HPP
 
 #include <boost/optional.hpp>
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "validators/settings.hpp"
 
 namespace iroha {

@@ -83,6 +83,7 @@ target_link_libraries(shared_model_proto_backend
     hash
     schema
     common
+    common_result
     shared_model_interfaces
     logger
     )

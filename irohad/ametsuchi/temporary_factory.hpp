@@ -7,7 +7,7 @@
 #define IROHA_TEMPORARY_FACTORY_HPP
 
 #include <memory>
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {

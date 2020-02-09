@@ -11,7 +11,6 @@
 #include <boost/optional.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/commit_result.hpp"
-#include "common/result.hpp"
 
 namespace shared_model {
   namespace interface {

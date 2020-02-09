@@ -53,6 +53,7 @@ target_link_libraries(iroha-cli
     Boost::filesystem
     logger
     logger_manager
+    common_result
     )
 
 add_install_step_for_bin(iroha-cli)

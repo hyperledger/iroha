@@ -5,6 +5,7 @@
 
 #include "ametsuchi/tx_executor.hpp"
 
+#include "common/result.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/transaction.hpp"
 

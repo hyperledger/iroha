@@ -10,7 +10,7 @@
 #include <string>
 
 #include "ametsuchi/ledger_state.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {

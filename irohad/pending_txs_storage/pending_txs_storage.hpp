@@ -7,7 +7,7 @@
 #define IROHA_PENDING_TXS_STORAGE_HPP
 
 #include <boost/optional.hpp>
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"

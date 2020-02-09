@@ -5,6 +5,8 @@
 
 #include "network/impl/peer_tls_certificates_provider_root.hpp"
 
+#include "common/result.hpp"
+
 using namespace iroha::network;
 using namespace iroha::expected;
 using namespace shared_model::interface::types;

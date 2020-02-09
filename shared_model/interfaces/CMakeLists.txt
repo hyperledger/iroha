@@ -85,6 +85,7 @@ if (IROHA_ROOT_PROJECT)
     )
 
   target_link_libraries(shared_model_interfaces_factories
+    common_result
     shared_model_interfaces
     shared_model_stateless_validation
     )
@@ -95,5 +96,6 @@ target_link_libraries(shared_model_interfaces
     shared_model_utils
     shared_model_cryptography
     common
+    common_result
     Boost::boost
     )

@@ -14,7 +14,7 @@
 
 #include <grpc++/grpc++.h>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "network/impl/grpc_channel_params.hpp"
 

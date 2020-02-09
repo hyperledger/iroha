@@ -9,6 +9,7 @@
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 
 #include "backend/protobuf/util.hpp"
+#include "common/result.hpp"
 #include "cryptography/hash_providers/sha3_256.hpp"
 #include "validators/abstract_validator.hpp"
 

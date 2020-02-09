@@ -9,14 +9,15 @@ add_library(server_runner
     server_runner.cpp
     )
 target_link_libraries(server_runner
+    common_result
     logger
     gRPC::grpc++
     Boost::boost
-    common
     )
 
 add_library(raw_block_loader impl/raw_block_loader.cpp)
 target_link_libraries(raw_block_loader
+    common_result
     shared_model_interfaces
     shared_model_proto_backend
     shared_model_stateless_validation
@@ -25,6 +26,7 @@ target_link_libraries(raw_block_loader
 
 add_library(pg_connection_init impl/pg_connection_init.cpp)
 target_link_libraries(pg_connection_init
+    common_result
     SOCI::postgresql
     SOCI::core
     failover_callback
@@ -73,6 +75,7 @@ target_link_libraries(application
     torii_service
     pending_txs_storage_init
     common
+    common_result
     pg_connection_init
     generator
     )
@@ -85,6 +88,7 @@ target_link_libraries(irohad
     RapidJSON::rapidjson
     keys_manager
     common
+    common_result
     iroha_conf_loader
     logger
     logger_manager
@@ -94,6 +98,8 @@ target_link_libraries(irohad
 
 add_library(iroha_conf_loader iroha_conf_loader.cpp)
 target_link_libraries(iroha_conf_loader
+    Boost::boost
+    common_result
     iroha_conf_literals
     logger_manager
     libs_files

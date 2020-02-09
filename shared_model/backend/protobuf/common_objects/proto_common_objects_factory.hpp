@@ -6,6 +6,8 @@
 #ifndef IROHA_PROTO_COMMON_OBJECTS_FACTORY_HPP
 #define IROHA_PROTO_COMMON_OBJECTS_FACTORY_HPP
 
+#include "interfaces/common_objects/common_objects_factory.hpp"
+
 #include <regex>
 
 #include "backend/protobuf/common_objects/account.hpp"
@@ -15,7 +17,6 @@
 #include "backend/protobuf/common_objects/peer.hpp"
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "common/result.hpp"
-#include "interfaces/common_objects/common_objects_factory.hpp"
 #include "primitive.pb.h"
 #include "validators/validation_error.hpp"
 #include "validators/validation_error_helpers.hpp"

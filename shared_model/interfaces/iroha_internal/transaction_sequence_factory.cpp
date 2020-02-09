@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include <fmt/core.h>
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_helpers.hpp"

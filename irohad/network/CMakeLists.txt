@@ -46,7 +46,7 @@ add_library(grpc_generic_client_factory
     )
 target_link_libraries(grpc_generic_client_factory
     PRIVATE
-    common
+    common_result
     PUBLIC
     gRPC::grpc++
     )
@@ -56,7 +56,7 @@ add_library(grpc_channel_pool
     )
 target_link_libraries(grpc_channel_pool
     PRIVATE
-    common
+    common_result
     crypto_blob_hasher
     grpc_channel_factory
     shared_model_interfaces
@@ -68,6 +68,9 @@ add_library(grpc_channel_factory
     impl/channel_factory.cpp
     )
 target_link_libraries(grpc_channel_factory
+    PRIVATE
+    Boost::boost
+    common_result
     PUBLIC
     gRPC::grpc++
     )
@@ -77,6 +80,7 @@ add_library(tls_credentials
     )
 target_link_libraries(tls_credentials
     common
+    common_result
     libs_files
     )
 
@@ -85,6 +89,7 @@ add_library(peer_tls_certificates_providers
     impl/peer_tls_certificates_provider_wsv.cpp
     )
 target_link_libraries(peer_tls_certificates_providers
+    common_result
     logger
     shared_model_interfaces
     )

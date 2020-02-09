@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_options.hpp"
 
 #include <cctype>
+#include <ciso646>
 #include <limits>
 #include <regex>
 

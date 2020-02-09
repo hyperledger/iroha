@@ -11,6 +11,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "common/bind.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
 using namespace iroha::expected;

@@ -19,6 +19,7 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "common/result.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/permission_to_string.hpp"

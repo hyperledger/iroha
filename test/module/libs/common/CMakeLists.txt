@@ -10,7 +10,7 @@ target_link_libraries(to_string_test
 
 addtest(result_test result_test.cpp)
 target_link_libraries(result_test
-        common
+        common_result
         )
 
 addtest(combine_latest_until_first_completed_test

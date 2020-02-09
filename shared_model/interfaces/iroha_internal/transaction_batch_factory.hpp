@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 
 namespace shared_model {

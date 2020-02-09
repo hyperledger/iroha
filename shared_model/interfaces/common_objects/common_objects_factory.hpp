@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/asset.hpp"

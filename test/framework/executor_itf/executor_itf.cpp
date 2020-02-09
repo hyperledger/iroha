@@ -7,6 +7,7 @@
 
 #include "ametsuchi/specific_query_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
+#include "common/result.hpp"
 #include "framework/config_helper.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/permissions.hpp"

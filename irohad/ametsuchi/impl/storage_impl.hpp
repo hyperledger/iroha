@@ -20,6 +20,7 @@
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"

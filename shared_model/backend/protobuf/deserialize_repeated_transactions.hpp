@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_DESERIALIZE_REPEATED_TRANSACTIONS_HPP
 #define IROHA_SHARED_MODEL_PROTO_DESERIALIZE_REPEATED_TRANSACTIONS_HPP
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/abstract_transport_factory.hpp"
 #include "interfaces/transaction.hpp"

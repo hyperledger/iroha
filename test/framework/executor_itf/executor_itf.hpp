@@ -13,7 +13,7 @@
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/query_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/executor_itf/executor_itf_helper.hpp"
 #include "framework/executor_itf/executor_itf_param.hpp"

@@ -8,6 +8,7 @@ add_library(pending_txs_storage
     )
 
 target_link_libraries(pending_txs_storage
+    common_result
     mst_state
     shared_model_interfaces
     rxcpp

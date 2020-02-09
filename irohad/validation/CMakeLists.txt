@@ -8,6 +8,7 @@ add_library(stateful_validator
     )
 target_link_libraries(stateful_validator
     ametsuchi
+    common_result
     shared_model_interfaces
     Boost::boost
     common

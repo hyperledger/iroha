@@ -9,6 +9,7 @@
 
 #include <grpc/impl/codegen/grpc_types.h>
 #include <boost/format.hpp>
+#include "common/result.hpp"
 #include "logger/logger.hpp"
 #include "network/impl/tls_credentials.hpp"
 

@@ -8,7 +8,8 @@
 
 #include <grpc++/grpc++.h>
 #include <grpc++/impl/codegen/service_type.h>
-#include "common/result.hpp"
+#include <boost/optional.hpp>
+#include "common/result_fwd.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

@@ -8,7 +8,7 @@
 
 #include <functional>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "validation/stateful_validator_common.hpp"
 
 namespace shared_model {

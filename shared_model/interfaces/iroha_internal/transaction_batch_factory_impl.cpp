@@ -5,6 +5,7 @@
 
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/transaction.hpp"
 #include "validators/validation_error_helpers.hpp"

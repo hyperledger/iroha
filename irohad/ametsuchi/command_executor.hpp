@@ -6,7 +6,7 @@
 #ifndef IROHA_AMETSUCHI_COMMAND_EXECUTOR_HPP
 #define IROHA_AMETSUCHI_COMMAND_EXECUTOR_HPP
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {

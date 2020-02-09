@@ -7,8 +7,9 @@
 #define CLIENT_TLS_CREDENTIALS_HPP
 
 #include <memory>
+#include <string>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace iroha {
   namespace network {

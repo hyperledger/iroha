@@ -8,6 +8,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/result.hpp"
 #include "cryptography/blob_hasher.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"

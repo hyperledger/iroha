@@ -17,7 +17,7 @@
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_options.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/permissions.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"

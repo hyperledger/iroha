@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_INTERFACE_PARSE_AND_CREATE_BATCHES_HPP
 #define IROHA_SHARED_MODEL_INTERFACE_PARSE_AND_CREATE_BATCHES_HPP
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser.hpp"

@@ -7,6 +7,7 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "cryptography/signed.hpp"
 #include "interfaces/commands/command.hpp"

@@ -10,6 +10,7 @@ add_library(keys_manager
 target_link_libraries(keys_manager
     Boost::boost
     Boost::filesystem
+    common_result
     libs_files
     logger
     shared_model_cryptography

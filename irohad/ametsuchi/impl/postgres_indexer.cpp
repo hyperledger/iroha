@@ -7,6 +7,7 @@
 
 #include <soci/soci.h>
 #include <boost/format.hpp>
+#include "common/result.hpp"
 #include "cryptography/hash.hpp"
 
 using namespace iroha::ametsuchi;

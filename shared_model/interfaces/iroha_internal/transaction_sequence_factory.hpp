@@ -8,7 +8,7 @@
 
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "validators/default_validator.hpp"
 
 namespace shared_model {

@@ -8,6 +8,7 @@
 #include <mutex>
 
 #include "ametsuchi/peer_query.hpp"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 

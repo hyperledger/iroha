@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <boost/format.hpp>
 
+#include "common/result.hpp"
 #include "endpoint.grpc.pb.h"  // any gRPC service is required for test
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"

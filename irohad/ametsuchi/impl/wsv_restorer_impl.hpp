@@ -6,9 +6,9 @@
 #ifndef IROHA_WSVRESTORERIMPL_HPP
 #define IROHA_WSVRESTORERIMPL_HPP
 
-#include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/wsv_restorer.hpp"
-#include "common/result.hpp"
+
+#include "ametsuchi/ledger_state.hpp"
 
 namespace iroha {
   namespace ametsuchi {

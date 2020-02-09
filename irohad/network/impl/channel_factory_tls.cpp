@@ -5,6 +5,7 @@
 
 #include "network/impl/channel_factory_tls.hpp"
 
+#include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "network/impl/grpc_channel_params.hpp"
 #include "network/impl/tls_credentials.hpp"

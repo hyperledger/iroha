@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_map>
 
+#include <boost/variant.hpp>
 #include "common/result_fwd.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"

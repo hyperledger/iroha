@@ -7,7 +7,6 @@
 #define IROHA_AMETSUCHI_TX_EXECUTOR_HPP
 
 #include "ametsuchi/command_executor.hpp"
-#include "common/result.hpp"
 
 namespace shared_model {
   namespace interface {

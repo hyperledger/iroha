@@ -10,7 +10,7 @@
 
 #include "backend/protobuf/transaction.hpp"
 #include "block.pb.h"
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 #include "validators/abstract_validator.hpp"
 
 namespace shared_model {

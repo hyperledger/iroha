@@ -9,6 +9,7 @@
 
 #include <boost/format.hpp>
 #include "backend/protobuf/permissions.hpp"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"

@@ -10,7 +10,7 @@
 #include <string>
 
 #include <grpc++/grpc++.h>
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace interface {
