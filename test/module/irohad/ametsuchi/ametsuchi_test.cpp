@@ -13,7 +13,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 #include "builders/protobuf/transaction.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
@@ -22,8 +22,6 @@
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
-using framework::expected::err;
-using framework::expected::val;
 
 auto zero_string = std::string(32, '0');
 auto fake_hash = shared_model::crypto::Hash(zero_string);
@@ -387,7 +385,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
   auto mutable_storage = createMutableStorage();
   mutable_storage->apply(expected_block);
 
-  ASSERT_TRUE(val(storage->commit(std::move(mutable_storage))));
+  IROHA_ASSERT_RESULT_VALUE(storage->commit(std::move(mutable_storage)));
 
   ASSERT_TRUE(wrapper.validate());
   wrapper.unsubscribe();
@@ -552,7 +550,7 @@ class PreparedBlockTest : public AmetsuchiTest {
     genesis_block = createBlock({*genesis_tx});
     initial_tx = clone(createAddAsset("5.00"));
     apply(storage, genesis_block);
-    command_executor = std::move(val(storage->createCommandExecutor())->value);
+    command_executor = storage->createCommandExecutor().assumeValue();
     temp_wsv = storage->createTemporaryWsv(command_executor);
   }
 
@@ -578,8 +576,7 @@ TEST_F(PreparedBlockTest, PrepareBlockNoStateChanged) {
                        "coin#test",
                        shared_model::interface::Amount(base_balance));
 
-  auto result = temp_wsv->apply(*initial_tx);
-  ASSERT_FALSE(framework::expected::err(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 
   // balance remains unchanged
@@ -596,14 +593,10 @@ TEST_F(PreparedBlockTest, CommitPreparedStateChanged) {
 
   auto block = createBlock({other_tx}, 2);
 
-  auto result = temp_wsv->apply(*initial_tx);
-  ASSERT_FALSE(framework::expected::err(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 
-  auto commited = storage->commitPrepared(block);
-
-  ASSERT_TRUE(val(commited))
-      << "Error in commitPrepared: " << err(commited)->error;
+  IROHA_ASSERT_RESULT_VALUE(storage->commitPrepared(block));
 
   shared_model::interface::Amount resultingAmount("10.00");
 
@@ -622,8 +615,7 @@ TEST_F(PreparedBlockTest, PrepareBlockCommitDifferentBlock) {
 
   auto block = createBlock({other_tx}, 2);
 
-  auto result = temp_wsv->apply(*initial_tx);
-  ASSERT_TRUE(val(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 
   apply(storage, block);
@@ -646,15 +638,12 @@ TEST_F(PreparedBlockTest, CommitPreparedFailsAfterCommit) {
 
   auto block = createBlock({other_tx}, 2);
 
-  auto result = temp_wsv->apply(*initial_tx);
-  ASSERT_FALSE(framework::expected::err(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 
   apply(storage, block);
 
-  auto commited = storage->commitPrepared(block);
-
-  EXPECT_TRUE(err(commited));
+  IROHA_ASSERT_RESULT_ERROR(storage->commitPrepared(block));
 
   shared_model::interface::Amount resultingBalance{"15.00"};
   validateAccountAsset(sql_query, "admin@test", "coin#test", resultingBalance);
@@ -666,13 +655,11 @@ TEST_F(PreparedBlockTest, CommitPreparedFailsAfterCommit) {
  * @then previous state is dropped and new transaction is applied successfully
  */
 TEST_F(PreparedBlockTest, TemporaryWsvUnlocks) {
-  auto result = temp_wsv->apply(*initial_tx);
-  ASSERT_TRUE(val(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 
   temp_wsv = storage->createTemporaryWsv(command_executor);
 
-  result = temp_wsv->apply(*initial_tx);
-  ASSERT_TRUE(val(result));
+  IROHA_ASSERT_RESULT_VALUE(temp_wsv->apply(*initial_tx));
   storage->prepareBlock(std::move(temp_wsv));
 }

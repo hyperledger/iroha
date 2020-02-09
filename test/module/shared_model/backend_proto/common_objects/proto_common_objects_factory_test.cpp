@@ -6,14 +6,13 @@
 #include <gtest/gtest.h>
 
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
+#include "common/result.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
-#include "framework/result_fixture.hpp"
 #include "framework/stateless_valid_field_helpers.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace shared_model;
-using namespace framework::expected;
 
 class ProtoFixture : public ::testing::Test {
  public:

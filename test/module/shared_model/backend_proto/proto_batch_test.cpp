@@ -6,8 +6,9 @@
 #include <gmock/gmock.h>
 
 #include "builders/protobuf/transaction.hpp"
+#include "common/result.hpp"
 #include "framework/batch_helper.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -122,9 +123,7 @@ TEST_F(TransactionBatchTest, CreateTransactionBatchWhenValid) {
           BatchTypeAndCreatorPair{interface::types::BatchType::ATOMIC,
                                   "b@domain"}});
 
-  auto transaction_batch = factory_->createTransactionBatch(txs);
-  ASSERT_TRUE(framework::expected::val(transaction_batch))
-      << framework::expected::err(transaction_batch).value().error;
+  IROHA_ASSERT_RESULT_VALUE(factory_->createTransactionBatch(txs));
 }
 
 /**
@@ -142,8 +141,7 @@ TEST_F(TransactionBatchTest, CreateTransactionBatchWhenDifferentBatchType) {
   auto txs = framework::batch::createUnsignedBatchTransactions(
       std::vector<decltype(tx1_fields)>{tx1_fields, tx2_fields});
 
-  auto transaction_batch = factory_->createTransactionBatch(txs);
-  ASSERT_TRUE(framework::expected::err(transaction_batch));
+  IROHA_ASSERT_RESULT_ERROR(factory_->createTransactionBatch(txs));
 }
 
 /**
@@ -157,8 +155,7 @@ TEST_F(TransactionBatchTest, CreateBatchWithValidAndInvalidTx) {
       interface::types::BatchType::ATOMIC,
       std::vector<std::string>{"valid@name", "invalid#@name"});
 
-  auto transaction_batch = factory_->createTransactionBatch(txs);
-  ASSERT_TRUE(framework::expected::err(transaction_batch));
+  IROHA_ASSERT_RESULT_ERROR(factory_->createTransactionBatch(txs));
 }
 
 /**
@@ -173,10 +170,7 @@ TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenValid) {
       crypto::DefaultCryptoAlgorithmType::sign(tx1->payload(), keypair);
   tx1->addSignature(signed_blob, keypair.publicKey());
 
-  auto transaction_batch = factory_->createTransactionBatch(tx1);
-
-  ASSERT_TRUE(framework::expected::val(transaction_batch))
-      << framework::expected::err(transaction_batch).value().error;
+  IROHA_ASSERT_RESULT_VALUE(factory_->createTransactionBatch(tx1));
 }
 
 /**
@@ -185,9 +179,8 @@ TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenValid) {
  * @then transaction batch is not created
  */
 TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenInvalid) {
-  auto transaction_batch =
-      factory_->createTransactionBatch(createInvalidUnsignedTransaction());
-  ASSERT_TRUE(framework::expected::err(transaction_batch));
+  IROHA_ASSERT_RESULT_ERROR(
+      factory_->createTransactionBatch(createInvalidUnsignedTransaction()));
 }
 
 /**
@@ -199,10 +192,8 @@ TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenInvalid) {
 TEST_F(TransactionBatchTest, BatchWithAllSignatures) {
   auto quorum = 1;
   auto transaction_batch = createBatchWithTransactionsWithQuorum(quorum);
-  auto transaction_batch_val = framework::expected::val(transaction_batch);
-  ASSERT_TRUE(transaction_batch_val)
-      << framework::expected::err(transaction_batch).value().error;
-  ASSERT_TRUE(transaction_batch_val->value->hasAllSignatures());
+  IROHA_ASSERT_RESULT_VALUE(transaction_batch);
+  ASSERT_TRUE(transaction_batch.assumeValue()->hasAllSignatures());
 }
 
 /**
@@ -214,10 +205,8 @@ TEST_F(TransactionBatchTest, BatchWithAllSignatures) {
 TEST_F(TransactionBatchTest, BatchWithMissingSignatures) {
   auto quorum = 2;
   auto transaction_batch = createBatchWithTransactionsWithQuorum(quorum);
-  auto transaction_batch_val = framework::expected::val(transaction_batch);
-  ASSERT_TRUE(transaction_batch_val)
-      << framework::expected::err(transaction_batch).value().error;
-  ASSERT_FALSE(transaction_batch_val->value->hasAllSignatures());
+  IROHA_ASSERT_RESULT_VALUE(transaction_batch);
+  ASSERT_FALSE(transaction_batch.assumeValue()->hasAllSignatures());
 }
 
 /**
@@ -230,9 +219,8 @@ TEST_F(TransactionBatchTest, BatchWithNoSignatures) {
   auto unsigned_transactions =
       framework::batch::createUnsignedBatchTransactions(
           interface::types::BatchType::ATOMIC, batch_size);
-  auto transaction_batch =
-      factory_->createTransactionBatch(unsigned_transactions);
-  ASSERT_TRUE(framework::expected::err(transaction_batch));
+  IROHA_ASSERT_RESULT_ERROR(
+      factory_->createTransactionBatch(unsigned_transactions));
 }
 
 /**
@@ -246,10 +234,8 @@ TEST_F(TransactionBatchTest, BatchWithOneSignature) {
       makeTxBuilder(1, created_time),
       makeTxBuilder(2, created_time + 1),
       makeSignedTxBuilder(1, created_time + 2));
-  auto transaction_batch =
-      factory_->createTransactionBatch(unsigned_transactions);
-  ASSERT_TRUE(framework::expected::val(transaction_batch))
-      << framework::expected::err(transaction_batch).value().error;
+  IROHA_ASSERT_RESULT_VALUE(
+      factory_->createTransactionBatch(unsigned_transactions));
 }
 
 /**

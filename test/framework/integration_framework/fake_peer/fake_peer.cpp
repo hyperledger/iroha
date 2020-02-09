@@ -25,7 +25,6 @@
 #include "framework/integration_framework/fake_peer/network/ordering_service_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/network/yac_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
-#include "framework/result_fixture.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -37,7 +36,6 @@
 #include "ordering/impl/on_demand_os_server_grpc.hpp"
 
 using namespace shared_model::crypto;
-using namespace framework::expected;
 
 static std::shared_ptr<shared_model::interface::Peer> createPeer(
     const std::shared_ptr<shared_model::interface::CommonObjectsFactory>

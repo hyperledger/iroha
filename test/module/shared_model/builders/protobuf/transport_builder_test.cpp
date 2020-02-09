@@ -13,7 +13,7 @@
 #include "common/bind.hpp"
 #include "endpoint.pb.h"
 #include "framework/batch_helper.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -338,10 +338,9 @@ TEST_F(TransportBuilderTest, DISABLED_EmptyProposalCreationTest) {
  */
 TEST_F(TransportBuilderTest, TransactionSequenceEmpty) {
   iroha::protocol::TxList tx_list;
-  auto val = framework::expected::val(
+  IROHA_ASSERT_RESULT_ERROR(
       TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
           .build(tx_list));
-  ASSERT_FALSE(val);
 }
 
 struct getProtocolTx {
@@ -388,11 +387,12 @@ TEST_F(TransportBuilderTest, TransactionSequenceCorrect) {
   new (tx_list.add_transactions())
       iroha::protocol::Transaction(createTransaction().getTransport());
 
-  auto val = framework::expected::val(
+  auto seq_result =
       TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
-          .build(tx_list));
+          .build(tx_list);
+  IROHA_ASSERT_RESULT_VALUE(seq_result);
 
-  val | [](auto &seq) { EXPECT_EQ(boost::size(seq.value.transactions()), 24); };
+  EXPECT_EQ(boost::size(seq_result.assumeValue().transactions()), 24);
 }
 /**
  * @given batch of transaction with transaction in the middle
@@ -417,10 +417,9 @@ TEST_F(TransportBuilderTest, DISABLED_TransactionInteraptedBatch) {
         std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
   });
 
-  auto error = framework::expected::err(
+  IROHA_ASSERT_RESULT_ERROR(
       TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
           .build(tx_list));
-  ASSERT_TRUE(error);
 }
 
 /**
@@ -440,8 +439,7 @@ TEST_F(TransportBuilderTest, BatchWrongOrder) {
     new (tx_list.add_transactions()) iroha::protocol::Transaction(
         std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
   });
-  auto error = framework::expected::err(
+  IROHA_ASSERT_RESULT_ERROR(
       TransactionSequenceBuilder(iroha::test::kTestsValidatorsConfig)
           .build(tx_list));
-  ASSERT_TRUE(error);
 }

@@ -8,7 +8,7 @@
 
 #include <boost/range/irange.hpp>
 
-#include "framework/result_fixture.hpp"
+#include "common/result.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -225,9 +225,7 @@ namespace framework {
               batch_validator);
       auto txs =
           createBatchOneSignTransactions(transaction_fields, created_time);
-      auto result_batch = batch_factory->createTransactionBatch(txs);
-
-      return framework::expected::val(result_batch).value().value;
+      return batch_factory->createTransactionBatch(txs).assumeValue();
     }
 
     /**

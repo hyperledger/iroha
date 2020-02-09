@@ -8,7 +8,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
 #include "framework/common_constants.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
@@ -23,7 +23,6 @@ namespace iroha {
 
     using ::testing::HasSubstr;
 
-    using namespace framework::expected;
     using namespace common_constants;
 
     static const std::string domain_id{"domain"};
@@ -62,7 +61,7 @@ namespace iroha {
       /**
        * Execute a given command and optionally check its result
        * @tparam CommandType - type of the command
-       * @param command - the command to CHECK_SUCCESSFUL_RESULT(execute
+       * @param command - the command to execute
        * @param do_validation - of the command should be validated
        * @param creator - creator of the command
        * @return result of command execution
@@ -81,13 +80,6 @@ namespace iroha {
       }
 
       /**
-       * Check that passed result contains value and not an error
-       * @param result to be checked
-       */
-#define CHECK_SUCCESSFUL_RESULT(result) \
-  { ASSERT_TRUE(val(result)) << err(result)->error; }
-
-      /**
        * Check that command result contains specific error code and error
        * message
        * @param cmd_result to be checked
@@ -95,14 +87,14 @@ namespace iroha {
        * @param expected_substrings - collection of strings, which are expected
        * to be in command error
        */
-#define CHECK_ERROR_CODE_AND_MESSAGE(                \
-    cmd_result, expected_code, expected_substrings)  \
-  auto error = err(cmd_result);                      \
-  ASSERT_TRUE(error);                                \
-  EXPECT_EQ(error->error.error_code, expected_code); \
-  auto str_error = error->error.error_extra;         \
-  for (auto substring : expected_substrings) {       \
-    EXPECT_THAT(str_error, HasSubstr(substring));    \
+#define CHECK_ERROR_CODE_AND_MESSAGE(               \
+    cmd_result, expected_code, expected_substrings) \
+  IROHA_ASSERT_RESULT_ERROR(cmd_result);            \
+  auto error = cmd_result.assumeError();            \
+  EXPECT_EQ(error.error_code, expected_code);       \
+  auto str_error = error.error_extra;               \
+  for (auto substring : expected_substrings) {      \
+    EXPECT_THAT(str_error, HasSubstr(substring));   \
   }
 
       void addAllPerms(
@@ -112,10 +104,10 @@ namespace iroha {
         shared_model::interface::RolePermissionSet permissions;
         permissions.setAll();
 
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructCreateRole(role_id, permissions),
             true));
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructAppendRole(account_id, role_id),
             true));
       }
@@ -129,10 +121,10 @@ namespace iroha {
         permissions.setAll();
         permissions.unset(shared_model::interface::permissions::Role::kRoot);
 
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructCreateRole(role_id, permissions),
             true));
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructAppendRole(account_id, role_id),
             true));
       }
@@ -150,10 +142,10 @@ namespace iroha {
           const shared_model::interface::types::RoleIdType role_id = "all") {
         shared_model::interface::RolePermissionSet permissions;
         permissions.set(perm);
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructCreateRole(role_id, permissions),
             true));
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructAppendRole(account_id, role_id),
             true));
       }
@@ -164,7 +156,7 @@ namespace iroha {
       void addAsset(const std::string &name = "coin",
                     const std::string &domain = domain_id,
                     size_t precision = 1) {
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateAsset(
                         name, domain, precision),
                     true));
@@ -175,19 +167,19 @@ namespace iroha {
        * without any validation - specifically for SetUp methods
        */
       void createDefaultRole() {
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructCreateRole(role, role_permissions),
             true));
       }
 
       void createDefaultDomain() {
-        CHECK_SUCCESSFUL_RESULT(execute(
+        IROHA_ASSERT_RESULT_VALUE(execute(
             *mock_command_factory->constructCreateDomain(domain_id, role),
             true));
       }
 
       void createDefaultAccount() {
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateAccount(
                         name, domain_id, *pubkey),
                     true));
@@ -264,7 +256,7 @@ namespace iroha {
      */
     TEST_F(AddPeer, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddPeer(*peer_with_cert)));
     }
 
@@ -275,7 +267,7 @@ namespace iroha {
      */
     TEST_F(AddPeer, ValidWithCertificate) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddPeer(*peer)));
     }
 
@@ -299,7 +291,7 @@ namespace iroha {
      */
     TEST_F(AddPeer, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddPeer(*peer)));
     }
 
@@ -315,7 +307,7 @@ namespace iroha {
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructAddPeer(*peer), true));
       }
 
@@ -329,10 +321,10 @@ namespace iroha {
      */
     TEST_F(RemovePeer, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
 
       auto peers = wsv_query->getPeers();
@@ -352,7 +344,7 @@ namespace iroha {
      * @then peer is not removed
      */
     TEST_F(RemovePeer, NoPerms) {
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructAddPeer(*another_peer), true));
       auto cmd_result =
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
@@ -411,10 +403,10 @@ namespace iroha {
      */
     TEST_F(RemovePeer, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
 
       auto peers = wsv_query->getPeers();
@@ -446,11 +438,11 @@ namespace iroha {
      */
     TEST_F(AppendRole, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAppendRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -466,9 +458,9 @@ namespace iroha {
      */
     TEST_F(AppendRole, ValidEmptyPerms) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(another_role, {}), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAppendRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -486,11 +478,11 @@ namespace iroha {
     TEST_F(AppendRole, AccountDoesNotHavePermsGenesis) {
       role_permissions2.set(
           shared_model::interface::permissions::Role::kRemoveMySignatory);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions2),
                   true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructAppendRole(account_id, another_role),
           true));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -505,7 +497,7 @@ namespace iroha {
      * @then role is not appended
      */
     TEST_F(AppendRole, NoPerms) {
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions),
                   true));
@@ -529,7 +521,7 @@ namespace iroha {
     TEST_F(AppendRole, NoRolePermsInAccount) {
       role_permissions2.set(
           shared_model::interface::permissions::Role::kRemoveMySignatory);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions2),
                   true));
@@ -547,7 +539,7 @@ namespace iroha {
      */
     TEST_F(AppendRole, NoAccount) {
       addAllPermsWithoutRoot();
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(another_role, {}), true));
       auto cmd_result = execute(*mock_command_factory->constructAppendRole(
           "doge@noaccount", another_role));
@@ -577,11 +569,11 @@ namespace iroha {
      */
     TEST_F(AppendRole, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAppendRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -599,11 +591,11 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       role_permissions2.set(
           shared_model::interface::permissions::Role::kRemoveMySignatory);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateRole(another_role,
                                                              role_permissions2),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAppendRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -630,16 +622,16 @@ namespace iroha {
     TEST_F(CreateAsset, Valid) {
       role_permissions.set(
           shared_model::interface::permissions::Role::kCreateAsset);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(role, role_permissions),
           true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       name, domain_id, *pubkey),
                   true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
       auto asset = sql_query->getAsset(asset_id);
       ASSERT_TRUE(asset);
@@ -652,12 +644,12 @@ namespace iroha {
      * @then asset is not created
      */
     TEST_F(CreateAsset, NoPerms) {
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(role, role_permissions),
           true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       name, domain_id, *pubkey),
                   true));
@@ -678,12 +670,12 @@ namespace iroha {
     TEST_F(CreateAsset, NoDomain) {
       role_permissions.set(
           shared_model::interface::permissions::Role::kCreateAsset);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(role, role_permissions),
           true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       name, domain_id, *pubkey),
                   true));
@@ -702,16 +694,16 @@ namespace iroha {
     TEST_F(CreateAsset, NameNotUnique) {
       role_permissions.set(
           shared_model::interface::permissions::Role::kCreateAsset);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(role, role_permissions),
           true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       name, domain_id, *pubkey),
                   true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
       auto cmd_result = execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1));
@@ -727,16 +719,16 @@ namespace iroha {
      */
     TEST_F(CreateAsset, ValidWithRoot) {
       role_permissions.set(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateRole(role, role_permissions),
           true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain_id, role), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       name, domain_id, *pubkey),
                   true));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateAsset("coin", domain_id, 1)));
       auto asset = sql_query->getAsset(asset_id);
       ASSERT_TRUE(asset);
@@ -763,7 +755,7 @@ namespace iroha {
      */
     TEST_F(CreateDomain, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role)));
       auto dom = sql_query->getDomain(domain2_id);
       ASSERT_TRUE(dom);
@@ -792,7 +784,7 @@ namespace iroha {
      */
     TEST_F(CreateDomain, NameNotUnique) {
       addAllPermsWithoutRoot();
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role)));
       auto cmd_result = execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role));
@@ -822,7 +814,7 @@ namespace iroha {
      */
     TEST_F(CreateDomain, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role)));
       auto dom = sql_query->getDomain(domain2_id);
       ASSERT_TRUE(dom);
@@ -837,11 +829,11 @@ namespace iroha {
         createDefaultDomain();
         createDefaultAccount();
 
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateRole(
                         another_role, role_permissions),
                     true));
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructAppendRole(account_id,
                                                                another_role),
                     true));
@@ -855,7 +847,7 @@ namespace iroha {
      */
     TEST_F(DetachRole, Valid) {
       addAllPerms();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructDetachRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -903,7 +895,7 @@ namespace iroha {
      */
     TEST_F(DetachRole, NoSuchRoleInAccount) {
       addAllPermsWithoutRoot();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructDetachRole(account_id,
                                                              another_role)));
       auto cmd_result = execute(
@@ -934,7 +926,7 @@ namespace iroha {
      */
     TEST_F(DetachRole, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructDetachRole(account_id,
                                                              another_role)));
       auto roles = sql_query->getAccountRoles(account_id);
@@ -950,7 +942,7 @@ namespace iroha {
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateRole(
                         another_role, role_permissions),
                     true));
@@ -965,7 +957,7 @@ namespace iroha {
     TEST_F(GrantPermission, Valid) {
       addAllPerms();
       auto perm = shared_model::interface::permissions::Grantable::kSetMyQuorum;
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account_id, perm)));
       auto has_perm = sql_query->hasAccountGrantablePermission(
           account_id, account_id, perm);
@@ -1014,7 +1006,7 @@ namespace iroha {
     TEST_F(GrantPermission, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       auto perm = shared_model::interface::permissions::Grantable::kSetMyQuorum;
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account_id, perm)));
       auto has_perm = sql_query->hasAccountGrantablePermission(
           account_id, account_id, perm);
@@ -1028,7 +1020,7 @@ namespace iroha {
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructGrantPermission(
                         account_id, grantable_permission),
                     true));
@@ -1046,7 +1038,7 @@ namespace iroha {
       ASSERT_TRUE(sql_query->hasAccountGrantablePermission(
           account_id, account_id, grantable_permission));
 
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account_id, perm),
           true));
       ASSERT_TRUE(sql_query->hasAccountGrantablePermission(
@@ -1054,7 +1046,7 @@ namespace iroha {
       ASSERT_TRUE(sql_query->hasAccountGrantablePermission(
           account_id, account_id, perm));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructRevokePermission(
               account_id, grantable_permission)));
       ASSERT_FALSE(sql_query->hasAccountGrantablePermission(
@@ -1088,7 +1080,7 @@ namespace iroha {
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructAddSignatory(
                         additional_pubkey_, account_id),
                     true));
@@ -1104,7 +1096,7 @@ namespace iroha {
     TEST_F(SetQuorum, Valid) {
       addAllPerms();
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSetQuorum(account_id, 2)));
     }
 
@@ -1114,23 +1106,23 @@ namespace iroha {
      * @then quorum is set
      */
     TEST_F(SetQuorum, ValidGrantablePerms) {
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCreateAccount(
                       "id2", domain_id, *pubkey),
                   true));
       auto perm = shared_model::interface::permissions::Grantable::kSetMyQuorum;
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account_id, perm),
           true,
           "id2@domain"));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddSignatory(
                       additional_pubkey_, "id2@domain"),
                   true,
                   "id2@domain"));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSetQuorum("id2@domain", 2)));
     }
 
@@ -1155,9 +1147,9 @@ namespace iroha {
     TEST_F(SetQuorum, LessSignatoriesThanNewQuorum) {
       addAllPermsWithoutRoot();
       shared_model::interface::types::PubkeyType pk(std::string('5', 32));
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructAddSignatory(pk, account_id), true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSetQuorum(account_id, 3)));
 
       auto cmd_result =
@@ -1175,7 +1167,7 @@ namespace iroha {
     TEST_F(SetQuorum, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSetQuorum(account_id, 2)));
     }
 
@@ -1200,21 +1192,21 @@ namespace iroha {
     TEST_F(SubtractAccountAssetTest, Valid) {
       addAllPerms();
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
               asset_id, asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
@@ -1229,7 +1221,7 @@ namespace iroha {
      */
     TEST_F(SubtractAccountAssetTest, NoPerms) {
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1260,7 +1252,7 @@ namespace iroha {
       addOnePerm(
           shared_model::interface::permissions::Role::kSubtractDomainAssetQty);
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1269,7 +1261,7 @@ namespace iroha {
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1278,7 +1270,7 @@ namespace iroha {
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1295,7 +1287,7 @@ namespace iroha {
      */
     TEST_F(SubtractAccountAssetTest, DomainPermInvalid) {
       shared_model::interface::types::DomainIdType domain2_id = "domain2";
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructCreateDomain(domain2_id, role),
           true));
       addAsset("coin", domain2_id, 1);
@@ -1303,7 +1295,7 @@ namespace iroha {
           shared_model::interface::permissions::Role::kSubtractDomainAssetQty);
 
       auto asset2_id = "coin#" + domain2_id;
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset2_id, asset_amount_one_zero),
                   true));
@@ -1364,7 +1356,7 @@ namespace iroha {
     TEST_F(SubtractAccountAssetTest, NotEnoughAsset) {
       addAllPermsWithoutRoot();
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1384,21 +1376,21 @@ namespace iroha {
     TEST_F(SubtractAccountAssetTest, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructSubtractAssetQuantity(
               asset_id, asset_amount_one_zero)));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
@@ -1415,7 +1407,7 @@ namespace iroha {
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateAccount(
                         "id2", domain_id, *pubkey),
                     true));
@@ -1451,21 +1443,21 @@ namespace iroha {
       addAllPerms();
       addAllPerms(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
               account2_id,
@@ -1490,19 +1482,19 @@ namespace iroha {
       addAsset();
       auto perm =
           shared_model::interface::permissions::Grantable::kTransferMyAssets;
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account2_id, perm),
           true,
           account_id));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, shared_model::interface::Amount{"2.0"}),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructTransferAsset(
               account_id, account2_id, asset_id, "desc", asset_amount_one_zero),
           false,
@@ -1522,7 +1514,7 @@ namespace iroha {
      */
     TEST_F(TransferAccountAssetTest, NoPerms) {
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1550,11 +1542,11 @@ namespace iroha {
       addAllPermsWithoutRoot();
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, shared_model::interface::Amount{"0.1"}),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1643,11 +1635,11 @@ namespace iroha {
       addAllPermsWithoutRoot();
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, shared_model::interface::Amount{"0.1"}),
                   true,
@@ -1670,7 +1662,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
@@ -1697,11 +1689,11 @@ namespace iroha {
       addAllPermsWithoutRoot();
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, Amount{"10"}),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, kAmountPrec1Max),
                   false,
@@ -1722,11 +1714,11 @@ namespace iroha {
       addAllPermsWithoutRoot();
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset("coin", domain_id, 2);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, Amount{"1.0"}),
                   true));
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, kAmountPrec2Max),
                   false,
@@ -1745,21 +1737,21 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       addAllPermsWithoutRoot(account2_id, "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
               account2_id,
@@ -1785,21 +1777,21 @@ namespace iroha {
                  account2_id,
                  "all2");
       addAsset();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       auto account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ(asset_amount_one_zero, account_asset.get()->balance());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructAddAssetQuantity(
                       asset_id, asset_amount_one_zero),
                   true));
       account_asset = sql_query->getAccountAsset(account_id, asset_id);
       ASSERT_TRUE(account_asset);
       ASSERT_EQ("2.0", account_asset.get()->balance().toStringRepr());
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructTransferAsset(
               account_id,
               account2_id,
@@ -1822,7 +1814,7 @@ namespace iroha {
         createDefaultDomain();
         createDefaultAccount();
         account2_id = "id2@" + domain_id;
-        CHECK_SUCCESSFUL_RESULT(
+        IROHA_ASSERT_RESULT_VALUE(
             execute(*mock_command_factory->constructCreateAccount(
                         "id2",
                         domain_id,
@@ -1840,7 +1832,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, Valid) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "value", boost::none)));
       auto kv = sql_query->getAccountDetail(account_id);
@@ -1858,12 +1850,12 @@ namespace iroha {
           shared_model::interface::permissions::Role::kGetDomainAccDetail);
       auto perm =
           shared_model::interface::permissions::Grantable::kSetMyAccountDetail;
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructGrantPermission(account_id, perm),
           true,
           account2_id));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
                       account2_id, "key", "value", boost::none),
                   false,
@@ -1880,7 +1872,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, ValidRolePerm) {
       addAllPermsWithoutRoot();
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
                       account2_id, "key", "value", boost::none),
                   false,
@@ -1934,7 +1926,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, ValidOldValue) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "value", boost::none)));
 
@@ -1942,7 +1934,7 @@ namespace iroha {
       ASSERT_TRUE(kv);
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id,
               "key",
@@ -1962,7 +1954,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, InvalidOldValue) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "value", boost::none)));
 
@@ -1991,11 +1983,11 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, DifferentKeys) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "value", boost::none)));
 
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key1", "value1", boost::none)));
 
@@ -2012,7 +2004,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, EmptyDetail) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "", boost::none)));
 
@@ -2053,7 +2045,7 @@ namespace iroha {
      */
     TEST_F(CompareAndSetAccountDetail, ValidWithRoot) {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
-      CHECK_SUCCESSFUL_RESULT(
+      IROHA_ASSERT_RESULT_VALUE(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
               account_id, "key", "value", boost::none)));
       auto kv = sql_query->getAccountDetail(account_id);
@@ -2071,7 +2063,7 @@ namespace iroha {
     TEST_F(SetSettingValueTest, InsertSettingValue) {
       std::string key = "maxDesc";
       std::string value = "255";
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructSetSettingValue(key, value), true));
 
       auto setting_value = sql_query->getSettingValue(key);
@@ -2087,7 +2079,7 @@ namespace iroha {
     TEST_F(SetSettingValueTest, UpdateSettingValue) {
       std::string key = "maxDesc";
       std::string value = "255";
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructSetSettingValue(key, value), true));
 
       auto setting_value = sql_query->getSettingValue(key);
@@ -2096,7 +2088,7 @@ namespace iroha {
 
       value = "512";
       ASSERT_NE(setting_value.get(), value);
-      CHECK_SUCCESSFUL_RESULT(execute(
+      IROHA_ASSERT_RESULT_VALUE(execute(
           *mock_command_factory->constructSetSettingValue(key, value), true));
 
       setting_value = sql_query->getSettingValue(key);

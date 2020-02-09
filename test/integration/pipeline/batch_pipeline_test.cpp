@@ -161,19 +161,12 @@ class BatchPipelineTest
 
   auto createTransactionSequence(
       const interface::types::SharedTxsCollectionType &txs) {
-    auto transaction_sequence_result =
-        interface::TransactionSequenceFactory::createTransactionSequence(
-            txs,
-            validation::DefaultUnsignedTransactionsValidator(
-                iroha::test::kTestsValidatorsConfig),
-            validation::FieldValidator(iroha::test::kTestsValidatorsConfig));
-
-    auto transaction_sequence_value =
-        framework::expected::val(transaction_sequence_result);
-    EXPECT_TRUE(transaction_sequence_value)
-        << framework::expected::err(transaction_sequence_result).value().error;
-
-    return transaction_sequence_value.value().value;
+    return interface::TransactionSequenceFactory::createTransactionSequence(
+               txs,
+               validation::DefaultUnsignedTransactionsValidator(
+                   iroha::test::kTestsValidatorsConfig),
+               validation::FieldValidator(iroha::test::kTestsValidatorsConfig))
+        .assumeValue();
   }
 
   auto batchToSequence(

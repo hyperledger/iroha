@@ -7,15 +7,13 @@
 
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 namespace iroha {
   namespace ametsuchi {
-
-    using namespace framework::expected;
 
     class WsvQueryCommandTest : public AmetsuchiTest {
      public:
@@ -43,8 +41,8 @@ namespace iroha {
     class RoleTest : public WsvQueryCommandTest {};
 
     TEST_F(RoleTest, InsertTwoRole) {
-      ASSERT_TRUE(val(command->insertRole("role")));
-      ASSERT_TRUE(err(command->insertRole("role")));
+      IROHA_ASSERT_RESULT_VALUE(command->insertRole("role"));
+      IROHA_ASSERT_RESULT_ERROR(command->insertRole("role"));
     }
 
     class DeletePeerTest : public WsvQueryCommandTest {
@@ -65,9 +63,9 @@ namespace iroha {
      * @then peer is successfully deleted
      */
     TEST_F(DeletePeerTest, DeletePeerValidWhenPeerExists) {
-      ASSERT_TRUE(val(command->insertPeer(*peer)));
+      IROHA_ASSERT_RESULT_VALUE(command->insertPeer(*peer));
 
-      ASSERT_TRUE(val(command->deletePeer(*peer)));
+      IROHA_ASSERT_RESULT_VALUE(command->deletePeer(*peer));
     }
 
   }  // namespace ametsuchi

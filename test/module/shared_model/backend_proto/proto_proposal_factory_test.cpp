@@ -7,14 +7,13 @@
 
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
-#include "framework/result_fixture.hpp"
+#include "common/result.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace shared_model;
-using namespace framework::expected;
 
 class ProposalFactoryTest : public ::testing::Test {
  public:

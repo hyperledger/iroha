@@ -62,7 +62,7 @@ class PipelineIntegrationTest : public AcceptanceFixture {
             shared_model::validation::FieldValidator(
                 iroha::test::kTestsValidatorsConfig));
 
-    return framework::expected::val(tx_sequence_result).value().value;
+    return tx_sequence_result.assumeValue();
   }
 };
 /**

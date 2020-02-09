@@ -16,7 +16,6 @@
 
 using namespace common_constants;
 using namespace executor_testing;
-using namespace framework::expected;
 
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;

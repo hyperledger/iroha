@@ -27,7 +27,6 @@
 #include "common/result.hpp"
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
-#include "framework/result_fixture.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -50,7 +49,6 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
-using namespace framework::expected;
 using namespace shared_model::interface;
 
 namespace shared_model {
@@ -208,7 +206,8 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
+        IROHA_ASSERT_RESULT_VALUE(
+            executor->execute(cmd, creator, not do_validation));
       }
 
       void addPerms(
@@ -383,7 +382,7 @@ namespace iroha {
             FAIL() << "could not apply block to the storage";
           }
         }
-        ASSERT_TRUE(val(storage->commit(std::move(ms))));
+        IROHA_ASSERT_RESULT_VALUE(storage->commit(std::move(ms)));
       }
 
       static constexpr shared_model::interface::types::HeightType

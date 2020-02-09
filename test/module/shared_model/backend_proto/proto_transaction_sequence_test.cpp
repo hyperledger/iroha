@@ -8,8 +8,9 @@
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/irange.hpp>
+#include "common/result.hpp"
 #include "framework/batch_helper.hpp"
-#include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
 
 using namespace shared_model;
@@ -49,7 +50,7 @@ TEST_F(TransactionSequenceTestFixture, CreateTransactionSequenceWhenValid) {
       interface::TransactionSequenceFactory::createTransactionSequence(
           transactions, txs_collection_validator, field_validator);
 
-  ASSERT_TRUE(framework::expected::val(tx_sequence));
+  IROHA_ASSERT_RESULT_VALUE(tx_sequence);
 }
 
 /**
@@ -69,7 +70,7 @@ TEST_F(TransactionSequenceTestFixture, CreateTransactionSequenceWhenInvalid) {
           txs_collection_validator,
           field_validator);
 
-  ASSERT_TRUE(framework::expected::err(tx_sequence));
+  IROHA_ASSERT_RESULT_ERROR(tx_sequence);
 }
 
 /**
@@ -105,19 +106,19 @@ TEST_F(TransactionSequenceTestFixture, CreateBatches) {
     tx_collection.emplace_back(tx);
   }
 
-  auto tx_sequence_opt =
+  auto tx_sequence_result =
       interface::TransactionSequenceFactory::createTransactionSequence(
           tx_collection, txs_collection_validator, field_validator);
 
-  auto tx_sequence = framework::expected::val(tx_sequence_opt);
-  ASSERT_TRUE(tx_sequence)
-      << framework::expected::err(tx_sequence_opt).value().error;
+  IROHA_ASSERT_RESULT_VALUE(tx_sequence_result);
 
-  EXPECT_EQ(boost::size(tx_sequence->value.batches()),
+  auto &tx_sequence = tx_sequence_result.assumeValue();
+
+  EXPECT_EQ(boost::size(tx_sequence.batches()),
             batches_number + single_transactions);
 
   size_t total_transactions = 0;
-  for (const auto &batch : tx_sequence->value.batches()) {
+  for (const auto &batch : tx_sequence.batches()) {
     total_transactions += boost::size(batch->transactions());
   }
   EXPECT_EQ(total_transactions,

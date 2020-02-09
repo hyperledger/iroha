@@ -7,7 +7,6 @@
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
 #include "ametsuchi/impl/postgres_setting_query.hpp"
-#include "framework/result_fixture.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
@@ -15,8 +14,6 @@
 
 namespace iroha {
   namespace ametsuchi {
-    using namespace framework::expected;
-
     class SettingsTest : public AmetsuchiTest {
      public:
       void SetUp() override {
@@ -75,10 +72,7 @@ namespace iroha {
      * @then settings return default value
      */
     TEST_F(SettingsTest, NoSuchSetting) {
-      auto result = setting_query->get();
-      IROHA_ASSERT_RESULT_VALUE(result);
-
-      auto settings = std::move(val(result).value().value);
+      auto settings = setting_query->get().assumeValue();
       ASSERT_EQ(settings->max_description_size,
                 shared_model::validation::kDefaultDescriptionSize);
     }
@@ -108,9 +102,7 @@ namespace iroha {
                   iroha::ametsuchi::kMaxDescriptionSizeKey, value),
               true);
 
-      auto result = setting_query->get();
-      IROHA_ASSERT_RESULT_VALUE(result);
-      auto settings = std::move(val(result).value().value);
+      auto settings = setting_query->get().assumeValue();
       ASSERT_EQ(settings->max_description_size, 255);
     }
 

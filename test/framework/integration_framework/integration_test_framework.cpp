@@ -35,7 +35,6 @@
 #include "framework/integration_framework/iroha_instance.hpp"
 #include "framework/integration_framework/port_guard.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
-#include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -358,10 +357,8 @@ namespace integration_framework {
     log_->info("init state");
     my_key_ = keypair;
     this_peer_ =
-        framework::expected::val(common_objects_factory_->createPeer(
-                                     getAddress(), keypair.publicKey()))
-            .value()
-            .value;
+        common_objects_factory_->createPeer(getAddress(), keypair.publicKey())
+            .assumeValue();
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
     log_->info("created pipeline");
   }

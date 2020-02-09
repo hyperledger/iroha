@@ -208,13 +208,13 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnProposalBatchTest) {
         status_map[response->transactionHash()] = response;
       }));
 
-  auto transaction_sequence_result = shared_model::interface::
-      TransactionSequenceFactory::createTransactionSequence(
-          transactions,
-          TxsValidator(iroha::test::kTestsValidatorsConfig),
-          FieldValidator(iroha::test::kTestsValidatorsConfig));
   auto transaction_sequence =
-      framework::expected::val(transaction_sequence_result).value().value;
+      shared_model::interface::TransactionSequenceFactory::
+          createTransactionSequence(
+              transactions,
+              TxsValidator(iroha::test::kTestsValidatorsConfig),
+              FieldValidator(iroha::test::kTestsValidatorsConfig))
+              .assumeValue();
 
   EXPECT_CALL(*mst, propagateBatchImpl(_)).Times(0);
   EXPECT_CALL(*pcs, propagate_batch(_))

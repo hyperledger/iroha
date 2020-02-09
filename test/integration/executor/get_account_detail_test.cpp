@@ -19,7 +19,6 @@
 
 using namespace common_constants;
 using namespace executor_testing;
-using namespace framework::expected;
 using namespace shared_model::interface::types;
 
 using iroha::ametsuchi::QueryExecutorResult;
