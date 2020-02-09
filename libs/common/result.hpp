@@ -14,6 +14,8 @@
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
 
+#include <fmt/core.h>
+#include "common/to_string.hpp"
 #include "common/visitor.hpp"
 
 /*
@@ -76,6 +78,32 @@ namespace iroha {
     class ResultException : public std::runtime_error {
       using std::runtime_error::runtime_error;
     };
+
+    template <typename T>
+    inline ResultException valueExpectedButGotError(const Error<T> &e) {
+      return ResultException{
+          fmt::format("Value expected, but got Error: {}.",
+                      iroha::to_string::tryToString(e.error).value_or(
+                          "(could not get text representation of the Error)"))};
+    }
+
+    template <>
+    inline ResultException valueExpectedButGotError(const Error<void> &) {
+      return ResultException{"Value expected, but got a void Error."};
+    }
+
+    template <typename T>
+    inline ResultException errorExpectedButGotValue(const Value<T> &v) {
+      return ResultException{
+          fmt::format("Error expected, but got Value: {}.",
+                      iroha::to_string::tryToString(v.value).value_or(
+                          "(could not get text representation of the Value)"))};
+    }
+
+    template <>
+    inline ResultException errorExpectedButGotValue(const Value<void> &) {
+      return ResultException{"Error expected, but got a void Value."};
+    }
 
     struct ResultBase {};
 
@@ -215,7 +243,7 @@ namespace iroha {
         if (val != nullptr) {
           return val->value;
         }
-        throw ResultException("Value expected, but got an Error.");
+        throw valueExpectedButGotError(*boost::get<ErrorType>(this));
       }
 
       /// @return value if present, otherwise throw ResultException
@@ -226,7 +254,7 @@ namespace iroha {
         if (val != nullptr) {
           return val->value;
         }
-        throw ResultException("Value expected, but got an Error.");
+        throw valueExpectedButGotError(*boost::get<ErrorType>(this));
       }
 
       /// @return value if present, otherwise throw ResultException
@@ -237,7 +265,19 @@ namespace iroha {
         if (val != nullptr) {
           return std::move(val->value);
         }
-        throw ResultException("Value expected, but got an Error.");
+        throw valueExpectedButGotError(*boost::get<ErrorType>(this));
+      }
+
+      /// check that void value is present, otherwise throw ResultException
+      template <typename ReturnType = AssumeValueHelper &&>
+      std::enable_if_t<std::is_void<ValueInnerType>::value,
+                       std::remove_reference_t<ReturnType>>
+      assumeValue() const & {
+        const auto *val = boost::get<ValueType>(this);
+        if (val == nullptr) {
+          throw valueExpectedButGotError(*boost::get<ErrorType>(this));
+        }
+        return nullptr;
       }
 
       using AssumeErrorHelper =
@@ -253,7 +293,7 @@ namespace iroha {
         if (err != nullptr) {
           return err->error;
         }
-        throw ResultException("Error expected, but got a Value.");
+        throw errorExpectedButGotValue(*boost::get<ValueType>(this));
       }
 
       /// @return error if present, otherwise throw ResultException
@@ -264,7 +304,7 @@ namespace iroha {
         if (err != nullptr) {
           return err->error;
         }
-        throw ResultException("Error expected, but got a Value.");
+        throw errorExpectedButGotValue(*boost::get<ValueType>(this));
       }
 
       /// @return error if present, otherwise throw ResultException
@@ -275,7 +315,19 @@ namespace iroha {
         if (err != nullptr) {
           return std::move(err->error);
         }
-        throw ResultException("Error expected, but got a Value.");
+        throw errorExpectedButGotValue(*boost::get<ValueType>(this));
+      }
+
+      /// check that void error is present, otherwise throw ResultException
+      template <typename ReturnType = AssumeErrorHelper &&>
+      std::enable_if_t<std::is_void<ErrorInnerType>::value,
+                       std::remove_reference_t<ReturnType>>
+      assumeError() const & {
+        const auto *err = boost::get<ErrorType>(this);
+        if (err == nullptr) {
+          throw errorExpectedButGotValue(*boost::get<ValueType>(this));
+        }
+        return nullptr;
       }
     };
 
