@@ -100,10 +100,10 @@ TEST_P(RemoveSignatoryBasicTest, SignatoriesLessThanQuorum) {
   checkSignatories(kUserId, {old_sig_, kTargetSignatory});
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        RemoveSignatoryBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         RemoveSignatoryBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using RemoveSignatoryPermissionTest =
     command_permission_test::CommandPermissionTest<RemoveSignatoryTest>;
@@ -123,7 +123,7 @@ TEST_P(RemoveSignatoryPermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     RemoveSignatoryPermissionTest,
     command_permission_test::getParams(Role::kRemoveSignatory,

@@ -69,10 +69,10 @@ TEST_P(AddSignatoryBasicTest, ExistingPubKey) {
   checkSignatories(kUserId, {kUserKeypair.publicKey()});
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        AddSignatoryBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         AddSignatoryBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using AddSignatoryPermissionTest =
     command_permission_test::CommandPermissionTest<AddSignatoryTest>;
@@ -91,7 +91,7 @@ TEST_P(AddSignatoryPermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     AddSignatoryPermissionTest,
     command_permission_test::getParams(Role::kAddSignatory,
