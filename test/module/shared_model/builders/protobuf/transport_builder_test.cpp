@@ -357,22 +357,19 @@ struct getProtocolTx {
  */
 TEST_F(TransportBuilderTest, TransactionSequenceCorrect) {
   iroha::protocol::TxList tx_list;
+  auto add_txs_from_batch = [&tx_list](const auto &batch) {
+    for (const auto &tx : batch->transactions()) {
+      new (tx_list.add_transactions()) iroha::protocol::Transaction(
+          std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
+    }
+  };
   auto now = iroha::time::now();
-  auto batch1 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 10, now);
-  auto batch2 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 5, now + 1);
-  auto batch3 = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 5, now + 2);
-  std::for_each(std::begin(batch1), std::end(batch1), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
+  auto batch1 = framework::batch::createValidBatch(10, now);
+  auto batch2 = framework::batch::createValidBatch(5, now + 1);
+  auto batch3 = framework::batch::createValidBatch(5, now + 2);
 
-  std::for_each(std::begin(batch2), std::end(batch2), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
+  add_txs_from_batch(batch1);
+  add_txs_from_batch(batch2);
 
   new (tx_list.add_transactions())
       iroha::protocol::Transaction(createTransaction().getTransport());
@@ -380,10 +377,9 @@ TEST_F(TransportBuilderTest, TransactionSequenceCorrect) {
       iroha::protocol::Transaction(createTransaction().getTransport());
   new (tx_list.add_transactions())
       iroha::protocol::Transaction(createTransaction().getTransport());
-  std::for_each(std::begin(batch3), std::end(batch3), [&tx_list](auto &tx) {
-    new (tx_list.add_transactions()) iroha::protocol::Transaction(
-        std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
-  });
+
+  add_txs_from_batch(batch3);
+
   new (tx_list.add_transactions())
       iroha::protocol::Transaction(createTransaction().getTransport());
 
@@ -429,13 +425,13 @@ TEST_F(TransportBuilderTest, DISABLED_TransactionInteraptedBatch) {
  */
 TEST_F(TransportBuilderTest, BatchWrongOrder) {
   iroha::protocol::TxList tx_list;
-  auto batch = framework::batch::createUnsignedBatchTransactions(
-      interface::types::BatchType::ATOMIC, 10);
-  std::for_each(std::begin(batch) + 3, std::end(batch), [&tx_list](auto &tx) {
+  auto batch = framework::batch::createValidBatch(10);
+  const auto &txs = batch->transactions();
+  std::for_each(std::begin(txs) + 3, std::end(txs), [&tx_list](auto &tx) {
     new (tx_list.add_transactions()) iroha::protocol::Transaction(
         std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
   });
-  std::for_each(std::begin(batch), std::begin(batch) + 3, [&tx_list](auto &tx) {
+  std::for_each(std::begin(txs), std::begin(txs) + 3, [&tx_list](auto &tx) {
     new (tx_list.add_transactions()) iroha::protocol::Transaction(
         std::static_pointer_cast<proto::Transaction>(tx)->getTransport());
   });
