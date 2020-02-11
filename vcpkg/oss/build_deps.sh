@@ -19,7 +19,7 @@ git -C /tmp/vcpkg apply /tmp/vcpkg-vars/oss/patches/0002-vcpkg-dependencies-flag
 
 git -C /tmp/vcpkg apply /tmp/vcpkg-vars/oss/patches/0003-vcpkg-dependencies-sanitizer.patch;
 
-cat /tmp/vcpkg-vars/VCPKG_DEPS_LIST | sed '/^grpc$/d' | xargs /tmp/vcpkg/vcpkg install;
+comm -23 <(sort /tmp/vcpkg-vars/VCPKG_DEPS_LIST) <(sort /tmp/vcpkg-vars/oss/VCPKG_SKIP_DEPS) | xargs /tmp/vcpkg/vcpkg install;
 
 function bumper { while sleep 1; do echo bump; done; };
 function run_with_bumper { bumper & p=$!; $@; kill $p; };
