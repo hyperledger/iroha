@@ -37,32 +37,20 @@ Although it can be a great idea for some of the cases, but please consider that 
 	If blocks are less than should be – the option of reusing WSV will not work for you.
 	Please, restore it from blocks.
 
-WSV Database Schema version
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+State Database Schema version
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When reusing existing WSV, Iroha performs a schema version compatibility check.
 It will not start or somehow alter the database, if its schema is not compatible with the Iroha in use.
 
 If your schema was created by Iroha of version v1.1.1 or lower, most likely it does not include the version information.
 In this case you need to add it manually.
-You are encouraged to use our script for this purpose, it is located `here <https://github.com/hyperledger/iroha/blob/master/utils/wsv_migration.py>`__.
-To forcefully (i.e. without any `migration process <#changing-iroha-version-migration>`__) set a schema to given numbers, launch it with `--force_schema_version` flag and pass the values from the table below:
+You are encouraged to use our script for this purpose, it is located `here <https://github.com/hyperledger/iroha-state-migration-tool/blob/master/state_migration.py>`__.
+To forcefully (i.e. without any `migration process <#changing-iroha-version-migration>`__) set your schema version, launch the script with `--force_schema_version` flag and pass the version of Iroha binary that was used to create your schema.
 
-+------------------------+--------+--------+--------+--------+
-| Number / Iroha version | v1.0.0 | v1.0.1 | v1.1.0 | v1.1.1 |
-+========================+========+========+========+========+
-| iroha_version_major    |    1   |    1   |    1   |    1   |
-+------------------------+--------+--------+--------+--------+
-| iroha_version_minor    |    0   |    0   |    1   |    1   |
-+------------------------+--------+--------+--------+--------+
-| iroha_version_minor    |    0   |    1   |    0   |    1   |
-+------------------------+--------+--------+--------+--------+
-| iroha_version_patch    |    0   |    0   |    0   |    0   |
-+------------------------+--------+--------+--------+--------+
-| db_version_major       |    1   |    1   |    1   |    1   |
-+------------------------+--------+--------+--------+--------+
-| db_version_minor       |    0   |    0   |    0   |    0   |
-+------------------------+--------+--------+--------+--------+
+.. warning::
+  Before forcefully writing the schema version numbers, double check the version of irohad that created the schema.
+  No checks are performed when you force schema numbers, hence it is easy to break the state database in the future (during the next migration).
 
 Changing Iroha version. Migration.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -70,6 +58,6 @@ In case you want to change Iroha version while keeping the WSV, you are encourag
 Although it might be unnecessary (Iroha will refuse to start if the schema is incompatible), as a general rule, we improve the schema with each version and migration might be a good idea for a better performance.
 You are encouraged to perform a database backup before migration using standard `PostgreSQL guidelines <https://www.postgresql.org/docs/current/backup.html>`__ for that.
 
-To perform migration, please use our `script <https://github.com/hyperledger/iroha/blob/master/utils/wsv_migration.py>`__.
+To perform migration, please use our `script <https://github.com/hyperledger/iroha-state-migration-tool/blob/master/state_migration.py>`__.
 It will load the schema information from the database and match it with migration steps (by default, migration scenarios are defined in ``migration_data`` directory in the same folder as the script).
 Then it will find all migration paths that will transition your database to the desired version and ask you to choose one.
