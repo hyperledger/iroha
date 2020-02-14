@@ -87,10 +87,10 @@ TEST_P(CreateRoleBasicTest, NameExists) {
   checkRole(kAnotherRole, {Role::kCreateRole});
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        CreateRoleBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         CreateRoleBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using CreateRolePermissionTest =
     command_permission_test::CommandPermissionTest<CreateRoleTest>;
@@ -107,10 +107,10 @@ TEST_P(CreateRolePermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(Common,
-                        CreateRolePermissionTest,
-                        command_permission_test::getParams(boost::none,
-                                                           boost::none,
-                                                           Role::kCreateRole,
-                                                           boost::none),
-                        command_permission_test::paramToString);
+INSTANTIATE_TEST_SUITE_P(Common,
+                         CreateRolePermissionTest,
+                         command_permission_test::getParams(boost::none,
+                                                            boost::none,
+                                                            Role::kCreateRole,
+                                                            boost::none),
+                         command_permission_test::paramToString);

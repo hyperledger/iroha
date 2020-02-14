@@ -38,6 +38,8 @@ We have documentation in several languages available and you are welcome to cont
 | **Korean** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ko/badge/?version=latest)](https://iroha.readthedocs.io/ko/latest/?badge=latest) </br> | **Dutch** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-nl/badge/?version=latest)](https://iroha.readthedocs.io/nl/latest/?badge=latest) </br> | **Portuguese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-pt/badge/?version=latest)](https://iroha.readthedocs.io/pt/latest/?badge=latest) </br> | **Russian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ru/badge/?version=latest)](https://iroha.readthedocs.io/ru/latest/?badge=latest) </br> | **Ukrainian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-uk/badge/?version=latest)](https://iroha.readthedocs.io/uk/latest/?badge=latest) </br> | **Simplified Chinese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-zh/badge/?version=latest)](https://iroha.readthedocs.io/zh_CN/latest/?badge=latest) </br> |
 
 </center>
+
+> We are currently researching better ideas for translation platforms. That is why the documentation in outdated at the moment. Please, refer to the English documentation for now. 
  
 ### How to explore Iroha really fast?
 

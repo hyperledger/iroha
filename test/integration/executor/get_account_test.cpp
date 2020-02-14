@@ -67,10 +67,10 @@ TEST_P(GetAccountBasicTest, NonexistentAccount) {
       0);
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        GetAccountBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         GetAccountBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using GetAccountPermissionTest =
     query_permission_test::QueryPermissionTest<GetAccountTest>;
@@ -85,7 +85,7 @@ TEST_P(GetAccountPermissionTest, QueryPermissionTest) {
       });
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     GetAccountPermissionTest,
     query_permission_test::getParams({Role::kGetMyAccount},

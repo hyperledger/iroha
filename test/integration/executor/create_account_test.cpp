@@ -120,10 +120,10 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
   checkNoSuchAccount();
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        CreateAccountBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         CreateAccountBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using CreateAccountPermissionTest =
     command_permission_test::CommandPermissionTest<CreateAccountTest>;
@@ -139,10 +139,9 @@ TEST_P(CreateAccountPermissionTest, CommandPermissionTest) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(Common,
-                        CreateAccountPermissionTest,
-                        command_permission_test::getParams(boost::none,
-                                                           boost::none,
-                                                           Role::kCreateAccount,
-                                                           boost::none),
-                        command_permission_test::paramToString);
+INSTANTIATE_TEST_SUITE_P(
+    Common,
+    CreateAccountPermissionTest,
+    command_permission_test::getParams(
+        boost::none, boost::none, Role::kCreateAccount, boost::none),
+    command_permission_test::paramToString);

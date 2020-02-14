@@ -66,7 +66,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
         -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
         -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
-        -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ")
+        -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/vcpkg/scripts/buildsystems/vcpkg.cmake ")
 
         build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
       }

@@ -9,7 +9,8 @@ ENV IROHA_BUILD /opt/iroha/build
 
 RUN apt-get update && \
     apt-get -y --no-install-recommends install apt-utils software-properties-common wget gpg-agent; \
-    apt-get -y clean
+    apt-get -y clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # add repos
 RUN set -e; \
@@ -73,6 +74,7 @@ RUN set -e; \
 RUN set -e; \
     apt-get update; \
     apt-get -y install openjdk-8-jre; \
+    rm -rf /var/lib/apt/lists/*; \
     java -version
 
 # python bindings dependencies

@@ -11,6 +11,7 @@
 #include <string>
 
 #include <fmt/core.h>
+#include <fmt/format.h>
 // Windows includes transitively included by format.h define interface as
 // struct, leading to compilation issues
 #undef interface
@@ -26,13 +27,13 @@ namespace fmt {
                        char>> {
     // The following functions are not defined intentionally.
     template <typename ParseContext>
-    typename ParseContext::iterator parse(ParseContext &ctx) {
+    auto parse(ParseContext &ctx) -> decltype(ctx.begin()) {
       return ctx.begin();
     }
 
     template <typename FormatContext>
     auto format(const T &val, FormatContext &ctx) -> decltype(ctx.out()) {
-      return format_to(ctx.begin(), "{}", val.toString());
+      return format_to(ctx.out(), "{}", val.toString());
     }
   };
 }  // namespace fmt
