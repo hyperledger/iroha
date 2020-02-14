@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-find_package(PythonInterp 3.5 REQUIRED)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_executable(binary_test
     launchers.cpp
@@ -20,7 +20,7 @@ if (NOT USE_LIBURSA)
     add_test(
         NAME python_binary_test
         COMMAND ${CMAKE_COMMAND} -E env
-        "PYTHON_INTERPRETER=${PYTHON_EXECUTABLE}"
+        "PYTHON_INTERPRETER=${Python3_EXECUTABLE}"
         "ROOT_DIR=${PROJECT_SOURCE_DIR}"
         $<TARGET_FILE:binary_test> --gtest_filter=*/0*
     )
