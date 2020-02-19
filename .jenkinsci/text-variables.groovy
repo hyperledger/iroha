@@ -7,7 +7,7 @@
 // Text variable for jenkins job description
 //
 
-param_chose_opt = 'Default\nBranch commit\nOn open PR\nCommit in Open PR\nBefore merge to trunk\nNightly build\nCustom command'
+param_chose_opt = 'Default\nBranch commit\nOn open PR\nCommit in Open PR\nBefore merge to trunk\nNightly build\nPush demo\nCustom command'
 
 param_descriptions = """
 <p>
@@ -17,6 +17,7 @@ param_descriptions = """
   <strong>Commit in Open PR</strong> - Same as Branch commit<br />
   <strong>Before merge to trunk</strong> - Linux/gcc v7 v9, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true<br />
   <strong>Nightly build</strong> - Linux/gcc v7 v9, Linux/clang v6 v7, MacOS/appleclang, Windows/msvc; Test: ALL; Coverage; Analysis: cppcheck, sonar,codestyle; useBTF=true; sanitize<br />
+  <strong>Push demo</strong> - Build Release and push to hub.docker.com/r/soramitsu/iroha <br />
   <strong>Custom command</strong> - enter command below, Ex: build_type='Release'; testing=false;<br />
 </p>
 """
