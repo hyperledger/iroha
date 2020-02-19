@@ -37,6 +37,13 @@ Although it can be a great idea for some of the cases, but please consider that 
 	If blocks are less than should be – the option of reusing WSV will not work for you.
 	Please, restore it from blocks.
 
+
+Enabling WSV Reuse
+^^^^^^^^^^^^^^^^^^
+
+If you want to reuse WSV state, start Iroha with `--reuse_state` flag.
+Given this flag, Iroha will not reset or overwrite the state database if it fails to start for whatever reason.
+
 State Database Schema version
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
