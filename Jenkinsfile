@@ -127,9 +127,6 @@ node ('master') {
     "IROHA_POSTGRES_PORT": "5432",
     "GIT_RAW_BASE_URL": "https://raw.githubusercontent.com/hyperledger/iroha"
   ]
-  environment.each { e ->
-    environmentList.add("${e.key}=${e.value}")
-  }
 
   // Define variable and params
 
@@ -243,6 +240,17 @@ node ('master') {
         packagePush=false
         doxygen=false
         break;
+     case 'Push demo':
+        build_type='Release'
+        testing=false
+        environment["DOCKER_REGISTRY_BASENAME"] = 'soramitsu/iroha'
+        pushDockerTag = scmVars.GIT_LOCAL_BRANCH.trim().replaceAll('/','-')
+        packageBuild=true
+        fuzzing=false
+        benchmarking=false
+        coredumps=false
+        packagePush=true
+        break;
      case 'Custom command':
         if (cmd_sanitize(params.custom_cmd)){
           evaluate (params.custom_cmd)
@@ -259,6 +267,11 @@ node ('master') {
         println("The value build_scenario='${build_scenario}' is not implemented");
         sh "exit 1"
         break;
+  }
+
+  // convert dictionary to list
+  environment.each { e ->
+    environmentList.add("${e.key}=${e.value}")
   }
 
   echo """
