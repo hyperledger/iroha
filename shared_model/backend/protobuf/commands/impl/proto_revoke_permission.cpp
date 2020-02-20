@@ -24,8 +24,8 @@ namespace shared_model {
     std::string RevokePermission::toString() const {
       return detail::PrettyStringBuilder()
           .init("RevokePermission")
-          .append("account_id", accountId())
-          .append("permission", permissions::toString(permissionName()))
+          .appendNamed("account_id", accountId())
+          .appendNamed("permission", permissions::toString(permissionName()))
           .finalize();
     }
 

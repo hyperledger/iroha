@@ -32,8 +32,7 @@ namespace iroha {
         std::string toString() const {
           return shared_model::detail::PrettyStringBuilder()
               .init(typeName())
-              .appendAll(
-                  "votes", votes, [](auto vote) { return vote.toString(); })
+              .appendNamed("votes", votes)
               .finalize();
         }
 

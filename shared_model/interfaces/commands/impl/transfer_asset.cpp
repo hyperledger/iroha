@@ -11,11 +11,11 @@ namespace shared_model {
     std::string TransferAsset::toString() const {
       return detail::PrettyStringBuilder()
           .init("TransferAsset")
-          .append("src_account_id", srcAccountId())
-          .append("dest_account_id", destAccountId())
-          .append("asset_id", assetId())
-          .append("description", description())
-          .append("amount", amount().toString())
+          .appendNamed("src_account_id", srcAccountId())
+          .appendNamed("dest_account_id", destAccountId())
+          .appendNamed("asset_id", assetId())
+          .appendNamed("description", description())
+          .appendNamed("amount", amount())
           .finalize();
     }
 

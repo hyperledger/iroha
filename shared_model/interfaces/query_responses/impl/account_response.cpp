@@ -12,9 +12,8 @@ namespace shared_model {
     std::string AccountResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("AccountResponse")
-          .append(account().toString())
-          .append("roles")
-          .appendAll(roles(), [](auto s) { return s; })
+          .append(account())
+          .appendNamed("roles", roles())
           .finalize();
     }
 

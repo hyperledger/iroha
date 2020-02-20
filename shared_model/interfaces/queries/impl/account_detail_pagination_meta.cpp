@@ -16,9 +16,7 @@ std::string AccountDetailPaginationMeta::toString() const {
   const auto first_record_id = firstRecordId();
   return detail::PrettyStringBuilder()
       .init("AccountDetailPaginationMeta")
-      .append("page_size", std::to_string(pageSize()))
-      .append(
-          "first_record_id",
-          first_record_id ? first_record_id->toString() : std::string("(none)"))
+      .appendNamed("page_size", pageSize())
+      .appendNamed("first_record_id", first_record_id)
       .finalize();
 }

@@ -46,10 +46,10 @@ namespace shared_model {
       std::string toString() const override {
         return detail::PrettyStringBuilder()
             .init("Account")
-            .append("accountId", accountId())
-            .append("domainId", domainId())
-            .append("quorum", std::to_string(quorum()))
-            .append("json", jsonData())
+            .appendNamed("accountId", accountId())
+            .appendNamed("domainId", domainId())
+            .appendNamed("quorum", quorum())
+            .appendNamed("json", jsonData())
             .finalize();
       }
 

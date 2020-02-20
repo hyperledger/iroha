@@ -11,7 +11,7 @@ namespace shared_model {
     const std::string PrettyStringBuilder::beginBlockMarker = "[";
     const std::string PrettyStringBuilder::endBlockMarker = "]";
     const std::string PrettyStringBuilder::keyValueSeparator = "=";
-    const std::string PrettyStringBuilder::singleFieldsSeparator = ",";
+    const std::string PrettyStringBuilder::singleFieldsSeparator = ", ";
     const std::string PrettyStringBuilder::initSeparator = ":";
     const std::string PrettyStringBuilder::spaceSeparator = " ";
 
@@ -19,47 +19,38 @@ namespace shared_model {
       result_.append(name);
       result_.append(initSeparator);
       result_.append(spaceSeparator);
-      result_.append(beginBlockMarker);
+      insertLevel();
       return *this;
     }
 
     PrettyStringBuilder &PrettyStringBuilder::insertLevel() {
+      need_field_separator_ = false;
       result_.append(beginBlockMarker);
       return *this;
     }
 
     PrettyStringBuilder &PrettyStringBuilder::removeLevel() {
       result_.append(endBlockMarker);
+      need_field_separator_ = true;
       return *this;
-    }
-
-    PrettyStringBuilder &PrettyStringBuilder::append(const std::string &name,
-                                                     const std::string &value) {
-      result_.append(name);
-      result_.append(keyValueSeparator);
-      result_.append(value);
-      result_.append(singleFieldsSeparator);
-      result_.append(spaceSeparator);
-      return *this;
-    }
-
-    PrettyStringBuilder &PrettyStringBuilder::append(const std::string &name,
-                                                     bool value) {
-      if (value) {
-        return append(name, std::string("true"));
-      } else {
-        return append(name, std::string("false"));
-      }
     }
 
     PrettyStringBuilder &PrettyStringBuilder::append(const std::string &value) {
-      result_.append(value);
-      result_.append(spaceSeparator);
+      appendPartial(value);
+      need_field_separator_ = true;
       return *this;
     }
 
+    void PrettyStringBuilder::appendPartial(const std::string &value) {
+      if (need_field_separator_) {
+        result_.append(singleFieldsSeparator);
+        need_field_separator_ = false;
+      }
+      result_.append(value);
+    }
+
     std::string PrettyStringBuilder::finalize() {
-      result_.append(endBlockMarker);
+      removeLevel();
       return result_;
     }
 

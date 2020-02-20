@@ -11,8 +11,8 @@ namespace shared_model {
     std::string CreateDomain::toString() const {
       return detail::PrettyStringBuilder()
           .init("CreateDomain")
-          .append("domain_id", domainId())
-          .append("user_default_role", userDefaultRole())
+          .appendNamed("domain_id", domainId())
+          .appendNamed("user_default_role", userDefaultRole())
           .finalize();
     }
 

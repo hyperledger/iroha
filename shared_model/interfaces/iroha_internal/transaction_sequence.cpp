@@ -42,8 +42,7 @@ namespace shared_model {
     std::string TransactionSequence::toString() const {
       return detail::PrettyStringBuilder()
           .init("TransactionSequence")
-          .appendAll(batches_,
-                     [](const auto &batch) { return batch->toString(); })
+          .append(batches_)
           .finalize();
     }
 

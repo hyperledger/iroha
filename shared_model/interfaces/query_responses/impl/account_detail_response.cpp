@@ -13,10 +13,9 @@ namespace shared_model {
       const auto next_record_id = nextRecordId();
       return detail::PrettyStringBuilder()
           .init("AccountDetailResponse")
-          .append("Details page", detail())
-          .append("Total number", std::to_string(totalNumber()))
-          .append("Next record ID",
-                  next_record_id ? next_record_id->toString() : "(none)")
+          .appendNamed("Details page", detail())
+          .appendNamed("Total number", totalNumber())
+          .appendNamed("Next record ID", next_record_id)
           .finalize();
     }
 

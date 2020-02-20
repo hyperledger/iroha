@@ -34,8 +34,8 @@ namespace shared_model {
       std::string toString() const override {
         return detail::PrettyStringBuilder()
             .init("Domain")
-            .append("domainId", domainId())
-            .append("defaultRole", defaultRole())
+            .appendNamed("domainId", domainId())
+            .appendNamed("defaultRole", defaultRole())
             .finalize();
       }
 

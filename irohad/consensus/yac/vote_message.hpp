@@ -34,9 +34,8 @@ namespace iroha {
         std::string toString() const {
           return shared_model::detail::PrettyStringBuilder()
               .init("VoteMessage")
-              .append("yac hash", hash.toString())
-              .append("signature",
-                      signature ? signature->toString() : "not set")
+              .appendNamed("yac hash", hash)
+              .appendNamed("signature", signature)
               .finalize();
         }
       };

@@ -70,6 +70,7 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/pending_transactions_page_response.cpp
       query_responses/impl/peers_response.cpp
       transaction_responses/impl/tx_response.cpp
+      iroha_internal/batch_meta.cpp
       iroha_internal/transaction_sequence.cpp
       iroha_internal/transaction_batch_impl.cpp
       iroha_internal/transaction_batch_parser_impl.cpp

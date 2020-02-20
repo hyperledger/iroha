@@ -11,9 +11,9 @@ namespace shared_model {
     std::string SetAccountDetail::toString() const {
       return detail::PrettyStringBuilder()
           .init("SetAccountDetail")
-          .append("account_id", accountId())
-          .append("key", key())
-          .append("value", value())
+          .appendNamed("account_id", accountId())
+          .appendNamed("key", key())
+          .appendNamed("value", value())
           .finalize();
     }
 

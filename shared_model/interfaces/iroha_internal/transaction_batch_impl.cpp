@@ -45,10 +45,9 @@ namespace shared_model {
     std::string TransactionBatchImpl::toString() const {
       return detail::PrettyStringBuilder()
           .init("Batch")
-          .append("reducedHash", reducedHash().toString())
-          .append("hasAllSignatures", hasAllSignatures() ? "true" : "false")
-          .append("transactions")
-          .appendAll(transactions(), [](auto &tx) { return tx->toString(); })
+          .appendNamed("reducedHash", reducedHash())
+          .appendNamed("hasAllSignatures", hasAllSignatures())
+          .appendNamed("transactions", transactions())
           .finalize();
     }
 

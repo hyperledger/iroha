@@ -33,7 +33,8 @@ namespace shared_model {
       virtual std::string toString() const {
         return detail::PrettyStringBuilder()
             .init("Primitive")
-            .append("address", std::to_string(reinterpret_cast<uint64_t>(this)))
+            .appendNamed("address",
+                         std::to_string(reinterpret_cast<uint64_t>(this)))
             .finalize();
       }
 

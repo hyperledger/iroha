@@ -11,10 +11,10 @@ namespace shared_model {
     std::string CompareAndSetAccountDetail::toString() const {
       return detail::PrettyStringBuilder()
           .init("CompareAndSetAccountDetail")
-          .append("account_id", accountId())
-          .append("key", key())
-          .append("value", value())
-          .append("old_value", oldValue().value_or("(none)"))
+          .appendNamed("account_id", accountId())
+          .appendNamed("key", key())
+          .appendNamed("value", value())
+          .appendNamed("old_value", oldValue())
           .finalize();
     }
 
