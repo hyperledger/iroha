@@ -176,11 +176,8 @@ namespace iroha {
 
         propagateStateDirectly(current_leader, {vote});
         cluster_order_.switchToNext();
-        auto has_next = cluster_order_.hasNext();
         lock.unlock();
-        if (has_next) {
-          timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
-        }
+        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
       }
 
       void Yac::closeRound() {
