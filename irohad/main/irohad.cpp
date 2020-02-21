@@ -24,9 +24,12 @@
 #include "main/raw_block_loader.hpp"
 #include "validators/field_validator.hpp"
 
+using namespace std::chrono_literals;
+
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
 static const uint32_t kMstExpirationTimeDefault = 1440;
+static const uint32_t kMstStalledThresholdMsDefault = 30min / 1ms;
 static const uint32_t kMaxRoundsDelayDefault = 3000;
 static const uint32_t kStaleStreamMaxRoundsDefault = 2;
 static const std::string kDefaultWorkingDatabaseName{"iroha_default"};
@@ -210,6 +213,8 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
+      std::chrono::milliseconds(config.mst_stalled_batch_threshold_ms.value_or(
+          kMstStalledThresholdMsDefault)),
       *keypair,
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),

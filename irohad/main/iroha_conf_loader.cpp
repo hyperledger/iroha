@@ -382,6 +382,10 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.mst_support, obj, config_members::MstSupport);
   getValByKey(
       path, dest.mst_expiration_time, obj, config_members::MstExpirationTime);
+  getValByKey(path,
+              dest.mst_stalled_batch_threshold_ms,
+              obj,
+              config_members::MstStalledThresholdMs);
   getValByKey(
       path, dest.max_round_delay_ms, obj, config_members::MaxRoundsDelay);
   getValByKey(path,

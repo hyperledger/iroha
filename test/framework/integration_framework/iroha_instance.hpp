@@ -86,6 +86,7 @@ namespace integration_framework {
     const std::chrono::milliseconds proposal_delay_;
     const std::chrono::milliseconds vote_delay_;
     const std::chrono::minutes mst_expiration_time_;
+    const std::chrono::milliseconds mst_stalled_batch_threshold_;
     boost::optional<iroha::GossipPropagationStrategyParams>
         opt_mst_gossip_params_;
     const std::chrono::milliseconds max_rounds_delay_;

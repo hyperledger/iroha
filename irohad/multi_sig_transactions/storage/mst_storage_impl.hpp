@@ -6,12 +6,18 @@
 #ifndef IROHA_MST_STORAGE_IMPL_HPP
 #define IROHA_MST_STORAGE_IMPL_HPP
 
-#include <unordered_map>
-#include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
 
+#include <unordered_map>
+
+#include "logger/logger_fwd.hpp"
+#include "multi_sig_transactions/hash.hpp"
+#include "multi_sig_transactions/mst_types.hpp"
+#include "multi_sig_transactions/state/mst_state.hpp"
+
 namespace iroha {
+  class MstTimeProvider;
+
   class MstStorageStateImpl : public MstStorage {
    private:
     // -----------------------------| private API |-----------------------------
@@ -27,30 +33,36 @@ namespace iroha {
    public:
     // ----------------------------| interface API |----------------------------
     MstStorageStateImpl(const CompleterType &completer,
+                        std::shared_ptr<MstTimeProvider> time_provider,
+                        std::chrono::milliseconds stalled_batch_threshold,
                         logger::LoggerPtr mst_state_logger,
                         logger::LoggerPtr log);
 
     auto applyImpl(const shared_model::crypto::PublicKey &target_peer_key,
-                   const MstState &new_state)
-        -> decltype(apply(target_peer_key, new_state)) override;
+                   MstState &&new_state)
+        -> decltype(apply(target_peer_key,
+                          std::declval<MstState &&>())) override;
 
     auto updateOwnStateImpl(const DataType &tx)
         -> decltype(updateOwnState(tx)) override;
 
-    auto extractExpiredTransactionsImpl(const TimeType &current_time)
-        -> decltype(extractExpiredTransactions(current_time)) override;
+    auto extractExpiredTransactionsImpl()
+        -> decltype(extractExpiredTransactions()) override;
 
     auto getDiffStateImpl(
-        const shared_model::crypto::PublicKey &target_peer_key,
-        const TimeType &current_time)
-        -> decltype(getDiffState(target_peer_key, current_time)) override;
+        const shared_model::crypto::PublicKey &target_peer_key)
+        -> decltype(getDiffState(target_peer_key)) override;
 
     auto whatsNewImpl(ConstRefState new_state) const
         -> decltype(whatsNew(new_state)) override;
 
     bool batchInStorageImpl(const DataType &batch) const override;
 
+    void clearStalledPeerStatesImpl() override;
+
    private:
+    inline void setLastUpdateTime(const DataType &batch, TimeType time);
+
     // ---------------------------| private fields |----------------------------
 
     const CompleterType completer_;
@@ -60,8 +72,19 @@ namespace iroha {
         peer_states_;
     MstState own_state_;
 
+    using BatchToTimestampBimap = boost::bimap<
+        boost::bimaps::unordered_set_of<DataType,
+                                        iroha::model::PointerBatchHasher,
+                                        BatchHashEquality>,
+        boost::bimaps::multiset_of<
+            shared_model::interface::types::TimestampType>>;
+
+    BatchToTimestampBimap batch_last_update_time_;
+
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                           ///< objects.
+    std::shared_ptr<MstTimeProvider> time_provider_;
+    const std::chrono::milliseconds stalled_batch_threshold_;
   };
 }  // namespace iroha
 
