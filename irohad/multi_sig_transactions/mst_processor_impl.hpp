@@ -11,7 +11,6 @@
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
-#include "multi_sig_transactions/mst_time_provider.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
 #include "network/mst_transport.hpp"
 
@@ -33,7 +32,6 @@ namespace iroha {
     FairMstProcessor(std::shared_ptr<iroha::network::MstTransport> transport,
                      std::shared_ptr<MstStorage> storage,
                      std::shared_ptr<PropagationStrategy> strategy,
-                     std::shared_ptr<MstTimeProvider> time_provider,
                      logger::LoggerPtr log);
 
     ~FairMstProcessor();
@@ -92,7 +90,6 @@ namespace iroha {
     std::shared_ptr<iroha::network::MstTransport> transport_;
     std::shared_ptr<MstStorage> storage_;
     std::shared_ptr<PropagationStrategy> strategy_;
-    std::shared_ptr<MstTimeProvider> time_provider_;
 
     // rx subjects
 

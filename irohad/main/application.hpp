@@ -89,7 +89,9 @@ class Irohad {
    * @param proposal_delay - maximum waiting time util emitting new proposal
    * @param vote_delay - waiting time before sending vote to next peer
    * @param mst_expiration_time - maximum time until until MST transaction is
-   * not considered as expired (in minutes)
+   * considered as expired (in minutes)
+   * @param mst_stalled_batch_threshold - time threshold after which inactive
+   * batches are considered not present on other peers
    * @param keypair - public and private keys for crypto signer
    * @param max_rounds_delay - maximum delay between consecutive rounds without
    * transactions
@@ -112,6 +114,7 @@ class Irohad {
          std::chrono::milliseconds proposal_delay,
          std::chrono::milliseconds vote_delay,
          std::chrono::minutes mst_expiration_time,
+         std::chrono::milliseconds mst_stalled_batch_threshold,
          const shared_model::crypto::Keypair &keypair,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
@@ -211,6 +214,7 @@ class Irohad {
   std::chrono::milliseconds vote_delay_;
   bool is_mst_supported_;
   std::chrono::minutes mst_expiration_time_;
+  std::chrono::milliseconds mst_stalled_batch_threshold_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
   const boost::optional<shared_model::interface::types::PeerList>

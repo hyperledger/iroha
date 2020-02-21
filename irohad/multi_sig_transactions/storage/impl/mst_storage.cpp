@@ -3,18 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "multi_sig_transactions/storage/mst_storage.hpp"
+
 #include <utility>
 
-#include "multi_sig_transactions/storage/mst_storage.hpp"
+#include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
   MstStorage::MstStorage(logger::LoggerPtr log) : log_{std::move(log)} {}
 
   StateUpdateResult MstStorage::apply(
       const shared_model::crypto::PublicKey &target_peer_key,
-      const MstState &new_state) {
+      MstState &&new_state) {
     std::lock_guard<std::mutex> lock{this->mutex_};
-    return applyImpl(target_peer_key, new_state);
+    return applyImpl(target_peer_key, std::move(new_state));
   }
 
   StateUpdateResult MstStorage::updateOwnState(const DataType &tx) {
@@ -22,17 +24,15 @@ namespace iroha {
     return updateOwnStateImpl(tx);
   }
 
-  MstState MstStorage::extractExpiredTransactions(
-      const TimeType &current_time) {
+  MstState MstStorage::extractExpiredTransactions() {
     std::lock_guard<std::mutex> lock{this->mutex_};
-    return extractExpiredTransactionsImpl(current_time);
+    return extractExpiredTransactionsImpl();
   }
 
   MstState MstStorage::getDiffState(
-      const shared_model::crypto::PublicKey &target_peer_key,
-      const TimeType &current_time) {
+      const shared_model::crypto::PublicKey &target_peer_key) {
     std::lock_guard<std::mutex> lock{this->mutex_};
-    return getDiffStateImpl(target_peer_key, current_time);
+    return getDiffStateImpl(target_peer_key);
   }
 
   MstState MstStorage::whatsNew(ConstRefState new_state) const {
@@ -42,5 +42,10 @@ namespace iroha {
 
   bool MstStorage::batchInStorage(const DataType &batch) const {
     return batchInStorageImpl(batch);
+  }
+
+  void MstStorage::clearStalledPeerStates() {
+    std::lock_guard<std::mutex> lock{this->mutex_};
+    clearStalledPeerStatesImpl();
   }
 }  // namespace iroha

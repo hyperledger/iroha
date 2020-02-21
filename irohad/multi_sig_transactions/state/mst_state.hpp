@@ -80,6 +80,8 @@ namespace iroha {
     bool isExpired(const DataType &tx,
                    const TimeType &current_time) const override;
 
+    std::chrono::minutes getExpirationTime() const;
+
    private:
     std::chrono::minutes expiration_time_;
   };
@@ -148,6 +150,12 @@ namespace iroha {
      * @param current_time - current time
      */
     void eraseExpired(const TimeType &current_time);
+
+    /**
+     * Erase batch.
+     * @param batch to erase
+     */
+    void erase(const DataType &batch);
 
     /**
      * Check, if this MST state contains that element
