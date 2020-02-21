@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 #include <iostream>
@@ -17,6 +16,7 @@
 
 #include "backend/plain/peer.hpp"
 #include "framework/test_subscriber.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -29,18 +29,20 @@ using namespace framework::test_subscriber;
 using namespace std;
 using namespace shared_model::interface::types;
 
+static constexpr size_t kRandomFixedNumber = 27;
+
 /**
- * Test provide scenario when yac vote for hash
+ * @given Yac and ordering over some peers
+ * @when yac gets a call to \ref vote()
+ * @then it sends the vote to peers
  */
 TEST_F(YacTest, YacWhenVoting) {
-  cout << "----------|YacWhenAchieveOneVote|----------" << endl;
-
-  EXPECT_CALL(*network, sendState(_, _)).Times(default_peers.size());
-
   YacHash my_hash(initial_round, "my_proposal_hash", "my_block_hash");
 
   auto order = ClusterOrdering::create(default_peers);
   ASSERT_TRUE(order);
+
+  setNetworkOrderCheckerSingleVote(order.value(), my_hash, kRandomFixedNumber);
 
   yac->vote(my_hash, *order);
 }
@@ -252,7 +254,8 @@ class YacAlternativeOrderTest : public YacTest {
  * @then alternative order is used for sending votes
  */
 TEST_F(YacAlternativeOrderTest, Voting) {
-  EXPECT_CALL(*network, sendState(Ref(*peer), _)).Times(1);
+  setNetworkOrderCheckerSingleVote(
+      alternative_order, my_hash, kRandomFixedNumber);
 
   yac->vote(my_hash, order, alternative_order);
 }
@@ -265,6 +268,9 @@ TEST_F(YacAlternativeOrderTest, Voting) {
  *       and an outcome for synchronization is emitted
  */
 TEST_F(YacAlternativeOrderTest, OnState) {
+  setNetworkOrderCheckerSingleVote(
+      alternative_order, my_hash, kRandomFixedNumber);
+
   yac->vote(my_hash, order, alternative_order);
 
   auto wrapper = make_test_subscriber<CallExact>(yac->onOutcome(), 1);
@@ -289,6 +295,9 @@ TEST_F(YacAlternativeOrderTest, OnState) {
  *       kNotSentNotProcessed action is not executed
  */
 TEST_F(YacAlternativeOrderTest, OnStateCurrentRoundAlternativePeer) {
+  setNetworkOrderCheckerSingleVote(
+      alternative_order, my_hash, kRandomFixedNumber);
+
   yac->vote(my_hash, order, alternative_order);
 
   EXPECT_CALL(*network, sendState(_, _)).Times(0);

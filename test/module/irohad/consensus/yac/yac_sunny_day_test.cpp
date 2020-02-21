@@ -19,9 +19,11 @@ using namespace iroha::consensus::yac;
 using namespace framework::test_subscriber;
 using namespace std;
 
+static constexpr size_t kRandomFixedNumber = 42;
+
 /**
- * @given yac & 6 peers
- * @when the 6 peers send the yac votes for the same hash
+ * @given yac & 4 peers
+ * @when the 3 peers send the yac votes for the same hash
  * @then sendState is called twice per peer
  * @and the round keeps open
  */
@@ -35,13 +37,19 @@ TEST_F(YacTest, ValidCaseWhenReceiveSupermajority) {
 
   initYac(my_order.value());
 
-  EXPECT_CALL(*network, sendState(_, _)).Times(2 * my_peers.size());
-
   EXPECT_CALL(*timer, deny()).Times(0);
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
   YacHash my_hash(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
+
+  {
+    ::testing::InSequence seq;
+    setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
+    setNetworkOrderCheckerYacState(my_order.value(),
+                                   makeCommitMatcher(my_hash, 3));
+  }
+
   yac->vote(my_hash, my_order.value());
 
   for (auto i = 0; i < 3; ++i) {
@@ -68,11 +76,12 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommit) {
     ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
   });
 
-  EXPECT_CALL(*network, sendState(_, _)).Times(my_peers.size());
-
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
+
+  setNetworkOrderCheckerSingleVote(
+      my_order.value(), my_hash, kRandomFixedNumber);
 
   yac->vote(my_hash, my_order.value());
 
@@ -111,9 +120,10 @@ TEST_F(YacTest, ValidCaseWhenReceiveCommitTwice) {
     ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
   });
 
-  EXPECT_CALL(*network, sendState(_, _)).Times(my_peers.size());
-
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
+
+  setNetworkOrderCheckerSingleVote(
+      my_order.value(), my_hash, kRandomFixedNumber);
 
   yac->vote(my_hash, my_order.value());
 
@@ -143,8 +153,6 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
 
   initYac(my_order.value());
 
-  EXPECT_CALL(*network, sendState(_, _)).Times(2 * my_peers.size());
-
   EXPECT_CALL(*timer, deny()).Times(AtLeast(1));
 
   EXPECT_CALL(*crypto, verify(_)).Times(2).WillRepeatedly(Return(true));
@@ -156,9 +164,11 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
     ASSERT_EQ(my_hash, boost::get<CommitMessage>(val).votes.at(0).hash);
   });
 
-  yac->vote(my_hash, my_order.value());
-
   auto vote_message = createVote(my_hash, std::to_string(0));
+
+  setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
+
+  yac->vote(my_hash, my_order.value());
 
   yac->onState({vote_message});
 
