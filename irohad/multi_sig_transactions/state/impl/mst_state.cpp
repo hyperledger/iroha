@@ -122,6 +122,10 @@ namespace iroha {
     extractExpiredImpl(current_time, boost::none);
   }
 
+  void MstState::erase(const DataType &batch) {
+    batches_.right.erase(batch);
+  }
+
   // ------------------------------| private api |------------------------------
 
   /**

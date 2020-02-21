@@ -95,6 +95,7 @@ Irohad::Irohad(
     std::chrono::milliseconds proposal_delay,
     std::chrono::milliseconds vote_delay,
     std::chrono::minutes mst_expiration_time,
+    std::chrono::milliseconds mst_stalled_batch_threshold,
     const shared_model::crypto::Keypair &keypair,
     std::chrono::milliseconds max_rounds_delay,
     size_t stale_stream_max_rounds,
@@ -115,6 +116,7 @@ Irohad::Irohad(
       vote_delay_(vote_delay),
       is_mst_supported_(opt_mst_gossip_params),
       mst_expiration_time_(mst_expiration_time),
+      mst_stalled_batch_threshold_(mst_stalled_batch_threshold),
       max_rounds_delay_(max_rounds_delay),
       stale_stream_max_rounds_(stale_stream_max_rounds),
       opt_alternative_peers_(std::move(opt_alternative_peers)),
@@ -807,8 +809,11 @@ Irohad::RunResult Irohad::initMstProcessor() {
       log_manager_->getChild("MultiSignatureTransactions");
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
+  auto mst_time = std::make_shared<MstTimeProviderImpl>();
   auto mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
+      mst_time,
+      mst_stalled_batch_threshold_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
@@ -830,12 +835,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
     mst_propagation = std::make_shared<iroha::PropagationStrategyStub>();
   }
 
-  auto mst_time = std::make_shared<MstTimeProviderImpl>();
   auto fair_mst_processor = std::make_shared<FairMstProcessor>(
       mst_transport,
       mst_storage,
       mst_propagation,
-      mst_time,
       mst_logger_manager->getChild("Processor")->getLogger());
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);

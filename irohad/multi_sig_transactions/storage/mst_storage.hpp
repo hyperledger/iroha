@@ -11,9 +11,9 @@
 #include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_types.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
+  class MstState;
 
   /**
    * MstStorage responsible for manage own and others MstStates.
@@ -33,7 +33,7 @@ namespace iroha {
      */
     StateUpdateResult apply(
         const shared_model::crypto::PublicKey &target_peer_key,
-        const MstState &new_state);
+        MstState &&new_state);
 
     /**
      * Provide updating state of current peer with new transaction
@@ -48,7 +48,7 @@ namespace iroha {
      * @return State with expired transactions
      * General note: implementation of method covered by lock
      */
-    MstState extractExpiredTransactions(const TimeType &current_time);
+    MstState extractExpiredTransactions();
 
     /**
      * Make state based on diff of own and target states.
@@ -57,8 +57,7 @@ namespace iroha {
      * General note: implementation of method covered by lock
      */
     MstState getDiffState(
-        const shared_model::crypto::PublicKey &target_peer_key,
-        const TimeType &current_time);
+        const shared_model::crypto::PublicKey &target_peer_key);
 
     /**
      * Return diff between own and new state
@@ -75,6 +74,9 @@ namespace iroha {
      */
     bool batchInStorage(const DataType &batch) const;
 
+    /// Clear stalled transactions from the states of other peers.
+    void clearStalledPeerStates();
+
     virtual ~MstStorage() = default;
 
    protected:
@@ -88,24 +90,25 @@ namespace iroha {
    private:
     virtual auto applyImpl(
         const shared_model::crypto::PublicKey &target_peer_key,
-        const MstState &new_state)
-        -> decltype(apply(target_peer_key, new_state)) = 0;
+        MstState &&new_state)
+        -> decltype(apply(target_peer_key, std::declval<MstState &&>())) = 0;
 
     virtual auto updateOwnStateImpl(const DataType &tx)
         -> decltype(updateOwnState(tx)) = 0;
 
-    virtual auto extractExpiredTransactionsImpl(const TimeType &current_time)
-        -> decltype(extractExpiredTransactions(current_time)) = 0;
+    virtual auto extractExpiredTransactionsImpl()
+        -> decltype(extractExpiredTransactions()) = 0;
 
     virtual auto getDiffStateImpl(
-        const shared_model::crypto::PublicKey &target_peer_key,
-        const TimeType &current_time)
-        -> decltype(getDiffState(target_peer_key, current_time)) = 0;
+        const shared_model::crypto::PublicKey &target_peer_key)
+        -> decltype(getDiffState(target_peer_key)) = 0;
 
     virtual auto whatsNewImpl(ConstRefState new_state) const
         -> decltype(whatsNew(new_state)) = 0;
 
     virtual bool batchInStorageImpl(const DataType &batch) const = 0;
+
+    virtual void clearStalledPeerStatesImpl() = 0;
 
     // -------------------------------| fields |--------------------------------
 

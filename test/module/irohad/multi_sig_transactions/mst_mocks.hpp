@@ -7,6 +7,7 @@
 #define IROHA_MST_MOCKS_HPP
 
 #include <gmock/gmock.h>
+#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"

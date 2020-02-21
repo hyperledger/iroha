@@ -3,14 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <gtest/gtest.h>
-#include <memory>
-#include "framework/test_logger.hpp"
-#include "logger/logger.hpp"
-#include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
 
+#include <chrono>
+#include <memory>
+
+#include <gtest/gtest.h>
+#include "framework/test_logger.hpp"
+#include "logger/logger.hpp"
+#include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
+#include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+
 using namespace iroha;
+using namespace std::chrono_literals;
+
+static constexpr std::chrono::milliseconds kMstStalledThreshold(10);
+static constexpr std::chrono::milliseconds kMstExpiredThreshold(1min);
 
 auto log_ = getTestLogger("MstStorageTest");
 
@@ -19,9 +27,18 @@ class StorageTest : public testing::Test {
   StorageTest() : absent_peer_key("absent") {}
 
   void SetUp() override {
-    completer_ = std::make_shared<TestCompleter>();
-    storage = std::make_shared<MstStorageStateImpl>(
-        completer_, getTestLogger("MstState"), getTestLogger("MstStorage"));
+    completer_ = std::make_shared<TestCompleter>(
+        std::chrono::duration_cast<std::chrono::minutes>(kMstExpiredThreshold));
+    ON_CALL(*mock_time_provider_, getCurrentTime())
+        .WillByDefault(::testing::Return(creation_time));
+    EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+        .Times(::testing::AnyNumber());
+    storage =
+        std::make_shared<MstStorageStateImpl>(completer_,
+                                              mock_time_provider_,
+                                              kMstStalledThreshold,
+                                              getTestLogger("MstState"),
+                                              getTestLogger("MstStorage"));
     fillOwnState();
   }
 
@@ -35,6 +52,8 @@ class StorageTest : public testing::Test {
   const shared_model::crypto::PublicKey absent_peer_key;
 
   const unsigned quorum = 3u;
+  const std::shared_ptr<MockTimeProvider> mock_time_provider_ =
+      std::make_shared<MockTimeProvider>();
   const shared_model::interface::types::TimestampType creation_time =
       iroha::time::now();
   std::shared_ptr<TestCompleter> completer_;
@@ -45,39 +64,34 @@ TEST_F(StorageTest, StorageWhenApplyOtherState) {
       "create state with default peers and other state => "
       "apply state");
 
-  auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
-  new_state += makeTestBatch(txBuilder(5, creation_time));
-  new_state += makeTestBatch(txBuilder(6, creation_time));
-  new_state += makeTestBatch(txBuilder(7, creation_time));
+  {
+    auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
+    new_state += makeTestBatch(txBuilder(5, creation_time));
+    new_state += makeTestBatch(txBuilder(6, creation_time));
+    new_state += makeTestBatch(txBuilder(7, creation_time));
 
-  storage->apply(shared_model::crypto::PublicKey("another"), new_state);
+    storage->apply(shared_model::crypto::PublicKey("another"),
+                   std::move(new_state));
+  }
 
-  ASSERT_EQ(6,
-            storage->getDiffState(absent_peer_key, creation_time)
-                .getBatches()
-                .size());
+  ASSERT_EQ(6, storage->getDiffState(absent_peer_key).getBatches().size());
 }
 
 TEST_F(StorageTest, StorageInsertOtherState) {
   log_->info("init fixture state => get expired state");
 
-  ASSERT_EQ(3,
-            storage->extractExpiredTransactions(creation_time + 1)
-                .getBatches()
-                .size());
-  ASSERT_EQ(0,
-            storage->getDiffState(absent_peer_key, creation_time + 1)
-                .getBatches()
-                .size());
+  EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+      .WillRepeatedly(
+          ::testing::Return(creation_time + kMstExpiredThreshold / 1ms + 1));
+
+  ASSERT_EQ(3, storage->extractExpiredTransactions().getBatches().size());
+  ASSERT_EQ(0, storage->getDiffState(absent_peer_key).getBatches().size());
 }
 
 TEST_F(StorageTest, StorageWhenCreateValidDiff) {
   log_->info("insert transactions => check their presence");
 
-  ASSERT_EQ(3,
-            storage->getDiffState(absent_peer_key, creation_time)
-                .getBatches()
-                .size());
+  ASSERT_EQ(3, storage->getDiffState(absent_peer_key).getBatches().size());
 }
 
 TEST_F(StorageTest, StorageWhenCreate) {
@@ -85,12 +99,11 @@ TEST_F(StorageTest, StorageWhenCreate) {
       "insert transactions => wait until expiring => "
       " check their absence");
 
-  auto expiration_time = creation_time + 1;
+  EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+      .WillRepeatedly(
+          ::testing::Return(creation_time + kMstExpiredThreshold / 1ms + 1));
 
-  ASSERT_EQ(0,
-            storage->getDiffState(absent_peer_key, expiration_time)
-                .getBatches()
-                .size());
+  ASSERT_EQ(0, storage->getDiffState(absent_peer_key).getBatches().size());
 }
 
 /**
@@ -116,4 +129,96 @@ TEST_F(StorageTest, StorageFindsExistingBatch) {
 TEST_F(StorageTest, StorageDoesNotFindNonExistingBatch) {
   auto distinct_batch = makeTestBatch(txBuilder(4, creation_time));
   EXPECT_FALSE(storage->batchInStorage(distinct_batch));
+}
+
+/**
+ * @given storage with two batches from peer A
+ * @when time passes, clearStalledPeerStates is called
+ * @then as the batches pass the stalling threshold, they appear in the diff
+ * with peer A
+ */
+TEST_F(StorageTest, StalledBatchesTest) {
+  const auto keypair =
+      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
+
+  const auto batch1 = addSignaturesFromKeyPairs(
+      framework::batch::makeTestBatch(txBuilder(100, creation_time)),
+      0,
+      keypair);
+  const auto batch2 = addSignaturesFromKeyPairs(
+      framework::batch::makeTestBatch(txBuilder(500, creation_time)),
+      0,
+      keypair);
+
+  const auto has_batch = [](const auto &batch) {
+    using namespace testing;
+    using namespace shared_model::interface;
+    std::vector<Matcher<std::shared_ptr<Transaction>>> tx_matchers;
+    for (const auto &tx : batch->transactions()) {
+      tx_matchers.emplace_back(
+          Pointee(Property(&Transaction::reducedHash, Eq(tx->reducedHash()))));
+    }
+    return Property(&MstState::getBatches,
+                    Contains(Pointee(Property(&TransactionBatch::transactions,
+                                              ElementsAreArray(tx_matchers)))));
+  };
+
+  const auto peerAKey = shared_model::crypto::PublicKey("A");
+
+  const auto stall_time_ms = kMstStalledThreshold / 1ms;
+
+  // Timeline:
+  const auto batch1_received_time = creation_time + 100;
+  const auto batch2_received_time = batch1_received_time + stall_time_ms / 2;
+  const auto batch1_stalled_time = batch1_received_time + stall_time_ms + 1;
+  const auto batch2_stalled_time = batch2_received_time + stall_time_ms + 1;
+  assert(batch2_stalled_time
+         < batch1_received_time + kMstExpiredThreshold / 1ms);
+
+  // storage gets batch1 from peer A
+  {
+    EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+        .WillRepeatedly(::testing::Return(batch1_received_time));
+    auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
+    new_state += batch1;
+    storage->apply(peerAKey, std::move(new_state));
+  }
+
+  // diff with peer A has none of the batches
+  ASSERT_THAT(storage->getDiffState(peerAKey),
+              ::testing::AllOf(::testing::Not(has_batch(batch1)),
+                               ::testing::Not(has_batch(batch2))));
+
+  // storage gets batch2 from peer A
+  {
+    EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+        .WillRepeatedly(::testing::Return(batch2_received_time));
+    auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
+    new_state += batch2;
+    storage->apply(peerAKey, std::move(new_state));
+  }
+
+  // diff with peer A still has none of the batches since no one has stalled yet
+  ASSERT_THAT(storage->getDiffState(peerAKey),
+              ::testing::AllOf(::testing::Not(has_batch(batch1)),
+                               ::testing::Not(has_batch(batch2))));
+
+  // storage gets cleaned after the older batch stalling threshold
+  EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+      .WillRepeatedly(::testing::Return(batch1_stalled_time));
+  storage->clearStalledPeerStates();
+
+  // diff with peer A has the older batch
+  EXPECT_THAT(
+      storage->getDiffState(peerAKey),
+      ::testing::AllOf(has_batch(batch1), ::testing::Not(has_batch(batch2))));
+
+  // storage gets cleaned after the newer batch stalling threshold
+  EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+      .WillRepeatedly(::testing::Return(batch2_stalled_time));
+  storage->clearStalledPeerStates();
+
+  // diff with peer A has both batches
+  EXPECT_THAT(storage->getDiffState(peerAKey),
+              ::testing::AllOf(has_batch(batch1), has_batch(batch2)));
 }
