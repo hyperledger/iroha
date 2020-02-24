@@ -42,7 +42,7 @@ RoleHasPermissions
 ^^^^^^^^^^^^^^^^^^
 
  - role_id — identifier of role, references existing role
- - permission_id — an id of predefined role
+ - permission_id — identifier of permission
 
 Account
 -------
