@@ -40,7 +40,15 @@ namespace iroha {
 
   auto MstStorageStateImpl::updateOwnStateImpl(const DataType &tx)
       -> decltype(updateOwnState(tx)) {
-    return own_state_ += tx;
+    auto state_update = own_state_ += tx;
+    for (const auto &updated_batch :
+         state_update.updated_state_->getBatches()) {
+      // assume nobody has the update that we just got
+      for (auto &peer_and_their_state : peer_states_) {
+        peer_and_their_state.second.erase(updated_batch);
+      }
+    }
+    return state_update;
   }
 
   auto MstStorageStateImpl::extractExpiredTransactionsImpl(
