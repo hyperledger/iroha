@@ -150,6 +150,12 @@ namespace iroha {
     void eraseExpired(const TimeType &current_time);
 
     /**
+     * Erase batch.
+     * @param batch to erase
+     */
+    void erase(const DataType &batch);
+
+    /**
      * Check, if this MST state contains that element
      * @param element to be checked
      * @return true, if state contains the element, false otherwise
