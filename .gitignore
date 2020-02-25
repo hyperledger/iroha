@@ -36,3 +36,5 @@ cmake-build*
 /.gtm/
 
 *.deb
+
+kura/target
