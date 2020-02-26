@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "module/irohad/consensus/yac/yac_fixture.hpp"
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -13,7 +15,6 @@
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 
 #include "framework/test_subscriber.hpp"
-#include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
 using ::testing::An;
@@ -25,18 +26,52 @@ using namespace iroha::consensus::yac;
 using namespace framework::test_subscriber;
 using namespace std;
 
+void YacTest::setNetworkOrderChecker(const ClusterOrdering &order,
+                                     const YacHash &hash,
+                                     size_t times_to_send_state) {
+  const auto &peers = order.getPeers();
+
+  auto times_sent_state = std::make_shared<size_t>(0);
+
+  ::testing::InSequence seq;
+
+  EXPECT_CALL(*network,
+              sendState(_,
+                        ::testing::ElementsAre(::testing::Field(
+                            &VoteMessage::hash, ::testing::Eq(hash)))))
+      .Times(times_to_send_state)
+      .WillRepeatedly([&peers, times_sent_state](
+                          const auto &peer, const auto & /* state */) mutable {
+        const auto it =
+            std::find_if(peers.begin(), peers.end(), [&](auto &peer_ptr) {
+              return *peer_ptr == peer;
+            });
+        EXPECT_NE(it, peers.end()) << "peer out of list";
+        EXPECT_EQ(it - peers.begin(), (*times_sent_state)++ % peers.size())
+            << "wrong order";
+      });
+
+  // stop after sending a vote \a times_to_send_state times.
+  EXPECT_CALL(*network,
+              sendState(_,
+                        ::testing::ElementsAre(::testing::Field(
+                            &VoteMessage::hash, ::testing::Eq(hash)))))
+      .WillOnce(::testing::InvokeWithoutArgs(
+          [this] { timer->setInvokeEnabled(false); }));
+}
+
 /**
- * Test provide scenario when yac vote for hash
+ * @given Yac and ordering over some peers
+ * @when yac gets a call to \ref vote()
+ * @then it sends the vote to peers
  */
 TEST_F(YacTest, YacWhenVoting) {
-  cout << "----------|YacWhenAchieveOneVote|----------" << endl;
-
-  EXPECT_CALL(*network, sendState(_, _)).Times(default_peers.size());
-
   YacHash my_hash(initial_round, "my_proposal_hash", "my_block_hash");
 
   auto order = ClusterOrdering::create(default_peers);
   ASSERT_TRUE(order);
+
+  setNetworkOrderChecker(order.value(), my_hash, 20);
 
   yac->vote(my_hash, *order);
 }

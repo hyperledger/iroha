@@ -11,12 +11,7 @@
 
 #include <boost/optional.hpp>
 #include "consensus/yac/yac_types.hpp"
-
-namespace shared_model {
-  namespace interface {
-    class Peer;
-  }
-}  // namespace shared_model
+#include "interfaces/common_objects/types.hpp"
 
 namespace iroha {
   namespace consensus {
@@ -52,8 +47,7 @@ namespace iroha {
          */
         bool hasNext() const;
 
-        const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-            &getPeers() const;
+        const shared_model::interface::types::PeerList &getPeers() const;
 
         PeersNumberType getNumberOfPeers() const;
 

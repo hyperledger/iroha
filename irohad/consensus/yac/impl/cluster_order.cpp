@@ -39,8 +39,8 @@ namespace iroha {
         return *this;
       }
 
-      const std::vector<std::shared_ptr<shared_model::interface::Peer>>
-          &ClusterOrdering::getPeers() const {
+      const shared_model::interface::types::PeerList &
+      ClusterOrdering::getPeers() const {
         return order_;
       }
 

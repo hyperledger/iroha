@@ -77,6 +77,11 @@ namespace iroha {
               getTestLogger("Yac"));
           network->subscribe(yac);
         }
+
+       protected:
+        void setNetworkOrderChecker(const ClusterOrdering &order,
+                                    const YacHash &hash,
+                                    size_t times_to_send_state);
       };
 
     }  // namespace yac
