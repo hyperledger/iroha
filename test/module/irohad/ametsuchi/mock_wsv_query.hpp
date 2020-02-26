@@ -10,6 +10,24 @@
 
 #include <gmock/gmock.h>
 
+namespace testing {
+  // iroha::TopBlockInfo is not default-constructible, so this provides a
+  // default for getTopBlockInfo mock
+  template <>
+  class DefaultValue<
+      iroha::expected::Result<iroha::TopBlockInfo, std::string>> {
+   public:
+    using ValueType = iroha::expected::Result<iroha::TopBlockInfo, std::string>;
+    static bool Exists() {
+      return true;
+    }
+    static ValueType &Get() {
+      static ValueType val("default error value");
+      return val;
+    }
+  };
+}  // namespace testing
+
 namespace iroha {
   namespace ametsuchi {
 
