@@ -5,6 +5,8 @@
 
 #include "common/irohad_version.hpp"
 
+#include <ciso646>
+
 namespace iroha {
 
   const char *kGitPrettyVersion = GIT_REPO_PRETTY_VER;
