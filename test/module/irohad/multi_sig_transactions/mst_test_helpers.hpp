@@ -121,7 +121,7 @@ namespace iroha {
     bool isExpired(const DataType &batch,
                    const TimeType &current_time) const override {
       shared_model::interface::types::TimestampType expiration_time =
-          expiration_time_ / std::chrono::milliseconds(1);
+          getExpirationTime() / std::chrono::milliseconds(1);
       return std::any_of(batch->transactions().begin(),
                          batch->transactions().end(),
                          [expiration_time, &current_time](const auto &tx) {
