@@ -12,6 +12,16 @@ using namespace iroha::consensus::yac;
 using ::testing::_;
 using ::testing::Return;
 
+using iroha::consensus::Round;
+
+namespace {
+  YacHash createHash(const iroha::consensus::Round &r,
+                     const std::string &block_hash = "default_block",
+                     const std::string &proposal_hash = "default_proposal") {
+    return YacHash(r, proposal_hash, block_hash);
+  }
+}  // namespace
+
 /**
  * The class helps to create fake network for unit testing of consensus
  */
@@ -25,31 +35,24 @@ class NetworkUtil {
     order_ = ClusterOrdering::create(peers_);
   }
 
-  auto createHash(const iroha::consensus::Round &r,
-                  const std::string &block_hash = "default_block",
-                  const std::string &proposal_hash = "default_proposal") const {
-    return YacHash(r, proposal_hash, block_hash);
-  }
-
   auto createVote(size_t from, const YacHash &yac_hash) const {
     BOOST_ASSERT_MSG(from < peers_.size(), "Requested unknown index of peer");
     return iroha::consensus::yac::createVote(
         yac_hash,
         *iroha::hexstringToBytestring(peers_.at(from)->pubkey().hex()));
   }
+
   /// create votes of peers by their number
-  auto createVotes(
-      const std::vector<size_t> &peers,
-      const iroha::consensus::Round &r,
-      const std::string &block_hash = "default_block",
-      const std::string &proposal_hash = "default_proposal") const {
-    std::vector<VoteMessage> votes;
-    votes.reserve(peers.size());
-    for (const auto &peer_number : peers) {
-      votes.emplace_back(
-          createVote(peer_number, createHash(r, block_hash, proposal_hash)));
+  /// @param peers indices of peers in @a peers_
+  /// @param hash for all votes
+  /// @return vactor of votes for the @a hash from each of @peers
+  auto createVotes(const std::vector<size_t> &peers,
+                   const YacHash &hash) const {
+    std::vector<VoteMessage> result;
+    for (auto &peer_number : peers) {
+      result.push_back(createVote(peer_number, hash));
     }
-    return votes;
+    return result;
   }
 
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers_;
@@ -67,22 +70,41 @@ class YacSynchronizationTest : public YacTest {
 
   /// inits initial state and commits some rounds
   void initAndCommitState(const NetworkUtil &network_util) {
-    size_t number_of_committed_rounds = 10;
+    const auto &order = network_util.order_.value();
 
-    initYac(*network_util.order_);
+    initYac(order);
     EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
-    EXPECT_CALL(*timer, deny()).Times(number_of_committed_rounds);
+    EXPECT_CALL(*timer, deny()).Times(number_of_committed_rounds_);
 
-    for (auto i = 0u; i < number_of_committed_rounds; i++) {
-      iroha::consensus::Round r{i, 0};
-      yac->vote(network_util.createHash(r), *network_util.order_);
-      yac->onState(network_util.createVotes({1, 2, 3, 4, 5, 6}, r));
+    for (auto i = 0u; i < number_of_committed_rounds_; i++) {
+      top_hash_ = createHash(Round{i, 0});
+      setNetworkOrderCheckerSingleVote(order, top_hash_.value(), 2);
+      yac->vote(top_hash_.value(), order);
+      yac->onState(network_util.createVotes(voters_, top_hash_.value()));
     }
-    EXPECT_CALL(*network, sendState(_, _)).Times(8);
-    yac->vote(network_util.createHash({10, 0}), *network_util.order_);
+    const YacHash next_hash = createHash({number_of_committed_rounds_, 0});
+    setNetworkOrderCheckerSingleVote(order, next_hash, 2);
+    yac->vote(next_hash, order);
+  }
+
+  /// expect yac to send the top commit to the given @a peer
+  /// @param peer index in @ref NetworkUtil::peers_
+  auto expectSendTopCommitTo(size_t peer) {
+    assert(top_hash_);
+
+    using namespace ::testing;
+    EXPECT_CALL(
+        *network,
+        sendState(testing::Ref(*network_util_.order_.value().getPeers()[peer]),
+                  AllOf(SizeIs(Ge(voters_.size())),
+                        Each(makeVoteMatcher(top_hash_.value())))))
+        .Times(1);
   }
 
   NetworkUtil network_util_{1};
+  const size_t number_of_committed_rounds_ = 10;
+  boost::optional<YacHash> top_hash_;
+  const std::vector<size_t> voters_{{1, 2, 3, 4, 5, 6}};
 };
 
 /**
@@ -91,7 +113,8 @@ class YacSynchronizationTest : public YacTest {
  * @then  Yac sends commit for the last round
  */
 TEST_F(YacSynchronizationTest, SynchronizationOncommitInTheCahe) {
-  yac->onState(network_util_.createVotes({0}, iroha::consensus::Round{1, 0}));
+  expectSendTopCommitTo(0);
+  yac->onState(network_util_.createVotes({0}, createHash(Round{1, 0})));
 }
 
 /**
@@ -100,7 +123,8 @@ TEST_F(YacSynchronizationTest, SynchronizationOncommitInTheCahe) {
  * @then  Yac sends commit for the last round
  */
 TEST_F(YacSynchronizationTest, SynchronizationOnCommitOutOfTheCahe) {
-  yac->onState(network_util_.createVotes({0}, iroha::consensus::Round{9, 0}));
+  expectSendTopCommitTo(0);
+  yac->onState(network_util_.createVotes({0}, createHash(Round{9, 0})));
 }
 
 /**
@@ -109,5 +133,6 @@ TEST_F(YacSynchronizationTest, SynchronizationOnCommitOutOfTheCahe) {
  * @then  Yac sends last commit
  */
 TEST_F(YacSynchronizationTest, SynchronizationRejectOutOfTheCahe) {
-  yac->onState(network_util_.createVotes({0}, iroha::consensus::Round{5, 5}));
+  expectSendTopCommitTo(0);
+  yac->onState(network_util_.createVotes({0}, createHash(Round{5, 5})));
 }
