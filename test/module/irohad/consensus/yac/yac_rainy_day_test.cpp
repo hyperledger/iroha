@@ -33,14 +33,25 @@ TEST_F(YacTest, InvalidCaseWhenNotReceiveSupermajority) {
 
   initYac(my_order.value());
 
-  EXPECT_CALL(*network, sendState(_, _)).Times(2 * N);
-
   EXPECT_CALL(*timer, deny()).Times(0);
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
 
   YacHash hash1(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash");
   YacHash hash2(iroha::consensus::Round{1, 1}, "proposal_hash", "block_hash2");
+
+  {
+    using namespace testing;
+    InSequence seq;
+    setNetworkOrderCheckerSingleVote(my_order.value(), AnyOf(hash1, hash2), 24);
+    setNetworkOrderCheckerYacState(
+        my_order.value(),
+        UnorderedElementsAre(makeVoteMatcher(hash1),
+                             makeVoteMatcher(hash1),
+                             makeVoteMatcher(hash2),
+                             makeVoteMatcher(hash2)));
+  }
+
   yac->vote(hash1, my_order.value());
 
   for (size_t i = 0; i < N / 2; ++i) {
@@ -103,11 +114,6 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
 
   initYac(my_order.value());
 
-  EXPECT_CALL(*network, sendState(_, _))
-      .Times(my_peers.size() + 1);  // $(peers.size()) sendings done during
-                                    // multicast + 1 for single peer, who votes
-                                    // after reject happened
-
   EXPECT_CALL(*timer, deny()).Times(1);
 
   EXPECT_CALL(*crypto, verify(_)).WillRepeatedly(Return(true));
@@ -120,7 +126,11 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
 
   SupermajorityCheckerBft super_checker;
   std::vector<VoteMessage> votes;
+  votes.reserve(peers_number);
+  std::vector<testing::Matcher<const VoteMessage &>> vote_matchers;
+  vote_matchers.reserve(peers_number);
   std::vector<PeersNumberType> vote_groups;
+  vote_groups.reserve(peers_number);
   for (size_t i = 0;
        super_checker.canHaveSupermajority(vote_groups, peers_number);
        ++i) {
@@ -129,15 +139,29 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
     auto peer = my_order->getPeers().at(i);
     auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
     votes.push_back(createVote(makeYacHash(i), pubkey));
+    vote_matchers.push_back(makeVoteMatcher(votes.back().hash));
     vote_groups.push_back({1});
   };
+
+  setNetworkOrderCheckerYacState(
+      my_order.value(), ::testing::UnorderedElementsAreArray(vote_matchers));
 
   for (const auto &vote : votes) {
     yac->onState({vote});
   }
 
   yac->onState(votes);
+
+  // -- now yac receives a vote from another peer when we already have a reject
+
   auto peer = my_order->getPeers().back();
   auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
-  yac->onState({createVote(makeYacHash(peers_number), pubkey)});
+  const auto slowpoke_hash = makeYacHash(peers_number);
+
+  vote_matchers.emplace_back(makeVoteMatcher(slowpoke_hash));
+  EXPECT_CALL(*network,
+              sendState(_, ::testing::UnorderedElementsAreArray(vote_matchers)))
+      .Times(1);
+
+  yac->onState({createVote(slowpoke_hash, pubkey)});
 }

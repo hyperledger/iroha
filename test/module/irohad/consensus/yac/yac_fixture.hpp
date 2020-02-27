@@ -108,9 +108,10 @@ namespace iroha {
          * @param hash to expect in the message
          * @param times_to_send_state times to recur the sending through timer
          */
-        void setNetworkOrderCheckerSingleVote(const ClusterOrdering &order,
-                                              const YacHash &hash,
-                                              size_t times_to_send_state) {
+        void setNetworkOrderCheckerSingleVote(
+            const ClusterOrdering &order,
+            ::testing::Matcher<const YacHash &> hash,
+            size_t times_to_send_state) {
           using namespace testing;
 
           timer->setInvokeEnabled(true);
@@ -119,14 +120,14 @@ namespace iroha {
 
           EXPECT_CALL(
               *network,
-              sendState(_, ElementsAre(Field(&VoteMessage::hash, Eq(hash)))))
+              sendState(_, ElementsAre(Field(&VoteMessage::hash, hash))))
               .Times(times_to_send_state)
               .WillRepeatedly(makeSendStateOrderChecker(order));
 
           // stop after sending a vote \a times_to_send_state times.
           EXPECT_CALL(
               *network,
-              sendState(_, ElementsAre(Field(&VoteMessage::hash, Eq(hash)))))
+              sendState(_, ElementsAre(Field(&VoteMessage::hash, hash))))
               .WillOnce(InvokeWithoutArgs(
                   [this] { timer->setInvokeEnabled(false); }));
         }
@@ -143,6 +144,34 @@ namespace iroha {
           EXPECT_CALL(*network, sendState(::testing::_, state))
               .Times(order.getPeers().size())
               .WillRepeatedly(makeSendStateOrderChecker(order));
+        }
+
+        /**
+         * This is a temporary solution to match votes, while we
+         * cannot use regular == comparison on mock peers from expected mock
+         * function call (this causes a deadlock in gtest).
+         * @param hash that peers agreed on
+         * @return a matcher that checks that the vote has matching hash
+         */
+        ::testing::Matcher<const VoteMessage &> makeVoteMatcher(
+            ::testing::Matcher<const YacHash &> hash) {
+          return ::testing::Field(&VoteMessage::hash, hash);
+        }
+
+        /**
+         * This is a temporary solution to match commit messagess, while we
+         * cannot use regular == comparison on mock peers from expected mock
+         * function call (this causes a deadlock in gtest).
+         * @param hash that peers agreed on
+         * @param number_of_votes in the commit message
+         * @return a matcher that checks that the vote vector has @a
+         * number_of_votes and each has a matching @a hash
+         */
+        ::testing::Matcher<const std::vector<VoteMessage> &> makeCommitMatcher(
+            ::testing::Matcher<const YacHash &> hash,
+            ::testing::Matcher<size_t> number_of_votes) {
+          using namespace ::testing;
+          return AllOf(SizeIs(number_of_votes), Each(makeVoteMatcher(hash)));
         }
       };
 

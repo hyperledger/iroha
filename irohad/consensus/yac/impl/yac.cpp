@@ -233,7 +233,10 @@ namespace iroha {
               auto processing_state =
                   vote_storage_.getProcessingState(proposal_round);
 
-              auto votes = [](const auto &state) { return state.votes; };
+              auto votes =
+                  [](const auto &state) -> const std::vector<VoteMessage> & {
+                return state.votes;
+              };
 
               auto current_round = round_;
               switch (processing_state) {

@@ -45,7 +45,8 @@ TEST_F(YacTest, ValidCaseWhenReceiveSupermajority) {
   {
     ::testing::InSequence seq;
     setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
-    setNetworkOrderCheckerYacState(my_order.value(), _);
+    setNetworkOrderCheckerYacState(my_order.value(),
+                                   makeCommitMatcher(my_hash, 3));
   }
 
   yac->vote(my_hash, my_order.value());
@@ -165,7 +166,8 @@ TEST_F(YacTest, ValidCaseWhenSoloConsensus) {
   {
     ::testing::InSequence seq;
     setNetworkOrderCheckerSingleVote(my_order.value(), my_hash, 2);
-    setNetworkOrderCheckerYacState(my_order.value(), _);
+    setNetworkOrderCheckerYacState(my_order.value(),
+                                   makeCommitMatcher(my_hash, 1));
   }
 
   yac->vote(my_hash, my_order.value());
