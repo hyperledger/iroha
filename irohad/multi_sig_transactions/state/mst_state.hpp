@@ -80,7 +80,9 @@ namespace iroha {
     bool isExpired(const DataType &tx,
                    const TimeType &current_time) const override;
 
-   protected:
+    std::chrono::minutes getExpirationTime() const;
+
+   private:
     std::chrono::minutes expiration_time_;
   };
 

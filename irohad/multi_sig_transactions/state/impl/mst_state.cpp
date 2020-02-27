@@ -63,6 +63,10 @@ namespace iroha {
         < current_time;
   }
 
+  std::chrono::minutes DefaultCompleter::getExpirationTime() const {
+    return expiration_time_;
+  }
+
   // ------------------------------| public api |-------------------------------
 
   MstState MstState::empty(logger::LoggerPtr log,
