@@ -78,10 +78,72 @@ namespace iroha {
           network->subscribe(yac);
         }
 
+       private:
+        /**
+         * Make a checker of sendState invocations that matches the destination
+         * peer with the @a order.
+         * @param order the order to check
+         * @return a lambda to be executed in sendState mock function.
+         */
+        auto makeSendStateOrderChecker(const ClusterOrdering &order) {
+          auto times_sent_state = std::make_shared<size_t>(0);
+          return [&peers = order.getPeers(), times_sent_state](
+                     const auto &peer, const auto & /* state */) {
+            const auto it =
+                std::find_if(peers.begin(), peers.end(), [&](auto &peer_ptr) {
+                  return *peer_ptr == peer;
+                });
+            EXPECT_NE(it, peers.end()) << "peer out of list";
+            EXPECT_EQ(it - peers.begin(), (*times_sent_state)++ % peers.size())
+                << "wrong order";
+          };
+        }
+
        protected:
-        void setNetworkOrderChecker(const ClusterOrdering &order,
-                                    const YacHash &hash,
-                                    size_t times_to_send_state);
+        /**
+         * Set expectations for sendState call and timer that let yac send a
+         * vote for @a hash @a times_to_send_state times according to the @a
+         * order.
+         * @param order of the sends to check
+         * @param hash to expect in the message
+         * @param times_to_send_state times to recur the sending through timer
+         */
+        void setNetworkOrderCheckerSingleVote(const ClusterOrdering &order,
+                                              const YacHash &hash,
+                                              size_t times_to_send_state) {
+          using namespace testing;
+
+          timer->setInvokeEnabled(true);
+
+          InSequence seq;
+
+          EXPECT_CALL(
+              *network,
+              sendState(_, ElementsAre(Field(&VoteMessage::hash, Eq(hash)))))
+              .Times(times_to_send_state)
+              .WillRepeatedly(makeSendStateOrderChecker(order));
+
+          // stop after sending a vote \a times_to_send_state times.
+          EXPECT_CALL(
+              *network,
+              sendState(_, ElementsAre(Field(&VoteMessage::hash, Eq(hash)))))
+              .WillOnce(InvokeWithoutArgs(
+                  [this] { timer->setInvokeEnabled(false); }));
+        }
+
+        /**
+         * Set expectations for sendState call that the given yac @a state is
+         * sent to each peer according to the @a order
+         * @param order of the sends to check
+         * @param state to expect
+         */
+        void setNetworkOrderCheckerYacState(
+            const ClusterOrdering &order,
+            ::testing::Matcher<const std::vector<VoteMessage> &> state) {
+          EXPECT_CALL(*network, sendState(::testing::_, state))
+              .Times(order.getPeers().size())
+              .WillRepeatedly(makeSendStateOrderChecker(order));
+        }
       };
 
     }  // namespace yac
