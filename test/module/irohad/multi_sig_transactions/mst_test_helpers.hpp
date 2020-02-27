@@ -120,18 +120,15 @@ namespace iroha {
 
     bool isExpired(const DataType &batch,
                    const TimeType &current_time) const override {
-      const auto expiration_time =
+      shared_model::interface::types::TimestampType expiration_time =
           expiration_time_ / std::chrono::milliseconds(1);
-      auto expiration_time_unsigned =
-          static_cast<std::make_unsigned_t<decltype(expiration_time)>>(
-              expiration_time);
-      return std::any_of(
-          batch->transactions().begin(),
-          batch->transactions().end(),
-          [expiration_time_unsigned, &current_time](const auto &tx) {
-            return tx->createdTime() < current_time
-                and current_time - tx->createdTime() > expiration_time_unsigned;
-          });
+      return std::any_of(batch->transactions().begin(),
+                         batch->transactions().end(),
+                         [expiration_time, &current_time](const auto &tx) {
+                           return tx->createdTime() < current_time
+                               and current_time - tx->createdTime()
+                               > expiration_time;
+                         });
     }
   };
 }  // namespace iroha
