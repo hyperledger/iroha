@@ -42,4 +42,29 @@ def filesDiffer(String f1, String f2) {
   return diffExitCode != 0
 }
 
+def build_vcpkg(String vcpkg_path, String vcpkg_toolchain_file, boolean forceBuild=false){
+  if (!(fileExists(vcpkg_toolchain_file)) || forceBuild) {
+    print "Building vcpkg toolchain..."
+    if (isUnix()){
+      sh """
+        rm -rf /opt/dependencies/${vcpkg_path}
+        echo "\$(date +%F_%T): ${scmVars.GIT_LOCAL_BRANCH} start  build ${vcpkg_path}..." >> /opt/dependencies/vcpkg-map.txt
+        bash vcpkg/build_iroha_deps.sh '${vcpkg_path}' '${env.WORKSPACE}/vcpkg'
+        echo "\$(date +%F_%T): ${scmVars.GIT_LOCAL_BRANCH} finish build ${vcpkg_path}" >> /opt/dependencies/vcpkg-map.txt
+        ls -la ${vcpkg_path}
+      """
+    } else{
+      powershell """
+          \$env:GIT_REDIRECT_STDERR = '2>&1'
+          if (Test-Path '${vcpkg_path}' ) { Remove-Item '${vcpkg_path}' -Recurse -Force; }
+          Add-Content c:\\vcpkg-map.txt "\$(Get-Date): ${scmVars.GIT_LOCAL_BRANCH} start  build ${vcpkg_path}..."
+          .\\.packer\\win\\scripts\\vcpkg.ps1 -vcpkg_path "${vcpkg_path}" -iroha_vcpkg_path "${env.WORKSPACE}\\vcpkg"
+          Add-Content c:\\vcpkg-map.txt "\$(Get-Date): ${scmVars.GIT_LOCAL_BRANCH} finish build ${vcpkg_path}"
+      """
+    }
+  } else{
+    print "The toolchain '${vcpkg_toolchain_file}' exists!"
+  }
+}
+
 return this
