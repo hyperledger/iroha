@@ -40,7 +40,7 @@ namespace iroha {
 
   auto MstStorageStateImpl::updateOwnStateImpl(const DataType &tx)
       -> decltype(updateOwnState(tx)) {
-    auto state_update = own_state_ += tx;
+    auto state_update = (own_state_ += tx);
     for (const auto &updated_batch :
          state_update.updated_state_->getBatches()) {
       // assume nobody has the update that we just got
