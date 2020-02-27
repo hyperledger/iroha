@@ -35,29 +35,6 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 
-namespace {
-  iroha::expected::Result<iroha::TopBlockInfo, std::string> getTopBlockInfo(
-      soci::session &sql) {
-    try {
-      soci::rowset<boost::tuple<size_t, std::string>> rowset(
-          sql.prepare << "select height, hash from top_block_info;");
-      auto range = boost::make_iterator_range(rowset.begin(), rowset.end());
-      if (range.empty()) {
-        return "No top block information in WSV.";
-      }
-      shared_model::interface::types::HeightType height = 0;
-      std::string hex_hash;
-      boost::tie(height, hex_hash) = range.front();
-      shared_model::crypto::Hash hash(
-          shared_model::crypto::Blob::fromHexString(hex_hash));
-      assert(not hash.blob().empty());
-      return iroha::TopBlockInfo{height, hash};
-    } catch (std::exception &e) {
-      return e.what();
-    }
-  }
-}  // namespace
-
 namespace iroha {
   namespace ametsuchi {
 

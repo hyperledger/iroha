@@ -1,33 +1,29 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 # number of concurrent threads during build
 # usage: docker build --build-arg PARALLELISM=8 -t name/name .
 ARG PARALLELISM=1
-ARG CMAKE_BUILD_TYPE=Release
 
 ENV IROHA_HOME /opt/iroha
 ENV IROHA_BUILD /opt/iroha/build
 ENV PATH "/home/iroha-ci/.cargo/bin:${PATH}"
 
 RUN apt-get update && \
-    apt-get -y --no-install-recommends install apt-utils software-properties-common wget; \
+    apt-get -y --no-install-recommends install apt-utils software-properties-common wget gpg-agent; \
     apt-get -y clean
 
 # add repos
 RUN set -e; \
     add-apt-repository -y ppa:ubuntu-toolchain-r/test; \
     wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add -; \
-    echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-6.0 main' >> /etc/apt/sources.list; \
-    echo 'deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-7 main' >> /etc/apt/sources.list; \
+    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-6.0 main' >> /etc/apt/sources.list; \
+    echo 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic-7 main' >> /etc/apt/sources.list; \
     apt-get update
 
 RUN set -e; \
-    apt-get -y --no-install-recommends install python-software-properties \
-        automake libtool \
-        # compilers (gcc-5, gcc-7, clang-6)
-        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-7 \
-        # dev dependencies
-        libssl-dev zlib1g-dev libcurl4-openssl-dev libc6-dbg golang \
+    apt-get -y --no-install-recommends install libtool \
+        # compilers (gcc-7, gcc-9, clang-6)
+        build-essential clang-6.0 lldb-6.0 lld-6.0 g++-9 \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # Pythons
@@ -54,12 +50,7 @@ RUN set -e; \
 # install dependencies
 COPY vcpkg /tmp/vcpkg-vars
 RUN set -e; \
-    git clone https://github.com/microsoft/vcpkg /tmp/vcpkg; \
-    (cd /tmp/vcpkg ; git checkout $(cat /tmp/vcpkg-vars/VCPKG_COMMIT_SHA)); \
-    for i in /tmp/vcpkg-vars/patches/*.patch; do git -C /tmp/vcpkg apply $i; done; \
-    sh /tmp/vcpkg/bootstrap-vcpkg.sh; \
-    /tmp/vcpkg/vcpkg install $(cat /tmp/vcpkg-vars/VCPKG_DEPS_LIST | cut -d':' -f1 | tr '\n' ' '); \
-    /tmp/vcpkg/vcpkg install --head $(cat /tmp/vcpkg-vars/VCPKG_HEAD_DEPS_LIST | cut -d':' -f1 | tr '\n' ' '); \
+    sh /tmp/vcpkg-vars/build_iroha_deps.sh /tmp/vcpkg /tmp/vcpkg-vars; \
     /tmp/vcpkg/vcpkg export $(/tmp/vcpkg/vcpkg list | cut -d':' -f1 | tr '\n' ' ') --raw --output=dependencies; \
     mv /tmp/vcpkg/dependencies /opt/dependencies; \
     chmod +x /opt/dependencies/installed/x64-linux/tools/protobuf/protoc*; \
