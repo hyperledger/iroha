@@ -36,17 +36,9 @@ namespace shared_model {
     }
 
     PrettyStringBuilder &PrettyStringBuilder::append(const std::string &value) {
-      appendPartial(value);
+      appendPartial_(value);
       need_field_separator_ = true;
       return *this;
-    }
-
-    void PrettyStringBuilder::appendPartial(const std::string &value) {
-      if (need_field_separator_) {
-        result_.append(singleFieldsSeparator);
-        need_field_separator_ = false;
-      }
-      result_.append(value);
     }
 
     std::string PrettyStringBuilder::finalize() {
