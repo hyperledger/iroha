@@ -49,11 +49,11 @@ namespace shared_model {
        * @param name - field name to append
        * @param value - field value
        */
-      template <typename Value>
-      PrettyStringBuilder &appendNamed(const std::string &name,
+      template <typename Name, typename Value>
+      PrettyStringBuilder &appendNamed(const Name &name,
                                        const Value &value) {
-        appendPartial(name);
-        appendPartial(keyValueSeparator);
+        appendPartial_(name);
+        appendPartial_(keyValueSeparator);
         return append(iroha::to_string::toString(value));
       }
 
@@ -64,7 +64,6 @@ namespace shared_model {
       std::string finalize();
 
      private:
-      void appendPartial(const std::string &);
       std::string result_;
       bool need_field_separator_;
       static const std::string beginBlockMarker;
@@ -73,6 +72,15 @@ namespace shared_model {
       static const std::string singleFieldsSeparator;
       static const std::string initSeparator;
       static const std::string spaceSeparator;
+
+      template<typename T>
+      inline void appendPartial_(T const& value) {
+        if (need_field_separator_) {
+          result_.append(singleFieldsSeparator);
+          need_field_separator_ = false;
+        }
+        result_.append(value);
+      }
     };
   }  // namespace detail
 }  // namespace shared_model
