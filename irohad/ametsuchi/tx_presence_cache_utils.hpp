@@ -18,12 +18,13 @@ namespace iroha {
      */
     inline bool isAlreadyProcessed(
         const TxCacheStatusType &tx_status) noexcept {
-      return iroha::visit_in_place(
-          tx_status,
-          [](const ametsuchi::tx_cache_status_responses::Missing &) {
-            return false;
-          },
-          [](const auto &) { return true; });
+      return std::visit(
+          make_visitor(
+              [](const ametsuchi::tx_cache_status_responses::Missing &) {
+                return false;
+              },
+              [](const auto &) { return true; }),
+          tx_status);
     }
 
     /**
@@ -33,8 +34,8 @@ namespace iroha {
      */
     inline tx_cache_response_details::HashType getHash(
         const TxCacheStatusType &status) noexcept {
-      return iroha::visit_in_place(
-          status, [](const auto &status) { return status.hash; });
+      return std::visit(
+          make_visitor([](const auto &status) { return status.hash; }), status);
     }
   }  // namespace ametsuchi
 }  // namespace iroha

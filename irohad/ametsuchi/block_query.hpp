@@ -6,7 +6,8 @@
 #ifndef IROHA_BLOCK_QUERY_HPP
 #define IROHA_BLOCK_QUERY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "ametsuchi/tx_cache_response.hpp"
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/block.hpp"
@@ -54,10 +55,9 @@ namespace iroha {
        * any block
        * @param hash - transaction's hash
        * @return TxCacheStatusType which returns status (Committed, Rejected or
-       * Missing) of transaction if storage query was successful, boost::none
-       * otherwise
+       * Missing) of transaction if storage query was successful, null otherwise
        */
-      virtual boost::optional<TxCacheStatusType> checkTxPresence(
+      virtual std::optional<TxCacheStatusType> checkTxPresence(
           const shared_model::crypto::Hash &hash) = 0;
     };
   }  // namespace ametsuchi
