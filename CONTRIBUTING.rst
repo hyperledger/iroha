@@ -174,7 +174,7 @@ C++ Style Guide
 -  Avoid
    `platform-dependent <https://stackoverflow.com/questions/1558194/learning-and-cross-platform-development-c>`__
    code.
--  Use `C++14 <https://en.wikipedia.org/wiki/C%2B%2B14>`__.
+-  Use `C++17 <https://en.wikipedia.org/wiki/C%2B%2B17>`__.
 -  Use `camelCase <https://en.wikipedia.org/wiki/Camel_case>`__ for
    class names and methods, use
    `snake\_case <https://en.wikipedia.org/wiki/Snake_case>`__ for
