@@ -34,13 +34,14 @@ using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
+using ::testing::ByMove;
 using ::testing::Invoke;
 using ::testing::Return;
 
 class QueryProcessorTest : public ::testing::Test {
  public:
   void SetUp() override {
-    qry_exec = new MockQueryExecutor();
+    qry_exec = std::make_unique<MockQueryExecutor>();
     storage = std::make_shared<MockStorage>();
     query_response_factory =
         std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
@@ -52,12 +53,6 @@ class QueryProcessorTest : public ::testing::Test {
         getTestLogger("QueryProcessor"));
     EXPECT_CALL(*storage, getBlockQuery())
         .WillRepeatedly(Return(block_queries));
-  }
-
-  void provideValidQueryExecutor() {
-    EXPECT_CALL(*storage, createQueryExecutorRaw(_, _))
-        .Times(::testing::AtMost(1))
-        .WillRepeatedly(Return(qry_exec));
   }
 
   auto getBlocksQuery(const std::string &creator_account_id) {
@@ -78,7 +73,7 @@ class QueryProcessorTest : public ::testing::Test {
 
   std::vector<shared_model::interface::types::PubkeyType> signatories = {
       keypair.publicKey()};
-  MockQueryExecutor *qry_exec;
+  std::unique_ptr<MockQueryExecutor> qry_exec;
   std::shared_ptr<MockBlockQuery> block_queries;
   std::shared_ptr<MockStorage> storage;
   std::shared_ptr<shared_model::interface::QueryResponseFactory>
@@ -101,8 +96,9 @@ TEST_F(QueryProcessorTest,
                  .finish();
 
   const std::string error_text{"QueryExecutor fails to create"};
-  EXPECT_CALL(*storage, createQueryExecutorRaw(_, _))
-      .WillRepeatedly(Return(error_text));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillRepeatedly(
+          [error_text](const auto &, const auto &) { return error_text; });
 
   auto response = qpi->queryHandle(qry);
   IROHA_ASSERT_RESULT_ERROR(response);
@@ -126,8 +122,9 @@ TEST_F(QueryProcessorTest, QueryProcessorWhereInvokeInvalidQuery) {
           ->createAccountDetailResponse("", 1, boost::none, qry.hash())
           .release();
 
-  provideValidQueryExecutor();
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto response = qpi->queryHandle(qry);
   IROHA_ASSERT_RESULT_VALUE(response);
@@ -159,8 +156,9 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
                            query.hash())
                        .release();
 
-  provideValidQueryExecutor();
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto response = qpi->queryHandle(query);
   IROHA_ASSERT_RESULT_VALUE(response);
@@ -179,8 +177,10 @@ TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
   auto block_number = 5;
   auto block_query = getBlocksQuery(kAccountId);
 
-  EXPECT_CALL(*storage, createQueryExecutorRaw(_, _))
-      .WillRepeatedly(Return("QueryExecutor fails to create"));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillRepeatedly([](const auto &, const auto &) {
+        return "QueryExecutor fails to create";
+      });
 
   auto wrapper =
       make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);
@@ -211,8 +211,9 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
   auto block_number = 5;
   auto block_query = getBlocksQuery(kAccountId);
 
-  provideValidQueryExecutor();
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(true));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto wrapper = make_test_subscriber<CallExact>(
       qpi->blocksQueryHandle(block_query), block_number);
@@ -238,8 +239,9 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
   auto block_number = 5;
   auto block_query = getBlocksQuery(kAccountId);
 
-  provideValidQueryExecutor();
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(false));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto wrapper =
       make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);
