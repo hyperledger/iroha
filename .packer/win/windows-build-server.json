@@ -4,7 +4,9 @@
         "aws_secret_key": "",
         "instance_type": "c5.2xlarge",
         "security_group_id": "",
-        "windows_password": ""
+        "windows_password": "",
+        "iroha_repo": "",
+        "iroha_branches": ""
     },
     "builders": [
         {
@@ -36,7 +38,13 @@
                     "volume_type": "gp2",
                     "delete_on_termination": true
                 }
-      ]
+            ],
+            "tags": {
+                "Name": "ami-packer-jenkins-win-slave-iroha",
+                "Project": "iroha",
+                "Environment": "dev",
+                "Base_AMI_Name": "{{ .SourceAMIName }}"
+            }
         }
     ],
     "provisioners": [
@@ -47,7 +55,12 @@
         },
         {
             "type": "file",
-            "source": "../../vcpkg",
+            "source": "../../.jenkinsci/helpers/hash.py",
+            "destination": "C:\\Windows\\Temp\\"
+        },
+        {
+            "type": "file",
+            "source": "./scripts",
             "destination": "C:\\Windows\\Temp\\"
         },
         {
@@ -62,8 +75,9 @@
         },
         {
             "type": "powershell",
-            "scripts": [
-                "./scripts/vcpkg.ps1"
+            "inline": [
+                "C:\\Windows\\Temp\\scripts\\vcpkg_for_multiple_branch.ps1 {{user `iroha_repo`}} {{user `iroha_branches`}}",
+                "dir c:\\"
             ]
         },
         {
