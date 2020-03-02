@@ -20,7 +20,6 @@
 #include "ametsuchi/key_value_storage.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/reconnection_strategy.hpp"
-#include "common/result.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -69,7 +68,8 @@ namespace iroha {
       boost::optional<std::unique_ptr<SettingQuery>> createSettingQuery()
           const override;
 
-      boost::optional<std::shared_ptr<QueryExecutor>> createQueryExecutor(
+      iroha::expected::Result<std::unique_ptr<QueryExecutor>, std::string>
+      createQueryExecutor(
           std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
           std::shared_ptr<shared_model::interface::QueryResponseFactory>
               response_factory) const override;

@@ -17,8 +17,9 @@ namespace iroha {
     class MockQueryProcessor : public QueryProcessor {
      public:
       MOCK_METHOD1(queryHandle,
-                   std::unique_ptr<shared_model::interface::QueryResponse>(
-                       const shared_model::interface::Query &));
+                   iroha::expected::Result<
+                       std::unique_ptr<shared_model::interface::QueryResponse>,
+                       std::string>(const shared_model::interface::Query &));
       MOCK_METHOD1(
           blocksQueryHandle,
           rxcpp::observable<
