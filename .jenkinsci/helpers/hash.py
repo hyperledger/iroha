@@ -29,4 +29,4 @@ parser = argparse.ArgumentParser(description='Calculate MD5 hash for given folde
 parser.add_argument('folder')
 args = parser.parse_args()
 
-print(md5_dir(args.folder))
+print(md5_dir(args.folder)[0:4])
