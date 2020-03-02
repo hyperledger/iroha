@@ -29,6 +29,7 @@
 #include "backend/protobuf/permissions.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "common/result.hpp"
 #include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -114,31 +115,28 @@ namespace iroha {
       return boost::make_optional(block_query);
     }
 
-    boost::optional<std::shared_ptr<QueryExecutor>>
+    iroha::expected::Result<std::unique_ptr<QueryExecutor>, std::string>
     StorageImpl::createQueryExecutor(
         std::shared_ptr<PendingTransactionStorage> pending_txs_storage,
         std::shared_ptr<shared_model::interface::QueryResponseFactory>
             response_factory) const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
       if (not connection_) {
-        log_->info(
-            "createQueryExecutor: connection to database is not initialised");
-        return boost::none;
+        return "createQueryExecutor: connection to database is not initialised";
       }
       auto sql = std::make_unique<soci::session>(*connection_);
       auto log_manager = log_manager_->getChild("QueryExecutor");
-      return boost::make_optional<std::shared_ptr<QueryExecutor>>(
-          std::make_shared<PostgresQueryExecutor>(
-              std::move(sql),
+      return std::make_unique<PostgresQueryExecutor>(
+          std::move(sql),
+          response_factory,
+          std::make_shared<PostgresSpecificQueryExecutor>(
+              *sql,
+              *block_store_,
+              std::move(pending_txs_storage),
               response_factory,
-              std::make_shared<PostgresSpecificQueryExecutor>(
-                  *sql,
-                  *block_store_,
-                  std::move(pending_txs_storage),
-                  response_factory,
-                  perm_converter_,
-                  log_manager->getChild("SpecificQueryExecutor")->getLogger()),
-              log_manager->getLogger()));
+              perm_converter_,
+              log_manager->getChild("SpecificQueryExecutor")->getLogger()),
+          log_manager->getLogger());
     }
 
     bool StorageImpl::insertBlock(

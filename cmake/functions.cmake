@@ -45,7 +45,7 @@ function(addtest test_name SOURCES)
   if ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
   (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
   (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
-    target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override)
+    target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override -Wno-gnu-zero-variadic-macro-arguments)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     # do nothing, but also don't spam warning on each test
   else ()

@@ -36,11 +36,13 @@ namespace iroha {
                          boost::optional<std::shared_ptr<BlockQuery>>());
       MOCK_CONST_METHOD0(createSettingQuery,
                          boost::optional<std::unique_ptr<SettingQuery>>());
-      MOCK_CONST_METHOD2(
+      MOCK_METHOD(
+          (iroha::expected::Result<std::unique_ptr<QueryExecutor>,
+                                   std::string>),
           createQueryExecutor,
-          boost::optional<std::shared_ptr<QueryExecutor>>(
-              std::shared_ptr<PendingTransactionStorage>,
-              std::shared_ptr<shared_model::interface::QueryResponseFactory>));
+          (std::shared_ptr<PendingTransactionStorage>,
+           std::shared_ptr<shared_model::interface::QueryResponseFactory>),
+          (const, override));
       MOCK_METHOD1(doCommit, CommitResult(MutableStorage *storage));
       MOCK_CONST_METHOD0(preparedCommitEnabled, bool());
       MOCK_METHOD1(

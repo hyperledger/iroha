@@ -35,6 +35,8 @@ target_link_libraries(libs_timeout INTERFACE
   rxcpp
   )
 
+add_library(permutation_generator permutation_generator.cpp)
+
 add_library(irohad_version irohad_version.cpp)
 
 add_library(libs_to_string INTERFACE
