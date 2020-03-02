@@ -141,16 +141,17 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
-    return iroha::visit_in_place(
-        *tx_result,
-        [](const ametsuchi::tx_cache_status_responses::Missing &) {
-          return true;
-        },
-        [](const auto &status) {
-          // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
-          // when log is added
-          return false;
-        });
+    return std::visit(
+        make_visitor(
+            [](const ametsuchi::tx_cache_status_responses::Missing &) {
+              return true;
+            },
+            [](const auto &status) {
+              // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
+              // when log is added
+              return false;
+            }),
+        *tx_result);
   };
 
   std::unordered_set<std::string> hashes;

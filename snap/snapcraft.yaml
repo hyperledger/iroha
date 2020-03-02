@@ -57,7 +57,7 @@ parts:
     build: |
       ./bootstrap.sh --with-libraries=thread,system,filesystem
       ./b2 headers
-      ./b2 cxxflags="-std=c++14" install
+      ./b2 cxxflags="-std=c++17" install
   protobuf:
     source: https://github.com/google/protobuf.git
     source-commit: 106ffc04be1abf3ff3399f54ccf149815b287dd9 # Protocol Buffers v3.5.1
