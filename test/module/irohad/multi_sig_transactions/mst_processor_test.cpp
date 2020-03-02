@@ -339,10 +339,10 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
 
   // ---------------------------------| when |----------------------------------
   shared_model::crypto::PublicKey another_peer_key("another_pubkey");
+  const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
   {
     auto transported_state = MstState::empty(getTestLogger("MstState"),
                                              std::make_shared<TestCompleter>());
-    const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
     transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
     mst_processor->onNewState(another_peer_key, std::move(transported_state));
   }
