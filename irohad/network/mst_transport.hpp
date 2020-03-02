@@ -24,7 +24,7 @@ namespace iroha {
        * @param new_state - state propagated from peer
        */
       virtual void onNewState(const shared_model::crypto::PublicKey &from,
-                              MstState new_state) = 0;
+                              MstState &&new_state) = 0;
 
       virtual ~MstTransportNotification() = default;
     };
