@@ -8,6 +8,7 @@
   "vote_delay" : 5000,
   "mst_enable" : false,
   "mst_expiration_time" : 1440,
+  "mst_stale_threshold_milliseconds" : 1800000,
   "max_rounds_delay": 3000,
   "stale_stream_max_rounds": 2
 }
