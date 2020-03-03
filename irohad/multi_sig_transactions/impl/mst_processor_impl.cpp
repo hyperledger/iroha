@@ -115,7 +115,7 @@ namespace iroha {
       if (not diff.isEmpty()) {
         log_->info("Propagate new data[{}]", size);
         transport_->sendState(*dst_peer, diff);
-        storage_->apply(dst_peer->pubkey(), diff);
+        storage_->apply(dst_peer->pubkey(), std::move(diff));
       }
     });
   }

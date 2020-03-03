@@ -159,7 +159,7 @@ TEST_F(StorageTest, ClearStalledPeerStatesTest) {
   }
 
   // diff with peer A does not have this batch
-  ASSERT_THAT(storage->getDiffState(peerAKey, creation_time).getBatches(),
+  ASSERT_THAT(storage->getDiffState(peerAKey).getBatches(),
               Not(Contains(Pointee(Property(
                   &TransactionBatch::transactions,
                   Contains(Pointee(Property(
@@ -172,7 +172,7 @@ TEST_F(StorageTest, ClearStalledPeerStatesTest) {
 
   // diff with peer A now has the batch with the signature that just came Torii
   EXPECT_THAT(
-      storage->getDiffState(peerAKey, creation_time).getBatches(),
+      storage->getDiffState(peerAKey).getBatches(),
       Contains(Pointee(Property(
           &TransactionBatch::transactions,
           ElementsAre(Pointee(AllOf(
