@@ -28,6 +28,7 @@
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
@@ -160,12 +161,17 @@ namespace iroha {
             std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
                 shared_model::validation::FieldValidator>>(
                 iroha::test::kTestsValidatorsConfig);
-        query_executor = storage;
         executor = std::make_unique<PostgresCommandExecutor>(
             std::make_unique<soci::session>(*soci::factory_postgresql(),
                                             pgopt_),
             perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
+
+        auto query_executor_result = storage->createQueryExecutor(
+            pending_txs_storage, query_response_factory);
+        IROHA_ASSERT_RESULT_VALUE(query_executor_result)
+            << "Failed to create a QueryExecutor.";
+        query_executor_ = std::move(query_executor_result).assumeValue();
 
         execute(
             *mock_command_factory->constructCreateRole(role, role_permissions),
@@ -190,11 +196,7 @@ namespace iroha {
       }
 
       auto executeQuery(shared_model::interface::Query &query) {
-        return query_executor->createQueryExecutor(pending_txs_storage,
-                                                   query_response_factory)
-            | [&query](const auto &executor) {
-                return executor->validateAndExecute(query, false);
-              };
+        return query_executor_->validateAndExecute(query, false);
       }
 
       template <typename CommandType>
@@ -296,7 +298,7 @@ namespace iroha {
 
       std::unique_ptr<shared_model::interface::Command> command;
 
-      std::shared_ptr<QueryExecutorFactory> query_executor;
+      std::shared_ptr<QueryExecutor> query_executor_;
       std::unique_ptr<CommandExecutor> executor;
       std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
 
@@ -327,11 +329,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       auto blocks_query =
           TestBlocksQueryBuilder().creatorAccountId(account_id).build();
-      ASSERT_TRUE(query_executor->createQueryExecutor(pending_txs_storage,
-                                                      query_response_factory)
-                  | [&blocks_query](const auto &executor) {
-                      return executor->validate(blocks_query, false);
-                    });
+      ASSERT_TRUE(query_executor_->validate(blocks_query, false));
     }
 
     /**
@@ -342,11 +340,7 @@ namespace iroha {
     TEST_F(BlocksQueryExecutorTest, BlocksQueryExecutorTestInvalid) {
       auto blocks_query =
           TestBlocksQueryBuilder().creatorAccountId(account_id).build();
-      ASSERT_FALSE(query_executor->createQueryExecutor(pending_txs_storage,
-                                                       query_response_factory)
-                   | [&blocks_query](const auto &executor) {
-                       return executor->validate(blocks_query, false);
-                     });
+      ASSERT_FALSE(query_executor_->validate(blocks_query, false));
     }
 
     /**
@@ -358,11 +352,7 @@ namespace iroha {
       addPerms({shared_model::interface::permissions::Role::kRoot});
       auto blocks_query =
           TestBlocksQueryBuilder().creatorAccountId(account_id).build();
-      ASSERT_TRUE(query_executor->createQueryExecutor(pending_txs_storage,
-                                                      query_response_factory)
-                  | [&blocks_query](const auto &executor) {
-                      return executor->validate(blocks_query, false);
-                    });
+      ASSERT_TRUE(query_executor_->validate(blocks_query, false));
     }
 
     // --------------| GetBlock tests |---------------------------->8 ----------

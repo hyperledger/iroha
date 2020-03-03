@@ -1,8 +1,8 @@
 # Compile the specified target as a modern, strict C++.
 function(strictmode target)
-  # Require pure C++14 standard.
+  # Require pure C++17 standard.
   set_target_properties(${target} PROPERTIES
-      CXX_STANDARD 14
+      CXX_STANDARD 17
       CXX_STANDARD_REQUIRED ON
       CXX_EXTENSIONS OFF
       )
@@ -45,7 +45,7 @@ function(addtest test_name SOURCES)
   if ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
   (CMAKE_CXX_COMPILER_ID STREQUAL "Clang") OR
   (CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang"))
-    target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override)
+    target_compile_options(${test_name} PRIVATE -Wno-inconsistent-missing-override -Wno-gnu-zero-variadic-macro-arguments)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     # do nothing, but also don't spam warning on each test
   else ()

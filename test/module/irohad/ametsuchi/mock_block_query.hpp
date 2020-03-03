@@ -18,9 +18,10 @@ namespace iroha {
       MOCK_METHOD1(
           getBlock,
           BlockQuery::BlockResult(shared_model::interface::types::HeightType));
-      MOCK_METHOD1(checkTxPresence,
-                   boost::optional<TxCacheStatusType>(
-                       const shared_model::crypto::Hash &));
+      MOCK_METHOD(std::optional<TxCacheStatusType>,
+                  checkTxPresence,
+                  (const shared_model::crypto::Hash &),
+                  (override));
       MOCK_METHOD0(getTopBlockHeight,
                    shared_model::interface::types::HeightType());
     };
