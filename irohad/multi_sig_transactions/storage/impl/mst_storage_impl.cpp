@@ -48,12 +48,20 @@ namespace iroha {
     });
     auto target_state_iter = getState(target_peer_key);
     target_state_iter->second += new_state;
-    return own_state_ += new_state;
+    auto state_update = (own_state_ += new_state);
+    state_update.completed_state_->iterateBatches([this](auto const &batch) {
+      batch_last_update_time_.left.erase(batch);
+    });
+    return state_update;
   }
 
   auto MstStorageStateImpl::updateOwnStateImpl(const DataType &tx)
       -> decltype(updateOwnState(tx)) {
-    return own_state_ += tx;
+    auto state_update = (own_state_ += tx);
+    state_update.completed_state_->iterateBatches([this](auto const &batch) {
+      batch_last_update_time_.left.erase(batch);
+    });
+    return state_update;
   }
 
   auto MstStorageStateImpl::extractExpiredTransactionsImpl()
@@ -62,7 +70,11 @@ namespace iroha {
     for (auto &peer_and_state : peer_states_) {
       peer_and_state.second.eraseExpired(current_time);
     }
-    return own_state_.extractExpired(current_time);
+    auto expired_transactions = own_state_.extractExpired(current_time);
+    expired_transactions.iterateBatches([this](auto const &batch) {
+      batch_last_update_time_.left.erase(batch);
+    });
+    return expired_transactions;
   }
 
   auto MstStorageStateImpl::getDiffStateImpl(
