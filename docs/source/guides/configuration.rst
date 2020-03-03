@@ -27,6 +27,7 @@ at ``example/config.sample``
     "vote_delay": 5000,
     "mst_enable" : false,
     "mst_expiration_time" : 1440,
+    "mst_stale_threshold_milliseconds" : 1800000,
     "max_rounds_delay": 3000,
     "stale_stream_max_rounds": 2
   }
@@ -101,6 +102,11 @@ Environment-specific parameters
   This parameter allows users to find an optimal value in a tradeoff between
   resource consumption and the delay of getting back to work after an idle
   period.
+- ``mst_stale_threshold_milliseconds`` is an optional parameter that sets the time after which the node that sent the MST transaction in the first place would try to send it again if no final status is received.
+  It is needed in case, say, some nodes or network fail and restart or if there are network problems and other nodes do not receive the transaction.
+  Default value is 1800000 (30 minutes).
+  Please take into consideration that decreasing the value too much will lead to using processing resources constantly connecting the nodes.
+  Increasing it too much will cause delays in receiving MST transactions in case of failed nodes.
 - ``stale_stream_max_rounds`` is an optional parameter specifying the maximum
   amount of rounds to keep an open status stream while no status update is
   reported.
