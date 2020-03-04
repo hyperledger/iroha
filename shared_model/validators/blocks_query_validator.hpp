@@ -31,7 +31,7 @@ namespace shared_model {
        * @param qry - query to validate
        * @return found error if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::BlocksQuery &qry) const {
         ValidationErrorCreator error_creator;
 

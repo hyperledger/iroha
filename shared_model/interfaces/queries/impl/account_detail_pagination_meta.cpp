@@ -5,11 +5,13 @@
 
 #include "interfaces/queries/account_detail_pagination_meta.hpp"
 
+#include "common/optional_reference_equal.hpp"
+
 using namespace shared_model::interface;
 
 bool AccountDetailPaginationMeta::operator==(const ModelType &rhs) const {
   return pageSize() == rhs.pageSize()
-      and firstRecordId() == rhs.firstRecordId();
+      and iroha::optionalReferenceEqual(firstRecordId(), rhs.firstRecordId());
 }
 
 std::string AccountDetailPaginationMeta::toString() const {

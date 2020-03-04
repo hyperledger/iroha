@@ -8,7 +8,7 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
 
@@ -28,8 +28,8 @@ namespace shared_model {
       virtual size_t totalNumber() const = 0;
 
       /// @return next page starting record, if this page is not last.
-      virtual boost::optional<const AccountDetailRecordId &> nextRecordId()
-          const = 0;
+      virtual std::optional<std::reference_wrapper<const AccountDetailRecordId>>
+      nextRecordId() const = 0;
 
       std::string toString() const override;
 

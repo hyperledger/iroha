@@ -9,7 +9,7 @@
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
-#include <boost/optional/optional_fwd.hpp>
+#include <optional>
 
 namespace shared_model {
   namespace interface {
@@ -27,7 +27,7 @@ namespace shared_model {
       /**
        * @return Peer TLS certficate
        */
-      virtual const boost::optional<interface::types::TLSCertificateType>
+      virtual const std::optional<interface::types::TLSCertificateType>
           &tlsCertificate() const = 0;
 
       /**

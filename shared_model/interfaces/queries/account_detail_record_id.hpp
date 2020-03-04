@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_DETAIL_RECORD_ID_HPP
 #define IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_DETAIL_RECORD_ID_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 

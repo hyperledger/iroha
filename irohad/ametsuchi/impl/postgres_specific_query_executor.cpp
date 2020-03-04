@@ -14,6 +14,7 @@
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
@@ -132,7 +133,7 @@ namespace {
 
   /// Query result is a tuple of optionals, since there could be no entry
   template <typename... Value>
-  using QueryType = boost::tuple<boost::optional<Value>...>;
+  using QueryType = boost::tuple<std::optional<Value>...>;
 
   /**
    * Create an error response in case user does not have permissions to perform
@@ -456,7 +457,7 @@ namespace iroha {
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), boost::none, total_size, query_hash);
+                std::move(response_txs), std::nullopt, total_size, query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }
@@ -867,12 +868,13 @@ namespace iroha {
       const auto pagination_meta{q.paginationMeta()};
       const auto req_first_asset_id =
           pagination_meta | [](const auto &pagination_meta) {
-            return boost::optional<std::string>(pagination_meta.firstAssetId());
+            return std::optional<std::string>(
+                pagination_meta.get().firstAssetId());
           };
       const auto req_page_size =  // TODO 2019.05.31 mboldyrev make it
                                   // non-optional after IR-516
           pagination_meta | [](const auto &pagination_meta) {
-            return boost::optional<size_t>(pagination_meta.pageSize() + 1);
+            return std::optional<size_t>(pagination_meta.get().pageSize() + 1);
           };
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -915,13 +917,13 @@ namespace iroha {
             }
             assert(total_number >= assets.size());
             const bool is_last_page = not q.paginationMeta()
-                or (assets.size() <= q.paginationMeta()->pageSize());
-            boost::optional<shared_model::interface::types::AssetIdType>
+                or (assets.size() <= q.paginationMeta()->get().pageSize());
+            std::optional<shared_model::interface::types::AssetIdType>
                 next_asset_id;
             if (not is_last_page) {
               next_asset_id = std::get<1>(assets.back());
               assets.pop_back();
-              assert(assets.size() == q.paginationMeta()->pageSize());
+              assert(assets.size() == q.paginationMeta()->get().pageSize());
             }
             return query_response_factory_->createAccountAssetResponse(
                 assets, total_number, next_asset_id, query_hash);
@@ -1034,11 +1036,12 @@ namespace iroha {
       // TODO 2019.05.29 mboldyrev IR-516 remove when pagination is made
       // mandatory
       q.paginationMeta() | [&](const auto &pagination_meta) {
-        page_size = pagination_meta.pageSize();
-        pagination_meta.firstRecordId() | [&](const auto &first_record_id) {
-          first_record_writer = first_record_id.writer();
-          first_record_key = first_record_id.key();
-        };
+        page_size = pagination_meta.get().pageSize();
+        pagination_meta.get().firstRecordId() |
+            [&](const auto &first_record_id) {
+              first_record_writer = first_record_id.get().writer();
+              first_record_key = first_record_id.get().key();
+            };
       };
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -1088,7 +1091,7 @@ namespace iroha {
                           "getAccountDetail query result {}.",
                           q);
                     }
-                    boost::optional<shared_model::plain::AccountDetailRecordId>
+                    std::optional<shared_model::plain::AccountDetailRecordId>
                         next_record_id{[this, &next_writer, &next_key]()
                                            -> decltype(next_record_id) {
                           if (next_key or next_writer) {
@@ -1096,27 +1099,27 @@ namespace iroha {
                               log_->error(
                                   "next_writer not set for next_record_id!");
                               assert(next_writer);
-                              return boost::none;
+                              return std::nullopt;
                             }
                             if (not next_key) {
                               log_->error(
                                   "next_key not set for next_record_id!");
                               assert(next_key);
-                              return boost::none;
+                              return std::nullopt;
                             }
                             return shared_model::plain::AccountDetailRecordId{
                                 next_writer.value(), next_key.value()};
                           }
-                          return boost::none;
+                          return std::nullopt;
                         }()};
                     return query_response_factory_->createAccountDetailResponse(
                         json.value(),
                         total_number.value_or(0),
                         next_record_id |
                             [](const auto &next_record_id) {
-                              return boost::optional<
+                              return std::optional<std::reference_wrapper<
                                   const shared_model::interface::
-                                      AccountDetailRecordId &>(next_record_id);
+                                      AccountDetailRecordId>>(next_record_id);
                             },
                         query_hash);
                   }
@@ -1133,7 +1136,7 @@ namespace iroha {
                     // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
                     // handling
                     return query_response_factory_->createAccountDetailResponse(
-                        kEmptyDetailsResponse, 0, boost::none, query_hash);
+                        kEmptyDetailsResponse, 0, std::nullopt, query_hash);
                   }
                 });
           },
@@ -1275,8 +1278,8 @@ namespace iroha {
       if (q.paginationMeta()) {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id,
-                                     q.paginationMeta()->pageSize(),
-                                     q.paginationMeta()->firstTxHash())
+                                     q.paginationMeta()->get().pageSize(),
+                                     q.paginationMeta()->get().firstTxHash())
             .match(
                 [this, &response_txs, &query_hash](auto &&response) {
                   auto &interface_txs = response.value.transactions;
@@ -1301,7 +1304,10 @@ namespace iroha {
                               ErrorQueryType::kStatefulFailed,
                           std::string("The batch with specified first "
                                       "transaction hash not found, the hash: ")
-                              + q.paginationMeta()->firstTxHash()->toString(),
+                              + q.paginationMeta()
+                                    ->get()
+                                    .firstTxHash()
+                                    ->toString(),
                           4,  // missing first tx hash error
                           query_hash);
                     default:

@@ -33,7 +33,7 @@ namespace shared_model {
        * @param proposal
        * @return found error if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::Proposal &proposal) const {
         ValidationErrorCreator error_creator;
 

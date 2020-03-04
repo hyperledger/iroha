@@ -364,7 +364,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
           .creatorAccountId(creator)
           .queryCounter(1)
           .createdTime(iroha::time::now())
-          .getAccountAssets(accountb_id, kMaxPageSize, boost::none)
+          .getAccountAssets(accountb_id, kMaxPageSize, std::nullopt)
           .build()
           .signAndAddSignature(pair)
           .finish();
@@ -409,7 +409,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
                          .creatorAccountId(creator)
                          .queryCounter(1)
                          .createdTime(iroha::time::now())
-                         .getAccountAssets(creator, kMaxPageSize, boost::none)
+                         .getAccountAssets(creator, kMaxPageSize, std::nullopt)
                          .build()
                          .signAndAddSignature(pair)
                          .finish();
@@ -421,7 +421,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
   assets.push_back(std::make_tuple(account_id, asset_id, amount));
   auto *r = query_response_factory
                 ->createAccountAssetResponse(
-                    assets, assets.size(), boost::none, model_query.hash())
+                    assets, assets.size(), std::nullopt, model_query.hash())
                 .release();
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))

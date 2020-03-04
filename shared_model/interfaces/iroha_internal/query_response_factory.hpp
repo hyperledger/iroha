@@ -8,7 +8,7 @@
 
 #include <memory>
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/asset.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -54,7 +54,7 @@ namespace shared_model {
                                  types::AssetIdType,
                                  shared_model::interface::Amount>> assets,
           size_t total_assets_number,
-          boost::optional<shared_model::interface::types::AssetIdType>
+          std::optional<shared_model::interface::types::AssetIdType>
               next_asset_id,
           const crypto::Hash &query_hash) const = 0;
 
@@ -70,8 +70,9 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createAccountDetailResponse(
           types::DetailType account_detail,
           size_t total_number,
-          boost::optional<const shared_model::interface::AccountDetailRecordId
-                              &> next_record_id,
+          std::optional<std::reference_wrapper<
+              const shared_model::interface::AccountDetailRecordId>>
+              next_record_id,
           const crypto::Hash &query_hash) const = 0;
 
       /**
@@ -164,7 +165,8 @@ namespace shared_model {
       virtual std::unique_ptr<QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
-          boost::optional<const crypto::Hash &> next_tx_hash,
+          std::optional<std::reference_wrapper<const crypto::Hash>>
+              next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
           const crypto::Hash &query_hash) const = 0;
 
@@ -181,7 +183,7 @@ namespace shared_model {
       createPendingTransactionsPageResponse(
           std::vector<std::unique_ptr<interface::Transaction>> transactions,
           interface::types::TransactionsNumberType all_transactions_size,
-          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+          std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
               next_batch_info,
           const crypto::Hash &query_hash) const = 0;
 

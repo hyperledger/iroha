@@ -14,10 +14,10 @@ namespace shared_model {
           next_record_id_{
               [](auto &query_response) -> decltype(next_record_id_) {
                 if (query_response.has_next_record_id()) {
-                  return AccountDetailRecordId{
-                      *query_response.mutable_next_record_id()};
+                  return std::make_optional<const AccountDetailRecordId>(
+                      *query_response.mutable_next_record_id());
                 }
-                return boost::none;
+                return std::nullopt;
               }(*query_response.mutable_account_detail_response())} {}
 
     const interface::types::DetailType &AccountDetailResponse::detail() const {
@@ -28,12 +28,14 @@ namespace shared_model {
       return account_detail_response_.total_number();
     }
 
-    boost::optional<const shared_model::interface::AccountDetailRecordId &>
+    std::optional<std::reference_wrapper<
+        const shared_model::interface::AccountDetailRecordId>>
     AccountDetailResponse::nextRecordId() const {
       if (next_record_id_) {
-        return next_record_id_.value();
+        return std::cref<shared_model::interface::AccountDetailRecordId>(
+            next_record_id_.value());
       }
-      return boost::none;
+      return std::nullopt;
     }
 
   }  // namespace proto

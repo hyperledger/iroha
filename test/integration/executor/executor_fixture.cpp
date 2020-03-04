@@ -121,7 +121,7 @@ void ExecutorTestBase::checkAssetQuantities(
     const std::vector<AssetQuantity> &quantities) {
   auto pagination_meta =
       getItf().getMockQueryFactory()->constructAssetPaginationMeta(
-          quantities.size(), boost::none);
+          quantities.size(), std::nullopt);
   getItf()
       .executeQueryAndConvertResult(
           *getItf().getMockQueryFactory()->constructGetAccountAssets(
