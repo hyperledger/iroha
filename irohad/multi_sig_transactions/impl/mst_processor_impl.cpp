@@ -86,7 +86,7 @@ namespace iroha {
   // -------------------| MstTransportNotification override |-------------------
 
   void FairMstProcessor::onNewState(const shared_model::crypto::PublicKey &from,
-                                    MstState new_state) {
+                                    MstState &&new_state) {
     log_->info("Applying new state");
     auto current_time = time_provider_->getCurrentTime();
 
