@@ -103,7 +103,7 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
                                                dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage.getPendingTransactions(creator, kPageSize, boost::none);
+        storage.getPendingTransactions(creator, kPageSize, std::nullopt);
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
@@ -144,7 +144,7 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
                                                dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage.getPendingTransactions(creator, kPageSize, boost::none);
+        storage.getPendingTransactions(creator, kPageSize, std::nullopt);
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
@@ -192,7 +192,7 @@ TEST_F(PendingTxsStorageFixture, CompletedTransactionsAreRemoved) {
       updates, dummyObservable(), dummyObservable(), prepared);
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage.getPendingTransactions(creator, kPageSize, boost::none);
+        storage.getPendingTransactions(creator, kPageSize, std::nullopt);
     pending.match(
         [](const auto &response) {
           auto &pending_txs = response.value.transactions;
@@ -229,7 +229,7 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
                                                dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage.getPendingTransactions(creator, kPageSize, boost::none);
+        storage.getPendingTransactions(creator, kPageSize, std::nullopt);
     pending.match(
         [&txs = transactions](const auto &response) {
           auto &pending_txs = response.value.transactions;
@@ -272,7 +272,7 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
                                                dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
-        storage.getPendingTransactions(creator, kPageSize, boost::none);
+        storage.getPendingTransactions(creator, kPageSize, std::nullopt);
     pending.match(
         [&](const auto &response) {
           auto &pending_txs = response.value.transactions;
@@ -358,7 +358,7 @@ TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
                                                dummyPreparedTxsObservable());
 
   auto response =
-      storage.getPendingTransactions(kThirdAccount, kPageSize, boost::none);
+      storage.getPendingTransactions(kThirdAccount, kPageSize, std::nullopt);
   response.match(
       [](const auto &response) {
         auto &pending_txs = response.value.transactions;
@@ -396,7 +396,7 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
                                                dummyObservable(),
                                                dummyPreparedTxsObservable());
   auto pending =
-      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   pending.match(
       [&txs = transactions](const auto &response) {
         const auto &resp = response.value;
@@ -439,7 +439,7 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
                                                dummyObservable(),
                                                dummyPreparedTxsObservable());
   auto alice_pending =
-      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   alice_pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 4);
@@ -450,7 +450,7 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
       });
 
   auto bob_pending =
-      storage.getPendingTransactions("bob@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
   bob_pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 3);
@@ -489,7 +489,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
                                                dummyPreparedTxsObservable());
 
   auto alice_pending =
-      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   alice_pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 4);
@@ -500,7 +500,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       });
 
   auto bob_pending =
-      storage.getPendingTransactions("bob@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
   bob_pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 2);
@@ -544,7 +544,7 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
   prepared_batches_subject.get_subscriber().on_completed();
   const auto kPageSize = 100u;
   auto pending =
-      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 0);
@@ -583,7 +583,7 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
   expired_batches_subject.get_subscriber().on_completed();
   const auto kPageSize = 100u;
   auto pending =
-      storage.getPendingTransactions("alice@iroha", kPageSize, boost::none);
+      storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
   pending.match(
       [](const auto &response) {
         ASSERT_EQ(response.value.transactions.size(), 0);
@@ -654,8 +654,8 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
                                                dummyObservable(),
                                                dummyPreparedTxsObservable());
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
-    auto first_page =
-        storage.getPendingTransactions(creator, batchSize(batch1), boost::none);
+    auto first_page = storage.getPendingTransactions(
+        creator, batchSize(batch1), std::nullopt);
     first_page.match(
         [&](const auto &first_response) {
           const auto &resp1 = first_response.value;

@@ -386,7 +386,7 @@ TEST_F(TransferAsset, BigPrecision) {
   auto make_query = [this](std::string account_id) {
     return baseQry()
         .creatorAccountId(kAdminId)
-        .getAccountAssets(account_id, kMaxPageSize, boost::none)
+        .getAccountAssets(account_id, kMaxPageSize, std::nullopt)
         .build()
         .signAndAddSignature(kAdminKeypair)
         .finish();

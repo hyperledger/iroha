@@ -6,7 +6,7 @@
 #include "validators/protobuf/proto_block_validator.hpp"
 
 #include <gmock/gmock-matchers.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "block.pb.h"
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/validation_error_output.hpp"
@@ -42,7 +42,7 @@ TEST_F(ProtoBlockValidatorTest, ValidBlock) {
   iroha::protocol::Block_v1 versioned_block;
   *valid_block.mutable_block_v1() = versioned_block;
 
-  ASSERT_EQ(validator.validate(valid_block), boost::none);
+  ASSERT_EQ(validator.validate(valid_block), std::nullopt);
 }
 
 /**
@@ -74,7 +74,7 @@ TEST_F(ProtoBlockValidatorTest, BlockWithValidRejectedHash) {
       std::string("123abc");
   *valid_block.mutable_block_v1() = versioned_block;
 
-  ASSERT_EQ(validator.validate(valid_block), boost::none);
+  ASSERT_EQ(validator.validate(valid_block), std::nullopt);
 }
 
 /**
@@ -89,7 +89,7 @@ TEST_F(ProtoBlockValidatorTest, BlockWithValidPrevHash) {
   versioned_block.mutable_payload()->set_prev_block_hash("123abc");
   *valid_block.mutable_block_v1() = versioned_block;
 
-  ASSERT_EQ(validator.validate(valid_block), boost::none);
+  ASSERT_EQ(validator.validate(valid_block), std::nullopt);
 }
 
 /**

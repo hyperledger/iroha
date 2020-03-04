@@ -23,7 +23,7 @@ namespace shared_model {
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+      std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
       nextBatchInfo() const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
@@ -33,7 +33,7 @@ namespace shared_model {
       const iroha::protocol::PendingTransactionsPageResponse
           &pending_transactions_page_response_;
       const std::vector<Transaction> transactions_;
-      boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+      std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
           next_batch_info_;
     };
   }  // namespace proto

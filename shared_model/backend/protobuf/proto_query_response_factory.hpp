@@ -18,15 +18,16 @@ namespace shared_model {
                                  interface::types::AssetIdType,
                                  shared_model::interface::Amount>> assets,
           size_t total_assets_number,
-          boost::optional<shared_model::interface::types::AssetIdType>
+          std::optional<shared_model::interface::types::AssetIdType>
               next_asset_id,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createAccountDetailResponse(
           interface::types::DetailType account_detail,
           size_t total_number,
-          boost::optional<const shared_model::interface::AccountDetailRecordId
-                              &> next_record_id,
+          std::optional<std::reference_wrapper<
+              const shared_model::interface::AccountDetailRecordId>>
+              next_record_id,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createAccountResponse(
@@ -59,7 +60,8 @@ namespace shared_model {
       std::unique_ptr<interface::QueryResponse> createTransactionsPageResponse(
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
-          boost::optional<const crypto::Hash &> next_tx_hash,
+          std::optional<std::reference_wrapper<const crypto::Hash>>
+              next_tx_hash,
           interface::types::TransactionsNumberType all_transactions_size,
           const crypto::Hash &query_hash) const override;
 
@@ -68,7 +70,7 @@ namespace shared_model {
           std::vector<std::unique_ptr<shared_model::interface::Transaction>>
               transactions,
           interface::types::TransactionsNumberType all_transactions_size,
-          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+          std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
               next_batch_info,
           const crypto::Hash &query_hash) const override;
 

@@ -140,7 +140,7 @@ namespace iroha {
                          "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f"
                          "21800"
                          "0a5533")},
-                 boost::none} {
+                 std::nullopt} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
@@ -713,7 +713,7 @@ namespace iroha {
 
       auto queryPage(
           types::TransactionsNumberType page_size,
-          const boost::optional<types::HashType> &first_hash = boost::none) {
+          const std::optional<types::HashType> &first_hash = std::nullopt) {
         auto query = Impl::makeQuery(page_size, first_hash);
         return executeQuery(query);
       }
@@ -731,8 +731,8 @@ namespace iroha {
       void generalTransactionsPageResponseCheck(
           const TransactionsPageResponse &tx_page_response,
           types::TransactionsNumberType page_size,
-          const boost::optional<types::HashType> &first_hash =
-              boost::none) const {
+          const std::optional<types::HashType> &first_hash =
+              std::nullopt) const {
         EXPECT_EQ(tx_page_response.allTransactionsSize(), tx_hashes_.size())
             << "Wrong `total transactions' number.";
         auto resp_tx_hashes = tx_page_response.transactions()
@@ -765,7 +765,7 @@ namespace iroha {
               << "Wrong transaction returned.";
         }
         if (page_end == tx_hashes_.cend()) {
-          EXPECT_EQ(tx_page_response.nextTxHash(), boost::none)
+          EXPECT_EQ(tx_page_response.nextTxHash(), std::nullopt)
               << "Next transaction hash value must be unset.";
         } else {
           EXPECT_TRUE(tx_page_response.nextTxHash());
@@ -807,7 +807,7 @@ namespace iroha {
 
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
-          const boost::optional<types::HashType> &first_hash = boost::none) {
+          const std::optional<types::HashType> &first_hash = std::nullopt) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())
@@ -860,7 +860,7 @@ namespace iroha {
 
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
-          const boost::optional<types::HashType> &first_hash = boost::none) {
+          const std::optional<types::HashType> &first_hash = std::nullopt) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())

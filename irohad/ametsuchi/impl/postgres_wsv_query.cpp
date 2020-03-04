@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 
 #include <soci/boost-tuple.h>
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/result.hpp"
@@ -75,7 +76,7 @@ namespace iroha {
     boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
     PostgresWsvQuery::getPeers() {
       using T = boost::
-          tuple<std::string, AddressType, boost::optional<TLSCertificateType>>;
+          tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
         return (sql_.prepare
                 << "SELECT public_key, address, tls_certificate FROM peer");
@@ -87,7 +88,7 @@ namespace iroha {
     boost::optional<std::shared_ptr<shared_model::interface::Peer>>
     PostgresWsvQuery::getPeerByPublicKey(const PubkeyType &public_key) {
       using T = boost::
-          tuple<std::string, AddressType, boost::optional<TLSCertificateType>>;
+          tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
       auto result = execute<T>([&] {
         return (sql_.prepare << R"(
             SELECT public_key, address, tls_certificate

@@ -12,7 +12,7 @@
 
 using namespace shared_model::validation;
 
-boost::optional<ValidationError> ValidationErrorCreator::getValidationError(
+std::optional<ValidationError> ValidationErrorCreator::getValidationError(
     const ReasonName &name) && {
   if (optional_error_) {
     optional_error_->name = name;
@@ -32,7 +32,7 @@ ValidationErrorCreator &ValidationErrorCreator::addChildError(
 }
 
 ValidationErrorCreator &ValidationErrorCreator::operator|=(
-    boost::optional<ReasonType> optional_reason) {
+    std::optional<ReasonType> optional_reason) {
   if (optional_reason) {
     return addReason(std::move(optional_reason).value());
   }
@@ -40,7 +40,7 @@ ValidationErrorCreator &ValidationErrorCreator::operator|=(
 }
 
 ValidationErrorCreator &ValidationErrorCreator::operator|=(
-    boost::optional<ValidationError> optional_error) {
+    std::optional<ValidationError> optional_error) {
   if (optional_error) {
     return addChildError(std::move(optional_error).value());
   }
@@ -54,10 +54,10 @@ ValidationError &ValidationErrorCreator::getOrCreateValidationError() {
   return optional_error_.value();
 }
 
-boost::optional<ValidationError> shared_model::validation::aggregateErrors(
+std::optional<ValidationError> shared_model::validation::aggregateErrors(
     const ReasonName &name,
-    std::vector<boost::optional<ReasonType>> optional_reasons,
-    std::vector<boost::optional<ValidationError>> optional_child_errors) {
+    std::vector<std::optional<ReasonType>> optional_reasons,
+    std::vector<std::optional<ValidationError>> optional_child_errors) {
   ValidationErrorCreator error_creator;
   for (auto &optional_reason : optional_reasons) {
     error_creator |= std::move(optional_reason);
@@ -68,9 +68,8 @@ boost::optional<ValidationError> shared_model::validation::aggregateErrors(
   return std::move(error_creator).getValidationError(name);
 }
 
-boost::optional<ValidationError> operator|(
-    boost::optional<ValidationError> oe1,
-    boost::optional<ValidationError> oe2) {
+std::optional<ValidationError> operator|(std::optional<ValidationError> oe1,
+                                         std::optional<ValidationError> oe2) {
   if (oe1) {
     if (oe2) {
       return oe1.value() |= std::move(oe2).value();

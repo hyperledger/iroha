@@ -34,8 +34,8 @@ namespace shared_model {
       virtual FactoryResult<std::unique_ptr<Peer>> createPeer(
           const types::AddressType &address,
           const types::PubkeyType &public_key,
-          const boost::optional<types::TLSCertificateType> &tls_certificate =
-              boost::none) = 0;
+          const std::optional<types::TLSCertificateType> &tls_certificate =
+              std::nullopt) = 0;
 
       /**
        * Create account instance

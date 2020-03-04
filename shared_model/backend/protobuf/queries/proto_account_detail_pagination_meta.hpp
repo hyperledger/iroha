@@ -8,7 +8,7 @@
 
 #include "interfaces/queries/account_detail_pagination_meta.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "backend/protobuf/queries/proto_account_detail_record_id.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
@@ -29,12 +29,13 @@ namespace shared_model {
 
       size_t pageSize() const override;
 
-      boost::optional<const interface::AccountDetailRecordId &> firstRecordId()
-          const override;
+      std::optional<
+          std::reference_wrapper<const interface::AccountDetailRecordId>>
+      firstRecordId() const override;
 
      private:
       TransportType &proto_;
-      const boost::optional<const AccountDetailRecordId> first_record_id_;
+      const std::optional<const AccountDetailRecordId> first_record_id_;
     };
   }  // namespace proto
 }  // namespace shared_model
