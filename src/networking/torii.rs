@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use std::io::prelude::*;
 
 // Start a simple TCP server
-pub fn start_torii(mut mstCache: &cache::mst_cache::MST_Cache,
+pub fn start_torii(mut mstCache: &cache::mst_cache::MSTCache,
                    mut pendingTxCache: &cache::pending_tx_cache::PendingTxCache) {
 
     //TODO: make port configurable from config file
