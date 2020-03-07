@@ -1,4 +1,4 @@
-use crate::model;
+use crate::model::model;
 
 /// Main entity in this crate is `Kura`.
 /// You should start usage of `Kura` via initialization.
