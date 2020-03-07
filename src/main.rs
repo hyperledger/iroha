@@ -27,7 +27,7 @@ fn main() {
 	//TODO:
 
 	// Set up in-memory transaction caches
-	let mst_cache = cache::mst_cache::MST_Cache::new();
+	let mst_cache = cache::mst_cache::MSTCache::new();
 	let pendingTxCache = cache::pending_tx_cache::PendingTxCache::new();
 
 	println!("{}", mst_cache);
