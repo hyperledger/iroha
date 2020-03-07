@@ -33,5 +33,5 @@ fn main() {
 	println!("{}", mst_cache);
 	println!("{}", pendingTxCache);
 
-    networking::torii::start_torii(mst_cache, pendingTxCache);
+    networking::torii::start_torii(&mst_cache, &pendingTxCache);
 }
