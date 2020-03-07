@@ -1,3 +1,10 @@
+use std::fmt;
+
+struct Peer {
+	ip:String,
+	isLeader:bool
+}
+
 /// This module contains core `Kura` stuctures.
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
@@ -63,8 +70,20 @@ pub struct Transaction {
     /// Account ID of transaction creator (username@domain).
     pub account_id: String,
     /// Quorum field (indicates required number of signatures).
-    pub quorum: u8,
+    pub quorum: u32,//TODO: this will almost certainly change; accounts need conditional multisig based on some rules, not associated with a transaction
     pub signatures: Vec<Signature>,
+}
+
+impl fmt::Display for Transaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:}", self.account_id)//TODO: implement
+    }
+}
+
+impl fmt::Debug for Transaction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:}", self.account_id)//TODO: implement
+    }
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
