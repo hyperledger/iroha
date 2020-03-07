@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
 
-    use iroha::{model, storage::kura};
+    use iroha::{model::model, storage::kura};
 
     #[test]
     fn transfer_asset_from_account1_to_account2() {
