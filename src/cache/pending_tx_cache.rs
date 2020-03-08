@@ -1,18 +1,12 @@
 use std::fmt;
 use crate::model::model;
 
+#[derive(Default)]
 pub struct PendingTxCache {
     pending_tx: Vec<model::Transaction>
 }
 
 impl PendingTxCache {
-    // constructor
-    pub fn new() -> PendingTxCache {
-        PendingTxCache {
-            pending_tx: Vec::new()
-        }
-    }
-
 	pub fn add_tx(&mut self, tx: model::Transaction) {
 		self.pending_tx.push(tx);
 	}

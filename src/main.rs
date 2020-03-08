@@ -27,11 +27,11 @@ fn main() {
 	//TODO:
 
 	// Set up in-memory transaction caches
-	let mst_cache = cache::mst_cache::MSTCache::new();
-	let pendingTxCache = cache::pending_tx_cache::PendingTxCache::new();
+	let mst_cache = cache::mst_cache::MSTCache::default();
+	let pending_tx_cache = cache::pending_tx_cache::PendingTxCache::default();
 
 	println!("{}", mst_cache);
-	println!("{}", pendingTxCache);
+	println!("{}", pending_tx_cache);
 
-    networking::torii::start_torii(&mst_cache, &pendingTxCache);
+    networking::torii::start_torii(&mst_cache, &pending_tx_cache);
 }
