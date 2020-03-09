@@ -21,8 +21,9 @@ impl Kura {
     /// Kura reads all transactions in all block keeping its order without any validation.
     /// Better to use only for operations with no expectations about correctnes.
     pub fn fast_init() -> Self {
-        let disk = Disk {};
-        let blocks = disk.read();
+        let disk = Disk::default();
+
+        let blocks = disk.read_vec();
         Kura {
             disk: disk,
             world_state_view: WorldStateView::init(blocks),
@@ -40,9 +41,9 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub fn store(&mut self, block: model::Block) -> Result<model::Hash, String> {
-        //TODO[@humb1t:RH2-14]: make `disk.write` and `world_state_view.put` async/parallel
-        let disk_result = self.disk.write(block.clone());
+    pub async fn store(&mut self, block: model::Block) -> Result<model::Hash, String> {
+        //TODO[@humb1t:RH2-14]: make `world_state_view.put` async/parallel and join! it with disk.write
+        let disk_result = self.disk.write(block.clone()).await;
         self.world_state_view.put(block.clone());
         self.merkle_tree.put(block.clone());
         match disk_result {
@@ -68,6 +69,9 @@ fn validate() -> Result<(), String> {
 }
 
 use chashmap::CHashMap;
+use serde::de::Unexpected::Str;
+use std::path::{Path, PathBuf};
+
 /// WSV reflects the current state of the system, can be considered as a snapshot. For example, WSV
 /// holds information about an amount of assets that an account has at the moment but does not
 /// contain any info history of transaction flow.
@@ -237,34 +241,86 @@ impl MerkleTree {
     }
 }
 
+static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
+
 /// Representation of a consistent storage.
-struct Disk {}
+struct Disk {
+    block_store_location: PathBuf,
+}
+
+impl Default for Disk {
+    fn default() -> Self {
+        Disk::new(DEFAULT_BLOCK_STORE_LOCATION)
+    }
+}
 
 impl Disk {
-    fn write(&mut self, block: model::Block) -> Result<model::Hash, String> {
-        use std::fs::File;
-        use std::io::prelude::*;
-        //TODO: 1block == 1file filename = #
-        match File::create("storage") {
-            Ok(mut file) => {
-                let hash = block.hash();
-                let serialized_block: Vec<u8> = block.into();
-                if let Err(error) = file.write_all(&serialized_block) {
-                    return Err(format!("Failed to write to storage file {}", error));
-                }
-                return Ok(hash);
-            }
-            Err(error) => Result::Err(format!("Failed to open storage file {}", error)),
+    fn new(block_store_location: &str) -> Disk {
+        use std::fs;
+
+        let path = Path::new(block_store_location);
+        fs::create_dir_all(path).expect("Failed to create storage directory.");
+        Disk {
+            block_store_location: path.to_path_buf(),
         }
     }
 
-    fn read(&self) -> Vec<model::Block> {
+    fn get_block_filename(block_height: u64) -> String {
+        format!("{}", block_height)
+    }
+
+    fn get_block_path(&mut self, block_height: u64) -> PathBuf {
+        self.block_store_location
+            .join(Disk::get_block_filename(block_height))
+    }
+
+    async fn write(&mut self, block: model::Block) -> Result<model::Hash, String> {
+        use async_std::fs::File;
+        use async_std::prelude::*;
+
+        //filename is its height
+        let path = self.get_block_path(block.height);
+        match File::create(path).await {
+            Ok(mut file) => {
+                let hash = block.hash();
+                let serialized_block: Vec<u8> = block.into();
+                if let Err(error) = file.write_all(&serialized_block).await {
+                    return Err(format!("Failed to write to storage file {}.", error));
+                }
+                return Ok(hash);
+            }
+            Err(error) => Result::Err(format!("Failed to open storage file {}.", error)),
+        }
+    }
+
+    async fn read(&mut self, height: u64) -> Result<model::Block, String> {
+        use async_std::fs::{metadata, File};
+        use async_std::prelude::*;
+
+        let path = self.get_block_path(height);
+        let mut file = File::open(&path).await.map_err(|_| "No file found.")?;
+        let metadata = metadata(&path)
+            .await
+            .map_err(|_| "Unable to read metadata.")?;
+        let mut buffer = vec![0; metadata.len() as usize];
+        file.read(&mut buffer)
+            .await
+            .map_err(|_| "Buffer overflow.")?;
+        Ok(model::Block::from(buffer))
+    }
+
+    //TODO: implement reading all blocks
+    fn read_vec(&self) -> Vec<model::Block> {
         Vec::new()
     }
 }
 
 #[test]
 fn write_block_to_disk() {
+    use async_std::task;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
     let block = model::Block {
         height: 1,
         timestamp: 1,
@@ -272,12 +328,40 @@ fn write_block_to_disk() {
         previous_block_hash: model::Hash {},
         rejected_transactions_hashes: Option::None,
     };
-    assert!(Disk {}.write(block).is_ok());
+    task::block_on(async {
+        assert!(Disk::new(dir.path().to_str().unwrap())
+            .write(block)
+            .await
+            .is_ok());
+    });
+}
+
+#[test]
+fn read_block_from_disk() {
+    use async_std::task;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let block = model::Block {
+        height: 1,
+        timestamp: 1,
+        transactions: Vec::new(),
+        previous_block_hash: model::Hash {},
+        rejected_transactions_hashes: Option::None,
+    };
+    task::block_on(async {
+        let mut disk = Disk::new(dir.path().to_str().unwrap());
+        disk.write(block)
+            .await
+            .expect("Failed to write block to file.");
+        assert!(disk.read(1).await.is_ok())
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use crate::storage::kura::*;
+    use async_std::task;
 
     ///Kura takes as input blocks, which comprise multiple transactions. Kura is meant to take only
     ///blocks as input that have passed stateless and stateful validation, and have been finalized
@@ -303,10 +387,12 @@ mod tests {
             rejected_transactions_hashes: Option::None,
         };
         let mut kura = Kura::fast_init();
-        let _result = kura.store(block);
-        assert!(kura
-            .world_state_view
-            .get_assets_by_account_id(account_id)
-            .is_empty());
+        task::block_on(async {
+            let _result = kura.store(block).await;
+            assert!(kura
+                .world_state_view
+                .get_assets_by_account_id(account_id)
+                .is_empty());
+        });
     }
 }

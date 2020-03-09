@@ -40,6 +40,12 @@ impl std::convert::From<Block> for Vec<u8> {
     }
 }
 
+impl std::convert::From<Vec<u8>> for Block {
+    fn from(bytes: Vec<u8>) -> Self {
+        bincode::deserialize(&bytes).expect("Failed to deserialize block.")
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Hash {}
 

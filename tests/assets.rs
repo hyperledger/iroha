@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
 
+    use async_std::task;
     use iroha::{model::model, storage::kura};
 
     #[test]
@@ -93,7 +94,9 @@ mod tests {
             previous_block_hash: model::Hash {},
             rejected_transactions_hashes: Option::None,
         };
-        assert!(kura.store(block).is_ok());
+        task::block_on(async {
+            assert!(kura.store(block).await.is_ok());
+        });
         assert_eq!(
             kura.world_state_view
                 .get_assets_by_account_id(&account1_id)
