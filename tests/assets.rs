@@ -25,6 +25,8 @@ mod tests {
             }
             .into(),
         };
+        let account1_id = "account1_name@domain".to_string();
+        let account2_id = "account2_name@domain".to_string();
         let create_account1_command = model::Command {
             version: 1,
             command_type: 0,
@@ -39,7 +41,7 @@ mod tests {
             version: 1,
             command_type: 0,
             payload: model::commands::CreateAccount {
-                account_name: "account1_name".to_string(),
+                account_name: "account2_name".to_string(),
                 domain_id: "domain".to_string(),
                 public_key: [63; 32],
             }
@@ -55,18 +57,14 @@ mod tests {
             }
             .into(),
         };
-        let transfer_asset_command = model::Command {
-            version: 1,
-            command_type: 0,
-            payload: model::commands::TransferAsset {
-                source_account_id: "source@domain".to_string(),
-                destination_account_id: "destination@domain".to_string(),
-                asset_id: "xor".to_string(),
-                description: "description".to_string(),
-                amount: 200.2,
-            }
-            .into(),
-        };
+        let transfer_asset_command: model::Command = model::commands::TransferAsset {
+            source_account_id: account1_id.clone(),
+            destination_account_id: account2_id.clone(),
+            asset_id: "xor".to_string(),
+            description: "description".to_string(),
+            amount: 200.2,
+        }
+        .into();
         let block = model::Block {
             height: 0,
             timestamp: 0,
@@ -96,5 +94,17 @@ mod tests {
             rejected_transactions_hashes: Option::None,
         };
         assert!(kura.store(block).is_ok());
+        assert_eq!(
+            kura.world_state_view
+                .get_assets_by_account_id(&account1_id)
+                .len(),
+            0
+        );
+        assert_eq!(
+            kura.world_state_view
+                .get_assets_by_account_id(&account2_id)
+                .len(),
+            1
+        );
     }
 }
