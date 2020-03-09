@@ -21,10 +21,11 @@ impl Kura {
     /// Kura reads all transactions in all block keeping its order without any validation.
     /// Better to use only for operations with no expectations about correctnes.
     pub fn fast_init() -> Self {
+        let disk = Disk {};
+        let blocks = disk.read();
         Kura {
-            disk: Disk {},
-            //TODO[@humb1t:RH2-12]: replace `default` with `new`
-            world_state_view: WorldStateView::default(),
+            disk: disk,
+            world_state_view: WorldStateView::init(blocks),
             //TODO[@humb1t:RH2-13]: replace `default` with `new`
             merkle_tree: MerkleTree::default(),
         }
@@ -86,6 +87,14 @@ pub struct WorldStateView {
 }
 
 impl WorldStateView {
+    fn init(blocks: Vec<model::Block>) -> Self {
+        let mut world_state_view = WorldStateView::default();
+        for block in blocks {
+            world_state_view.put(block);
+        }
+        world_state_view
+    }
+
     fn put(&mut self, block: model::Block) {
         self.accounts_assets = merge_accounts_assets(self.accounts_assets.clone(), block.clone());
         self.accounts_inbound_transactions =
@@ -137,6 +146,20 @@ fn merge_inbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
+    use crate::model::model::{Accountability, Relation};
+    for tx in block.transactions.iter() {
+        for command in &tx.commands {
+            for relation in command.relations() {
+                if let Relation::GoingTo(account_id) = relation {
+                    origin.upsert(
+                        account_id.clone(),
+                        || vec![tx.clone()],
+                        |transactions| transactions.push(tx.clone()),
+                    );
+                }
+            }
+        }
+    }
     origin
 }
 
@@ -144,6 +167,20 @@ fn merge_outbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
+    use crate::model::model::{Accountability, Relation};
+    for tx in block.transactions.iter() {
+        for command in &tx.commands {
+            for relation in command.relations() {
+                if let Relation::GoingFrom(account_id) = relation {
+                    origin.upsert(
+                        account_id.clone(),
+                        || vec![tx.clone()],
+                        |transactions| transactions.push(tx.clone()),
+                    );
+                }
+            }
+        }
+    }
     origin
 }
 
@@ -151,6 +188,36 @@ fn merge_all_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
+    use crate::model::model::{Accountability, Relation};
+    for tx in block.transactions.iter() {
+        for command in &tx.commands {
+            for relation in command.relations() {
+                match relation {
+                    Relation::GoingTo(account_id) => {
+                        origin.upsert(
+                            account_id.clone(),
+                            || vec![tx.clone()],
+                            |transactions| transactions.push(tx.clone()),
+                        );
+                    }
+                    Relation::BelongsTo(account_id) => {
+                        origin.upsert(
+                            account_id.clone(),
+                            || vec![tx.clone()],
+                            |transactions| transactions.push(tx.clone()),
+                        );
+                    }
+                    Relation::GoingFrom(account_id) => {
+                        origin.upsert(
+                            account_id.clone(),
+                            || vec![tx.clone()],
+                            |transactions| transactions.push(tx.clone()),
+                        );
+                    }
+                }
+            }
+        }
+    }
     origin
 }
 
@@ -189,6 +256,10 @@ impl Disk {
             }
             Err(error) => Result::Err(format!("Failed to open storage file {}", error)),
         }
+    }
+
+    fn read(&self) -> Vec<model::Block> {
+        Vec::new()
     }
 }
 
@@ -233,7 +304,7 @@ mod tests {
         };
         let mut kura = Kura::fast_init();
         let _result = kura.store(block);
-        assert!(!kura
+        assert!(kura
             .world_state_view
             .get_assets_by_account_id(account_id)
             .is_empty());

@@ -156,15 +156,17 @@ pub mod commands {
     /// transaction creator. Use case scenario is to increase the number of a mutable asset in the
     /// system, which can act as a claim on a commodity (e.g. money, gold, etc.).
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct AddAssetQuantity {
-        asset_id: String,
+    pub struct AddAssetQuantity {
+        pub asset_id: String,
         //TODO[@humb1t:RH2-11]: decide which format to use in such a case
         //value can be non-integer, but should be precise.
-        amount: f64,
+        pub amount: f64,
     }
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::AddAssetQuantity;
+    ///
     /// let command_payload = AddAssetQuantity {
     ///     asset_id: "asset@domain".to_string(),
     ///     amount: 200.02,
@@ -179,6 +181,7 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::AddAssetQuantity;
     /// # let command_payload = AddAssetQuantity {
     /// #     asset_id: "asset@domain".to_string(),
     /// #     amount: 200.02,
@@ -206,12 +209,14 @@ pub mod commands {
     /// peer network. After a transaction with AddPeer has been committed, consensus and
     /// synchronization components will start using it.
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct AddPeer {
-        peer: Peer,
+    pub struct AddPeer {
+        pub peer: Peer,
     }
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::{AddPeer, Peer};
+    ///
     /// let command_payload = AddPeer {
     ///     peer: Peer{
     ///         address: "address".to_string(),
@@ -228,6 +233,7 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::{AddPeer, Peer};
     /// # let command_payload = AddPeer {
     /// #     peer: Peer{
     /// #         address: "address".to_string(),
@@ -244,9 +250,9 @@ pub mod commands {
     }
 
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct Peer {
-        address: String,
-        peer_key: [u8; 32],
+    pub struct Peer {
+        pub address: String,
+        pub peer_key: [u8; 32],
     }
 
     #[test]
@@ -264,13 +270,15 @@ pub mod commands {
     /// The purpose of add signatory command is to add an identifier to the account. Such
     /// identifier is a public key of another device or a public key of another user.
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct AddSignatory {
-        account_id: String,
-        public_key: [u8; 32],
+    pub struct AddSignatory {
+        pub account_id: String,
+        pub public_key: [u8; 32],
     }
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::AddSignatory;
+    ///
     /// let command_payload = AddSignatory {
     ///     account_id: "account@domain".to_string(),
     ///     public_key: [63; 32],
@@ -285,6 +293,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::AddSignatory;
+    /// #
     /// # let command_payload = AddSignatory {
     /// #     account_id: "account@domain".to_string(),
     /// #     public_key: [63; 32],
@@ -313,13 +323,15 @@ pub mod commands {
     /// system, where a role is a set of permissions account has to perform an action (command or
     /// query).
     #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-    struct AppendRole {
-        account_id: String,
-        role_name: String,
+    pub struct AppendRole {
+        pub account_id: String,
+        pub role_name: String,
     }
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::AppendRole;
+    ///
     /// let command_payload = AppendRole {
     ///     account_id: "account@domain".to_string(),
     ///     role_name: "role".to_string(),
@@ -334,6 +346,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::AppendRole;
+    /// #
     /// # let command_payload = AppendRole {
     /// #     account_id: "account@domain".to_string(),
     /// #     role_name: "role".to_string(),
@@ -369,6 +383,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::CreateAccount;
+    ///
     /// let command_payload = CreateAccount {
     ///     account_name: "account".to_string(),
     ///     domain_id: "domain".to_string(),
@@ -384,6 +400,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::CreateAccount;
+    /// #
     /// # let command_payload = CreateAccount {
     /// #     account_name: "account".to_string(),
     /// #     domain_id: "domain".to_string(),
@@ -421,6 +439,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::CreateAsset;
+    ///
     /// let command_payload = CreateAsset {
     ///     asset_name: "asset".to_string(),
     ///     domain_id: "domain".to_string(),
@@ -436,6 +456,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::CreateAsset;
+    /// #
     /// # let command_payload = CreateAsset {
     /// #    asset_name: "asset".to_string(),
     /// #    domain_id: "domain".to_string(),
@@ -472,6 +494,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::CreateDomain;
+    ///
     /// let command_payload = CreateDomain {
     ///     domain_id: "domain".to_string(),
     ///     default_role: "user".to_string(),
@@ -486,6 +510,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::CreateDomain;
+    /// #
     /// # let command_payload = CreateDomain {
     /// #    domain_id: "domain".to_string(),
     /// #   default_role: "user".to_string(),
@@ -521,6 +547,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::CreateRole;
+    ///
     /// let command_payload = CreateRole {
     ///     role_name: "user".to_string(),
     ///     permissions: Vec::new(),
@@ -535,6 +563,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::CreateRole;
+    /// #
     /// # let command_payload = CreateRole {
     /// #    role_name: "user".to_string(),
     /// #    permissions: Vec::new(),
@@ -572,6 +602,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use iroha::model::model::commands::TransferAsset;
+    ///
     /// let command_payload = TransferAsset {
     ///    source_account_id: "source@domain".to_string(),
     ///    destination_account_id: "destination@domain".to_string(),
@@ -589,7 +621,9 @@ pub mod commands {
 
     /// # Example
     /// ```
-    /// use crate::model::model::Command;
+    /// use iroha::model::model::Command;
+    /// use iroha::model::model::commands::TransferAsset;
+    ///
     /// let command_payload = TransferAsset {
     ///    source_account_id: "source@domain".to_string(),
     ///    destination_account_id: "destination@domain".to_string(),
@@ -611,6 +645,8 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// # use iroha::model::model::commands::TransferAsset;
+    /// #
     /// # let command_payload = TransferAsset {
     /// #   source_account_id: "source@domain".to_string(),
     /// #   destination_account_id: "destination@domain".to_string(),
