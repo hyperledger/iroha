@@ -13,7 +13,7 @@ use crate::model::model;
 /// Provides all necessary methods to read and write data, hides implementation details.
 pub struct Kura {
     disk: Disk,
-    world_state_view: WorldStateView,
+    pub world_state_view: WorldStateView,
     merkle_tree: MerkleTree,
 }
 
@@ -57,12 +57,13 @@ impl Kura {
 
 #[test]
 fn strict_init_kura() {
-    Kura::strict_init();
+    assert!(Kura::strict_init().is_ok());
 }
 
 //TODO[@humb1t:RH2-15]: who is responsible for validation logic?
 fn validate() -> Result<(), String> {
-    unimplemented!();
+    println!("Validating...");
+    Ok(())
 }
 
 use chashmap::CHashMap;
@@ -70,7 +71,7 @@ use chashmap::CHashMap;
 /// holds information about an amount of assets that an account has at the moment but does not
 /// contain any info history of transaction flow.
 #[derive(Default)]
-struct WorldStateView {
+pub struct WorldStateView {
     /*Structure of arrays?*/
     /// Map of `account_id` to vector of assets.
     accounts_assets: CHashMap<String, Vec<model::Asset>>,
@@ -82,25 +83,6 @@ struct WorldStateView {
     accounts_all_transactions: CHashMap<String, Vec<model::Transaction>>,
     /// Map of `asset_id` to vector of all transactions.
     assets_transactions: CHashMap<String, Vec<model::Transaction>>,
-}
-
-//TODO[@humb1t:RH2-16]: rename
-enum Relation {
-    /// Belongs to account with defined identification.
-    /// For example we can fill a map of accounts to assets by this relation.
-    BelongsTo(String),
-    GoingTo(String),
-    GoingFrom(String),
-}
-
-/// This trait should be implemented for commands with `account_id` field.
-/// Marking your command with `impl` of this trait you provide an ability
-/// to retrieve information about relation to an account.
-//TODO[@humb1t:RH2-16]: name is very bad, should be renamed.
-trait Accountability {
-    fn relations() -> Vec<Relation> {
-        unimplemented!();
-    }
 }
 
 impl WorldStateView {
@@ -116,10 +98,12 @@ impl WorldStateView {
             merge_assets_transactions(self.assets_transactions.clone(), block.clone());
     }
 
-    fn get_assets_by_account_id(&self, account_id: &str) -> Option<Vec<model::Asset>> {
+    /// Return a `Vec` of `Asset`. Result will be empty if there are no assets associated with an
+    /// account.
+    pub fn get_assets_by_account_id(&self, account_id: &str) -> Vec<model::Asset> {
         match &self.accounts_assets.get(account_id) {
-            Some(assets) => Some(assets.clone().to_vec()),
-            None => None,
+            Some(assets) => assets.clone().to_vec(),
+            None => Vec::new(),
         }
     }
 }
@@ -128,32 +112,48 @@ fn merge_accounts_assets(
     origin: CHashMap<String, Vec<model::Asset>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Asset>> {
-    origin.insert(
-        block.transactions[0].account_id.clone(),
-        vec![model::Asset {
-            id: "asset@domain".to_string(),
-        }],
-    );
+    use crate::model::model::{Accountability, Assetibility, Relation};
+    for tx in block.transactions.iter() {
+        for command in &tx.commands {
+            for relation in command.relations() {
+                if let Relation::BelongsTo(account_id) = relation {
+                    println!("BelongsTo {:?}", &account_id);
+                    for asset_id in command.assets() {
+                        origin.insert(
+                            account_id.clone(),
+                            vec![model::Asset {
+                                id: asset_id.clone(),
+                            }],
+                        );
+                    }
+                }
+            }
+        }
+    }
     origin
 }
+
 fn merge_inbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
     origin
 }
+
 fn merge_outbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
     origin
 }
+
 fn merge_all_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
     origin
 }
+
 fn merge_assets_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
@@ -166,7 +166,7 @@ struct MerkleTree {}
 
 impl MerkleTree {
     fn put(&mut self, block: model::Block) {
-        unimplemented!();
+        println!("Putting block into tree.");
     }
 }
 
@@ -232,11 +232,10 @@ mod tests {
             rejected_transactions_hashes: Option::None,
         };
         let mut kura = Kura::fast_init();
-        kura.store(block);
+        let _result = kura.store(block);
         assert!(!kura
             .world_state_view
             .get_assets_by_account_id(account_id)
-            .expect("Value should be presented.")
             .is_empty());
     }
 }
