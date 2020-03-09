@@ -1,8 +1,8 @@
 use std::fmt;
 
 struct Peer {
-	ip:String,
-	isLeader:bool
+    ip: String,
+    isLeader: bool,
 }
 
 /// This module contains core `Kura` stuctures.
@@ -70,19 +70,19 @@ pub struct Transaction {
     /// Account ID of transaction creator (username@domain).
     pub account_id: String,
     /// Quorum field (indicates required number of signatures).
-    pub quorum: u32,//TODO: this will almost certainly change; accounts need conditional multisig based on some rules, not associated with a transaction
+    pub quorum: u32, //TODO: this will almost certainly change; accounts need conditional multisig based on some rules, not associated with a transaction
     pub signatures: Vec<Signature>,
 }
 
 impl fmt::Display for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:}", self.account_id)//TODO: implement
+        write!(f, "{:}", self.account_id) //TODO: implement
     }
 }
 
 impl fmt::Debug for Transaction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:}", self.account_id)//TODO: implement
+        write!(f, "{:}", self.account_id) //TODO: implement
     }
 }
 
@@ -96,6 +96,58 @@ pub struct Command {
     pub version: u8,
     pub command_type: u8,
     pub payload: Vec<u8>,
+}
+
+//TODO[@humb1t:RH2-16]: rename
+pub enum Relation {
+    /// Belongs to account with defined identification.
+    /// For example we can fill a map of accounts to assets by this relation.
+    BelongsTo(String),
+    GoingTo(String),
+    GoingFrom(String),
+}
+
+/// This trait should be implemented for commands with `account_id` field.
+/// Marking your command with `impl` of this trait you provide an ability
+/// to retrieve information about relation to an account.
+//TODO[@humb1t:RH2-16]: name is very bad, should be renamed.
+pub trait Accountability {
+    fn relations(&self) -> Vec<Relation>;
+}
+
+impl Accountability for Command {
+    //TODO: implement
+    fn relations(&self) -> Vec<Relation> {
+        use Relation::*;
+        match &self.command_type {
+            17 => {
+                let command: commands::TransferAsset = self.payload.clone().into();
+                vec![
+                    GoingFrom(command.source_account_id.clone()),
+                    GoingTo(command.destination_account_id.clone()),
+                    BelongsTo(command.destination_account_id.clone()),
+                ]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+pub trait Assetibility {
+    fn assets(&self) -> Vec<String>;
+}
+
+impl Assetibility for Command {
+    //TODO: implement
+    fn assets(&self) -> Vec<String> {
+        match &self.command_type {
+            17 => {
+                let command: commands::TransferAsset = self.payload.clone().into();
+                vec![command.asset_id.clone()]
+            }
+            _ => Vec::new(),
+        }
+    }
 }
 
 pub mod commands {
@@ -537,6 +589,28 @@ pub mod commands {
 
     /// # Example
     /// ```
+    /// use crate::model::model::Command;
+    /// let command_payload = TransferAsset {
+    ///    source_account_id: "source@domain".to_string(),
+    ///    destination_account_id: "destination@domain".to_string(),
+    ///    asset_id: "xor".to_string(),
+    ///    description: "description".to_string(),
+    ///    amount: 200.2,
+    /// };
+    /// let result: Command = command_payload.into();
+    /// ```
+    impl std::convert::From<TransferAsset> for crate::model::model::Command {
+        fn from(command_payload: TransferAsset) -> Self {
+            crate::model::model::Command {
+                version: 1,
+                command_type: 17,
+                payload: command_payload.into(),
+            }
+        }
+    }
+
+    /// # Example
+    /// ```
     /// # let command_payload = TransferAsset {
     /// #   source_account_id: "source@domain".to_string(),
     /// #   destination_account_id: "destination@domain".to_string(),
@@ -565,5 +639,26 @@ pub mod commands {
         let actual: TransferAsset =
             bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn transfer_asset_command_into_command() {
+        use crate::model::model::Command;
+        let transfer_asset = TransferAsset {
+            source_account_id: "source@domain".to_string(),
+            destination_account_id: "destination@domain".to_string(),
+            asset_id: "xor".to_string(),
+            description: "description".to_string(),
+            amount: 200.2,
+        };
+        let expected = Command {
+            version: 1,
+            command_type: 17,
+            payload: transfer_asset.clone().into(),
+        };
+        let actual: Command = transfer_asset.into();
+        assert_eq!(expected.version, actual.version);
+        assert_eq!(expected.command_type, actual.command_type);
+        assert_eq!(expected.payload, actual.payload);
     }
 }
