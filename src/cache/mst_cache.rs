@@ -1,4 +1,4 @@
-use crate::model::model;
+use crate::model;
 use std::fmt;
 
 #[derive(Default)]
