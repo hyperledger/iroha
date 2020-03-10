@@ -19,3 +19,6 @@ jobs:
       run: cargo test --verbose
     - name: rust-clippy-check
       uses: actions-rs/clippy-check@v1.0.5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all-features
