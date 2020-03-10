@@ -115,7 +115,7 @@ impl WorldStateView {
     /// account.
     pub fn get_assets_by_account_id(&self, account_id: &str) -> Vec<model::Asset> {
         match &self.accounts_assets.get(account_id) {
-            Some(assets) => assets.clone().to_vec(),
+            Some(assets) => assets.to_vec().clone(),
             None => Vec::new(),
         }
     }
