@@ -1,0 +1,21 @@
+name: Rust
+
+on:
+  push:
+    branches: [ iroha2-dev ]
+  pull_request:
+    branches: [ iroha2-dev ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: rust-clippy-check
+      uses: actions-rs/clippy-check@v1.0.5
