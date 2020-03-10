@@ -2,7 +2,7 @@
 mod tests {
 
     use async_std::task;
-    use iroha::{model::model, storage::kura};
+    use iroha::{model, storage::kura};
 
     #[async_std::test]
     async fn transfer_asset_from_account1_to_account2() {

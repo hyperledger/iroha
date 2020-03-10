@@ -1,4 +1,4 @@
-use crate::model::model;
+use crate::model;
 
 /// Main entity in this crate is `Kura`.
 /// You should start usage of `Kura` via initialization.
@@ -125,7 +125,7 @@ fn merge_accounts_assets(
     origin: CHashMap<String, Vec<model::Asset>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Asset>> {
-    use crate::model::model::{Accountability, Assetibility, Relation};
+    use crate::model::{Accountability, Assetibility, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -150,7 +150,7 @@ fn merge_inbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::model::{Accountability, Relation};
+    use crate::model::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -171,7 +171,7 @@ fn merge_outbound_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::model::{Accountability, Relation};
+    use crate::model::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -192,7 +192,7 @@ fn merge_all_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
     block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::model::{Accountability, Relation};
+    use crate::model::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
