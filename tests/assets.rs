@@ -4,10 +4,8 @@ mod tests {
     use async_std::task;
     use iroha::{model::model, storage::kura};
 
-    #[test]
-    fn transfer_asset_from_account1_to_account2() {
-        //TODO: replace with `strict_init` when validation will be ready.
-        let mut kura = kura::Kura::fast_init();
+    #[async_std::test]
+    async fn transfer_asset_from_account1_to_account2() {
         let create_role_command = model::Command {
             version: 1,
             command_type: 0,
@@ -94,9 +92,9 @@ mod tests {
             previous_block_hash: model::Hash {},
             rejected_transactions_hashes: Option::None,
         };
-        task::block_on(async {
-            assert!(kura.store(block).await.is_ok());
-        });
+        //TODO: replace with `strict_init` when validation will be ready.
+        let mut kura = kura::Kura::fast_init().await;
+        assert!(kura.store(block).await.is_ok());
         assert_eq!(
             kura.world_state_view
                 .get_assets_by_account_id(&account1_id)
