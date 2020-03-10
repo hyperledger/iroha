@@ -20,10 +20,10 @@ pub struct Kura {
 impl Kura {
     /// Kura reads all transactions in all block keeping its order without any validation.
     /// Better to use only for operations with no expectations about correctnes.
-    pub fn fast_init() -> Self {
+    pub async fn fast_init() -> Self {
         let disk = Disk::default();
 
-        let blocks = disk.read_vec();
+        let blocks = disk.read_all().await;
         Kura {
             disk: disk,
             world_state_view: WorldStateView::init(blocks),
@@ -33,9 +33,9 @@ impl Kura {
     }
 
     /// `Kura::fast_init` with transactions and blocks validation (signatures correctness and business rules).
-    pub fn strict_init() -> Result<Self, String> {
+    pub async fn strict_init() -> Result<Self, String> {
         match validate() {
-            Ok(_) => Ok(Kura::fast_init()),
+            Ok(_) => Ok(Kura::fast_init().await),
             Err(error) => Err(error),
         }
     }
@@ -57,9 +57,9 @@ impl Kura {
     }
 }
 
-#[test]
-fn strict_init_kura() {
-    assert!(Kura::strict_init().is_ok());
+#[async_std::test]
+async fn strict_init_kura() {
+    assert!(Kura::strict_init().await.is_ok());
 }
 
 //TODO[@humb1t:RH2-15]: who is responsible for validation logic?
@@ -309,53 +309,17 @@ impl Disk {
         Ok(model::Block::from(buffer))
     }
 
-    //TODO: implement reading all blocks
-    fn read_vec(&self) -> Vec<model::Block> {
-        Vec::new()
+    async fn read_all(&self) -> Vec<model::Block> {
+        let mut height = 0;
+        let mut blocks = Vec::new();
+
+        while let Ok(block) = self.read(height).await {
+            blocks.push(block);
+            height += 1;
+        }
+
+        blocks
     }
-}
-
-#[test]
-fn write_block_to_disk() {
-    use async_std::task;
-    use tempfile::tempdir;
-
-    let dir = tempdir().unwrap();
-    let block = model::Block {
-        height: 1,
-        timestamp: 1,
-        transactions: Vec::new(),
-        previous_block_hash: model::Hash {},
-        rejected_transactions_hashes: Option::None,
-    };
-    task::block_on(async {
-        assert!(Disk::new(dir.path().to_str().unwrap())
-            .write(block)
-            .await
-            .is_ok());
-    });
-}
-
-#[test]
-fn read_block_from_disk() {
-    use async_std::task;
-    use tempfile::tempdir;
-
-    let dir = tempdir().unwrap();
-    let block = model::Block {
-        height: 1,
-        timestamp: 1,
-        transactions: Vec::new(),
-        previous_block_hash: model::Hash {},
-        rejected_transactions_hashes: Option::None,
-    };
-    task::block_on(async {
-        let mut disk = Disk::new(dir.path().to_str().unwrap());
-        disk.write(block)
-            .await
-            .expect("Failed to write block to file.");
-        assert!(disk.read(1).await.is_ok())
-    });
 }
 
 #[cfg(test)]
@@ -363,14 +327,67 @@ mod tests {
     use crate::storage::kura::*;
     use async_std::task;
 
+    fn get_test_block(height: u64) -> model::Block {
+        model::Block {
+            height,
+            timestamp: 1,
+            transactions: Vec::new(),
+            previous_block_hash: model::Hash {},
+            rejected_transactions_hashes: Option::None,
+        }
+    }
+
+    #[async_std::test]
+    async fn write_block_to_disk() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let block = get_test_block(1);
+        assert!(Disk::new(dir.path().to_str().unwrap())
+            .write(block)
+            .await
+            .is_ok());
+    }
+
+    #[async_std::test]
+    async fn read_block_from_disk() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let block = get_test_block(1);
+        let disk = Disk::new(dir.path().to_str().unwrap());
+        disk.write(block)
+            .await
+            .expect("Failed to write block to file.");
+        assert!(disk.read(1).await.is_ok())
+    }
+
+    #[async_std::test]
+    async fn read_all_blocks_from_disk() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let disk = Disk::new(dir.path().to_str().unwrap());
+        let n = 10;
+
+        for i in 0..n {
+            let block = get_test_block(i);
+            disk.write(block)
+                .await
+                .expect("Failed to write block to file.");
+        }
+        let blocks = disk.read_all().await;
+        assert_eq!(blocks.len(), n as usize)
+    }
+
     ///Kura takes as input blocks, which comprise multiple transactions. Kura is meant to take only
     ///blocks as input that have passed stateless and stateful validation, and have been finalized
     ///by consensus. For finalized blocks, Kura simply commits the block to the block storage on
     ///the disk and updates atomically the in-memory hashmaps that make up the key-value store that
     ///is the world-state-view. To optimize networking syncing, which works on 100 block chunks,
     ///chunks of 100 blocks each are stored in files in the block store.
-    #[test]
-    fn store_block() {
+    #[async_std::test]
+    async fn store_block() {
         let account_id = "test@test";
         let transaction = model::Transaction {
             commands: Vec::new(),
@@ -379,20 +396,12 @@ mod tests {
             quorum: 1,
             signatures: Vec::new(),
         };
-        let block = model::Block {
-            height: 1,
-            timestamp: 1,
-            transactions: vec![transaction],
-            previous_block_hash: model::Hash {},
-            rejected_transactions_hashes: Option::None,
-        };
-        let mut kura = Kura::fast_init();
-        task::block_on(async {
-            let _result = kura.store(block).await;
-            assert!(kura
-                .world_state_view
-                .get_assets_by_account_id(account_id)
-                .is_empty());
-        });
+        let block = get_test_block(0);
+        let mut kura = Kura::fast_init().await;
+        let _result = kura.store(block).await;
+        assert!(kura
+            .world_state_view
+            .get_assets_by_account_id(account_id)
+            .is_empty());
     }
 }
