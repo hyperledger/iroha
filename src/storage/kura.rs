@@ -269,12 +269,12 @@ impl Disk {
         format!("{}", block_height)
     }
 
-    fn get_block_path(&mut self, block_height: u64) -> PathBuf {
+    fn get_block_path(&self, block_height: u64) -> PathBuf {
         self.block_store_location
             .join(Disk::get_block_filename(block_height))
     }
 
-    async fn write(&mut self, block: model::Block) -> Result<model::Hash, String> {
+    async fn write(&self, block: model::Block) -> Result<model::Hash, String> {
         use async_std::fs::File;
         use async_std::prelude::*;
 
@@ -293,7 +293,7 @@ impl Disk {
         }
     }
 
-    async fn read(&mut self, height: u64) -> Result<model::Block, String> {
+    async fn read(&self, height: u64) -> Result<model::Block, String> {
         use async_std::fs::{metadata, File};
         use async_std::prelude::*;
 
