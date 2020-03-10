@@ -99,7 +99,7 @@ Linux
 
 To build Iroha, you will need the following packages:
 
-``build-essential`` ``git`` ``tar`` ``ninja-build`` ``curl`` ``unzip`` ``cmake``
+``build-essential`` ``git`` ``ca-certificates`` ``tar`` ``ninja-build`` ``curl`` ``unzip`` ``cmake``
 
 Use this code to install environment dependencies on Debian-based Linux distro.
 
@@ -108,7 +108,7 @@ Use this code to install environment dependencies on Debian-based Linux distro.
   apt-get update; \
   apt-get -y --no-install-recommends install \
   build-essential ninja-build \
-  git tar curl unzip cmake
+  git ca-certificates tar curl unzip cmake
 
 .. note::  If you are willing to actively develop Iroha and to build shared
   libraries, please consider installing the
