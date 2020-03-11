@@ -43,7 +43,7 @@ impl Kura {
     /// Methods consumes new validated block and atomically stores and caches it.
     pub async fn store(&mut self, block: model::Block) -> Result<model::Hash, String> {
         //TODO[@humb1t:RH2-14]: make `world_state_view.put` async/parallel and join! it with disk.write
-        let disk_result = self.disk.write(block.clone()).await;
+        let disk_result = self.disk.write(&block).await;
         self.world_state_view.put(block.clone());
         self.merkle_tree.put(block.clone());
         match disk_result {
@@ -274,7 +274,7 @@ impl Disk {
             .join(Disk::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: model::Block) -> Result<model::Hash, String> {
+    async fn write(&self, block: &model::Block) -> Result<model::Hash, String> {
         use async_std::fs::File;
         use async_std::prelude::*;
 
@@ -343,7 +343,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let block = get_test_block(1);
         assert!(Disk::new(dir.path().to_str().unwrap())
-            .write(block)
+            .write(&block)
             .await
             .is_ok());
     }
@@ -355,7 +355,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let block = get_test_block(1);
         let disk = Disk::new(dir.path().to_str().unwrap());
-        disk.write(block)
+        disk.write(&block)
             .await
             .expect("Failed to write block to file.");
         assert!(disk.read(1).await.is_ok())
@@ -371,7 +371,7 @@ mod tests {
 
         for i in 0..n {
             let block = get_test_block(i);
-            disk.write(block)
+            disk.write(&block)
                 .await
                 .expect("Failed to write block to file.");
         }
