@@ -309,16 +309,14 @@ impl Disk {
         Ok(model::Block::from(buffer))
     }
 
-    /// returns a sorted vector of blocks starting from 0 height to the top block
+    /// Returns a sorted vector of blocks starting from 0 height to the top block.
     async fn read_all(&self) -> Vec<model::Block> {
         let mut height = 0;
         let mut blocks = Vec::new();
-
         while let Ok(block) = self.read(height).await {
             blocks.push(block);
             height += 1;
         }
-
         blocks
     }
 }
