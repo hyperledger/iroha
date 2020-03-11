@@ -1,3 +1,4 @@
+use blake2::digest::generic_array::{typenum::U64, GenericArray};
 pub mod commands;
 
 use std::fmt;
@@ -21,9 +22,9 @@ pub struct Block {
     pub timestamp: u64,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<Transaction>,
-    /// hash of a previous block in the chain.
-    //TODO[@humb1t:RH2-9]: what to do if this block first?
-    pub previous_block_hash: Hash,
+    /// Hash of a previous block in the chain.
+    /// Is None only for the first block.
+    pub previous_block_hash: Option<Hash>,
     /// rejected transactions hashes — array of transaction hashes, which did not pass stateful
     /// validation step; this field is optional.
     pub rejected_transactions_hashes: Option<Vec<Hash>>,
@@ -31,14 +32,16 @@ pub struct Block {
 
 impl Block {
     pub fn hash(&self) -> Hash {
-        //TODO[@humb1t:RH2-10]: calculate block hash.
-        Hash {}
+        use blake2::{Blake2b, Digest};
+        let bytes: Vec<u8> = self.into();
+        let hash = Blake2b::new().chain(bytes).result();
+        Hash(hash)
     }
 }
 
-impl std::convert::From<Block> for Vec<u8> {
-    fn from(block: Block) -> Self {
-        bincode::serialize(&block).expect("Failed to serialize block.")
+impl std::convert::From<&Block> for Vec<u8> {
+    fn from(block: &Block) -> Self {
+        bincode::serialize(block).expect("Failed to serialize block.")
     }
 }
 
@@ -48,8 +51,40 @@ impl std::convert::From<Vec<u8>> for Block {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Hash {}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hash(GenericArray<u8, U64>);
+
+impl serde::Serialize for Hash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::Serialize;
+
+        Vec::<u8>::serialize(&self.0.to_vec(), serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Hash {
+    fn deserialize<D>(deserializer: D) -> Result<Hash, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::Deserialize;
+        use std::iter::FromIterator;
+
+        Vec::<u8>::deserialize(deserializer)
+            .map(|v| Hash(GenericArray::from_iter(v.iter().cloned())))
+    }
+}
+
+#[test]
+fn test_serde_hash() {
+    let hash = Hash(GenericArray::default());
+    let bytes = bincode::serialize(&hash);
+    let de_hash: Hash = bincode::deserialize(bytes.unwrap().as_slice()).unwrap();
+    assert_eq!(hash, de_hash);
+}
 
 pub struct Account {
     /// identifier of an account. Formatted as `account_name@domain_id`.

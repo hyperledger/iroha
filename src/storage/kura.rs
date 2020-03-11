@@ -331,8 +331,8 @@ mod tests {
             height,
             timestamp: 1,
             transactions: Vec::new(),
-            previous_block_hash: model::Hash {},
-            rejected_transactions_hashes: Option::None,
+            previous_block_hash: None,
+            rejected_transactions_hashes: None,
         }
     }
 
@@ -396,6 +396,7 @@ mod tests {
             signatures: Vec::new(),
         };
         let block = get_test_block(0);
+        //TODO: cleanup blocks dir from previous runs, or the test may fail due to incompatible formats
         let mut kura = Kura::fast_init().await;
         let _result = kura.store(block).await;
         assert!(kura
