@@ -89,7 +89,7 @@ mod tests {
                     signatures: vec![],
                 },
             ],
-            previous_block_hash: model::Hash {},
+            previous_block_hash: Option::None,
             rejected_transactions_hashes: Option::None,
         };
         //TODO: replace with `strict_init` when validation will be ready.
