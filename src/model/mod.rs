@@ -129,7 +129,7 @@ impl Accountability for Command {
         use Relation::*;
         match &self.command_type {
             17 => {
-                let command: commands::TransferAsset = self.payload.clone().into();
+                let command: commands::assets::TransferAsset = self.payload.clone().into();
                 vec![
                     GoingFrom(command.source_account_id.clone()),
                     GoingTo(command.destination_account_id.clone()),
@@ -150,7 +150,7 @@ impl Assetibility for Command {
     fn assets(&self) -> Vec<String> {
         match &self.command_type {
             17 => {
-                let command: commands::TransferAsset = self.payload.clone().into();
+                let command: commands::assets::TransferAsset = self.payload.clone().into();
                 vec![command.asset_id.clone()]
             }
             _ => Vec::new(),
