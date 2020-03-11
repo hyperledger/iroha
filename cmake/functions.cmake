@@ -1,8 +1,8 @@
 # Compile the specified target as a modern, strict C++.
 function(strictmode target)
-  # Require pure C++14 standard.
+  # Require pure C++17 standard.
   set_target_properties(${target} PROPERTIES
-      CXX_STANDARD 14
+      CXX_STANDARD 17
       CXX_STANDARD_REQUIRED ON
       CXX_EXTENSIONS OFF
       )

@@ -119,7 +119,7 @@ TEST_F(QueryProcessorTest, QueryProcessorWhereInvokeInvalidQuery) {
                  .finish();
   auto *qry_resp =
       query_response_factory
-          ->createAccountDetailResponse("", 1, boost::none, qry.hash())
+          ->createAccountDetailResponse("", 1, std::nullopt, qry.hash())
           .release();
 
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));

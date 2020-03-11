@@ -17,11 +17,12 @@ namespace shared_model {
      public:
       FactoryResult<MockAssetPaginationMeta> constructAssetPaginationMeta(
           types::TransactionsNumberType page_size,
-          boost::optional<types::AssetIdType> first_asset_id) const;
+          std::optional<types::AssetIdType> first_asset_id) const;
 
       FactoryResult<MockGetAccountAssets> constructGetAccountAssets(
           const types::AccountIdType &account_id,
-          boost::optional<const interface::AssetPaginationMeta &>
+          std::optional<
+              std::reference_wrapper<const interface::AssetPaginationMeta>>
               pagination_meta) const;
 
       FactoryResult<MockGetAccountAssetTransactions>
@@ -33,14 +34,16 @@ namespace shared_model {
       FactoryResult<MockAccountDetailPaginationMeta>
       constructAccountDetailPaginationMeta(
           size_t page_size,
-          boost::optional<const AccountDetailRecordId &> first_record_id) const;
+          std::optional<std::reference_wrapper<const AccountDetailRecordId>>
+              first_record_id) const;
 
       FactoryResult<MockGetAccountDetail> constructGetAccountDetail(
           const types::AccountIdType &account_id,
-          boost::optional<types::AccountDetailKeyType> key,
-          boost::optional<types::AccountIdType> writer,
-          boost::optional<const AccountDetailPaginationMeta &> pagination_meta)
-          const;
+          std::optional<types::AccountDetailKeyType> key,
+          std::optional<types::AccountIdType> writer,
+          std::optional<
+              std::reference_wrapper<const AccountDetailPaginationMeta>>
+              pagination_meta) const;
 
       FactoryResult<MockGetAccount> constructGetAccount(
           const types::AccountIdType &account_id) const;
@@ -69,7 +72,7 @@ namespace shared_model {
 
       FactoryResult<MockTxPaginationMeta> constructTxPaginationMeta(
           types::TransactionsNumberType page_size,
-          boost::optional<types::HashType> first_tx_hash) const;
+          std::optional<types::HashType> first_tx_hash) const;
 
      private:
       /**

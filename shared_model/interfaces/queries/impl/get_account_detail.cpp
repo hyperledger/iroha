@@ -5,6 +5,8 @@
 
 #include "interfaces/queries/get_account_detail.hpp"
 
+#include "common/optional_reference_equal.hpp"
+
 namespace shared_model {
   namespace interface {
 
@@ -21,7 +23,8 @@ namespace shared_model {
     bool GetAccountDetail::operator==(const ModelType &rhs) const {
       return accountId() == rhs.accountId() and key() == rhs.key()
           and writer() == rhs.writer()
-          and paginationMeta() == rhs.paginationMeta();
+          and iroha::optionalReferenceEqual(paginationMeta(),
+                                            rhs.paginationMeta());
     }
 
   }  // namespace interface

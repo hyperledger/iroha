@@ -51,13 +51,13 @@ namespace iroha {
           std::make_shared<shared_model::plain::Peer>(
               "some-address",
               shared_model::crypto::PublicKey("some-public-key"),
-              boost::none);
+              std::nullopt);
       command->insertPeer(*peer1);
       std::shared_ptr<shared_model::interface::Peer> peer2 =
           std::make_shared<shared_model::plain::Peer>(
               "another-address",
               shared_model::crypto::PublicKey("another-public-key"),
-              boost::none);
+              std::nullopt);
       command->insertPeer(*peer2);
 
       auto result = query->getPeers();

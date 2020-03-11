@@ -14,13 +14,13 @@ namespace shared_model {
         : transactionPageResponse_{query_response.transactions_page_response()},
           transactions_{transactionPageResponse_.transactions().begin(),
                         transactionPageResponse_.transactions().end()},
-          next_hash_{[this]() -> boost::optional<interface::types::HashType> {
+          next_hash_{[this]() -> std::optional<interface::types::HashType> {
             switch (transactionPageResponse_.next_page_tag_case()) {
               case iroha::protocol::TransactionsPageResponse::kNextTxHash:
                 return crypto::Hash::fromHexString(
                     transactionPageResponse_.next_tx_hash());
               default:
-                return boost::none;
+                return std::nullopt;
             }
           }()} {}
 
@@ -29,7 +29,7 @@ namespace shared_model {
       return transactions_;
     }
 
-    boost::optional<interface::types::HashType>
+    std::optional<interface::types::HashType>
     TransactionsPageResponse::nextTxHash() const {
       return next_hash_;
     }

@@ -6,7 +6,8 @@
 #ifndef IROHA_PENDING_TXS_STORAGE_HPP
 #define IROHA_PENDING_TXS_STORAGE_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "common/result.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -35,7 +36,7 @@ namespace iroha {
       shared_model::interface::types::SharedTxsCollectionType transactions;
       shared_model::interface::types::TransactionsNumberType
           all_transactions_size;
-      boost::optional<
+      std::optional<
           shared_model::interface::PendingTransactionsPageResponse::BatchInfo>
           next_batch_info;
 
@@ -69,7 +70,7 @@ namespace iroha {
     virtual expected::Result<Response, ErrorCode> getPendingTransactions(
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::TransactionsNumberType page_size,
-        const boost::optional<shared_model::interface::types::HashType>
+        const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash) const = 0;
 
     virtual ~PendingTransactionStorage() = default;

@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_GET_ACCOUNT_DETAIL_HPP
 #define IROHA_SHARED_MODEL_GET_ACCOUNT_DETAIL_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -36,15 +36,16 @@ namespace shared_model {
       /**
        * @return key from key-value storage
        */
-      virtual boost::optional<types::AccountDetailKeyType> key() const = 0;
+      virtual std::optional<types::AccountDetailKeyType> key() const = 0;
 
       /**
        * @return account identifier of writer
        */
-      virtual boost::optional<types::AccountIdType> writer() const = 0;
+      virtual std::optional<types::AccountIdType> writer() const = 0;
 
       /// Get the query pagination metadata.
-      virtual boost::optional<const AccountDetailPaginationMeta &>
+      virtual std::optional<
+          std::reference_wrapper<const AccountDetailPaginationMeta>>
       paginationMeta() const = 0;
 
       std::string toString() const override;

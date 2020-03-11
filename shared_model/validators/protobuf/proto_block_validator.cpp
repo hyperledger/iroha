@@ -13,7 +13,7 @@
 
 namespace shared_model {
   namespace validation {
-    boost::optional<ValidationError> ProtoBlockValidator::validate(
+    std::optional<ValidationError> ProtoBlockValidator::validate(
         const iroha::protocol::Block &block) const {
       ValidationErrorCreator error_creator;
 

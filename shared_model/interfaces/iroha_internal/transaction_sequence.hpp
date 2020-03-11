@@ -6,7 +6,7 @@
 #ifndef IROHA_TRANSACTION_SEQUENCE_HPP
 #define IROHA_TRANSACTION_SEQUENCE_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 
 namespace shared_model {
@@ -44,7 +44,7 @@ namespace shared_model {
 
      private:
       types::BatchesCollectionType batches_;
-      mutable boost::optional<types::SharedTxsCollectionType> transactions_;
+      mutable std::optional<types::SharedTxsCollectionType> transactions_;
     };
 
   }  // namespace interface

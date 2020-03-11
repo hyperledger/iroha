@@ -92,12 +92,12 @@ grpc::Status MstTransportGrpc::SendState(
         cache_presence->begin(),
         cache_presence->end(),
         [](const auto &tx_status) {
-          return iroha::visit_in_place(
-              tx_status,
-              [](const iroha::ametsuchi::tx_cache_status_responses::Missing &) {
-                return false;
-              },
-              [](const auto &) { return true; });
+          return std::visit(
+              make_visitor(
+                  [](const iroha::ametsuchi::tx_cache_status_responses::Missing
+                         &) { return false; },
+                  [](const auto &) { return true; }),
+              tx_status);
         });
 
     if (not is_replay) {

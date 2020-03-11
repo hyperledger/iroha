@@ -6,7 +6,7 @@
 #ifndef IROHA_BATCH_ORDER_VALIDATOR_HPP
 #define IROHA_BATCH_ORDER_VALIDATOR_HPP
 
-#include <boost/optional/optional_fwd.hpp>
+#include <optional>
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "validators/validators_common.hpp"
 
@@ -18,7 +18,7 @@ namespace shared_model {
      public:
       BatchOrderValidator(std::shared_ptr<ValidatorsConfig> config);
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::types::TransactionsForwardCollectionType
               &transactions) const;
 

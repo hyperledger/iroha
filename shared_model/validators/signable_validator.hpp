@@ -18,8 +18,8 @@ namespace shared_model {
     class SignableModelValidator : public ModelValidator {
      private:
       template <typename Validator>
-      boost::optional<ValidationError> validateImpl(
-          const Model &model, Validator &&validator) const {
+      std::optional<ValidationError> validateImpl(const Model &model,
+                                                  Validator &&validator) const {
         ValidationErrorCreator error_creator;
 
         error_creator |= std::forward<Validator>(validator)(model);
@@ -39,7 +39,7 @@ namespace shared_model {
       explicit SignableModelValidator(std::shared_ptr<ValidatorsConfig> config)
           : SignableModelValidator(config, FieldValidator{config}) {}
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const Model &model,
           interface::types::TimestampType current_timestamp) const {
         return validateImpl(model, [&, current_timestamp](const Model &m) {
@@ -47,7 +47,7 @@ namespace shared_model {
         });
       }
 
-      boost::optional<ValidationError> validate(const Model &model) const {
+      std::optional<ValidationError> validate(const Model &model) const {
         return validateImpl(
             model, [&](const Model &m) { return ModelValidator::validate(m); });
       }

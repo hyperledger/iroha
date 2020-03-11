@@ -261,7 +261,7 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
                                            std::make_shared<TestCompleter>());
   transported_state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key, transported_state);
+  mst_processor->onNewState(another_peer_key, std::move(transported_state));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -339,11 +339,13 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
 
   // ---------------------------------| when |----------------------------------
   shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  auto transported_state = MstState::empty(getTestLogger("MstState"),
-                                           std::make_shared<TestCompleter>());
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
-  transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
-  mst_processor->onNewState(another_peer_key, transported_state);
+  {
+    auto transported_state = MstState::empty(getTestLogger("MstState"),
+                                             std::make_shared<TestCompleter>());
+    transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
+    mst_processor->onNewState(another_peer_key, std::move(transported_state));
+  }
 
   // ---------------------------------| then |----------------------------------
   EXPECT_FALSE(storage->batchInStorage(expired_batch));
@@ -370,7 +372,7 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
   received_state += batch;
   auto observers = initObservers(mst_processor, 0, 0, 0);
   shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  mst_processor->onNewState(another_peer_key, received_state);
+  mst_processor->onNewState(another_peer_key, std::move(received_state));
 
   check(observers);
 }

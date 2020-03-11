@@ -6,7 +6,7 @@
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/validation_error_output.hpp"
 
@@ -135,7 +135,7 @@ class ValidProtoTxValidatorTest
  */
 TEST_P(ValidProtoTxValidatorTest, ValidTxsTest) {
   auto tx = GetParam();
-  ASSERT_EQ(validator.validate(tx), boost::none) << tx.DebugString();
+  ASSERT_EQ(validator.validate(tx), std::nullopt) << tx.DebugString();
 }
 
 INSTANTIATE_TEST_SUITE_P(
