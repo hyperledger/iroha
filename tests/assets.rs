@@ -9,7 +9,7 @@ mod tests {
         let create_role_command = model::Command {
             version: 1,
             command_type: 0,
-            payload: model::commands::CreateRole {
+            payload: model::commands::accounts::CreateRole {
                 role_name: "user".to_string(),
                 permissions: Vec::new(),
             }
@@ -18,7 +18,7 @@ mod tests {
         let create_domain_command = model::Command {
             version: 1,
             command_type: 0,
-            payload: model::commands::CreateDomain {
+            payload: model::commands::domains::CreateDomain {
                 domain_id: "domain".to_string(),
                 default_role: "user".to_string(),
             }
@@ -29,7 +29,7 @@ mod tests {
         let create_account1_command = model::Command {
             version: 1,
             command_type: 0,
-            payload: model::commands::CreateAccount {
+            payload: model::commands::accounts::CreateAccount {
                 account_name: "account1_name".to_string(),
                 domain_id: "domain".to_string(),
                 public_key: [63; 32],
@@ -39,7 +39,7 @@ mod tests {
         let create_account2_command = model::Command {
             version: 1,
             command_type: 0,
-            payload: model::commands::CreateAccount {
+            payload: model::commands::accounts::CreateAccount {
                 account_name: "account2_name".to_string(),
                 domain_id: "domain".to_string(),
                 public_key: [63; 32],
@@ -49,14 +49,14 @@ mod tests {
         let create_asset_command = model::Command {
             version: 1,
             command_type: 0,
-            payload: model::commands::CreateAsset {
+            payload: model::commands::assets::CreateAsset {
                 asset_name: "xor".to_string(),
                 domain_id: "domain".to_string(),
                 precision: 0,
             }
             .into(),
         };
-        let transfer_asset_command: model::Command = model::commands::TransferAsset {
+        let transfer_asset_command: model::Command = model::commands::assets::TransferAsset {
             source_account_id: account1_id.clone(),
             destination_account_id: account2_id.clone(),
             asset_id: "xor".to_string(),
