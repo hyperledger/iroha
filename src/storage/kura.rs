@@ -331,7 +331,7 @@ mod tests {
             height,
             timestamp: 1,
             transactions: Vec::new(),
-            previous_block_hash: None,
+            previous_block_hash: [0; 32],
             rejected_transactions_hashes: None,
         }
     }

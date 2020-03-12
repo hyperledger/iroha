@@ -24,7 +24,7 @@ pub struct Block {
     pub transactions: Vec<Transaction>,
     /// Hash of a previous block in the chain.
     /// Is None only for the first block.
-    pub previous_block_hash: Option<Hash>,
+    pub previous_block_hash: Hash,
     /// rejected transactions hashes — array of transaction hashes, which did not pass stateful
     /// validation step; this field is optional.
     pub rejected_transactions_hashes: Option<Vec<Hash>>,
@@ -32,10 +32,19 @@ pub struct Block {
 
 impl Block {
     pub fn hash(&self) -> Hash {
-        use blake2::{Blake2b, Digest};
+        use blake2::{
+            digest::{Input, VariableOutput},
+            Digest, VarBlake2b,
+        };
+
         let bytes: Vec<u8> = self.into();
-        let hash = Blake2b::new().chain(bytes).result();
-        Hash(hash)
+        let vec_hash = VarBlake2b::new(32)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .vec_result();
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&vec_hash);
+        hash
     }
 }
 
@@ -51,39 +60,38 @@ impl std::convert::From<Vec<u8>> for Block {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Hash(GenericArray<u8, U64>);
+pub type Hash = [u8; 32];
 
-impl serde::Serialize for Hash {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::Serialize;
+#[test]
+fn block_hash() {
+    let block = Block {
+        height: 0,
+        timestamp: 1,
+        transactions: Vec::new(),
+        previous_block_hash: [0; 32],
+        rejected_transactions_hashes: None,
+    };
 
-        Vec::<u8>::serialize(&self.0.to_vec(), serializer)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for Hash {
-    fn deserialize<D>(deserializer: D) -> Result<Hash, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::Deserialize;
-        use std::iter::FromIterator;
-
-        Vec::<u8>::deserialize(deserializer)
-            .map(|v| Hash(GenericArray::from_iter(v.iter().cloned())))
-    }
+    assert_ne!(block.hash(), [0; 32]);
 }
 
 #[test]
-fn test_serde_hash() {
-    let hash = Hash(GenericArray::default());
-    let bytes = bincode::serialize(&hash);
-    let de_hash: Hash = bincode::deserialize(bytes.unwrap().as_slice()).unwrap();
-    assert_eq!(hash, de_hash);
+fn blake2_32b() {
+    use blake2::{
+        digest::{Input, VariableOutput},
+        Digest, VarBlake2b,
+    };
+    use hex_literal::hex;
+
+    let mut hasher = VarBlake2b::new(32).unwrap();
+
+    hasher.input(hex!("6920616d2064617461"));
+    hasher.variable_result(|res| {
+        assert_eq!(
+            res[..],
+            hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
+        );
+    })
 }
 
 pub struct Account {
