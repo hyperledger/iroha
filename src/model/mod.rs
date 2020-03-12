@@ -23,7 +23,7 @@ pub struct Block {
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<Transaction>,
     /// Hash of a previous block in the chain.
-    /// Is None only for the first block.
+    /// Is an array of zeros for the first block.
     pub previous_block_hash: Hash,
     /// rejected transactions hashes — array of transaction hashes, which did not pass stateful
     /// validation step; this field is optional.
