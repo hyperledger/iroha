@@ -26,7 +26,7 @@ pub struct Block {
 
 impl Block {
     pub fn hash(&self) -> Hash {
-        use blake2::{
+        use ursa::blake2::{
             digest::{Input, VariableOutput},
             VarBlake2b,
         };
@@ -71,11 +71,11 @@ fn block_hash() {
 
 #[test]
 fn blake2_32b() {
-    use blake2::{
+    use hex_literal::hex;
+    use ursa::blake2::{
         digest::{Input, VariableOutput},
         VarBlake2b,
     };
-    use hex_literal::hex;
 
     let mut hasher = VarBlake2b::new(32).unwrap();
 
