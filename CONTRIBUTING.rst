@@ -160,6 +160,13 @@ Git Style Guide
    second line must contain empty line, third and other lines can
    contain list of commit changes
 
+
+Rust Style Guide
+~~~~~~~~~~~~~~~~
+
+- Use `cargo fmt`
+- Do not place code inside `mod.rs` files
+
 C++ Style Guide
 ~~~~~~~~~~~~~~~
 
