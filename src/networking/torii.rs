@@ -4,8 +4,8 @@ use std::net::TcpListener;
 
 // Start a simple TCP server
 pub fn start_torii(
-    mut mst_cache: &cache::mst_cache::MSTCache,
-    mut pending_tx_cache: &cache::pending_tx_cache::PendingTxCache,
+    mut _mst_cache: &cache::mst_cache::MSTCache,
+    mut _pending_tx_cache: &cache::pending_tx_cache::PendingTxCache,
 ) {
     //TODO: make port configurable from config file
     let listener = TcpListener::bind("127.0.0.1:1337").expect("could not start server");
