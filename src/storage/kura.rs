@@ -1,4 +1,4 @@
-use crate::model;
+use crate::{model, validation::MerkleTree};
 
 /// Main entity in this crate is `Kura`.
 /// You should start usage of `Kura` via initialization.
@@ -25,10 +25,10 @@ impl Kura {
 
         let blocks = disk.read_all().await;
         Kura {
-            disk: disk,
-            world_state_view: WorldStateView::init(blocks),
+            disk,
+            world_state_view: WorldStateView::init(&blocks),
             //TODO[@humb1t:RH2-13]: replace `default` with `new`
-            merkle_tree: MerkleTree::default(),
+            merkle_tree: MerkleTree::build(&blocks),
         }
     }
 
@@ -45,12 +45,13 @@ impl Kura {
         //TODO[@humb1t:RH2-14]: make `world_state_view.put` async/parallel and join! it with disk.write
         let disk_result = self.disk.write(&block).await;
         self.world_state_view.put(block.clone());
-        self.merkle_tree.put(block.clone());
+        //TODO: replace with rebuild of a tree? self.merkle_tree.put(block.clone());
         match disk_result {
             Ok(hash) => Ok(hash),
             Err(error) => {
+                let blocks = self.disk.read_all().await;
                 self.world_state_view = WorldStateView::default();
-                self.merkle_tree = MerkleTree::default();
+                self.merkle_tree = MerkleTree::build(&blocks);
                 Err(error)
             }
         }
@@ -69,7 +70,6 @@ fn validate() -> Result<(), String> {
 }
 
 use chashmap::CHashMap;
-use serde::de::Unexpected::Str;
 use std::path::{Path, PathBuf};
 
 /// WSV reflects the current state of the system, can be considered as a snapshot. For example, WSV
@@ -91,10 +91,10 @@ pub struct WorldStateView {
 }
 
 impl WorldStateView {
-    fn init(blocks: Vec<model::Block>) -> Self {
+    fn init(blocks: &Vec<model::Block>) -> Self {
         let mut world_state_view = WorldStateView::default();
         for block in blocks {
-            world_state_view.put(block);
+            world_state_view.put(block.clone());
         }
         world_state_view
     }
@@ -227,18 +227,9 @@ fn merge_all_transactions(
 
 fn merge_assets_transactions(
     origin: CHashMap<String, Vec<model::Transaction>>,
-    block: model::Block,
+    _block: model::Block,
 ) -> CHashMap<String, Vec<model::Transaction>> {
     origin
-}
-
-#[derive(Default)]
-struct MerkleTree {}
-
-impl MerkleTree {
-    fn put(&mut self, block: model::Block) {
-        println!("Putting block into tree.");
-    }
 }
 
 static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
@@ -287,7 +278,7 @@ impl Disk {
                 if let Err(error) = file.write_all(&serialized_block).await {
                     return Err(format!("Failed to write to storage file {}.", error));
                 }
-                return Ok(hash);
+                Ok(hash)
             }
             Err(error) => Result::Err(format!("Failed to open storage file {}.", error)),
         }
@@ -324,7 +315,6 @@ impl Disk {
 #[cfg(test)]
 mod tests {
     use crate::storage::kura::*;
-    use async_std::task;
 
     fn get_test_block(height: u64) -> model::Block {
         model::Block {
@@ -388,13 +378,6 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let account_id = "test@test";
-        let transaction = model::Transaction {
-            commands: Vec::new(),
-            creation_time: 1,
-            account_id: account_id.to_string(),
-            quorum: 1,
-            signatures: Vec::new(),
-        };
         let block = get_test_block(0);
         //TODO: cleanup blocks dir from previous runs, or the test may fail due to incompatible formats
         let mut kura = Kura::fast_init().await;

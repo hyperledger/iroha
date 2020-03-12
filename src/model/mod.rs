@@ -1,12 +1,6 @@
-use blake2::digest::generic_array::{typenum::U64, GenericArray};
 pub mod commands;
 
 use std::fmt;
-
-struct Peer {
-    ip: String,
-    isLeader: bool,
-}
 
 /// This module contains core `Kura` stuctures.
 
@@ -34,7 +28,7 @@ impl Block {
     pub fn hash(&self) -> Hash {
         use blake2::{
             digest::{Input, VariableOutput},
-            Digest, VarBlake2b,
+            VarBlake2b,
         };
 
         let bytes: Vec<u8> = self.into();
@@ -79,7 +73,7 @@ fn block_hash() {
 fn blake2_32b() {
     use blake2::{
         digest::{Input, VariableOutput},
-        Digest, VarBlake2b,
+        VarBlake2b,
     };
     use hex_literal::hex;
 
@@ -92,17 +86,6 @@ fn blake2_32b() {
             hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
         );
     })
-}
-
-pub struct Account {
-    /// identifier of an account. Formatted as `account_name@domain_id`.
-    id: String,
-}
-
-pub struct AccountHasAsset {
-    account_id: String,
-    asset_id: String,
-    amount: u64,
 }
 
 #[derive(Clone)]
@@ -176,7 +159,7 @@ impl Accountability for Command {
                 vec![
                     GoingFrom(command.source_account_id.clone()),
                     GoingTo(command.destination_account_id.clone()),
-                    BelongsTo(command.destination_account_id.clone()),
+                    BelongsTo(command.destination_account_id),
                 ]
             }
             _ => Vec::new(),
@@ -194,7 +177,7 @@ impl Assetibility for Command {
         match &self.command_type {
             17 => {
                 let command: commands::assets::TransferAsset = self.payload.clone().into();
-                vec![command.asset_id.clone()]
+                vec![command.asset_id]
             }
             _ => Vec::new(),
         }

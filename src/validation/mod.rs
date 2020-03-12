@@ -1,27 +1,113 @@
 pub mod stateful;
 pub mod stateless;
 
+use crate::model::{Block, Hash};
+
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
 /// Our implementation uses binary hash tree.
-struct MerkleTree {
+pub struct MerkleTree {
     root_node: Node,
 }
 
+impl MerkleTree {
+    /// Builds a Merkle Tree from sorted array of `Blocks`.
+    //TODO: should we check or sort blocks here?
+    pub fn build(blocks: &[Block]) -> Self {
+        //hm, can we write map(Block::hash) in Rust?
+        let mut nodes: std::collections::VecDeque<Node> = blocks
+            .iter()
+            .map(|block| Node::Leaf { hash: block.hash() })
+            .collect();
+        if nodes.len() % 2 != 0 {
+            nodes.push_back(Node::Empty);
+        }
+        while nodes.len() > 1 {
+            if let Some(node1) = nodes.pop_front() {
+                let pop_front = nodes.pop_front();
+                nodes.push_back(match pop_front {
+                    Some(node2) => Node::from_nodes(node1, node2),
+                    None => Node::from_node(node1),
+                });
+            }
+        }
+        MerkleTree {
+            root_node: nodes.pop_front().unwrap_or(Node::Empty),
+        }
+    }
+}
+
 /// Binary Tree's node with possible variants: Subtree, Leaf (with data or links to data) and Empty.
-enum Node {
-    Subtree { left: Box<Node>, right: Box<Node> },
-    Leaf { data: Vec<u8> },
+#[derive(Debug)]
+pub enum Node {
+    Subtree {
+        left: Box<Node>,
+        right: Box<Node>,
+        hash: Hash,
+    },
+    Leaf {
+        hash: Hash,
+    },
     Empty,
 }
 
-struct BreadthFirstIter<'a> {
-    current: &'a Node,
+impl Node {
+    fn from_nodes(left: Self, right: Self) -> Self {
+        Self::Subtree {
+            hash: Self::nodes_pair_hash(&left, &right),
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    fn from_node(left: Self) -> Self {
+        Self::Subtree {
+            hash: left.hash(),
+            left: Box::new(left),
+            right: Box::new(Node::Empty),
+        }
+    }
+
+    fn hash(&self) -> Hash {
+        match &self {
+            Self::Subtree { hash, .. } => *hash,
+            Self::Leaf { hash } => *hash,
+            Self::Empty => [0; 32],
+        }
+    }
+
+    fn nodes_pair_hash(left: &Self, right: &Self) -> Hash {
+        use blake2::{
+            digest::{Input, VariableOutput},
+            VarBlake2b,
+        };
+        let left_hash = left.hash();
+        let right_hash = right.hash();
+        let sum: Vec<_> = left_hash
+            .iter()
+            .zip(right_hash.iter())
+            .map(|(left, right)| left.saturating_add(*right))
+            .take(32)
+            .collect();
+        let vector = VarBlake2b::new(32)
+            .expect("Failed to initialize VarBlake2b.")
+            .chain(sum)
+            .vec_result();
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&vector);
+        hash
+    }
+}
+
+pub struct BreadthFirstIter<'a> {
+    queue: Vec<&'a Node>,
 }
 
 impl<'a> BreadthFirstIter<'a> {
-    fn new(node: &'a Node) -> Self {
-        BreadthFirstIter { current: node }
+    fn new(root_node: &'a Node) -> Self {
+        BreadthFirstIter {
+            queue: vec![root_node],
+        }
     }
 }
 
@@ -33,13 +119,15 @@ impl<'a> Iterator for BreadthFirstIter<'a> {
     type Item = &'a Node;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &self.current {
-            Node::Subtree { left, right } => {
-                self.current = &*left;
-                Some(&*left)
+        match &self.queue.pop() {
+            Some(node) => {
+                if let Node::Subtree { left, right, .. } = node {
+                    self.queue.push(&*left);
+                    self.queue.push(&*right);
+                }
+                Some(node)
             }
-            Node::Leaf { data } => None,
-            Node::Empty => None,
+            None => None,
         }
     }
 }
@@ -54,13 +142,78 @@ impl<'a> IntoIterator for &'a MerkleTree {
 }
 
 #[test]
-#[ignore]
 fn tree_with_two_layers_should_reach_all_nodes() {
     let tree = MerkleTree {
         root_node: Node::Subtree {
-            left: Box::new(Node::Leaf { data: vec![] }),
-            right: Box::new(Node::Leaf { data: vec![] }),
+            left: Box::new(Node::Leaf { hash: [0; 32] }),
+            right: Box::new(Node::Leaf { hash: [0; 32] }),
+            hash: [0; 32],
         },
     };
     assert_eq!(3, tree.into_iter().count());
+}
+
+#[test]
+fn four_blocks_should_built_seven_nodes() {
+    let blocks = [
+        Block {
+            height: 0,
+            timestamp: 1,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+        Block {
+            height: 1,
+            timestamp: 2,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+        Block {
+            height: 2,
+            timestamp: 3,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+        Block {
+            height: 3,
+            timestamp: 4,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+    ];
+    let merkle_tree = MerkleTree::build(&blocks);
+    assert_eq!(7, merkle_tree.into_iter().count());
+}
+
+#[test]
+fn three_blocks_should_built_seven_nodes() {
+    let blocks = [
+        Block {
+            height: 0,
+            timestamp: 1,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+        Block {
+            height: 1,
+            timestamp: 2,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+        Block {
+            height: 2,
+            timestamp: 3,
+            transactions: Vec::new(),
+            previous_block_hash: [0; 32],
+            rejected_transactions_hashes: Option::None,
+        },
+    ];
+    let merkle_tree = MerkleTree::build(&blocks);
+    assert_eq!(7, merkle_tree.into_iter().count());
 }
