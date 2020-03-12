@@ -229,6 +229,8 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
+  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
+
   // initialization objects
   iroha::network::OnDemandOrderingInit ordering_init;
   std::unique_ptr<iroha::consensus::yac::YacInit> yac_init;
@@ -317,6 +319,7 @@ class Irohad {
   // mst
   std::shared_ptr<iroha::network::MstTransport> mst_transport;
   std::shared_ptr<iroha::MstProcessor> mst_processor;
+  rxcpp::composite_subscription finalized_transactions_subscription_;
 
   // pending transactions storage
   std::shared_ptr<iroha::PendingTransactionStorage> pending_txs_storage_;

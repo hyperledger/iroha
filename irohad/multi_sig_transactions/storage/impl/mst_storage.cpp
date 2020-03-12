@@ -48,4 +48,10 @@ namespace iroha {
     std::lock_guard<std::mutex> lock{this->mutex_};
     clearStalledPeerStatesImpl();
   }
+
+  void MstStorage::eraseTransaction(
+      shared_model::interface::types::HashType const &hash) {
+    std::lock_guard<std::mutex> lock{this->mutex_};
+    eraseTransactionImpl(hash);
+  }
 }  // namespace iroha

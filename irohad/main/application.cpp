@@ -233,6 +233,18 @@ Irohad::RunResult Irohad::initStorage(bool keep_wsv_data) {
                                  log_manager_->getChild("Storage"))
                  | [&](auto &&v) -> RunResult {
         storage = std::move(v);
+        finalized_txs_ =
+            storage->on_commit()
+                .flat_map([](auto const &block) {
+                  return rxcpp::observable<>::iterate(
+                             block->transactions()
+                             | boost::adaptors::transformed(
+                                   [](auto const &tx) { return tx.hash(); }))
+                      .concat(rxcpp::observable<>::iterate(
+                          block->rejected_transactions_hashes()));
+                })
+                .publish()
+                .ref_count();
         log_->info("[Init] => storage");
         return {};
       };
@@ -640,6 +652,8 @@ Irohad::RunResult Irohad::initMstProcessor() {
       mst_stalled_batch_threshold_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
+  finalized_transactions_subscription_ = finalized_txs_.subscribe(
+      [mst_storage](auto const &hash) { mst_storage->eraseTransaction(hash); });
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (is_mst_supported_) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -677,20 +691,8 @@ Irohad::RunResult Irohad::initPendingTxsStorage() {
       mst_processor->onStateUpdate(),
       mst_processor->onPreparedBatches(),
       mst_processor->onExpiredBatches(),
-      pcs->onProposal().flat_map([](const OrderingEvent &event)
-                                     -> rxcpp::observable<
-                                         PreparedTransactionDescriptor> {
-        if (not event.proposal) {
-          return rxcpp::observable<>::empty<PreparedTransactionDescriptor>();
-        }
-        auto prepared_transactions =
-            event.proposal.get()->transactions()
-            | boost::adaptors::transformed(
-                  [](const auto &tx) -> PreparedTransactionDescriptor {
-                    return std::make_pair(tx.creatorAccountId(), tx.hash());
-                  });
-        return rxcpp::observable<>::iterate(prepared_transactions);
-      }));
+      rxcpp::observable<>::empty<PreparedTransactionDescriptor>(),
+      finalized_txs_);
   log_->info("[Init] => pending transactions storage");
   return {};
 }

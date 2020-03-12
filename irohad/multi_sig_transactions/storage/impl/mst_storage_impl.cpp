@@ -116,6 +116,14 @@ namespace iroha {
     }
   }
 
+  void MstStorageStateImpl::eraseTransactionImpl(
+      shared_model::interface::types::HashType const &hash) {
+    for (auto &p : peer_states_) {
+      p.second.eraseByTransactionHash(hash);
+    }
+    own_state_.eraseByTransactionHash(hash);
+  }
+
   void MstStorageStateImpl::setLastUpdateTime(const DataType &batch,
                                               TimeType time) {
     batch_last_update_time_.left.erase(batch);

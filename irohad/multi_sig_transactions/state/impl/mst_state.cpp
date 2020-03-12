@@ -137,6 +137,19 @@ namespace iroha {
     batches_.right.erase(batch);
   }
 
+  void MstState::eraseByTransactionHash(
+      const shared_model::interface::types::HashType &hash) {
+    for (auto it = batches_.begin(); it != batches_.end(); ++it) {
+      auto const &transactions = it->right->transactions();
+      if (std::any_of(transactions.begin(),
+                      transactions.end(),
+                      [&hash](auto const &tx) { return hash == tx->hash(); })) {
+        batches_.erase(it);
+        return;
+      }
+    }
+  }
+
   // ------------------------------| private api |------------------------------
 
   /**

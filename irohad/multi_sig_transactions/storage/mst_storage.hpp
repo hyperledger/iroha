@@ -77,6 +77,9 @@ namespace iroha {
     /// Clear stalled transactions from the states of other peers.
     void clearStalledPeerStates();
 
+    /// Erase transaction by hash
+    void eraseTransaction(shared_model::interface::types::HashType const &hash);
+
     virtual ~MstStorage() = default;
 
    protected:
@@ -109,6 +112,9 @@ namespace iroha {
     virtual bool batchInStorageImpl(const DataType &batch) const = 0;
 
     virtual void clearStalledPeerStatesImpl() = 0;
+
+    virtual void eraseTransactionImpl(
+        shared_model::interface::types::HashType const &hash) = 0;
 
     // -------------------------------| fields |--------------------------------
 

@@ -60,6 +60,9 @@ namespace iroha {
 
     void clearStalledPeerStatesImpl() override;
 
+    void eraseTransactionImpl(
+        shared_model::interface::types::HashType const &hash) override;
+
    private:
     inline void setLastUpdateTime(const DataType &batch, TimeType time);
 
