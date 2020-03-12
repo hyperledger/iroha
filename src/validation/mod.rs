@@ -77,7 +77,7 @@ impl Node {
     }
 
     fn nodes_pair_hash(left: &Self, right: &Self) -> Hash {
-        use blake2::{
+        use ursa::blake2::{
             digest::{Input, VariableOutput},
             VarBlake2b,
         };
