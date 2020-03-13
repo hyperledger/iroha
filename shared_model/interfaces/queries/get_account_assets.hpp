@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_GET_ACCOUNT_ASSETS_HPP
 #define IROHA_SHARED_MODEL_GET_ACCOUNT_ASSETS_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -26,7 +26,8 @@ namespace shared_model {
 
       /// Get the query pagination metadata.
       // TODO 2019.05.24 mboldyrev IR-516 remove optional
-      virtual boost::optional<const interface::AssetPaginationMeta &>
+      virtual std::optional<
+          std::reference_wrapper<const interface::AssetPaginationMeta>>
       paginationMeta() const = 0;
 
       std::string toString() const override;

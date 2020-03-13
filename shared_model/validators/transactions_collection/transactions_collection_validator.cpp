@@ -39,7 +39,7 @@ namespace shared_model {
               typename OrderValidator,
               bool CollectionCanBeEmpty>
     template <typename Validator>
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     TransactionsCollectionValidator<TransactionValidator,
                                     OrderValidator,
                                     CollectionCanBeEmpty>::
@@ -89,7 +89,7 @@ namespace shared_model {
     template <typename TransactionValidator,
               typename OrderValidator,
               bool CollectionCanBeEmpty>
-    boost::optional<ValidationError> TransactionsCollectionValidator<
+    std::optional<ValidationError> TransactionsCollectionValidator<
         TransactionValidator,
         OrderValidator,
         CollectionCanBeEmpty>::validate(const shared_model::interface::types::
@@ -103,7 +103,7 @@ namespace shared_model {
     template <typename TransactionValidator,
               typename OrderValidator,
               bool CollectionCanBeEmpty>
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     TransactionsCollectionValidator<TransactionValidator,
                                     OrderValidator,
                                     CollectionCanBeEmpty>::
@@ -115,7 +115,7 @@ namespace shared_model {
     template <typename TransactionValidator,
               typename OrderValidator,
               bool CollectionCanBeEmpty>
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     TransactionsCollectionValidator<TransactionValidator,
                                     OrderValidator,
                                     CollectionCanBeEmpty>::
@@ -131,7 +131,7 @@ namespace shared_model {
     template <typename TransactionValidator,
               typename OrderValidator,
               bool CollectionCanBeEmpty>
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     TransactionsCollectionValidator<TransactionValidator,
                                     OrderValidator,
                                     CollectionCanBeEmpty>::

@@ -46,16 +46,20 @@ namespace iroha {
       }
       auto status = block_query->checkTxPresence(hash);
       status | [this, &hash](const auto &status) {
-        visit_in_place(status,
+        std::visit(make_visitor(
                        [](const tx_cache_status_responses::Missing &) {
                          // don't put this hash into cache since "Missing"
                          // can become "Committed" or "Rejected" later
                        },
                        [this, &hash](const auto &status) {
                          memory_cache_.addItem(hash, status);
-                       });
+                       }),
+                   status);
       };
-      return status;
+      return std::move(status) |
+                 [](auto &&status) -> boost::optional<TxCacheStatusType> {
+        return std::move(status);
+      };
     }
   }  // namespace ametsuchi
 }  // namespace iroha

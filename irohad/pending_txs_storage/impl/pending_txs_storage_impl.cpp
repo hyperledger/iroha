@@ -61,7 +61,7 @@ namespace iroha {
   PendingTransactionStorageImpl::getPendingTransactions(
       const shared_model::interface::types::AccountIdType &account_id,
       const shared_model::interface::types::TransactionsNumberType page_size,
-      const boost::optional<shared_model::interface::types::HashType>
+      const std::optional<shared_model::interface::types::HashType>
           &first_tx_hash) const {
     BOOST_ASSERT_MSG(page_size > 0, "Page size has to be positive");
     std::shared_lock<std::shared_timed_mutex> lock(mutex_);

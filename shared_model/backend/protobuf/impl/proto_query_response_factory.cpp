@@ -69,7 +69,7 @@ shared_model::proto::ProtoQueryResponseFactory::createAccountAssetResponse(
                            interface::types::AssetIdType,
                            shared_model::interface::Amount>> assets,
     size_t total_assets_number,
-    boost::optional<shared_model::interface::types::AssetIdType> next_asset_id,
+    std::optional<shared_model::interface::types::AssetIdType> next_asset_id,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
       [assets = std::move(assets),
@@ -96,8 +96,8 @@ std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createAccountDetailResponse(
     shared_model::interface::types::DetailType account_detail,
     size_t total_number,
-    boost::optional<const shared_model::interface::AccountDetailRecordId &>
-        next_record_id,
+    std::optional<std::reference_wrapper<
+        const shared_model::interface::AccountDetailRecordId>> next_record_id,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
       [&account_detail, total_number, &next_record_id](
@@ -109,8 +109,8 @@ shared_model::proto::ProtoQueryResponseFactory::createAccountDetailResponse(
         if (next_record_id) {
           auto protocol_next_record_id =
               protocol_specific_response->mutable_next_record_id();
-          protocol_next_record_id->set_writer(next_record_id->writer());
-          protocol_next_record_id->set_key(next_record_id->key());
+          protocol_next_record_id->set_writer(next_record_id->get().writer());
+          protocol_next_record_id->set_key(next_record_id->get().key());
         }
       },
       query_hash);
@@ -248,7 +248,7 @@ std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
     std::vector<std::unique_ptr<shared_model::interface::Transaction>>
         transactions,
-    boost::optional<const crypto::Hash &> next_tx_hash,
+    std::optional<std::reference_wrapper<const crypto::Hash>> next_tx_hash,
     interface::types::TransactionsNumberType all_transactions_size,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
@@ -265,7 +265,7 @@ shared_model::proto::ProtoQueryResponseFactory::createTransactionsPageResponse(
         }
         if (next_tx_hash) {
           protocol_specific_response->set_next_tx_hash(
-              next_tx_hash.value().hex());
+              next_tx_hash.value().get().hex());
         }
         protocol_specific_response->set_all_transactions_size(
             all_transactions_size);
@@ -278,7 +278,7 @@ std::unique_ptr<shared_model::interface::QueryResponse> shared_model::proto::
         std::vector<std::unique_ptr<shared_model::interface::Transaction>>
             transactions,
         interface::types::TransactionsNumberType all_transactions_size,
-        boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+        std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
             next_batch_info,
         const crypto::Hash &query_hash) const {
   return createQueryResponse(

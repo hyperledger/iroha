@@ -33,7 +33,7 @@ class PeerTest : public ProtoFixture {
 
   void testValidPeerCreation(const std::string &address,
                              const crypto::PublicKey &pubkey,
-                             const boost::optional<std::string> &tls_cert) {
+                             const std::optional<std::string> &tls_cert) {
     factory.createPeer(address, pubkey, tls_cert)
         .match(
             [&](const auto &v) {
@@ -60,7 +60,7 @@ TEST_F(PeerTest, ValidPeerInitializationWithTlsCert) {
  * @then peer is successfully initialized
  */
 TEST_F(PeerTest, ValidPeerInitializationWithoutTlsCert) {
-  testValidPeerCreation(valid_address, valid_pubkey, boost::none);
+  testValidPeerCreation(valid_address, valid_pubkey, std::nullopt);
 }
 
 /**

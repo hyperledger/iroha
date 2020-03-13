@@ -20,7 +20,7 @@ namespace shared_model {
                        ->mutable_get_account_detail()
                        ->mutable_pagination_meta()};
             }
-            return boost::none;
+            return std::nullopt;
           }()} {}
 
     const interface::types::AccountIdType &GetAccountDetail::accountId() const {
@@ -29,26 +29,28 @@ namespace shared_model {
           : query_.payload().meta().creator_account_id();
     }
 
-    boost::optional<interface::types::AccountDetailKeyType>
+    std::optional<interface::types::AccountDetailKeyType>
     GetAccountDetail::key() const {
       return account_detail_.opt_key_case()
-          ? boost::make_optional(account_detail_.key())
-          : boost::none;
+          ? std::make_optional(account_detail_.key())
+          : std::nullopt;
     }
 
-    boost::optional<interface::types::AccountIdType> GetAccountDetail::writer()
+    std::optional<interface::types::AccountIdType> GetAccountDetail::writer()
         const {
       return account_detail_.opt_writer_case()
-          ? boost::make_optional(account_detail_.writer())
-          : boost::none;
+          ? std::make_optional(account_detail_.writer())
+          : std::nullopt;
     }
 
-    boost::optional<const interface::AccountDetailPaginationMeta &>
+    std::optional<
+        std::reference_wrapper<const interface::AccountDetailPaginationMeta>>
     GetAccountDetail::paginationMeta() const {
       if (pagination_meta_) {
-        return *pagination_meta_;
+        return std::cref<interface::AccountDetailPaginationMeta>(
+            *pagination_meta_);
       }
-      return boost::none;
+      return std::nullopt;
     }
 
   }  // namespace proto

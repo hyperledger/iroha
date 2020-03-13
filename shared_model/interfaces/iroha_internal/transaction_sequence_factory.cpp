@@ -68,7 +68,7 @@ namespace shared_model {
 
         // if transaction is valid, try to form batch out of it
         if (auto meta = tx.value()->batchMeta()) {
-          auto hashes = meta.get()->reducedHashes();
+          auto hashes = meta.value()->reducedHashes();
           auto batch_hash = TransactionBatchHelpers::calculateReducedBatchHash(
               hashes, hashes.size());
           extracted_batches[batch_hash].push_back(tx.value());

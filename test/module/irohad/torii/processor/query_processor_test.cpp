@@ -11,8 +11,10 @@
 #include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/crypto_dummies.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "interfaces/query_responses/block_error_response.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "module/irohad/ametsuchi/mock_block_query.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor.hpp"
@@ -33,13 +35,14 @@ using namespace framework::test_subscriber;
 
 using ::testing::_;
 using ::testing::A;
+using ::testing::ByMove;
 using ::testing::Invoke;
 using ::testing::Return;
 
 class QueryProcessorTest : public ::testing::Test {
  public:
   void SetUp() override {
-    qry_exec = std::make_shared<MockQueryExecutor>();
+    qry_exec = std::make_unique<MockQueryExecutor>();
     storage = std::make_shared<MockStorage>();
     query_response_factory =
         std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
@@ -51,9 +54,6 @@ class QueryProcessorTest : public ::testing::Test {
         getTestLogger("QueryProcessor"));
     EXPECT_CALL(*storage, getBlockQuery())
         .WillRepeatedly(Return(block_queries));
-    EXPECT_CALL(*storage, createQueryExecutor(_, _))
-        .WillRepeatedly(Return(
-            boost::make_optional(std::shared_ptr<QueryExecutor>(qry_exec))));
   }
 
   auto getBlocksQuery(const std::string &creator_account_id) {
@@ -74,13 +74,37 @@ class QueryProcessorTest : public ::testing::Test {
 
   std::vector<shared_model::interface::types::PubkeyType> signatories = {
       keypair.publicKey()};
-  std::shared_ptr<MockQueryExecutor> qry_exec;
+  std::unique_ptr<MockQueryExecutor> qry_exec;
   std::shared_ptr<MockBlockQuery> block_queries;
   std::shared_ptr<MockStorage> storage;
   std::shared_ptr<shared_model::interface::QueryResponseFactory>
       query_response_factory;
   std::shared_ptr<torii::QueryProcessorImpl> qpi;
 };
+
+/**
+ * @given QueryProcessorImpl and GetAccountDetail query
+ * @when queryHandle called at normal flow, but QueryExecutor fails to create
+ * @then query error response is returned
+ */
+TEST_F(QueryProcessorTest,
+       QueryProcessorWhereInvokeInvalidQueryAndQueryExecutorFailsToCreate) {
+  auto qry = TestUnsignedQueryBuilder()
+                 .creatorAccountId(kAccountId)
+                 .getAccountDetail(kMaxPageSize, kAccountId)
+                 .build()
+                 .signAndAddSignature(keypair)
+                 .finish();
+
+  const std::string error_text{"QueryExecutor fails to create"};
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillRepeatedly(
+          [error_text](const auto &, const auto &) { return error_text; });
+
+  auto response = qpi->queryHandle(qry);
+  IROHA_ASSERT_RESULT_ERROR(response);
+  EXPECT_THAT(response.assumeError(), ::testing::HasSubstr(error_text));
+}
 
 /**
  * @given QueryProcessorImpl and GetAccountDetail query
@@ -96,16 +120,18 @@ TEST_F(QueryProcessorTest, QueryProcessorWhereInvokeInvalidQuery) {
                  .finish();
   auto *qry_resp =
       query_response_factory
-          ->createAccountDetailResponse("", 1, boost::none, qry.hash())
+          ->createAccountDetailResponse("", 1, std::nullopt, qry.hash())
           .release();
 
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto response = qpi->queryHandle(qry);
-  ASSERT_TRUE(response);
-  ASSERT_NO_THROW(
-      boost::get<const shared_model::interface::AccountDetailResponse &>(
-          response->get()));
+  IROHA_ASSERT_RESULT_VALUE(response);
+  ASSERT_NE(boost::get<const shared_model::interface::AccountDetailResponse &>(
+                &response.assumeValue()->get()),
+            nullptr);
 }
 
 /**
@@ -132,11 +158,47 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
           .release();
 
   EXPECT_CALL(*qry_exec, validateAndExecute_(_)).WillOnce(Return(qry_resp));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto response = qpi->queryHandle(query);
-  ASSERT_TRUE(response);
+  IROHA_ASSERT_RESULT_VALUE(response);
   shared_model::interface::checkForQueryError(
-      *response, shared_model::interface::QueryErrorType::kStatefulFailed);
+      *response.assumeValue(),
+      shared_model::interface::QueryErrorType::kStatefulFailed);
+}
+
+/**
+ * @given account, ametsuchi queries
+ * @when valid block query is sent, but QueryExecutor fails to create
+ * @then Query Processor should emit an error to the observable
+ */
+TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
+  auto block_number = 5;
+  auto block_query = getBlocksQuery(kAccountId);
+
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillRepeatedly([](const auto &, const auto &) {
+        return "QueryExecutor fails to create";
+      });
+
+  auto wrapper =
+      make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);
+  wrapper.subscribe([](auto response) {
+    ASSERT_NO_THROW({
+      const auto &error_response =
+          boost::get<const shared_model::interface::BlockErrorResponse &>(
+              response->get());
+      EXPECT_THAT(
+          error_response.message(),
+          ::testing::HasSubstr("Internal error during query validation."));
+    });
+  });
+  for (int i = 0; i < block_number; i++) {
+    storage->notifier.get_subscriber().on_next(
+        clone(TestBlockBuilder().build()));
+  }
+  ASSERT_TRUE(wrapper.validate());
 }
 
 /**
@@ -150,6 +212,8 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
   auto block_query = getBlocksQuery(kAccountId);
 
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(true));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto wrapper = make_test_subscriber<CallExact>(
       qpi->blocksQueryHandle(block_query), block_number);
@@ -175,6 +239,8 @@ TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
   auto block_query = getBlocksQuery(kAccountId);
 
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(false));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(qry_exec))));
 
   auto wrapper =
       make_test_subscriber<CallExact>(qpi->blocksQueryHandle(block_query), 1);

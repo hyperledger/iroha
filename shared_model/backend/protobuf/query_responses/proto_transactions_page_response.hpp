@@ -8,6 +8,8 @@
 
 #include "interfaces/query_responses/transactions_page_response.hpp"
 
+#include <optional>
+
 #include <boost/optional/optional.hpp>
 #include "common/result_fwd.hpp"
 #include "cryptography/hash.hpp"
@@ -34,14 +36,14 @@ namespace shared_model {
       TransactionsPageResponse(
           const iroha::protocol::QueryResponse &query_response,
           std::vector<std::unique_ptr<Transaction>> transactions,
-          boost::optional<interface::types::HashType> next_hash);
+          std::optional<interface::types::HashType> next_hash);
 
       ~TransactionsPageResponse() override;
 
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      const boost::optional<interface::types::HashType> &nextTxHash()
+      const std::optional<interface::types::HashType> &nextTxHash()
           const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
@@ -50,7 +52,7 @@ namespace shared_model {
      private:
       const iroha::protocol::TransactionsPageResponse &transactionPageResponse_;
       std::vector<std::unique_ptr<Transaction>> transactions_;
-      boost::optional<interface::types::HashType> next_hash_;
+      std::optional<interface::types::HashType> next_hash_;
     };
   }  // namespace proto
 }  // namespace shared_model

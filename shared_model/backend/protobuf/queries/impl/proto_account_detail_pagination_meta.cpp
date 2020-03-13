@@ -11,9 +11,10 @@ using namespace shared_model::proto;
 AccountDetailPaginationMeta::AccountDetailPaginationMeta(TransportType &proto)
     : proto_(proto), first_record_id_{[this]() -> decltype(first_record_id_) {
         if (proto_.has_first_record_id()) {
-          return AccountDetailRecordId{*this->proto_.mutable_first_record_id()};
+          return std::make_optional<const AccountDetailRecordId>(
+              *this->proto_.mutable_first_record_id());
         }
-        return boost::none;
+        return std::nullopt;
       }()} {}
 
 AccountDetailPaginationMeta::AccountDetailPaginationMeta(
@@ -24,10 +25,12 @@ size_t AccountDetailPaginationMeta::pageSize() const {
   return proto_.page_size();
 }
 
-boost::optional<const shared_model::interface::AccountDetailRecordId &>
+std::optional<std::reference_wrapper<
+    const shared_model::interface::AccountDetailRecordId>>
 AccountDetailPaginationMeta::firstRecordId() const {
   if (first_record_id_) {
-    return first_record_id_.value();
+    return std::cref<shared_model::interface::AccountDetailRecordId>(
+        first_record_id_.value());
   }
   return {};
 }

@@ -5,9 +5,10 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
+#include <optional>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
 #include "builders/protobuf/queries.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -20,7 +21,7 @@ class QueryValidatorTest : public ValidatorsTest {
   QueryValidatorTest() : query_validator(iroha::test::kTestsValidatorsConfig) {}
 
   void validate(iroha::protocol::Query proto,
-                ::testing::Matcher<boost::optional<ValidationError>> matcher) {
+                ::testing::Matcher<std::optional<ValidationError>> matcher) {
     auto result = shared_model::proto::Query::create(std::move(proto));
     IROHA_ASSERT_RESULT_VALUE(result) << "Could not build query.";
     auto model = std::move(result).assumeValue();
@@ -66,7 +67,7 @@ TEST_F(QueryValidatorTest, StatelessValidTest) {
           FAIL() << "Missing field setter: " << field->full_name();
         }
       },
-      [&] { validate(qry, ::testing::Eq(boost::none)); });
+      [&] { validate(qry, ::testing::Eq(std::nullopt)); });
 }
 
 /**
@@ -89,6 +90,6 @@ TEST_F(QueryValidatorTest, StatelessInvalidTest) {
     auto field = desc->field(i);
     auto *msg = refl->GetMessage(*payload, field).New();
     refl->SetAllocatedMessage(payload, msg, field);
-    validate(qry, ::testing::Ne(boost::none));
+    validate(qry, ::testing::Ne(std::nullopt));
   });
 }

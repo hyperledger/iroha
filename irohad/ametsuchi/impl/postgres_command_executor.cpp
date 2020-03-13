@@ -12,6 +12,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -441,6 +442,13 @@ namespace iroha {
 
       void addArgumentToString(const std::string &argument_name,
                                const boost::optional<std::string> &value) {
+        if (value) {
+          addArgumentToString(argument_name, *value);
+        }
+      }
+
+      void addArgumentToString(const std::string &argument_name,
+                               const std::optional<std::string> &value) {
         if (value) {
           addArgumentToString(argument_name, *value);
         }

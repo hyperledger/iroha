@@ -8,7 +8,8 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/optional/optional_fwd.hpp>
+#include <optional>
+
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -28,7 +29,7 @@ namespace shared_model {
       /**
        * @return hash of the first transaction from the next page
        */
-      virtual const boost::optional<interface::types::HashType> &nextTxHash()
+      virtual const std::optional<interface::types::HashType> &nextTxHash()
           const = 0;
 
       /**

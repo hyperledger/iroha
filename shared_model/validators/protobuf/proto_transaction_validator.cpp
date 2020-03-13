@@ -12,7 +12,7 @@
 namespace shared_model {
   namespace validation {
 
-    boost::optional<ValidationError> ProtoTransactionValidator::validate(
+    std::optional<ValidationError> ProtoTransactionValidator::validate(
         const iroha::protocol::Transaction &tx) const {
       ValidationErrorCreator error_creator;
       for (const auto &command : tx.payload().reduced_payload().commands()) {

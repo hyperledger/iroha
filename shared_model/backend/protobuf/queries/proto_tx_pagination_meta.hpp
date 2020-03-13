@@ -8,6 +8,8 @@
 
 #include "interfaces/queries/tx_pagination_meta.hpp"
 
+#include <optional>
+
 #include "common/result_fwd.hpp"
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -29,17 +31,17 @@ namespace shared_model {
       create(const iroha::protocol::TxPaginationMeta &meta);
 
       TxPaginationMeta(const iroha::protocol::TxPaginationMeta &meta,
-                       boost::optional<shared_model::interface::types::HashType>
+                       std::optional<shared_model::interface::types::HashType>
                            first_tx_hash);
 
       interface::types::TransactionsNumberType pageSize() const override;
 
-      const boost::optional<interface::types::HashType> &firstTxHash()
+      const std::optional<interface::types::HashType> &firstTxHash()
           const override;
 
      private:
       const iroha::protocol::TxPaginationMeta &meta_;
-      boost::optional<interface::types::HashType> first_tx_hash_;
+      std::optional<interface::types::HashType> first_tx_hash_;
     };
   }  // namespace proto
 }  // namespace shared_model

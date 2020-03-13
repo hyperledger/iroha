@@ -45,6 +45,7 @@ static constexpr shared_model::interface::types::TransactionsNumberType
 using ::testing::_;
 using ::testing::A;
 using ::testing::AtLeast;
+using ::testing::ByMove;
 using ::testing::Return;
 
 using namespace iroha::ametsuchi;
@@ -63,7 +64,7 @@ class ToriiQueriesTest : public testing::Test {
         ip + ":0", getTestLogger("ServerRunner"));
     wsv_query = std::make_shared<MockWsvQuery>();
     block_query = std::make_shared<MockBlockQuery>();
-    query_executor = std::make_shared<MockQueryExecutor>();
+    query_executor = std::make_unique<MockQueryExecutor>();
     storage = std::make_shared<MockStorage>();
     pending_txs_storage =
         std::make_shared<iroha::MockPendingTransactionStorage>();
@@ -74,9 +75,6 @@ class ToriiQueriesTest : public testing::Test {
 
     EXPECT_CALL(*storage, getWsvQuery()).WillRepeatedly(Return(wsv_query));
     EXPECT_CALL(*storage, getBlockQuery()).WillRepeatedly(Return(block_query));
-    EXPECT_CALL(*storage, createQueryExecutor(_, _))
-        .WillRepeatedly(Return(boost::make_optional(
-            std::shared_ptr<QueryExecutor>(query_executor))));
 
     auto qpi = std::make_shared<iroha::torii::QueryProcessorImpl>(
         storage,
@@ -136,7 +134,7 @@ class ToriiQueriesTest : public testing::Test {
 
   std::shared_ptr<MockWsvQuery> wsv_query;
   std::shared_ptr<MockBlockQuery> block_query;
-  std::shared_ptr<MockQueryExecutor> query_executor;
+  std::unique_ptr<MockQueryExecutor> query_executor;
   std::shared_ptr<MockStorage> storage;
   std::shared_ptr<iroha::MockPendingTransactionStorage> pending_txs_storage;
   std::shared_ptr<shared_model::interface::QueryResponseFactory>
@@ -232,6 +230,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenNoGrantPermissions) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -278,6 +278,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasReadPermissions) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -327,6 +329,8 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasRolePermission) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -368,7 +372,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
           .creatorAccountId(creator)
           .queryCounter(1)
           .createdTime(iroha::time::now())
-          .getAccountAssets(accountb_id, kMaxPageSize, boost::none)
+          .getAccountAssets(accountb_id, kMaxPageSize, std::nullopt)
           .build()
           .signAndAddSignature(pair)
           .finish();
@@ -380,6 +384,8 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -412,7 +418,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
                          .creatorAccountId(creator)
                          .queryCounter(1)
                          .createdTime(iroha::time::now())
-                         .getAccountAssets(creator, kMaxPageSize, boost::none)
+                         .getAccountAssets(creator, kMaxPageSize, std::nullopt)
                          .build()
                          .signAndAddSignature(pair)
                          .finish();
@@ -424,11 +430,13 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
   assets.push_back(std::make_tuple(account_id, asset_id, amount));
   auto *r = query_response_factory
                 ->createAccountAssetResponse(
-                    assets, assets.size(), boost::none, model_query.hash())
+                    assets, assets.size(), std::nullopt, model_query.hash())
                 .release();
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -487,6 +495,8 @@ TEST_F(ToriiQueriesTest, FindSignatoriesWhenNoGrantPermissions) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -533,6 +543,8 @@ TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);
@@ -603,6 +615,8 @@ TEST_F(ToriiQueriesTest, FindTransactionsWhenValid) {
 
   EXPECT_CALL(*query_executor, validateAndExecute_(_))
       .WillRepeatedly(Return(r));
+  EXPECT_CALL(*storage, createQueryExecutor(_, _))
+      .WillOnce(Return(ByMove(std::move(query_executor))));
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(
       model_query.getTransport(), response);

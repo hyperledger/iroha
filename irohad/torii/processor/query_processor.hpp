@@ -9,6 +9,9 @@
 #include <rxcpp/rx-observable-fwd.hpp>
 
 #include <memory>
+#include <string>
+
+#include "common/result_fwd.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -32,7 +35,9 @@ namespace iroha {
        * @param qry - client intent
        * @return resulted response
        */
-      virtual std::unique_ptr<shared_model::interface::QueryResponse>
+      virtual iroha::expected::Result<
+          std::unique_ptr<shared_model::interface::QueryResponse>,
+          std::string>
       queryHandle(const shared_model::interface::Query &qry) = 0;
       /**
        * Register client blocks query

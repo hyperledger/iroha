@@ -8,7 +8,8 @@
 
 #include "interfaces/queries/get_pending_transactions.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "common/result_fwd.hpp"
 
 namespace iroha {
@@ -33,19 +34,18 @@ namespace shared_model {
 
       GetPendingTransactions(
           const iroha::protocol::Query &query,
-          boost::optional<
+          std::optional<
               std::unique_ptr<shared_model::interface::TxPaginationMeta>>
               pagination_meta);
 
       ~GetPendingTransactions() override;
 
-      boost::optional<const interface::TxPaginationMeta &> paginationMeta()
-          const override;
+      std::optional<std::reference_wrapper<const interface::TxPaginationMeta>>
+      paginationMeta() const override;
 
      private:
       const iroha::protocol::GetPendingTransactions &pending_transactions_;
-      boost::optional<
-          std::unique_ptr<shared_model::interface::TxPaginationMeta>>
+      std::optional<std::unique_ptr<shared_model::interface::TxPaginationMeta>>
           pagination_meta_;
     };
   }  // namespace proto

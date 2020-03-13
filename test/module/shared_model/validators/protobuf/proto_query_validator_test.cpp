@@ -6,7 +6,7 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 
 #include <gmock/gmock-matchers.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "queries.pb.h"
 #include "validators/validation_error_output.hpp"
@@ -43,7 +43,7 @@ TEST_F(ProtoQueryValidatorTest, SetQuery) {
   iroha::protocol::Query qry;
   qry.mutable_payload()->mutable_get_account()->set_account_id(account_id);
 
-  ASSERT_EQ(validator.validate(qry), boost::none);
+  ASSERT_EQ(validator.validate(qry), std::nullopt);
 }
 
 iroha::protocol::Query generateGetAccountAssetTransactionsQuery(
@@ -76,7 +76,7 @@ class ValidProtoPaginationQueryValidatorTest
       public ::testing::WithParamInterface<iroha::protocol::Query> {};
 
 TEST_P(ValidProtoPaginationQueryValidatorTest, ValidPaginationQuery) {
-  ASSERT_EQ(validator.validate(GetParam()), boost::none)
+  ASSERT_EQ(validator.validate(GetParam()), std::nullopt)
       << GetParam().DebugString();
 }
 

@@ -6,7 +6,7 @@
 #include "backend/protobuf/proto_query_response_factory.hpp"
 
 #include <gtest/gtest.h>
-#include <boost/optional.hpp>
+#include <optional>
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
@@ -95,7 +95,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountAssetResponse) {
   }
 
   query_responses.push_back(response_factory->createAccountAssetResponse(
-      assets, assets.size(), boost::none, kQueryHash));
+      assets, assets.size(), std::nullopt, kQueryHash));
 
   for (auto &query_response : query_responses) {
     ASSERT_TRUE(query_response);
@@ -137,7 +137,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateAccountDetailResponse) {
     EXPECT_EQ(response.detail(), account_details);
     EXPECT_EQ(response.totalNumber(), total_number);
     ASSERT_TRUE(response.nextRecordId());
-    EXPECT_EQ(response.nextRecordId().value(), next_record_id);
+    EXPECT_EQ(response.nextRecordId().value().get(), next_record_id);
   });
 }
 
@@ -333,7 +333,7 @@ TEST_F(ProtoQueryResponseFactoryTest,
     transactions_test_copy.push_back(std::move(tx_copy));
   }
   auto query_response = response_factory->createTransactionsPageResponse(
-      std::move(transactions), boost::none, kTransactionsNumber, kQueryHash);
+      std::move(transactions), std::nullopt, kTransactionsNumber, kQueryHash);
 
   ASSERT_TRUE(query_response);
   EXPECT_EQ(query_response->queryHash(), kQueryHash);

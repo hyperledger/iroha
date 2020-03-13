@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_GET_PENDING_TRANSACTIONS_HPP
 #define IROHA_SHARED_MODEL_GET_PENDING_TRANSACTIONS_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -25,8 +25,8 @@ namespace shared_model {
       /**
        *  Get the query pagination metadata.
        */
-      virtual boost::optional<const TxPaginationMeta &> paginationMeta()
-          const = 0;
+      virtual std::optional<std::reference_wrapper<const TxPaginationMeta>>
+      paginationMeta() const = 0;
 
       std::string toString() const override;
 

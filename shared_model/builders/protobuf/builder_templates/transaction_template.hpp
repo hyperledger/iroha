@@ -143,11 +143,10 @@ namespace shared_model {
         });
       }
 
-      auto addPeerRaw(
-          const interface::types::AddressType &address,
-          const std::string &peer_key,
-          const boost::optional<interface::types::TLSCertificateType>
-              &tls_certificate = boost::none) const {
+      auto addPeerRaw(const interface::types::AddressType &address,
+                      const std::string &peer_key,
+                      const std::optional<interface::types::TLSCertificateType>
+                          &tls_certificate = std::nullopt) const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_add_peer();
           auto peer = command->mutable_peer();
@@ -161,8 +160,8 @@ namespace shared_model {
 
       auto addPeer(const interface::types::AddressType &address,
                    const interface::types::PubkeyType &peer_key,
-                   const boost::optional<interface::types::TLSCertificateType>
-                       &tls_certificate = boost::none) const {
+                   const std::optional<interface::types::TLSCertificateType>
+                       &tls_certificate = std::nullopt) const {
         return addPeerRaw(address, peer_key.hex(), tls_certificate);
       }
 

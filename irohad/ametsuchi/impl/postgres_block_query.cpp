@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 
 #include <boost/format.hpp>
+
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "common/byteutils.hpp"
 #include "common/cloneable.hpp"
@@ -43,7 +44,7 @@ namespace iroha {
       return block_storage_.size();
     }
 
-    boost::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(
+    std::optional<TxCacheStatusType> PostgresBlockQuery::checkTxPresence(
         const shared_model::crypto::Hash &hash) {
       int res = -1;
       const auto &hash_str = hash.hex();
@@ -53,20 +54,20 @@ namespace iroha {
             soci::into(res), soci::use(hash_str);
       } catch (const std::exception &e) {
         log_->error("Failed to execute query: {}", e.what());
-        return boost::none;
+        return std::nullopt;
       }
 
       // res > 0 => Committed
       // res == 0 => Rejected
       // res < 0 => Missing
       if (res > 0) {
-        return boost::make_optional<TxCacheStatusType>(
+        return std::make_optional<TxCacheStatusType>(
             tx_cache_status_responses::Committed{hash});
       } else if (res == 0) {
-        return boost::make_optional<TxCacheStatusType>(
+        return std::make_optional<TxCacheStatusType>(
             tx_cache_status_responses::Rejected{hash});
       }
-      return boost::make_optional<TxCacheStatusType>(
+      return std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Missing{hash});
     }
 

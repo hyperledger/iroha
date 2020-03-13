@@ -57,13 +57,13 @@ namespace shared_model {
             };
       }
       return std::make_unique<PendingTransactionsPageResponse>(
-          query_response, std::move(txs), boost::none);
+          query_response, std::move(txs), std::nullopt);
     }
 
     PendingTransactionsPageResponse::PendingTransactionsPageResponse(
         const iroha::protocol::QueryResponse &query_response,
         std::vector<std::unique_ptr<Transaction>> transactions,
-        boost::optional<BatchInfo> next_batch_info)
+        std::optional<BatchInfo> next_batch_info)
         : pending_transactions_page_response_{query_response
                                                   .pending_transactions_page_response()},
           transactions_{std::move(transactions)},
@@ -77,7 +77,7 @@ namespace shared_model {
       return transactions_ | boost::adaptors::indirected;
     }
 
-    const boost::optional<PendingTransactionsPageResponse::BatchInfo>
+    const std::optional<PendingTransactionsPageResponse::BatchInfo>
         &PendingTransactionsPageResponse::nextBatchInfo() const {
       return next_batch_info_;
     }

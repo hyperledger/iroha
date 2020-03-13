@@ -43,13 +43,13 @@ namespace shared_model {
             };
       }
       return std::make_unique<TransactionsPageResponse>(
-          query_response, std::move(txs), boost::none);
+          query_response, std::move(txs), std::nullopt);
     }
 
     TransactionsPageResponse::TransactionsPageResponse(
         const iroha::protocol::QueryResponse &query_response,
         std::vector<std::unique_ptr<Transaction>> transactions,
-        boost::optional<interface::types::HashType> next_hash)
+        std::optional<interface::types::HashType> next_hash)
         : transactionPageResponse_{query_response.transactions_page_response()},
           transactions_{std::move(transactions)},
           next_hash_{std::move(next_hash)} {}
@@ -61,7 +61,7 @@ namespace shared_model {
       return transactions_ | boost::adaptors::indirected;
     }
 
-    const boost::optional<interface::types::HashType>
+    const std::optional<interface::types::HashType>
         &TransactionsPageResponse::nextTxHash() const {
       return next_hash_;
     }

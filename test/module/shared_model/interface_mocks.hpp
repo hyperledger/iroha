@@ -55,7 +55,7 @@ struct MockTransaction : public shared_model::interface::Transaction {
   MOCK_CONST_METHOD0(hash, const shared_model::interface::types::HashType &());
   MOCK_CONST_METHOD0(
       batch_meta,
-      boost::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
+      std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
   MOCK_CONST_METHOD0(signatures,
                      shared_model::interface::types::SignatureRangeType());
   MOCK_CONST_METHOD0(createdTime,
@@ -71,7 +71,7 @@ struct MockTransaction : public shared_model::interface::Transaction {
                      const shared_model::interface::types::BlobType &());
   MOCK_CONST_METHOD0(
       batchMeta,
-      boost::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
+      std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
 };
 
 /**
@@ -186,7 +186,7 @@ struct MockPeer : public shared_model::interface::Peer {
                      const shared_model::interface::types::PubkeyType &());
   MOCK_CONST_METHOD0(
       tlsCertificate,
-      const boost::optional<shared_model::interface::types::TLSCertificateType>
+      const std::optional<shared_model::interface::types::TLSCertificateType>
           &());
   MOCK_CONST_METHOD0(clone, MockPeer *());
 };
@@ -194,8 +194,8 @@ struct MockPeer : public shared_model::interface::Peer {
 inline auto makePeer(
     const std::string &address,
     const shared_model::crypto::PublicKey &pub_key,
-    const boost::optional<shared_model::interface::types::TLSCertificateType>
-        &tls_certificate = boost::none) {
+    const std::optional<shared_model::interface::types::TLSCertificateType>
+        &tls_certificate = std::nullopt) {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
       .WillRepeatedly(testing::ReturnRefOfCopy(address));
@@ -221,7 +221,7 @@ struct MockCommonObjectsFactory
                FactoryResult<std::unique_ptr<shared_model::interface::Peer>>(
                    const shared_model::interface::types::AddressType &,
                    const shared_model::interface::types::PubkeyType &,
-                   const boost::optional<
+                   const std::optional<
                        shared_model::interface::types::TLSCertificateType> &));
 
   MOCK_METHOD4(createAccount,

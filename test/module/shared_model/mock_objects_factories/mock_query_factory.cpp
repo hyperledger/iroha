@@ -23,7 +23,7 @@ MockQueryFactory::createFactoryResult(
 MockQueryFactory::FactoryResult<MockAssetPaginationMeta>
 MockQueryFactory::constructAssetPaginationMeta(
     types::TransactionsNumberType page_size,
-    boost::optional<types::AssetIdType> first_asset_id) const {
+    std::optional<types::AssetIdType> first_asset_id) const {
   return createFactoryResult<MockAssetPaginationMeta>(
       [&page_size, &first_asset_id](MockAssetPaginationMeta &mock) {
         EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
@@ -35,8 +35,8 @@ MockQueryFactory::constructAssetPaginationMeta(
 MockQueryFactory::FactoryResult<MockGetAccountAssets>
 MockQueryFactory::constructGetAccountAssets(
     const types::AccountIdType &account_id,
-    boost::optional<const interface::AssetPaginationMeta &> pagination_meta)
-    const {
+    std::optional<std::reference_wrapper<const interface::AssetPaginationMeta>>
+        pagination_meta) const {
   return createFactoryResult<MockGetAccountAssets>(
       [&account_id, &pagination_meta](MockGetAccountAssets &mock) {
         EXPECT_CALL(mock, accountId()).WillRepeatedly(ReturnRef(account_id));
@@ -63,7 +63,8 @@ MockQueryFactory::constructGetAccountAssetTransactions(
 MockQueryFactory::FactoryResult<MockAccountDetailPaginationMeta>
 MockQueryFactory::constructAccountDetailPaginationMeta(
     size_t page_size,
-    boost::optional<const AccountDetailRecordId &> first_record_id) const {
+    std::optional<std::reference_wrapper<const AccountDetailRecordId>>
+        first_record_id) const {
   return createFactoryResult<MockAccountDetailPaginationMeta>(
       [&page_size, &first_record_id](MockAccountDetailPaginationMeta &mock) {
         EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));
@@ -75,10 +76,10 @@ MockQueryFactory::constructAccountDetailPaginationMeta(
 MockQueryFactory::FactoryResult<MockGetAccountDetail>
 MockQueryFactory::constructGetAccountDetail(
     const types::AccountIdType &account_id,
-    boost::optional<types::AccountDetailKeyType> key,
-    boost::optional<types::AccountIdType> writer,
-    boost::optional<const AccountDetailPaginationMeta &> pagination_meta)
-    const {
+    std::optional<types::AccountDetailKeyType> key,
+    std::optional<types::AccountIdType> writer,
+    std::optional<std::reference_wrapper<const AccountDetailPaginationMeta>>
+        pagination_meta) const {
   return createFactoryResult<MockGetAccountDetail>(
       [&account_id, &key, &writer, &pagination_meta](
           MockGetAccountDetail &mock) {
@@ -163,7 +164,7 @@ MockQueryFactory::constructGetPeers() const {
 MockQueryFactory::FactoryResult<MockTxPaginationMeta>
 MockQueryFactory::constructTxPaginationMeta(
     types::TransactionsNumberType page_size,
-    boost::optional<types::HashType> first_tx_hash) const {
+    std::optional<types::HashType> first_tx_hash) const {
   return createFactoryResult<MockTxPaginationMeta>(
       [&page_size, &first_tx_hash](MockTxPaginationMeta &mock) {
         EXPECT_CALL(mock, pageSize()).WillRepeatedly(Return(page_size));

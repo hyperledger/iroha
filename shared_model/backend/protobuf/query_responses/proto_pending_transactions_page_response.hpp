@@ -8,6 +8,8 @@
 
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 
+#include <optional>
+
 #include <boost/optional/optional.hpp>
 #include "common/result_fwd.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -27,7 +29,7 @@ namespace shared_model {
       PendingTransactionsPageResponse(
           const iroha::protocol::QueryResponse &query_response,
           std::vector<std::unique_ptr<Transaction>> transactions,
-          boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+          std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
               next_batch_info);
 
       ~PendingTransactionsPageResponse() override;
@@ -35,8 +37,7 @@ namespace shared_model {
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      const boost::optional<
-          interface::PendingTransactionsPageResponse::BatchInfo>
+      const std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
           &nextBatchInfo() const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
@@ -46,7 +47,7 @@ namespace shared_model {
       const iroha::protocol::PendingTransactionsPageResponse
           &pending_transactions_page_response_;
       const std::vector<std::unique_ptr<Transaction>> transactions_;
-      boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+      std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
           next_batch_info_;
     };
   }  // namespace proto

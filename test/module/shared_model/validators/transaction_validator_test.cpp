@@ -5,10 +5,10 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
+#include <optional>
 #include <type_traits>
 
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
 #include <boost/range/irange.hpp>
 #include "builders/protobuf/transaction.hpp"
 #include "framework/result_gtest_checkers.hpp"
@@ -30,7 +30,7 @@ class TransactionValidatorTest : public ValidatorsTest {
   }
 
   void validate(iroha::protocol::Transaction proto,
-                ::testing::Matcher<boost::optional<ValidationError>> matcher) {
+                ::testing::Matcher<std::optional<ValidationError>> matcher) {
     auto result = shared_model::proto::Transaction::create(std::move(proto));
     IROHA_ASSERT_RESULT_VALUE(result) << "Could not build transaction.";
     auto model = std::move(result).assumeValue();
@@ -103,7 +103,7 @@ TEST_F(TransactionValidatorTest, StatelessValidTest) {
       },
       [] {});
 
-  validate(std::move(tx), ::testing::Eq(boost::none));
+  validate(std::move(tx), ::testing::Eq(std::nullopt));
 }
 
 /**
@@ -117,7 +117,7 @@ TEST_F(TransactionValidatorTest, UnsetCommand) {
       account_id);
   tx.mutable_payload()->mutable_reduced_payload()->set_created_time(
       created_time);
-  validate(std::move(tx), ::testing::Ne(boost::none));
+  validate(std::move(tx), ::testing::Ne(std::nullopt));
 }
 
 /**
@@ -176,7 +176,7 @@ TEST_F(TransactionValidatorTest, BatchValidTest) {
                 .getTransport();
   shared_model::validation::DefaultUnsignedTransactionValidator
       transaction_validator(iroha::test::kTestsValidatorsConfig);
-  validate(std::move(tx), ::testing::Eq(boost::none));
+  validate(std::move(tx), ::testing::Eq(std::nullopt));
   ASSERT_EQ(tx.payload().batch().type(),
             static_cast<int>(interface::types::BatchType::ATOMIC));
 }

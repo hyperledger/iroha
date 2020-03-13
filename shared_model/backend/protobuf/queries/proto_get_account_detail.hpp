@@ -8,7 +8,7 @@
 
 #include "interfaces/queries/get_account_detail.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "backend/protobuf/queries/proto_account_detail_pagination_meta.hpp"
 
 namespace iroha {
@@ -26,12 +26,13 @@ namespace shared_model {
 
       const interface::types::AccountIdType &accountId() const override;
 
-      boost::optional<interface::types::AccountDetailKeyType> key()
+      std::optional<interface::types::AccountDetailKeyType> key()
           const override;
 
-      boost::optional<interface::types::AccountIdType> writer() const override;
+      std::optional<interface::types::AccountIdType> writer() const override;
 
-      boost::optional<const interface::AccountDetailPaginationMeta &>
+      std::optional<
+          std::reference_wrapper<const interface::AccountDetailPaginationMeta>>
       paginationMeta() const override;
 
      private:
@@ -39,7 +40,7 @@ namespace shared_model {
 
       const iroha::protocol::Query &query_;
       const iroha::protocol::GetAccountDetail &account_detail_;
-      const boost::optional<const AccountDetailPaginationMeta> pagination_meta_;
+      const std::optional<const AccountDetailPaginationMeta> pagination_meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

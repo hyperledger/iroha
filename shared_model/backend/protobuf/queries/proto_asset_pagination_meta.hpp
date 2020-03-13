@@ -26,7 +26,7 @@ namespace shared_model {
 
       interface::types::TransactionsNumberType pageSize() const override;
 
-      boost::optional<interface::types::AssetIdType> firstAssetId()
+      std::optional<interface::types::AssetIdType> firstAssetId()
           const override;
 
      private:

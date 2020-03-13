@@ -259,11 +259,13 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   auto observers = initObservers(mst_processor, 0, 1, 0);
 
   // ---------------------------------| when |----------------------------------
-  auto transported_state = MstState::empty(getTestLogger("MstState"),
-                                           std::make_shared<TestCompleter>());
-  transported_state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(kAnotherPeerKey, transported_state);
+  {
+    auto transported_state = MstState::empty(getTestLogger("MstState"),
+                                             std::make_shared<TestCompleter>());
+    transported_state += addSignaturesFromKeyPairs(
+        makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
+    mst_processor->onNewState(kAnotherPeerKey, std::move(transported_state));
+  }
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -339,11 +341,13 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
   auto observers = initObservers(mst_processor, 0, 0, 0);
 
   // ---------------------------------| when |----------------------------------
-  auto transported_state = MstState::empty(getTestLogger("MstState"),
-                                           std::make_shared<TestCompleter>());
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
-  transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
-  mst_processor->onNewState(kAnotherPeerKey, transported_state);
+  {
+    auto transported_state = MstState::empty(getTestLogger("MstState"),
+                                             std::make_shared<TestCompleter>());
+    transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
+    mst_processor->onNewState(kAnotherPeerKey, std::move(transported_state));
+  }
 
   // ---------------------------------| then |----------------------------------
   EXPECT_FALSE(storage->batchInStorage(expired_batch));
@@ -365,11 +369,14 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(2, time_now, 2)), 0, makeKey()));
 
-  auto received_state = MstState::empty(getTestLogger("MstState"),
-                                        std::make_shared<TestCompleter>());
-  received_state += batch;
   auto observers = initObservers(mst_processor, 0, 0, 0);
-  mst_processor->onNewState(kAnotherPeerKey, received_state);
+
+  {
+    auto received_state = MstState::empty(getTestLogger("MstState"),
+                                          std::make_shared<TestCompleter>());
+    received_state += batch;
+    mst_processor->onNewState(kAnotherPeerKey, std::move(received_state));
+  }
 
   check(observers);
 }

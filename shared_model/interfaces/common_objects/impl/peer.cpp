@@ -5,7 +5,7 @@
 
 #include "interfaces/common_objects/peer.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "cryptography/public_key.hpp"
 

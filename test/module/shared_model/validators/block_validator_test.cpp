@@ -5,9 +5,9 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
-#include <gtest/gtest.h>
+#include <optional>
 
-#include <boost/optional/optional_io.hpp>
+#include <gtest/gtest.h>
 #include "framework/crypto_dummies.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
@@ -84,7 +84,7 @@ TEST_F(BlockValidatorTest, ValidBlock) {
   auto valid_block =
       generateBlock(txs, std::vector<shared_model::crypto::Hash>{});
 
-  ASSERT_EQ(validator_.validate(valid_block), boost::none);
+  ASSERT_EQ(validator_.validate(valid_block), std::nullopt);
 }
 
 /**
@@ -97,7 +97,7 @@ TEST_F(BlockValidatorTest, EmptyBlock) {
       generateBlock(std::vector<shared_model::proto::Transaction>{},
                     std::vector<shared_model::crypto::Hash>{});
 
-  ASSERT_EQ(validator_.validate(empty_block), boost::none);
+  ASSERT_EQ(validator_.validate(empty_block), std::nullopt);
 }
 
 /**

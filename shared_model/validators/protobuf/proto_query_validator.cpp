@@ -12,7 +12,7 @@
 using namespace shared_model::validation;
 
 namespace {
-  boost::optional<ValidationError> validateTxPaginationMeta(
+  std::optional<ValidationError> validateTxPaginationMeta(
       const iroha::protocol::TxPaginationMeta &paginationMeta) {
     if (paginationMeta.opt_first_tx_hash_case()
         != iroha::protocol::TxPaginationMeta::OPT_FIRST_TX_HASH_NOT_SET) {
@@ -22,14 +22,14 @@ namespace {
             {"First tx hash from pagination meta is not a hex string."}};
       }
     }
-    return boost::none;
+    return std::nullopt;
   }
 }  // namespace
 
 namespace shared_model {
   namespace validation {
 
-    boost::optional<ValidationError> validateProtoQuery(
+    std::optional<ValidationError> validateProtoQuery(
         const iroha::protocol::Query &qry) {
       ValidationErrorCreator error_creator;
 
@@ -55,14 +55,14 @@ namespace shared_model {
       return std::move(error_creator).getValidationError("Protobuf Query");
     }
 
-    boost::optional<ValidationError> ProtoQueryValidator::validate(
+    std::optional<ValidationError> ProtoQueryValidator::validate(
         const iroha::protocol::Query &query) const {
       return validateProtoQuery(query);
     }
 
-    boost::optional<ValidationError> ProtoBlocksQueryValidator::validate(
+    std::optional<ValidationError> ProtoBlocksQueryValidator::validate(
         const iroha::protocol::BlocksQuery &) const {
-      return boost::none;
+      return std::nullopt;
     }
 
   }  // namespace validation

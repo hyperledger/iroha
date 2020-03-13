@@ -44,13 +44,17 @@ namespace iroha {
 
       query_factory_->build(request).match(
           [this, &hash, &response](const auto &query) {
-            // Send query to iroha
-            response = static_cast<shared_model::proto::QueryResponse &>(
-                           *query_processor_->queryHandle(*query.value))
-                           .getTransport();
-            // TODO 18.02.2019 lebdron: IR-336 Replace cache
-            // 0 is used as a dummy value
-            cache_.addItem(hash, 0);
+            query_processor_->queryHandle(*query.value) |
+                [&](auto &&iface_response) {
+                  // Send query to iroha
+                  response = static_cast<shared_model::proto::QueryResponse &>(
+                                 *iface_response)
+                                 .getTransport();
+                  // TODO 18.02.2019 lebdron: IR-336 Replace cache
+                  // 0 is used as a dummy value
+                  cache_.addItem(hash, 0);
+                  return iroha::expected::Value<void>{};
+                };
           },
           [&hash, &response](auto &&error) {
             response.set_query_hash(hash.hex());

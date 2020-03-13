@@ -318,7 +318,7 @@ namespace shared_model {
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::AccountDetailKeyType &cmd_key,
         const shared_model::interface::types::AccountDetailValueType &cmd_value,
-        const boost::optional<
+        const std::optional<
             shared_model::interface::types::AccountDetailValueType>
             cmd_old_value) const {
       return createFactoryResult<MockCompareAndSetAccountDetail>(

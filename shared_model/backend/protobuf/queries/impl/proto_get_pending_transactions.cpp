@@ -24,12 +24,12 @@ namespace shared_model {
                         std::move(pagination_meta)));
               };
       }
-      return std::make_unique<GetPendingTransactions>(query, boost::none);
+      return std::make_unique<GetPendingTransactions>(query, std::nullopt);
     }
 
     GetPendingTransactions::GetPendingTransactions(
         const iroha::protocol::Query &query,
-        boost::optional<
+        std::optional<
             std::unique_ptr<shared_model::interface::TxPaginationMeta>>
             pagination_meta)
         : pending_transactions_{query.payload().get_pending_transactions()},
@@ -37,12 +37,13 @@ namespace shared_model {
 
     GetPendingTransactions::~GetPendingTransactions() = default;
 
-    boost::optional<const interface::TxPaginationMeta &>
+    std::optional<std::reference_wrapper<const interface::TxPaginationMeta>>
     GetPendingTransactions::paginationMeta() const {
       if (pagination_meta_) {
-        return *pagination_meta_.value();
+        return std::cref<interface::TxPaginationMeta>(
+            *pagination_meta_.value());
       }
-      return boost::none;
+      return std::nullopt;
     }
 
   }  // namespace proto

@@ -151,7 +151,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   using namespace iroha::ametsuchi::tx_cache_status_responses;
   auto make_tx_presence_result =
       [random = data[0]](const shared_model::crypto::Hash &hash)
-      -> boost::optional<TxCacheStatusType> {
+      -> std::optional<TxCacheStatusType> {
     switch (random % 4) {
       case 1:
         return TxCacheStatusType(Committed{hash});
@@ -160,7 +160,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
       case 3:
         return TxCacheStatusType(Missing{hash});
       default:
-        return boost::none;
+        return std::nullopt;
     }
   };
   EXPECT_CALL(*handler.bq_, checkTxPresence(_))

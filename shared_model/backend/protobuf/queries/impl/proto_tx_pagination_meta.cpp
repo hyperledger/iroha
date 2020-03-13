@@ -5,7 +5,6 @@
 
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 
-#include <boost/optional.hpp>
 #include "common/result.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
@@ -25,18 +24,18 @@ TxPaginationMeta::create(const iroha::protocol::TxPaginationMeta &meta) {
               meta, shared_model::crypto::Hash{std::move(blob)});
         };
   }
-  return std::make_unique<TxPaginationMeta>(meta, boost::none);
+  return std::make_unique<TxPaginationMeta>(meta, std::nullopt);
 }
 
 TxPaginationMeta::TxPaginationMeta(
     const iroha::protocol::TxPaginationMeta &meta,
-    boost::optional<types::HashType> first_tx_hash)
+    std::optional<types::HashType> first_tx_hash)
     : meta_{meta}, first_tx_hash_(std::move(first_tx_hash)) {}
 
 types::TransactionsNumberType TxPaginationMeta::pageSize() const {
   return meta_.page_size();
 }
 
-const boost::optional<types::HashType> &TxPaginationMeta::firstTxHash() const {
+const std::optional<types::HashType> &TxPaginationMeta::firstTxHash() const {
   return first_tx_hash_;
 }

@@ -52,13 +52,13 @@ namespace shared_model {
                   return Command::create(proto).assumeValue();
                 }))};
 
-      boost::optional<std::shared_ptr<interface::BatchMeta>> meta_{
-          [this]() -> boost::optional<std::shared_ptr<interface::BatchMeta>> {
+      std::optional<std::shared_ptr<interface::BatchMeta>> meta_{
+          [this]() -> std::optional<std::shared_ptr<interface::BatchMeta>> {
             if (payload_.has_batch()) {
               return std::shared_ptr<interface::BatchMeta>{
                   BatchMeta::create(*payload_.mutable_batch()).assumeValue()};
             }
-            return boost::none;
+            return std::nullopt;
           }()};
 
       SignatureSetType<std::unique_ptr<Signature>> signatures_{
@@ -178,7 +178,7 @@ namespace shared_model {
       return impl_->reduced_payload_.quorum();
     }
 
-    boost::optional<std::shared_ptr<interface::BatchMeta>>
+    std::optional<std::shared_ptr<interface::BatchMeta>>
     Transaction::batchMeta() const {
       return impl_->meta_;
     }

@@ -6,7 +6,7 @@
 #ifndef IROHA_TX_CACHE_RESPONSE_HPP
 #define IROHA_TX_CACHE_RESPONSE_HPP
 
-#include <boost/variant.hpp>
+#include <variant>
 
 #include "cryptography/hash.hpp"
 
@@ -57,10 +57,9 @@ namespace iroha {
     }  // namespace tx_cache_status_responses
 
     /// Sum type of all possible concrete responses from the tx cache
-    using TxCacheStatusType =
-        boost::variant<tx_cache_status_responses::Committed,
-                       tx_cache_status_responses::Rejected,
-                       tx_cache_status_responses::Missing>;
+    using TxCacheStatusType = std::variant<tx_cache_status_responses::Committed,
+                                           tx_cache_status_responses::Rejected,
+                                           tx_cache_status_responses::Missing>;
 
   }  // namespace ametsuchi
 }  // namespace iroha
