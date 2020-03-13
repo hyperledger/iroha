@@ -9,8 +9,6 @@
 #include <numeric>
 #include <random>
 
-#include "interfaces/common_objects/range_types.hpp"
-
 using namespace iroha;
 
 namespace {
