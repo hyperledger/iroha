@@ -48,6 +48,7 @@ pub enum Node {
     Empty,
 }
 
+#[allow(clippy::wrong_self_convention)]
 impl Node {
     fn from_nodes(left: Self, right: Self) -> Self {
         Self::Subtree {

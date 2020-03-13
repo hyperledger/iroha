@@ -5,6 +5,7 @@ use std::fmt::{Debug, Display, Formatter, Result};
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
     /// An ordered set of commands.
+    //TODO: think about constructor with `Into<Command>` parameter signature.
     pub commands: Vec<Command>,
     /// Time of creation (unix time, in milliseconds).
     pub creation_time: u64,

@@ -15,22 +15,42 @@ pub struct AddAssetQuantity {
 /// ```
 /// use iroha::model::commands::assets::AddAssetQuantity;
 ///
-/// let command_payload = AddAssetQuantity {
+/// let command_payload = &AddAssetQuantity {
 ///     asset_id: "asset@domain".to_string(),
 ///     amount: 200.02,
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<AddAssetQuantity> for Vec<u8> {
-    fn from(command_payload: AddAssetQuantity) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&AddAssetQuantity> for Vec<u8> {
+    fn from(command_payload: &AddAssetQuantity) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,assets::AddAssetQuantity};
+///
+/// let command_payload = &AddAssetQuantity {
+///     asset_id: "asset@domain".to_string(),
+///     amount: 200.02,
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&AddAssetQuantity> for Command {
+    fn from(command_payload: &AddAssetQuantity) -> Self {
+        Command {
+            version: 1,
+            command_type: 1,
+            payload: command_payload.into(),
+        }
     }
 }
 
 /// # Example
 /// ```
 /// # use iroha::model::commands::assets::AddAssetQuantity;
-/// # let command_payload = AddAssetQuantity {
+/// # let command_payload = &AddAssetQuantity {
 /// #     asset_id: "asset@domain".to_string(),
 /// #     amount: 200.02,
 /// # };
@@ -66,16 +86,37 @@ pub struct CreateAsset {
 /// ```
 /// use iroha::model::commands::assets::CreateAsset;
 ///
-/// let command_payload = CreateAsset {
+/// let command_payload = &CreateAsset {
 ///     asset_name: "asset".to_string(),
 ///     domain_id: "domain".to_string(),
 ///     precision: 0,
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<CreateAsset> for Vec<u8> {
-    fn from(command_payload: CreateAsset) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&CreateAsset> for Vec<u8> {
+    fn from(command_payload: &CreateAsset) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,assets::CreateAsset};
+///
+/// let command_payload = &CreateAsset {
+///     asset_name: "asset".to_string(),
+///     domain_id: "domain".to_string(),
+///     precision: 0,
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&CreateAsset> for Command {
+    fn from(command_payload: &CreateAsset) -> Self {
+        Command {
+            version: 1,
+            command_type: 1,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -83,7 +124,7 @@ impl std::convert::From<CreateAsset> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::assets::CreateAsset;
 /// #
-/// # let command_payload = CreateAsset {
+/// # let command_payload = &CreateAsset {
 /// #    asset_name: "asset".to_string(),
 /// #    domain_id: "domain".to_string(),
 /// #    precision: 0,
@@ -124,7 +165,7 @@ pub struct TransferAsset {
 /// ```
 /// use iroha::model::commands::assets::TransferAsset;
 ///
-/// let command_payload = TransferAsset {
+/// let command_payload = &TransferAsset {
 ///    source_account_id: "source@domain".to_string(),
 ///    destination_account_id: "destination@domain".to_string(),
 ///    asset_id: "xor".to_string(),
@@ -133,9 +174,9 @@ pub struct TransferAsset {
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<TransferAsset> for Vec<u8> {
-    fn from(command_payload: TransferAsset) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&TransferAsset> for Vec<u8> {
+    fn from(command_payload: &TransferAsset) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
     }
 }
 
@@ -143,7 +184,7 @@ impl std::convert::From<TransferAsset> for Vec<u8> {
 /// ```
 /// use iroha::model::commands::{oob::Command,assets::TransferAsset};
 ///
-/// let command_payload = TransferAsset {
+/// let command_payload = &TransferAsset {
 ///    source_account_id: "source@domain".to_string(),
 ///    destination_account_id: "destination@domain".to_string(),
 ///    asset_id: "xor".to_string(),
@@ -152,8 +193,8 @@ impl std::convert::From<TransferAsset> for Vec<u8> {
 /// };
 /// let result: Command = command_payload.into();
 /// ```
-impl std::convert::From<TransferAsset> for Command {
-    fn from(command_payload: TransferAsset) -> Self {
+impl std::convert::From<&TransferAsset> for Command {
+    fn from(command_payload: &TransferAsset) -> Self {
         Command {
             version: 1,
             command_type: 17,
@@ -166,7 +207,7 @@ impl std::convert::From<TransferAsset> for Command {
 /// ```
 /// # use iroha::model::commands::assets::TransferAsset;
 /// #
-/// # let command_payload = TransferAsset {
+/// # let command_payload = &TransferAsset {
 /// #   source_account_id: "source@domain".to_string(),
 /// #   destination_account_id: "destination@domain".to_string(),
 /// #   asset_id: "xor".to_string(),
@@ -199,7 +240,7 @@ fn transfer_asset_command_serialization_and_deserialization() {
 #[test]
 fn transfer_asset_command_into_command() {
     use crate::model::commands::oob::Command;
-    let transfer_asset = TransferAsset {
+    let transfer_asset = &TransferAsset {
         source_account_id: "source@domain".to_string(),
         destination_account_id: "destination@domain".to_string(),
         asset_id: "xor".to_string(),
@@ -209,7 +250,7 @@ fn transfer_asset_command_into_command() {
     let expected = Command {
         version: 1,
         command_type: 17,
-        payload: transfer_asset.clone().into(),
+        payload: transfer_asset.into(),
     };
     let actual: Command = transfer_asset.into();
     assert_eq!(expected.version, actual.version);

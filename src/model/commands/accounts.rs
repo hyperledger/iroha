@@ -1,3 +1,5 @@
+use crate::model::commands::oob::Command;
+
 /// The purpose of add signatory command is to add an identifier to the account. Such
 /// identifier is a public key of another device or a public key of another user.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -10,15 +12,35 @@ pub struct AddSignatory {
 /// ```
 /// use iroha::model::commands::accounts::AddSignatory;
 ///
-/// let command_payload = AddSignatory {
+/// let command_payload = &AddSignatory {
 ///     account_id: "account@domain".to_string(),
 ///     public_key: [63; 32],
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<AddSignatory> for Vec<u8> {
-    fn from(command_payload: AddSignatory) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&AddSignatory> for Vec<u8> {
+    fn from(command_payload: &AddSignatory) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,accounts::AddSignatory};
+///
+/// let command_payload = &AddSignatory {
+///     account_id: "account@domain".to_string(),
+///     public_key: [63; 32],
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&AddSignatory> for Command {
+    fn from(command_payload: &AddSignatory) -> Self {
+        Command {
+            version: 1,
+            command_type: 3,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -26,7 +48,7 @@ impl std::convert::From<AddSignatory> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::accounts::AddSignatory;
 /// #
-/// # let command_payload = AddSignatory {
+/// # let command_payload = &AddSignatory {
 /// #     account_id: "account@domain".to_string(),
 /// #     public_key: [63; 32],
 /// # };
@@ -63,15 +85,35 @@ pub struct AppendRole {
 /// ```
 /// use iroha::model::commands::accounts::AppendRole;
 ///
-/// let command_payload = AppendRole {
+/// let command_payload = &AppendRole {
 ///     account_id: "account@domain".to_string(),
 ///     role_name: "role".to_string(),
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<AppendRole> for Vec<u8> {
-    fn from(command_payload: AppendRole) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&AppendRole> for Vec<u8> {
+    fn from(command_payload: &AppendRole) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,accounts::AppendRole};
+///
+/// let command_payload = &AppendRole {
+///     account_id: "account@domain".to_string(),
+///     role_name: "role".to_string(),
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&AppendRole> for Command {
+    fn from(command_payload: &AppendRole) -> Self {
+        Command {
+            version: 1,
+            command_type: 4,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -79,7 +121,7 @@ impl std::convert::From<AppendRole> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::accounts::AppendRole;
 /// #
-/// # let command_payload = AppendRole {
+/// # let command_payload = &AppendRole {
 /// #     account_id: "account@domain".to_string(),
 /// #     role_name: "role".to_string(),
 /// # };
@@ -116,16 +158,37 @@ pub struct CreateAccount {
 /// ```
 /// use iroha::model::commands::accounts::CreateAccount;
 ///
-/// let command_payload = CreateAccount {
+/// let command_payload = &CreateAccount {
 ///     account_name: "account".to_string(),
 ///     domain_id: "domain".to_string(),
 ///     public_key: [63; 32],
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<CreateAccount> for Vec<u8> {
-    fn from(command_payload: CreateAccount) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&CreateAccount> for Vec<u8> {
+    fn from(command_payload: &CreateAccount) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,accounts::CreateAccount};
+///
+/// let command_payload = &CreateAccount {
+///     account_name: "account".to_string(),
+///     domain_id: "domain".to_string(),
+///     public_key: [63; 32],
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&CreateAccount> for Command {
+    fn from(command_payload: &CreateAccount) -> Self {
+        Command {
+            version: 1,
+            command_type: 5,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -133,7 +196,7 @@ impl std::convert::From<CreateAccount> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::accounts::CreateAccount;
 /// #
-/// # let command_payload = CreateAccount {
+/// # let command_payload = &CreateAccount {
 /// #     account_name: "account".to_string(),
 /// #     domain_id: "domain".to_string(),
 /// #     public_key: [63; 32],
@@ -172,15 +235,35 @@ pub struct CreateRole {
 /// ```
 /// use iroha::model::commands::accounts::CreateRole;
 ///
-/// let command_payload = CreateRole {
+/// let command_payload = &CreateRole {
 ///     role_name: "user".to_string(),
 ///     permissions: Vec::new(),
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<CreateRole> for Vec<u8> {
-    fn from(command_payload: CreateRole) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&CreateRole> for Vec<u8> {
+    fn from(command_payload: &CreateRole) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,accounts::CreateRole};
+///
+/// let command_payload = &CreateRole {
+///     role_name: "user".to_string(),
+///     permissions: Vec::new(),
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&CreateRole> for Command {
+    fn from(command_payload: &CreateRole) -> Self {
+        Command {
+            version: 1,
+            command_type: 8,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -188,7 +271,7 @@ impl std::convert::From<CreateRole> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::accounts::CreateRole;
 /// #
-/// # let command_payload = CreateRole {
+/// # let command_payload = &CreateRole {
 /// #    role_name: "user".to_string(),
 /// #    permissions: Vec::new(),
 /// # };
