@@ -9,7 +9,7 @@
 #include "interfaces/base/model_primitive.hpp"
 
 #include <boost/functional/hash.hpp>
-#include <boost/optional.hpp>
+#include <optional>
 #include <unordered_set>
 #include "cryptography/default_hash_provider.hpp"
 #include "interfaces/common_objects/range_types.hpp"
@@ -91,9 +91,8 @@ namespace shared_model {
       std::string toString() const override {
         return detail::PrettyStringBuilder()
             .init("Signable")
-            .append("created_time", std::to_string(createdTime()))
-            .appendAll(signatures(),
-                       [](auto &signature) { return signature.toString(); })
+            .appendNamed("created_time", std::to_string(createdTime()))
+            .append(signatures())
             .finalize();
       }
 

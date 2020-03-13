@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/gate_object.hpp"
@@ -149,8 +150,8 @@ namespace integration_framework {
     /// Add a fake peer with given key.
     std::shared_ptr<fake_peer::FakePeer> addFakePeer(
         const boost::optional<shared_model::crypto::Keypair> &key,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
-            tls_certificate = boost::none);
+        std::optional<shared_model::interface::types::TLSCertificateType>
+            tls_certificate = std::nullopt);
 
     /// Add the given amount of fake peers with generated default keys and
     /// "honest" behaviours.
@@ -544,7 +545,7 @@ namespace integration_framework {
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
     boost::optional<shared_model::crypto::Keypair> my_key_;
-    boost::optional<shared_model::interface::types::TLSCertificateType>
+    std::optional<shared_model::interface::types::TLSCertificateType>
         my_tls_cert_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 

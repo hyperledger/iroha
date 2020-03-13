@@ -246,7 +246,7 @@ namespace integration_framework {
 
   std::shared_ptr<FakePeer> IntegrationTestFramework::addFakePeer(
       const boost::optional<Keypair> &key,
-      boost::optional<shared_model::interface::types::TLSCertificateType>
+      std::optional<shared_model::interface::types::TLSCertificateType>
           tls_certificate) {
     BOOST_ASSERT_MSG(this_peer_, "Need to set the ITF peer key first!");
     const auto port = port_guard_->getPort(kDefaultInternalPort);

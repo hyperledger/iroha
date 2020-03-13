@@ -56,7 +56,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   // ------------------------ WHEN -------------------------
   // send addPeer command
   itf.sendTxAwait(complete(baseTx(kAdminId).addPeer(
-                               new_peer_address, new_peer_pubkey, boost::none),
+                               new_peer_address, new_peer_pubkey, std::nullopt),
                            kAdminKeypair),
                   checkBlockHasNTxs<1>);
 
@@ -126,7 +126,7 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(new_peer->getAddress(),
                                         new_peer->getKeypair().publicKey(),
-                                        boost::none),
+                                        std::nullopt),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
@@ -170,7 +170,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .createdTime(iroha::time::now())
           .addPeer(initial_peer->getAddress(),
                    initial_peer->getKeypair().publicKey(),
-                   boost::none)
+                   std::nullopt)
           .createRole(kAdminRole, all_perms)
           .createRole(kDefaultRole, {})
           .createDomain(kDomain, kDefaultRole)
@@ -198,7 +198,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .transactions(std::vector<shared_model::proto::Transaction>{
               complete(baseTx(kAdminId).addPeer(itf_->getAddress(),
                                                 itf_->getThisPeer()->pubkey(),
-                                                boost::none),
+                                                std::nullopt),
                        kAdminKeypair)})
           .height(genesis_block.height() + 1)
           .prevHash(genesis_block.hash())

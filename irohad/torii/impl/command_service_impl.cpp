@@ -84,28 +84,32 @@ namespace iroha {
         return status_factory_->makeNotReceived(request);
       }
 
-      return iroha::visit_in_place(
-          *status,
-          [this, &request](
-              const iroha::ametsuchi::tx_cache_status_responses::Missing &)
-              -> std::shared_ptr<shared_model::interface::TransactionResponse> {
-            log_->warn("Asked non-existing tx: {}", request.hex());
-            return status_factory_->makeNotReceived(request);
-          },
-          [this, &request](
-              const iroha::ametsuchi::tx_cache_status_responses::Rejected &) {
-            std::shared_ptr<shared_model::interface::TransactionResponse>
-                response = status_factory_->makeRejected(request);
-            cache_->addItem(request, response);
-            return response;
-          },
-          [this, &request](
-              const iroha::ametsuchi::tx_cache_status_responses::Committed &) {
-            std::shared_ptr<shared_model::interface::TransactionResponse>
-                response = status_factory_->makeCommitted(request);
-            cache_->addItem(request, response);
-            return response;
-          });
+      return std::visit(
+          make_visitor(
+              [this, &request](
+                  const iroha::ametsuchi::tx_cache_status_responses::Missing &)
+                  -> std::shared_ptr<
+                      shared_model::interface::TransactionResponse> {
+                log_->warn("Asked non-existing tx: {}", request.hex());
+                return status_factory_->makeNotReceived(request);
+              },
+              [this, &request](
+                  const iroha::ametsuchi::tx_cache_status_responses::Rejected
+                      &) {
+                std::shared_ptr<shared_model::interface::TransactionResponse>
+                    response = status_factory_->makeRejected(request);
+                cache_->addItem(request, response);
+                return response;
+              },
+              [this, &request](
+                  const iroha::ametsuchi::tx_cache_status_responses::Committed
+                      &) {
+                std::shared_ptr<shared_model::interface::TransactionResponse>
+                    response = status_factory_->makeCommitted(request);
+                cache_->addItem(request, response);
+                return response;
+              }),
+          *status);
     }
 
     /**
@@ -150,19 +154,18 @@ namespace iroha {
           log_->warn("Check hash presence database error. {}", hash);
           return status_factory_->makeNotReceived(hash);
         }
-        return iroha::visit_in_place(
-            *from_persistent_cache,
-            [this,
-             &hash](const iroha::ametsuchi::tx_cache_status_responses::Committed
+        return std::visit(
+            make_visitor(
+                [this, &hash](
+                    const iroha::ametsuchi::tx_cache_status_responses::Committed
                         &) { return status_factory_->makeCommitted(hash); },
-            [this, &hash](
-                const iroha::ametsuchi::tx_cache_status_responses::Rejected &) {
-              return status_factory_->makeRejected(hash);
-            },
-            [this, &hash](
-                const iroha::ametsuchi::tx_cache_status_responses::Missing &) {
-              return status_factory_->makeNotReceived(hash);
-            });
+                [this, &hash](
+                    const iroha::ametsuchi::tx_cache_status_responses::Rejected
+                        &) { return status_factory_->makeRejected(hash); },
+                [this, &hash](
+                    const iroha::ametsuchi::tx_cache_status_responses::Missing
+                        &) { return status_factory_->makeNotReceived(hash); }),
+            *from_persistent_cache);
       }());
       return status_bus_
           ->statuses()
@@ -247,30 +250,33 @@ namespace iroha {
           cache_presence->begin(),
           cache_presence->end(),
           [this, &status_issuer](const auto &tx_status) {
-            return iroha::visit_in_place(
-                tx_status,
-                [this, &status_issuer](
-                    const iroha::ametsuchi::tx_cache_status_responses::Missing
-                        &status) {
-                  this->pushStatus(
-                      status_issuer,
-                      status_factory_->makeStatelessValid(status.hash));
-                  return false;
-                },
-                [this, &status_issuer](
-                    const iroha::ametsuchi::tx_cache_status_responses::Committed
-                        &status) {
-                  this->pushStatus(status_issuer,
-                                   status_factory_->makeCommitted(status.hash));
-                  return true;
-                },
-                [this, &status_issuer](
-                    const iroha::ametsuchi::tx_cache_status_responses::Rejected
-                        &status) {
-                  this->pushStatus(status_issuer,
-                                   status_factory_->makeRejected(status.hash));
-                  return true;
-                });
+            return std::visit(
+                make_visitor(
+                    [this, &status_issuer](
+                        const iroha::ametsuchi::tx_cache_status_responses::
+                            Missing &status) {
+                      this->pushStatus(
+                          status_issuer,
+                          status_factory_->makeStatelessValid(status.hash));
+                      return false;
+                    },
+                    [this, &status_issuer](
+                        const iroha::ametsuchi::tx_cache_status_responses::
+                            Committed &status) {
+                      this->pushStatus(
+                          status_issuer,
+                          status_factory_->makeCommitted(status.hash));
+                      return true;
+                    },
+                    [this, &status_issuer](
+                        const iroha::ametsuchi::tx_cache_status_responses::
+                            Rejected &status) {
+                      this->pushStatus(
+                          status_issuer,
+                          status_factory_->makeRejected(status.hash));
+                      return true;
+                    }),
+                tx_status);
           });
       if (is_replay) {
         log_->warn(

@@ -54,18 +54,17 @@ TYPED_TEST_CASE(TxPresenceCacheTemplateTest, CacheStatusTypes, );
 TYPED_TEST(TxPresenceCacheTemplateTest, StatusHashTest) {
   shared_model::crypto::Hash hash("1");
   EXPECT_CALL(*this->mock_block_query, checkTxPresence(hash))
-      .WillOnce(
-          Return(boost::make_optional<TxCacheStatusType>(TypeParam(hash))));
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(TypeParam(hash))));
   TxPresenceCacheImpl cache(this->mock_storage);
   TypeParam check_result;
-  ASSERT_NO_THROW(check_result = boost::get<TypeParam>(*cache.check(hash)));
+  ASSERT_NO_THROW(check_result = std::get<TypeParam>(*cache.check(hash)));
   ASSERT_EQ(hash, check_result.hash);
 }
 
 /**
  * @given storage which cannot create block query
  * @when cache asked for hash status
- * @then cache returns boost::none
+ * @then cache returns null
  */
 TEST_F(TxPresenceCacheTest, BadStorage) {
   EXPECT_CALL(*mock_storage, getBlockQuery()).WillRepeatedly(Return(nullptr));
@@ -82,21 +81,21 @@ TEST_F(TxPresenceCacheTest, BadStorage) {
 TEST_F(TxPresenceCacheTest, MissingThenCommittedHashTest) {
   shared_model::crypto::Hash hash("1");
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
-      .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Missing(hash))));
   TxPresenceCacheImpl cache(mock_storage);
   tx_cache_status_responses::Missing check_missing_result;
   ASSERT_NO_THROW(
       check_missing_result =
-          boost::get<tx_cache_status_responses::Missing>(*cache.check(hash)));
+          std::get<tx_cache_status_responses::Missing>(*cache.check(hash)));
   ASSERT_EQ(hash, check_missing_result.hash);
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash))
-      .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Committed(hash))));
   tx_cache_status_responses::Committed check_committed_result;
   ASSERT_NO_THROW(
       check_committed_result =
-          boost::get<tx_cache_status_responses::Committed>(*cache.check(hash)));
+          std::get<tx_cache_status_responses::Committed>(*cache.check(hash)));
   ASSERT_EQ(hash, check_committed_result.hash);
 }
 
@@ -117,13 +116,13 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
   shared_model::crypto::Hash reduced_hash_3("r3");
 
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash1))
-      .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Rejected(hash1))));
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash2))
-      .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Committed(hash2))));
   EXPECT_CALL(*mock_block_query, checkTxPresence(hash3))
-      .WillOnce(Return(boost::make_optional<TxCacheStatusType>(
+      .WillOnce(Return(std::make_optional<TxCacheStatusType>(
           tx_cache_status_responses::Missing(hash3))));
   auto tx1 = std::make_shared<MockTransaction>();
   EXPECT_CALL(*tx1, hash()).WillOnce(ReturnRefOfCopy(hash1));
@@ -160,11 +159,11 @@ TEST_F(TxPresenceCacheTest, BatchHashTest) {
         tx_cache_status_responses::Rejected ts1;
         tx_cache_status_responses::Committed ts2;
         tx_cache_status_responses::Missing ts3;
-        ASSERT_NO_THROW(ts1 = boost::get<tx_cache_status_responses::Rejected>(
+        ASSERT_NO_THROW(ts1 = std::get<tx_cache_status_responses::Rejected>(
                             batch_statuses.at(0)));
-        ASSERT_NO_THROW(ts2 = boost::get<tx_cache_status_responses::Committed>(
+        ASSERT_NO_THROW(ts2 = std::get<tx_cache_status_responses::Committed>(
                             batch_statuses.at(1)));
-        ASSERT_NO_THROW(ts3 = boost::get<tx_cache_status_responses::Missing>(
+        ASSERT_NO_THROW(ts3 = std::get<tx_cache_status_responses::Missing>(
                             batch_statuses.at(2)));
         ASSERT_EQ(hash1, ts1.hash);
         ASSERT_EQ(hash2, ts2.hash);

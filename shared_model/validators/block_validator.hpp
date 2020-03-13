@@ -37,7 +37,7 @@ namespace shared_model {
        * @param block
        * @return found error if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::Block &block) const override {
         ValidationErrorCreator error_creator;
 

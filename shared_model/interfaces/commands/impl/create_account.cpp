@@ -13,9 +13,9 @@ namespace shared_model {
     std::string CreateAccount::toString() const {
       return detail::PrettyStringBuilder()
           .init("CreateAccount")
-          .append("account_name", accountName())
-          .append("domain_id", domainId())
-          .append(pubkey().toString())
+          .appendNamed("account_name", accountName())
+          .appendNamed("domain_id", domainId())
+          .appendNamed("public_key", pubkey())
           .finalize();
     }
 

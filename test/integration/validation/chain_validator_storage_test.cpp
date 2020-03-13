@@ -20,7 +20,7 @@
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
     iroha::consensus::yac::ConsistencyModel::kBft;
 
-boost::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
+std::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
     shared_model::interface::types::TLSCertificateType{
         R"(
 -----BEGIN CERTIFICATE-----

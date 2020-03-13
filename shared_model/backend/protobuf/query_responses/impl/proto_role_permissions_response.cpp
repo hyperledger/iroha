@@ -34,8 +34,7 @@ namespace shared_model {
     std::string RolePermissionsResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("RolePermissionsResponse")
-          .appendAll(permissions::toString(rolePermissions()),
-                     [](auto p) { return p; })
+          .append(permissions::toString(rolePermissions()))
           .finalize();
     }
 

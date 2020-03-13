@@ -6,7 +6,7 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 
 #include <gmock/gmock-matchers.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "queries.pb.h"
 #include "validators/validation_error_output.hpp"
@@ -43,7 +43,7 @@ TEST_F(ProtoQueryValidatorTest, SetQuery) {
   iroha::protocol::Query qry;
   qry.mutable_payload()->mutable_get_account()->set_account_id(account_id);
 
-  ASSERT_EQ(validator.validate(qry), boost::none);
+  ASSERT_EQ(validator.validate(qry), std::nullopt);
 }
 
 iroha::protocol::Query generateGetAccountAssetTransactionsQuery(
@@ -76,15 +76,15 @@ class ValidProtoPaginationQueryValidatorTest
       public ::testing::WithParamInterface<iroha::protocol::Query> {};
 
 TEST_P(ValidProtoPaginationQueryValidatorTest, ValidPaginationQuery) {
-  ASSERT_EQ(validator.validate(GetParam()), boost::none)
+  ASSERT_EQ(validator.validate(GetParam()), std::nullopt)
       << GetParam().DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     ProtoPaginationQueryTest,
     ValidProtoPaginationQueryValidatorTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(valid_tx_hash),
-                      generateGetAccountTransactionsQuery(valid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(valid_tx_hash)));
 
 // invalid pagination query tests
 
@@ -96,8 +96,8 @@ TEST_P(InvalidProtoPaginationQueryTest, InvalidPaginationQuery) {
   ASSERT_TRUE(validator.validate(GetParam())) << GetParam().DebugString();
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     InvalidProtoPaginationQueryTest,
     InvalidProtoPaginationQueryTest,
     ::testing::Values(generateGetAccountAssetTransactionsQuery(invalid_tx_hash),
-                      generateGetAccountTransactionsQuery(invalid_tx_hash)), );
+                      generateGetAccountTransactionsQuery(invalid_tx_hash)));

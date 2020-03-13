@@ -8,7 +8,7 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/common_objects/account_asset.hpp"
 #include "interfaces/common_objects/range_types.hpp"
 
@@ -24,7 +24,7 @@ namespace shared_model {
        */
       virtual const types::AccountAssetCollectionType accountAssets() const = 0;
 
-      virtual boost::optional<types::AssetIdType> nextAssetId() const = 0;
+      virtual std::optional<types::AssetIdType> nextAssetId() const = 0;
 
       virtual size_t totalAccountAssetsNumber() const = 0;
 

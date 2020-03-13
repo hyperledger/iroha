@@ -12,8 +12,8 @@ namespace shared_model {
     std::string BlocksQuery::toString() const {
       return detail::PrettyStringBuilder()
           .init("BlocksQuery")
-          .append("creatorId", creatorAccountId())
-          .append("queryCounter", std::to_string(queryCounter()))
+          .appendNamed("creatorId", creatorAccountId())
+          .appendNamed("queryCounter", queryCounter())
           .append(Signable::toString())
           .finalize();
     }

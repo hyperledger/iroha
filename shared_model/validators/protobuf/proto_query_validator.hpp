@@ -16,14 +16,14 @@ namespace shared_model {
     class ProtoQueryValidator
         : public AbstractValidator<iroha::protocol::Query> {
      public:
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const iroha::protocol::Query &query) const override;
     };
 
     class ProtoBlocksQueryValidator
         : public AbstractValidator<iroha::protocol::BlocksQuery> {
      public:
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const iroha::protocol::BlocksQuery &) const override;
     };
 

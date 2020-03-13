@@ -11,7 +11,7 @@ namespace shared_model {
     std::string GetBlock::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetBlock")
-          .append("height", std::to_string(height()))
+          .appendNamed("height", height())
           .finalize();
     }
 

@@ -5,20 +5,20 @@
 
 #include "interfaces/queries/account_detail_pagination_meta.hpp"
 
+#include "common/optional_reference_equal.hpp"
+
 using namespace shared_model::interface;
 
 bool AccountDetailPaginationMeta::operator==(const ModelType &rhs) const {
   return pageSize() == rhs.pageSize()
-      and firstRecordId() == rhs.firstRecordId();
+      and iroha::optionalReferenceEqual(firstRecordId(), rhs.firstRecordId());
 }
 
 std::string AccountDetailPaginationMeta::toString() const {
   const auto first_record_id = firstRecordId();
   return detail::PrettyStringBuilder()
       .init("AccountDetailPaginationMeta")
-      .append("page_size", std::to_string(pageSize()))
-      .append(
-          "first_record_id",
-          first_record_id ? first_record_id->toString() : std::string("(none)"))
+      .appendNamed("page_size", pageSize())
+      .appendNamed("first_record_id", first_record_id)
       .finalize();
 }

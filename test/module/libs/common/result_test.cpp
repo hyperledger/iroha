@@ -4,7 +4,9 @@
  */
 
 #include "common/result.hpp"
+
 #include <gtest/gtest.h>
+#include "framework/result_gtest_checkers.hpp"
 
 using namespace iroha::expected;
 
@@ -242,49 +244,124 @@ TEST(ResultTest, MapErrorBlank) {
              makeFailCase<Error<int>>(kErrorCaseMessage));
 }
 
-/// Polymorphic result tests
-
-/// Base and Derived are classes, which can be used to test polymorphic behavior
-class Base {
- public:
-  virtual int getNumber() {
-    return 0;
-  }
-  virtual ~Base() = default;
-};
-
-class Derived : public Base {
- public:
-  virtual int getNumber() override {
-    return 1;
-  }
-};
+using NonCopyable = std::unique_ptr<int>;
 
 /**
- * @given Polymorphic Result of Base class type with value of derived class
- * @when match function is invoked
- * @then Value case is invoked, and polymorphic behavior persists
+ * @given a result with a non-copyable object value reference
+ * @when assumeValue and assumeError are called
+ * @then assumeValue does not throw and returns same value object reference
+ *  @and assumeError does throw a ResultException
  */
-TEST(PolyMorphicResultTest, PolymorphicValueConstruction) {
-  PolymorphicResult<Base, std::string> result =
-      makeValue(std::make_shared<Derived>());
-  result.match(
-      [](Value<std::shared_ptr<Base>> &v) {
-        ASSERT_EQ(1, v.value->getNumber());
-      },
-      makeFailCase<Error<std::shared_ptr<std::string>>>(kErrorCaseMessage));
+TEST(ResultTest, AssumeValueReference) {
+  NonCopyable value = std::make_unique<int>(18);
+  Result<NonCopyable &, int> result(value);
+  IROHA_ASSERT_RESULT_VALUE(result);
+  EXPECT_NO_THROW(EXPECT_EQ(result.assumeValue(), value));
+  EXPECT_THROW(result.assumeError(), ResultException);
 }
 
 /**
- * @given Polymorphic Result of Base class type with error
- * @when match function is invoked
- * @then Error case is invoked
+ * @given a result with a non-copyable object error reference
+ * @when assumeError and assumeValue are called
+ * @then assumeError does not throw and returns same error object reference
+ *  @and assumeValue does throw a ResultException
  */
-TEST(PolyMorphicResultTest, PolymorphicErrorConstruction) {
-  PolymorphicResult<Base, std::string> result =
-      makeError(std::make_shared<std::string>(kErrorMessage));
-  result.match(makeFailCase<Value<std::shared_ptr<Base>>>(kValueCaseMessage),
-               [](Error<std::shared_ptr<std::string>> &e) {
-                 ASSERT_EQ(kErrorMessage, *e.error);
-               });
+TEST(ResultTest, AssumeErrorReference) {
+  NonCopyable value = std::make_unique<int>(18);
+  Result<int, NonCopyable &> result(value);
+  IROHA_ASSERT_RESULT_ERROR(result);
+  EXPECT_NO_THROW(EXPECT_EQ(result.assumeError(), value));
+  EXPECT_THROW(result.assumeValue(), ResultException);
+}
+
+/**
+ * @given a result with a non-copyable object value
+ * @when assumeValue and assumeError are called
+ * @then assumeValue does not throw and returns same value object
+ *  @and assumeError does throw a ResultException
+ */
+TEST(ResultTest, AssumeValue) {
+  auto value = new NonCopyable::element_type(18);
+  Result<NonCopyable, int> result(value);
+  IROHA_ASSERT_RESULT_VALUE(result);
+  NonCopyable extracted_value;
+  EXPECT_NO_THROW(extracted_value = std::move(result).assumeValue());
+  EXPECT_EQ(extracted_value.get(), value);
+  int extracted_error = 23;
+  EXPECT_THROW(extracted_error = std::move(result).assumeError(),
+               ResultException);
+  EXPECT_EQ(extracted_error, 23);
+}
+
+/**
+ * @given a result with a non-copyable object error
+ * @when assumeError and assumeValue are called
+ * @then assumeError does not throw and returns same error object
+ *  @and assumeValue does throw a ResultException
+ */
+TEST(ResultTest, AssumeError) {
+  auto error = new NonCopyable::element_type(18);
+  Result<int, NonCopyable> result(error);
+  IROHA_ASSERT_RESULT_ERROR(result);
+  NonCopyable extracted_error;
+  EXPECT_NO_THROW(extracted_error = std::move(result).assumeError());
+  EXPECT_EQ(extracted_error.get(), error);
+  int extracted_value = 23;
+  EXPECT_THROW(extracted_value = std::move(result).assumeValue(),
+               ResultException);
+  EXPECT_EQ(extracted_value, 23);
+}
+
+struct A {};
+
+struct ConstructibleFromA {
+  ConstructibleFromA(A &&) {}
+};
+
+struct NotConstructibleFromA {};
+
+/**
+ * @given an object a of type A
+ * @when construct a Result<ConstructibleFromA, NotConstructibleFromA> from a
+ * @then result contains value constructed from a
+ */
+TEST(ResultTest, AutoValueConstruction) {
+  IROHA_ASSERT_RESULT_VALUE(
+      (Result<ConstructibleFromA, NotConstructibleFromA>{A{}}));
+}
+
+/**
+ * @given an object a of type A
+ * @when construct a Result<NotConstructibleFromA, ConstructibleFromA> from a
+ * @then result contains error constructed from a
+ */
+TEST(ResultTest, AutoErrorConstruction) {
+  IROHA_ASSERT_RESULT_ERROR(
+      (Result<NotConstructibleFromA, ConstructibleFromA>{A{}}));
+}
+
+/**
+ * @given a result object of type Result<A, NotConstructibleFromA> containing a
+ * value
+ * @when construct a Result<ConstructibleFromA, NotConstructibleFromA> from it
+ * @then result contains value constructed from initial result
+ */
+TEST(ResultTest, AutoValueConstructionFromResult) {
+  Result<A, NotConstructibleFromA> result(A{});
+  IROHA_ASSERT_RESULT_VALUE(result);
+  IROHA_ASSERT_RESULT_VALUE(
+      (Result<ConstructibleFromA, NotConstructibleFromA>{result}));
+}
+
+/**
+ * @given a result object of type Result<NotConstructibleFromA, A> containing an
+ * error
+ * @when construct a Result<NotConstructibleFromA, ConstructibleFromA> from it
+ * @then result contains error constructed from initial result
+ */
+TEST(ResultTest, AutoErrorConstructionFromResult) {
+  Result<NotConstructibleFromA, A> result(A{});
+  IROHA_ASSERT_RESULT_ERROR(result);
+  IROHA_ASSERT_RESULT_ERROR(
+      (Result<NotConstructibleFromA, ConstructibleFromA>{result}));
 }

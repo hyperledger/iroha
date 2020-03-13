@@ -9,25 +9,21 @@
 
 namespace shared_model {
   namespace interface {
+    std::string PendingTransactionsPageResponse::BatchInfo::toString() const {
+      return detail::PrettyStringBuilder()
+          .init("BatchInfo")
+          .appendNamed("first tx hash", first_tx_hash.hex())
+          .appendNamed("size", batch_size)
+          .finalize();
+    }
 
     std::string PendingTransactionsPageResponse::toString() const {
-      auto builder = detail::PrettyStringBuilder()
-                         .init("PendingTransactionsPageResponse")
-                         .appendAll("transactions",
-                                    transactions(),
-                                    [](auto &tx) { return tx.toString(); })
-                         .append("all transactions size",
-                                 std::to_string(allTransactionsSize()));
-      if (auto next_batch_info = nextBatchInfo()) {
-        builder
-            .append("next batch first tx hash",
-                    next_batch_info->first_tx_hash.hex())
-            .append("next batch size",
-                    std::to_string(next_batch_info->batch_size));
-      } else {
-        builder.append("no next batch info is set");
-      }
-      return builder.finalize();
+      return detail::PrettyStringBuilder()
+          .init("PendingTransactionsPageResponse")
+          .appendNamed("transactions", transactions())
+          .appendNamed("all transactions size", allTransactionsSize())
+          .appendNamed("next batch", nextBatchInfo())
+          .finalize();
     }
 
     bool PendingTransactionsPageResponse::operator==(

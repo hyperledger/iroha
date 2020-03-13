@@ -12,6 +12,7 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -387,7 +388,7 @@ namespace iroha {
             command_name_(std::move(command_name)),
             perm_converter_(std::move(perm_converter)) {
         arguments_string_builder_.init(command_name_)
-            .append("Validation", std::to_string(enable_validation));
+            .appendNamed("Validation", enable_validation);
       }
 
       template <typename T,
@@ -436,11 +437,18 @@ namespace iroha {
       // TODO IR-597 mboldyrev 2019.08.10: build args string on demand
       void addArgumentToString(const std::string &argument_name,
                                const std::string &value) {
-        arguments_string_builder_.append(argument_name, value);
+        arguments_string_builder_.appendNamed(argument_name, value);
       }
 
       void addArgumentToString(const std::string &argument_name,
                                const boost::optional<std::string> &value) {
+        if (value) {
+          addArgumentToString(argument_name, *value);
+        }
+      }
+
+      void addArgumentToString(const std::string &argument_name,
+                               const std::optional<std::string> &value) {
         if (value) {
           addArgumentToString(argument_name, *value);
         }

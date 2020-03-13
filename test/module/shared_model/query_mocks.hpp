@@ -53,7 +53,7 @@ namespace shared_model {
     struct MockAssetPaginationMeta
         : public SpecificMockQuery<AssetPaginationMeta> {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
-      MOCK_CONST_METHOD0(firstAssetId, boost::optional<types::AssetIdType>());
+      MOCK_CONST_METHOD0(firstAssetId, std::optional<types::AssetIdType>());
       MOCK_CONST_METHOD0(clone, AssetPaginationMeta *());
     };
 
@@ -61,7 +61,8 @@ namespace shared_model {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
       MOCK_CONST_METHOD0(
           paginationMeta,
-          boost::optional<const interface::AssetPaginationMeta &>());
+          std::optional<
+              std::reference_wrapper<const interface::AssetPaginationMeta>>());
       MOCK_CONST_METHOD0(clone, GetAccountAssets *());
     };
 
@@ -76,19 +77,21 @@ namespace shared_model {
     struct MockAccountDetailPaginationMeta
         : public AccountDetailPaginationMeta {
       MOCK_CONST_METHOD0(pageSize, size_t());
-      MOCK_CONST_METHOD0(firstRecordId,
-                         boost::optional<const AccountDetailRecordId &>());
+      MOCK_CONST_METHOD0(
+          firstRecordId,
+          std::optional<std::reference_wrapper<const AccountDetailRecordId>>());
       MOCK_CONST_METHOD0(clone, AccountDetailPaginationMeta *());
     };
 
     struct MockGetAccountDetail : public GetAccountDetail {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
-      MOCK_CONST_METHOD0(key, boost::optional<types::AccountDetailKeyType>());
-      MOCK_CONST_METHOD0(writer, boost::optional<types::AccountIdType>());
+      MOCK_CONST_METHOD0(key, std::optional<types::AccountDetailKeyType>());
+      MOCK_CONST_METHOD0(writer, std::optional<types::AccountIdType>());
       MOCK_CONST_METHOD0(clone, GetAccountDetail *());
       MOCK_CONST_METHOD0(
           paginationMeta,
-          boost::optional<const AccountDetailPaginationMeta &>());
+          std::optional<
+              std::reference_wrapper<const AccountDetailPaginationMeta>>());
     };
 
     struct MockGetAccount : public SpecificMockQuery<GetAccount> {
@@ -135,7 +138,7 @@ namespace shared_model {
 
     struct MockTxPaginationMeta : public TxPaginationMeta {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
-      MOCK_CONST_METHOD0(firstTxHash, boost::optional<types::HashType>());
+      MOCK_CONST_METHOD0(firstTxHash, std::optional<types::HashType>());
       MOCK_CONST_METHOD0(clone, TxPaginationMeta *());
     };
 

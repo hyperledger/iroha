@@ -37,21 +37,27 @@ def testSteps(scmVars, String buildDir, List environment, String testList) {
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean coverage, boolean testing, String testList,
        boolean packagebuild, boolean fuzzing, boolean benchmarking, boolean useBTF, List environment) {
   withEnv(environment) {
-    scmVars = checkout scm
-    def build = load '.jenkinsci/build.groovy'
-    def vars = load ".jenkinsci/utils/vars.groovy"
-    def utils = load ".jenkinsci/utils/utils.groovy"
-    buildDir = 'build'
-    compilers = vars.compilerMapping()
-    cmakeBooleanOption = [ (true): 'ON', (false): 'OFF' ]
-    cmakeBuildOptions = ""
+    def build, vars, utils
+    stage('Prepare Mac environment') {
+      scmVars = checkout scm
+      build = load '.jenkinsci/build.groovy'
+      vars = load ".jenkinsci/utils/vars.groovy"
+      utils = load ".jenkinsci/utils/utils.groovy"
+      buildDir = 'build'
+      compilers = vars.compilerMapping()
+      cmakeBooleanOption = [ (true): 'ON', (false): 'OFF' ]
+      cmakeBuildOptions = ""
+      mac_local_vcpkg_hash = sh(script: "python .jenkinsci/helpers/hash.py vcpkg", returnStdout: true).trim()
+      mac_vcpkg_path = "/opt/dependencies/vcpkg-${mac_local_vcpkg_hash}"
+      mac_vcpkg_toolchain_file = "${mac_vcpkg_path}/scripts/buildsystems/vcpkg.cmake"
 
-    if (packagebuild){
-      cmakeBuildOptions = " --target package "
+      if (packagebuild){
+        cmakeBuildOptions = " --target package "
+      }
+
+      utils.ccacheSetup(5)
+      utils.build_vcpkg(mac_vcpkg_path,mac_vcpkg_toolchain_file)
     }
-
-    utils.ccacheSetup(5)
-
     for (compiler in compilerVersions) {
       stage ("build ${compiler}"){
         // Remove artifacts from the previous build
@@ -66,7 +72,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
         -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
         -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
         -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
-        -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ")
+        -DCMAKE_TOOLCHAIN_FILE=${mac_vcpkg_toolchain_file} ")
 
         build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
       }

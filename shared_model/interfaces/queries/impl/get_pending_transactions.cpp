@@ -5,6 +5,7 @@
 
 #include "interfaces/queries/get_pending_transactions.hpp"
 
+#include "common/optional_reference_equal.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 
 namespace shared_model {
@@ -14,13 +15,14 @@ namespace shared_model {
       auto builder =
           detail::PrettyStringBuilder().init("GetPendingTransactions");
       if (paginationMeta()) {
-        builder.append("pagination_meta", paginationMeta()->toString());
+        builder.appendNamed("pagination_meta", paginationMeta());
       }
       return builder.finalize();
     }
 
     bool GetPendingTransactions::operator==(const ModelType &rhs) const {
-      return paginationMeta() == rhs.paginationMeta();
+      return iroha::optionalReferenceEqual(paginationMeta(),
+                                           rhs.paginationMeta());
     }
 
   }  // namespace interface

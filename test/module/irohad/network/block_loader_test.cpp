@@ -255,7 +255,7 @@ TEST_F(BlockLoaderTest, ValidWhenBlockPresent) {
 
   setPeerQuery();
   EXPECT_CALL(*validator, validate(RefAndPointerEq(block)))
-      .WillOnce(Return(boost::none));
+      .WillOnce(Return(std::nullopt));
   EXPECT_CALL(*storage, getBlock(_)).Times(0);
 
   retrieveBlockAndCompare(block->height(), *block);

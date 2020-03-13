@@ -13,8 +13,8 @@ namespace shared_model {
     std::string RemoveSignatory::toString() const {
       return detail::PrettyStringBuilder()
           .init("RemoveSignatory")
-          .append("account_id", accountId())
-          .append(pubkey().toString())
+          .appendNamed("account_id", accountId())
+          .appendNamed("public_key", pubkey())
           .finalize();
     }
 

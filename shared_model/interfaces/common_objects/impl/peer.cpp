@@ -5,7 +5,7 @@
 
 #include "interfaces/common_objects/peer.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "cryptography/public_key.hpp"
 
@@ -14,9 +14,9 @@ namespace shared_model {
     std::string Peer::toString() const {
       return detail::PrettyStringBuilder()
           .init("Peer")
-          .append("address", address())
-          .append("pubkey", pubkey().toString())
-          .append("tlsCertificate", bool(tlsCertificate()))
+          .appendNamed("address", address())
+          .appendNamed("pubkey", pubkey())
+          .appendNamed("tlsCertificate", bool(tlsCertificate()))
           .finalize();
     }
 

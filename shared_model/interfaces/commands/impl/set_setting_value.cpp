@@ -11,8 +11,8 @@ namespace shared_model {
     std::string SetSettingValue::toString() const {
       return detail::PrettyStringBuilder()
           .init("SetSettingValue")
-          .append("key", key())
-          .append("value", value())
+          .appendNamed("key", key())
+          .appendNamed("value", value())
           .finalize();
     }
 

@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_ASSET_PAGINATION_META_HPP
 #define IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_ASSET_PAGINATION_META_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -20,7 +20,7 @@ namespace shared_model {
       virtual types::TransactionsNumberType pageSize() const = 0;
 
       /// Get the first requested asset, if provided.
-      virtual boost::optional<types::AssetIdType> firstAssetId() const = 0;
+      virtual std::optional<types::AssetIdType> firstAssetId() const = 0;
 
       std::string toString() const override;
 

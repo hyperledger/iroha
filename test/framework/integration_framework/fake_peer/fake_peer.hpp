@@ -7,6 +7,7 @@
 #define INTEGRATION_FRAMEWORK_FAKE_PEER_HPP_
 
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <boost/core/noncopyable.hpp>
@@ -63,7 +64,7 @@ namespace integration_framework {
           const std::string &listen_ip,
           size_t internal_port,
           const boost::optional<shared_model::crypto::Keypair> &key,
-          boost::optional<shared_model::interface::types::TLSCertificateType>
+          std::optional<shared_model::interface::types::TLSCertificateType>
               tls_certificate,
           std::shared_ptr<shared_model::interface::Peer> real_peer,
           const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -113,7 +114,7 @@ namespace integration_framework {
       const shared_model::crypto::Keypair &getKeypair() const;
 
       /// Get the TLS certificate of this peer.
-      const boost::optional<shared_model::interface::types::TLSCertificateType>
+      const std::optional<shared_model::interface::types::TLSCertificateType>
           &getTlsCertificate() const;
 
       /// Get interface::Peer object for this instance.
@@ -244,7 +245,7 @@ namespace integration_framework {
       const std::string listen_ip_;
       size_t internal_port_;
       std::unique_ptr<shared_model::crypto::Keypair> keypair_;
-      boost::optional<shared_model::interface::types::TLSCertificateType>
+      std::optional<shared_model::interface::types::TLSCertificateType>
           tls_certificate_;
 
       std::shared_ptr<shared_model::interface::Peer>

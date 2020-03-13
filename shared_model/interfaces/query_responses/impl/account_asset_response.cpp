@@ -12,11 +12,9 @@ namespace shared_model {
     std::string AccountAssetResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("AccountAssetResponse")
-          .appendAll(
-              "assets", accountAssets(), [](auto &tx) { return tx.toString(); })
-          .append("total assets number",
-                  std::to_string(totalAccountAssetsNumber()))
-          .append("next asset id", nextAssetId().value_or("(none)"))
+          .appendNamed("assets", accountAssets())
+          .appendNamed("total assets number", totalAccountAssetsNumber())
+          .appendNamed("next asset id", nextAssetId())
           .finalize();
     }
 

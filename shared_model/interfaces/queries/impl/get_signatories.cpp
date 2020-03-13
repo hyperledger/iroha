@@ -11,7 +11,7 @@ namespace shared_model {
     std::string GetSignatories::toString() const {
       return detail::PrettyStringBuilder()
           .init("GetSignatories")
-          .append("account_id", accountId())
+          .appendNamed("account_id", accountId())
           .finalize();
     }
 

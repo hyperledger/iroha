@@ -56,6 +56,7 @@ target_link_libraries(application
     grpc_channel_pool
     grpc_generic_client_factory
     peer_tls_certificates_providers
+    permutation_generator
     tls_credentials
     yac
     yac_transport

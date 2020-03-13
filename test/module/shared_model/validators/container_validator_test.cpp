@@ -4,7 +4,7 @@
  */
 
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "cryptography/default_hash_provider.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
@@ -75,7 +75,7 @@ TEST_F(ContainerValidatorTest, OldProposal) {
       iroha::test::kTestsValidatorsConfig);
   auto proposal = makeProposal(old_timestamp, makeTransaction(old_timestamp));
 
-  ASSERT_EQ(validator.validate(proposal), boost::none);
+  ASSERT_EQ(validator.validate(proposal), std::nullopt);
 }
 
 /**
@@ -88,7 +88,7 @@ TEST_F(ContainerValidatorTest, OldBlock) {
       iroha::test::kTestsValidatorsConfig);
   auto block = makeBlock(old_timestamp, makeTransaction(old_timestamp));
 
-  ASSERT_EQ(validator.validate(block), boost::none);
+  ASSERT_EQ(validator.validate(block), std::nullopt);
 }
 
 /**

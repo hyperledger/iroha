@@ -87,6 +87,9 @@ namespace iroha {
      */
     template <typename V, typename E>
     class Result : ResultBase, public boost::variant<Value<V>, Error<E>> {
+      template <typename OV, typename OE>
+      friend class Result;
+
       using variant_type = boost::variant<Value<V>, Error<E>>;
       using variant_type::variant_type;  // inherit constructors
 
@@ -96,6 +99,24 @@ namespace iroha {
 
       using ValueInnerType = V;
       using ErrorInnerType = E;
+
+      Result() = default;
+
+      template <typename OV, typename OE>
+      Result(Result<OV, OE> r)
+          : Result(visit_in_place(std::move(r),
+                                  [](Value<OV> &v) -> Result<V, E> {
+                                    return ValueType{std::move(v.value)};
+                                  },
+                                  [](Value<OV> &&v) -> Result<V, E> {
+                                    return ValueType{std::move(v.value)};
+                                  },
+                                  [](Error<OE> &e) -> Result<V, E> {
+                                    return ErrorType{std::move(e.error)};
+                                  },
+                                  [](Error<OE> &&e) -> Result<V, E> {
+                                    return ErrorType{std::move(e.error)};
+                                  })) {}
 
       /**
        * match is a function which allows working with result's underlying
@@ -187,6 +208,17 @@ namespace iroha {
                              ValueInnerType>;
 
       /// @return value if present, otherwise throw ResultException
+      template <typename ReturnType = const AssumeValueHelper &>
+      std::enable_if_t<not std::is_void<ValueInnerType>::value, ReturnType>
+      assumeValue() const & {
+        const auto *val = boost::get<ValueType>(this);
+        if (val != nullptr) {
+          return val->value;
+        }
+        throw ResultException("Value expected, but got an Error.");
+      }
+
+      /// @return value if present, otherwise throw ResultException
       template <typename ReturnType = AssumeValueHelper &>
       std::enable_if_t<not std::is_void<ValueInnerType>::value, ReturnType>
       assumeValue() & {
@@ -214,12 +246,23 @@ namespace iroha {
                              ErrorInnerType>;
 
       /// @return error if present, otherwise throw ResultException
+      template <typename ReturnType = const AssumeErrorHelper &>
+      std::enable_if_t<not std::is_void<ErrorInnerType>::value, ReturnType>
+      assumeError() const & {
+        const auto *err = boost::get<ErrorType>(this);
+        if (err != nullptr) {
+          return err->error;
+        }
+        throw ResultException("Error expected, but got a Value.");
+      }
+
+      /// @return error if present, otherwise throw ResultException
       template <typename ReturnType = AssumeErrorHelper &>
       std::enable_if_t<not std::is_void<ErrorInnerType>::value, ReturnType>
       assumeError() & {
-        auto val = boost::get<ErrorType>(this);
-        if (val != nullptr) {
-          return val->value;
+        auto err = boost::get<ErrorType>(this);
+        if (err != nullptr) {
+          return err->error;
         }
         throw ResultException("Error expected, but got a Value.");
       }
@@ -228,9 +271,9 @@ namespace iroha {
       template <typename ReturnType = AssumeErrorHelper &&>
       std::enable_if_t<not std::is_void<ErrorInnerType>::value, ReturnType>
       assumeError() && {
-        auto val = boost::get<ErrorType>(this);
-        if (val != nullptr) {
-          return std::move(val->value);
+        auto err = boost::get<ErrorType>(this);
+        if (err != nullptr) {
+          return std::move(err->error);
         }
         throw ResultException("Error expected, but got a Value.");
       }
@@ -262,9 +305,17 @@ namespace iroha {
     }
 
     // Factory methods for avoiding type specification
+    inline Value<void> makeValue() {
+      return Value<void>{};
+    }
+
     template <typename T>
     Value<T> makeValue(T &&value) {
       return Value<T>{std::forward<T>(value)};
+    }
+
+    inline Error<void> makeError() {
+      return Error<void>{};
     }
 
     template <typename E>
@@ -417,25 +468,6 @@ namespace iroha {
     constexpr auto operator|=(R &r, F &&f) -> decltype(r = r | f) {
       return r = r | std::forward<F>(f);
     }
-
-    /**
-     * Polymorphic Result is simple alias for result type, which can be used to
-     * work with polymorphic objects. It is achieved by wrapping V and E in a
-     * polymorphic container (std::shared_ptr is used by default). This
-     * simplifies declaration of polymorphic result.
-     *
-     * Note: ordinary result itself stores both V and E directly inside itself
-     * (on the stack), polymorphic result stores objects wherever VContainer and
-     * EContainer store them, but since you need polymorphic behavior, it will
-     * probably be on the heap. That is why polymorphic result is generally
-     * slower, and should be used ONLY when polymorphic behaviour is required,
-     * hence the name. For all other use cases, stick to basic Result
-     */
-    template <typename V,
-              typename E,
-              typename VContainer = std::shared_ptr<V>,
-              typename EContainer = std::shared_ptr<E>>
-    using PolymorphicResult = Result<VContainer, EContainer>;
 
     /**
      * Checkers of the Result type.

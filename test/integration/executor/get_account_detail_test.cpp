@@ -7,8 +7,8 @@
 
 #include <map>
 
+#include <fmt/core.h>
 #include <gtest/gtest.h>
-#include <boost/format.hpp>
 #include "backend/plain/account_detail_record_id.hpp"
 #include "framework/common_constants.hpp"
 #include "integration/executor/account_detail_checker.hpp"
@@ -30,7 +30,7 @@ using shared_model::plain::AccountDetailRecordId;
 
 struct GetAccountDetailTest : public ExecutorTestBase {
   std::string makeAccountName(size_t i) const {
-    return (boost::format("account_%02d") % i).str();
+    return fmt::format("account_{:02}", i);
   }
 
   AccountIdType makeAccountId(size_t i) const {
@@ -38,11 +38,11 @@ struct GetAccountDetailTest : public ExecutorTestBase {
   }
 
   std::string makeKey(size_t i) const {
-    return (boost::format("key_%02d") % i).str();
+    return fmt::format("key_{:02}", i);
   }
 
   std::string makeValue(size_t writer, size_t key) const {
-    return (boost::format("value_w%02d_k%02d") % writer % key).str();
+    return fmt::format("value_w{:02}_k{:02}", writer, key);
   }
 
   /**
@@ -79,21 +79,24 @@ struct GetAccountDetailTest : public ExecutorTestBase {
   std::unique_ptr<shared_model::interface::MockAccountDetailPaginationMeta>
   makePaginationMeta(
       TransactionsNumberType page_size,
-      const boost::optional<AccountDetailRecordId> &requested_first_record_id) {
-    boost::optional<const shared_model::interface::AccountDetailRecordId &>
+      const std::optional<AccountDetailRecordId> &requested_first_record_id) {
+    std::optional<std::reference_wrapper<
+        const shared_model::interface::AccountDetailRecordId>>
         first_record_id;
     if (requested_first_record_id) {
-      first_record_id = requested_first_record_id.value();
-    }  // convert to boost::optional ctor?
+      first_record_id =
+          std::cref<shared_model::interface::AccountDetailRecordId>(
+              requested_first_record_id.value());
+    }  // convert to optional ctor?
     return getItf().getMockQueryFactory()->constructAccountDetailPaginationMeta(
         page_size, first_record_id);
   }
 
   /// Query account details.
   QueryExecutorResult queryPage(
-      boost::optional<std::string> writer,
-      boost::optional<std::string> key,
-      boost::optional<AccountDetailRecordId> first_record_id,
+      std::optional<std::string> writer,
+      std::optional<std::string> key,
+      std::optional<AccountDetailRecordId> first_record_id,
       size_t page_size,
       const AccountIdType &command_issuer = kAdminId) {
     auto page_meta = makePaginationMeta(page_size, first_record_id);
@@ -114,10 +117,9 @@ struct GetAccountDetailTest : public ExecutorTestBase {
 
   void validatePageResponse(
       const QueryExecutorResult &response,
-      boost::optional<std::string> writer,
-      boost::optional<std::string> key,
-      boost::optional<shared_model::plain::AccountDetailRecordId>
-          first_record_id,
+      std::optional<std::string> writer,
+      std::optional<std::string> key,
+      std::optional<shared_model::plain::AccountDetailRecordId> first_record_id,
       size_t page_size) {
     checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
         response, [&, this](const auto &response) {
@@ -139,7 +141,7 @@ struct GetAccountDetailTest : public ExecutorTestBase {
  protected:
   struct Response {
     size_t total_number{0};
-    boost::optional<shared_model::plain::AccountDetailRecordId> next_record;
+    std::optional<shared_model::plain::AccountDetailRecordId> next_record;
     DetailsByKeyByWriter details;
   };
 
@@ -155,9 +157,9 @@ struct GetAccountDetailTest : public ExecutorTestBase {
       if (not response.nextRecordId()) {
         ADD_FAILURE() << "nextRecordId not set!";
       } else {
-        EXPECT_EQ(response.nextRecordId()->writer(),
+        EXPECT_EQ(response.nextRecordId()->get().writer(),
                   expected_response.next_record->writer());
-        EXPECT_EQ(response.nextRecordId()->key(),
+        EXPECT_EQ(response.nextRecordId()->get().key(),
                   expected_response.next_record->key());
       }
     } else {
@@ -176,9 +178,9 @@ struct GetAccountDetailTest : public ExecutorTestBase {
    */
   void validatePageResponse(
       const AccountDetailResponse &response,
-      boost::optional<std::string> writer,
-      boost::optional<std::string> key,
-      boost::optional<AccountDetailRecordId> first_record_id,
+      std::optional<std::string> writer,
+      std::optional<std::string> key,
+      std::optional<AccountDetailRecordId> first_record_id,
       size_t page_size) {
     Response expected_response = this->getExpectedResponse(
         writer, key, std::move(first_record_id), page_size);
@@ -190,9 +192,9 @@ struct GetAccountDetailTest : public ExecutorTestBase {
    * given parameters.
    */
   Response getExpectedResponse(
-      const boost::optional<std::string> &req_writer,
-      const boost::optional<std::string> &req_key,
-      const boost::optional<shared_model::plain::AccountDetailRecordId>
+      const std::optional<std::string> &req_writer,
+      const std::optional<std::string> &req_key,
+      const std::optional<shared_model::plain::AccountDetailRecordId>
           &first_record_id,
       size_t page_size) {
     auto optional_match = [](const auto &opt, const auto &val) {
@@ -269,20 +271,20 @@ struct GetAccountDetailRecordIdTest
         + record_id_param_names.at(std::get<1>(param.param));
   }
 
-  boost::optional<std::string> requestedWriter() const {
+  std::optional<std::string> requestedWriter() const {
     if (record_id_param_ == kDetailsByWriter
         or record_id_param_ == kSingleDetail) {
       return makeAccountId(0);
     }
-    return boost::none;
+    return std::nullopt;
   }
 
-  boost::optional<std::string> requestedKey() const {
+  std::optional<std::string> requestedKey() const {
     if (record_id_param_ == kDetailsByKey
         or record_id_param_ == kSingleDetail) {
       return makeKey(0);
     }
-    return boost::none;
+    return std::nullopt;
   }
 
   shared_model::plain::AccountDetailRecordId makeFirstRecordId(
@@ -293,8 +295,7 @@ struct GetAccountDetailRecordIdTest
   }
 
   QueryExecutorResult queryPage(
-      boost::optional<shared_model::plain::AccountDetailRecordId>
-          first_record_id,
+      std::optional<shared_model::plain::AccountDetailRecordId> first_record_id,
       size_t page_size) {
     return GetAccountDetailTest::queryPage(requestedWriter(),
                                            requestedKey(),
@@ -304,13 +305,12 @@ struct GetAccountDetailRecordIdTest
 
   QueryExecutorResult queryPage(size_t page_size) {
     return GetAccountDetailTest::queryPage(
-        requestedWriter(), requestedKey(), boost::none, page_size);
+        requestedWriter(), requestedKey(), std::nullopt, page_size);
   }
 
   void validatePageResponse(
       const QueryExecutorResult &response,
-      boost::optional<shared_model::plain::AccountDetailRecordId>
-          first_record_id,
+      std::optional<shared_model::plain::AccountDetailRecordId> first_record_id,
       size_t page_size) {
     checkSuccessfulResult<shared_model::interface::AccountDetailResponse>(
         response, [&, this](const auto &response) {
@@ -367,7 +367,7 @@ TEST_P(GetAccountDetailRecordIdTest, NoDetail) {
 TEST_P(GetAccountDetailRecordIdTest, InvalidNoAccount) {
   checkQueryError<shared_model::interface::NoAccountDetailErrorResponse>(
       GetAccountDetailTest::queryPage(
-          makeAccountId(1), makeKey(1), boost::none, 1),
+          makeAccountId(1), makeKey(1), std::nullopt, 1),
       error_codes::kNoStatefulError);
 }
 
@@ -380,8 +380,8 @@ TEST_P(GetAccountDetailRecordIdTest, NoPageMetaData) {
   ASSERT_NO_FATAL_FAILURE(prepareState(3, 3));
   QueryExecutorResult response = getItf().executeQuery(
       *getItf().getMockQueryFactory()->constructGetAccountDetail(
-          kUserId, requestedKey(), requestedWriter(), boost::none));
-  validatePageResponse(response, boost::none, 9);
+          kUserId, requestedKey(), requestedWriter(), std::nullopt));
+  validatePageResponse(response, std::nullopt, 9);
 }
 
 /**
@@ -405,7 +405,7 @@ TEST_P(GetAccountDetailRecordIdTest, NonexistentFirstRecordId) {
  */
 TEST_P(GetAccountDetailRecordIdTest, FirstPage) {
   ASSERT_NO_FATAL_FAILURE(prepareState(3, 3));
-  queryPageAndValidateResponse(boost::none, 2);
+  queryPageAndValidateResponse(std::nullopt, 2);
 }
 
 /**
@@ -446,7 +446,7 @@ TEST_P(GetAccountDetailRecordIdTest, LastPage) {
                                2);
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Base,
     GetAccountDetailRecordIdTest,
     ::testing::Combine(executor_testing::getExecutorTestParams(),
@@ -463,14 +463,14 @@ TEST_P(GetAccountDetailPermissionTest, QueryPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({Role::kSetMyAccountDetail}));
   addDetails(1, 1);
   checkResponse<shared_model::interface::AccountDetailResponse>(
-      queryPage(makeAccountId(0), makeKey(0), boost::none, 1, getSpectator()),
+      queryPage(makeAccountId(0), makeKey(0), std::nullopt, 1, getSpectator()),
       [this](const shared_model::interface::AccountDetailResponse &response) {
         this->validatePageResponse(
-            response, makeAccountId(0), makeKey(0), boost::none, 1);
+            response, makeAccountId(0), makeKey(0), std::nullopt, 1);
       });
 }
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     Common,
     GetAccountDetailPermissionTest,
     query_permission_test::getParams({Role::kGetMyAccDetail},

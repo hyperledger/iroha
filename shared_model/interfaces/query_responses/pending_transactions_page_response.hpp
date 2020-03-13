@@ -8,7 +8,7 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/optional/optional_fwd.hpp>
+#include <optional>
 #include "cryptography/hash.hpp"
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -32,6 +32,8 @@ namespace shared_model {
           return first_tx_hash == rhs.first_tx_hash
               and batch_size == rhs.batch_size;
         }
+
+        std::string toString() const;
       };
 
       /**
@@ -42,7 +44,7 @@ namespace shared_model {
       /**
        * @return next batch info to query the following page if exists
        */
-      virtual boost::optional<BatchInfo> nextBatchInfo() const = 0;
+      virtual std::optional<BatchInfo> nextBatchInfo() const = 0;
 
       /**
        * @return total number of transactions for the query

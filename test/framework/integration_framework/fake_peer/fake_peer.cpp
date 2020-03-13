@@ -47,7 +47,7 @@ static std::shared_ptr<shared_model::interface::Peer> createPeer(
         &common_objects_factory,
     const std::string &address,
     const PublicKey &key,
-    const boost::optional<shared_model::interface::types::TLSCertificateType>
+    const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate) {
   std::shared_ptr<shared_model::interface::Peer> peer;
   common_objects_factory->createPeer(address, key, tls_certificate)
@@ -67,7 +67,7 @@ namespace integration_framework {
         const std::string &listen_ip,
         size_t internal_port,
         const boost::optional<Keypair> &key,
-        boost::optional<shared_model::interface::types::TLSCertificateType>
+        std::optional<shared_model::interface::types::TLSCertificateType>
             tls_certificate,
         std::shared_ptr<shared_model::interface::Peer> real_peer,
         const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
@@ -236,7 +236,7 @@ namespace integration_framework {
       return *keypair_;
     }
 
-    const boost::optional<shared_model::interface::types::TLSCertificateType>
+    const std::optional<shared_model::interface::types::TLSCertificateType>
         &FakePeer::getTlsCertificate() const {
       return tls_certificate_;
     }

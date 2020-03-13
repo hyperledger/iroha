@@ -22,7 +22,7 @@ namespace shared_model {
     class ProtoTransactionValidator
         : public AbstractValidator<iroha::protocol::Transaction> {
      public:
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const iroha::protocol::Transaction &tx) const override;
 
      private:

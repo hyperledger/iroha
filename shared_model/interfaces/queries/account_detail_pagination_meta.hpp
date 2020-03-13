@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_DETAIL_PAGINATION_META_HPP
 #define IROHA_SHARED_INTERFACE_MODEL_QUERY_ACCOUNT_DETAIL_PAGINATION_META_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
@@ -22,8 +22,8 @@ namespace shared_model {
       virtual size_t pageSize() const = 0;
 
       /// Get the first requested record id, if provided.
-      virtual boost::optional<const AccountDetailRecordId &> firstRecordId()
-          const = 0;
+      virtual std::optional<std::reference_wrapper<const AccountDetailRecordId>>
+      firstRecordId() const = 0;
 
       std::string toString() const override;
 

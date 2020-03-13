@@ -4,6 +4,7 @@
  */
 
 #include "interfaces/query_responses/peers_response.hpp"
+
 #include "interfaces/common_objects/peer.hpp"
 #include "utils/string_builder.hpp"
 
@@ -13,7 +14,7 @@ namespace shared_model {
     std::string PeersResponse::toString() const {
       return detail::PrettyStringBuilder()
           .init("PeersResponse")
-          .appendAll(peers(), [](auto &peer) { return peer.toString(); })
+          .append(peers())
           .finalize();
     }
 

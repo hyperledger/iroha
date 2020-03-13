@@ -38,7 +38,7 @@ namespace shared_model {
   }  // namespace interface
 }  // namespace shared_model
 
-boost::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
+std::optional<shared_model::interface::types::TLSCertificateType> kTlsCert =
     shared_model::interface::types::TLSCertificateType{
         R"(
 -----BEGIN CERTIFICATE-----

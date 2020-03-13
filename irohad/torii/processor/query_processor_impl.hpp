@@ -30,8 +30,10 @@ namespace iroha {
               response_factory,
           logger::LoggerPtr log);
 
-      std::unique_ptr<shared_model::interface::QueryResponse> queryHandle(
-          const shared_model::interface::Query &qry) override;
+      iroha::expected::Result<
+          std::unique_ptr<shared_model::interface::QueryResponse>,
+          std::string>
+      queryHandle(const shared_model::interface::Query &qry) override;
 
       rxcpp::observable<
           std::shared_ptr<shared_model::interface::BlockQueryResponse>>

@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -101,7 +101,7 @@ TEST_F(ProposalValidatorTest, TransportProposalWithDuplicateTransactions) {
   shared_model::validation::DefaultProposalValidator validator(
       iroha::test::kProposalTestsValidatorsConfig);
 
-  ASSERT_EQ(validator.validate(proposal), boost::none);
+  ASSERT_EQ(validator.validate(proposal), std::nullopt);
 }
 
 /**

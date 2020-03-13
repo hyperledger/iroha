@@ -203,7 +203,7 @@ namespace shared_model {
           const types::AccountIdType &account_id,
           const types::AccountDetailKeyType &key,
           const types::AccountDetailValueType &value,
-          const boost::optional<types::AccountDetailValueType> old_value) const;
+          const std::optional<types::AccountDetailValueType> old_value) const;
 
       /**
        * Construct a mocked SetSettingValue

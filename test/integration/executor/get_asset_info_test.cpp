@@ -55,10 +55,10 @@ TEST_P(GetAssetInfoBasicTest, InvalidNoAsset) {
       query(), error_codes::kNoStatefulError);
 }
 
-INSTANTIATE_TEST_CASE_P(Base,
-                        GetAssetInfoBasicTest,
-                        executor_testing::getExecutorTestParams(),
-                        executor_testing::paramToString);
+INSTANTIATE_TEST_SUITE_P(Base,
+                         GetAssetInfoBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
 
 using GetAssetInfoPermissionTest =
     query_permission_test::QueryPermissionTest<GetAssetInfoTest>;
@@ -72,9 +72,9 @@ TEST_P(GetAssetInfoPermissionTest, QueryPermissionTest) {
                                });
 }
 
-INSTANTIATE_TEST_CASE_P(Common,
-                        GetAssetInfoPermissionTest,
-                        query_permission_test::getParams({boost::none},
-                                                         {boost::none},
-                                                         {Role::kReadAssets}),
-                        query_permission_test::paramToString);
+INSTANTIATE_TEST_SUITE_P(Common,
+                         GetAssetInfoPermissionTest,
+                         query_permission_test::getParams({boost::none},
+                                                          {boost::none},
+                                                          {Role::kReadAssets}),
+                         query_permission_test::paramToString);
