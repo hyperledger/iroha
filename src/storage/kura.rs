@@ -94,7 +94,7 @@ pub struct WorldStateView {
 }
 
 impl WorldStateView {
-    fn init(blocks: &Vec<Block>) -> Self {
+    fn init(blocks: &[Block]) -> Self {
         let mut world_state_view = WorldStateView::default();
         for block in blocks {
             world_state_view.put(block.clone());
@@ -111,14 +111,14 @@ impl WorldStateView {
         self.accounts_all_transactions =
             merge_all_transactions(self.accounts_all_transactions.clone(), block.clone());
         self.assets_transactions =
-            merge_assets_transactions(self.assets_transactions.clone(), block.clone());
+            merge_assets_transactions(self.assets_transactions.clone(), block);
     }
 
     /// Return a `Vec` of `Asset`. Result will be empty if there are no assets associated with an
     /// account.
     pub fn get_assets_by_account_id(&self, account_id: &str) -> Vec<Asset> {
         match &self.accounts_assets.get(account_id) {
-            Some(assets) => assets.to_vec().clone(),
+            Some(assets) => assets.to_vec(),
             None => Vec::new(),
         }
     }

@@ -1,3 +1,5 @@
+use crate::model::commands::oob::Command;
+
 /// The purpose of create domain command is to make new domain in Iroha network, which is a
 /// group of accounts.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -10,15 +12,35 @@ pub struct CreateDomain {
 /// ```
 /// use iroha::model::commands::domains::CreateDomain;
 ///
-/// let command_payload = CreateDomain {
+/// let command_payload = &CreateDomain {
 ///     domain_id: "domain".to_string(),
 ///     default_role: "user".to_string(),
 /// };
 /// let result: Vec<u8> = command_payload.into();
 /// ```
-impl std::convert::From<CreateDomain> for Vec<u8> {
-    fn from(command_payload: CreateDomain) -> Self {
-        bincode::serialize(&command_payload).expect("Failed to serialize payload.")
+impl std::convert::From<&CreateDomain> for Vec<u8> {
+    fn from(command_payload: &CreateDomain) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// use iroha::model::commands::{oob::Command,domains::CreateDomain};
+///
+/// let command_payload = &CreateDomain {
+///     domain_id: "domain".to_string(),
+///     default_role: "user".to_string(),
+/// };
+/// let result: Command = command_payload.into();
+/// ```
+impl std::convert::From<&CreateDomain> for Command {
+    fn from(command_payload: &CreateDomain) -> Self {
+        Command {
+            version: 1,
+            command_type: 7,
+            payload: command_payload.into(),
+        }
     }
 }
 
@@ -26,7 +48,7 @@ impl std::convert::From<CreateDomain> for Vec<u8> {
 /// ```
 /// # use iroha::model::commands::domains::CreateDomain;
 /// #
-/// # let command_payload = CreateDomain {
+/// # let command_payload = &CreateDomain {
 /// #    domain_id: "domain".to_string(),
 /// #   default_role: "user".to_string(),
 /// # };
