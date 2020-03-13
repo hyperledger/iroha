@@ -651,10 +651,11 @@ namespace iroha {
       }
 
       const std::string asset_id = "coin#domain";
-      shared_model::crypto::Hash hash1{iroha::createHash()};
-      shared_model::crypto::Hash hash2{iroha::createHash()};
-      shared_model::crypto::Hash hash3{iroha::createHash()};
-      shared_model::crypto::Hash second_block_hash{iroha::createHash()};
+      shared_model::crypto::Hash hash1{iroha::createHash("hash1")};
+      shared_model::crypto::Hash hash2{iroha::createHash("hash2")};
+      shared_model::crypto::Hash hash3{iroha::createHash("hash3")};
+      shared_model::crypto::Hash second_block_hash{
+          iroha::createHash("second_block_hash")};
     };
 
     template <typename QueryTxPaginationTest>

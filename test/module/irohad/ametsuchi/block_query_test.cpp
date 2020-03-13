@@ -73,7 +73,7 @@ class BlockQueryTest : public AmetsuchiTest {
         TestBlockBuilder()
             .height(1)
             .transactions(txs1)
-            .prevHash(iroha::createHashPadded("preprehash"))
+            .prevHash(iroha::createHashPadded("prev_hash"))
             .rejectedTransactions(
                 std::vector<shared_model::crypto::Hash>{rejected_hash})
             .build();

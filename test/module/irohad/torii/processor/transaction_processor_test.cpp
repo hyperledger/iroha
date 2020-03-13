@@ -405,7 +405,6 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
 
   auto block = TestBlockBuilder()
                    .transactions(block_txs)
-                   .prevHash(iroha::createHash("BE600D"))
                    .rejectedTransactions(
                        invalid_txs | boost::adaptors::transformed([](auto &tx) {
                          return tx.hash();

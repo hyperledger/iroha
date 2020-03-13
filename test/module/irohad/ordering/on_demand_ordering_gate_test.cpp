@@ -37,7 +37,10 @@ using ::testing::Truly;
 using ::testing::UnorderedElementsAre;
 using ::testing::UnorderedElementsAreArray;
 
-using shared_model::crypto::Blob;
+static const shared_model::interface::types::HashType kHash1{
+    iroha::createHash("hash1")};
+static const shared_model::interface::types::HashType kHash2{
+    iroha::createHash("hash2")};
 
 class OnDemandOrderingGateTest : public ::testing::Test {
  public:
@@ -67,7 +70,8 @@ class OnDemandOrderingGateTest : public ::testing::Test {
         1000,
         getTestLogger("OrderingGate"));
 
-    auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
+    auto peer =
+        makePeer("127.0.0.1", iroha::createPublicKey("127.0.0.1 pubkey"));
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round,
@@ -117,8 +121,7 @@ class OnDemandOrderingGateTest : public ::testing::Test {
  * @then it is passed to the ordering service
  */
 TEST_F(OnDemandOrderingGateTest, propagateBatch) {
-  shared_model::interface::types::HashType hash1(Blob::fromBinaryString(""));
-  auto batch = createMockBatchWithHash(hash1);
+  auto batch = createMockBatchWithHash(kHash1);
   OdOsNotification::CollectionType collection{batch};
 
   EXPECT_CALL(*cache, addToBack(UnorderedElementsAre(batch))).Times(1);
@@ -254,8 +257,7 @@ TEST_F(OnDemandOrderingGateTest, EmptyEventNoProposal) {
 TEST_F(OnDemandOrderingGateTest, ReplayedTransactionInProposal) {
   // initialize mock transaction
   auto tx1 = std::make_shared<NiceMock<MockTransaction>>();
-  shared_model::crypto::Hash hash(
-      Blob::fromBinaryString("mock code is readable"));
+  shared_model::crypto::Hash hash(iroha::createHash("mock code is readable"));
   ON_CALL(*tx1, hash()).WillByDefault(testing::ReturnRef(testing::Const(hash)));
   std::vector<decltype(tx1)> txs{tx1};
   auto tx_range = txs | boost::adaptors::indirected;
@@ -360,13 +362,8 @@ TEST_F(OnDemandOrderingGateTest, RepeatedTransactionInProposal) {
  */
 TEST_F(OnDemandOrderingGateTest, PopNonEmptyBatchesFromTheCache) {
   // prepare internals of mock batches
-  shared_model::interface::types::HashType hash1(
-      Blob::fromBinaryString("hash1"));
-  auto tx1 = createMockTransactionWithHash(hash1);
-
-  shared_model::interface::types::HashType hash2(
-      Blob::fromBinaryString("hash2"));
-  auto tx2 = createMockTransactionWithHash(hash2);
+  auto tx1 = createMockTransactionWithHash(kHash1);
+  auto tx2 = createMockTransactionWithHash(kHash2);
 
   // prepare batches
   auto batch1 = createMockBatchWithTransactions({tx1}, "a");
@@ -409,23 +406,17 @@ TEST_F(OnDemandOrderingGateTest, PopEmptyBatchesFromTheCache) {
  * @then all batches from that event are removed from the cache
  */
 TEST_F(OnDemandOrderingGateTest, BatchesRemoveFromCache) {
-  // prepare hashes for mock batches
-  shared_model::interface::types::HashType hash1(
-      Blob::fromBinaryString("hash1"));
-  shared_model::interface::types::HashType hash2(
-      Blob::fromBinaryString("hash2"));
-
   // prepare batches
-  auto batch1 = createMockBatchWithHash(hash1);
-  auto batch2 = createMockBatchWithHash(hash2);
+  auto batch1 = createMockBatchWithHash(kHash1);
+  auto batch2 = createMockBatchWithHash(kHash2);
 
   EXPECT_CALL(*cache, pop()).Times(1);
-  EXPECT_CALL(*cache, remove(UnorderedElementsAre(hash1, hash2))).Times(1);
+  EXPECT_CALL(*cache, remove(UnorderedElementsAre(kHash1, kHash2))).Times(1);
 
   auto hashes =
       std::make_shared<ordering::cache::OrderingGateCache::HashesSetType>();
-  hashes->emplace(hash1);
-  hashes->emplace(hash2);
+  hashes->emplace(kHash1);
+  hashes->emplace(kHash2);
   processed_tx_hashes.get_subscriber().on_next(hashes);
   rounds.get_subscriber().on_next(
       OnDemandOrderingGate::RoundSwitch(round, ledger_state));

@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include "cryptography/blob.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha::ordering::cache;
@@ -19,6 +19,13 @@ using ::testing::Return;
 using ::testing::ReturnRef;
 using ::testing::UnorderedElementsAre;
 
+static const shared_model::interface::types::HashType kHash1{
+    iroha::createHash("hash1")};
+static const shared_model::interface::types::HashType kHash2{
+    iroha::createHash("hash2")};
+static const shared_model::interface::types::HashType kHash3{
+    iroha::createHash("hash3")};
+
 /**
  * @given empty cache
  * @when add to back is invoked with batch1 and batch2
@@ -27,13 +34,8 @@ using ::testing::UnorderedElementsAre;
 TEST(OnDemandCacheTest, TestAddToBack) {
   OnDemandCache cache;
 
-  shared_model::interface::types::HashType hash1(
-      shared_model::crypto::Blob::fromBinaryString("hash1"));
-  auto batch1 = createMockBatchWithHash(hash1);
-
-  shared_model::interface::types::HashType hash2(
-      shared_model::crypto::Blob::fromBinaryString("hash2"));
-  auto batch2 = createMockBatchWithHash(hash2);
+  auto batch1 = createMockBatchWithHash(kHash1);
+  auto batch2 = createMockBatchWithHash(kHash2);
 
   cache.addToBack({batch1, batch2});
 
@@ -50,16 +52,9 @@ TEST(OnDemandCacheTest, TestAddToBack) {
 TEST(OnDemandCache, Pop) {
   OnDemandCache cache;
 
-  shared_model::interface::types::HashType hash1(
-      shared_model::crypto::Blob::fromBinaryString("hash1"));
-  shared_model::interface::types::HashType hash2(
-      shared_model::crypto::Blob::fromBinaryString("hash2"));
-  shared_model::interface::types::HashType hash3(
-      shared_model::crypto::Blob::fromBinaryString("hash3"));
-
-  auto batch1 = createMockBatchWithHash(hash1);
-  auto batch2 = createMockBatchWithHash(hash2);
-  auto batch3 = createMockBatchWithHash(hash3);
+  auto batch1 = createMockBatchWithHash(kHash1);
+  auto batch2 = createMockBatchWithHash(kHash2);
+  auto batch3 = createMockBatchWithHash(kHash3);
 
   cache.addToBack({batch1});
   /**
@@ -110,23 +105,16 @@ TEST(OnDemandCache, Pop) {
 
 /**
  * @given cache with batch1 and batch2 on the top
- * @when remove({hash1}) is invoked, where hash1 is the hash of transactions
+ * @when remove({kHash1}) is invoked, where kHash1 is the hash of transactions
  * from batch1
  * @then only batch2 remains on the head of the queue
  */
 TEST(OnDemandCache, Remove) {
   OnDemandCache cache;
 
-  shared_model::interface::types::HashType hash1(
-      shared_model::crypto::Blob::fromBinaryString("hash1"));
-  shared_model::interface::types::HashType hash2(
-      shared_model::crypto::Blob::fromBinaryString("hash2"));
-  shared_model::interface::types::HashType hash3(
-      shared_model::crypto::Blob::fromBinaryString("hash3"));
-
-  auto tx1 = createMockTransactionWithHash(hash1);
-  auto tx2 = createMockTransactionWithHash(hash2);
-  auto tx3 = createMockTransactionWithHash(hash3);
+  auto tx1 = createMockTransactionWithHash(kHash1);
+  auto tx2 = createMockTransactionWithHash(kHash2);
+  auto tx3 = createMockTransactionWithHash(kHash3);
 
   auto batch1 = createMockBatchWithTransactions({tx1, tx2}, "abc");
   auto batch2 = createMockBatchWithTransactions({tx3}, "123");
@@ -141,7 +129,7 @@ TEST(OnDemandCache, Remove) {
    */
   ASSERT_THAT(cache.head(), UnorderedElementsAre(batch1, batch2));
 
-  cache.remove({hash1});
+  cache.remove({kHash1});
   /**
    * 1. {batch2}
    * 2.

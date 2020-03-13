@@ -37,12 +37,6 @@ auto initializeProto(Query::TransportType &proto) {
       payload, refl->GetMessage(*payload, field).New(), field);
 }
 
-/// initializes block with previous block hash
-template <>
-auto initializeProto(Block::TransportType &proto) {
-  proto.mutable_payload()->set_prev_block_hash("BE600D");
-}
-
 /**
  * @given signable object with its shared model wrapper
  * @when a signature is added

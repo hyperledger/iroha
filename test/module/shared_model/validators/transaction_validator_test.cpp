@@ -13,7 +13,6 @@
 #include "builders/protobuf/transaction.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
-#include "module/shared_model/backend_proto/common.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "validators/validation_error_output.hpp"
 
@@ -144,7 +143,6 @@ TEST_F(TransactionValidatorTest, StatelessInvalidTest) {
     auto new_command = payload->mutable_reduced_payload()->add_commands();
     auto field = desc->field(i);
     auto *msg = refl->GetMessage(*new_command, field).New();
-    iroha::setDummyFieldValues(msg);
     refl->SetAllocatedMessage(new_command, msg, field);
   });
 

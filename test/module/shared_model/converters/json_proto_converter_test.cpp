@@ -83,10 +83,7 @@ TEST(JsonProtoConverterTest, JsonToProtoBlockTest) {
 
   std::vector<shared_model::proto::Transaction> txs;
   txs.push_back(tx_builder.build());
-  auto orig_block = block_builder.transactions(txs)
-                        .createdTime(123)
-                        .prevHash(iroha::createHash())
-                        .build();
+  auto orig_block = block_builder.transactions(txs).createdTime(123).build();
 
   auto json = modelToJson(orig_block);
 

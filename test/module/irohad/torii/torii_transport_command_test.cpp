@@ -257,7 +257,6 @@ TEST_F(CommandServiceTransportGrpcTest, ListToriiPartialInvalid) {
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
-  request.set_tx_hash("BE600D");
 
   EXPECT_CALL(*command_service, getStatusStream(_))
       .WillOnce(Return(rxcpp::observable<>::empty<std::shared_ptr<
@@ -275,7 +274,6 @@ TEST_F(CommandServiceTransportGrpcTest, StatusStreamEmpty) {
 TEST_F(CommandServiceTransportGrpcTest, StatusStreamOnNotReceived) {
   grpc::ServerContext context;
   iroha::protocol::TxStatusRequest request;
-  request.set_tx_hash("BE600D");
   iroha::MockServerWriter<iroha::protocol::ToriiResponse> response_writer;
 
   std::vector<std::shared_ptr<shared_model::interface::TransactionResponse>>

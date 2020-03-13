@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <iostream>
-
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"

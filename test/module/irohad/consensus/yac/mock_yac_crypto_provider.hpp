@@ -87,7 +87,7 @@ namespace iroha {
         }
 
         shared_model::crypto::PublicKey public_key_{
-            shared_model::crypto::Blob::fromBinaryString("")};
+            iroha::createPublicKey("my public key")};
       };
 
     }  // namespace yac

@@ -17,7 +17,6 @@ using namespace iroha;
 using namespace iroha::validation;
 using namespace iroha::ametsuchi;
 
-using shared_model::crypto::Blob;
 using ::testing::_;
 using ::testing::A;
 using ::testing::ByRef;
@@ -51,8 +50,7 @@ class ChainValidationTest : public ::testing::Test {
         .WillRepeatedly(testing::ReturnRef(prev_hash));
     EXPECT_CALL(*block, signatures())
         .WillRepeatedly(Return(signatures | boost::adaptors::indirected));
-    EXPECT_CALL(*block, payload())
-        .WillRepeatedly(ReturnRefOfCopy(*Blob::fromBinaryString("blob")));
+    EXPECT_CALL(*block, payload()).Times(::testing::AnyNumber());
     EXPECT_CALL(*block, hash())
         .WillRepeatedly(testing::ReturnRefOfCopy(iroha::createHash()));
   }

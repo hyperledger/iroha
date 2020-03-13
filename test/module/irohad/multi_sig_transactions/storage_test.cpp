@@ -17,9 +17,7 @@ auto log_ = getTestLogger("MstStorageTest");
 
 class StorageTest : public testing::Test {
  public:
-  StorageTest()
-      : absent_peer_key{
-            shared_model::crypto::Blob::fromBinaryString("absent")} {}
+  StorageTest() : absent_peer_key{iroha::createPublicKey("absent")} {}
 
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();

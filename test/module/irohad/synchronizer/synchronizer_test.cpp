@@ -117,11 +117,7 @@ class SynchronizerTest : public ::testing::Test {
       shared_model::interface::types::HeightType height = kHeight,
       size_t time = iroha::time::now()) const {
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block> block{
-        TestUnsignedBlockBuilder()
-            .height(height)
-            .createdTime(time)
-            .prevHash(iroha::createHash())
-            .build()};
+        TestUnsignedBlockBuilder().height(height).createdTime(time).build()};
     for (const auto &key : ledger_peer_keys) {
       block.signAndAddSignature(key);
     }

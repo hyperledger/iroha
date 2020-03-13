@@ -36,8 +36,7 @@ class ProtoBlockFactoryTest : public ::testing::Test {
 TEST_F(ProtoBlockFactoryTest, UnsafeBlockCreation) {
   int height = 1;
   auto created_time = iroha::time::now();
-  shared_model::crypto::Hash prev_hash(
-      shared_model::crypto::Blob::fromBinaryString("123456"));
+  shared_model::crypto::Hash prev_hash(iroha::createHash("prev_hash"));
 
   std::vector<shared_model::proto::Transaction> txs;
   auto tx_result = proto::Transaction::create(iroha::protocol::Transaction{});

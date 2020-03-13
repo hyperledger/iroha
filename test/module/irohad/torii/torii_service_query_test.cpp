@@ -117,7 +117,6 @@ TEST_F(ToriiQueryServiceTest, FetchBlocksWhenValidQuery) {
 
   iroha::protocol::Block block;
   block.mutable_block_v1()->mutable_payload()->set_height(123);
-  block.mutable_block_v1()->mutable_payload()->set_prev_block_hash("BE600D");
   auto proto_block =
       shared_model::proto::Block::create(block.block_v1()).assumeValue();
   std::shared_ptr<shared_model::interface::BlockQueryResponse> block_response =

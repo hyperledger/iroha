@@ -43,8 +43,6 @@ using ::testing::NiceMock;
 using ::testing::Return;
 using ::testing::ReturnArg;
 
-using shared_model::crypto::Blob;
-
 using wBlock = std::shared_ptr<shared_model::interface::Block>;
 
 class SimulatorTest : public ::testing::Test {

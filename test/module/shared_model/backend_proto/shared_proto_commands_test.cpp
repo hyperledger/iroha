@@ -15,7 +15,6 @@
 #include <boost/variant.hpp>
 #include "commands.pb.h"
 #include "framework/result_gtest_checkers.hpp"
-#include "module/shared_model/backend_proto/common.hpp"
 
 namespace {
 
@@ -78,7 +77,6 @@ TEST(ProtoCommand, CommandLoad) {
     auto field = desc->field(i);
     auto pb_command_name = field->full_name();
     auto *msg = refl->GetMessage(command, field).New();
-    iroha::setDummyFieldValues(msg);
     refl->SetAllocatedMessage(&command, msg, field);
 
     auto command_result = shared_model::proto::Command::create(command);

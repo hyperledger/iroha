@@ -45,9 +45,7 @@ class YacGateTest : public ::testing::Test {
     expected_hash = YacHash(round, "proposal", "block");
 
     auto block = std::make_shared<MockBlock>();
-    EXPECT_CALL(*block, payload())
-        .WillRepeatedly(
-            ReturnRefOfCopy(*Blob::fromBinaryString(std::string())));
+    EXPECT_CALL(*block, payload()).WillRepeatedly(ReturnRefOfCopy(Blob{}));
     EXPECT_CALL(*block, addSignature(_, _)).WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
     EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
@@ -101,7 +99,8 @@ class YacGateTest : public ::testing::Test {
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
 
-    auto peer = makePeer("127.0.0.1", iroha::createPublicKey());
+    auto peer =
+        makePeer("127.0.0.1", iroha::createPublicKey("127.0.0.1 pubkey"));
     ledger_state = std::make_shared<iroha::LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         block->height() - 1,

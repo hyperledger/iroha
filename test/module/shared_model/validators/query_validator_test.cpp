@@ -11,7 +11,6 @@
 #include "builders/protobuf/queries.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
-#include "module/shared_model/backend_proto/common.hpp"
 #include "validators/validation_error_output.hpp"
 
 using shared_model::validation::ValidationError;
@@ -89,7 +88,6 @@ TEST_F(QueryValidatorTest, StatelessInvalidTest) {
     }
     auto field = desc->field(i);
     auto *msg = refl->GetMessage(*payload, field).New();
-    iroha::setDummyFieldValues(msg);
     refl->SetAllocatedMessage(payload, msg, field);
     validate(qry, ::testing::Ne(boost::none));
   });

@@ -54,7 +54,7 @@ TEST(SecuritySignature, TransactionAddsignature) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, BlockAddSignature) {
-  auto block = TestBlockBuilder().prevHash(iroha::createHash()).build();
+  auto block = TestBlockBuilder().build();
   ASSERT_TRUE(block.addSignature(signed_1, public_key_1));
   ASSERT_FALSE(block.addSignature(signed_2, public_key_1));
 }

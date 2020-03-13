@@ -18,7 +18,6 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "interfaces/iroha_internal/error_query_response_reason.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
-#include "module/shared_model/backend_proto/common.hpp"
 #include "qry_responses.pb.h"
 
 using PbQueryResponse = iroha::protocol::QueryResponse;
@@ -97,7 +96,6 @@ TEST(QueryResponse, QueryResponseLoad) {
     auto pb_response_name = field->full_name();
 
     auto *msg = refl->GetMessage(response, field).New();
-    iroha::setDummyFieldValues(msg);
     refl->SetAllocatedMessage(&response, msg, field);
     const PbResponseCaseUnderlyingType response_case = response.response_case();
 

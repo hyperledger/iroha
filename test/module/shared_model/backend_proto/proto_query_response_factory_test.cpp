@@ -32,10 +32,9 @@ using namespace shared_model::proto;
 using namespace iroha::expected;
 using namespace shared_model::interface::types;
 
-using shared_model::crypto::Blob;
 using shared_model::validation::FieldValidator;
 
-static const HashType kQueryHash{Blob::fromBinaryString("my_super_hash")};
+static const HashType kQueryHash{iroha::createHash("my_super_hash")};
 
 class ProtoQueryResponseFactoryTest : public ::testing::Test {
  public:
@@ -279,8 +278,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsResponse) {
  * @then that response is created @and is well-formed
  */
 TEST_F(ProtoQueryResponseFactoryTest, CreateTransactionsPageResponse) {
-  const HashType kNextTxHash{
-      shared_model::crypto::Blob::fromBinaryString("next_tx_hash")};
+  const HashType kNextTxHash{iroha::createHash("next_tx_hash")};
 
   constexpr int kTransactionsNumber = 5;
 
@@ -440,11 +438,8 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateBlockQueryResponseWithBlock) {
   constexpr HeightType kBlockHeight = 42;
   const auto kCreatedTime = iroha::time::now();
 
-  auto block = TestBlockBuilder()
-                   .height(kBlockHeight)
-                   .createdTime(kCreatedTime)
-                   .prevHash(iroha::createHash())
-                   .build();
+  auto block =
+      TestBlockBuilder().height(kBlockHeight).createdTime(kCreatedTime).build();
   auto response = response_factory->createBlockQueryResponse(
       std::make_unique<Block>(std::move(block)));
 

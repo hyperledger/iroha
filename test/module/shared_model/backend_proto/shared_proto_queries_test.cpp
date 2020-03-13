@@ -17,7 +17,6 @@
 #include <boost/range/irange.hpp>
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
-#include "module/shared_model/backend_proto/common.hpp"
 #include "queries.pb.h"
 
 namespace {
@@ -72,7 +71,6 @@ TEST(ProtoQuery, QueryLoad) {
     auto field = desc->field(i);
     auto pb_query_name = field->full_name();
     auto *msg = refl->GetMessage(*payload, field).New();
-    iroha::setDummyFieldValues(msg);
     refl->SetAllocatedMessage(payload, msg, field);
 
     auto query_result = shared_model::proto::Query::create(proto);
