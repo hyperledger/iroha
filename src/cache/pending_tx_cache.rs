@@ -1,20 +1,20 @@
-use crate::model;
-use std::fmt;
+use crate::model::tx::Transaction;
+use std::fmt::{Display, Formatter, Result};
 
 #[derive(Default)]
 pub struct PendingTxCache {
-    pending_tx: Vec<model::Transaction>,
+    pending_tx: Vec<Transaction>,
 }
 
 #[allow(dead_code)]
 impl PendingTxCache {
-    pub fn add_tx(&mut self, tx: model::Transaction) {
+    pub fn add_tx(&mut self, tx: Transaction) {
         self.pending_tx.push(tx);
     }
 }
 
-impl fmt::Display for PendingTxCache {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for PendingTxCache {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "{:?}", self.pending_tx)
     }
 }
@@ -24,7 +24,7 @@ fn add_tx_to_cache() {
     let mut cache = PendingTxCache {
         pending_tx: Vec::new(),
     };
-    cache.add_tx(model::Transaction {
+    cache.add_tx(Transaction {
         account_id: "account@domain".to_string(),
         commands: Vec::new(),
         creation_time: 0,
