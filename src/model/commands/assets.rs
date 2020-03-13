@@ -1,3 +1,5 @@
+use crate::model::commands::oob::Command;
+
 /// The purpose of add asset quantity command is to increase the quantity of an asset on account of
 /// transaction creator. Use case scenario is to increase the number of a mutable asset in the
 /// system, which can act as a claim on a commodity (e.g. money, gold, etc.).
@@ -139,8 +141,7 @@ impl std::convert::From<TransferAsset> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::Command;
-/// use iroha::model::commands::assets::TransferAsset;
+/// use iroha::model::commands::{oob::Command,assets::TransferAsset};
 ///
 /// let command_payload = TransferAsset {
 ///    source_account_id: "source@domain".to_string(),
@@ -151,9 +152,9 @@ impl std::convert::From<TransferAsset> for Vec<u8> {
 /// };
 /// let result: Command = command_payload.into();
 /// ```
-impl std::convert::From<TransferAsset> for crate::model::Command {
+impl std::convert::From<TransferAsset> for Command {
     fn from(command_payload: TransferAsset) -> Self {
-        crate::model::Command {
+        Command {
             version: 1,
             command_type: 17,
             payload: command_payload.into(),
@@ -197,7 +198,7 @@ fn transfer_asset_command_serialization_and_deserialization() {
 
 #[test]
 fn transfer_asset_command_into_command() {
-    use crate::model::Command;
+    use crate::model::commands::oob::Command;
     let transfer_asset = TransferAsset {
         source_account_id: "source@domain".to_string(),
         destination_account_id: "destination@domain".to_string(),
