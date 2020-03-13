@@ -1,13 +1,13 @@
-use crate::model;
-use std::fmt;
+use crate::model::tx::Transaction;
+use std::fmt::{Display, Formatter, Result};
 
 #[derive(Default)]
 pub struct MSTCache {
-    waiting_mst_tx: Vec<model::Transaction>,
+    waiting_mst_tx: Vec<Transaction>,
 }
 
-impl fmt::Display for MSTCache {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl Display for MSTCache {
+    fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "{:?}", self.waiting_mst_tx) //TODO:
     }
 }

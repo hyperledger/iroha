@@ -1,4 +1,7 @@
-use crate::{model, validation::MerkleTree};
+use crate::{
+    model::{asset::Asset, block::Block, crypto::Hash, tx::Transaction},
+    validation::merkle::MerkleTree,
+};
 
 /// Main entity in this crate is `Kura`.
 /// You should start usage of `Kura` via initialization.
@@ -41,7 +44,7 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(&mut self, block: model::Block) -> Result<model::Hash, String> {
+    pub async fn store(&mut self, block: Block) -> Result<Hash, String> {
         //TODO[@humb1t:RH2-14]: make `world_state_view.put` async/parallel and join! it with disk.write
         let disk_result = self.disk.write(&block).await;
         self.world_state_view.put(block.clone());
@@ -79,19 +82,19 @@ use std::path::{Path, PathBuf};
 pub struct WorldStateView {
     /*Structure of arrays?*/
     /// Map of `account_id` to vector of assets.
-    accounts_assets: CHashMap<String, Vec<model::Asset>>,
+    accounts_assets: CHashMap<String, Vec<Asset>>,
     /// Map of `account_id` to vector of inbound transactions.
-    accounts_inbound_transactions: CHashMap<String, Vec<model::Transaction>>,
+    accounts_inbound_transactions: CHashMap<String, Vec<Transaction>>,
     /// Map of `account_id` to vector of outbound transactions.
-    accounts_outbound_transactions: CHashMap<String, Vec<model::Transaction>>,
+    accounts_outbound_transactions: CHashMap<String, Vec<Transaction>>,
     /// Map of `account_id` to vector of all transactions.
-    accounts_all_transactions: CHashMap<String, Vec<model::Transaction>>,
+    accounts_all_transactions: CHashMap<String, Vec<Transaction>>,
     /// Map of `asset_id` to vector of all transactions.
-    assets_transactions: CHashMap<String, Vec<model::Transaction>>,
+    assets_transactions: CHashMap<String, Vec<Transaction>>,
 }
 
 impl WorldStateView {
-    fn init(blocks: &Vec<model::Block>) -> Self {
+    fn init(blocks: &Vec<Block>) -> Self {
         let mut world_state_view = WorldStateView::default();
         for block in blocks {
             world_state_view.put(block.clone());
@@ -99,7 +102,7 @@ impl WorldStateView {
         world_state_view
     }
 
-    fn put(&mut self, block: model::Block) {
+    fn put(&mut self, block: Block) {
         self.accounts_assets = merge_accounts_assets(self.accounts_assets.clone(), block.clone());
         self.accounts_inbound_transactions =
             merge_inbound_transactions(self.accounts_inbound_transactions.clone(), block.clone());
@@ -113,7 +116,7 @@ impl WorldStateView {
 
     /// Return a `Vec` of `Asset`. Result will be empty if there are no assets associated with an
     /// account.
-    pub fn get_assets_by_account_id(&self, account_id: &str) -> Vec<model::Asset> {
+    pub fn get_assets_by_account_id(&self, account_id: &str) -> Vec<Asset> {
         match &self.accounts_assets.get(account_id) {
             Some(assets) => assets.to_vec().clone(),
             None => Vec::new(),
@@ -122,10 +125,10 @@ impl WorldStateView {
 }
 
 fn merge_accounts_assets(
-    origin: CHashMap<String, Vec<model::Asset>>,
-    block: model::Block,
-) -> CHashMap<String, Vec<model::Asset>> {
-    use crate::model::{Accountability, Assetibility, Relation};
+    origin: CHashMap<String, Vec<Asset>>,
+    block: Block,
+) -> CHashMap<String, Vec<Asset>> {
+    use crate::model::commands::oob::{Accountability, Assetibility, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -134,7 +137,7 @@ fn merge_accounts_assets(
                     for asset_id in command.assets() {
                         origin.insert(
                             account_id.clone(),
-                            vec![model::Asset {
+                            vec![Asset {
                                 id: asset_id.clone(),
                             }],
                         );
@@ -147,10 +150,10 @@ fn merge_accounts_assets(
 }
 
 fn merge_inbound_transactions(
-    origin: CHashMap<String, Vec<model::Transaction>>,
-    block: model::Block,
-) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::{Accountability, Relation};
+    origin: CHashMap<String, Vec<Transaction>>,
+    block: Block,
+) -> CHashMap<String, Vec<Transaction>> {
+    use crate::model::commands::oob::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -168,10 +171,10 @@ fn merge_inbound_transactions(
 }
 
 fn merge_outbound_transactions(
-    origin: CHashMap<String, Vec<model::Transaction>>,
-    block: model::Block,
-) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::{Accountability, Relation};
+    origin: CHashMap<String, Vec<Transaction>>,
+    block: Block,
+) -> CHashMap<String, Vec<Transaction>> {
+    use crate::model::commands::oob::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -189,10 +192,10 @@ fn merge_outbound_transactions(
 }
 
 fn merge_all_transactions(
-    origin: CHashMap<String, Vec<model::Transaction>>,
-    block: model::Block,
-) -> CHashMap<String, Vec<model::Transaction>> {
-    use crate::model::{Accountability, Relation};
+    origin: CHashMap<String, Vec<Transaction>>,
+    block: Block,
+) -> CHashMap<String, Vec<Transaction>> {
+    use crate::model::commands::oob::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -226,9 +229,9 @@ fn merge_all_transactions(
 }
 
 fn merge_assets_transactions(
-    origin: CHashMap<String, Vec<model::Transaction>>,
-    _block: model::Block,
-) -> CHashMap<String, Vec<model::Transaction>> {
+    origin: CHashMap<String, Vec<Transaction>>,
+    _block: Block,
+) -> CHashMap<String, Vec<Transaction>> {
     origin
 }
 
@@ -265,7 +268,7 @@ impl Disk {
             .join(Disk::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: &model::Block) -> Result<model::Hash, String> {
+    async fn write(&self, block: &Block) -> Result<Hash, String> {
         use async_std::fs::File;
         use async_std::prelude::*;
 
@@ -284,7 +287,7 @@ impl Disk {
         }
     }
 
-    async fn read(&self, height: u64) -> Result<model::Block, String> {
+    async fn read(&self, height: u64) -> Result<Block, String> {
         use async_std::fs::{metadata, File};
         use async_std::prelude::*;
 
@@ -297,11 +300,11 @@ impl Disk {
         file.read(&mut buffer)
             .await
             .map_err(|_| "Buffer overflow.")?;
-        Ok(model::Block::from(buffer))
+        Ok(Block::from(buffer))
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
-    async fn read_all(&self) -> Vec<model::Block> {
+    async fn read_all(&self) -> Vec<Block> {
         let mut height = 0;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {
@@ -316,8 +319,8 @@ impl Disk {
 mod tests {
     use crate::storage::kura::*;
 
-    fn get_test_block(height: u64) -> model::Block {
-        model::Block {
+    fn get_test_block(height: u64) -> Block {
+        Block {
             height,
             timestamp: 1,
             transactions: Vec::new(),

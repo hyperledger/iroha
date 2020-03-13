@@ -1,5 +1,5 @@
-use crate::model;
+use crate::model::tx::Transaction;
 
-pub fn is_valid(_tx: model::Transaction) -> bool {
+pub fn is_valid(_tx: Transaction) -> bool {
     true //TODO: implement this
 }
