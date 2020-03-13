@@ -201,8 +201,9 @@ class IrohadTest : public AcceptanceFixture {
   }
 
   void prepareTestData() {
-    boost::filesystem::create_directory(temp_dir_path_)
-        << "Could not create directory " << test_data_path_ << ".";
+    if (not boost::filesystem::create_directory(temp_dir_path_)) {
+      FAIL() << "Could not create directory " << test_data_path_ << ".";
+    }
     ASSERT_TRUE(boost::filesystem::is_directory(temp_dir_path_));
 
     rapidjson::Document doc;
