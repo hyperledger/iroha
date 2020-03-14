@@ -44,13 +44,10 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(&mut self, block: Block) -> Result<Hash, String> {
+    pub async fn store(&mut self, block: &Block) -> Result<Hash, String> {
         use futures::join;
 
-        let (disk_result, _) = join!(
-            self.disk.write(&block),
-            self.world_state_view.put(block.clone())
-        );
+        let (disk_result, _) = join!(self.disk.write(&block), self.world_state_view.put(&block));
         //TODO: replace with rebuild of a tree? self.merkle_tree.put(block.clone());
         match disk_result {
             Ok(hash) => Ok(hash),
@@ -100,19 +97,19 @@ impl WorldStateView {
     async fn init(blocks: &[Block]) -> Self {
         let mut world_state_view = WorldStateView::default();
         for block in blocks {
-            world_state_view.put(block.clone()).await;
+            world_state_view.put(block).await;
         }
         world_state_view
     }
 
-    async fn put(&mut self, block: Block) {
-        self.accounts_assets = merge_accounts_assets(self.accounts_assets.clone(), block.clone());
+    async fn put(&mut self, block: &Block) {
+        self.accounts_assets = merge_accounts_assets(self.accounts_assets.clone(), block);
         self.accounts_inbound_transactions =
-            merge_inbound_transactions(self.accounts_inbound_transactions.clone(), block.clone());
+            merge_inbound_transactions(self.accounts_inbound_transactions.clone(), block);
         self.accounts_outbound_transactions =
-            merge_outbound_transactions(self.accounts_outbound_transactions.clone(), block.clone());
+            merge_outbound_transactions(self.accounts_outbound_transactions.clone(), block);
         self.accounts_all_transactions =
-            merge_all_transactions(self.accounts_all_transactions.clone(), block.clone());
+            merge_all_transactions(self.accounts_all_transactions.clone(), block);
         self.assets_transactions =
             merge_assets_transactions(self.assets_transactions.clone(), block);
     }
@@ -129,9 +126,9 @@ impl WorldStateView {
 
 fn merge_accounts_assets(
     origin: CHashMap<String, Vec<Asset>>,
-    block: Block,
+    block: &Block,
 ) -> CHashMap<String, Vec<Asset>> {
-    use crate::model::commands::oob::{Accountability, Assetibility, Relation};
+    use crate::model::commands::isi::{Accountability, Assetibility, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -154,9 +151,9 @@ fn merge_accounts_assets(
 
 fn merge_inbound_transactions(
     origin: CHashMap<String, Vec<Transaction>>,
-    block: Block,
+    block: &Block,
 ) -> CHashMap<String, Vec<Transaction>> {
-    use crate::model::commands::oob::{Accountability, Relation};
+    use crate::model::commands::isi::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -175,9 +172,9 @@ fn merge_inbound_transactions(
 
 fn merge_outbound_transactions(
     origin: CHashMap<String, Vec<Transaction>>,
-    block: Block,
+    block: &Block,
 ) -> CHashMap<String, Vec<Transaction>> {
-    use crate::model::commands::oob::{Accountability, Relation};
+    use crate::model::commands::isi::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -196,9 +193,9 @@ fn merge_outbound_transactions(
 
 fn merge_all_transactions(
     origin: CHashMap<String, Vec<Transaction>>,
-    block: Block,
+    block: &Block,
 ) -> CHashMap<String, Vec<Transaction>> {
-    use crate::model::commands::oob::{Accountability, Relation};
+    use crate::model::commands::isi::{Accountability, Relation};
     for tx in block.transactions.iter() {
         for command in &tx.commands {
             for relation in command.relations() {
@@ -233,7 +230,7 @@ fn merge_all_transactions(
 
 fn merge_assets_transactions(
     origin: CHashMap<String, Vec<Transaction>>,
-    _block: Block,
+    _block: &Block,
 ) -> CHashMap<String, Vec<Transaction>> {
     origin
 }
@@ -320,24 +317,15 @@ impl Disk {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::block::Blockchain;
     use crate::storage::kura::*;
-
-    fn get_test_block(height: u64) -> Block {
-        Block {
-            height,
-            timestamp: 1,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: None,
-        }
-    }
 
     #[async_std::test]
     async fn write_block_to_disk() {
         use tempfile::tempdir;
 
         let dir = tempdir().unwrap();
-        let block = get_test_block(1);
+        let block = Block::builder(Vec::new()).build();
         assert!(Disk::new(dir.path().to_str().unwrap())
             .write(&block)
             .await
@@ -349,12 +337,12 @@ mod tests {
         use tempfile::tempdir;
 
         let dir = tempdir().unwrap();
-        let block = get_test_block(1);
+        let block = Block::builder(Vec::new()).build();
         let disk = Disk::new(dir.path().to_str().unwrap());
         disk.write(&block)
             .await
             .expect("Failed to write block to file.");
-        assert!(disk.read(1).await.is_ok())
+        assert!(disk.read(0).await.is_ok())
     }
 
     #[async_std::test]
@@ -364,10 +352,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let disk = Disk::new(dir.path().to_str().unwrap());
         let n = 10;
-
-        for i in 0..n {
-            let block = get_test_block(i);
-            disk.write(&block)
+        let mut blockchain = Blockchain::new();
+        for _ in 0..n {
+            blockchain.push(Vec::new());
+            disk.write(&blockchain.last())
                 .await
                 .expect("Failed to write block to file.");
         }
@@ -384,10 +372,11 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let account_id = "test@test";
-        let block = get_test_block(0);
+        let mut blockchain = Blockchain::new();
+        blockchain.push(Vec::new());
         //TODO: cleanup blocks dir from previous runs, or the test may fail due to incompatible formats
         let mut kura = Kura::fast_init().await;
-        let _result = kura.store(block).await;
+        let _result = kura.store(blockchain.last()).await;
         assert!(kura
             .world_state_view
             .get_assets_by_account_id(account_id)

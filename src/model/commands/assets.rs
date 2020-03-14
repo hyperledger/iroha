@@ -1,4 +1,4 @@
-use crate::model::commands::oob::Command;
+use crate::model::commands::isi::Command;
 
 /// The purpose of add asset quantity command is to increase the quantity of an asset on account of
 /// transaction creator. Use case scenario is to increase the number of a mutable asset in the
@@ -29,7 +29,7 @@ impl std::convert::From<&AddAssetQuantity> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,assets::AddAssetQuantity};
+/// use iroha::model::commands::{isi::Command,assets::AddAssetQuantity};
 ///
 /// let command_payload = &AddAssetQuantity {
 ///     asset_id: "asset@domain".to_string(),
@@ -101,7 +101,7 @@ impl std::convert::From<&CreateAsset> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,assets::CreateAsset};
+/// use iroha::model::commands::{isi::Command,assets::CreateAsset};
 ///
 /// let command_payload = &CreateAsset {
 ///     asset_name: "asset".to_string(),
@@ -182,7 +182,7 @@ impl std::convert::From<&TransferAsset> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,assets::TransferAsset};
+/// use iroha::model::commands::{isi::Command,assets::TransferAsset};
 ///
 /// let command_payload = &TransferAsset {
 ///    source_account_id: "source@domain".to_string(),
@@ -239,7 +239,7 @@ fn transfer_asset_command_serialization_and_deserialization() {
 
 #[test]
 fn transfer_asset_command_into_command() {
-    use crate::model::commands::oob::Command;
+    use crate::model::commands::isi::Command;
     let transfer_asset = &TransferAsset {
         source_account_id: "source@domain".to_string(),
         destination_account_id: "destination@domain".to_string(),

@@ -154,34 +154,10 @@ fn tree_with_two_layers_should_reach_all_nodes() {
 #[test]
 fn four_blocks_should_built_seven_nodes() {
     let blocks = [
-        Block {
-            height: 0,
-            timestamp: 1,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
-        Block {
-            height: 1,
-            timestamp: 2,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
-        Block {
-            height: 2,
-            timestamp: 3,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
-        Block {
-            height: 3,
-            timestamp: 4,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
     ];
     let merkle_tree = MerkleTree::build(&blocks);
     assert_eq!(7, merkle_tree.into_iter().count());
@@ -190,27 +166,10 @@ fn four_blocks_should_built_seven_nodes() {
 #[test]
 fn three_blocks_should_built_seven_nodes() {
     let blocks = [
-        Block {
-            height: 0,
-            timestamp: 1,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
-        Block {
-            height: 1,
-            timestamp: 2,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
-        Block {
-            height: 2,
-            timestamp: 3,
-            transactions: Vec::new(),
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        },
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
+        Block::builder(Vec::new()).build(),
     ];
     let merkle_tree = MerkleTree::build(&blocks);
     assert_eq!(7, merkle_tree.into_iter().count());
