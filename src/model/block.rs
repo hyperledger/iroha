@@ -1,4 +1,33 @@
 use crate::model::{crypto::Hash, tx::Transaction};
+use std::time::SystemTime;
+
+/// Chain of `Blocks`.
+#[derive(Default)]
+pub struct Blockchain {
+    pub blocks: Vec<Block>,
+}
+
+impl Blockchain {
+    pub fn new() -> Self {
+        Blockchain::default()
+    }
+
+    pub fn push(&mut self, transactions: Vec<Transaction>) {
+        let mut block = Block::builder(transactions).build();
+        if !self.blocks.is_empty() {
+            let last_block_index = self.blocks.len() - 1;
+            block.height = last_block_index as u64 + 1;
+            block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
+        }
+        self.blocks.push(block);
+    }
+
+    pub fn last(&self) -> &Block {
+        &self.blocks[..]
+            .last()
+            .expect("Failed to extract last block.")
+    }
+}
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
@@ -9,18 +38,29 @@ pub struct Block {
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Unix time (in milliseconds) of block forming by a peer.
-    pub timestamp: u64,
+    pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<Transaction>,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
-    pub previous_block_hash: Hash,
+    pub previous_block_hash: Option<Hash>,
     /// rejected transactions hashes — array of transaction hashes, which did not pass stateful
     /// validation step; this field is optional.
     pub rejected_transactions_hashes: Option<Vec<Hash>>,
 }
 
 impl Block {
+    pub fn builder(transactions: Vec<Transaction>) -> BlockBuilder {
+        BlockBuilder {
+            transactions,
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time.")
+                .as_millis(),
+            ..Default::default()
+        }
+    }
+
     pub fn hash(&self) -> Hash {
         use ursa::blake2::{
             digest::{Input, VariableOutput},
@@ -35,6 +75,27 @@ impl Block {
         let mut hash = [0; 32];
         hash.copy_from_slice(&vec_hash);
         hash
+    }
+}
+
+#[derive(Default)]
+pub struct BlockBuilder {
+    pub height: Option<u64>,
+    pub timestamp: u128,
+    pub transactions: Vec<Transaction>,
+    pub previous_block_hash: Option<Hash>,
+    pub rejected_transactions_hashes: Option<Vec<Hash>>,
+}
+
+impl BlockBuilder {
+    pub fn build(self) -> Block {
+        Block {
+            height: self.height.unwrap_or(0),
+            timestamp: self.timestamp,
+            transactions: self.transactions,
+            previous_block_hash: self.previous_block_hash,
+            rejected_transactions_hashes: self.rejected_transactions_hashes,
+        }
     }
 }
 
@@ -56,7 +117,7 @@ fn block_hash() {
         height: 0,
         timestamp: 1,
         transactions: Vec::new(),
-        previous_block_hash: [0; 32],
+        previous_block_hash: None,
         rejected_transactions_hashes: None,
     };
 

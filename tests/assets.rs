@@ -47,37 +47,24 @@ mod tests {
             description: "description".to_string(),
             amount: 200.2,
         };
-        let block = Block {
-            height: 0,
-            timestamp: 0,
-            transactions: vec![
-                Transaction {
-                    commands: vec![
-                        create_role.into(),
-                        create_domain.into(),
-                        create_account1.into(),
-                        create_account2.into(),
-                        create_asset.into(),
-                    ],
-                    creation_time: 0,
-                    account_id: "source@domain".to_string(),
-                    quorum: 1,
-                    signatures: vec![],
-                },
-                Transaction {
-                    commands: vec![transfer_asset.into()],
-                    creation_time: 1,
-                    account_id: "source@domain".to_string(),
-                    quorum: 1,
-                    signatures: vec![],
-                },
-            ],
-            previous_block_hash: [0; 32],
-            rejected_transactions_hashes: Option::None,
-        };
+        let block = Block::builder(vec![
+            Transaction::builder(
+                vec![
+                    create_role.into(),
+                    create_domain.into(),
+                    create_account1.into(),
+                    create_account2.into(),
+                    create_asset.into(),
+                ],
+                "source@domain".to_string(),
+            )
+            .build(),
+            Transaction::builder(vec![transfer_asset.into()], "source@domain".to_string()).build(),
+        ])
+        .build();
         //TODO: replace with `strict_init` when validation will be ready.
         let mut kura = kura::Kura::fast_init().await;
-        assert!(kura.store(block).await.is_ok());
+        assert!(kura.store(&block).await.is_ok());
         assert_eq!(
             kura.world_state_view
                 .get_assets_by_account_id(&account1_id)

@@ -9,6 +9,41 @@ pub struct Command {
     pub payload: Vec<u8>,
 }
 
+/// # Example
+/// ```
+/// use iroha::model::commands::isi::Command;
+///
+/// let command_payload = &Command {
+///     version: 0,
+///     command_type: 0,
+///     payload: Vec::new(),
+/// };
+/// let result: Vec<u8> = command_payload.into();
+/// ```
+impl std::convert::From<&Command> for Vec<u8> {
+    fn from(command_payload: &Command) -> Self {
+        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// # use iroha::model::commands::isi::Command;
+///
+/// # let command_payload = &Command {
+/// #     version: 0,
+/// #     command_type: 0,
+/// #     payload: Vec::new(),
+/// # };
+/// # let result: Vec<u8> = command_payload.into();
+/// let command_payload: Command = result.into();
+/// ```
+impl std::convert::From<Vec<u8>> for Command {
+    fn from(command_payload: Vec<u8>) -> Self {
+        bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+    }
+}
+
 //TODO[@humb1t:RH2-16]: rename
 pub enum Relation {
     /// Belongs to account with defined identification.

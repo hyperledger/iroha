@@ -11,6 +11,10 @@ impl PendingTxCache {
     pub fn add_tx(&mut self, tx: Transaction) {
         self.pending_tx.push(tx);
     }
+
+    pub fn pop_all(&mut self) -> Vec<Transaction> {
+        self.pending_tx.drain(..).collect()
+    }
 }
 
 impl Display for PendingTxCache {
@@ -24,11 +28,5 @@ fn add_tx_to_cache() {
     let mut cache = PendingTxCache {
         pending_tx: Vec::new(),
     };
-    cache.add_tx(Transaction {
-        account_id: "account@domain".to_string(),
-        commands: Vec::new(),
-        creation_time: 0,
-        quorum: 1,
-        signatures: Vec::new(),
-    });
+    cache.add_tx(Transaction::builder(Vec::new(), "account@domain".to_string()).build());
 }

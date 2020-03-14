@@ -1,4 +1,4 @@
-use crate::model::commands::oob::Command;
+use crate::model::commands::isi::Command;
 
 /// The purpose of create domain command is to make new domain in Iroha network, which is a
 /// group of accounts.
@@ -26,7 +26,7 @@ impl std::convert::From<&CreateDomain> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,domains::CreateDomain};
+/// use iroha::model::commands::{isi::Command,domains::CreateDomain};
 ///
 /// let command_payload = &CreateDomain {
 ///     domain_id: "domain".to_string(),
