@@ -1,4 +1,4 @@
-use crate::model::commands::oob::Command;
+use crate::model::commands::isi::Command;
 
 /// The purpose of add signatory command is to add an identifier to the account. Such
 /// identifier is a public key of another device or a public key of another user.
@@ -26,7 +26,7 @@ impl std::convert::From<&AddSignatory> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,accounts::AddSignatory};
+/// use iroha::model::commands::{isi::Command,accounts::AddSignatory};
 ///
 /// let command_payload = &AddSignatory {
 ///     account_id: "account@domain".to_string(),
@@ -99,7 +99,7 @@ impl std::convert::From<&AppendRole> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,accounts::AppendRole};
+/// use iroha::model::commands::{isi::Command,accounts::AppendRole};
 ///
 /// let command_payload = &AppendRole {
 ///     account_id: "account@domain".to_string(),
@@ -173,7 +173,7 @@ impl std::convert::From<&CreateAccount> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,accounts::CreateAccount};
+/// use iroha::model::commands::{isi::Command,accounts::CreateAccount};
 ///
 /// let command_payload = &CreateAccount {
 ///     account_name: "account".to_string(),
@@ -249,7 +249,7 @@ impl std::convert::From<&CreateRole> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{oob::Command,accounts::CreateRole};
+/// use iroha::model::commands::{isi::Command,accounts::CreateRole};
 ///
 /// let command_payload = &CreateRole {
 ///     role_name: "user".to_string(),

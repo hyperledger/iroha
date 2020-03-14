@@ -1,9 +1,6 @@
+use iroha::*;
 use std::thread;
 use std::time::Duration;
-
-mod cache;
-mod model;
-mod networking;
 
 fn main() {
     println!("Hyperledgerいろは2にようこそ！");
@@ -22,13 +19,5 @@ fn main() {
 
     // spawn auditor thread from block store to WSV
     //TODO:
-
-    // Set up in-memory transaction caches
-    let mst_cache = cache::mst_cache::MSTCache::default();
-    let pending_tx_cache = cache::pending_tx_cache::PendingTxCache::default();
-
-    println!("{}", mst_cache);
-    println!("{}", pending_tx_cache);
-
-    networking::torii::start_torii(&mst_cache, &pending_tx_cache);
+    networking::torii::Torii::new().start();
 }
