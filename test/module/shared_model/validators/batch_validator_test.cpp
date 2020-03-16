@@ -6,7 +6,7 @@
 #include "validators/transaction_batch_validator.hpp"
 
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "framework/batch_helper.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -39,7 +39,7 @@ TEST_F(BatchValidatorFixture, PartialOrderedWhenPartialsAllowed) {
   txs.pop_back();
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  ASSERT_EQ(validator->validate(*batch), boost::none);
+  ASSERT_EQ(validator->validate(*batch), std::nullopt);
 }
 
 /**
@@ -75,7 +75,7 @@ TEST_F(BatchValidatorFixture, ComleteOrderedWhenPartialsDisallowed) {
       {"alice@iroha", "bob@iroha", "donna@iroha"});
   auto batch =
       std::make_unique<shared_model::interface::TransactionBatchImpl>(txs);
-  ASSERT_EQ(validator->validate(*batch), boost::none);
+  ASSERT_EQ(validator->validate(*batch), std::nullopt);
 }
 
 /**

@@ -17,8 +17,8 @@ namespace shared_model {
       AlwaysValidValidator() = default;
       AlwaysValidValidator(
           std::shared_ptr<shared_model::validation::ValidatorsConfig>){};
-      boost::optional<ValidationError> validate(const T &m) const override {
-        return boost::none;
+      std::optional<ValidationError> validate(const T &m) const override {
+        return std::nullopt;
       }
     };
 

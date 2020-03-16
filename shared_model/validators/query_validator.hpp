@@ -36,7 +36,7 @@ namespace shared_model {
      */
     template <typename FieldValidator>
     class QueryValidatorVisitor
-        : public boost::static_visitor<boost::optional<ValidationError>> {
+        : public boost::static_visitor<std::optional<ValidationError>> {
       QueryValidatorVisitor(FieldValidator validator)
           : validator_(std::move(validator)) {}
 
@@ -46,7 +46,7 @@ namespace shared_model {
       QueryValidatorVisitor(std::shared_ptr<ValidatorsConfig> config)
           : QueryValidatorVisitor(FieldValidator{std::move(config)}) {}
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAccount &get_account) const {
         return aggregateErrors(
             "GetAccount",
@@ -54,13 +54,13 @@ namespace shared_model {
             {validator_.validateAccountId(get_account.accountId())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetBlock &get_block) const {
         return aggregateErrors(
             "GetBlock", {}, {validator_.validateHeight(get_block.height())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetSignatories &get_signatories) const {
         return aggregateErrors(
             "GetSignatories",
@@ -68,7 +68,7 @@ namespace shared_model {
             {validator_.validateAccountId(get_signatories.accountId())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAccountTransactions &get_account_transactions)
           const {
         return aggregateErrors(
@@ -79,7 +79,7 @@ namespace shared_model {
                  get_account_transactions.paginationMeta())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAccountAssetTransactions
               &get_account_asset_transactions) const {
         return aggregateErrors(
@@ -93,7 +93,7 @@ namespace shared_model {
                  get_account_asset_transactions.paginationMeta())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetTransactions &get_transactions) const {
         ValidationErrorCreator error_creator;
 
@@ -109,7 +109,7 @@ namespace shared_model {
         return std::move(error_creator).getValidationError("GetTransactions");
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAccountAssets &get_account_assets) const {
         using iroha::operator|;
         return aggregateErrors(
@@ -123,7 +123,7 @@ namespace shared_model {
                  }});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAccountDetail &get_account_detail) const {
         using iroha::operator|;
         return aggregateErrors(
@@ -145,12 +145,12 @@ namespace shared_model {
                  }});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetRoles &get_roles) const {
-        return boost::none;
+        return std::nullopt;
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetRolePermissions &get_role_permissions) const {
         return aggregateErrors(
             "GetRolePermissions",
@@ -158,7 +158,7 @@ namespace shared_model {
             {validator_.validateRoleId(get_role_permissions.roleId())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetAssetInfo &get_asset_info) const {
         return aggregateErrors(
             "GetAssetInfo",
@@ -166,7 +166,7 @@ namespace shared_model {
             {validator_.validateAssetId(get_asset_info.assetId())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetPendingTransactions &get_pending_transactions)
           const {
         using iroha::operator|;
@@ -180,9 +180,9 @@ namespace shared_model {
              }});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetPeers &get_peers) const {
-        return boost::none;
+        return std::nullopt;
       }
 
      private:
@@ -211,7 +211,7 @@ namespace shared_model {
        * @param qry - query to validate
        * @return found error if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::Query &qry) const override {
         ValidationErrorCreator error_creator;
 

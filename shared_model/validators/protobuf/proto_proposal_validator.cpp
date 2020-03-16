@@ -16,7 +16,7 @@ namespace shared_model {
         ProtoValidatorType transaction_validator)
         : transaction_validator_(std::move(transaction_validator)) {}
 
-    boost::optional<ValidationError> ProtoProposalValidator::validate(
+    std::optional<ValidationError> ProtoProposalValidator::validate(
         const iroha::protocol::Proposal &proposal) const {
       ValidationErrorCreator error_creator;
 

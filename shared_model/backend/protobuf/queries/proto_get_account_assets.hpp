@@ -8,7 +8,7 @@
 
 #include "interfaces/queries/get_account_assets.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "backend/protobuf/queries/proto_asset_pagination_meta.hpp"
 #include "queries.pb.h"
 
@@ -20,14 +20,15 @@ namespace shared_model {
 
       const interface::types::AccountIdType &accountId() const override;
 
-      boost::optional<const interface::AssetPaginationMeta &> paginationMeta()
-          const override;
+      std::optional<
+          std::reference_wrapper<const interface::AssetPaginationMeta>>
+      paginationMeta() const override;
 
      private:
       // ------------------------------| fields |-------------------------------
 
       const iroha::protocol::GetAccountAssets &account_assets_;
-      const boost::optional<const AssetPaginationMeta> pagination_meta_;
+      const std::optional<const AssetPaginationMeta> pagination_meta_;
     };
   }  // namespace proto
 }  // namespace shared_model

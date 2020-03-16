@@ -28,12 +28,12 @@ namespace shared_model {
       return compare_and_set_account_detail_.value();
     }
 
-    const boost::optional<interface::types::AccountDetailValueType>
+    const std::optional<interface::types::AccountDetailValueType>
     CompareAndSetAccountDetail::oldValue() const {
       if (compare_and_set_account_detail_.opt_old_value_case()
           == iroha::protocol::CompareAndSetAccountDetail::
                  OPT_OLD_VALUE_NOT_SET) {
-        return boost::none;
+        return std::nullopt;
       }
       return compare_and_set_account_detail_.old_value();
     }

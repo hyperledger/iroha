@@ -19,7 +19,7 @@ namespace shared_model {
     class ProtoBlockValidator
         : public AbstractValidator<iroha::protocol::Block> {
      public:
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const iroha::protocol::Block &block) const override;
     };
   }  // namespace validation

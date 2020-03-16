@@ -345,7 +345,7 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
       getOptValByKey<std::string>(
           path, obj, config_members::TlsCertificatePath);
 
-  boost::optional<std::string> tls_certificate_str;
+  std::optional<std::string> tls_certificate_str;
   if (tls_certificate_path) {
     iroha::readTextFile(*tls_certificate_path)
         .match([&tls_certificate_str](

@@ -21,8 +21,8 @@ namespace shared_model {
       AlwaysValidValidator(std::shared_ptr<ValidatorsConfig>) {}
 
       template <typename T>
-      boost::optional<ValidationError> validate(const T &) const {
-        return boost::none;
+      std::optional<ValidationError> validate(const T &) const {
+        return std::nullopt;
       }
     };
 
@@ -31,8 +31,7 @@ namespace shared_model {
      public:
       MockValidator() = default;
       MockValidator(std::shared_ptr<ValidatorsConfig>){};
-      MOCK_CONST_METHOD1_T(validate,
-                           boost::optional<ValidationError>(const T &));
+      MOCK_CONST_METHOD1_T(validate, std::optional<ValidationError>(const T &));
     };
 
   }  // namespace validation

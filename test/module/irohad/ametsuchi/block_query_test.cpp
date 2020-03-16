@@ -6,7 +6,6 @@
 #include "ametsuchi/impl/postgres_block_query.hpp"
 
 #include <boost/filesystem.hpp>
-#include <boost/optional.hpp>
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/flat_file_block_storage_factory.hpp"
 #include "ametsuchi/impl/postgres_block_index.hpp"
@@ -248,7 +247,7 @@ TEST_F(BlockQueryTest, GetBlockButItIsInvalidBlock) {
 TEST_F(BlockQueryTest, HasTxWithExistingHash) {
   for (const auto &hash : tx_hashes) {
     ASSERT_NO_THROW({
-      auto status = boost::get<tx_cache_status_responses::Committed>(
+      auto status = std::get<tx_cache_status_responses::Committed>(
           *blocks->checkTxPresence(hash));
       ASSERT_EQ(status.hash, hash);
     });
@@ -264,7 +263,7 @@ TEST_F(BlockQueryTest, HasTxWithExistingHash) {
 TEST_F(BlockQueryTest, HasTxWithMissingHash) {
   shared_model::crypto::Hash missing_tx_hash(zero_string);
   ASSERT_NO_THROW({
-    auto status = boost::get<tx_cache_status_responses::Missing>(
+    auto status = std::get<tx_cache_status_responses::Missing>(
         *blocks->checkTxPresence(missing_tx_hash));
     ASSERT_EQ(status.hash, missing_tx_hash);
   });
@@ -278,7 +277,7 @@ TEST_F(BlockQueryTest, HasTxWithMissingHash) {
  */
 TEST_F(BlockQueryTest, HasTxWithRejectedHash) {
   ASSERT_NO_THROW({
-    auto status = boost::get<tx_cache_status_responses::Rejected>(
+    auto status = std::get<tx_cache_status_responses::Rejected>(
         *blocks->checkTxPresence(rejected_hash));
     ASSERT_EQ(status.hash, rejected_hash);
   });

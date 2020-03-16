@@ -29,7 +29,7 @@ namespace shared_model {
 
      private:
       template <typename Validator>
-      boost::optional<ValidationError> validateImpl(
+      std::optional<ValidationError> validateImpl(
           const interface::types::TransactionsForwardCollectionType
               &transactions,
           Validator &&validator) const;
@@ -44,19 +44,19 @@ namespace shared_model {
        * @param transactions collection of transactions
        * @return validation error, if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::types::TransactionsForwardCollectionType
               &transactions) const;
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::types::SharedTxsCollectionType &transactions) const;
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::types::TransactionsForwardCollectionType
               &transactions,
           interface::types::TimestampType current_timestamp) const;
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::types::SharedTxsCollectionType &transactions,
           interface::types::TimestampType current_timestamp) const;
 

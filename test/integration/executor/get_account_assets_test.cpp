@@ -112,7 +112,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
 
   std::unique_ptr<shared_model::interface::MockAssetPaginationMeta>
   makePaginationMeta(TransactionsNumberType page_size,
-                     boost::optional<AssetIdType> first_asset_id) {
+                     std::optional<AssetIdType> first_asset_id) {
     return getItf().getMockQueryFactory()->constructAssetPaginationMeta(
         page_size, std::move(first_asset_id));
   }
@@ -123,7 +123,7 @@ struct GetAccountAssetsTest : public ExecutorTestBase {
   QueryExecutorResult queryPage(boost::optional<size_t> page_start,
                                 size_t page_size,
                                 AccountIdType command_issuer = kAdminId) {
-    boost::optional<AssetIdType> first_asset_id;
+    std::optional<AssetIdType> first_asset_id;
     if (page_start) {
       first_asset_id = makeAssetId(page_start.value());
     }
@@ -180,7 +180,7 @@ TEST_P(GetAccountAssetsBasicTest, NoPageMetaData) {
   prepareState(10);
   QueryExecutorResult response = getItf().executeQuery(
       *getItf().getMockQueryFactory()->constructGetAccountAssets(kUserId,
-                                                                 boost::none));
+                                                                 std::nullopt));
   validatePageResponse(response, boost::none, 10);
 }
 
@@ -247,7 +247,7 @@ using GetAccountAssetsPermissionTest =
 TEST_P(GetAccountAssetsPermissionTest, QueryPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({Role::kReceive}));
   createAndAddAssets(2);
-  auto pagination_meta = makePaginationMeta(assets_added_, boost::none);
+  auto pagination_meta = makePaginationMeta(assets_added_, std::nullopt);
   checkResponse<shared_model::interface::AccountAssetResponse>(
       queryPage(boost::none, assets_added_, getSpectator()),
       [this](const shared_model::interface::AccountAssetResponse &response) {

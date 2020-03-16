@@ -8,8 +8,8 @@
 #include <type_traits>
 
 #include <gtest/gtest.h>
-#include <boost/optional/optional_io.hpp>
 #include <boost/range/irange.hpp>
+#include <optional>
 #include "builders/protobuf/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
@@ -93,7 +93,7 @@ TEST_F(TransactionValidatorTest, StatelessValidTest) {
       [] {});
 
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
-  ASSERT_EQ(transaction_validator.validate(result), boost::none);
+  ASSERT_EQ(transaction_validator.validate(result), std::nullopt);
 }
 
 /**
@@ -170,7 +170,7 @@ TEST_F(TransactionValidatorTest, BatchValidTest) {
       transaction_validator(iroha::test::kTestsValidatorsConfig);
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
 
-  ASSERT_EQ(transaction_validator.validate(result), boost::none);
+  ASSERT_EQ(transaction_validator.validate(result), std::nullopt);
   ASSERT_EQ(tx.payload().batch().type(),
             static_cast<int>(interface::types::BatchType::ATOMIC));
 }

@@ -17,7 +17,7 @@ BatchValidator<BatchOrderValidator>::BatchValidator(
     : batch_order_validator_(BatchOrderValidator{std::move(config)}) {}
 
 template <typename BatchOrderValidator>
-boost::optional<ValidationError> BatchValidator<BatchOrderValidator>::validate(
+std::optional<ValidationError> BatchValidator<BatchOrderValidator>::validate(
     const shared_model::interface::TransactionBatch &batch) const {
   return batch_order_validator_.validate(batch.transactions()
                                          | boost::adaptors::indirected);

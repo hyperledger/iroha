@@ -22,8 +22,7 @@ namespace shared_model {
       const interface::types::AccountAssetCollectionType accountAssets()
           const override;
 
-      boost::optional<interface::types::AssetIdType> nextAssetId()
-          const override;
+      std::optional<interface::types::AssetIdType> nextAssetId() const override;
 
       size_t totalAccountAssetsNumber() const override;
 
@@ -31,7 +30,7 @@ namespace shared_model {
       const iroha::protocol::AccountAssetResponse &account_asset_response_;
 
       std::vector<AccountAsset> account_assets_;
-      const boost::optional<interface::types::AssetIdType> next_asset_id_;
+      const std::optional<interface::types::AssetIdType> next_asset_id_;
     };
   }  // namespace proto
 }  // namespace shared_model

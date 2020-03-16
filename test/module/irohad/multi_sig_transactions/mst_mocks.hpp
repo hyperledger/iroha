@@ -33,7 +33,7 @@ namespace iroha {
    public:
     MOCK_METHOD2(onNewState,
                  void(const shared_model::crypto::PublicKey &from,
-                      MstState state));
+                      MstState &&state));
   };
 
   /**
