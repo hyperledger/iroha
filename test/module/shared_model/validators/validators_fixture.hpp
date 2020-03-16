@@ -274,7 +274,7 @@ class ValidatorsTest : public ::testing::Test {
   std::string domain_id;
   std::string detail_key;
   std::string detail_value;
-  boost::optional<std::string> detail_old_value;
+  std::optional<std::string> detail_old_value;
   std::string description;
   std::string public_key;
   std::string hash;

@@ -106,8 +106,8 @@ class MstPipelineTest : public AcceptanceFixture {
       const std::string &creator,
       const crypto::Keypair &key,
       const interface::types::TransactionsNumberType &page_size,
-      const boost::optional<interface::types::HashType> &first_tx_hash =
-          boost::none) {
+      const std::optional<interface::types::HashType> &first_tx_hash =
+          std::nullopt) {
     return shared_model::proto::QueryBuilder()
         .createdTime(getUniqueTime())
         .creatorAccountId(creator)

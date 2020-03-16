@@ -57,7 +57,7 @@ namespace shared_model {
       /*
        * @return Batch Meta if exists
        */
-      virtual boost::optional<std::shared_ptr<BatchMeta>> batchMeta() const = 0;
+      virtual std::optional<std::shared_ptr<BatchMeta>> batchMeta() const = 0;
 
       std::string toString() const override;
     };

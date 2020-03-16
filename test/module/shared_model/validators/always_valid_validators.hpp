@@ -20,148 +20,147 @@ namespace shared_model {
       AlwaysValidFieldValidator(std::shared_ptr<ValidatorsConfig>) {}
 
       template <typename... Args>
-      boost::optional<ValidationError> validateAccountId(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAccountId(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAssetId(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAssetId(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validatePeer(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validatePeer(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAmount(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAmount(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validatePubkey(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validatePubkey(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validatePeerAddress(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validatePeerAddress(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateRoleId(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateRoleId(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAccountName(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAccountName(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateDomainId(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateDomainId(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateDomain(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateDomain(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAssetName(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAssetName(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAccountDetailKey(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateAccountDetailKey(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateAccountDetailValue(
+      std::optional<ValidationError> validateAccountDetailValue(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validatePrecision(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateRolePermission(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateGrantablePermission(
           Args...) const {
-        return boost::none;
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validatePrecision(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateQuorum(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateRolePermission(Args...) const {
-        return boost::none;
+      std::optional<ValidationError> validateCreatorAccountId(Args...) const {
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateGrantablePermission(
+      std::optional<ValidationError> validateAccount(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateCreatedTime(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateCounter(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateSignatureForm(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateSignatures(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateQueryPayloadMeta(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateDescription(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateBatchMeta(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateHeight(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateHash(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateTxPaginationMeta(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateAccountAsset(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateAsset(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
+      std::optional<ValidationError> validateAccountDetailRecordId(
           Args...) const {
-        return boost::none;
+        return std::nullopt;
       }
       template <typename... Args>
-      boost::optional<ValidationError> validateQuorum(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateCreatorAccountId(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateAccount(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateCreatedTime(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateCounter(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateSignatureForm(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateSignatures(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateQueryPayloadMeta(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateDescription(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateBatchMeta(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateHeight(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateHash(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateTxPaginationMeta(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateAccountAsset(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateAsset(Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateAccountDetailRecordId(
+      std::optional<ValidationError> validateAccountDetailPaginationMeta(
           Args...) const {
-        return boost::none;
-      }
-      template <typename... Args>
-      boost::optional<ValidationError> validateAccountDetailPaginationMeta(
-          Args...) const {
-        return boost::none;
+        return std::nullopt;
       }
     };
 
     template <typename Model>
     struct AlwaysValidModelValidator final : public AbstractValidator<Model> {
      public:
-      boost::optional<ValidationError> validate(const Model &m) const override {
-        return boost::none;
+      std::optional<ValidationError> validate(const Model &m) const override {
+        return std::nullopt;
       };
     };
 

@@ -5,7 +5,7 @@
 
 #include "module/shared_model/validators/validators_fixture.hpp"
 
-#include <boost/optional/optional_io.hpp>
+#include <optional>
 #include "builders/protobuf/queries.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/validation_error_output.hpp"
@@ -56,7 +56,7 @@ TEST_F(QueryValidatorTest, StatelessValidTest) {
         auto result = proto::Query(iroha::protocol::Query(qry));
         auto error = query_validator.validate(result);
 
-        ASSERT_EQ(error, boost::none);
+        ASSERT_EQ(error, std::nullopt);
       });
 }
 

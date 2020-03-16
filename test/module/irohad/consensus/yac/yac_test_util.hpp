@@ -29,7 +29,7 @@ namespace iroha {
                     framework::padPubKeyString(address))));
         EXPECT_CALL(*peer, tlsCertificate())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                boost::optional<
+                std::optional<
                     shared_model::interface::types::TLSCertificateType>()));
 
         return peer;

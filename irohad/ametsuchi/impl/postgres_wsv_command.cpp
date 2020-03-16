@@ -8,6 +8,7 @@
 #include <numeric>
 
 #include <boost/format.hpp>
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "backend/protobuf/permissions.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/account.hpp"

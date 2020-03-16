@@ -47,7 +47,7 @@ namespace iroha {
     expected::Result<Response, ErrorCode> getPendingTransactions(
         const shared_model::interface::types::AccountIdType &account_id,
         const shared_model::interface::types::TransactionsNumberType page_size,
-        const boost::optional<shared_model::interface::types::HashType>
+        const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash) const override;
 
    private:

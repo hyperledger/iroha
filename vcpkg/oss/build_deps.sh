@@ -5,19 +5,19 @@ set -e;
 git clone https://github.com/microsoft/vcpkg /tmp/vcpkg;
 git -C /tmp/vcpkg checkout $(cat /tmp/vcpkg-vars/VCPKG_COMMIT_SHA);
 
-for i in /tmp/vcpkg-vars/patches/*.patch; do git -C /tmp/vcpkg apply $i; done;
-for i in /tmp/vcpkg-vars/oss/patches/*.patch; do git -C /tmp/vcpkg apply $i; done;
+for i in /tmp/vcpkg-vars/patches/*.patch; do git -C /tmp/vcpkg apply --ignore-whitespace $i; done;
+for i in /tmp/vcpkg-vars/oss/patches/*.patch; do git -C /tmp/vcpkg apply --ignore-whitespace $i; done;
 
 sh /tmp/vcpkg/bootstrap-vcpkg.sh;
 
 cat /tmp/vcpkg-vars/VCPKG_NO_SANITIZERS_DEPS_LIST | xargs /tmp/vcpkg/vcpkg install;
 
 git -C /tmp/vcpkg checkout -- scripts/toolchains/linux.cmake;
-git -C /tmp/vcpkg apply /tmp/vcpkg-vars/oss/patches/0002-vcpkg-dependencies-flags.patch;
+git -C /tmp/vcpkg apply --ignore-whitespace /tmp/vcpkg-vars/oss/patches/0002-vcpkg-dependencies-flags.patch;
 
 /tmp/vcpkg/vcpkg install boost-locale;
 
-git -C /tmp/vcpkg apply /tmp/vcpkg-vars/oss/patches/0003-vcpkg-dependencies-sanitizer.patch;
+git -C /tmp/vcpkg apply --ignore-whitespace /tmp/vcpkg-vars/oss/patches/0003-vcpkg-dependencies-sanitizer.patch;
 
 comm -23 <(sort /tmp/vcpkg-vars/VCPKG_DEPS_LIST) <(sort /tmp/vcpkg-vars/oss/VCPKG_SKIP_DEPS) | xargs /tmp/vcpkg/vcpkg install;
 

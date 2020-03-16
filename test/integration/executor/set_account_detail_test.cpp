@@ -50,7 +50,7 @@ class SetAccountDetailTest : public ExecutorTestBase {
         getItf()
             .executeQueryAndConvertResult(
                 *getItf().getMockQueryFactory()->constructGetAccountDetail(
-                    account, boost::none, boost::none, boost::none))
+                    account, std::nullopt, std::nullopt, std::nullopt))
             .specific_response
         | [&reference_details](const auto &response) {
             checkJsonData(response.detail(), reference_details);

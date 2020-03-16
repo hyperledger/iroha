@@ -5,6 +5,7 @@
 
 #include "interfaces/queries/get_pending_transactions.hpp"
 
+#include "common/optional_reference_equal.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
 
 namespace shared_model {
@@ -20,7 +21,8 @@ namespace shared_model {
     }
 
     bool GetPendingTransactions::operator==(const ModelType &rhs) const {
-      return paginationMeta() == rhs.paginationMeta();
+      return iroha::optionalReferenceEqual(paginationMeta(),
+                                           rhs.paginationMeta());
     }
 
   }  // namespace interface
