@@ -29,7 +29,7 @@ impl Kura {
         let blocks = disk.read_all().await;
         Kura {
             disk,
-            world_state_view: WorldStateView::init(&blocks),
+            world_state_view: WorldStateView::init(&blocks).await,
             //TODO[@humb1t:RH2-13]: replace `default` with `new`
             merkle_tree: MerkleTree::build(&blocks),
         }
@@ -97,10 +97,10 @@ pub struct WorldStateView {
 }
 
 impl WorldStateView {
-    fn init(blocks: &[Block]) -> Self {
+    async fn init(blocks: &[Block]) -> Self {
         let mut world_state_view = WorldStateView::default();
         for block in blocks {
-            world_state_view.put(block.clone());
+            world_state_view.put(block.clone()).await;
         }
         world_state_view
     }
