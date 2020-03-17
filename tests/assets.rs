@@ -62,6 +62,8 @@ mod tests {
             Transaction::builder(vec![transfer_asset.into()], "source@domain".to_string()).build(),
         ])
         .build();
+        use kura::test_helper_fns;
+        test_helper_fns::cleanup_default_block_dir().await;
         //TODO: replace with `strict_init` when validation will be ready.
         let mut kura = kura::Kura::fast_init().await;
         assert!(kura.store(&block).await.is_ok());
