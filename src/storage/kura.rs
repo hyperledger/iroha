@@ -241,7 +241,6 @@ fn merge_assets_transactions(
 static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
 
 /// Representation of a consistent storage.
-#[derive(Clone)]
 struct Disk {
     block_store_location: PathBuf,
 }
