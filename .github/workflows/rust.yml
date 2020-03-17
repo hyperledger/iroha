@@ -22,6 +22,6 @@ jobs:
     - name: Run tests
       run: cargo test --verbose -- --nocapture
     - name: Run tests with cleanup
-      run:
-        - cargo install --debug cargo-make
-        - cargo make test-flow
+      run: |
+        cargo install --debug cargo-make
+        cargo make test-flow
