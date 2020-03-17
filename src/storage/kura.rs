@@ -45,11 +45,16 @@ impl Kura {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     pub async fn store(&mut self, block: Block) -> Result<Hash, String> {
-        //TODO[@humb1t:RH2-14]: make `world_state_view.put` async/parallel and join! it with disk.write
-        let disk_result = self.disk.write(&block).await;
+        use async_std::task;
+
+        // Cloning disk struct is safe as it only clones the path
+        let disk = self.disk.clone();
+        let disk_block = block.clone();
+        let disk_handle = task::spawn(async move { disk.write(&disk_block).await });
+
         self.world_state_view.put(block.clone());
         //TODO: replace with rebuild of a tree? self.merkle_tree.put(block.clone());
-        match disk_result {
+        match disk_handle.await {
             Ok(hash) => Ok(hash),
             Err(error) => {
                 let blocks = self.disk.read_all().await;
@@ -238,6 +243,7 @@ fn merge_assets_transactions(
 static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
 
 /// Representation of a consistent storage.
+#[derive(Clone)]
 struct Disk {
     block_store_location: PathBuf,
 }
