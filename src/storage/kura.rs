@@ -315,6 +315,22 @@ impl Disk {
     }
 }
 
+pub mod test_helper_fns {
+    use crate::storage::kura::*;
+
+    /// Cleans up default directory of disk storage.
+    /// Should be used in tests that may potentially read from disk
+    /// to prevent failures due to changes in block structure.
+    pub async fn cleanup_default_block_dir() -> Result<(), String> {
+        use async_std::fs;
+
+        fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::model::block::Blockchain;
@@ -374,7 +390,7 @@ mod tests {
         let account_id = "test@test";
         let mut blockchain = Blockchain::new();
         blockchain.push(Vec::new());
-        //TODO: cleanup blocks dir from previous runs, or the test may fail due to incompatible formats
+        test_helper_fns::cleanup_default_block_dir().await;
         let mut kura = Kura::fast_init().await;
         let _result = kura.store(blockchain.last()).await;
         assert!(kura
