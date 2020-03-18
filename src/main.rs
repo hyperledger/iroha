@@ -19,5 +19,11 @@ fn main() {
 
     // spawn auditor thread from block store to WSV
     //TODO:
-    networking::torii::Torii::new().start();
+    networking::torii::Torii::new(consensus::sumeragi::Sumeragi::new(
+        model::block::Blockchain::new(
+            futures::executor::block_on(storage::kura::Kura::strict_init())
+                .expect("Failed to init Kura."),
+        ),
+    ))
+    .start();
 }

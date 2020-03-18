@@ -333,7 +333,6 @@ pub mod test_helper_fns {
 
 #[cfg(test)]
 mod tests {
-    use crate::model::block::Blockchain;
     use crate::storage::kura::*;
 
     #[async_std::test]
@@ -368,10 +367,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let disk = Disk::new(dir.path().to_str().unwrap());
         let n = 10;
-        let mut blockchain = Blockchain::new();
-        for _ in 0..n {
-            blockchain.push(Vec::new());
-            disk.write(&blockchain.last())
+        for i in 0..n {
+            disk.write(&Block::builder(Vec::new()).height(i).build())
                 .await
                 .expect("Failed to write block to file.");
         }
@@ -388,11 +385,13 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let account_id = "test@test";
-        let mut blockchain = Blockchain::new();
-        blockchain.push(Vec::new());
-        test_helper_fns::cleanup_default_block_dir().await;
+        test_helper_fns::cleanup_default_block_dir()
+            .await
+            .expect("Failed to cleanup blocks dir.");
         let mut kura = Kura::fast_init().await;
-        let _result = kura.store(blockchain.last()).await;
+        kura.store(&Block::builder(Vec::new()).build())
+            .await
+            .expect("Failed to store block into Kura.");
         assert!(kura
             .world_state_view
             .get_assets_by_account_id(account_id)

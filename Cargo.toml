@@ -20,3 +20,8 @@ features = ["attributes"]
 [dev-dependencies]
 tempfile = "3"
 hex-literal = "0.2.1"
+criterion = "0.3"
+
+[[bench]]
+name = "torii"
+harness = false

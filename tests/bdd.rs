@@ -2,6 +2,7 @@
 mod tests {
     use iroha::{
         client::Client,
+        consensus::sumeragi::Sumeragi,
         model::{
             block::*,
             commands::{accounts::*, assets::*, domains::*},
@@ -40,8 +41,8 @@ mod tests {
             domain_id: "domain".to_string(),
             precision: 0,
         };
-        let mut blockchain = Blockchain::new();
-        blockchain.push(vec![Transaction::builder(
+        let mut blockchain = Blockchain::new(kura::Kura::fast_init().await);
+        blockchain.accept(vec![Transaction::builder(
             vec![
                 create_role.into(),
                 create_domain.into(),
@@ -52,10 +53,8 @@ mod tests {
             String::from(account1_id),
         )
         .build()]);
-        let mut kura = kura::Kura::fast_init().await;
-        assert!(kura.store(blockchain.last()).await.is_ok());
         thread::spawn(|| {
-            let mut torii = Torii::new();
+            let mut torii = Torii::new(Sumeragi::new(blockchain));
             torii.start();
         });
 
