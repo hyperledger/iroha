@@ -1,13 +1,26 @@
-use crate::model::tx::Transaction;
+use crate::model::{block::Blockchain, tx::Transaction};
 
-pub struct Sumeragi {}
+pub struct Sumeragi {
+    blockchain: Blockchain,
+}
 
 impl Sumeragi {
-    pub fn vote(&self, _transactions: &[Transaction]) -> Result<(), ()> {
+    pub fn new(blockchain: Blockchain) -> Self {
+        Sumeragi { blockchain }
+    }
+
+    pub fn sign(&mut self, transactions: &[Transaction]) -> Result<(), ()> {
+        self.vote(transactions)?;
+        self.blockchain.accept(transactions.to_vec());
+        self.publish(transactions)?;
         Ok(())
     }
 
-    pub fn publish(&self, _transactions: &[Transaction]) -> Result<(), ()> {
+    fn vote(&self, _transactions: &[Transaction]) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn publish(&self, _transactions: &[Transaction]) -> Result<(), ()> {
         Ok(())
     }
 }

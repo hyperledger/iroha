@@ -25,3 +25,5 @@ jobs:
       run: |
         cargo install --debug cargo-make
         cargo make test-flow
+    - name: Run benchmarks
+      run: cargo bench
