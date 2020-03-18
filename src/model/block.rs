@@ -1,24 +1,33 @@
-use crate::model::{crypto::Hash, tx::Transaction};
+use crate::{
+    model::{crypto::Hash, tx::Transaction},
+    storage::kura::Kura,
+};
 use std::time::SystemTime;
 
 /// Chain of `Blocks`.
-#[derive(Default)]
 pub struct Blockchain {
-    pub blocks: Vec<Block>,
+    blocks: Vec<Block>,
+    kura: Kura,
 }
 
 impl Blockchain {
-    pub fn new() -> Self {
-        Blockchain::default()
+    pub fn new(kura: Kura) -> Self {
+        Blockchain {
+            kura,
+            //TODO: we should fill blockchain with already stored blocks.
+            blocks: Vec::new(),
+        }
     }
 
-    pub fn push(&mut self, transactions: Vec<Transaction>) {
+    pub fn accept(&mut self, transactions: Vec<Transaction>) {
         let mut block = Block::builder(transactions).build();
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;
             block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
         }
+        futures::executor::block_on(self.kura.store(&block))
+            .expect("Failed to store block into Kura.");
         self.blocks.push(block);
     }
 
@@ -88,6 +97,11 @@ pub struct BlockBuilder {
 }
 
 impl BlockBuilder {
+    pub fn height(mut self, height: u64) -> Self {
+        self.height = Option::Some(height);
+        self
+    }
+
     pub fn build(self) -> Block {
         Block {
             height: self.height.unwrap_or(0),

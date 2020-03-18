@@ -38,6 +38,35 @@ impl Transaction {
     }
 }
 
+/// # Example
+/// ```
+/// use iroha::model::tx::Transaction;
+///
+/// let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
+///     .build();
+/// let result: Vec<u8> = tx_payload.into();
+/// ```
+impl std::convert::From<&Transaction> for Vec<u8> {
+    fn from(tx_payload: &Transaction) -> Self {
+        bincode::serialize(tx_payload).expect("Failed to serialize payload.")
+    }
+}
+
+/// # Example
+/// ```
+/// # use iroha::model::tx::Transaction;
+///
+/// # let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
+/// #     .build();
+/// # let result: Vec<u8> = tx_payload.into();
+/// let tx_payload: Transaction = result.into();
+/// ```
+impl std::convert::From<Vec<u8>> for Transaction {
+    fn from(tx_payload: Vec<u8>) -> Self {
+        bincode::deserialize(&tx_payload).expect("Failed to deserialize payload.")
+    }
+}
+
 /// Builder struct for `Transaction`.
 #[derive(Default)]
 pub struct TxBuilder {
