@@ -8,6 +8,7 @@
 #include <random>
 
 #include "common/bind.hpp"
+#include "common/permutation_generator.hpp"
 #include "consensus/yac/cluster_order.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -21,12 +22,14 @@ namespace iroha {
 
       boost::optional<ClusterOrdering> PeerOrdererImpl::getOrdering(
           const YacHash &hash,
-          std::vector<std::shared_ptr<shared_model::interface::Peer>> peers) {
-        std::seed_seq seed(hash.vote_hashes.block_hash.begin(),
-                           hash.vote_hashes.block_hash.end());
-        std::default_random_engine gen(seed);
-        std::shuffle(peers.begin(), peers.end(), gen);
-        return ClusterOrdering::create(peers);
+          std::vector<std::shared_ptr<shared_model::interface::Peer>> const
+              &peers) {
+        auto prng = iroha::makeSeededPrng(hash.vote_hashes.block_hash.data(),
+                                          hash.vote_hashes.block_hash.size());
+        iroha::generatePermutation(
+            peer_positions_, std::move(prng), peers.size());
+
+        return ClusterOrdering::create(peers, peer_positions_);
       }
     }  // namespace yac
   }    // namespace consensus

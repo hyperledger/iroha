@@ -17,10 +17,9 @@ void KickOutProposalCreationStrategy::onCollaborationOutcome(
     RoundType round, size_t peers_in_round) {
   std::lock_guard<std::mutex> guard(mutex_);
   peers_in_round_ = peers_in_round;
-  while (not requested_count_.empty()
-         and requested_count_.begin()->first <= round) {
-    requested_count_.erase(requested_count_.begin());
-  }
+
+  auto it = requested_count_.upper_bound(round);
+  requested_count_.erase(requested_count_.begin(), it);
 }
 
 bool KickOutProposalCreationStrategy::shouldCreateRound(RoundType round) {

@@ -20,7 +20,8 @@ namespace iroha {
             getOrdering,
             boost::optional<ClusterOrdering>(
                 const YacHash &,
-                std::vector<std::shared_ptr<shared_model::interface::Peer>>));
+                std::vector<
+                    std::shared_ptr<shared_model::interface::Peer>> const &));
 
         MockYacPeerOrderer() = default;
 

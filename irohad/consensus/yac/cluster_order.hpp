@@ -28,12 +28,23 @@ namespace iroha {
       class ClusterOrdering {
        public:
         /**
-         * Creates cluster ordering from the vector of peers
+         * Creates cluster ordering from the vector of peers and peer positions
          * @param order vector of peers
-         * @return false if vector is empty, true otherwise
+         * @param peer_positions vector of indexes of peer positions
+         * @return ClusterOrdering if vectors are not empty, null otherwise
          */
         static boost::optional<ClusterOrdering> create(
-            const std::vector<std::shared_ptr<shared_model::interface::Peer>>
+            std::vector<std::shared_ptr<shared_model::interface::Peer>> const
+                &order,
+            std::vector<size_t> const &peer_positions);
+
+        /**
+         * Creates cluster ordering from the vector of peers
+         * @param order vector of peers
+         * @return ClusterOrdering if vectors are not empty, null otherwise
+         */
+        static boost::optional<ClusterOrdering> create(
+            std::vector<std::shared_ptr<shared_model::interface::Peer>> const
                 &order);
 
         /**
@@ -64,7 +75,13 @@ namespace iroha {
        private:
         // prohibit creation of the object not from create method
         explicit ClusterOrdering(
-            std::vector<std::shared_ptr<shared_model::interface::Peer>> order);
+            std::vector<std::shared_ptr<shared_model::interface::Peer>> const
+                &order,
+            std::vector<size_t> const &peer_positions);
+
+        explicit ClusterOrdering(
+            std::vector<std::shared_ptr<shared_model::interface::Peer>> const
+                &order);
 
         std::vector<std::shared_ptr<shared_model::interface::Peer>> order_;
         PeersNumberType index_ = 0;
