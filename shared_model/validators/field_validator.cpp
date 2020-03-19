@@ -411,7 +411,7 @@ namespace shared_model {
           {},
           {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
            tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
-             return validateHash(first_hash);
+             return this->validateHash(first_hash);
            }});
     }
 
@@ -443,7 +443,7 @@ namespace shared_model {
           {validatePaginationMetaPageSize(asset_pagination_meta.pageSize()),
            asset_pagination_meta.firstAssetId() |
                [this](const auto &first_asset_id) {
-                 return validateAssetId(first_asset_id);
+                 return this->validateAssetId(first_asset_id);
                }});
     }
 
@@ -466,7 +466,7 @@ namespace shared_model {
           {validatePaginationMetaPageSize(pagination_meta.pageSize()),
            pagination_meta.firstRecordId() |
                [this](const auto &first_record_id) {
-                 return validateAccountDetailRecordId(first_record_id);
+                 return this->validateAccountDetailRecordId(first_record_id);
                }});
     }
 
