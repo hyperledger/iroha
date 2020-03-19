@@ -16,6 +16,7 @@
 #include <rxcpp/operators/rx-zip.hpp>
 #include "common/bind.hpp"
 #include "common/delay.hpp"
+#include "common/permutation_generator.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -92,15 +93,11 @@ namespace iroha {
         auto generate_permutation = [&](auto round) {
           auto &hash = std::get<round()>(current_hashes);
           log_->debug("Using hash: {}", hash.toString());
-          auto &permutation = permutations_[round()];
 
-          std::seed_seq seed(hash.blob().begin(), hash.blob().end());
-          gen_.seed(seed);
-
-          permutation.resize(current_peers_.size());
-          std::iota(permutation.begin(), permutation.end(), 0);
-
-          std::shuffle(permutation.begin(), permutation.end(), gen_);
+          auto prng =
+              iroha::makeSeededPrng(hash.blob().data(), hash.blob().size());
+          iroha::generatePermutation(
+              permutations_[round()], std::move(prng), current_peers_.size());
         };
 
         generate_permutation(RoundTypeConstant<kCurrentRound>{});

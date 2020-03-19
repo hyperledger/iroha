@@ -6,8 +6,8 @@
 #ifndef IROHA_PROTO_QUERY_BUILDER_TEMPLATE_HPP
 #define IROHA_PROTO_QUERY_BUILDER_TEMPLATE_HPP
 
-#include <boost/optional.hpp>
 #include <boost/range/algorithm/for_each.hpp>
+#include <optional>
 
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
@@ -85,8 +85,8 @@ namespace shared_model {
       static auto setTxPaginationMeta(
           PageMetaPayload * page_meta_payload,
           interface::types::TransactionsNumberType page_size,
-          const boost::optional<interface::types::HashType> &first_hash =
-              boost::none) {
+          const std::optional<interface::types::HashType> &first_hash =
+              std::nullopt) {
         page_meta_payload->set_page_size(page_size);
         if (first_hash) {
           page_meta_payload->set_first_tx_hash(first_hash->hex());
@@ -141,8 +141,8 @@ namespace shared_model {
       auto getAccountTransactions(
           const interface::types::AccountIdType &account_id,
           interface::types::TransactionsNumberType page_size,
-          const boost::optional<interface::types::HashType> &first_hash =
-              boost::none) const {
+          const std::optional<interface::types::HashType> &first_hash =
+              std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_transactions();
           query->set_account_id(account_id);
@@ -155,8 +155,8 @@ namespace shared_model {
           const interface::types::AccountIdType &account_id,
           const interface::types::AssetIdType &asset_id,
           interface::types::TransactionsNumberType page_size,
-          const boost::optional<interface::types::HashType> &first_hash =
-              boost::none) const {
+          const std::optional<interface::types::HashType> &first_hash =
+              std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_asset_transactions();
           query->set_account_id(account_id);
@@ -169,7 +169,7 @@ namespace shared_model {
       auto getAccountAssets(
           const interface::types::AccountIdType &account_id,
           size_t page_size,
-          boost::optional<shared_model::interface::types::AssetIdType>
+          std::optional<shared_model::interface::types::AssetIdType>
               first_asset_id) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_assets();
@@ -187,8 +187,8 @@ namespace shared_model {
           const interface::types::AccountIdType &account_id = "",
           const interface::types::AccountDetailKeyType &key = "",
           const interface::types::AccountIdType &writer = "",
-          const boost::optional<plain::AccountDetailRecordId> &first_record_id =
-              boost::none) {
+          const std::optional<plain::AccountDetailRecordId> &first_record_id =
+              std::nullopt) {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_detail();
           if (not account_id.empty()) {
@@ -266,8 +266,8 @@ namespace shared_model {
 
       auto getPendingTransactions(
           interface::types::TransactionsNumberType page_size,
-          const boost::optional<interface::types::HashType> &first_hash =
-              boost::none) const {
+          const std::optional<interface::types::HashType> &first_hash =
+              std::nullopt) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_pending_transactions();
           setTxPaginationMeta(

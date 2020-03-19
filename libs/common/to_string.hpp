@@ -6,7 +6,9 @@
 #ifndef IROHA_LIBS_TO_STRING_HPP
 #define IROHA_LIBS_TO_STRING_HPP
 
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include <boost/optional.hpp>
@@ -41,6 +43,16 @@ namespace iroha {
                      std::string>::value,
         std::string> {
       return o.toString();
+    }
+
+    template <typename... T>
+    inline std::string toString(const std::reference_wrapper<T...> &o) {
+      return ::iroha::to_string::toString(o.get());
+    }
+
+    template <typename... T>
+    inline std::string toString(const std::optional<T...> &o) {
+      return detail::toStringDereferenced(o);
     }
 
     template <typename... T>
@@ -95,6 +107,12 @@ namespace iroha {
       template <>
       inline std::string toStringDereferenced<boost::none_t>(
           const boost::none_t &) {
+        return kNotSet;
+      }
+
+      template <>
+      inline std::string toStringDereferenced<std::nullopt_t>(
+          const std::nullopt_t &) {
         return kNotSet;
       }
     }  // namespace detail

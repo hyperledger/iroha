@@ -23,7 +23,7 @@ BatchOrderValidator::BatchOrderValidator(
       partial_ordered_batches_are_valid_(
           config->partial_ordered_batches_are_valid) {}
 
-boost::optional<ValidationError> BatchOrderValidator::validate(
+std::optional<ValidationError> BatchOrderValidator::validate(
     const shared_model::interface::types::TransactionsForwardCollectionType
         &transactions) const {
   ValidationErrorCreator error_creator;

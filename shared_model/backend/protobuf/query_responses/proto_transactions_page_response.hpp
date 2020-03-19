@@ -23,7 +23,7 @@ namespace shared_model {
       interface::types::TransactionsCollectionType transactions()
           const override;
 
-      boost::optional<interface::types::HashType> nextTxHash() const override;
+      std::optional<interface::types::HashType> nextTxHash() const override;
 
       interface::types::TransactionsNumberType allTransactionsSize()
           const override;
@@ -31,7 +31,7 @@ namespace shared_model {
      private:
       const iroha::protocol::TransactionsPageResponse &transactionPageResponse_;
       std::vector<proto::Transaction> transactions_;
-      boost::optional<interface::types::HashType> next_hash_;
+      std::optional<interface::types::HashType> next_hash_;
     };
   }  // namespace proto
 }  // namespace shared_model

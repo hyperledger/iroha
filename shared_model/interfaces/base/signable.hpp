@@ -9,7 +9,7 @@
 #include "interfaces/base/model_primitive.hpp"
 
 #include <boost/functional/hash.hpp>
-#include <boost/optional.hpp>
+#include <optional>
 #include <unordered_set>
 #include "cryptography/default_hash_provider.hpp"
 #include "interfaces/common_objects/range_types.hpp"

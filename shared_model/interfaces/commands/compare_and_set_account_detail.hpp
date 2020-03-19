@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_COMPARE_AND_SET_ACCOUNT_DETAIL_HPP
 #define IROHA_SHARED_MODEL_COMPARE_AND_SET_ACCOUNT_DETAIL_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "interfaces/base/model_primitive.hpp"
 
 #include "interfaces/common_objects/types.hpp"
@@ -39,7 +39,7 @@ namespace shared_model {
       /**
        * @return the value expected before the change
        */
-      virtual const boost::optional<types::AccountDetailValueType> oldValue()
+      virtual const std::optional<types::AccountDetailValueType> oldValue()
           const = 0;
 
       std::string toString() const override;

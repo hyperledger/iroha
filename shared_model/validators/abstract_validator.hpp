@@ -6,7 +6,7 @@
 #ifndef IROHA_ABSTRACT_VALIDATOR_HPP
 #define IROHA_ABSTRACT_VALIDATOR_HPP
 
-#include <boost/optional/optional.hpp>
+#include <optional>
 #include "validators/validation_error.hpp"
 
 namespace shared_model {
@@ -16,8 +16,7 @@ namespace shared_model {
     template <typename Model>
     class AbstractValidator {
      public:
-      virtual boost::optional<ValidationError> validate(
-          const Model &m) const = 0;
+      virtual std::optional<ValidationError> validate(const Model &m) const = 0;
 
       virtual ~AbstractValidator() = default;
     };

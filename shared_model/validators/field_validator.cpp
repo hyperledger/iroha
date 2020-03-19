@@ -38,7 +38,7 @@ namespace {
     RegexValidator(
         std::string name,
         std::string pattern,
-        boost::optional<const char *> format_description = boost::none)
+        std::optional<const char *> format_description = std::nullopt)
         : name_(std::move(name)),
           pattern_(std::move(pattern)),
           regex_(pattern_),
@@ -47,7 +47,7 @@ namespace {
                 return std::string{" "} + std::move(description);
               }) {}
 
-    boost::optional<shared_model::validation::ValidationError> validate(
+    std::optional<shared_model::validation::ValidationError> validate(
         const std::string &value) const {
       if (not std::regex_match(value, regex_)) {
         return shared_model::validation::ValidationError(
@@ -57,7 +57,7 @@ namespace {
                          pattern_,
                          format_description_)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
     std::string getPattern() const {
@@ -123,17 +123,17 @@ namespace shared_model {
           time_provider_(time_provider),
           max_description_size(config->settings->max_description_size) {}
 
-    boost::optional<ValidationError> FieldValidator::validateAccountId(
+    std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
       return kAccountIdValidator.validate(account_id);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAssetId(
+    std::optional<ValidationError> FieldValidator::validateAssetId(
         const interface::types::AssetIdType &asset_id) const {
       return kAssetIdValidator.validate(asset_id);
     }
 
-    boost::optional<ValidationError> FieldValidator::validatePeer(
+    std::optional<ValidationError> FieldValidator::validatePeer(
         const interface::Peer &peer) const {
       return aggregateErrors(
           "Peer",
@@ -141,41 +141,41 @@ namespace shared_model {
           {validatePeerAddress(peer.address()), validatePubkey(peer.pubkey())});
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAmount(
+    std::optional<ValidationError> FieldValidator::validateAmount(
         const interface::Amount &amount) const {
       if (amount.sign() <= 0) {
         return ValidationError(
             "Amount", {"Invalid number, amount must be greater than 0"});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validatePubkey(
+    std::optional<ValidationError> FieldValidator::validatePubkey(
         const interface::types::PubkeyType &pubkey) const {
       return shared_model::validation::validatePubkey(pubkey);
     }
 
-    boost::optional<ValidationError> FieldValidator::validatePeerAddress(
+    std::optional<ValidationError> FieldValidator::validatePeerAddress(
         const interface::types::AddressType &address) const {
       return kPeerAddressValidator.validate(address);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateRoleId(
+    std::optional<ValidationError> FieldValidator::validateRoleId(
         const interface::types::RoleIdType &role_id) const {
       return kRoleIdValidator.validate(role_id);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAccountName(
+    std::optional<ValidationError> FieldValidator::validateAccountName(
         const interface::types::AccountNameType &account_name) const {
       return kAccountNameValidator.validate(account_name);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateDomainId(
+    std::optional<ValidationError> FieldValidator::validateDomainId(
         const interface::types::DomainIdType &domain_id) const {
       return kDomainValidator.validate(domain_id);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateDomain(
+    std::optional<ValidationError> FieldValidator::validateDomain(
         const interface::Domain &domain) const {
       return aggregateErrors("Domain",
                              {},
@@ -183,17 +183,17 @@ namespace shared_model {
                               validateRoleId(domain.defaultRole())});
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAssetName(
+    std::optional<ValidationError> FieldValidator::validateAssetName(
         const interface::types::AssetNameType &asset_name) const {
       return kAssetNameValidator.validate(asset_name);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAccountDetailKey(
+    std::optional<ValidationError> FieldValidator::validateAccountDetailKey(
         const interface::types::AccountDetailKeyType &key) const {
       return kAccountDetailKeyValidator.validate(key);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAccountDetailValue(
+    std::optional<ValidationError> FieldValidator::validateAccountDetailValue(
         const interface::types::AccountDetailValueType &value) const {
       if (value.size() > value_size) {
         return ValidationError(
@@ -202,59 +202,58 @@ namespace shared_model {
                 "Detail value size should be less or equal '{}' characters",
                 value_size)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     FieldValidator::validateOldAccountDetailValue(
-        const boost::optional<interface::types::AccountDetailValueType>
+        const std::optional<interface::types::AccountDetailValueType>
             &old_value) const {
       if (old_value) {
         return validateAccountDetailValue(old_value.value());
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validatePrecision(
+    std::optional<ValidationError> FieldValidator::validatePrecision(
         const interface::types::PrecisionType &precision) const {
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateRolePermission(
+    std::optional<ValidationError> FieldValidator::validateRolePermission(
         const interface::permissions::Role &permission) const {
       if (not isValid(permission)) {
         return ValidationError("RolePermission",
                                {"Provided role permission does not exist"});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError>
-    FieldValidator::validateGrantablePermission(
+    std::optional<ValidationError> FieldValidator::validateGrantablePermission(
         const interface::permissions::Grantable &permission) const {
       if (not isValid(permission)) {
         return ValidationError(
             "GrantablePermission",
             {"Provided grantable permission does not exist"});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateQuorum(
+    std::optional<ValidationError> FieldValidator::validateQuorum(
         const interface::types::QuorumType &quorum) const {
       if (quorum < 1 or quorum > 128) {
         return ValidationError("Quorum",
                                {"Quorum should be within range [1, 128]"});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateCreatorAccountId(
+    std::optional<ValidationError> FieldValidator::validateCreatorAccountId(
         const interface::types::AccountIdType &account_id) const {
       return kAccountIdValidator.validate(account_id);
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAccount(
+    std::optional<ValidationError> FieldValidator::validateAccount(
         const interface::Account &account) const {
       return aggregateErrors("Account",
                              {},
@@ -263,7 +262,7 @@ namespace shared_model {
                               validateQuorum(account.quorum())});
     }
 
-    boost::optional<ValidationError> FieldValidator::validateCreatedTime(
+    std::optional<ValidationError> FieldValidator::validateCreatedTime(
         interface::types::TimestampType timestamp,
         interface::types::TimestampType now) const {
       if (now + future_gap_ < timestamp) {
@@ -276,25 +275,25 @@ namespace shared_model {
             "CreatedTime",
             {fmt::format("too old, timestamp: {}, now: {}", timestamp, now)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateCreatedTime(
+    std::optional<ValidationError> FieldValidator::validateCreatedTime(
         interface::types::TimestampType timestamp) const {
       return validateCreatedTime(timestamp, time_provider_());
     }
 
-    boost::optional<ValidationError> FieldValidator::validateCounter(
+    std::optional<ValidationError> FieldValidator::validateCounter(
         const interface::types::CounterType &counter) const {
       if (counter <= 0) {
         return ValidationError(
             "Counter",
             {fmt::format("Counter should be > 0, passed value: {}", counter)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateSignatureForm(
+    std::optional<ValidationError> FieldValidator::validateSignatureForm(
         const interface::Signature &signature) const {
       ValidationErrorCreator error_creator;
       const auto passed_size = signature.signedData().blob().size();
@@ -306,7 +305,7 @@ namespace shared_model {
       return std::move(error_creator).getValidationError("Signature");
     }
 
-    boost::optional<ValidationError> FieldValidator::validateSignatures(
+    std::optional<ValidationError> FieldValidator::validateSignatures(
         const interface::types::SignatureRangeType &signatures,
         const crypto::Blob &source) const {
       ValidationErrorCreator error_creator;
@@ -337,12 +336,12 @@ namespace shared_model {
       return std::move(error_creator).getValidationError("Signatures list");
     }
 
-    boost::optional<ValidationError> FieldValidator::validateQueryPayloadMeta(
+    std::optional<ValidationError> FieldValidator::validateQueryPayloadMeta(
         const interface::QueryPayloadMeta &meta) const {
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateDescription(
+    std::optional<ValidationError> FieldValidator::validateDescription(
         const interface::types::DescriptionType &description) const {
       if (description.size() > max_description_size) {
         return ValidationError(
@@ -350,25 +349,25 @@ namespace shared_model {
             {fmt::format("Size should be less or equal '{}'.",
                          max_description_size)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateBatchMeta(
+    std::optional<ValidationError> FieldValidator::validateBatchMeta(
         const interface::BatchMeta &batch_meta) const {
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateHeight(
+    std::optional<ValidationError> FieldValidator::validateHeight(
         const interface::types::HeightType &height) const {
       if (height <= 0) {
         return ValidationError(
             "Height",
             {fmt::format("Should be > 0, passed value: {}.", height)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateHash(
+    std::optional<ValidationError> FieldValidator::validateHash(
         const crypto::Hash &hash) const {
       if (hash.size() != hash_size) {
         return ValidationError(
@@ -376,10 +375,10 @@ namespace shared_model {
             {fmt::format(
                 "Invalid size: {}, should be {}.", hash.size(), hash_size)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> validatePubkey(
+    std::optional<ValidationError> validatePubkey(
         const interface::types::PubkeyType &pubkey) {
       if (pubkey.blob().size() != FieldValidator::public_key_size) {
         return ValidationError("PublicKey",
@@ -387,10 +386,10 @@ namespace shared_model {
                                             pubkey.blob().size(),
                                             FieldValidator::public_key_size)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> validatePaginationMetaPageSize(
+    std::optional<ValidationError> validatePaginationMetaPageSize(
         const size_t &page_size) {
       if (page_size <= 0) {
         return ValidationError(
@@ -400,10 +399,10 @@ namespace shared_model {
                          (page_size == 0 ? "zero" : "negative"),
                          page_size)});
       }
-      return boost::none;
+      return std::nullopt;
     }
 
-    boost::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
+    std::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
         const interface::TxPaginationMeta &tx_pagination_meta) const {
       using iroha::operator|;
       return aggregateErrors(
@@ -415,7 +414,7 @@ namespace shared_model {
            }});
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAsset(
+    std::optional<ValidationError> FieldValidator::validateAsset(
         const interface::Asset &asset) const {
       return aggregateErrors("Asset",
                              {},
@@ -424,7 +423,7 @@ namespace shared_model {
                               validatePrecision(asset.precision())});
     }
 
-    boost::optional<ValidationError> FieldValidator::validateAccountAsset(
+    std::optional<ValidationError> FieldValidator::validateAccountAsset(
         const interface::AccountAsset &account_asset) const {
       return aggregateErrors("AccountAsset",
                              {},
@@ -433,8 +432,7 @@ namespace shared_model {
                               validateAmount(account_asset.balance())});
     }
 
-    boost::optional<ValidationError>
-    FieldValidator::validateAssetPaginationMeta(
+    std::optional<ValidationError> FieldValidator::validateAssetPaginationMeta(
         const interface::AssetPaginationMeta &asset_pagination_meta) const {
       using iroha::operator|;
       return aggregateErrors(
@@ -447,7 +445,7 @@ namespace shared_model {
                }});
     }
 
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     FieldValidator::validateAccountDetailRecordId(
         const interface::AccountDetailRecordId &record_id) const {
       return aggregateErrors("AccountDetailRecordId",
@@ -456,7 +454,7 @@ namespace shared_model {
                               validateAccountDetailKey(record_id.key())});
     }
 
-    boost::optional<ValidationError>
+    std::optional<ValidationError>
     FieldValidator::validateAccountDetailPaginationMeta(
         const interface::AccountDetailPaginationMeta &pagination_meta) const {
       using iroha::operator|;

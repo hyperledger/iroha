@@ -48,28 +48,28 @@ namespace shared_model {
                        return iroha::time::now();
                      });
 
-      boost::optional<ValidationError> validateAccountId(
+      std::optional<ValidationError> validateAccountId(
           const interface::types::AccountIdType &account_id) const;
 
-      boost::optional<ValidationError> validateAssetId(
+      std::optional<ValidationError> validateAssetId(
           const interface::types::AssetIdType &asset_id) const;
 
-      boost::optional<ValidationError> validatePeer(
+      std::optional<ValidationError> validatePeer(
           const interface::Peer &peer) const;
 
-      boost::optional<ValidationError> validateAmount(
+      std::optional<ValidationError> validateAmount(
           const interface::Amount &amount) const;
 
-      boost::optional<ValidationError> validatePubkey(
+      std::optional<ValidationError> validatePubkey(
           const interface::types::PubkeyType &pubkey) const;
 
-      boost::optional<ValidationError> validatePeerAddress(
+      std::optional<ValidationError> validatePeerAddress(
           const interface::types::AddressType &address) const;
 
-      boost::optional<ValidationError> validateRoleId(
+      std::optional<ValidationError> validateRoleId(
           const interface::types::RoleIdType &role_id) const;
 
-      boost::optional<ValidationError> validateAccountName(
+      std::optional<ValidationError> validateAccountName(
           const interface::types::AccountNameType &account_name) const;
 
       // clang-format off
@@ -94,97 +94,97 @@ namespace shared_model {
        * If the validation is not successful reason is updated with corresponding message
        */
       // clang-format on
-      boost::optional<ValidationError> validateDomainId(
+      std::optional<ValidationError> validateDomainId(
           const interface::types::DomainIdType &domain_id) const;
 
-      boost::optional<ValidationError> validateDomain(
+      std::optional<ValidationError> validateDomain(
           const interface::Domain &domain) const;
 
-      boost::optional<ValidationError> validateAssetName(
+      std::optional<ValidationError> validateAssetName(
           const interface::types::AssetNameType &asset_name) const;
 
-      boost::optional<ValidationError> validateAccountDetailKey(
+      std::optional<ValidationError> validateAccountDetailKey(
           const interface::types::AccountDetailKeyType &key) const;
 
-      boost::optional<ValidationError> validateAccountDetailValue(
+      std::optional<ValidationError> validateAccountDetailValue(
           const interface::types::AccountDetailValueType &value) const;
 
-      boost::optional<ValidationError> validateOldAccountDetailValue(
-          const boost::optional<interface::types::AccountDetailValueType>
+      std::optional<ValidationError> validateOldAccountDetailValue(
+          const std::optional<interface::types::AccountDetailValueType>
               &old_value) const;
 
-      boost::optional<ValidationError> validatePrecision(
+      std::optional<ValidationError> validatePrecision(
           const interface::types::PrecisionType &precision) const;
 
-      boost::optional<ValidationError> validateRolePermission(
+      std::optional<ValidationError> validateRolePermission(
           const interface::permissions::Role &permission) const;
 
-      boost::optional<ValidationError> validateGrantablePermission(
+      std::optional<ValidationError> validateGrantablePermission(
           const interface::permissions::Grantable &permission) const;
 
-      boost::optional<ValidationError> validateQuorum(
+      std::optional<ValidationError> validateQuorum(
           const interface::types::QuorumType &quorum) const;
 
-      boost::optional<ValidationError> validateCreatorAccountId(
+      std::optional<ValidationError> validateCreatorAccountId(
           const interface::types::AccountIdType &account_id) const;
 
-      boost::optional<ValidationError> validateAccount(
+      std::optional<ValidationError> validateAccount(
           const interface::Account &account) const;
 
       /**
        * Validate timestamp against now
        */
-      boost::optional<ValidationError> validateCreatedTime(
+      std::optional<ValidationError> validateCreatedTime(
           interface::types::TimestampType timestamp,
           interface::types::TimestampType now) const;
 
       /**
        * Validate timestamp against time_provider_
        */
-      boost::optional<ValidationError> validateCreatedTime(
+      std::optional<ValidationError> validateCreatedTime(
           interface::types::TimestampType timestamp) const;
 
-      boost::optional<ValidationError> validateCounter(
+      std::optional<ValidationError> validateCounter(
           const interface::types::CounterType &counter) const;
 
-      boost::optional<ValidationError> validateSignatureForm(
+      std::optional<ValidationError> validateSignatureForm(
           const interface::Signature &signature) const;
 
-      boost::optional<ValidationError> validateSignatures(
+      std::optional<ValidationError> validateSignatures(
           const interface::types::SignatureRangeType &signatures,
           const crypto::Blob &source) const;
 
-      boost::optional<ValidationError> validateQueryPayloadMeta(
+      std::optional<ValidationError> validateQueryPayloadMeta(
           const interface::QueryPayloadMeta &meta) const;
 
-      boost::optional<ValidationError> validateDescription(
+      std::optional<ValidationError> validateDescription(
           const interface::types::DescriptionType &description) const;
 
-      boost::optional<ValidationError> validateBatchMeta(
+      std::optional<ValidationError> validateBatchMeta(
           const interface::BatchMeta &description) const;
 
-      boost::optional<ValidationError> validateHeight(
+      std::optional<ValidationError> validateHeight(
           const interface::types::HeightType &height) const;
 
-      boost::optional<ValidationError> validateHash(
+      std::optional<ValidationError> validateHash(
           const crypto::Hash &hash) const;
 
-      boost::optional<ValidationError> validateTxPaginationMeta(
+      std::optional<ValidationError> validateTxPaginationMeta(
           const interface::TxPaginationMeta &tx_pagination_meta) const;
 
-      boost::optional<ValidationError> validateAccountAsset(
+      std::optional<ValidationError> validateAccountAsset(
           const interface::AccountAsset &account_asset) const;
 
-      boost::optional<ValidationError> validateAsset(
+      std::optional<ValidationError> validateAsset(
           const interface::Asset &asset) const;
 
-      boost::optional<ValidationError> validateAssetPaginationMeta(
+      std::optional<ValidationError> validateAssetPaginationMeta(
           const interface::AssetPaginationMeta &asset_pagination_meta) const;
 
-      boost::optional<ValidationError> validateAccountDetailRecordId(
+      std::optional<ValidationError> validateAccountDetailRecordId(
           const interface::AccountDetailRecordId &record_id) const;
 
-      boost::optional<ValidationError> validateAccountDetailPaginationMeta(
+      std::optional<ValidationError> validateAccountDetailPaginationMeta(
           const interface::AccountDetailPaginationMeta &pagination_meta) const;
 
      private:
@@ -209,7 +209,7 @@ namespace shared_model {
       size_t max_description_size;
     };
 
-    boost::optional<ValidationError> validatePubkey(
+    std::optional<ValidationError> validatePubkey(
         const interface::types::PubkeyType &pubkey);
 
   }  // namespace validation

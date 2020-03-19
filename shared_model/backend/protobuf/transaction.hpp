@@ -52,7 +52,7 @@ namespace shared_model {
 
       interface::types::QuorumType quorum() const override;
 
-      boost::optional<std::shared_ptr<interface::BatchMeta>> batchMeta()
+      std::optional<std::shared_ptr<interface::BatchMeta>> batchMeta()
           const override;
 
      protected:

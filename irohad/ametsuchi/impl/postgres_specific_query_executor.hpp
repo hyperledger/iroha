@@ -208,7 +208,7 @@ namespace iroha {
           const shared_model::interface::types::AccountIdType &creator_id,
           const shared_model::interface::types::HashType &query_hash,
           QueryChecker &&qry_checker,
-          const std::string &related_txs,
+          char const *related_txs,
           QueryApplier applier,
           Permissions... perms);
 

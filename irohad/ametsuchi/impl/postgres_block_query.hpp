@@ -9,7 +9,6 @@
 #include "ametsuchi/block_query.hpp"
 
 #include <soci/soci.h>
-#include <boost/optional.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -34,7 +33,7 @@ namespace iroha {
 
       shared_model::interface::types::HeightType getTopBlockHeight() override;
 
-      boost::optional<TxCacheStatusType> checkTxPresence(
+      std::optional<TxCacheStatusType> checkTxPresence(
           const shared_model::crypto::Hash &hash) override;
 
      private:

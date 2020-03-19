@@ -7,13 +7,13 @@
 
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <boost/format.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/plain/peer.hpp"
@@ -55,20 +55,20 @@ namespace {
         shared_model::interface::RolePermissionSet({permission}).toBitstring();
     const auto bits = shared_model::interface::RolePermissionSet::size();
     // TODO 14.09.18 andrei: IR-1708 Load SQL from separate files
-    std::string query =
-        (boost::format(R"(
+    return fmt::format(R"(
           SELECT
             (
-              COALESCE(bit_or(rp.permission), '0'::bit(%1%))
-              & ('%2%'::bit(%1%) | '%3%'::bit(%1%))
-            ) != '0'::bit(%1%)
+              COALESCE(bit_or(rp.permission), '0'::bit({0}))
+              & ('{1}'::bit({0}) | '{2}'::bit({0}))
+            ) != '0'::bit({0})
             AS perm
           FROM role_has_permissions AS rp
           JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-          WHERE ar.account_id = %4%)")
-         % bits % perm_str % iroha::ametsuchi::kRootRolePermStr % account_alias)
-            .str();
-    return query;
+          WHERE ar.account_id = {3})",
+                       bits,
+                       perm_str,
+                       iroha::ametsuchi::kRootRolePermStr,
+                       account_alias);
   }
 
   /**
@@ -94,45 +94,49 @@ namespace {
         shared_model::interface::RolePermissionSet({domain_permission_id})
             .toBitstring();
 
-    const std::string creator_quoted{(boost::format("'%s'") % creator).str()};
+    const std::string creator_quoted{fmt::format("'{}'", creator)};
 
-    boost::format cmd(R"(
+    return fmt::format(
+        R"(
     WITH
-        has_root_perm AS (%1%),
+        has_root_perm AS ({0}),
         has_indiv_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
-          & '%4%') = '%4%' FROM role_has_permissions AS rp
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
+          & '{3}') = '{3}' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%3%'
+              WHERE ar.account_id = '{2}'
         ),
         has_all_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
-          & '%5%') = '%5%' FROM role_has_permissions AS rp
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
+          & '{4}') = '{4}' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%3%'
+              WHERE ar.account_id = '{2}'
         ),
         has_domain_perm AS (
-          SELECT (COALESCE(bit_or(rp.permission), '0'::bit(%2%))
-          & '%6%') = '%6%' FROM role_has_permissions AS rp
+          SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
+          & '{5}') = '{5}' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
-              WHERE ar.account_id = '%3%'
+              WHERE ar.account_id = '{2}'
         )
     SELECT (SELECT * from has_root_perm)
-        OR ('%3%' = '%7%' AND (SELECT * FROM has_indiv_perm))
+        OR ('{2}' = '{6}' AND (SELECT * FROM has_indiv_perm))
         OR (SELECT * FROM has_all_perm)
-        OR ('%8%' = '%9%' AND (SELECT * FROM has_domain_perm)) AS perm
-    )");
-
-    return (cmd % getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted)
-            % bits % creator % perm_str % all_perm_str % domain_perm_str
-            % target_account % iroha::ametsuchi::getDomainFromName(creator)
-            % iroha::ametsuchi::getDomainFromName(target_account))
-        .str();
+        OR ('{7}' = '{8}' AND (SELECT * FROM has_domain_perm)) AS perm
+    )",
+        getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted),
+        bits,
+        creator,
+        perm_str,
+        all_perm_str,
+        domain_perm_str,
+        target_account,
+        iroha::ametsuchi::getDomainFromName(creator),
+        iroha::ametsuchi::getDomainFromName(target_account));
   }
 
   /// Query result is a tuple of optionals, since there could be no entry
   template <typename... Value>
-  using QueryType = boost::tuple<boost::optional<Value>...>;
+  using QueryType = boost::tuple<std::optional<Value>...>;
 
   /**
    * Create an error response in case user does not have permissions to perform
@@ -277,11 +281,10 @@ namespace iroha {
         shared_model::interface::permissions::Role permission,
         const std::string &account_id) const {
       using T = boost::tuple<int>;
-      boost::format cmd(R"(%s)");
       try {
         soci::rowset<T> st =
-            (sql_.prepare
-                 << (cmd % getAccountRolePermissionCheckSql(permission)).str(),
+            (sql_.prepare << fmt::format(
+                 R"({})", getAccountRolePermissionCheckSql(permission)),
              soci::use(account_id, "role_account_id"));
         return st.begin()->get<0>();
       } catch (const std::exception &e) {
@@ -336,7 +339,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash,
         QueryChecker &&qry_checker,
-        const std::string &related_txs,
+        char const *related_txs,
         QueryApplier applier,
         Permissions... perms) {
       using QueryTuple = QueryType<shared_model::interface::types::HeightType,
@@ -348,9 +351,9 @@ namespace iroha {
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
 
-      auto base = boost::format(R"(WITH has_perms AS (%s),
-      my_txs AS (%s),
-      first_hash AS (%s),
+      char const *base = R"(WITH has_perms AS ({}),
+      my_txs AS ({}),
+      first_hash AS ({}),
       total_size AS (
         SELECT COUNT(*) FROM my_txs
       ),
@@ -365,25 +368,22 @@ namespace iroha {
       SELECT height, index, count, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
       JOIN total_size ON TRUE
-      )");
+      )";
 
       // select tx with specified hash
-      auto first_by_hash = R"(SELECT height, index FROM position_by_hash
+      char const *first_by_hash = R"(SELECT height, index FROM position_by_hash
       WHERE hash = :hash LIMIT 1)";
 
       // select first ever tx
-      auto first_tx = R"(SELECT height, index FROM position_by_hash
+      char const *first_tx = R"(SELECT height, index FROM position_by_hash
       ORDER BY height, index ASC LIMIT 1)";
 
-      auto cmd = base % hasQueryPermission(creator_id, q.accountId(), perms...)
-          % related_txs;
-      if (first_hash) {
-        cmd = base % first_by_hash;
-      } else {
-        cmd = base % first_tx;
-      }
-
-      auto query = cmd.str();
+      BOOST_ASSERT_MSG(nullptr != related_txs, "related_txs is null.");
+      auto query =
+          fmt::format(base,
+                      hasQueryPermission(creator_id, q.accountId(), perms...),
+                      related_txs,
+                      (first_hash ? first_by_hash : first_tx));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
@@ -424,9 +424,8 @@ namespace iroha {
                 // if 0 transactions are returned, and there is a specified
                 // paging hash, we assume it's invalid, since query with valid
                 // hash is guaranteed to return at least one transaction
-                auto error = (boost::format("invalid pagination hash: %s")
-                              % first_hash->hex())
-                                 .str();
+                auto error = fmt::format("invalid pagination hash: {}",
+                                         first_hash->hex());
                 return this->logAndReturnErrorResponse(
                     QueryErrorType::kStatefulFailed, error, 4, query_hash);
               }
@@ -456,7 +455,7 @@ namespace iroha {
             }
 
             return query_response_factory_->createTransactionsPageResponse(
-                std::move(response_txs), boost::none, total_size, query_hash);
+                std::move(response_txs), std::nullopt, total_size, query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, perms...));
     }
@@ -473,7 +472,7 @@ namespace iroha {
                     std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(R"(WITH has_perms AS (%s),
+      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
       t AS (
           SELECT a.account_id, a.domain_id, a.quorum, a.data, ARRAY_AGG(ar.role_id) AS roles
           FROM account AS a, account_has_roles AS ar
@@ -483,13 +482,12 @@ namespace iroha {
       )
       SELECT account_id, domain_id, quorum, data, roles, perm
       FROM t RIGHT OUTER JOIN has_perms AS p ON TRUE
-      )")
-                  % hasQueryPermission(creator_id,
-                                       q.accountId(),
-                                       Role::kGetMyAccount,
-                                       Role::kGetAllAccounts,
-                                       Role::kGetDomainAccounts))
-                     .str();
+      )",
+                             hasQueryPermission(creator_id,
+                                                q.accountId(),
+                                                Role::kGetMyAccount,
+                                                Role::kGetAllAccounts,
+                                                Role::kGetDomainAccounts));
 
       auto query_apply = [this, &query_hash](auto &account_id,
                                              auto &domain_id,
@@ -575,20 +573,19 @@ namespace iroha {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(R"(WITH has_perms AS (%s),
+      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
       t AS (
           SELECT public_key FROM account_has_signatory
           WHERE account_id = :account_id
       )
       SELECT public_key, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
-      )")
-                  % hasQueryPermission(creator_id,
-                                       q.accountId(),
-                                       Role::kGetMySignatories,
-                                       Role::kGetAllSignatories,
-                                       Role::kGetDomainSignatories))
-                     .str();
+      )",
+                             hasQueryPermission(creator_id,
+                                                q.accountId(),
+                                                Role::kGetMySignatories,
+                                                Role::kGetAllSignatories,
+                                                Role::kGetDomainSignatories));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
@@ -622,7 +619,7 @@ namespace iroha {
         const shared_model::interface::GetAccountTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      std::string related_txs = R"(SELECT DISTINCT height, index
+      char const *related_txs = R"(SELECT DISTINCT height, index
       FROM tx_position_by_creator
       WHERE creator_id = :account_id
       ORDER BY height, index ASC)";
@@ -681,19 +678,19 @@ namespace iroha {
           QueryType<shared_model::interface::types::HeightType, std::string>;
       using PermissionTuple = boost::tuple<int, int>;
 
-      auto cmd =
-          (boost::format(R"(WITH has_my_perm AS (%s),
-      has_all_perm AS (%s),
+      auto cmd = fmt::format(
+          R"(WITH has_my_perm AS ({}),
+      has_all_perm AS ({}),
       t AS (
-          SELECT height, hash FROM position_by_hash WHERE hash IN (%s)
+          SELECT height, hash FROM position_by_hash WHERE hash IN ({})
       )
       SELECT height, hash, has_my_perm.perm, has_all_perm.perm FROM t
       RIGHT OUTER JOIN has_my_perm ON TRUE
       RIGHT OUTER JOIN has_all_perm ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kGetMyTxs, ":account_id")
-           % getAccountRolePermissionCheckSql(Role::kGetAllTxs, ":account_id")
-           % hash_str)
-              .str();
+      )",
+          getAccountRolePermissionCheckSql(Role::kGetMyTxs, ":account_id"),
+          getAccountRolePermissionCheckSql(Role::kGetAllTxs, ":account_id"),
+          hash_str);
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
@@ -753,7 +750,7 @@ namespace iroha {
         const shared_model::interface::GetAccountAssetTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      std::string related_txs = R"(SELECT DISTINCT height, index
+      char const *related_txs = R"(SELECT DISTINCT height, index
           FROM position_by_account_asset
           WHERE account_id = :account_id
           AND asset_id = :asset_id
@@ -819,8 +816,8 @@ namespace iroha {
       using PermissionTuple = boost::tuple<int>;
 
       // get the assets
-      auto cmd = (boost::format(R"(
-      with has_perms as (%s),
+      auto cmd = fmt::format(R"(
+      with has_perms as ({}),
       all_data as (
           select row_number() over () rn, *
           from (
@@ -855,24 +852,24 @@ namespace iroha {
           from
               page_data
               right join has_perms on true
-      )")
-                  % hasQueryPermission(creator_id,
-                                       q.accountId(),
-                                       Role::kGetMyAccAst,
-                                       Role::kGetAllAccAst,
-                                       Role::kGetDomainAccAst))
-                     .str();
+      )",
+                             hasQueryPermission(creator_id,
+                                                q.accountId(),
+                                                Role::kGetMyAccAst,
+                                                Role::kGetAllAccAst,
+                                                Role::kGetDomainAccAst));
 
       // These must stay alive while soci query is being done.
       const auto pagination_meta{q.paginationMeta()};
       const auto req_first_asset_id =
           pagination_meta | [](const auto &pagination_meta) {
-            return boost::optional<std::string>(pagination_meta.firstAssetId());
+            return std::optional<std::string>(
+                pagination_meta.get().firstAssetId());
           };
       const auto req_page_size =  // TODO 2019.05.31 mboldyrev make it
                                   // non-optional after IR-516
           pagination_meta | [](const auto &pagination_meta) {
-            return boost::optional<size_t>(pagination_meta.pageSize() + 1);
+            return std::optional<size_t>(pagination_meta.get().pageSize() + 1);
           };
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -915,13 +912,13 @@ namespace iroha {
             }
             assert(total_number >= assets.size());
             const bool is_last_page = not q.paginationMeta()
-                or (assets.size() <= q.paginationMeta()->pageSize());
-            boost::optional<shared_model::interface::types::AssetIdType>
+                or (assets.size() <= q.paginationMeta()->get().pageSize());
+            std::optional<shared_model::interface::types::AssetIdType>
                 next_asset_id;
             if (not is_last_page) {
               next_asset_id = std::get<1>(assets.back());
               assets.pop_back();
-              assert(assets.size() == q.paginationMeta()->pageSize());
+              assert(assets.size() == q.paginationMeta()->get().pageSize());
             }
             return query_response_factory_->createAccountAssetResponse(
                 assets, total_number, next_asset_id, query_hash);
@@ -944,8 +941,8 @@ namespace iroha {
                     uint32_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(R"(
-      with has_perms as (%s),
+      auto cmd = fmt::format(R"(
+      with has_perms as ({}),
       detail AS (
           with filtered_plain_data as (
               select row_number() over () rn, *
@@ -1018,13 +1015,12 @@ namespace iroha {
       )
       select detail.*, perm from detail
       right join has_perms on true
-      )")
-                  % hasQueryPermission(creator_id,
-                                       q.accountId(),
-                                       Role::kGetMyAccDetail,
-                                       Role::kGetAllAccDetail,
-                                       Role::kGetDomainAccDetail))
-                     .str();
+      )",
+                             hasQueryPermission(creator_id,
+                                                q.accountId(),
+                                                Role::kGetMyAccDetail,
+                                                Role::kGetAllAccDetail,
+                                                Role::kGetDomainAccDetail));
 
       const auto writer = q.writer();
       const auto key = q.key();
@@ -1034,11 +1030,12 @@ namespace iroha {
       // TODO 2019.05.29 mboldyrev IR-516 remove when pagination is made
       // mandatory
       q.paginationMeta() | [&](const auto &pagination_meta) {
-        page_size = pagination_meta.pageSize();
-        pagination_meta.firstRecordId() | [&](const auto &first_record_id) {
-          first_record_writer = first_record_id.writer();
-          first_record_key = first_record_id.key();
-        };
+        page_size = pagination_meta.get().pageSize();
+        pagination_meta.get().firstRecordId() |
+            [&](const auto &first_record_id) {
+              first_record_writer = first_record_id.get().writer();
+              first_record_key = first_record_id.get().key();
+            };
       };
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -1088,7 +1085,7 @@ namespace iroha {
                           "getAccountDetail query result {}.",
                           q);
                     }
-                    boost::optional<shared_model::plain::AccountDetailRecordId>
+                    std::optional<shared_model::plain::AccountDetailRecordId>
                         next_record_id{[this, &next_writer, &next_key]()
                                            -> decltype(next_record_id) {
                           if (next_key or next_writer) {
@@ -1096,27 +1093,27 @@ namespace iroha {
                               log_->error(
                                   "next_writer not set for next_record_id!");
                               assert(next_writer);
-                              return boost::none;
+                              return std::nullopt;
                             }
                             if (not next_key) {
                               log_->error(
                                   "next_key not set for next_record_id!");
                               assert(next_key);
-                              return boost::none;
+                              return std::nullopt;
                             }
                             return shared_model::plain::AccountDetailRecordId{
                                 next_writer.value(), next_key.value()};
                           }
-                          return boost::none;
+                          return std::nullopt;
                         }()};
                     return query_response_factory_->createAccountDetailResponse(
                         json.value(),
                         total_number.value_or(0),
                         next_record_id |
                             [](const auto &next_record_id) {
-                              return boost::optional<
+                              return std::optional<std::reference_wrapper<
                                   const shared_model::interface::
-                                      AccountDetailRecordId &>(next_record_id);
+                                      AccountDetailRecordId>>(next_record_id);
                             },
                         query_hash);
                   }
@@ -1133,7 +1130,7 @@ namespace iroha {
                     // TODO 2019.06.11 mboldyrev IR-558 redesign missing data
                     // handling
                     return query_response_factory_->createAccountDetailResponse(
-                        kEmptyDetailsResponse, 0, boost::none, query_hash);
+                        kEmptyDetailsResponse, 0, std::nullopt, query_hash);
                   }
                 });
           },
@@ -1150,12 +1147,12 @@ namespace iroha {
       using QueryTuple = QueryType<shared_model::interface::types::RoleIdType>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(
-                      R"(WITH has_perms AS (%s)
+      auto cmd = fmt::format(
+          R"(WITH has_perms AS ({})
       SELECT role_id, perm FROM role
       RIGHT OUTER JOIN has_perms ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kGetRoles))
-                     .str();
+      )",
+          getAccountRolePermissionCheckSql(Role::kGetRoles));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
@@ -1185,14 +1182,14 @@ namespace iroha {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(
-                      R"(WITH has_perms AS (%s),
+      auto cmd = fmt::format(
+          R"(WITH has_perms AS ({}),
       perms AS (SELECT permission FROM role_has_permissions
                 WHERE role_id = :role_name)
       SELECT permission, perm FROM perms
       RIGHT OUTER JOIN has_perms ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kGetRoles))
-                     .str();
+      )",
+          getAccountRolePermissionCheckSql(Role::kGetRoles));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
@@ -1230,14 +1227,14 @@ namespace iroha {
           QueryType<shared_model::interface::types::DomainIdType, uint32_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(
-                      R"(WITH has_perms AS (%s),
+      auto cmd = fmt::format(
+          R"(WITH has_perms AS ({}),
       perms AS (SELECT domain_id, precision FROM asset
                 WHERE asset_id = :asset_id)
       SELECT domain_id, precision, perm FROM perms
       RIGHT OUTER JOIN has_perms ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kReadAssets))
-                     .str();
+      )",
+          getAccountRolePermissionCheckSql(Role::kReadAssets));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
@@ -1275,8 +1272,8 @@ namespace iroha {
       if (q.paginationMeta()) {
         return pending_txs_storage_
             ->getPendingTransactions(creator_id,
-                                     q.paginationMeta()->pageSize(),
-                                     q.paginationMeta()->firstTxHash())
+                                     q.paginationMeta()->get().pageSize(),
+                                     q.paginationMeta()->get().firstTxHash())
             .match(
                 [this, &response_txs, &query_hash](auto &&response) {
                   auto &interface_txs = response.value.transactions;
@@ -1301,7 +1298,10 @@ namespace iroha {
                               ErrorQueryType::kStatefulFailed,
                           std::string("The batch with specified first "
                                       "transaction hash not found, the hash: ")
-                              + q.paginationMeta()->firstTxHash()->toString(),
+                              + q.paginationMeta()
+                                    ->get()
+                                    .firstTxHash()
+                                    ->toString(),
                           4,  // missing first tx hash error
                           query_hash);
                     default:
@@ -1341,12 +1341,12 @@ namespace iroha {
                                    std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = (boost::format(
-                      R"(WITH has_perms AS (%s)
+      auto cmd = fmt::format(
+          R"(WITH has_perms AS ({})
       SELECT public_key, address, tls_certificate, perm FROM peer
       RIGHT OUTER JOIN has_perms ON TRUE
-      )") % getAccountRolePermissionCheckSql(Role::kGetPeers))
-                     .str();
+      )",
+          getAccountRolePermissionCheckSql(Role::kGetPeers));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
@@ -1389,12 +1389,14 @@ namespace iroha {
         const std::string &key_name,
         const std::string &value_name,
         const std::string &value) const {
-      auto cmd = (boost::format(R"(SELECT %s
-                                   FROM %s
-                                   WHERE %s = '%s'
-                                   LIMIT 1)")
-                  % value_name % table_name % key_name % value)
-                     .str();
+      auto cmd = fmt::format(R"(SELECT {}
+                                   FROM {}
+                                   WHERE {} = '{}'
+                                   LIMIT 1)",
+                             value_name,
+                             table_name,
+                             key_name,
+                             value);
       soci::rowset<ReturnValueType> result = this->sql_.prepare << cmd;
       return result.begin() != result.end();
     }

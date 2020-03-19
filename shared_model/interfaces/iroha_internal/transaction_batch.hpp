@@ -6,7 +6,7 @@
 #ifndef IROHA_TRANSACTION_BATCH_HPP
 #define IROHA_TRANSACTION_BATCH_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "cryptography/hash.hpp"
 #include "interfaces/base/model_primitive.hpp"

@@ -45,7 +45,7 @@ namespace shared_model {
      */
     template <typename FieldValidator>
     class CommandValidatorVisitor
-        : public boost::static_visitor<boost::optional<ValidationError>> {
+        : public boost::static_visitor<std::optional<ValidationError>> {
       CommandValidatorVisitor(FieldValidator validator)
           : validator_(std::move(validator)) {}
 
@@ -53,7 +53,7 @@ namespace shared_model {
       CommandValidatorVisitor(std::shared_ptr<ValidatorsConfig> config)
           : CommandValidatorVisitor(FieldValidator{std::move(config)}) {}
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::AddAssetQuantity &add_asset_quantity) const {
         return aggregateErrors(
             "AddAssetQuantity",
@@ -62,13 +62,13 @@ namespace shared_model {
              validator_.validateAmount(add_asset_quantity.amount())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::AddPeer &add_peer) const {
         return aggregateErrors(
             "AddPeer", {}, {validator_.validatePeer(add_peer.peer())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::AddSignatory &add_signatory) const {
         return aggregateErrors(
             "AddSignatory",
@@ -77,7 +77,7 @@ namespace shared_model {
              validator_.validatePubkey(add_signatory.pubkey())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::AppendRole &append_role) const {
         return aggregateErrors(
             "AppendRole",
@@ -86,7 +86,7 @@ namespace shared_model {
              validator_.validateRoleId(append_role.roleName())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::CreateAccount &create_account) const {
         return aggregateErrors(
             "CreateAccount",
@@ -96,7 +96,7 @@ namespace shared_model {
              validator_.validateDomainId(create_account.domainId())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::CreateAsset &create_asset) const {
         return aggregateErrors(
             "CreateAsset",
@@ -106,7 +106,7 @@ namespace shared_model {
              validator_.validatePrecision(create_asset.precision())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::CreateDomain &create_domain) const {
         return aggregateErrors(
             "CreateDomain",
@@ -115,7 +115,7 @@ namespace shared_model {
              validator_.validateRoleId(create_domain.userDefaultRole())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::CreateRole &create_role) const {
         ValidationErrorCreator error_creator;
         error_creator |= validator_.validateRoleId(create_role.roleName());
@@ -126,7 +126,7 @@ namespace shared_model {
         return std::move(error_creator).getValidationError("CreateRole");
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::DetachRole &detach_role) const {
         return aggregateErrors(
             "DetachRole",
@@ -135,7 +135,7 @@ namespace shared_model {
              validator_.validateRoleId(detach_role.roleName())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GrantPermission &grant_permission) const {
         return aggregateErrors(
             "GrantPermission",
@@ -145,7 +145,7 @@ namespace shared_model {
                  grant_permission.permissionName())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::RemovePeer &remove_peer) const {
         return aggregateErrors(
             "RemovePeer",
@@ -153,7 +153,7 @@ namespace shared_model {
             {validator_.validatePubkey(remove_peer.pubkey())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::RemoveSignatory &remove_signatory) const {
         return aggregateErrors(
             "RemoveSignatory",
@@ -162,7 +162,7 @@ namespace shared_model {
              validator_.validatePubkey(remove_signatory.pubkey())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::RevokePermission &revoke_permission) const {
         return aggregateErrors(
             "RevokePermission",
@@ -172,7 +172,7 @@ namespace shared_model {
                  revoke_permission.permissionName())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::SetAccountDetail &set_account_detail) const {
         return aggregateErrors(
             "SetAccountDetail",
@@ -183,7 +183,7 @@ namespace shared_model {
                  set_account_detail.value())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::SetQuorum &set_quorum) const {
         return aggregateErrors(
             "SetQuorum",
@@ -192,7 +192,7 @@ namespace shared_model {
              validator_.validateQuorum(set_quorum.newQuorum())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::SubtractAssetQuantity &subtract_asset_quantity)
           const {
         return aggregateErrors(
@@ -202,17 +202,17 @@ namespace shared_model {
              validator_.validateAmount(subtract_asset_quantity.amount())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::TransferAsset &transfer_asset) const {
         return aggregateErrors(
             "TransferAsset",
-            {[&]() -> boost::optional<std::string> {
+            {[&]() -> std::optional<std::string> {
               if (transfer_asset.srcAccountId()
                   == transfer_asset.destAccountId()) {
                 return std::string{
                     "Source and destination accounts are the same."};
               }
-              return boost::none;
+              return std::nullopt;
             }()},
             {validator_.validateAccountId(transfer_asset.srcAccountId()),
              validator_.validateAccountId(transfer_asset.destAccountId()),
@@ -221,7 +221,7 @@ namespace shared_model {
              validator_.validateDescription(transfer_asset.description())});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::CompareAndSetAccountDetail
               &compare_and_set_account_detail) const {
         using iroha::operator|;
@@ -236,12 +236,12 @@ namespace shared_model {
                  compare_and_set_account_detail.value()),
              compare_and_set_account_detail.oldValue() |
                  [this](
-                     const auto &oldValue) -> boost::optional<ValidationError> {
+                     const auto &oldValue) -> std::optional<ValidationError> {
                return this->validator_.validateOldAccountDetailValue(oldValue);
              }});
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::SetSettingValue &set_setting_value) const {
         // genesis block does not undergo stateless validation
         return ValidationError(
@@ -263,7 +263,7 @@ namespace shared_model {
         : public AbstractValidator<interface::Transaction> {
      private:
       template <typename CreatedTimeValidator>
-      boost::optional<ValidationError> validateImpl(
+      std::optional<ValidationError> validateImpl(
           const interface::Transaction &tx,
           CreatedTimeValidator &&validator) const {
         using iroha::operator|;
@@ -307,7 +307,7 @@ namespace shared_model {
        * @param tx - transaction to validate
        * @return found error if any
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::Transaction &tx) const override {
         return validateImpl(tx, [this](auto time) {
           return field_validator_.validateCreatedTime(time);
@@ -318,7 +318,7 @@ namespace shared_model {
        * Validates transaction against current_timestamp instead of time
        * provider
        */
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::Transaction &tx,
           interface::types::TimestampType current_timestamp) const {
         return validateImpl(tx, [this, current_timestamp](auto time) {

@@ -22,7 +22,7 @@ namespace shared_model {
                   ->end()},
           next_batch_info_{
               [this]()
-                  -> boost::optional<
+                  -> std::optional<
                       interface::PendingTransactionsPageResponse::BatchInfo> {
                 if (pending_transactions_page_response_.has_next_batch_info()) {
                   auto &next =
@@ -34,7 +34,7 @@ namespace shared_model {
                   next_batch.batch_size = next.batch_size();
                   return next_batch;
                 }
-                return boost::none;
+                return std::nullopt;
               }()} {}
 
     interface::types::TransactionsCollectionType
@@ -42,7 +42,7 @@ namespace shared_model {
       return transactions_;
     }
 
-    boost::optional<interface::PendingTransactionsPageResponse::BatchInfo>
+    std::optional<interface::PendingTransactionsPageResponse::BatchInfo>
     PendingTransactionsPageResponse::nextBatchInfo() const {
       return next_batch_info_;
     }

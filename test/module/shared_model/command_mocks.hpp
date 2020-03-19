@@ -7,8 +7,8 @@
 #define IROHA_COMMAND_MOCKS_HPP
 
 #include <gmock/gmock.h>
-#include <boost/optional.hpp>
 #include <boost/variant.hpp>
+#include <optional>
 #include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
@@ -156,8 +156,8 @@ namespace shared_model {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
       MOCK_CONST_METHOD0(key, const types::AccountDetailKeyType &());
       MOCK_CONST_METHOD0(value, const types::AccountDetailValueType &());
-      MOCK_CONST_METHOD0(
-          oldValue, const boost::optional<types::AccountDetailValueType>());
+      MOCK_CONST_METHOD0(oldValue,
+                         const std::optional<types::AccountDetailValueType>());
     };
 
     struct MockSetSettingValue

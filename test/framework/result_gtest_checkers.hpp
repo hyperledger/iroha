@@ -62,10 +62,8 @@ namespace framework {
       template <typename V, typename E>
       inline std::string getValueMessage(
           const iroha::expected::Result<V, E> &r) {
-        using iroha::operator|;
-        return iroha::expected::resultToOptionalValue(r) | [](const auto &v) {
-          return ObjectDescription<std::remove_reference_t<V>>::describe(v);
-        };
+        return ObjectDescription<std::remove_reference_t<V>>::describe(
+            r.assumeValue());
       }
 
       template <typename E>
@@ -76,10 +74,8 @@ namespace framework {
 
       template <typename V, typename E>
       inline auto getErrorMessage(const iroha::expected::Result<V, E> &r) {
-        using iroha::operator|;
-        return iroha::expected::resultToOptionalError(r) | [](const auto &e) {
-          return ObjectDescription<std::remove_reference_t<E>>::describe(e);
-        };
+        return ObjectDescription<std::remove_reference_t<E>>::describe(
+            r.assumeError());
       }
 
       template <typename V>

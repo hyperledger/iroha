@@ -24,12 +24,13 @@ namespace shared_model {
 
       size_t totalNumber() const override;
 
-      boost::optional<const shared_model::interface::AccountDetailRecordId &>
+      std::optional<std::reference_wrapper<
+          const shared_model::interface::AccountDetailRecordId>>
       nextRecordId() const override;
 
      private:
       const iroha::protocol::AccountDetailResponse &account_detail_response_;
-      const boost::optional<const AccountDetailRecordId> next_record_id_;
+      const std::optional<const AccountDetailRecordId> next_record_id_;
     };
   }  // namespace proto
 }  // namespace shared_model

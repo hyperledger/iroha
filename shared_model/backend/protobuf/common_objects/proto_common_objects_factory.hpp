@@ -38,8 +38,8 @@ namespace shared_model {
       FactoryResult<std::unique_ptr<interface::Peer>> createPeer(
           const interface::types::AddressType &address,
           const interface::types::PubkeyType &public_key,
-          const boost::optional<interface::types::TLSCertificateType>
-              &tls_certificate = boost::none) override {
+          const std::optional<interface::types::TLSCertificateType>
+              &tls_certificate = std::nullopt) override {
         iroha::protocol::Peer peer;
         peer.set_address(address);
         peer.set_peer_key(public_key.hex());
@@ -148,7 +148,7 @@ namespace shared_model {
       template <typename ReturnValueType>
       FactoryResult<ReturnValueType> validated(
           ReturnValueType object,
-          const boost::optional<validation::ValidationError> &error) {
+          const std::optional<validation::ValidationError> &error) {
         if (error) {
           return error.value().toString();
         }

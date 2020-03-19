@@ -21,7 +21,7 @@ namespace shared_model {
      public:
       BatchValidator(std::shared_ptr<ValidatorsConfig> config);
 
-      boost::optional<ValidationError> validate(
+      std::optional<ValidationError> validate(
           const interface::TransactionBatch &batch) const override;
 
      private:

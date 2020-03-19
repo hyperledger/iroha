@@ -14,19 +14,19 @@
 using namespace shared_model::validation;
 
 namespace {
-  boost::optional<ValidationError> validatePublicKey(
+  std::optional<ValidationError> validatePublicKey(
       const std::string &public_key) {
     if (not validateHexString(public_key)) {
       return ValidationError{"Public key", {"Not in hex format"}};
     }
-    return boost::none;
+    return std::nullopt;
   }
 }  // namespace
 
 namespace shared_model {
   namespace validation {
 
-    boost::optional<ValidationError> ProtoCommandValidator::validate(
+    std::optional<ValidationError> ProtoCommandValidator::validate(
         const iroha::protocol::Command &command) const {
       switch (command.command_case()) {
         case iroha::protocol::Command::COMMAND_NOT_SET: {
@@ -70,7 +70,7 @@ namespace shared_model {
             return ValidationError{"GrantPermission",
                                    {"Invalid grantable permission."}};
           }
-          return boost::none;
+          return std::nullopt;
         }
         case iroha::protocol::Command::kRevokePermission: {
           if (not iroha::protocol::GrantablePermission_IsValid(
@@ -78,10 +78,10 @@ namespace shared_model {
             return ValidationError{"RevokePermission",
                                    {"Invalid grantable permission."}};
           }
-          return boost::none;
+          return std::nullopt;
         }
         default:
-          return boost::none;
+          return std::nullopt;
       }
     }
   }  // namespace validation

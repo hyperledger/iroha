@@ -22,7 +22,7 @@ namespace shared_model {
                 == iroha::protocol::AccountAssetResponse::kNextAssetId) {
               return this->account_asset_response_.next_asset_id();
             }
-            return boost::none;
+            return std::nullopt;
           }()} {}
 
     const interface::types::AccountAssetCollectionType
@@ -30,7 +30,7 @@ namespace shared_model {
       return account_assets_;
     }
 
-    boost::optional<interface::types::AssetIdType>
+    std::optional<interface::types::AssetIdType>
     AccountAssetResponse::nextAssetId() const {
       return next_asset_id_;
     }
