@@ -2,6 +2,7 @@
 mod tests {
     use iroha::{
         client::Client,
+        config::Configuration,
         consensus::sumeragi::Sumeragi,
         model::{
             block::*,
@@ -54,7 +55,9 @@ mod tests {
         )
         .build()]);
         thread::spawn(|| {
-            let mut torii = Torii::new(Sumeragi::new(blockchain));
+            let config =
+                Configuration::from_path("test.env").expect("Failed to load configuration.");
+            let mut torii = Torii::new(&config.torii_url, Sumeragi::new(blockchain));
             torii.start();
         });
 

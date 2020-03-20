@@ -1,0 +1,4 @@
+{
+  "TORII_URL": "127.0.0.1:1337",
+  "BLOCK_BUILD_STEP_MS": 1000
+}
