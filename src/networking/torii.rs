@@ -10,7 +10,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TORII_URL: &str = "127.0.0.1:1337";
 const QUERY_REQUEST_HEADER: &[u8; 16] = b"GET / HTTP/1.1\r\n";
 const COMMAND_REQUEST_HEADER: &[u8; 25] = b"POST /commands HTTP/1.1\r\n";
 const _PUT: &[u8; 16] = b"PUT / HTTP/1.1\r\n";
@@ -18,6 +17,7 @@ const OK: &[u8; 19] = b"HTTP/1.1 200 OK\r\n\r\n";
 
 #[allow(dead_code)]
 pub struct Torii {
+    url: String,
     mst_cache: MSTCache,
     pending_tx_cache: PendingTxCache,
     consensus: Sumeragi,
@@ -25,8 +25,9 @@ pub struct Torii {
 }
 
 impl Torii {
-    pub fn new(consensus: Sumeragi) -> Self {
+    pub fn new(url: &str, consensus: Sumeragi) -> Self {
         Torii {
+            url: url.to_string(),
             mst_cache: MSTCache::default(),
             pending_tx_cache: PendingTxCache::default(),
             consensus,
@@ -35,7 +36,7 @@ impl Torii {
     }
 
     pub fn start(&mut self) {
-        let listener = TcpListener::bind(TORII_URL).expect("could not start server");
+        let listener = TcpListener::bind(&self.url).expect("could not start server");
         for connection in listener.incoming() {
             match connection {
                 Ok(mut stream) => {
@@ -84,19 +85,25 @@ impl Torii {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{model::block::Blockchain, storage::kura::Kura};
+    use crate::{config::Configuration, model::block::Blockchain, storage::kura::Kura};
 
     #[test]
     fn get_request_to_torii_should_return_ok() {
-        std::thread::spawn(|| {
-            let mut torii = Torii::new(Sumeragi::new(Blockchain::new(
-                futures::executor::block_on(Kura::fast_init()),
-            )));
+        let config =
+            Configuration::from_path("config.json").expect("Failed to load configuration.");
+        let torii_url = config.torii_url.to_string();
+        std::thread::spawn(move || {
+            let mut torii = Torii::new(
+                &torii_url,
+                Sumeragi::new(Blockchain::new(futures::executor::block_on(
+                    Kura::fast_init(),
+                ))),
+            );
             torii.start();
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         let mut stream =
-            std::net::TcpStream::connect(TORII_URL).expect("Failet connect to the server.");
+            std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
         let query = &Query::builder().build();
         let mut query: Vec<u8> = query.into();
         let mut query_request = QUERY_REQUEST_HEADER.to_vec();
@@ -112,15 +119,21 @@ mod tests {
 
     #[test]
     fn post_command_request_to_torii_should_return_ok() {
-        std::thread::spawn(|| {
-            let mut torii = Torii::new(Sumeragi::new(Blockchain::new(
-                futures::executor::block_on(Kura::fast_init()),
-            )));
+        let config =
+            Configuration::from_path("config.json").expect("Failed to load configuration.");
+        let torii_url = config.torii_url.to_string();
+        std::thread::spawn(move || {
+            let mut torii = Torii::new(
+                &torii_url.clone(),
+                Sumeragi::new(Blockchain::new(futures::executor::block_on(
+                    Kura::fast_init(),
+                ))),
+            );
             torii.start();
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         let mut stream =
-            std::net::TcpStream::connect(TORII_URL).expect("Failet connect to the server.");
+            std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
         stream
             .set_read_timeout(Some(Duration::new(2, 0)))
             .expect("Failed to set read timeout");
