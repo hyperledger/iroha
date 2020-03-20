@@ -1,29 +1,29 @@
-From 703e2bfd4143fec63304cef3781eff04ef834102 Mon Sep 17 00:00:00 2001
+From 3f73d74f9591b783b15ace56aa5c2d4db25fda06 Mon Sep 17 00:00:00 2001
 From: Mikhail Boldyrev <miboldyrev@gmail.com>
 Date: Mon, 23 Mar 2020 12:24:17 -0500
-Subject: [PATCH] fix tbb repo in vcpkg
+Subject: [PATCH 3/4] fix tbb repo in vcpkg
 
 reference: https://github.com/microsoft/vcpkg/pull/10456
 ---
- ports/tbb/portfile.cmake | 4 ++--
- 1 file changed, 2 insertions(+), 2 deletions(-)
+ ports/tbb/portfile.cmake | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/ports/tbb/portfile.cmake b/ports/tbb/portfile.cmake
-index 1d543b317..4e81df37d 100644
+index faa7e2c70..a9ae69c94 100644
 --- a/ports/tbb/portfile.cmake
 +++ b/ports/tbb/portfile.cmake
-@@ -2,9 +2,9 @@ include(vcpkg_common_functions)
- 
+@@ -1,8 +1,8 @@
  vcpkg_from_github(
      OUT_SOURCE_PATH SOURCE_PATH
 -    REPO intel/tbb
-+    REPO oneapi-src/oneTBB
-     REF 4bdba61bafc6ba2d636f31564f1de5702d365cf7
+-    REF 4bdba61bafc6ba2d636f31564f1de5702d365cf7
 -    SHA512 0b00c9deefdac5dc1f4fbae314e91eb3513b54b47ff6dec08ed2460486fc7d211ab36d6130e5787bfd50523cb613c65f03f9217d967292ca9056e2d3f5010bf8
-+    SHA512 f2a8d7e0476f846039390f4a79af3fe13770e23b01bf4741e738136f7ddb401357a0e50f35212e8d0fa5fc4cf1563418337309227d7243fc3676edd406ae652d
++    REPO oneapi-src/oneTBB
++    REF 427c252e0bb9e191767a62d8a744b21950c343f6 # 2020_U1
++    SHA512 01307b689680c8d796357a65258257b0c54336aa2a5dc75746d65e169988b8cb353537ad480cc4b8970b32667ab7f965bfedee4a15186f2a3159c9f130667f26
      HEAD_REF tbb_2019
-     PATCHES fix-static-build.patch
- )
+     PATCHES
+         fix-static-build.patch
 -- 
 2.25.0
 
