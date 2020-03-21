@@ -1,0 +1,57 @@
+From b8251fd89ec528e32eca51ee23299880a39fe055 Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Sat, 21 Mar 2020 18:01:44 +0000
+Subject: [PATCH 1/4] boost-build: satisfied pthread dependency of libc++ for
+ google oss fuzz
+
+---
+ ...d-dependency-of-libc-for-google-oss-.patch | 23 +++++++++++++++++++
+ ports/boost-build/portfile.cmake              |  2 ++
+ 2 files changed, 25 insertions(+)
+ create mode 100644 ports/boost-build/0001-satisfied-pthread-dependency-of-libc-for-google-oss-.patch
+
+diff --git a/ports/boost-build/0001-satisfied-pthread-dependency-of-libc-for-google-oss-.patch b/ports/boost-build/0001-satisfied-pthread-dependency-of-libc-for-google-oss-.patch
+new file mode 100644
+index 000000000..3efb16ca1
+--- /dev/null
++++ b/ports/boost-build/0001-satisfied-pthread-dependency-of-libc-for-google-oss-.patch
+@@ -0,0 +1,23 @@
++From 897ddbfe5ee734313e1699194c77160f53f7e49d Mon Sep 17 00:00:00 2001
++From: Mikhail Boldyrev <miboldyrev@gmail.com>
++Date: Sat, 21 Mar 2020 20:15:38 +0000
++Subject: [PATCH] satisfied pthread dependency of libc++ for google oss fuzz
++
++---
++ src/engine/build.sh | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++diff --git a/src/engine/build.sh b/src/engine/build.sh
++index a1e4cd3..a28e6d8 100755
++--- a/src/engine/build.sh
+++++ b/src/engine/build.sh
++@@ -439,5 +439,5 @@ esac
++ if check_debug_build "$@" ; then B2_CXXFLAGS="${B2_CXXFLAGS_DEBUG}"
++ else B2_CXXFLAGS="${B2_CXXFLAGS_RELEASE} -DNDEBUG"
++ fi
++-echo_run ${B2_CXX} ${CXXFLAGS} ${B2_CXXFLAGS} ${B2_SOURCES} -o b2
+++echo_run ${B2_CXX} ${CXXFLAGS} ${B2_CXXFLAGS} ${B2_SOURCES} -o b2 -lpthread
++ echo_run cp b2 bjam
++-- 
++2.7.4
++
+diff --git a/ports/boost-build/portfile.cmake b/ports/boost-build/portfile.cmake
+index be076d422..fb7daedc9 100644
+--- a/ports/boost-build/portfile.cmake
++++ b/ports/boost-build/portfile.cmake
+@@ -16,6 +16,8 @@ vcpkg_from_github(
+     REF boost-${BOOST_VERSION}
+     SHA512 744816ba805013a49029373a4d2aa5b5f543275a1cdef2812c2120c868c55bf36a0bb0fb891cd955ad7319e582fd5212bd52ff071703a8654b345c478e810a19
+     HEAD_REF master
++    PATCHES
++      0001-satisfied-pthread-dependency-of-libc-for-google-oss-.patch
+ )
+ 
+ vcpkg_download_distfile(ARCHIVE
+-- 
+2.25.0
+

@@ -1,0 +1,30 @@
+From dd94d2e01a5423b92f05f12aecb4bf7517ae9f22 Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Sat, 28 Mar 2020 15:06:11 -0500
+Subject: [PATCH 3/4] set LDFLAGS in boost-modular-build-helper/CMakeLists.txt
+
+---
+ ports/boost-modular-build-helper/CMakeLists.txt | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/ports/boost-modular-build-helper/CMakeLists.txt b/ports/boost-modular-build-helper/CMakeLists.txt
+index 1d9468c60..c6d5e2f8d 100644
+--- a/ports/boost-modular-build-helper/CMakeLists.txt
++++ b/ports/boost-modular-build-helper/CMakeLists.txt
+@@ -59,6 +59,13 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+     endif()
+ endif()
+ 
++if(DEFINED ENV{VCPKG_LINKER_FLAGS})
++  if(DEFINED LDFLAGS)
++    set(LDFLAGS "${LDFLAGS} ")
++  endif()
++  set(LDFLAGS "${LDFLAGS}$ENV{VCPKG_LINKER_FLAGS}")
++endif()
++
+ string(STRIP "${CXXFLAGS}" CXXFLAGS)
+ string(STRIP "${CFLAGS}"   CFLAGS)
+ string(STRIP "${LDFLAGS}"  LDFLAGS)
+-- 
+2.25.0
+

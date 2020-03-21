@@ -1,36 +1,25 @@
 #/bin/bash
 
-set -e;
+set -ex
 
-git clone https://github.com/microsoft/vcpkg /tmp/vcpkg;
-git -C /tmp/vcpkg checkout $(cat /tmp/vcpkg-vars/VCPKG_COMMIT_SHA);
+IROHA_REPO=${SRC}/iroha
 
-for i in /tmp/vcpkg-vars/patches/*.patch; do git -C /tmp/vcpkg apply --ignore-whitespace $i; done;
-for i in /tmp/vcpkg-vars/oss/patches/*.patch; do git -C /tmp/vcpkg apply --ignore-whitespace $i; done;
+git clone https://github.com/microsoft/vcpkg /tmp/vcpkg
+git -C /tmp/vcpkg checkout $(cat ${IROHA_REPO}/vcpkg/VCPKG_COMMIT_SHA)
 
-sh /tmp/vcpkg/bootstrap-vcpkg.sh;
+git -C /tmp/vcpkg apply --ignore-whitespace ${IROHA_REPO}/vcpkg/patches/*.patch ${IROHA_REPO}/vcpkg/oss/patches/*.patch
 
-cat /tmp/vcpkg-vars/VCPKG_NO_SANITIZERS_DEPS_LIST | xargs /tmp/vcpkg/vcpkg install;
+sh /tmp/vcpkg/bootstrap-vcpkg.sh
 
-git -C /tmp/vcpkg checkout -- scripts/toolchains/linux.cmake;
-git -C /tmp/vcpkg apply --ignore-whitespace /tmp/vcpkg-vars/oss/patches/0002-vcpkg-dependencies-flags.patch;
+export ASAN_OPTIONS=detect_leaks=0
+SANITIZER_FLAGS_VAR=SANITIZER_FLAGS_${SANITIZER}
+export VCPKG_C_FLAGS="$CFLAGS ${!SANITIZER_FLAGS_VAR}"
+export VCPKG_CXX_FLAGS="$CXXFLAGS ${!SANITIZER_FLAGS_VAR}"
+export VCPKG_LINKER_FLAGS="${!SANITIZER_FLAGS_VAR}"
 
-/tmp/vcpkg/vcpkg install boost-locale;
+cat ${IROHA_REPO}/vcpkg/oss/VCPKG_DEPS | xargs /tmp/vcpkg/vcpkg install
 
-git -C /tmp/vcpkg apply --ignore-whitespace /tmp/vcpkg-vars/oss/patches/0003-vcpkg-dependencies-sanitizer.patch;
+function bumper { while sleep 1; do echo bump; done; }
+function run_with_bumper { bumper & p=$!; $@; kill $p; }
 
-comm -23 <(sort /tmp/vcpkg-vars/VCPKG_DEPS_LIST) <(sort /tmp/vcpkg-vars/oss/VCPKG_SKIP_DEPS) | xargs /tmp/vcpkg/vcpkg install;
-
-function bumper { while sleep 1; do echo bump; done; };
-function run_with_bumper { bumper & p=$!; $@; kill $p; };
-
-ASAN_OPTIONS=detect_leaks=0 run_with_bumper /tmp/vcpkg/vcpkg install grpc;
-
-cat /tmp/vcpkg-vars/VCPKG_HEAD_DEPS_LIST | xargs /tmp/vcpkg/vcpkg install --head;
-
-/tmp/vcpkg/vcpkg list | cut -d':' -f1 | xargs /tmp/vcpkg/vcpkg export --raw --output=dependencies;
-
-mv /tmp/vcpkg/dependencies /opt/dependencies;
-chmod +x /opt/dependencies/installed/x64-linux/tools/protobuf/protoc*;
-
-rm -rf /tmp/vcpkg /tmp/vcpkg-vars
+cat ${IROHA_REPO}/vcpkg/VCPKG_HEAD_DEPS_LIST | xargs /tmp/vcpkg/vcpkg install --head

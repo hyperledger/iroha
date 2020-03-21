@@ -1,0 +1,27 @@
+From fb395f65634227e6a3c22df44d13b531da637727 Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Sat, 28 Mar 2020 12:19:49 -0500
+Subject: [PATCH 2/4] pass sanitizer to b2
+
+---
+ ports/boost-modular-build-helper/CMakeLists.txt | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/ports/boost-modular-build-helper/CMakeLists.txt b/ports/boost-modular-build-helper/CMakeLists.txt
+index cd5f46115..1d9468c60 100644
+--- a/ports/boost-modular-build-helper/CMakeLists.txt
++++ b/ports/boost-modular-build-helper/CMakeLists.txt
+@@ -91,6 +91,10 @@ if(APPLE)
+   set(CXXFLAGS "${CXXFLAGS} <compileflags>-D_DARWIN_C_SOURCE")
+ endif()
+ 
++if(DEFINED ENV{SANITIZER})
++    list(APPEND B2_OPTIONS "$ENV{SANITIZER}-sanitizer=on")
++endif()
++
+ find_library(ZLIB_LIBPATH z)
+ list(APPEND B2_OPTIONS
+     -sZLIB_BINARY=z
+-- 
+2.25.0
+

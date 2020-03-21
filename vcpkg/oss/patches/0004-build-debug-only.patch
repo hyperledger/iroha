@@ -1,0 +1,340 @@
+From 546492113f16cf12d6e9b6c565b065c70498b54f Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Wed, 25 Mar 2020 08:30:59 -0500
+Subject: [PATCH 4/4] build debug only
+
+---
+ .../boost-modular-build.cmake                 |  2 +-
+ ports/bzip2/portfile.cmake                    |  2 +-
+ ports/c-ares/portfile.cmake                   |  2 +-
+ ports/fmt/portfile.cmake                      |  2 +-
+ ports/grpc/portfile.cmake                     |  6 ++---
+ ports/gtest/portfile.cmake                    |  2 ++
+ ports/iroha-ed25519/portfile.cmake            |  2 +-
+ ports/liblzma/portfile.cmake                  |  2 +-
+ ports/openssl-unix/portfile.cmake             |  3 +--
+ ports/protobuf/portfile.cmake                 |  5 ++--
+ ports/rapidjson/portfile.cmake                |  3 +++
+ ports/rxcpp/portfile.cmake                    |  1 +
+ ports/spdlog/portfile.cmake                   |  6 +++--
+ ports/tbb/portfile.cmake                      |  2 ++
+ ports/zlib/portfile.cmake                     |  4 +--
+ ports/zstd/portfile.cmake                     |  2 +-
+ scripts/cmake/vcpkg_fixup_cmake_targets.cmake | 25 +++++++++++--------
+ triplets/x64-linux.cmake                      |  2 ++
+ 18 files changed, 44 insertions(+), 29 deletions(-)
+
+diff --git a/ports/boost-modular-build-helper/boost-modular-build.cmake b/ports/boost-modular-build-helper/boost-modular-build.cmake
+index 391f1793c..d7be6993c 100644
+--- a/ports/boost-modular-build-helper/boost-modular-build.cmake
++++ b/ports/boost-modular-build-helper/boost-modular-build.cmake
+@@ -89,7 +89,7 @@ function(boost_modular_build)
+         )
+         vcpkg_install_cmake()
+ 
+-        if(NOT EXISTS ${CURRENT_PACKAGES_DIR}/lib)
++        if(NOT EXISTS ${CURRENT_PACKAGES_DIR}/debug/lib)
+             message(FATAL_ERROR "No libraries were produced. This indicates a failure while building the boost library.")
+         endif()
+         return()
+diff --git a/ports/bzip2/portfile.cmake b/ports/bzip2/portfile.cmake
+index 25e3df10f..ac8e09eac 100644
+--- a/ports/bzip2/portfile.cmake
++++ b/ports/bzip2/portfile.cmake
+@@ -19,13 +19,13 @@ vcpkg_configure_cmake(
+     SOURCE_PATH ${SOURCE_PATH}
+     PREFER_NINJA
+     OPTIONS_DEBUG
+-        -DBZIP2_SKIP_HEADERS=ON
+         -DBZIP2_SKIP_TOOLS=ON
+ )
+ 
+ vcpkg_install_cmake()
+ vcpkg_copy_pdbs()
+ 
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ file(READ ${CURRENT_PACKAGES_DIR}/include/bzlib.h BZLIB_H)
+ if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+     string(REPLACE "defined(BZ_IMPORT)" "0" BZLIB_H "${BZLIB_H}")
+diff --git a/ports/c-ares/portfile.cmake b/ports/c-ares/portfile.cmake
+index 6d3769b1c..c446dc153 100644
+--- a/ports/c-ares/portfile.cmake
++++ b/ports/c-ares/portfile.cmake
+@@ -47,7 +47,7 @@ endif()
+ 
+ vcpkg_copy_pdbs()
+ 
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ # Handle copyright
+ file(COPY ${SOURCE_PATH}/LICENSE.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/c-ares)
+diff --git a/ports/fmt/portfile.cmake b/ports/fmt/portfile.cmake
+index 238272b86..11d1435e7 100644
+--- a/ports/fmt/portfile.cmake
++++ b/ports/fmt/portfile.cmake
+@@ -34,7 +34,7 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
+     string(REPLACE "defined(FMT_SHARED)" "1" FMT_CORE_H "${FMT_CORE_H}")
+     file(WRITE ${CURRENT_PACKAGES_DIR}/include/fmt/core.h "${FMT_CORE_H}")
+ endif()
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ vcpkg_fixup_cmake_targets()
+ 
+diff --git a/ports/grpc/portfile.cmake b/ports/grpc/portfile.cmake
+index 9e925898c..6ea8cfb86 100644
+--- a/ports/grpc/portfile.cmake
++++ b/ports/grpc/portfile.cmake
+@@ -79,11 +79,11 @@ vcpkg_fixup_cmake_targets()
+ 
+ file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/grpc RENAME copyright)
+ 
+-vcpkg_copy_tool_dependencies(${CURRENT_PACKAGES_DIR}/tools/grpc)
+-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/tools")
++file(RENAME "${CURRENT_PACKAGES_DIR}/debug/tools" "${CURRENT_PACKAGES_DIR}/tools")
++vcpkg_copy_tool_dependencies(${CURRENT_PACKAGES_DIR}/debug/tools/grpc)
+ 
+ # Ignore the C# extension DLL in bin/
+ SET(VCPKG_POLICY_EMPTY_PACKAGE enabled)
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ vcpkg_copy_pdbs()
+diff --git a/ports/gtest/portfile.cmake b/ports/gtest/portfile.cmake
+index 5dd3bd506..09963745f 100644
+--- a/ports/gtest/portfile.cmake
++++ b/ports/gtest/portfile.cmake
+@@ -1,3 +1,5 @@
++unset(VCPKG_BUILD_TYPE)
++
+ if (EXISTS "${CURRENT_BUILDTREES_DIR}/src/.git")
+     file(REMOVE_RECURSE ${CURRENT_BUILDTREES_DIR}/src)
+ endif()
+diff --git a/ports/iroha-ed25519/portfile.cmake b/ports/iroha-ed25519/portfile.cmake
+index 675b9226d..c37d84f10 100644
+--- a/ports/iroha-ed25519/portfile.cmake
++++ b/ports/iroha-ed25519/portfile.cmake
+@@ -22,7 +22,7 @@ vcpkg_install_cmake()
+ 
+ vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/ed25519 TARGET_PATH share/ed25519)
+ 
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
+ 
+ #vcpkg_copy_pdbs()
+diff --git a/ports/liblzma/portfile.cmake b/ports/liblzma/portfile.cmake
+index e7260309b..8bc27c51c 100644
+--- a/ports/liblzma/portfile.cmake
++++ b/ports/liblzma/portfile.cmake
+@@ -74,7 +74,7 @@ if (VCPKG_LIBRARY_LINKAGE STREQUAL static)
+   file(APPEND ${CURRENT_PACKAGES_DIR}/share/liblzma/LibLZMAConfig.cmake "add_definitions(-DLZMA_API_STATIC)")
+ endif()
+ 
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ file(COPY ${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake DESTINATION ${CURRENT_PACKAGES_DIR}/share/liblzma)
+ 
+diff --git a/ports/openssl-unix/portfile.cmake b/ports/openssl-unix/portfile.cmake
+index 1c1bbae0c..916409243 100644
+--- a/ports/openssl-unix/portfile.cmake
++++ b/ports/openssl-unix/portfile.cmake
+@@ -45,13 +45,12 @@ vcpkg_configure_cmake(
+         -DSOURCE_PATH=${MASTER_COPY_SOURCE_PATH}
+         -DPERL=${PERL}
+         -DMAKE=${MAKE}
+-    OPTIONS_RELEASE
+         -DINSTALL_HEADERS=ON
+ )
+ 
+ vcpkg_install_cmake()
+ 
+-file(GLOB HEADERS ${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/*/include/openssl/*.h)
++file(GLOB HEADERS ${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-dbg/*/include/openssl/*.h)
+ set(RESOLVED_HEADERS)
+ foreach(HEADER ${HEADERS})
+     get_filename_component(X "${HEADER}" REALPATH)
+diff --git a/ports/protobuf/portfile.cmake b/ports/protobuf/portfile.cmake
+index 1d595bf09..19dedbb68 100644
+--- a/ports/protobuf/portfile.cmake
++++ b/ports/protobuf/portfile.cmake
+@@ -65,7 +65,7 @@ function(protobuf_try_remove_recurse_wait PATH_TO_REMOVE)
+     endif()
+ endfunction()
+ 
+-protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/debug/include)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ if(CMAKE_HOST_WIN32)
+     set(EXECUTABLE_SUFFIX ".exe")
+@@ -86,6 +86,7 @@ if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "debug")
+     file(WRITE ${CURRENT_PACKAGES_DIR}/share/protobuf/protobuf-targets-debug.cmake "${DEBUG_MODULE}")
+ endif()
+ 
++vcpkg_fixup_cmake_targets()
+ protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/debug/share)
+ 
+ if(CMAKE_HOST_WIN32)
+@@ -104,7 +105,7 @@ if(CMAKE_HOST_WIN32)
+         protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/debug/bin/protoc.exe)
+     endif()
+ else()
+-    file(GLOB EXECUTABLES ${CURRENT_PACKAGES_DIR}/bin/protoc*)
++    file(GLOB EXECUTABLES ${CURRENT_PACKAGES_DIR}/debug/bin/protoc*)
+     foreach(E IN LISTS EXECUTABLES)
+         file(INSTALL ${E} DESTINATION ${CURRENT_PACKAGES_DIR}/tools/${PORT}
+                 PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_WRITE GROUP_EXECUTE WORLD_READ)
+diff --git a/ports/rapidjson/portfile.cmake b/ports/rapidjson/portfile.cmake
+index da251429d..2cf7db3b9 100644
+--- a/ports/rapidjson/portfile.cmake
++++ b/ports/rapidjson/portfile.cmake
+@@ -21,6 +21,9 @@ vcpkg_configure_cmake(
+ )
+ vcpkg_install_cmake()
+ 
++file(GLOB FILES ${CURRENT_PACKAGES_DIR}/debug/*)
++file(COPY ${FILES} DESTINATION ${CURRENT_PACKAGES_DIR})
++
+ vcpkg_fixup_cmake_targets(CONFIG_PATH cmake)
+ 
+ file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/lib ${CURRENT_PACKAGES_DIR}/debug ${CURRENT_PACKAGES_DIR}/share/doc)
+diff --git a/ports/rxcpp/portfile.cmake b/ports/rxcpp/portfile.cmake
+index b98701132..3236d6bb0 100644
+--- a/ports/rxcpp/portfile.cmake
++++ b/ports/rxcpp/portfile.cmake
+@@ -17,6 +17,7 @@ vcpkg_configure_cmake(
+ vcpkg_install_cmake()
+ vcpkg_fixup_cmake_targets(CONFIG_PATH share/${PORT}/cmake/)
+ 
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug)
+ file(COPY ${SOURCE_PATH}/license.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
+ file(RENAME ${CURRENT_PACKAGES_DIR}/share/${PORT}/license.md ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright)
+diff --git a/ports/spdlog/portfile.cmake b/ports/spdlog/portfile.cmake
+index 0bbad6d61..0ab74c0dc 100644
+--- a/ports/spdlog/portfile.cmake
++++ b/ports/spdlog/portfile.cmake
+@@ -27,9 +27,11 @@ vcpkg_configure_cmake(
+ 
+ vcpkg_install_cmake()
+ 
+-if(EXISTS "${CURRENT_PACKAGES_DIR}/lib/cmake/${PORT}")
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
++
++if(EXISTS "${CURRENT_PACKAGES_DIR}/debug/lib/cmake/${PORT}")
+     vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/${PORT})
+-elseif(EXISTS "${CURRENT_PACKAGES_DIR}/lib/${PORT}/cmake")
++elseif(EXISTS "${CURRENT_PACKAGES_DIR}/debug/lib/${PORT}/cmake")
+     vcpkg_fixup_cmake_targets(CONFIG_PATH lib/${PORT}/cmake)
+ endif()
+ 
+diff --git a/ports/tbb/portfile.cmake b/ports/tbb/portfile.cmake
+index a9ae69c94..806542a44 100644
+--- a/ports/tbb/portfile.cmake
++++ b/ports/tbb/portfile.cmake
+@@ -1,3 +1,5 @@
++unset(VCPKG_BUILD_TYPE)
++
+ vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+     REPO oneapi-src/oneTBB
+diff --git a/ports/zlib/portfile.cmake b/ports/zlib/portfile.cmake
+index 78030309b..e3ddfa8ef 100644
+--- a/ports/zlib/portfile.cmake
++++ b/ports/zlib/portfile.cmake
+@@ -25,12 +25,12 @@ vcpkg_configure_cmake(
+     OPTIONS
+         -DSKIP_INSTALL_FILES=ON
+         -DSKIP_BUILD_EXAMPLES=ON
+-    OPTIONS_DEBUG
+-        -DSKIP_INSTALL_HEADERS=ON
+ )
+ 
+ vcpkg_install_cmake()
+ 
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
++
+ # Both dynamic and static are built, so keep only the one needed
+ if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
+     if(EXISTS ${CURRENT_PACKAGES_DIR}/lib/zlibstatic.lib)
+diff --git a/ports/zstd/portfile.cmake b/ports/zstd/portfile.cmake
+index c8efe2812..b856707e1 100644
+--- a/ports/zstd/portfile.cmake
++++ b/ports/zstd/portfile.cmake
+@@ -37,7 +37,7 @@ vcpkg_configure_cmake(
+ 
+ vcpkg_install_cmake()
+ vcpkg_copy_pdbs()
+-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/debug/share)
++file(RENAME ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/include)
+ 
+ if((VCPKG_CMAKE_SYSTEM_NAME STREQUAL "WindowsStore" OR NOT VCPKG_CMAKE_SYSTEM_NAME) AND VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
+     foreach(HEADER zdict.h zstd.h zstd_errors.h)
+diff --git a/scripts/cmake/vcpkg_fixup_cmake_targets.cmake b/scripts/cmake/vcpkg_fixup_cmake_targets.cmake
+index a042d9124..7525513a8 100644
+--- a/scripts/cmake/vcpkg_fixup_cmake_targets.cmake
++++ b/scripts/cmake/vcpkg_fixup_cmake_targets.cmake
+@@ -101,16 +101,6 @@ function(vcpkg_fixup_cmake_targets)
+         endif()
+     endif()
+ 
+-    file(GLOB_RECURSE UNUSED_FILES
+-        "${DEBUG_SHARE}/*[Tt]argets.cmake"
+-        "${DEBUG_SHARE}/*[Cc]onfig.cmake"
+-        "${DEBUG_SHARE}/*[Cc]onfigVersion.cmake"
+-        "${DEBUG_SHARE}/*[Cc]onfig-version.cmake"
+-    )
+-    if(UNUSED_FILES)
+-        file(REMOVE ${UNUSED_FILES})
+-    endif()
+-
+     file(GLOB_RECURSE RELEASE_TARGETS
+         "${RELEASE_SHARE}/*-release.cmake"
+     )
+@@ -123,10 +113,13 @@ function(vcpkg_fixup_cmake_targets)
+ 
+     if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "debug")
+         file(GLOB_RECURSE DEBUG_TARGETS
+-            "${DEBUG_SHARE}/*-debug.cmake"
++            "${DEBUG_SHARE}/*.cmake"
+             )
+         foreach(DEBUG_TARGET IN LISTS DEBUG_TARGETS)
+             file(RELATIVE_PATH DEBUG_TARGET_REL "${DEBUG_SHARE}" "${DEBUG_TARGET}")
++            if(EXISTS ${RELEASE_SHARE}/${DEBUG_TARGET_REL})
++              continue()
++            endif()
+ 
+             file(READ ${DEBUG_TARGET} _contents)
+             string(REPLACE "${CURRENT_INSTALLED_DIR}" "\${_IMPORT_PREFIX}" _contents "${_contents}")
+@@ -157,6 +150,16 @@ function(vcpkg_fixup_cmake_targets)
+         file(WRITE ${MAIN_CMAKE} "${_contents}")
+     endforeach()
+ 
++    file(GLOB_RECURSE UNUSED_FILES
++        "${DEBUG_SHARE}/*[Tt]argets.cmake"
++        "${DEBUG_SHARE}/*[Cc]onfig.cmake"
++        "${DEBUG_SHARE}/*[Cc]onfigVersion.cmake"
++        "${DEBUG_SHARE}/*[Cc]onfig-version.cmake"
++    )
++    if(UNUSED_FILES)
++        file(REMOVE ${UNUSED_FILES})
++    endif()
++
+     # Remove /debug/<target_path>/ if it's empty.
+     file(GLOB_RECURSE REMAINING_FILES "${DEBUG_SHARE}/*")
+     if(NOT REMAINING_FILES)
+diff --git a/triplets/x64-linux.cmake b/triplets/x64-linux.cmake
+index 519618463..c5d917c7c 100644
+--- a/triplets/x64-linux.cmake
++++ b/triplets/x64-linux.cmake
+@@ -3,3 +3,5 @@ set(VCPKG_CRT_LINKAGE dynamic)
+ set(VCPKG_LIBRARY_LINKAGE static)
+ 
+ set(VCPKG_CMAKE_SYSTEM_NAME Linux)
++
++set(VCPKG_BUILD_TYPE debug)
+-- 
+2.25.0
+
