@@ -1,7 +1,7 @@
 pub mod command;
 pub mod query;
 
-use crate::client::{command::*, query::*};
+use crate::client::command::*;
 
 #[derive(Default)]
 pub struct Client {}
@@ -16,10 +16,13 @@ impl Client {
     pub fn submit(&self, _command: Command) -> Result<(), ()> {
         Ok(())
     }
+}
 
+pub mod assets {
+    use crate::client::query::*;
+    use crate::prelude::*;
     /// Query API entry point for `Asset` domain.
-    //TODO: generate DSL based on configuration?
-    pub fn assets(&self) -> AssetsQueries {
-        AssetsQueries {}
+    pub fn by_id(account_id: Id) -> Query {
+        GetAccountAssets::build_query(account_id)
     }
 }

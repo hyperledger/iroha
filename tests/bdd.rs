@@ -1,20 +1,19 @@
 #[cfg(test)]
-mod tests {
+mod e2e_tests {
+    use futures::executor;
     use iroha::{
-        client::Client,
-        config::Configuration,
-        consensus::sumeragi::Sumeragi,
-        model::{
-            block::*,
-            commands::{accounts::*, assets::*, domains::*},
-            tx::Transaction,
-        },
-        networking::torii::Torii,
-        storage::kura,
+        account::isi::{CreateAccount, CreateRole},
+        asset::isi::{AddAssetQuantity, TransferAsset},
+        client::{self, Client},
+        domain::isi::CreateDomain,
+        prelude::*,
     };
     use std::thread;
 
+    static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
+
     #[async_std::test]
+    //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account() {
         // Given
         let create_role = &CreateRole {
@@ -22,71 +21,79 @@ mod tests {
             permissions: Vec::new(),
         };
         let create_domain = &CreateDomain {
-            domain_id: "domain".to_string(),
+            domain_name: "domain".to_string(),
             default_role: "user".to_string(),
         };
-        let account1_id = "account1_name@domain";
-        let account2_id = "account2_name@domain";
+        let account1_id = Id::new("account1", "domain");
+        let account2_id = Id::new("account2", "domain");
         let create_account1 = &CreateAccount {
-            account_name: "account1_name".to_string(),
-            domain_id: "domain".to_string(),
+            account_id: account1_id.clone(),
+            domain_name: "domain".to_string(),
             public_key: [63; 32],
         };
         let create_account2 = &CreateAccount {
-            account_name: "account2_name".to_string(),
-            domain_id: "domain".to_string(),
+            account_id: account2_id.clone(),
+            domain_name: "domain".to_string(),
             public_key: [63; 32],
         };
-        let create_asset = &CreateAsset {
-            asset_name: "xor".to_string(),
-            domain_id: "domain".to_string(),
-            precision: 0,
+        let asset_id = Id::new("xor", "domain");
+        let create_asset = &AddAssetQuantity {
+            asset_id: asset_id.clone(),
+            account_id: account1_id.clone(),
+            amount: 100,
         };
-        let mut blockchain = Blockchain::new(kura::Kura::fast_init().await);
-        blockchain.accept(vec![Transaction::builder(
-            vec![
-                create_role.into(),
-                create_domain.into(),
-                create_account1.into(),
-                create_account2.into(),
-                create_asset.into(),
-            ],
-            String::from(account1_id),
-        )
-        .build()]);
-        thread::spawn(|| {
-            let config =
-                Configuration::from_path("test.env").expect("Failed to load configuration.");
-            let mut torii = Torii::new(&config.torii_url, Sumeragi::new(blockchain));
-            torii.start();
-        });
-
-        //When
-        let asset_id = "xor";
         let transfer_asset = &TransferAsset {
-            source_account_id: String::from(account1_id),
-            destination_account_id: String::from(account2_id),
-            asset_id: String::from(asset_id),
+            source_account_id: account1_id.clone(),
+            destination_account_id: account2_id.clone(),
+            asset_id: asset_id.clone(),
             description: "description".to_string(),
-            amount: 200.2,
+            amount: 20,
         };
         let iroha_client = Client::new();
         iroha_client
+            .submit(create_role.into())
+            .expect("Failed to create role.");
+        iroha_client
+            .submit(create_domain.into())
+            .expect("Failed to create domain.");
+        iroha_client
+            .submit(create_account1.into())
+            .expect("Failed to create account1.");
+        iroha_client
+            .submit(create_account2.into())
+            .expect("Failed to create accoun2.");
+        iroha_client
+            .submit(create_asset.into())
+            .expect("Failed to create asset.");
+        thread::spawn(|| executor::block_on(create_and_start_iroha()));
+        //When
+        iroha_client
             .submit(transfer_asset.into())
             .expect("Failed to submit command.");
-
         //Then
-        // iroha_peer::receive(command) --> queue.push(tx::from(command).validate()) -->
-        // timer::every_minute( |txs: Vec<Tx::Valid>| consensus.sign(txs)) -->
-        // match cons_res
-        // Agreed => txs.for_each(peer.sign(tx))
-        // consensus.publish(txs: Vec<Tx::Signed>)
-        // kura.store(txs: Vec<Tx::Signed>)
-        // WSV.update(txs: Vec<Tx::Signed>)
-        let asset = iroha_client
-            .assets()
-            .by_id(asset_id)
-            .expect("Failed to find asset.");
-        assert_eq!(account2_id, asset.account_id);
+        let _query = client::assets::by_id(asset_id);
+        //assert_eq!(account2_id, asset.account_id);
+        let _result = cleanup_default_block_dir().await;
+    }
+
+    async fn create_and_start_iroha() {
+        let mut iroha = Iroha::new(
+            Configuration::from_path("config.json").expect("Failed to load configuration."),
+        )
+        .await
+        .expect("Failed to create Iroha.");
+        iroha.start().await;
+    }
+
+    /// Cleans up default directory of disk storage.
+    /// Should be used in tests that may potentially read from disk
+    /// to prevent failures due to changes in block structure.
+    pub async fn cleanup_default_block_dir() -> Result<(), String> {
+        use async_std::fs;
+
+        fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 }
