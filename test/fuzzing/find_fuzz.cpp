@@ -12,6 +12,7 @@
 #include "libfuzzer/libfuzzer_macro.h"
 #include "logger/dummy_logger.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
+#include "module/irohad/ametsuchi/mock_query_executor.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/network/network_mocks.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
@@ -37,6 +38,24 @@ struct QueryFixture {
     wq_ = std::make_shared<iroha::ametsuchi::MockWsvQuery>();
     EXPECT_CALL(*storage_, getBlockQuery()).WillRepeatedly(Return(bq_));
     EXPECT_CALL(*storage_, getWsvQuery()).WillRepeatedly(Return(wq_));
+    EXPECT_CALL(*storage_, createQueryExecutor(_, _))
+        .WillRepeatedly([&](const auto & /* pending_txs */,
+                            const auto &response_factory) {
+          using namespace ::testing;
+          auto query_executor =
+              std::make_unique<iroha::ametsuchi::MockQueryExecutor>();
+          EXPECT_CALL(*query_executor, validateAndExecute_(_))
+              .WillOnce(
+                  Return(response_factory
+                             ->createErrorQueryResponse(
+                                 shared_model::interface::QueryResponseFactory::
+                                     ErrorQueryType::kStatefulFailed,
+                                 "I'm a teapot",
+                                 418,
+                                 shared_model::crypto::Hash{"BADD00DE"})
+                             .release()));
+          return query_executor;
+        });
     pending_transactions_ =
         std::make_shared<iroha::MockPendingTransactionStorage>();
     auto query_response_factory_ =
