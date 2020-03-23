@@ -1,1 +1,1 @@
-pub use crate::model::commands::isi::Command;
+pub use crate::isi::Command;

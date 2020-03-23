@@ -1,7 +1,4 @@
-use crate::{
-    model::{crypto::Hash, tx::Transaction},
-    storage::kura::Kura,
-};
+use crate::{kura::Kura, prelude::*};
 use std::time::SystemTime;
 
 /// Chain of `Blocks`.
@@ -19,14 +16,16 @@ impl Blockchain {
         }
     }
 
-    pub fn accept(&mut self, transactions: Vec<Transaction>) {
+    pub async fn accept(&mut self, transactions: Vec<Transaction>) {
         let mut block = Block::builder(transactions).build();
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;
             block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
         }
-        futures::executor::block_on(self.kura.store(&block))
+        self.kura
+            .store(&block)
+            .await
             .expect("Failed to store block into Kura.");
         self.blocks.push(block);
     }

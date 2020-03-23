@@ -1,15 +1,15 @@
-use crate::model::{commands::isi::Command, crypto::Signature};
+use crate::{crypto::Signature, isi::Command};
 use std::{
     fmt::{Debug, Display, Formatter},
     time::SystemTime,
 };
 
-/// An ordered set of commands, which is applied to the ledger atomically.
+/// An ordered set of instructions, which is applied to the ledger atomically.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transaction {
-    /// An ordered set of commands.
+    /// An ordered set of instructions.
     //TODO: think about constructor with `Into<Command>` parameter signature.
-    pub commands: Vec<Command>,
+    pub instructions: Vec<Command>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: u128,
     /// Account ID of transaction creator (username@domain).
@@ -20,9 +20,9 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn builder(commands: Vec<Command>, account_id: String) -> TxBuilder {
+    pub fn builder(instructions: Vec<Command>, account_id: String) -> TxBuilder {
         TxBuilder {
-            commands,
+            instructions,
             account_id,
             creation_time: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -40,7 +40,7 @@ impl Transaction {
 
 /// # Example
 /// ```
-/// use iroha::model::tx::Transaction;
+/// use iroha::prelude::*;
 ///
 /// let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
 ///     .build();
@@ -54,7 +54,7 @@ impl std::convert::From<&Transaction> for Vec<u8> {
 
 /// # Example
 /// ```
-/// # use iroha::model::tx::Transaction;
+/// # use iroha::prelude::*;
 ///
 /// # let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
 /// #     .build();
@@ -70,7 +70,7 @@ impl std::convert::From<Vec<u8>> for Transaction {
 /// Builder struct for `Transaction`.
 #[derive(Default)]
 pub struct TxBuilder {
-    pub commands: Vec<Command>,
+    pub instructions: Vec<Command>,
     pub creation_time: u128,
     pub account_id: String,
     pub quorum: Option<u32>,
@@ -80,7 +80,7 @@ pub struct TxBuilder {
 impl TxBuilder {
     pub fn build(self) -> Transaction {
         Transaction {
-            commands: self.commands,
+            instructions: self.instructions,
             creation_time: self.creation_time,
             account_id: self.account_id,
             quorum: self.quorum.unwrap_or(1),
