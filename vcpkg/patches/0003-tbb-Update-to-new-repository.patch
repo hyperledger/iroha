@@ -1,0 +1,29 @@
+From ca140b140343700bb8a38fd89e946170a8926120 Mon Sep 17 00:00:00 2001
+From: Andrei Lebedev <lebdron@gmail.com>
+Date: Mon, 23 Mar 2020 14:27:34 +0300
+Subject: [PATCH] [tbb] Update to new repository
+
+Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
+---
+ ports/tbb/portfile.cmake | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ports/tbb/portfile.cmake b/ports/tbb/portfile.cmake
+index 119916757..09c2a98d8 100644
+--- a/ports/tbb/portfile.cmake
++++ b/ports/tbb/portfile.cmake
+@@ -6,9 +6,9 @@ endif()
+ 
+ vcpkg_from_github(
+     OUT_SOURCE_PATH SOURCE_PATH
+-    REPO intel/tbb
++    REPO oneapi-src/oneTBB
+     REF 4233fef583b4f8cbf9f781311717600feaaa0694
+-    SHA512 6eb239f16e0ecacb825264869aafad7fb39aa1b1f8a3c03c92344c4255d1c1a34ca0a47a366c471fd2da808f3be14262c7e2305294677f2f490c1a48f6f76ec3
++    SHA512 e7b73d7d72d945d69f67fb1d24aa4e9b114223bb23aa9af08df063fb4f63bd3e740104cd2d6866ba521c12d3d8c36cb30e5f4ca38887b32353da1795b95136a4
+     HEAD_REF tbb_2019
+ )
+ 
+-- 
+2.26.0.rc2
+
