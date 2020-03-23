@@ -6,15 +6,14 @@ The following is a specification for Iroha 2.0. Many parts are still in developm
 
 ## 1. Overview
 
-Iroha v2 aims to be an even more simple, highly performant distributed ledger platform than Iroha v1. V2 carries on the tradition of putting on emphasis on pre-defined commands that are included in the core, with the goal that 80% of users won't have to write their own "smart contracts."
+Iroha v2 aims to be an even more simple, highly performant distributed ledger platform than Iroha v1. V2 carries on the tradition of putting on emphasis on having a library of pre-defined smart contracts in the core, so that developers do not have to write their own code to perform many tasks related to digital identity and asset management.
 
 ### 1.1. Relationship to Hyperledger Fabric, Hyperledger Sawtooth, Hyperledger Besu, and Others
 
-It is our vision that in the future Hyperledger will consist less of disjointed projects and more of coherent libraries of components that can be selected and installed in order to run a Hyperledger network. Towards this end, it is the goal of Iroha to eventually provide the following encapsulated C++ components that other projects (particularly in Hyperledger) can use:
+It is our vision that in the future Hyperledger will consist less of disjointed projects and more of coherent libraries of components that can be selected and installed in order to run a Hyperledger network. Towards this end, it is the goal of Iroha to eventually provide the following encapsulated components that other projects (particularly in Hyperledger) can use:
 
 * Sumeragi consensus library
 * Iroha transaction serialization library
-* LibP2P broadcast library
 * API server library
 * iOS library
 * Android library
@@ -47,7 +46,7 @@ We use Hyperledger Ursa.
 
 ### 2.4. Smart Contracts
 
-Smart contracts (chaincode) are supported using a WASM sandbox and the entire smart contract lifecycle is supported. If a smart contract is deployed within a channel, only channel participants can see it and invoke it.
+Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI).
 
 ### 2.5. Data Model
 
@@ -79,14 +78,7 @@ Iroha uses a simple data model made up of domains, peers, accounts, assets, sign
 
 ### 2.6. Transactions
 
-Iroha supports the smart contract lifecycle transactions:
-
-* Chaincode deploy
-* Chaincode invoke
-* Chaincode update
-* Chaincode deprecate
-
-In addition to chaincode transactions, Iroha supports the following basic transaction types to support common asset management use cases:
+Iroha ships with a library of smart contracts, called the Iroha Special Instructions. These include the following basic transaction types to support asset management use cases:
 
 * Domain registration
 * Asset creation
@@ -107,10 +99,21 @@ Additionally, the following two transaction types take as input (i.e., "wrap") o
 
 * Multisignature
 * Interledger (i.e., cross-chain)
+* Conditional Multisignature
 
-TODO:
+##### Conditional Multisignature:
 
-* conditional multisig
+```
+[condition,
+   [signatory_set, ...],
+    ...
+]
+```
+
+where ```signatory_set``` is an m-of-n signatory set. If multiple ```signatory_set```s exist to a 
+
+As an example illustrating why conditional multisig is useful, consider a situation where a bank wants to allow either 2 tellers or 1 manager to sign off on any transfer transaction over $500 and under $1000. In this case, the condition will be: ```Condition.asset("usd@nbc").qty(500).comparison(">").qty(1000).comparison("<")``` and the ```signatory_set```s for the tellers and manager will be ```OR``` unified, so that either the m-of-n signatues from the tellers or the single signature from the manager will be acceptable for transaction signing.
+
 
 #### 2.6.1 Consensus events and processing order
 
@@ -123,7 +126,7 @@ Consensus events, when received from the event queue, are processed in the follo
  3. New events that need ordering, to be processed by the current leader
 
 #### 2.6.2 Transaction Data Structure
- 
+
 The data structure for transactions follows the interpreter pattern and is very simple:
 
 
