@@ -1,4 +1,9 @@
-use crate::model::{block::Block, crypto::Hash};
+use crate::prelude::*;
+
+/// Conduct statefull validation of `blocks`.
+pub fn validate(_blocks: Vec<Block>) -> Result<(), &'static str> {
+    Ok(())
+}
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
@@ -10,7 +15,7 @@ pub struct MerkleTree {
 impl MerkleTree {
     /// Builds a Merkle Tree from sorted array of `Blocks`.
     //TODO: should we check or sort blocks here?
-    pub fn build(blocks: &[Block]) -> Self {
+    pub fn build(blocks: &[&Block]) -> Self {
         //hm, can we write map(Block::hash) in Rust?
         let mut nodes: std::collections::VecDeque<Node> = blocks
             .iter()
@@ -139,38 +144,43 @@ impl<'a> IntoIterator for &'a MerkleTree {
     }
 }
 
-#[test]
-fn tree_with_two_layers_should_reach_all_nodes() {
-    let tree = MerkleTree {
-        root_node: Node::Subtree {
-            left: Box::new(Node::Leaf { hash: [0; 32] }),
-            right: Box::new(Node::Leaf { hash: [0; 32] }),
-            hash: [0; 32],
-        },
-    };
-    assert_eq!(3, tree.into_iter().count());
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn four_blocks_should_built_seven_nodes() {
-    let blocks = [
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-    ];
-    let merkle_tree = MerkleTree::build(&blocks);
-    assert_eq!(7, merkle_tree.into_iter().count());
-}
+    #[test]
+    fn tree_with_two_layers_should_reach_all_nodes() {
+        let tree = MerkleTree {
+            root_node: Node::Subtree {
+                left: Box::new(Node::Leaf { hash: [0; 32] }),
+                right: Box::new(Node::Leaf { hash: [0; 32] }),
+                hash: [0; 32],
+            },
+        };
+        assert_eq!(3, tree.into_iter().count());
+    }
 
-#[test]
-fn three_blocks_should_built_seven_nodes() {
-    let blocks = [
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-        Block::builder(Vec::new()).build(),
-    ];
-    let merkle_tree = MerkleTree::build(&blocks);
-    assert_eq!(7, merkle_tree.into_iter().count());
+    #[test]
+    fn four_blocks_should_built_seven_nodes() {
+        let blocks = [
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+        ];
+        let merkle_tree = MerkleTree::build(&blocks);
+        assert_eq!(7, merkle_tree.into_iter().count());
+    }
+
+    #[test]
+    fn three_blocks_should_built_seven_nodes() {
+        let blocks = [
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+            &Block::builder(Vec::new()).build(),
+        ];
+        let merkle_tree = MerkleTree::build(&blocks);
+        assert_eq!(7, merkle_tree.into_iter().count());
+    }
 }

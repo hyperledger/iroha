@@ -1,4 +1,4 @@
-use crate::model::commands::isi::Command;
+use crate::isi::Command;
 
 /// The purpose of add peer command is to write into ledger the fact of peer addition into the
 /// peer network. After a transaction with AddPeer has been committed, consensus and
@@ -10,7 +10,7 @@ pub struct AddPeer {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::peers::{AddPeer, Peer};
+/// use iroha::{prelude::*, peer::AddPeer};
 ///
 /// let command_payload = &AddPeer {
 ///     peer: Peer{
@@ -28,7 +28,7 @@ impl std::convert::From<&AddPeer> for Vec<u8> {
 
 /// # Example
 /// ```
-/// use iroha::model::commands::{isi::Command,peers::{AddPeer,Peer}};
+/// use iroha::{prelude::*, isi::Command, peer::AddPeer};
 ///
 /// let command_payload = &AddPeer {
 ///     peer: Peer{
@@ -50,7 +50,7 @@ impl std::convert::From<&AddPeer> for Command {
 
 /// # Example
 /// ```
-/// # use iroha::model::commands::peers::{AddPeer, Peer};
+/// # use iroha::{prelude::*, isi::Command, peer::AddPeer};
 /// # let command_payload = &AddPeer {
 /// #     peer: Peer{
 /// #         address: "address".to_string(),

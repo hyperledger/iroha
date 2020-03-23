@@ -166,34 +166,13 @@ Rust Style Guide
 
 - Use `cargo fmt`
 - Do not place code inside `mod.rs` files
-
-C++ Style Guide
-~~~~~~~~~~~~~~~
-
--  Use clang-format
-   `settings <https://github.com/hyperledger/iroha/blob/master/.clang-format>`__
-   file. There are guides available on the internet (e.g. `Kratos
-   wiki <https://github.com/KratosMultiphysics/Kratos/wiki/How-to-configure-clang%E2%80%90format>`__)
--  Follow
-   `CppCoreGuidelines <http://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines>`__
-   and `Cpp Best
-   Practices <https://lefticus.gitbooks.io/cpp-best-practices>`__.
--  Avoid
-   `platform-dependent <https://stackoverflow.com/questions/1558194/learning-and-cross-platform-development-c>`__
-   code.
--  Use `C++14 <https://en.wikipedia.org/wiki/C%2B%2B14>`__.
--  Use `camelCase <https://en.wikipedia.org/wiki/Camel_case>`__ for
-   class names and methods, use
-   `snake\_case <https://en.wikipedia.org/wiki/Snake_case>`__ for
-   variables.
+- Use domain-first modules structure. For example `domain::isi::*`. Such a way 
+complex uses will be easier to incude in dependent modules.
 
 Documentation Styleguide
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
--  Use
-   `Doxygen <http://www.doxygen.nl/>`__.
--  Document all public API: methods, functions, members, templates,
-   classes...
+-  Use `Rust Docs`
 
 Places where community is active
 --------------------------------

@@ -1,9 +1,4 @@
-use crate::{
-    cache::{mst_cache::MSTCache, pending_tx_cache::PendingTxCache},
-    client::query::Query,
-    consensus::sumeragi::Sumeragi,
-    model::tx::Transaction,
-};
+use crate::{client::query::Query, prelude::*, queue::Queue, sumeragi::Sumeragi};
 use std::{
     io::prelude::*,
     net::TcpListener,
@@ -18,8 +13,7 @@ const OK: &[u8; 19] = b"HTTP/1.1 200 OK\r\n\r\n";
 #[allow(dead_code)]
 pub struct Torii {
     url: String,
-    mst_cache: MSTCache,
-    pending_tx_cache: PendingTxCache,
+    queue: Queue,
     consensus: Sumeragi,
     last_round_time: Instant,
 }
@@ -28,14 +22,13 @@ impl Torii {
     pub fn new(url: &str, consensus: Sumeragi) -> Self {
         Torii {
             url: url.to_string(),
-            mst_cache: MSTCache::default(),
-            pending_tx_cache: PendingTxCache::default(),
+            queue: Queue::default(),
             consensus,
             last_round_time: Instant::now(),
         }
     }
 
-    pub fn start(&mut self) {
+    pub async fn start(&mut self) {
         let listener = TcpListener::bind(&self.url).expect("could not start server");
         for connection in listener.incoming() {
             match connection {
@@ -52,7 +45,8 @@ impl Torii {
                         self.receive_command(&buffer[COMMAND_REQUEST_HEADER.len()..]);
                         stream.write_all(OK).expect("Failed to write a response.");
                         self.consensus
-                            .sign(&self.pending_tx_cache.pop_all())
+                            .sign(&self.queue.pop_pending_transactions())
+                            .await
                             .expect("Failed to sign transactions.");
                         self.last_round_time = Instant::now();
                     } else if buffer.starts_with(QUERY_REQUEST_HEADER) {
@@ -70,7 +64,7 @@ impl Torii {
 
     fn receive_command(&mut self, payload: &[u8]) {
         let transaction: Transaction = payload.to_vec().into();
-        self.pending_tx_cache.add_tx(
+        self.queue.push_pending_transaction(
             transaction
                 .validate()
                 .expect("Failed to validate transaction."),
@@ -85,26 +79,20 @@ impl Torii {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::Configuration, model::block::Blockchain, storage::kura::Kura};
+    use crate::{block::Blockchain, client::query, config::Configuration, kura::Kura};
+    use futures::executor;
 
     #[test]
     fn get_request_to_torii_should_return_ok() {
-        let config =
-            Configuration::from_path("config.json").expect("Failed to load configuration.");
-        let torii_url = config.torii_url.to_string();
         std::thread::spawn(move || {
-            let mut torii = Torii::new(
-                &torii_url,
-                Sumeragi::new(Blockchain::new(futures::executor::block_on(
-                    Kura::fast_init(),
-                ))),
-            );
-            torii.start();
+            executor::block_on(create_and_start_torii());
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
+        let config =
+            Configuration::from_path("config.json").expect("Failed to load configuration.");
         let mut stream =
             std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
-        let query = &Query::builder().build();
+        let query = &query::GetAccountAssets::build_query(Id::new("account", "domain"));
         let mut query: Vec<u8> = query.into();
         let mut query_request = QUERY_REQUEST_HEADER.to_vec();
         query_request.append(&mut query);
@@ -119,19 +107,12 @@ mod tests {
 
     #[test]
     fn post_command_request_to_torii_should_return_ok() {
-        let config =
-            Configuration::from_path("config.json").expect("Failed to load configuration.");
-        let torii_url = config.torii_url.to_string();
         std::thread::spawn(move || {
-            let mut torii = Torii::new(
-                &torii_url.clone(),
-                Sumeragi::new(Blockchain::new(futures::executor::block_on(
-                    Kura::fast_init(),
-                ))),
-            );
-            torii.start();
+            executor::block_on(create_and_start_torii());
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
+        let config =
+            Configuration::from_path("config.json").expect("Failed to load configuration.");
         let mut stream =
             std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
         stream
@@ -151,5 +132,16 @@ mod tests {
         let mut buffer = [0; 512];
         stream.read(&mut buffer).expect("Request read failed.");
         assert!(buffer.starts_with(OK));
+    }
+
+    async fn create_and_start_torii() {
+        let config =
+            Configuration::from_path("config.json").expect("Failed to load configuration.");
+        let torii_url = config.torii_url.to_string();
+        let mut torii = Torii::new(
+            &torii_url.clone(),
+            Sumeragi::new(Blockchain::new(Kura::fast_init().await)),
+        );
+        torii.start().await;
     }
 }
