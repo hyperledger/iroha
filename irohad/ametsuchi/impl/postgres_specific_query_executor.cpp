@@ -1482,11 +1482,13 @@ namespace iroha {
                 std::unique_ptr<shared_model::interface::EngineResponseRecord>>
                 records;
             for (const auto &row : range_without_nulls) {
-              apply(row, [&records](auto &cmd_index, auto &engine_response) {
-                records.push_back(
-                    std::make_unique<shared_model::plain::EngineResponseRecord>(
-                        cmd_index, engine_response));
-              });
+              iroha::ametsuchi::apply(
+                  row, [&records](auto &cmd_index, auto &engine_response) {
+                    records.push_back(
+                        std::make_unique<
+                            shared_model::plain::EngineResponseRecord>(
+                            cmd_index, engine_response));
+                  });
             }
             return query_response_factory_->createEngineResponse(records,
                                                                  query_hash);
