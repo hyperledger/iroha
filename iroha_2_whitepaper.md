@@ -1,28 +1,20 @@
 # Iroha v2.0 #
 
-The following is a specification for Iroha 2.0. Many parts are still in development and have not yet been implemented, but for the sake of design, this document is generally written in the present tense.
+The following is a specification for Hyperledger Iroha v2.0.
 
 ---
 
 ## 1. Overview
 
-Iroha v2 aims to be an even more simple, highly performant distributed ledger platform than Iroha v1. V2 carries on the tradition of putting on emphasis on having a library of pre-defined smart contracts in the core, so that developers do not have to write their own code to perform many tasks related to digital identity and asset management.
+Hyperledger Iroha v2 aims to be an even more simple, highly performant distributed ledger platform than Iroha v1. V2 carries on the tradition of putting on emphasis on having a library of pre-defined smart contracts in the core, so that developers do not have to write their own code to perform many tasks related to digital identity and asset management.
 
 ### 1.1. Relationship to Hyperledger Fabric, Hyperledger Sawtooth, Hyperledger Besu, and Others
 
-It is our vision that in the future Hyperledger will consist less of disjointed projects and more of coherent libraries of components that can be selected and installed in order to run a Hyperledger network. Towards this end, it is the goal of Iroha to eventually provide the following encapsulated components that other projects (particularly in Hyperledger) can use:
-
-* Sumeragi consensus library
-* Iroha transaction serialization library
-* API server library
-* iOS library
-* Android library
-* JavaScript library
-* Blockchain explorer/data visualization suite
+It is our vision that in the future Hyperledger will consist less of disjointed projects and more of coherent libraries of components that can be selected and installed in order to run a Hyperledger network. Towards this end, it is the goal of Iroha to eventually provide encapsulated components that other projects (particularly in Hyperledger) can use.
 
 ### 1.2. Mobile and web libraries
 
-Having a solid distributed ledger system is not useful if there are no applications that can easily utilize it. To ease use, we created and opened sourced software libraries for iOS, Android, and JavaScript. Using these libraries, cryptographic public/private key pairs that are compatible with iroha can be created and common API functions can be conveniently called.
+Having a solid distributed ledger system is not useful if there are no applications that can easily utilize it. To ease use, we created and opened sourced software development kits for iOS, Android, and JavaScript. Using these libraries, cryptographic public/private key pairs that are compatible with iroha can be created and common API functions can be conveniently called.
 
 ## 2. System architecture
 
@@ -33,22 +25,18 @@ Generally, 3*f*+1 nodes are needed to tolerate *f* Byzantine nodes in the networ
 The following node types are considered:
 
 * Client
-* Validating peers
+* Validating peers (participate in consensus)
 * Normal peer (receives and relays blocks, but does not participate in consensus; however, normal peers do validate all received data, with the mantra of *don't trust, verify*)
 
 ### 2.2. Membership service
 
-Membership is provided in a decentralized way, on ledger. By default 2*f*+1 signatures are needed to confirm adding or removing nodes to the network. If nodes drop out and are unresponsive for "too long," then peers will automatically do a removePeer transaction to remove the peer from the consensus process.
+Membership is provided in a decentralized way, on ledger. By default 2*f*+1 signatures are needed to confirm adding or removing nodes to or from the network. If nodes drop out and are unresponsive for "too long," then peers will automatically execute a remove peer smart contract to remove the peer from the consensus process.
 
 ### 2.3. Cryptography
 
-We use Hyperledger Ursa.
+We use [Hyperledger Ursa](https://github.com/hyperledger/ursa).
 
-### 2.4. Smart Contracts
-
-Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI).
-
-### 2.5. Data Model
+### 2.4. Data Model
 
 Iroha uses a simple data model made up of domains, peers, accounts, assets, signatories, and permissions, as shown in the figure below:
 
@@ -75,16 +63,15 @@ Iroha uses a simple data model made up of domains, peers, accounts, assets, sign
    +--------------------------------+
 ```
 
+### 2.5. Smart Contracts
 
-### 2.6. Transactions
+Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI). To execute logic on the ledger, these smart contracts can be invoked via either transactions or registered event listeners.
 
-Iroha ships with a library of smart contracts, called the Iroha Special Instructions. These include the following basic transaction types to support asset management use cases:
+These include the following smart contracts to support asset management use cases:
 
 * Domain registration
 * Asset creation
-* Transfer
-
-It should be noted that transfer transactions support both transfer of assets and domains, and that when transfer domains, all the associated assets and chaincode are also transferred.
+* Asset Transfer
 
 Arbitrary data can be stored using the following:
 
@@ -94,6 +81,17 @@ For the decentralized membership service, the following transaction types are ap
 
 * Add validating peer
 * Remove validating peer
+
+* AddPair(asset, asset)
+* AddOraclizedPair(mintableAsset, mintableAsset, oracle)
+* CurveTrade(Asset)
+* AddCurveLiquidity(asset, asset)
+* ChainedTrade(inputAsset, outputAsset) # Does paythingfinding to get output; oraclized inputs/outputs are special
+
+* DepositBTC
+* DepositERC20
+* DepositKusama
+* DepositCBDC(cb_id)
 
 Additionally, the following two transaction types take as input (i.e., "wrap") one of the above transaction types:
 
@@ -110,32 +108,28 @@ Additionally, the following two transaction types take as input (i.e., "wrap") o
 ]
 ```
 
-where ```signatory_set``` is an m-of-n signatory set. If multiple ```signatory_set```s exist to a 
+where ```signatory_set``` is an m-of-n signatory set. If multiple ```signatory_set```s exist for a given condition, they can be either ```OR``` or ```AND``` unioned.
 
-As an example illustrating why conditional multisig is useful, consider a situation where a bank wants to allow either 2 tellers or 1 manager to sign off on any transfer transaction over $500 and under $1000. In this case, the condition will be: ```Condition.asset("usd@nbc").qty(500).comparison(">").qty(1000).comparison("<")``` and the ```signatory_set```s for the tellers and manager will be ```OR``` unified, so that either the m-of-n signatues from the tellers or the single signature from the manager will be acceptable for transaction signing.
+As an example illustrating why conditional multisig is useful, consider a situation where a bank wants to allow either 2 tellers or 1 manager to sign off on any transfer transaction over $500 and under $1000. In this case, the condition will be: ```Condition.asset("usd@nbc").qty(500).comparison(">").qty(1000).comparison("<")``` and the ```signatory_set```s for the tellers and manager will be ```OR``` unioned, so that either the m-of-n signatues from the tellers or the single signature from the manager will be acceptable for transaction signing.
 
+### 2.5.1 Event Listeners
 
-#### 2.6.1 Consensus events and processing order
+Triggers can be either based on time or on a confirmed transaction.
 
-When broadcast, transactions are wrapped as consensus events.
+### 2.6. Transactions
 
-Consensus events, when received from the event queue, are processed in the following priority order:
+Transactions are used to either invoke a smart contract or store an event listener.
 
- 1. Commit events having 2*f*+1 signatures
- 2. Events ordered by the leader
- 3. New events that need ordering, to be processed by the current leader
-
-#### 2.6.2 Transaction Data Structure
+#### 2.6.1 Transaction Data Structure
 
 The data structure for transactions follows the interpreter pattern and is very simple:
 
+(TODO)
 
 
-#### 2.6.3 Transaction Cache (Priority Queue)
+#### 2.6.2 Transaction Cache (Priority Queue)
 
-Tabu search for optimization of settlements in the priority queue
-
-### 2.7 Triggers
+(Tabu search for optimization of settlements in the priority queue)(TODO)
 
 ### 2.8. Data storage
 
@@ -314,6 +308,6 @@ This is a paged query that returns up to the last 100 transactions, starting at 
 
 ## Appendix
 
-### A.1. Developing for Iroha
+### A.1. Developing for Hyperledger Iroha
 
 todo
