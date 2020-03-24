@@ -186,7 +186,7 @@ namespace shared_model {
         return std::nullopt;
       }
 
-      boost::optional<ValidationError> operator()(
+      std::optional<ValidationError> operator()(
           const interface::GetEngineResponse &qry) const {
         return validator_.validateHash(
             crypto::Hash::fromHexString(qry.txHash()));
