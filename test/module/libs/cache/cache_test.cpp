@@ -33,7 +33,7 @@ TEST(CacheTest, InsertValues) {
  * @given initialized cache
  * @when insert cache.getIndexSizeHigh() items into it + 1
  * @then after the last insertion amount of items should decrease to
- * cache.getIndexSizeLow()
+ * cache.getIndexSizeHigh()
  */
 TEST(CacheTest, InsertMoreThanLimit) {
   Cache<std::string, ToriiResponse> cache;
@@ -46,7 +46,7 @@ TEST(CacheTest, InsertMoreThanLimit) {
   ToriiResponse resp;
   resp.set_tx_status(TxStatus::COMMITTED);
   cache.addItem("1234", resp);
-  ASSERT_EQ(cache.getCacheItemCount(), cache.getIndexSizeLow());
+  ASSERT_EQ(cache.getCacheItemCount(), cache.getIndexSizeHigh());
 }
 
 /**
@@ -163,17 +163,17 @@ TEST(CacheTest, CustomHasher) {
  * @given initialized cache with given parameters
  * @when insert cache.getIndexSizeHigh() items into it + 1
  * @then after the last insertion amount of items should decrease to
- * cache.getIndexSizeLow()
+ * cache.getIndexSizeHigh()
  */
 TEST(CacheTest, InsertCustomSize) {
-  Cache<std::string, std::string> cache(1, 1);
+  Cache<std::string, std::string, std::hash<std::string>, 1> cache;
   cache.addItem("key", "value");
   ASSERT_EQ(cache.getCacheItemCount(), cache.getIndexSizeHigh());
   auto val = cache.findItem("key");
   ASSERT_TRUE(val);
   ASSERT_EQ(val.value(), "value");
   cache.addItem("key2", "value2");
-  ASSERT_EQ(cache.getCacheItemCount(), cache.getIndexSizeLow());
+  ASSERT_EQ(cache.getCacheItemCount(), cache.getIndexSizeHigh());
   val = cache.findItem("key");
   ASSERT_FALSE(val);
   ASSERT_TRUE(cache.findItem("key2"));
