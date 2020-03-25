@@ -35,15 +35,6 @@ namespace iroha {
       }
 
       /**
-       * @return low border of cache limit (@see AbstractCache#addItem)
-       */
-      uint32_t getIndexSizeLow() const {
-        // shared lock
-        std::shared_lock<std::shared_timed_mutex> lock(access_mutex_);
-        return constUnderlying().getIndexSizeLowImpl();
-      }
-
-      /**
        * @return amount of items in cache
        */
       uint32_t getCacheItemCount() const {

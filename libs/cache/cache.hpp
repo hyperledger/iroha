@@ -10,6 +10,8 @@
 
 #include <unordered_map>
 
+#include "common/ring_buffer.hpp"
+
 namespace iroha {
   namespace cache {
 
@@ -21,60 +23,81 @@ namespace iroha {
      */
     template <typename KeyType,
               typename ValueType,
-              typename KeyHash = std::hash<KeyType>>
-    class Cache : public AbstractCache<KeyType,
-                                       ValueType,
-                                       Cache<KeyType, ValueType, KeyHash>> {
-     public:
-      Cache(uint32_t max_handler_map_size_high = 20000,
-            uint32_t max_handler_map_size_low = 10000)
-          : max_handler_map_size_high_(max_handler_map_size_high),
-            max_handler_map_size_low_(max_handler_map_size_low) {}
+              typename KeyHash = std::hash<KeyType>,
+              size_t Count = 20000ull>
+    class Cache final
+        : public AbstractCache<KeyType,
+                               ValueType,
+                               Cache<KeyType, ValueType, KeyHash, Count>> {
+      using HashType =
+          decltype(std::declval<KeyHash>()(std::declval<KeyType>()));
 
-      uint32_t getIndexSizeHighImpl() const {
-        return max_handler_map_size_high_;
+      struct KeyAndValue {
+        HashType hash;
+        ValueType value;
+
+        KeyAndValue() = delete;
+        KeyAndValue(KeyAndValue const &) = delete;
+        KeyAndValue(HashType h, ValueType const &v) : hash(h), value(v) {}
+
+        KeyAndValue &operator=(KeyAndValue const &) = delete;
+      };
+
+      using ValuesBuffer = containers::RingBuffer<KeyAndValue, Count>;
+      using ValueHandle = typename ValuesBuffer::Handle;
+      using KeyValuesBuffer = std::unordered_map<HashType, ValueHandle>;
+
+      inline HashType toHash(KeyType const &key) const {
+        return KeyHash()(key);
       }
 
-      uint32_t getIndexSizeLowImpl() const {
-        return max_handler_map_size_low_;
+     public:
+      Cache() {}
+
+      uint32_t getIndexSizeHighImpl() const {
+        return Count;
       }
 
       uint32_t getCacheItemCountImpl() const {
-        return (uint32_t)handler_map_.size();
+        return static_cast<uint32_t>(keys_.size());
       }
 
       void addItemImpl(const KeyType &key, const ValueType &value) {
-        // elements with the same hash should be replaced
-        handler_map_[key] = value;
-        handler_map_index_.push_back(key);
-        if (handler_map_.size() > getIndexSizeHighImpl()) {
-          while (handler_map_.size() > getIndexSizeLowImpl()) {
-            handler_map_.erase(handler_map_index_.front());
-            handler_map_index_.pop_front();
-          }
+        auto const hash = toHash(key);
+        auto it = keys_.find(hash);
+        if (keys_.end() == it) {
+          values_.push(
+              [&](ValueHandle h, KeyAndValue const & /*value*/) {
+                this->keys_[hash] = h;
+              },
+              [&](ValueHandle h, KeyAndValue const &stored_value) {
+                BOOST_ASSERT_MSG(
+                    this->keys_.end() != this->keys_.find(stored_value.hash),
+                    "keys_ must contain item, which we want to remove!");
+                this->keys_.erase(stored_value.hash);
+              },
+              hash,
+              value);
+        } else {
+          auto &stored_value = values_.getItem(it->second);
+          stored_value.value = value;
         }
       }
 
       boost::optional<ValueType> findItemImpl(const KeyType &key) const {
-        auto found = handler_map_.find(key);
-        if (found == handler_map_.end()) {
+        auto const hash = toHash(key);
+        auto it = keys_.find(hash);
+
+        if (keys_.end() == it) {
           return boost::none;
         } else {
-          return handler_map_.at(key);
+          return values_.getItem(it->second).value;
         }
       }
 
      private:
-      std::unordered_map<KeyType, ValueType, KeyHash> handler_map_;
-      std::list<KeyType> handler_map_index_;
-
-      /**
-       * Protection from handler map overflow.
-       * TODO 27/10/2017 luckychess Values are quite random and should be tuned
-       * for better performance and may be even move to config IR-579
-       */
-      const uint32_t max_handler_map_size_high_;
-      const uint32_t max_handler_map_size_low_;
+      KeyValuesBuffer keys_;
+      ValuesBuffer values_;
     };
   }  // namespace cache
 }  // namespace iroha
