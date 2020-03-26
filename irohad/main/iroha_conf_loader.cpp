@@ -8,6 +8,7 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <type_traits>
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -72,14 +73,34 @@ class JsonDeserializerImpl {
       std::numeric_limits<T>::is_integer or std::is_enum<T>::value;
 
   template <typename T>
+  static constexpr bool IsInt64Like =
+      IsIntegerLike<T> and sizeof(T) == sizeof(int64_t);
+
+  template <typename T>
   static constexpr bool fitsType(int64_t i) {
     return static_cast<int64_t>(std::numeric_limits<T>::min()) <= i
         and i <= static_cast<int64_t>(std::numeric_limits<T>::max());
   }
 
   template <typename TDest>
-  typename std::enable_if<IsIntegerLike<TDest>>::type getVal(
-      const std::string &path, TDest &dest, const rapidjson::Value &src) {
+  typename std::enable_if<
+      IsInt64Like<TDest> and not std::is_signed_v<TDest>>::type
+  getVal(const std::string &path, TDest &dest, const rapidjson::Value &src) {
+    assert_fatal(src.IsUint64(), path + " must be an unsigned integer");
+    dest = src.GetUint64();
+  }
+
+  template <typename TDest>
+  typename std::enable_if<IsInt64Like<TDest> and std::is_signed_v<TDest>>::type
+  getVal(const std::string &path, TDest &dest, const rapidjson::Value &src) {
+    assert_fatal(src.IsInt64(), path + " must be a signed integer");
+    dest = src.GetInt64();
+  }
+
+  template <typename TDest>
+  typename std::enable_if<
+      IsIntegerLike<TDest> and sizeof(TDest) < sizeof(int64_t)>::type
+  getVal(const std::string &path, TDest &dest, const rapidjson::Value &src) {
     static_assert(fitsType<int64_t>(std::numeric_limits<TDest>::min())
                       and fitsType<int64_t>(std::numeric_limits<TDest>::max()),
                   "destination type does not fit int64_t");
@@ -272,14 +293,6 @@ class JsonDeserializerImpl {
 // ------------ getVal(path, dst, src) specializations ------------
 
 template <>
-void JsonDeserializerImpl::getVal<uint64_t>(const std::string &path,
-                                            uint64_t &dest,
-                                            const rapidjson::Value &src) {
-  assert_fatal(src.IsUint64(), path + " must be an unsigned integer");
-  dest = src.GetUint64();
-}
-
-template <>
 inline void JsonDeserializerImpl::getVal<bool>(const std::string &path,
                                                bool &dest,
                                                const rapidjson::Value &src) {
@@ -446,6 +459,18 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::DbConfig>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::UtilityService>(
+    const std::string &path,
+    IrohadConfig::UtilityService &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(),
+               path + " utility service config top element must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.ip, obj, config_members::Ip);
+  getValByKey(path, dest.port, obj, config_members::Port);
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -473,6 +498,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
               config_members::StaleStreamMaxRounds);
   getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
   getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
+  getValByKey(path, dest.utility_service, obj, config_members::UtilityService);
 }
 
 // ------------ end of getVal(path, dst, src) specializations ------------
