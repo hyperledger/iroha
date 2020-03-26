@@ -83,7 +83,6 @@ add_library(ametsuchi
     impl/wsv_restorer_impl.cpp
     impl/postgres_query_executor.cpp
     impl/postgres_specific_query_executor.cpp
-    impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
     )
@@ -103,9 +102,16 @@ target_link_libraries(ametsuchi
     shared_model_plain_backend
     shared_model_stateless_validation
     tx_executor
+    tx_presence_cache
     failover_callback
     SOCI::postgresql
     SOCI::core
+    )
+
+add_library(tx_presence_cache impl/tx_presence_cache_impl.cpp)
+target_link_libraries(tx_presence_cache
+    Boost::boost
+    shared_model_interfaces
     )
 
 target_compile_definitions(ametsuchi

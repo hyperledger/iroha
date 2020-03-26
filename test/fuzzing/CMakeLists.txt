@@ -13,33 +13,36 @@ endif()
 
 add_executable(torii_fuzz torii_fuzz.cpp)
 target_link_libraries(torii_fuzz
+  endpoint
   protobuf-mutator
   rxcpp
   GTest::gtest
   GTest::gmock
-  ametsuchi
+  shared_model_proto_backend
   torii_service
   ${fuzzing_engine}
   )
 
 add_executable(status_fuzz status_fuzz.cpp)
 target_link_libraries(status_fuzz
+  endpoint
   protobuf-mutator
   rxcpp
   GTest::gtest
   GTest::gmock
-  ametsuchi
+  shared_model_proto_backend
   torii_service
   ${fuzzing_engine}
   )
 
 add_executable(find_fuzz find_fuzz.cpp)
 target_link_libraries(find_fuzz
+  endpoint
   protobuf-mutator
   rxcpp
   GTest::gtest
   GTest::gmock
-  ametsuchi
+  shared_model_proto_backend
   torii_service
   ${fuzzing_engine}
   )
@@ -49,21 +52,25 @@ target_link_libraries(send_batches_fuzz
   protobuf-mutator
   GTest::gtest
   GTest::gmock
-  ametsuchi
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
+  ordering_grpc
+  shared_model_proto_backend
+  tx_presence_cache
   ${fuzzing_engine}
   )
 
 add_executable(request_proposal_fuzz request_proposal_fuzz.cpp)
 target_link_libraries(request_proposal_fuzz
   protobuf-mutator
-  ametsuchi
   rxcpp
   GTest::gtest
   GTest::gmock
   on_demand_ordering_service
   on_demand_ordering_service_transport_grpc
+  ordering_grpc
+  shared_model_proto_backend
+  tx_presence_cache
   ${fuzzing_engine}
   )
 
@@ -73,7 +80,9 @@ target_link_libraries(retrieve_block_fuzz
   GTest::gtest
   GTest::gmock
   block_loader_service
+  loader_grpc
   shared_model_default_builders
+  shared_model_proto_backend
   ${fuzzing_engine}
   )
 
@@ -83,7 +92,9 @@ target_link_libraries(retrieve_blocks_fuzz
   GTest::gtest
   GTest::gmock
   block_loader_service
+  loader_grpc
   shared_model_default_builders
+  shared_model_proto_backend
   ${fuzzing_engine}
   )
 
@@ -92,8 +103,10 @@ target_link_libraries(consensus_fuzz
   protobuf-mutator
   GTest::gtest
   GTest::gmock
-  yac_transport
   yac
+  yac_grpc
+  yac_transport
+  shared_model_proto_backend
   test_logger
   ${fuzzing_engine}
   )
@@ -103,8 +116,10 @@ target_link_libraries(mst_fuzz
   protobuf-mutator
   GTest::gtest
   GTest::gmock
+  mst_grpc
   mst_transport
-  ametsuchi
+  shared_model_proto_backend
+  tx_presence_cache
   ${fuzzing_engine}
   )
 
