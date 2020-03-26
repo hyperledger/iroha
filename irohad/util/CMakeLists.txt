@@ -25,3 +25,14 @@ target_link_libraries(irohad_utility_client
     logger
     utility_endpoint
     )
+
+add_executable(shepherd shepherd.cpp)
+target_link_libraries(shepherd
+    gflags
+    iroha_conf_loader
+    irohad_utility_client
+    irohad_utility_proto_status_tools
+    irohad_version
+    logger
+    logger_manager
+    )
