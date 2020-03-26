@@ -5,14 +5,23 @@
 
 syntax = "proto3";
 
-package iroha.protocol;
+package iroha.utility_service.proto;
 
 import "google/protobuf/empty.proto";
 
-message ShutdownRequest {
-    string shutdown_key = 1;
+message Status {
+  enum StatusEnum {
+    unknown = 0;
+    initialization = 1;
+    running = 2;
+    termination = 3;
+    stopped = 4;
+    failed = 5;
+  }
+  StatusEnum status = 1;
 }
 
 service UtilityService_v1 {
-    rpc Shutdown (ShutdownRequest) returns (google.protobuf.Empty);
+  rpc Status(google.protobuf.Empty) returns (stream iroha.utility_service.proto.Status);
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
 }
