@@ -22,6 +22,7 @@ target_link_libraries(irohad_test
         logger
         logger_manager
         pg_connection_init
+        irohad_utility_client
         )
 add_dependencies(irohad_test irohad)
 add_definitions(-DPATHIROHAD="${PROJECT_BINARY_DIR}/bin")
