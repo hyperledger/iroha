@@ -5,6 +5,7 @@
 #ifndef IROHA_RUN_LOOP_HANDLER_HPP
 #define IROHA_RUN_LOOP_HANDLER_HPP
 
+#include <ciso646>
 #include <condition_variable>
 
 #include <rxcpp/rx-lite.hpp>
