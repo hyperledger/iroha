@@ -36,32 +36,47 @@ find_package(gRPC 1.21.1 REQUIRED CONFIG)
 ################################
 #          rapidjson           #
 ################################
-find_package(RapidJSON 1.1.0 REQUIRED CONFIG)
 add_library(RapidJSON::rapidjson INTERFACE IMPORTED)
-set_target_properties(RapidJSON::rapidjson PROPERTIES
-  INTERFACE_INCLUDE_DIRECTORIES "${RAPIDJSON_INCLUDE_DIRS}"
-)
+if (NOT FUZZING_ONLY)
+  find_package(RapidJSON 1.1.0 REQUIRED CONFIG)
+  set_target_properties(RapidJSON::rapidjson PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${RAPIDJSON_INCLUDE_DIRS}"
+  )
+endif()
 
 ##########################
 #         libpq          #
 ##########################
-find_package(PostgreSQL REQUIRED)
+if (NOT FUZZING_ONLY)
+  find_package(PostgreSQL REQUIRED)
 
-find_package(OpenSSL REQUIRED)
-target_link_libraries(PostgreSQL::PostgreSQL
-  INTERFACE
-  OpenSSL::SSL
-  )
+  find_package(OpenSSL REQUIRED)
+  target_link_libraries(PostgreSQL::PostgreSQL
+    INTERFACE
+    OpenSSL::SSL
+    )
+else()
+  add_library(PostgreSQL::PostgreSQL UNKNOWN IMPORTED)
+endif()
 
 ##########################
 #          SOCI          #
 ##########################
-find_package(soci)
+if (NOT FUZZING_ONLY)
+  find_package(soci)
+else()
+  add_library(SOCI::core UNKNOWN IMPORTED)
+  add_library(SOCI::postgresql UNKNOWN IMPORTED)
+endif()
 
 ################################
 #            gflags            #
 ################################
-find_package(gflags 2.2.2 REQUIRED CONFIG)
+if (NOT FUZZING_ONLY)
+  find_package(gflags 2.2.2 REQUIRED CONFIG)
+else()
+  add_library(Gflags UNKNOWN IMPORTED)
+endif()
 
 ##########################
 #        rx c++          #
