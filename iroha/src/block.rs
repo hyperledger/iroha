@@ -1,4 +1,5 @@
 use crate::{kura::Kura, prelude::*};
+use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
 /// Chain of `Blocks`.
@@ -11,9 +12,13 @@ impl Blockchain {
     pub fn new(kura: Kura) -> Self {
         Blockchain {
             kura,
-            //TODO: we should fill blockchain with already stored blocks.
             blocks: Vec::new(),
         }
+    }
+
+    pub async fn init(&mut self) -> Result<(), String> {
+        self.blocks = self.kura.init().await?;
+        Ok(())
     }
 
     pub async fn accept(&mut self, transactions: Vec<Transaction>) {
@@ -41,7 +46,7 @@ impl Blockchain {
 /// a linear sequence over time (also known as the block chain).
 //TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
 //signatures placed outside of the payload - should we store them?
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Encode, Decode)]
 pub struct Block {
     /// a number of blocks in the chain up to the block.
     pub height: u64,
@@ -114,13 +119,13 @@ impl BlockBuilder {
 
 impl std::convert::From<&Block> for Vec<u8> {
     fn from(block: &Block) -> Self {
-        bincode::serialize(block).expect("Failed to serialize block.")
+        block.encode()
     }
 }
 
 impl std::convert::From<Vec<u8>> for Block {
     fn from(bytes: Vec<u8>) -> Self {
-        bincode::deserialize(&bytes).expect("Failed to deserialize block.")
+        Block::decode(&mut bytes.as_slice()).expect("Failed to deserialize block.")
     }
 }
 

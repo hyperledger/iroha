@@ -1,9 +1,8 @@
+use async_std::fs;
 use criterion::*;
 use futures::executor;
 use iroha::{config::Configuration, prelude::*, query::GetAccountAssets};
-use std::io::prelude::*;
-use std::thread;
-use std::time::Duration;
+use std::{io::prelude::*, thread, time::Duration};
 
 const QUERY_REQUEST_HEADER: &[u8; 16] = b"GET / HTTP/1.1\r\n";
 const COMMAND_REQUEST_HEADER: &[u8; 25] = b"POST /commands HTTP/1.1\r\n";
@@ -13,7 +12,7 @@ static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
 
 fn query_requests(criterion: &mut Criterion) {
     thread::spawn(|| executor::block_on(create_and_start_iroha()));
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
     let query = &GetAccountAssets::build_query(Id::new("account", "domain"));
     let mut query: Vec<u8> = query.into();
@@ -44,12 +43,12 @@ fn query_requests(criterion: &mut Criterion) {
         });
     });
     group.finish();
-    futures::executor::block_on(cleanup_default_block_dir()).expect("Failed to clean up storage.");
+    executor::block_on(cleanup_default_block_dir()).expect("Failed to clean up storage.");
 }
 
 fn command_requests(criterion: &mut Criterion) {
     thread::spawn(|| executor::block_on(create_and_start_iroha()));
-    std::thread::sleep(std::time::Duration::from_millis(50));
+    thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("command-reqeuests");
     let transaction = &Transaction::builder(Vec::new(), "account@domain".to_string()).build();
     let mut transaction: Vec<u8> = transaction.into();
@@ -85,18 +84,14 @@ fn command_requests(criterion: &mut Criterion) {
 
 async fn create_and_start_iroha() {
     let mut iroha =
-        Iroha::new(Configuration::from_path("config.json").expect("Failed to load configuration."))
-            .await
-            .expect("Failed to create Iroha.");
-    iroha.start().await;
+        Iroha::new(Configuration::from_path("config.json").expect("Failed to load configuration."));
+    iroha.start().await.expect("Failed to start Iroha.");
 }
 
 /// Cleans up default directory of disk storage.
 /// Should be used in tests that may potentially read from disk
 /// to prevent failures due to changes in block structure.
 pub async fn cleanup_default_block_dir() -> Result<(), String> {
-    use async_std::fs;
-
     fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
         .await
         .map_err(|error| error.to_string())?;

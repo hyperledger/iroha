@@ -79,10 +79,8 @@ mod e2e_tests {
     async fn create_and_start_iroha() {
         let mut iroha = Iroha::new(
             Configuration::from_path("config.json").expect("Failed to load configuration."),
-        )
-        .await
-        .expect("Failed to create Iroha.");
-        iroha.start().await;
+        );
+        iroha.start().await.expect("Failed to start Iroha.");
     }
 
     /// Cleans up default directory of disk storage.
