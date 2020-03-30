@@ -5,9 +5,10 @@ use crate::{
     prelude::*,
     wsv::WorldStateView,
 };
+use parity_scale_codec::{Decode, Encode};
 
 /// Identification of an Iroha's entites. Consists of Entity's name and Domain's name.
-#[derive(Clone, Debug, PartialEq, Eq, std::hash::Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, std::hash::Hash, Encode, Decode)]
 pub struct Id(pub String, pub String);
 
 impl Id {
@@ -18,7 +19,7 @@ impl Id {
 
 /// A command is an intention to change the state of the network.
 /// For example, in order to create a new role in Iroha you have to issue Create role command.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct Command {
     pub version: u8,
     pub command_type: u8,
@@ -93,7 +94,7 @@ impl Command {
 /// ```
 impl std::convert::From<&Command> for Vec<u8> {
     fn from(command_payload: &Command) -> Self {
-        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+        command_payload.encode()
     }
 }
 
@@ -111,7 +112,7 @@ impl std::convert::From<&Command> for Vec<u8> {
 /// ```
 impl std::convert::From<Vec<u8>> for Command {
     fn from(command_payload: Vec<u8>) -> Self {
-        bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+        Command::decode(&mut command_payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }
 

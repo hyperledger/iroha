@@ -1,7 +1,8 @@
 use crate::prelude::*;
+use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Encode, Decode)]
 pub struct Query {
     query_type: u32,
     timestamp: u128,
@@ -17,7 +18,7 @@ pub struct Query {
 /// ```
 impl std::convert::From<&Query> for Vec<u8> {
     fn from(payload: &Query) -> Self {
-        bincode::serialize(payload).expect("Failed to serialize payload.")
+        payload.encode()
     }
 }
 
@@ -31,13 +32,13 @@ impl std::convert::From<&Query> for Vec<u8> {
 /// ```
 impl std::convert::From<Vec<u8>> for Query {
     fn from(payload: Vec<u8>) -> Self {
-        bincode::deserialize(&payload).expect("Failed to deserialize payload.")
+        Query::decode(&mut payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }
 
 /// To get the state of all assets in an account (a balance),
 /// GetAccountAssets query can be used.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Encode, Decode)]
 pub struct GetAccountAssets {
     account_id: Id,
 }
@@ -69,7 +70,7 @@ impl GetAccountAssets {
 /// ```
 impl std::convert::From<&GetAccountAssets> for Vec<u8> {
     fn from(payload: &GetAccountAssets) -> Self {
-        bincode::serialize(payload).expect("Failed to serialize payload.")
+        payload.encode()
     }
 }
 
@@ -83,6 +84,6 @@ impl std::convert::From<&GetAccountAssets> for Vec<u8> {
 /// ```
 impl std::convert::From<Vec<u8>> for GetAccountAssets {
     fn from(payload: Vec<u8>) -> Self {
-        bincode::deserialize(&payload).expect("Failed to deserialize payload.")
+        GetAccountAssets::decode(&mut payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }

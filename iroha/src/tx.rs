@@ -1,11 +1,9 @@
 use crate::{crypto::Signature, isi::Command};
-use std::{
-    fmt::{Debug, Display, Formatter},
-    time::SystemTime,
-};
+use parity_scale_codec::{Decode, Encode};
+use std::time::SystemTime;
 
 /// An ordered set of instructions, which is applied to the ledger atomically.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct Transaction {
     /// An ordered set of instructions.
     //TODO: think about constructor with `Into<Command>` parameter signature.
@@ -48,7 +46,7 @@ impl Transaction {
 /// ```
 impl std::convert::From<&Transaction> for Vec<u8> {
     fn from(tx_payload: &Transaction) -> Self {
-        bincode::serialize(tx_payload).expect("Failed to serialize payload.")
+        tx_payload.encode()
     }
 }
 
@@ -63,7 +61,7 @@ impl std::convert::From<&Transaction> for Vec<u8> {
 /// ```
 impl std::convert::From<Vec<u8>> for Transaction {
     fn from(tx_payload: Vec<u8>) -> Self {
-        bincode::deserialize(&tx_payload).expect("Failed to deserialize payload.")
+        Transaction::decode(&mut tx_payload.as_slice()).expect("Failed to decode payload.")
     }
 }
 
@@ -86,17 +84,5 @@ impl TxBuilder {
             quorum: self.quorum.unwrap_or(1),
             signatures: self.signatures.unwrap_or_default(),
         }
-    }
-}
-
-impl Display for Transaction {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{:}", self.account_id) //TODO: implement
-    }
-}
-
-impl Debug for Transaction {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "{:}", self.account_id) //TODO: implement
     }
 }

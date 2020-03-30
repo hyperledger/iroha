@@ -1,26 +1,35 @@
 use crate::prelude::*;
+use futures::{channel::mpsc::UnboundedReceiver, stream::StreamExt};
 use std::collections::HashMap;
+
+type BlockReceiver = UnboundedReceiver<Block>;
 
 /// WSV reflects the current state of the system, can be considered as a snapshot. For example, WSV
 /// holds information about an amount of assets that an account has at the moment but does not
 /// contain any info history of transaction flow.
 pub struct WorldStateView {
     pub world: World,
+    rx: BlockReceiver,
 }
 
 impl WorldStateView {
-    pub fn new() -> Self {
+    pub fn new(rx: BlockReceiver) -> Self {
         WorldStateView {
             world: World::new(),
+            rx,
         }
     }
 
-    pub async fn init(blocks: &[&Block]) -> Self {
-        let mut world_state_view = WorldStateView::new();
+    pub async fn init(mut self, blocks: &[&Block]) {
         for block in blocks {
-            world_state_view.put(block).await;
+            self.put(block).await;
         }
-        world_state_view
+    }
+
+    pub async fn start(&mut self) {
+        while let Some(block) = self.rx.next().await {
+            self.put(&block).await;
+        }
     }
 
     /// Put `Block` of information with changes in form of **Iroha Special Instructions**
@@ -31,12 +40,6 @@ impl WorldStateView {
                 instruction.apply(self);
             }
         }
-    }
-}
-
-impl Default for WorldStateView {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -13,6 +13,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Cache workspace target
+      uses: actions/cache@v1
+      env:
+        cache-name: cache-target
+      with:
+        path: ./target
+        key: workspace-target
+    - name: Cache iroha target
+      uses: actions/cache@v1
+      env:
+        cache-name: cache-iroha-target
+      with:
+        path: ./iroha/target
+        key: iroha-target
     - name: Format check
       run: cargo fmt -- --check
     - name: Static analysis

@@ -17,26 +17,29 @@ pub mod wsv;
 
 use crate::{
     block::Blockchain, config::Configuration, kura::Kura, sumeragi::Sumeragi, torii::Torii,
+    wsv::WorldStateView,
 };
+use futures::channel::mpsc;
 
 pub struct Iroha {
     torii: Torii,
 }
 
 impl Iroha {
-    pub async fn new(config: Configuration) -> Result<Self, &'static str> {
-        let kura = if &config.mode == "strict" {
-            Kura::strict_init().await?
-        } else {
-            Kura::fast_init().await
-        };
-        Ok(Iroha {
-            torii: Torii::new(&config.torii_url, Sumeragi::new(Blockchain::new(kura))),
-        })
+    pub fn new(config: Configuration) -> Self {
+        let (tx, rx) = mpsc::unbounded();
+        let world_state_view = WorldStateView::new(rx);
+        let torii = Torii::new(
+            &config.torii_url,
+            Sumeragi::new(Blockchain::new(Kura::new(config.mode, tx))),
+            world_state_view,
+        );
+        Iroha { torii }
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<(), String> {
         self.torii.start().await;
+        Ok(())
     }
 }
 

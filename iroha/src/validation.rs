@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 /// Conduct statefull validation of `blocks`.
-pub fn validate(_blocks: Vec<Block>) -> Result<(), &'static str> {
+pub fn validate(_blocks: Vec<&Block>) -> Result<(), String> {
     Ok(())
 }
 
@@ -13,9 +13,15 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
+    pub fn new() -> Self {
+        MerkleTree {
+            root_node: Node::Empty,
+        }
+    }
+
     /// Builds a Merkle Tree from sorted array of `Blocks`.
     //TODO: should we check or sort blocks here?
-    pub fn build(blocks: &[&Block]) -> Self {
+    pub fn build(&mut self, blocks: &[&Block]) {
         //hm, can we write map(Block::hash) in Rust?
         let mut nodes: std::collections::VecDeque<Node> = blocks
             .iter()
@@ -33,9 +39,13 @@ impl MerkleTree {
                 });
             }
         }
-        MerkleTree {
-            root_node: nodes.pop_front().unwrap_or(Node::Empty),
-        }
+        self.root_node = nodes.pop_front().unwrap_or(Node::Empty);
+    }
+}
+
+impl Default for MerkleTree {
+    fn default() -> Self {
+        MerkleTree::new()
     }
 }
 
@@ -168,7 +178,8 @@ mod tests {
             &Block::builder(Vec::new()).build(),
             &Block::builder(Vec::new()).build(),
         ];
-        let merkle_tree = MerkleTree::build(&blocks);
+        let mut merkle_tree = MerkleTree::new();
+        merkle_tree.build(&blocks);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
@@ -180,7 +191,8 @@ mod tests {
             &Block::builder(Vec::new()).build(),
             &Block::builder(Vec::new()).build(),
         ];
-        let merkle_tree = MerkleTree::build(&blocks);
+        let mut merkle_tree = MerkleTree::new();
+        merkle_tree.build(&blocks);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 }

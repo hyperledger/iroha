@@ -15,11 +15,12 @@ impl Asset {
 pub mod isi {
     use super::*;
     use crate::isi::Command;
+    use parity_scale_codec::{Decode, Encode};
 
     /// The purpose of add asset quantity command is to increase the quantity of an asset on account of
     /// transaction creator. Use case scenario is to increase the number of a mutable asset in the
     /// system, which can act as a claim on a commodity (e.g. money, gold, etc.).
-    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
     pub struct AddAssetQuantity {
         pub asset_id: Id,
         pub account_id: Id,
@@ -39,7 +40,7 @@ pub mod isi {
     /// ```
     impl std::convert::From<&AddAssetQuantity> for Vec<u8> {
         fn from(command_payload: &AddAssetQuantity) -> Self {
-            bincode::serialize(command_payload).expect("Failed to serialize payload.")
+            command_payload.encode()
         }
     }
 
@@ -77,13 +78,14 @@ pub mod isi {
     /// ```
     impl std::convert::From<Vec<u8>> for AddAssetQuantity {
         fn from(command_payload: Vec<u8>) -> Self {
-            bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+            AddAssetQuantity::decode(&mut command_payload.as_slice())
+                .expect("Failed to deserialize payload.")
         }
     }
 
     /// The purpose of сreate asset command is to create a new type of asset, unique in a domain.
     /// An asset is a countable representation of a commodity.
-    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
     pub struct CreateAsset {
         pub asset_name: String,
         pub domain_id: String,
@@ -103,7 +105,7 @@ pub mod isi {
     /// ```
     impl std::convert::From<&CreateAsset> for Vec<u8> {
         fn from(command_payload: &CreateAsset) -> Self {
-            bincode::serialize(command_payload).expect("Failed to serialize payload.")
+            command_payload.encode()
         }
     }
 
@@ -142,13 +144,14 @@ pub mod isi {
     /// ```
     impl std::convert::From<Vec<u8>> for CreateAsset {
         fn from(command_payload: Vec<u8>) -> Self {
-            bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+            CreateAsset::decode(&mut command_payload.as_slice())
+                .expect("Failed to deserialize payload.")
         }
     }
 
     /// The purpose of transfer asset command is to share assets within the account in peer
     /// network: in the way that source account transfers assets to the target account.
-    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
     pub struct TransferAsset {
         pub source_account_id: Id,
         pub destination_account_id: Id,
@@ -172,7 +175,7 @@ pub mod isi {
     /// ```
     impl std::convert::From<&TransferAsset> for Vec<u8> {
         fn from(command_payload: &TransferAsset) -> Self {
-            bincode::serialize(command_payload).expect("Failed to serialize payload.")
+            command_payload.encode()
         }
     }
 
@@ -215,7 +218,8 @@ pub mod isi {
     /// ```
     impl std::convert::From<Vec<u8>> for TransferAsset {
         fn from(command_payload: Vec<u8>) -> Self {
-            bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+            TransferAsset::decode(&mut command_payload.as_slice())
+                .expect("Failed to deserialize payload.")
         }
     }
 
@@ -230,8 +234,7 @@ pub mod isi {
                 account_id: Id::new("account", "domain"),
                 amount: 20002,
             };
-            let actual: AddAssetQuantity =
-                bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
+            let actual = AddAssetQuantity::decode(&mut expected.encode().as_slice()).unwrap();
             assert_eq!(expected, actual);
         }
 
@@ -242,8 +245,7 @@ pub mod isi {
                 domain_id: "domain".to_string(),
                 decimals: 0,
             };
-            let actual: CreateAsset =
-                bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
+            let actual = CreateAsset::decode(&mut expected.encode().as_slice()).unwrap();
             assert_eq!(expected, actual);
         }
 
@@ -256,8 +258,7 @@ pub mod isi {
                 description: "description".to_string(),
                 amount: 2002,
             };
-            let actual: TransferAsset =
-                bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
+            let actual = TransferAsset::decode(&mut expected.encode().as_slice()).unwrap();
             assert_eq!(expected, actual);
         }
 

@@ -1,9 +1,10 @@
 use crate::isi::Command;
+use parity_scale_codec::{Decode, Encode};
 
 /// The purpose of add peer command is to write into ledger the fact of peer addition into the
 /// peer network. After a transaction with AddPeer has been committed, consensus and
 /// synchronization components will start using it.
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
 pub struct AddPeer {
     pub peer: Peer,
 }
@@ -22,7 +23,7 @@ pub struct AddPeer {
 /// ```
 impl std::convert::From<&AddPeer> for Vec<u8> {
     fn from(command_payload: &AddPeer) -> Self {
-        bincode::serialize(command_payload).expect("Failed to serialize payload.")
+        command_payload.encode()
     }
 }
 
@@ -62,25 +63,29 @@ impl std::convert::From<&AddPeer> for Command {
 /// ```
 impl std::convert::From<Vec<u8>> for AddPeer {
     fn from(command_payload: Vec<u8>) -> Self {
-        bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+        AddPeer::decode(&mut command_payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
 pub struct Peer {
     pub address: String,
     pub peer_key: [u8; 32],
 }
 
-#[test]
-fn add_peer_command_serialization_and_deserialization() {
-    let expected = AddPeer {
-        peer: Peer {
-            address: "address".to_string(),
-            peer_key: [63; 32],
-        },
-    };
-    let actual: AddPeer =
-        bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
-    assert_eq!(expected, actual);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_peer_command_serialization_and_deserialization() {
+        let expected = AddPeer {
+            peer: Peer {
+                address: "address".to_string(),
+                peer_key: [63; 32],
+            },
+        };
+        let actual = <AddPeer>::decode(&mut expected.encode().as_slice()).unwrap();
+        assert_eq!(expected, actual);
+    }
 }
