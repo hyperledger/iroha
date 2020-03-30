@@ -1,4 +1,4 @@
-use crate::{client::query::Query, prelude::*, queue::Queue, sumeragi::Sumeragi};
+use crate::{prelude::*, query::Query, queue::Queue, sumeragi::Sumeragi};
 use std::{
     io::prelude::*,
     net::TcpListener,
@@ -79,7 +79,7 @@ impl Torii {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{block::Blockchain, client::query, config::Configuration, kura::Kura};
+    use crate::{block::Blockchain, config::Configuration, kura::Kura, query};
     use futures::executor;
 
     #[test]

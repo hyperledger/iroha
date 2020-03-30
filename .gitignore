@@ -1,4 +1,4 @@
-/target/
+**/target/
 /blocks/
 Cargo.lock
 **/*.rs.bk
