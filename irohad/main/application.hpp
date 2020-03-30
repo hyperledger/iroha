@@ -8,7 +8,6 @@
 
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
-#include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "cryptography/keypair.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
@@ -70,8 +69,9 @@ namespace iroha {
 
 namespace shared_model {
   namespace crypto {
+    class CryptoSigner;
     class Keypair;
-  }
+  }  // namespace crypto
   namespace interface {
     class QueryResponseFactory;
     class TransactionBatchFactory;
@@ -96,7 +96,7 @@ class Irohad {
    * @param vote_delay - waiting time before sending vote to next peer
    * @param mst_expiration_time - maximum time until until MST transaction is
    * not considered as expired (in minutes)
-   * @param keypair - public and private keys for crypto signer
+   * @param crypto_signer - signer using this peer's keypair
    * @param max_rounds_delay - maximum delay between consecutive rounds without
    * transactions
    * @param stale_stream_max_rounds - maximum number of rounds between
@@ -119,7 +119,7 @@ class Irohad {
          std::chrono::milliseconds proposal_delay,
          std::chrono::milliseconds vote_delay,
          std::chrono::minutes mst_expiration_time,
-         const shared_model::crypto::Keypair &keypair,
+         std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
          boost::optional<shared_model::interface::types::PeerList>
@@ -169,8 +169,6 @@ class Irohad {
   RunResult initTlsCredentials();
 
   RunResult initPeerCertProvider();
-
-  virtual RunResult initCryptoProvider();
 
   virtual RunResult initBatchParser();
 
@@ -254,7 +252,6 @@ class Irohad {
 
   // ------------------------| internal dependencies |-------------------------
  public:
-  shared_model::crypto::Keypair keypair;
   std::shared_ptr<iroha::ametsuchi::Storage> storage;
 
  protected:
@@ -272,9 +269,7 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
 
   // crypto provider
-  std::shared_ptr<shared_model::crypto::AbstractCryptoModelSigner<
-      shared_model::interface::Block>>
-      crypto_signer_;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer_;
 
   // batch parser
   std::shared_ptr<shared_model::interface::TransactionBatchParser> batch_parser;

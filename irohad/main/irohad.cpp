@@ -16,6 +16,8 @@
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/application.hpp"
@@ -84,6 +86,13 @@ DEFINE_validator(keypair_name, &validate_keypair_name);
  */
 DEFINE_bool(overwrite_ledger, false, "Overwrite ledger data if existing");
 
+logger::LoggerManagerTreePtr log_manager{[] {
+  logger::LoggerConfig early_logger_cfg;  ///< used before any configuration
+  early_logger_cfg.log_level = logger::LogLevel::kWarn;
+  return std::make_shared<logger::LoggerManagerTree>(early_logger_cfg);
+}()};
+logger::LoggerPtr init_log = log_manager->getChild("Init")->getLogger();
+
 static bool validateVerbosity(const char *flagname, const std::string &val) {
   if (val == kLogSettingsFromConfigFile) {
     return true;
@@ -120,14 +129,33 @@ getCommonObjectsFactory() {
       shared_model::validation::FieldValidator>>(validators_config);
 }
 
+std::shared_ptr<shared_model::crypto::CryptoSigner> makeCryptoSignerInternal(
+    const std::string &keypair_path) {
+  assert(init_log);
+  iroha::KeysManagerImpl keysManager(
+      keypair_path, log_manager->getChild("KeysManager")->getLogger());
+  auto keypair = keysManager.loadKeys(boost::none);
+  // Check if both keys are read properly
+  if (auto e = iroha::expected::resultToOptionalError(keypair)) {
+    // Abort execution if not
+    init_log->error("Failed to load keypair: {}", e.value());
+    assert(false);
+  }
+  using namespace shared_model::crypto;
+  return std::make_shared<CryptoSignerInternal<CryptoProviderEd25519Sha3>>(
+      std::move(keypair).assumeValue());
+}
+
+std::shared_ptr<shared_model::crypto::CryptoSigner> makeCryptoSigner(
+    IrohadConfig const &config) {
+  return makeCryptoSignerInternal(FLAGS_keypair_name);
+}
+
 int main(int argc, char *argv[]) {
   gflags::SetVersionString(iroha::kGitPrettyVersion);
 
   // Parsing command line arguments
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-  logger::LoggerManagerTreePtr log_manager;
-  logger::LoggerPtr log;
 
   // If the global log level override was set in the command line arguments,
   // create a logger manager with the given log level for all subsystems:
@@ -135,16 +163,15 @@ int main(int argc, char *argv[]) {
     logger::LoggerConfig cfg;
     cfg.log_level = config_members::LogLevels.at(FLAGS_verbosity);
     log_manager = std::make_shared<logger::LoggerManagerTree>(std::move(cfg));
-    log = log_manager->getChild("Init")->getLogger();
+    init_log = log_manager->getChild("Init")->getLogger();
   }
 
   // Check if validators are registered.
   if (not config_validator_registered
       or not keypair_name_validator_registered) {
     // Abort execution if not
-    if (log) {
-      log->error("Flag validator is not registered");
-    }
+    assert(init_log);
+    init_log->error("Flag validator is not registered");
     return EXIT_FAILURE;
   }
 
@@ -152,34 +179,23 @@ int main(int argc, char *argv[]) {
   auto config_result =
       parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
   if (auto e = iroha::expected::resultToOptionalError(config_result)) {
-    log->error("Failed reading the configuration file: {}", e.value());
+    init_log->error("Failed reading the configuration file: {}", e.value());
     return EXIT_FAILURE;
   }
   auto config = std::move(config_result).assumeValue();
 
-  if (not log_manager) {
+  if (FLAGS_verbosity == kLogSettingsFromConfigFile) {
     log_manager = config.logger_manager.value_or(getDefaultLogManager());
-    log = log_manager->getChild("Init")->getLogger();
+    init_log = log_manager->getChild("Init")->getLogger();
   }
-  log->info("Irohad version: {}", iroha::kGitPrettyVersion);
-  log->info("config initialized");
+  init_log->info("Irohad version: {}", iroha::kGitPrettyVersion);
+  init_log->info("config initialized");
 
   if (config.initial_peers and config.initial_peers->empty()) {
-    log->critical(
+    init_log->critical(
         "Got an empty initial peers list in configuration file. You have to "
         "either specify some peers or avoid overriding the peers from genesis "
         "block!");
-    return EXIT_FAILURE;
-  }
-
-  // Reading public and private key files
-  iroha::KeysManagerImpl keysManager(
-      FLAGS_keypair_name, log_manager->getChild("KeysManager")->getLogger());
-  auto keypair = keysManager.loadKeys(boost::none);
-  // Check if both keys are read properly
-  if (auto e = iroha::expected::resultToOptionalError(keypair)) {
-    // Abort execution if not
-    log->error("Failed to load keypair: {}", e.value());
     return EXIT_FAILURE;
   }
 
@@ -192,13 +208,13 @@ int main(int argc, char *argv[]) {
         config.database_config->password,
         config.database_config->working_dbname,
         config.database_config->maintenance_dbname,
-        log);
+        init_log);
   } else if (config.pg_opt) {
-    log->warn("Using deprecated database connection string!");
+    init_log->warn("Using deprecated database connection string!");
     pg_opt = std::make_unique<iroha::ametsuchi::PostgresOptions>(
-        config.pg_opt.value(), kDefaultWorkingDatabaseName, log);
+        config.pg_opt.value(), kDefaultWorkingDatabaseName, init_log);
   } else {
-    log->critical("Missing database configuration!");
+    init_log->critical("Missing database configuration!");
     return EXIT_FAILURE;
   }
 
@@ -215,7 +231,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      std::move(keypair).assumeValue(),
+      makeCryptoSigner(config),
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),
@@ -228,7 +244,7 @@ int main(int argc, char *argv[]) {
   // Check if iroha daemon storage was successfully initialized
   if (not irohad.storage) {
     // Abort execution if not
-    log->error("Failed to initialize storage");
+    init_log->error("Failed to initialize storage");
     return EXIT_FAILURE;
   }
 
@@ -261,7 +277,7 @@ int main(int argc, char *argv[]) {
 
   if (genesis) {  // genesis block file is specified
     if (blockstore and not overwrite) {
-      log->warn(
+      init_log->warn(
           "Passed genesis block will be ignored without --overwrite_ledger "
           "flag. Restoring existing state.");
     } else {
@@ -271,13 +287,13 @@ int main(int argc, char *argv[]) {
           };
 
       if (auto e = iroha::expected::resultToOptionalError(block_result)) {
-        log->error("Failed to parse genesis block: {}", e.value());
+        init_log->error("Failed to parse genesis block: {}", e.value());
         return EXIT_FAILURE;
       }
       auto block = std::move(block_result).assumeValue();
 
       if (not blockstore and overwrite) {
-        log->warn(
+        init_log->warn(
             "Blockstore is empty - there is nothing to overwrite. Inserting "
             "new genesis block.");
       }
@@ -287,21 +303,22 @@ int main(int argc, char *argv[]) {
 
       const auto txs_num = block->transactions().size();
       if (not irohad.storage->insertBlock(std::move(block))) {
-        log->critical("Could not apply genesis block!");
+        init_log->critical("Could not apply genesis block!");
         return EXIT_FAILURE;
       }
-      log->info("Genesis block inserted, number of transactions: {}", txs_num);
+      init_log->info("Genesis block inserted, number of transactions: {}",
+                     txs_num);
     }
   } else {  // genesis block file is not specified
     if (not blockstore) {
-      log->error(
+      init_log->error(
           "Cannot restore nor create new state. Blockstore is empty. No "
           "genesis block is provided. Please pecify new genesis block using "
           "--genesis_block parameter.");
       return EXIT_FAILURE;
     } else {
       if (overwrite) {
-        log->warn(
+        init_log->warn(
             "No new genesis block is specified - blockstore cannot be "
             "overwritten. If you want overwrite ledger state, please "
             "specify new genesis block using --genesis_block parameter.");
@@ -312,7 +329,7 @@ int main(int argc, char *argv[]) {
   // check if at least one block is available in the ledger
   auto block_query = irohad.storage->getBlockQuery();
   if (not block_query) {
-    log->error("Cannot create BlockQuery");
+    init_log->error("Cannot create BlockQuery");
     return EXIT_FAILURE;
   }
   const bool blocks_exist{iroha::expected::hasValue(
@@ -320,7 +337,7 @@ int main(int argc, char *argv[]) {
   block_query.reset();
 
   if (not blocks_exist) {
-    log->error(
+    init_log->error(
         "Unable to start the ledger. There are no blocks in the ledger. Please "
         "ensure that you are not trying to start the newer version of "
         "the ledger over incompatible version of the storage or there is "
@@ -333,7 +350,7 @@ int main(int argc, char *argv[]) {
   auto init_result = irohad.init();
   if (auto error =
           boost::get<iroha::expected::Error<std::string>>(&init_result)) {
-    log->critical("Irohad startup failed: {}", error->error);
+    init_log->critical("Irohad startup failed: {}", error->error);
     return EXIT_FAILURE;
   }
 
@@ -345,18 +362,18 @@ int main(int argc, char *argv[]) {
 #endif
 
   // runs iroha
-  log->info("Running iroha");
+  init_log->info("Running iroha");
   auto run_result = irohad.run();
   if (auto error =
           boost::get<iroha::expected::Error<std::string>>(&run_result)) {
-    log->critical("Irohad startup failed: {}", error->error);
+    init_log->critical("Irohad startup failed: {}", error->error);
     return EXIT_FAILURE;
   }
   exit_requested.get_future().wait();
 
   // We do not care about shutting down grpc servers
   // They do all necessary work in their destructors
-  log->info("shutting down...");
+  init_log->info("shutting down...");
 
   gflags::ShutDownCommandLineFlags();
 

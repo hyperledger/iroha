@@ -16,6 +16,7 @@
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "logger/logger_manager.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
 
@@ -28,11 +29,11 @@ namespace {
     return std::make_shared<PeerOrdererImpl>(peer_query_factory);
   }
 
-  auto createCryptoProvider(const shared_model::crypto::Keypair &keypair,
-                            logger::LoggerPtr log) {
-    auto crypto = std::make_shared<CryptoProviderImpl>(keypair, std::move(log));
-
-    return crypto;
+  auto createCryptoProvider(
+      std::shared_ptr<shared_model::crypto::CryptoSigner> &&crypto_signer,
+      logger::LoggerPtr log) {
+    return std::make_shared<CryptoProviderImpl>(std::move(crypto_signer),
+                                                std::move(log));
   }
 
   auto createHashProvider() {
@@ -42,7 +43,7 @@ namespace {
   std::shared_ptr<Yac> createYac(
       ClusterOrdering initial_order,
       Round initial_round,
-      const shared_model::crypto::Keypair &keypair,
+      std::shared_ptr<shared_model::crypto::CryptoSigner> &&crypto_signer,
       std::shared_ptr<Timer> timer,
       std::shared_ptr<YacNetwork> network,
       ConsistencyModel consistency_model,
@@ -56,7 +57,8 @@ namespace {
                        consensus_log_manager->getChild("VoteStorage")),
         std::move(network),
         createCryptoProvider(
-            keypair, consensus_log_manager->getChild("Crypto")->getLogger()),
+            std::move(crypto_signer),
+            consensus_log_manager->getChild("Crypto")->getLogger()),
         std::move(timer),
         initial_order,
         initial_round,
@@ -91,7 +93,7 @@ namespace iroha {
               alternative_peers,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<network::BlockLoader> block_loader,
-          const shared_model::crypto::Keypair &keypair,
+          std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
           std::shared_ptr<consensus::ConsensusResultCache>
               consensus_result_cache,
           std::chrono::milliseconds vote_delay_milliseconds,
@@ -113,7 +115,7 @@ namespace iroha {
 
         auto yac = createYac(*ClusterOrdering::create(peers.value()),
                              initial_round,
-                             keypair,
+                             std::move(crypto_signer),
                              createTimer(vote_delay_milliseconds),
                              consensus_network_,
                              consistency_model,

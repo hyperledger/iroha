@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "cryptography/crypto_provider/crypto_model_signer.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -78,7 +78,12 @@ class CryptoUsageTest : public ::testing::Test {
 
   shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType> signer =
       shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType>(
-          keypair);
+          shared_model::crypto::Keypair{keypair});
+
+  template <typename T>
+  void sign(T &o) {
+    o.addSignature(signer.sign(o.payload()), signer.publicKey());
+  }
 
   shared_model::validation::FieldValidator field_validator_{
       iroha::test::kTestsValidatorsConfig};
@@ -120,7 +125,7 @@ TEST_F(CryptoUsageTest, UnsignedBlock) {
  * @then block is verified
  */
 TEST_F(CryptoUsageTest, SignAndVerifyBlock) {
-  signer.sign(*block);
+  sign(*block);
 
   EXPECT_EQ(verify(*block), std::nullopt);
 }
@@ -151,7 +156,7 @@ TEST_F(CryptoUsageTest, UnsignedQuery) {
  * @then query is verified
  */
 TEST_F(CryptoUsageTest, SignAndVerifyQuery) {
-  signer.sign(*query);
+  sign(*query);
 
   EXPECT_EQ(verify(*query), std::nullopt);
 }
@@ -174,7 +179,7 @@ TEST_F(CryptoUsageTest, SignAndVerifyQuerykWithWrongSignature) {
  */
 TEST_F(CryptoUsageTest, SameQueryHashAfterSign) {
   auto hash_before = query->hash();
-  signer.sign(*query);
+  sign(*query);
   auto hash_signed = query->hash();
 
   ASSERT_EQ(hash_signed, hash_before);
@@ -195,7 +200,7 @@ TEST_F(CryptoUsageTest, UnsignedTransaction) {
  * @then transaction is verified
  */
 TEST_F(CryptoUsageTest, SignAndVerifyTransaction) {
-  signer.sign(*transaction);
+  sign(*transaction);
 
   EXPECT_EQ(verify(*transaction), std::nullopt);
 }

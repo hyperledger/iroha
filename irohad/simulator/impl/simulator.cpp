@@ -8,6 +8,9 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/command_executor.hpp"
 #include "common/bind.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "logger/logger.hpp"
@@ -20,7 +23,7 @@ namespace iroha {
         std::shared_ptr<network::OrderingGate> ordering_gate,
         std::shared_ptr<validation::StatefulValidator> statefulValidator,
         std::shared_ptr<ametsuchi::TemporaryFactory> factory,
-        std::shared_ptr<CryptoSignerType> crypto_signer,
+        std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
         std::unique_ptr<shared_model::interface::UnsafeBlockFactory>
             block_factory,
         logger::LoggerPtr log)
@@ -114,7 +117,10 @@ namespace iroha {
                                             proposal->createdTime(),
                                             proposal->transactions(),
                                             rejected_hashes);
-      crypto_signer_->sign(*block);
+      using namespace shared_model::interface::types;
+      block->addSignature(
+          SignedHexStringView{crypto_signer_->sign(block->payload())},
+          crypto_signer_->publicKey());
 
       return block;
     }
