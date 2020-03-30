@@ -11,13 +11,20 @@
 #include "cryptography/keypair.hpp"
 #include "logger/logger_fwd.hpp"
 
+namespace shared_model {
+  namespace crypto {
+    class CryptoSigner;
+  }
+}  // namespace shared_model
+
 namespace iroha {
   namespace consensus {
     namespace yac {
       class CryptoProviderImpl : public YacCryptoProvider {
        public:
-        CryptoProviderImpl(const shared_model::crypto::Keypair &keypair,
-                           logger::LoggerPtr log);
+        CryptoProviderImpl(
+            std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+            logger::LoggerPtr log);
 
         // TODO 18.04.2020 IR-710 @mboldyrev: make it return Result
         bool verify(const std::vector<VoteMessage> &msg) override;
@@ -25,7 +32,7 @@ namespace iroha {
         VoteMessage getVote(YacHash hash) override;
 
        private:
-        shared_model::crypto::Keypair keypair_;
+        std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer_;
         logger::LoggerPtr log_;
       };
     }  // namespace yac

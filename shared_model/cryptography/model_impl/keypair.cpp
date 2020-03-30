@@ -5,6 +5,7 @@
 
 #include "cryptography/keypair.hpp"
 
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "utils/string_builder.hpp"
 
 using namespace shared_model::interface::types;
@@ -12,8 +13,8 @@ using namespace shared_model::interface::types;
 namespace shared_model {
   namespace crypto {
 
-    std::string const &Keypair::publicKey() const {
-      return public_key_hex_;
+    PublicKeyHexStringView Keypair::publicKey() const {
+      return PublicKeyHexStringView{public_key_hex_};
     }
 
     const Keypair::PrivateKeyType &Keypair::privateKey() const {

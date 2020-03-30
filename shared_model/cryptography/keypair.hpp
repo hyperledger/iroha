@@ -28,7 +28,7 @@ namespace shared_model {
       /**
        * @return public key
        */
-      std::string const &publicKey() const;
+      shared_model::interface::types::PublicKeyHexStringView publicKey() const;
 
       /**
        * @return private key

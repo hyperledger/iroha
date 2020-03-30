@@ -17,8 +17,9 @@ namespace iroha {
   namespace consensus {
     namespace yac {
       CryptoProviderImpl::CryptoProviderImpl(
-          const shared_model::crypto::Keypair &keypair, logger::LoggerPtr log)
-          : keypair_(keypair), log_(std::move(log)) {}
+          std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+          logger::LoggerPtr log)
+          : crypto_signer_(std::move(crypto_signer)), log_(std::move(log)) {}
 
       bool CryptoProviderImpl::verify(const std::vector<VoteMessage> &msg) {
         return std::all_of(
@@ -47,16 +48,12 @@ namespace iroha {
         auto serialized =
             PbConverters::serializeVotePayload(vote).hash().SerializeAsString();
         auto blob = shared_model::crypto::Blob(serialized);
-        const auto &pubkey = keypair_.publicKey();
-        const auto &privkey = keypair_.privateKey();
-        using namespace shared_model::interface::types;
-        auto signature = shared_model::crypto::CryptoSigner::sign(
-            blob,
-            shared_model::crypto::Keypair(PublicKeyHexStringView{pubkey},
-                                          privkey));
+        const auto &pubkey = crypto_signer_->publicKey();
+        auto signature = crypto_signer_->sign(blob);
 
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote
+        using namespace shared_model::interface::types;
         vote.signature = std::make_shared<shared_model::plain::Signature>(
             SignedHexStringView{signature}, PublicKeyHexStringView{pubkey});
 

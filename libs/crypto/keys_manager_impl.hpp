@@ -30,10 +30,11 @@ namespace iroha {
 
     /**
      * Initialize key manager for a specific account
-     * @param account_id - fully qualified account id, e.g. admin@test
+     * @param path_to_keypair - path to keys without suffix like .pub
      * @param log to print progress
      */
-    KeysManagerImpl(const std::string account_id, logger::LoggerPtr log);
+    KeysManagerImpl(const boost::filesystem::path &path_to_keypair,
+                    logger::LoggerPtr log);
 
     bool createKeys(const boost::optional<std::string> &pass_phrase) override;
 
@@ -52,8 +53,8 @@ namespace iroha {
      */
     bool store(std::string_view pub, std::string_view priv);
 
-    boost::filesystem::path path_to_keypair_;
-    std::string account_id_;
+    boost::filesystem::path path_to_priv_key_;
+    boost::filesystem::path path_to_pub_key_;
     logger::LoggerPtr log_;
   };
 }  // namespace iroha
