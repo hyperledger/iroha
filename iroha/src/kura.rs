@@ -1,72 +1,69 @@
 use crate::{
     prelude::*,
     validation::{self, MerkleTree},
-    wsv::WorldStateView,
 };
-use std::path::{Path, PathBuf};
+use async_std::{
+    fs::{metadata, File},
+    prelude::*,
+};
+use futures::channel::mpsc::UnboundedSender;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
+
+type BlockSender = UnboundedSender<Block>;
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 pub struct Kura {
+    mode: String,
     block_store: BlockStore,
-    world_state_view: WorldStateView,
+    world_state_view_tx: BlockSender,
     merkle_tree: MerkleTree,
 }
 
 impl Kura {
-    /// Kura reads all transactions in all block keeping its order without any validation.
-    /// Better to use only for operations with no expectations about correctnes.
-    pub async fn fast_init() -> Self {
-        let block_store = BlockStore::default();
-        let blocks = block_store.read_all().await;
-        let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
-        let world_state_view = WorldStateView::init(&blocks_refs).await;
-        let merkle_tree = MerkleTree::build(&blocks_refs);
+    pub fn new(mode: String, world_state_view_tx: BlockSender) -> Self {
         Kura {
-            block_store,
-            world_state_view,
-            merkle_tree,
+            mode,
+            block_store: BlockStore::default(),
+            world_state_view_tx,
+            merkle_tree: MerkleTree::new(),
         }
     }
 
-    /// `Kura::fast_init` with transactions and blocks validation (signatures correctness and business rules).
-    pub async fn strict_init() -> Result<Self, &'static str> {
-        let kura = Kura::fast_init().await;
-        validation::validate(kura.block_store.read_all().await)?;
-        Ok(kura)
+    pub async fn init(&mut self) -> Result<Vec<Block>, String> {
+        let blocks = self.block_store.read_all().await;
+        let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
+        self.merkle_tree.build(&blocks_refs);
+        if self.mode == "strict" {
+            validation::validate(blocks_refs)?;
+        }
+        Ok(blocks)
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
     pub async fn store(&mut self, block: &Block) -> Result<Hash, String> {
-        use futures::join;
-        let (block_store_result, _) = join!(
-            self.block_store.write(&block),
-            self.world_state_view.put(&block)
-        );
-        //TODO: replace with rebuild of a tree? self.merkle_tree.put(block.clone());
+        let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
-            Ok(hash) => Ok(hash),
+            Ok(hash) => {
+                self.world_state_view_tx
+                    .start_send(block.clone())
+                    .map_err(|e| format!("Failed to update world state view: {}", e))?;
+                Ok(hash)
+            }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
                 let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
-                self.world_state_view = WorldStateView::init(&blocks_refs).await;
-                self.merkle_tree = MerkleTree::build(&blocks_refs);
+                self.merkle_tree.build(&blocks_refs);
                 Err(error)
             }
         }
     }
-
-    pub fn get_world_state_view(&self) -> &WorldStateView {
-        &self.world_state_view
-    }
 }
-
-#[async_std::test]
-async fn strict_init_kura() {
-    assert!(Kura::strict_init().await.is_ok());
-}
-
-static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
 
 /// Representation of a consistent storage.
 struct BlockStore {
@@ -81,8 +78,6 @@ impl Default for BlockStore {
 
 impl BlockStore {
     fn new(block_store_location: &str) -> BlockStore {
-        use std::fs;
-
         let path = Path::new(block_store_location);
         fs::create_dir_all(path).expect("Failed to create storage directory.");
         BlockStore {
@@ -100,9 +95,6 @@ impl BlockStore {
     }
 
     async fn write(&self, block: &Block) -> Result<Hash, String> {
-        use async_std::fs::File;
-        use async_std::prelude::*;
-
         //filename is its height
         let path = self.get_block_path(block.height);
         match File::create(path).await {
@@ -119,9 +111,6 @@ impl BlockStore {
     }
 
     async fn read(&self, height: u64) -> Result<Block, String> {
-        use async_std::fs::{metadata, File};
-        use async_std::prelude::*;
-
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.map_err(|_| "No file found.")?;
         let metadata = metadata(&path)
@@ -149,12 +138,17 @@ impl BlockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::channel::mpsc;
+
+    #[async_std::test]
+    async fn strict_init_kura() {
+        let (tx, _rx) = mpsc::unbounded();
+        assert!(Kura::new("strict".to_string(), tx).init().await.is_ok());
+    }
 
     #[async_std::test]
     async fn write_block_to_block_store() {
-        use tempfile::tempdir;
-
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let block = Block::builder(Vec::new()).build();
         assert!(BlockStore::new(dir.path().to_str().unwrap())
             .write(&block)
@@ -164,9 +158,7 @@ mod tests {
 
     #[async_std::test]
     async fn read_block_from_block_store() {
-        use tempfile::tempdir;
-
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let block = Block::builder(Vec::new()).build();
         let block_store = BlockStore::new(dir.path().to_str().unwrap());
         block_store
@@ -178,9 +170,7 @@ mod tests {
 
     #[async_std::test]
     async fn read_all_blocks_from_block_store() {
-        use tempfile::tempdir;
-
-        let dir = tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let block_store = BlockStore::new(dir.path().to_str().unwrap());
         let n = 10;
         for i in 0..n {
@@ -197,9 +187,7 @@ mod tests {
     /// Should be used in tests that may potentially read from block_store
     /// to prevent failures due to changes in block structure.
     pub async fn cleanup_default_block_dir() -> Result<(), String> {
-        use async_std::fs;
-
-        fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
+        async_std::fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
             .await
             .map_err(|error| error.to_string())?;
         Ok(())
@@ -213,10 +201,10 @@ mod tests {
     ///chunks of 100 blocks each are stored in files in the block store.
     #[async_std::test]
     async fn store_block() {
-        cleanup_default_block_dir()
-            .await
-            .expect("Failed to cleanup blocks dir.");
-        let mut kura = Kura::fast_init().await;
+        let _result = cleanup_default_block_dir().await;
+        let (tx, _rx) = mpsc::unbounded();
+        let mut kura = Kura::new("strict".to_string(), tx);
+        kura.init().await.expect("Failed to init Kura.");
         kura.store(&Block::builder(Vec::new()).build())
             .await
             .expect("Failed to store block into Kura.");

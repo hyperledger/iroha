@@ -1,4 +1,4 @@
-use crate::{prelude::*, query::Query, queue::Queue, sumeragi::Sumeragi};
+use crate::{prelude::*, query::Query, queue::Queue, sumeragi::Sumeragi, wsv::WorldStateView};
 use std::{
     io::prelude::*,
     net::TcpListener,
@@ -15,15 +15,17 @@ pub struct Torii {
     url: String,
     queue: Queue,
     consensus: Sumeragi,
+    world_state_view: WorldStateView,
     last_round_time: Instant,
 }
 
 impl Torii {
-    pub fn new(url: &str, consensus: Sumeragi) -> Self {
+    pub fn new(url: &str, consensus: Sumeragi, world_state_view: WorldStateView) -> Self {
         Torii {
             url: url.to_string(),
             queue: Queue::default(),
             consensus,
+            world_state_view,
             last_round_time: Instant::now(),
         }
     }
@@ -80,7 +82,7 @@ impl Torii {
 mod tests {
     use super::*;
     use crate::{block::Blockchain, config::Configuration, kura::Kura, query};
-    use futures::executor;
+    use futures::{channel::mpsc, executor};
 
     #[test]
     fn get_request_to_torii_should_return_ok() {
@@ -138,9 +140,13 @@ mod tests {
         let config =
             Configuration::from_path("config.json").expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
+        let (tx, rx) = mpsc::unbounded();
+        let mut kura = Kura::new("strict".to_string(), tx);
+        kura.init().await.expect("Failed to init Kura");
         let mut torii = Torii::new(
             &torii_url.clone(),
-            Sumeragi::new(Blockchain::new(Kura::fast_init().await)),
+            Sumeragi::new(Blockchain::new(kura)),
+            WorldStateView::new(rx),
         );
         torii.start().await;
     }

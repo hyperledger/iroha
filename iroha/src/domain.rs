@@ -20,10 +20,11 @@ impl Domain {
 
 pub mod isi {
     use crate::isi::Command;
+    use parity_scale_codec::{Decode, Encode};
 
     /// The purpose of create domain command is to make new domain in Iroha network, which is a
     /// group of accounts.
-    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Encode, Decode)]
     pub struct CreateDomain {
         pub domain_name: String,
         pub default_role: String,
@@ -41,7 +42,7 @@ pub mod isi {
     /// ```
     impl std::convert::From<&CreateDomain> for Vec<u8> {
         fn from(command_payload: &CreateDomain) -> Self {
-            bincode::serialize(command_payload).expect("Failed to serialize payload.")
+            command_payload.encode()
         }
     }
 
@@ -78,7 +79,8 @@ pub mod isi {
     /// ```
     impl std::convert::From<Vec<u8>> for CreateDomain {
         fn from(command_payload: Vec<u8>) -> Self {
-            bincode::deserialize(&command_payload).expect("Failed to deserialize payload.")
+            CreateDomain::decode(&mut command_payload.as_slice())
+                .expect("Failed to deserialize payload.")
         }
     }
 
@@ -88,8 +90,7 @@ pub mod isi {
             domain_name: "domain".to_string(),
             default_role: "user".to_string(),
         };
-        let actual: CreateDomain =
-            bincode::deserialize(&bincode::serialize(&expected).unwrap()[..]).unwrap();
+        let actual = CreateDomain::decode(&mut expected.encode().as_slice()).unwrap();
         assert_eq!(expected, actual);
     }
 }
