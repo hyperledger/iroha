@@ -12,4 +12,4 @@ WORKDIR /opt/iroha_data
 COPY entrypoint.sh wait-for-it.sh /
 RUN chmod +x /entrypoint.sh /wait-for-it.sh
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["/sbin/init"]
+CMD ["irohad"]
