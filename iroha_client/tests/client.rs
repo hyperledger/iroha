@@ -4,10 +4,10 @@ mod e2e_tests {
     use iroha::{
         account::isi::{CreateAccount, CreateRole},
         asset::isi::{AddAssetQuantity, TransferAsset},
-        client::{self, Client},
         domain::isi::CreateDomain,
         prelude::*,
     };
+    use iroha_client::client::Client;
     use std::thread;
 
     static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
@@ -71,7 +71,7 @@ mod e2e_tests {
             .submit(transfer_asset.into())
             .expect("Failed to submit command.");
         //Then
-        let _query = client::assets::by_id(asset_id);
+        //let _query = client::assets::by_id(asset_id);
         //assert_eq!(account2_id, asset.account_id);
         let _result = cleanup_default_block_dir().await;
     }

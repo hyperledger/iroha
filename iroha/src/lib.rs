@@ -1,13 +1,13 @@
 pub mod account;
 pub mod asset;
 pub mod block;
-pub mod client;
 pub mod config;
 pub mod crypto;
 pub mod domain;
 pub mod isi;
 mod kura;
 pub mod peer;
+pub mod query;
 mod queue;
 mod sumeragi;
 pub mod torii;

@@ -1,6 +1,6 @@
 use criterion::*;
 use futures::executor;
-use iroha::{client::query::GetAccountAssets, config::Configuration, prelude::*};
+use iroha::{config::Configuration, prelude::*, query::GetAccountAssets};
 use std::io::prelude::*;
 use std::thread;
 use std::time::Duration;
