@@ -23,6 +23,12 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "simulator/block_creator.hpp"
 
+namespace shared_model {
+  namespace crypto {
+    class CryptoSigner;
+  }
+}  // namespace shared_model
+
 namespace iroha {
   namespace consensus {
     namespace yac {
@@ -37,7 +43,7 @@ namespace iroha {
                 alternative_peers,
             std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<network::BlockLoader> block_loader,
-            const shared_model::crypto::Keypair &keypair,
+            std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
             std::shared_ptr<consensus::ConsensusResultCache> block_cache,
             std::chrono::milliseconds vote_delay_milliseconds,
             std::shared_ptr<

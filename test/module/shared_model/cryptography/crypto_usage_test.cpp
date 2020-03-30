@@ -12,7 +12,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "cryptography/crypto_provider/crypto_model_signer.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "framework/crypto_literals.hpp"
@@ -22,6 +22,7 @@
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "multihash/multihash.hpp"
 #include "multihash/type.hpp"
 #include "validators/field_validator.hpp"
@@ -91,7 +92,13 @@ class CryptoUsageTest : public ::testing::Test {
       CurrentCryptoProvider::generateKeypair();
 
   shared_model::crypto::CryptoModelSigner<CurrentCryptoProvider> signer =
-      shared_model::crypto::CryptoModelSigner<CurrentCryptoProvider>(keypair);
+      shared_model::crypto::CryptoModelSigner<CurrentCryptoProvider>(
+          shared_model::crypto::Keypair{keypair});
+
+  template <typename T>
+  void sign(T &o) {
+    o.addSignature(signer.sign(o.payload()), signer.publicKey());
+  }
 
   shared_model::validation::FieldValidator field_validator_{
       iroha::test::kTestsValidatorsConfig};
@@ -141,7 +148,7 @@ TYPED_TEST(CryptoUsageTest, UnsignedBlock) {
  * @then block is verified
  */
 TYPED_TEST(CryptoUsageTest, SignAndVerifyBlock) {
-  this->signer.sign(*this->block);
+  this->sign(*this->block);
 
   EXPECT_EQ(this->verify(*this->block), std::nullopt);
 }
@@ -172,7 +179,7 @@ TYPED_TEST(CryptoUsageTest, UnsignedQuery) {
  * @then query is verified
  */
 TYPED_TEST(CryptoUsageTest, SignAndVerifyQuery) {
-  this->signer.sign(*this->query);
+  this->sign(*this->query);
 
   EXPECT_EQ(this->verify(*this->query), std::nullopt);
 }
@@ -195,7 +202,7 @@ TYPED_TEST(CryptoUsageTest, SignAndVerifyQuerykWithWrongSignature) {
  */
 TYPED_TEST(CryptoUsageTest, SameQueryHashAfterSign) {
   auto hash_before = this->query->hash();
-  this->signer.sign(*this->query);
+  this->sign(*this->query);
   auto hash_signed = this->query->hash();
 
   ASSERT_EQ(hash_signed, hash_before);
@@ -216,7 +223,7 @@ TYPED_TEST(CryptoUsageTest, UnsignedTransaction) {
  * @then transaction is verified
  */
 TYPED_TEST(CryptoUsageTest, SignAndVerifyTransaction) {
-  this->signer.sign(*this->transaction);
+  this->sign(*this->transaction);
 
   EXPECT_EQ(this->verify(*this->transaction), std::nullopt);
 }

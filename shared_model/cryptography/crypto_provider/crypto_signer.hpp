@@ -8,29 +8,33 @@
 
 #include <string>
 
+#include "interfaces/common_objects/string_view_types.hpp"
+
 namespace shared_model {
   namespace crypto {
 
     class Blob;
-    class Keypair;
+    class Signed;
 
     /**
      * CryptoSigner - wrapper for generalization signing for different
      * cryptographic algorithms
-     * @tparam Algorithm - cryptographic algorithm for singing
      */
     class CryptoSigner {
      public:
+      virtual ~CryptoSigner() = default;
+
       /**
        * Generate signature for target data
        * @param blob - data for signing
        * @param keypair - (public, private) keys for signing
        * @return hex signature
        */
-      static std::string sign(const Blob &blob, const Keypair &keypair);
+      virtual std::string sign(const Blob &blob) const = 0;
 
-      /// close constructor for forbidding instantiation
-      CryptoSigner() = delete;
+      /// Get public key.
+      virtual shared_model::interface::types::PublicKeyHexStringView publicKey()
+          const = 0;
     };
   }  // namespace crypto
 }  // namespace shared_model
