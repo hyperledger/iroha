@@ -15,6 +15,7 @@ target_link_libraries(test_logger
     )
 
 add_library(integration_framework
+    integration_framework/default_crypto_signer.cpp
     integration_framework/integration_test_framework.cpp
     integration_framework/iroha_instance.cpp
     integration_framework/fake_peer/fake_peer.cpp

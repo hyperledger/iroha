@@ -26,7 +26,7 @@ namespace shared_model {
     class Peer;
   }  // namespace interface
   namespace crypto {
-    class Keypair;
+    class CryptoSigner;
   }  // namespace crypto
 }  // namespace shared_model
 
@@ -73,8 +73,9 @@ namespace integration_framework {
         std::chrono::milliseconds mst_gossip_emitting_period,
         uint32_t mst_gossip_amount_per_once);
 
-    void initPipeline(const shared_model::crypto::Keypair &key_pair,
-                      size_t max_proposal_size = 10);
+    void initPipeline(
+        std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+        size_t max_proposal_size = 10);
 
     void run();
 

@@ -57,15 +57,15 @@ TEST(ProtoQueryBuilder, Builder) {
     pagination_meta->set_first_asset_id(asset_id);
   }
 
-  auto keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner::sign(
-      shared_model::crypto::Blob(proto_query.payload().SerializeAsString()),
-      keypair);
+  using namespace shared_model::crypto;
+  auto signer = makeDefaultSigner();
+  auto signature_hex =
+      signer->sign(Blob{proto_query.payload().SerializeAsString()});
+  std::string_view public_key = signer->publicKey();
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey());
-  sig->set_signature(signedProto);
+  sig->set_public_key(public_key.data(), public_key.size());
+  sig->set_signature(signature_hex);
 
   auto query = shared_model::proto::QueryBuilder()
                    .createdTime(created_time)
@@ -74,7 +74,7 @@ TEST(ProtoQueryBuilder, Builder) {
                    .queryCounter(query_counter)
                    .build();
 
-  auto proto = query.signAndAddSignature(keypair).finish().getTransport();
+  auto proto = query.signAndAddSignature(*signer).finish().getTransport();
   ASSERT_EQ(proto_query.SerializeAsString(), proto.SerializeAsString());
 }
 
@@ -93,15 +93,15 @@ TEST(ProtoQueryBuilder, BlocksQueryBuilder) {
   meta->set_creator_account_id(account_id);
   meta->set_query_counter(query_counter);
 
-  auto keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner::sign(
-      shared_model::crypto::Blob(proto_query.meta().SerializeAsString()),
-      keypair);
+  using namespace shared_model::crypto;
+  auto signer = makeDefaultSigner();
+  auto signature_hex =
+      signer->sign(Blob{proto_query.meta().SerializeAsString()});
+  std::string_view public_key = signer->publicKey();
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey());
-  sig->set_signature(signedProto);
+  sig->set_public_key(public_key.data(), public_key.size());
+  sig->set_signature(signature_hex);
 
   auto query = shared_model::proto::BlocksQueryBuilder()
                    .createdTime(created_time)
@@ -109,6 +109,6 @@ TEST(ProtoQueryBuilder, BlocksQueryBuilder) {
                    .queryCounter(query_counter)
                    .build();
 
-  auto proto = query.signAndAddSignature(keypair).finish().getTransport();
+  auto proto = query.signAndAddSignature(*signer).finish().getTransport();
   ASSERT_EQ(proto_query.SerializeAsString(), proto.SerializeAsString());
 }

@@ -13,9 +13,10 @@
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/transport/yac_network_interface.hpp"
 #include "consensus/yac/yac_crypto_provider.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
-#include "cryptography/keypair.hpp"
+#include "framework/integration_framework/default_crypto_signer.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/integration_framework/fake_peer/network/loader_grpc.hpp"
@@ -30,6 +31,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/server_runner.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "network/impl/async_grpc_client.hpp"
 #include "network/impl/grpc_channel_builder.hpp"
@@ -64,7 +66,7 @@ namespace integration_framework {
     FakePeer::FakePeer(
         const std::string &listen_ip,
         size_t internal_port,
-        const boost::optional<Keypair> &key,
+        std::optional<std::shared_ptr<CryptoSigner>> signer,
         std::shared_ptr<shared_model::interface::Peer> real_peer,
         const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
             &common_objects_factory,
@@ -90,11 +92,10 @@ namespace integration_framework {
           batch_parser_(batch_parser),
           listen_ip_(listen_ip),
           internal_port_(internal_port),
-          keypair_(std::make_unique<Keypair>(
-              key.value_or(CryptoProviderEd25519Sha3::generateKeypair()))),
+          signer_(makeSigner(std::move(signer))),
           this_peer_(createPeer(common_objects_factory,
                                 getAddress(),
-                                PublicKeyHexStringView{keypair_->publicKey()})),
+                                PublicKeyHexStringView{signer_->publicKey()})),
           real_peer_(std::move(real_peer)),
           async_call_(std::make_shared<AsyncCall>(
               log_manager_->getChild("AsyncNetworkClient")->getLogger())),
@@ -106,7 +107,7 @@ namespace integration_framework {
               tx_presence_cache,
               std::make_shared<iroha::DefaultCompleter>(
                   std::chrono::minutes(0)),
-              PublicKeyHexStringView{keypair_->publicKey()},
+              PublicKeyHexStringView{signer_->publicKey()},
               mst_log_manager_->getChild("State")->getLogger(),
               mst_log_manager_->getChild("Transport")->getLogger())),
           yac_transport_(std::make_shared<YacTransport>(
@@ -122,7 +123,7 @@ namespace integration_framework {
           og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
           yac_crypto_(
               std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-                  *keypair_,
+                  signer_,
                   consensus_log_manager_->getChild("Crypto")->getLogger())) {
       mst_transport_->subscribe(mst_network_notifier_);
       yac_transport_->subscribe(yac_network_notifier_);
@@ -226,8 +227,8 @@ namespace integration_framework {
       return listen_ip_ + ":" + std::to_string(internal_port_);
     }
 
-    const Keypair &FakePeer::getKeypair() const {
-      return *keypair_;
+    const CryptoSigner &FakePeer::getSigner() const {
+      return *signer_;
     }
 
     std::shared_ptr<shared_model::interface::Peer> FakePeer::getThisPeer()
@@ -282,10 +283,10 @@ namespace integration_framework {
 
     std::shared_ptr<shared_model::interface::Signature> FakePeer::makeSignature(
         const shared_model::crypto::Blob &hash) const {
-      auto bare_signature = CryptoProviderEd25519Sha3::sign(hash, *keypair_);
+      auto bare_signature = signer_->sign(hash);
       std::shared_ptr<shared_model::interface::Signature> signature_with_pubkey;
       common_objects_factory_
-          ->createSignature(PublicKeyHexStringView{keypair_->publicKey()},
+          ->createSignature(PublicKeyHexStringView{signer_->publicKey()},
                             SignedHexStringView{bare_signature})
           .match(
               [&signature_with_pubkey](auto &&sig) {

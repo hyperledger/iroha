@@ -5,9 +5,19 @@
 
 #include "framework/common_constants.hpp"
 
+#include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model::crypto;
+
+namespace {
+  std::shared_ptr<CryptoSigner> makeSigner(Keypair keypair) {
+    return std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
+        std::move(keypair));
+  }
+}  // namespace
 
 namespace common_constants {
 
@@ -44,6 +54,14 @@ namespace common_constants {
       CryptoProviderEd25519Sha3::generateKeypair();
   const Keypair kSecondDomainUserKeypair =
       CryptoProviderEd25519Sha3::generateKeypair();
+
+  // signers
+  const std::shared_ptr<CryptoSigner> kAdminSigner = makeSigner(kAdminKeypair);
+  const std::shared_ptr<CryptoSigner> kUserSigner = makeSigner(kUserKeypair);
+  const std::shared_ptr<CryptoSigner> kSameDomainUserSigner =
+      makeSigner(kSameDomainUserKeypair);
+  const std::shared_ptr<CryptoSigner> kSecondDomainUserSigner =
+      makeSigner(kSecondDomainUserKeypair);
 
   // misc
   const shared_model::interface::Amount kAmountPrec1Max{
