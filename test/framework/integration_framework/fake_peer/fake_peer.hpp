@@ -20,6 +20,11 @@
 #include "network/impl/async_grpc_client.hpp"
 #include "ordering/impl/on_demand_os_client_grpc.hpp"
 
+namespace shared_model {
+  namespace crypto {
+    class CryptoSigner;
+  }
+}  // namespace shared_model
 namespace iroha {
   namespace network {
     class ServerRunner;
@@ -46,7 +51,7 @@ namespace integration_framework {
        *
        * @param listen_ip - IP on which this fake peer should listen
        * @param internal_port - the port for internal commulications
-       * @param key - the keypair of this peer
+       * @param signer - crypto signer for this fake peer
        * @param real_peer - the main tested peer managed by ITF
        * @param common_objects_factory - common_objects_factory
        * @param transaction_factory - transaction_factory
@@ -59,7 +64,8 @@ namespace integration_framework {
       FakePeer(
           const std::string &listen_ip,
           size_t internal_port,
-          const boost::optional<shared_model::crypto::Keypair> &key,
+          std::optional<std::shared_ptr<shared_model::crypto::CryptoSigner>>
+              signer,
           std::shared_ptr<shared_model::interface::Peer> real_peer,
           const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
               &common_objects_factory,
@@ -104,8 +110,8 @@ namespace integration_framework {
       /// Get the address:port string of this peer.
       std::string getAddress() const;
 
-      /// Get the keypair of this peer.
-      const shared_model::crypto::Keypair &getKeypair() const;
+      /// Get the crypto signer of this peer.
+      const shared_model::crypto::CryptoSigner &getSigner() const;
 
       /// Get interface::Peer object for this instance.
       std::shared_ptr<shared_model::interface::Peer> getThisPeer() const;
@@ -231,7 +237,7 @@ namespace integration_framework {
 
       const std::string listen_ip_;
       size_t internal_port_;
-      std::unique_ptr<shared_model::crypto::Keypair> keypair_;
+      std::shared_ptr<shared_model::crypto::CryptoSigner> signer_;
 
       std::shared_ptr<shared_model::interface::Peer>
           this_peer_;  ///< this fake instance

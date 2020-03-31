@@ -100,7 +100,8 @@ namespace integration_framework {
   }
 
   void IrohaInstance::initPipeline(
-      const shared_model::crypto::Keypair &key_pair, size_t max_proposal_size) {
+      std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+      size_t max_proposal_size) {
     instance_ = std::make_shared<TestIrohad>(
         block_store_dir_,
         std::make_unique<iroha::ametsuchi::PostgresOptions>(
@@ -112,7 +113,7 @@ namespace integration_framework {
         proposal_delay_,
         vote_delay_,
         mst_expiration_time_,
-        key_pair,
+        std::move(crypto_signer),
         max_rounds_delay_,
         stale_stream_max_rounds_,
         boost::none,

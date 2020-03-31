@@ -9,10 +9,10 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/gate_object.hpp"
-#include "cryptography/keypair.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -27,7 +27,7 @@ namespace google {
 
 namespace shared_model {
   namespace crypto {
-    class Keypair;
+    class CryptoSigner;
   }
   namespace interface {
     template <typename Interface, typename Transport>
@@ -150,12 +150,13 @@ namespace integration_framework {
 
     ~IntegrationTestFramework();
 
-    /// Add a fake peer with given key.
+    /// Add a fake peer with given crypto signer.
     std::shared_ptr<fake_peer::FakePeer> addFakePeer(
-        const boost::optional<shared_model::crypto::Keypair> &key);
+        std::optional<std::shared_ptr<shared_model::crypto::CryptoSigner>>
+            signer);
 
-    /// Add the given amount of fake peers with generated default keys and
-    /// "honest" behaviours.
+    /// Add the given amount of fake peers with generated default crypto signers
+    /// and "honest" behaviours.
     std::vector<std::shared_ptr<fake_peer::FakePeer>> addFakePeers(
         size_t amount);
 
@@ -166,13 +167,13 @@ namespace integration_framework {
      * creates an admin account (kAdminName) with its role (kAdminRole), a
      * domain (kDomain) with its default role (kDefaultRole), and an asset
      * (kAssetName).
-     * @param key - signing key
+     * @param signer - ITF peer crypto signer
      * @return signed genesis block
      */
     shared_model::proto::Block defaultBlock(
-        const shared_model::crypto::Keypair &key) const;
+        std::shared_ptr<shared_model::crypto::CryptoSigner> signer) const;
 
-    /// Construct default genesis block using the my_key_ key.
+    /// Construct default genesis block using signer_.
     shared_model::proto::Block defaultBlock() const;
 
     /// Set the provided genesis block.
@@ -180,13 +181,12 @@ namespace integration_framework {
         const shared_model::interface::Block &block);
 
     /**
-     * Initialize Iroha instance with default genesis block and provided signing
-     * key
-     * @param keypair - signing key
+     * Initialize Iroha instance with default genesis block and provided signer
+     * @param signer - ITF peer crypto signer
      * @return this
      */
     IntegrationTestFramework &setInitialState(
-        const shared_model::crypto::Keypair &keypair);
+        std::shared_ptr<shared_model::crypto::CryptoSigner> signer);
 
     /// Set Gossip MST propagation parameters.
     IntegrationTestFramework &setMstGossipParams(
@@ -194,22 +194,22 @@ namespace integration_framework {
         uint32_t mst_gossip_amount_per_once);
 
     /**
-     * Initialize Iroha instance with provided genesis block and signing key
-     * @param keypair - signing key
+     * Initialize Iroha instance with provided genesis block and signer
+     * @param signer - ITF peer crypto signer
      * @param block - genesis block used for iroha initialization
      * @return this
      */
     IntegrationTestFramework &setInitialState(
-        const shared_model::crypto::Keypair &keypair,
+        std::shared_ptr<shared_model::crypto::CryptoSigner> signer,
         const shared_model::interface::Block &block);
 
     /**
      * Initialize Iroha instance using the data left in block store from
      * previous launch of Iroha
-     * @param keypair - signing key used for initialization of previous instance
+     * @param signer - ITF peer crypto signer
      */
     IntegrationTestFramework &recoverState(
-        const shared_model::crypto::Keypair &keypair);
+        std::shared_ptr<shared_model::crypto::CryptoSigner> signer);
 
     /**
      * Send transaction to Iroha without wating for proposal and validating its
@@ -454,8 +454,9 @@ namespace integration_framework {
     /// Get the controlled Iroha instance.
     IrohaInstance &getIrohaInstance();
 
-    /// Set the ITF peer keypair and initialize irohad pipeline.
-    void initPipeline(const shared_model::crypto::Keypair &keypair);
+    /// Set the ITF peer signer and initialize irohad pipeline.
+    void initPipeline(
+        std::shared_ptr<shared_model::crypto::CryptoSigner> signer);
 
     /// Start the ITF.
     void subscribeQueuesAndRun();
@@ -543,7 +544,7 @@ namespace integration_framework {
     std::shared_ptr<iroha::network::MstTransportGrpc> mst_transport_;
     std::shared_ptr<iroha::consensus::yac::YacNetwork> yac_transport_;
 
-    boost::optional<shared_model::crypto::Keypair> my_key_;
+    std::optional<std::shared_ptr<shared_model::crypto::CryptoSigner>> signer_;
     std::shared_ptr<shared_model::interface::Peer> this_peer_;
 
    private:

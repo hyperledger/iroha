@@ -8,7 +8,9 @@
 
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/keypair.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -74,9 +76,9 @@ namespace shared_model {
        * @return signed object
        */
       UnsignedWrapper &signAndAddSignature(const crypto::Keypair &keypair) {
+        using namespace ::shared_model::crypto;
         return signAndAddSignature(
-            crypto::CryptoSignerInternal<DefaultCryptoAlgorithmType>{
-                crypto::Keypair{keypair}});
+            CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{keypair}});
       }
 
       /**
