@@ -70,13 +70,14 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
                                int tx_number,
                                KeyPairs... keypairs) {
   auto create_signature = [&](auto &&key_pair) {
+    using namespace shared_model::crypto;
+    using namespace shared_model::interface::types;
     auto &payload = batch->transactions().at(tx_number)->payload();
-    auto signed_blob = shared_model::crypto::CryptoSigner<>::sign(
-        shared_model::crypto::Blob(payload), key_pair);
+    auto signature_hex =
+        CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{key_pair}}
+            .sign(payload);
     batch->addSignature(
-        tx_number,
-        shared_model::interface::types::SignedHexStringView{signed_blob},
-        key_pair.publicKey());
+        tx_number, SignedHexStringView{signature_hex}, key_pair.publicKey());
   };
 
   // pack expansion trick:

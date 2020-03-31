@@ -7,6 +7,7 @@
 #define IROHA_TEST_FRAMEWORK_COMMON_CONSTANTS_HPP_
 
 #include <limits>
+#include <memory>
 #include <string>
 
 #include "cryptography/keypair.hpp"
@@ -14,6 +15,12 @@
 
 static const uint32_t kMaxPageSize = std::numeric_limits<uint32_t>::max();
 using shared_model::crypto::Keypair;
+
+namespace shared_model {
+  namespace crypto {
+    class CryptoSigner;
+  }
+}  // namespace shared_model
 
 namespace common_constants {
 
@@ -48,6 +55,14 @@ namespace common_constants {
   extern const Keypair kUserKeypair;
   extern const Keypair kSameDomainUserKeypair;
   extern const Keypair kSecondDomainUserKeypair;
+
+  // signers
+  const std::shared_ptr<shared_model::crypto::CryptoSigner> kAdminSigner;
+  const std::shared_ptr<shared_model::crypto::CryptoSigner> kUserSigner;
+  const std::shared_ptr<shared_model::crypto::CryptoSigner>
+      kSameDomainUserSigner;
+  const std::shared_ptr<shared_model::crypto::CryptoSigner>
+      kSecondDomainUserSigner;
 
   // misc
   extern const shared_model::interface::Amount

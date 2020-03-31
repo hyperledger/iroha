@@ -33,6 +33,7 @@ using namespace iroha::network;
 using namespace iroha::torii;
 using namespace iroha::synchronizer;
 using namespace framework::test_subscriber;
+using namespace shared_model::interface::types;
 
 using ::testing::_;
 using ::testing::A;
@@ -96,12 +97,11 @@ class TransactionProcessorTest : public ::testing::Test {
   template <typename Transaction, typename... KeyPairs>
   auto addSignaturesFromKeyPairs(Transaction &&tx, KeyPairs... keypairs) {
     auto create_signature = [&](auto &&key_pair) {
-      auto &payload = tx.payload();
-      auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
-          shared_model::crypto::Blob(payload), key_pair);
-      tx.addSignature(
-          shared_model::interface::types::SignedHexStringView{signedBlob},
-          key_pair.publicKey());
+      using namespace shared_model::crypto;
+      auto signed_blob =
+          CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{key_pair}}
+              .sign(tx.payload());
+      tx.addSignature(SignedHexStringView{signature_hex}, key_pair.publicKey());
     };
 
     int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};

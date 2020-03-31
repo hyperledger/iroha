@@ -6,7 +6,6 @@
 #ifndef IROHA_TESTIROHAD_HPP
 #define IROHA_TESTIROHAD_HPP
 
-#include "cryptography/keypair.hpp"
 #include "main/application.hpp"
 #include "main/server_runner.hpp"
 
@@ -16,26 +15,27 @@ namespace integration_framework {
    */
   class TestIrohad : public Irohad {
    public:
-    TestIrohad(const boost::optional<std::string> &block_store_dir,
-               std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
-               const std::string &listen_ip,
-               size_t torii_port,
-               size_t internal_port,
-               size_t max_proposal_size,
-               std::chrono::milliseconds proposal_delay,
-               std::chrono::milliseconds vote_delay,
-               std::chrono::minutes mst_expiration_time,
-               const shared_model::crypto::Keypair &keypair,
-               std::chrono::milliseconds max_rounds_delay,
-               size_t stale_stream_max_rounds,
-               boost::optional<shared_model::interface::types::PeerList>
-                   opt_alternative_peers,
-               logger::LoggerManagerTreePtr irohad_log_manager,
-               logger::LoggerPtr log,
-               const boost::optional<iroha::GossipPropagationStrategyParams>
-                   &opt_mst_gossip_params = boost::none,
-               const boost::optional<iroha::torii::TlsParams>
-                   &torii_tls_params = boost::none)
+    TestIrohad(
+        const boost::optional<std::string> &block_store_dir,
+        std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
+        const std::string &listen_ip,
+        size_t torii_port,
+        size_t internal_port,
+        size_t max_proposal_size,
+        std::chrono::milliseconds proposal_delay,
+        std::chrono::milliseconds vote_delay,
+        std::chrono::minutes mst_expiration_time,
+        std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+        std::chrono::milliseconds max_rounds_delay,
+        size_t stale_stream_max_rounds,
+        boost::optional<shared_model::interface::types::PeerList>
+            opt_alternative_peers,
+        logger::LoggerManagerTreePtr irohad_log_manager,
+        logger::LoggerPtr log,
+        const boost::optional<iroha::GossipPropagationStrategyParams>
+            &opt_mst_gossip_params = boost::none,
+        const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
+            boost::none)
         : Irohad(block_store_dir,
                  std::move(pg_opt),
                  listen_ip,
@@ -45,7 +45,7 @@ namespace integration_framework {
                  proposal_delay,
                  vote_delay,
                  mst_expiration_time,
-                 keypair,
+                 std::move(crypto_signer),
                  max_rounds_delay,
                  stale_stream_max_rounds,
                  std::move(opt_alternative_peers),

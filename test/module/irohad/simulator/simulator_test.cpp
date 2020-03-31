@@ -24,7 +24,7 @@
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
-#include "module/shared_model/cryptography/mock_abstract_crypto_model_signer.hpp"
+#include "module/shared_model/cryptography/mock_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
@@ -47,15 +47,12 @@ using wBlock = std::shared_ptr<shared_model::interface::Block>;
 
 class SimulatorTest : public ::testing::Test {
  public:
-  using CryptoSignerType = shared_model::crypto::MockAbstractCryptoModelSigner<
-      shared_model::interface::Block>;
-
   void SetUp() override {
     auto command_executor = std::make_unique<MockCommandExecutor>();
     validator = std::make_shared<MockStatefulValidator>();
     factory = std::make_shared<NiceMock<MockTemporaryFactory>>();
     ordering_gate = std::make_shared<MockOrderingGate>();
-    crypto_signer = std::make_shared<CryptoSignerType>();
+    crypto_signer = std::make_shared<shared_model::crypto::MockCryptoSigner>();
     block_factory = std::make_unique<shared_model::proto::ProtoBlockFactory>(
         std::make_unique<shared_model::validation::MockValidator<
             shared_model::interface::Block>>(),
@@ -77,7 +74,7 @@ class SimulatorTest : public ::testing::Test {
   std::shared_ptr<MockStatefulValidator> validator;
   std::shared_ptr<MockTemporaryFactory> factory;
   std::shared_ptr<MockOrderingGate> ordering_gate;
-  std::shared_ptr<CryptoSignerType> crypto_signer;
+  std::shared_ptr<shared_model::crypto::MockCryptoSigner> crypto_signer;
   std::unique_ptr<shared_model::interface::UnsafeBlockFactory> block_factory;
   rxcpp::subjects::subject<OrderingEvent> ordering_events;
 
@@ -142,8 +139,7 @@ TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
         return std::move(validation_result);
       }));
 
-  EXPECT_CALL(*crypto_signer, sign(A<shared_model::interface::Block &>()))
-      .Times(1);
+  EXPECT_CALL(*crypto_signer, sign(_)).Times(1);
 
   auto ledger_state = std::make_shared<LedgerState>(
       ledger_peers, proposal->height() - 1, shared_model::crypto::Hash{"hash"});

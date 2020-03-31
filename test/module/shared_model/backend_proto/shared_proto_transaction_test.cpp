@@ -59,12 +59,11 @@ TEST(ProtoTransaction, Builder) {
 
   command->CopyFrom(generateAddAssetQuantity(asset_id));
 
-  auto keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signature_hex = shared_model::crypto::CryptoSigner<>::sign(
-      shared_model::crypto::Blob(proto_tx.payload().SerializeAsString()),
-      keypair);
-  std::string_view public_key = keypair.publicKey();
+  using namespace shared_model::crypto;
+  auto signer = makeDefaultSigner();
+  auto signature_hex =
+      signer->sign(Blob{proto_tx.payload().SerializeAsString()});
+  std::string_view public_key = signer->publicKey();
 
   auto sig = proto_tx.add_signatures();
   sig->set_public_key(public_key.data(), public_key.size());
@@ -77,7 +76,7 @@ TEST(ProtoTransaction, Builder) {
                 .quorum(1)
                 .build();
 
-  auto signedTx = tx.signAndAddSignature(keypair).finish();
+  auto signedTx = tx.signAndAddSignature(*signer).finish();
   auto &proto = signedTx.getTransport();
 
   ASSERT_EQ(proto_tx.SerializeAsString(), proto.SerializeAsString());
