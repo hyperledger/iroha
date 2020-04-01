@@ -18,7 +18,7 @@ impl Account {
 
 pub mod isi {
     use super::*;
-    use crate::isi::Command;
+    use crate::isi::Contract;
     use parity_scale_codec::{Decode, Encode};
 
     /// The purpose of add signatory command is to add an identifier to the account. Such
@@ -47,21 +47,17 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, account::isi::AddSignatory};
+    /// use iroha::{prelude::*, isi::Contract, account::isi::AddSignatory};
     ///
-    /// let command_payload = &AddSignatory {
+    /// let command_payload = AddSignatory {
     ///     account_id: Id::new("account","domain"),
     ///     public_key: [63; 32],
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&AddSignatory> for Command {
-        fn from(command_payload: &AddSignatory) -> Self {
-            Command {
-                version: 1,
-                command_type: 3,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<AddSignatory> for Contract {
+        fn from(command_payload: AddSignatory) -> Self {
+            Contract::AddSignatory(command_payload)
         }
     }
 
@@ -110,21 +106,17 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, account::isi::AppendRole};
+    /// use iroha::{prelude::*, isi::Contract, account::isi::AppendRole};
     ///
-    /// let command_payload = &AppendRole {
+    /// let command_payload = AppendRole {
     ///     account_id: Id::new("account","domain"),
     ///     role_name: "role".to_string(),
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&AppendRole> for Command {
-        fn from(command_payload: &AppendRole) -> Self {
-            Command {
-                version: 1,
-                command_type: 4,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<AppendRole> for Contract {
+        fn from(command_payload: AppendRole) -> Self {
+            Contract::AppendRole(command_payload)
         }
     }
 
@@ -155,6 +147,21 @@ pub mod isi {
         pub public_key: [u8; 32],
     }
 
+    impl Instruction for CreateAccount {
+        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            world_state_view
+                .world
+                .domain(&self.domain_name)
+                .unwrap()
+                .accounts
+                .insert(
+                    self.account_id.clone(),
+                    Account::new(self.account_id.clone()),
+                );
+            Ok(())
+        }
+    }
+
     /// # Example
     /// ```
     /// use iroha::{prelude::*, account::isi::CreateAccount};
@@ -174,22 +181,18 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, account::isi::CreateAccount};
+    /// use iroha::{prelude::*, isi::Contract, account::isi::CreateAccount};
     ///
-    /// let command_payload = &CreateAccount {
+    /// let command_payload = CreateAccount {
     ///     account_id: Id::new("account", "domain"),
     ///     domain_name: "domain".to_string(),
     ///     public_key: [63; 32],
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&CreateAccount> for Command {
-        fn from(command_payload: &CreateAccount) -> Self {
-            Command {
-                version: 1,
-                command_type: 5,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<CreateAccount> for Contract {
+        fn from(command_payload: CreateAccount) -> Self {
+            Contract::CreateAccount(command_payload)
         }
     }
 
@@ -239,21 +242,17 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, account::isi::CreateRole};
+    /// use iroha::{prelude::*, isi::Contract, account::isi::CreateRole};
     ///
-    /// let command_payload = &CreateRole {
+    /// let command_payload = CreateRole {
     ///     role_name: "user".to_string(),
     ///     permissions: Vec::new(),
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&CreateRole> for Command {
-        fn from(command_payload: &CreateRole) -> Self {
-            Command {
-                version: 1,
-                command_type: 8,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<CreateRole> for Contract {
+        fn from(command_payload: CreateRole) -> Self {
+            Contract::CreateRole(command_payload)
         }
     }
 
