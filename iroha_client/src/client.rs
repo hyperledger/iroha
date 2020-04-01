@@ -1,4 +1,4 @@
-use iroha::isi::Command;
+use iroha::isi::Contract;
 
 #[derive(Default)]
 pub struct Client {}
@@ -9,8 +9,8 @@ impl Client {
         Client {}
     }
 
-    /// Command API entry point. Submits commands to `Iroha` peers.
-    pub fn submit(&self, _command: Command) -> Result<(), ()> {
+    /// Contract API entry point. Submits commands to `Iroha` peers.
+    pub fn submit(&self, _command: Contract) -> Result<(), ()> {
         Ok(())
     }
 }

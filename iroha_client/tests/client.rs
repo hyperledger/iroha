@@ -16,33 +16,33 @@ mod e2e_tests {
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account() {
         // Given
-        let create_role = &CreateRole {
+        let create_role = CreateRole {
             role_name: "user".to_string(),
             permissions: Vec::new(),
         };
-        let create_domain = &CreateDomain {
+        let create_domain = CreateDomain {
             domain_name: "domain".to_string(),
             default_role: "user".to_string(),
         };
         let account1_id = Id::new("account1", "domain");
         let account2_id = Id::new("account2", "domain");
-        let create_account1 = &CreateAccount {
+        let create_account1 = CreateAccount {
             account_id: account1_id.clone(),
             domain_name: "domain".to_string(),
             public_key: [63; 32],
         };
-        let create_account2 = &CreateAccount {
+        let create_account2 = CreateAccount {
             account_id: account2_id.clone(),
             domain_name: "domain".to_string(),
             public_key: [63; 32],
         };
         let asset_id = Id::new("xor", "domain");
-        let create_asset = &AddAssetQuantity {
+        let create_asset = AddAssetQuantity {
             asset_id: asset_id.clone(),
             account_id: account1_id.clone(),
             amount: 100,
         };
-        let transfer_asset = &TransferAsset {
+        let transfer_asset = TransferAsset {
             source_account_id: account1_id.clone(),
             destination_account_id: account2_id.clone(),
             asset_id: asset_id.clone(),

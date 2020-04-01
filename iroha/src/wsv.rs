@@ -37,7 +37,9 @@ impl WorldStateView {
     pub async fn put(&mut self, block: &Block) {
         for transaction in &block.transactions {
             for instruction in &transaction.instructions {
-                instruction.apply(self);
+                if let Err(e) = instruction.invoke(self) {
+                    eprintln!("Failed to apply instruction to WSV: {}", e);
+                }
             }
         }
     }

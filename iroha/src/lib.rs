@@ -54,9 +54,10 @@ pub mod prelude {
         config::Configuration,
         crypto::{Hash, Signature},
         domain::Domain,
-        isi::Id,
+        isi::{Id, Instruction},
         peer::Peer,
         tx::Transaction,
+        wsv::WorldStateView,
         Iroha,
     };
 }
