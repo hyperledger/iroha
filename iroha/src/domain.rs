@@ -19,7 +19,8 @@ impl Domain {
 }
 
 pub mod isi {
-    use crate::isi::Command;
+    use super::*;
+    use crate::isi::Contract;
     use parity_scale_codec::{Decode, Encode};
 
     /// The purpose of create domain command is to make new domain in Iroha network, which is a
@@ -28,6 +29,15 @@ pub mod isi {
     pub struct CreateDomain {
         pub domain_name: String,
         pub default_role: String,
+    }
+
+    impl Instruction for CreateDomain {
+        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            world_state_view
+                .world
+                .add_domain(Domain::new(self.domain_name.clone()));
+            Ok(())
+        }
     }
 
     /// # Example
@@ -48,21 +58,17 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{isi::Command, domain::isi::CreateDomain};
+    /// use iroha::{isi::Contract, domain::isi::CreateDomain};
     ///
-    /// let command_payload = &CreateDomain {
+    /// let command_payload = CreateDomain {
     ///     domain_name: "domain".to_string(),
     ///     default_role: "user".to_string(),
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&CreateDomain> for Command {
-        fn from(command_payload: &CreateDomain) -> Self {
-            Command {
-                version: 1,
-                command_type: 7,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<CreateDomain> for Contract {
+        fn from(command_payload: CreateDomain) -> Self {
+            Contract::CreateDomain(command_payload)
         }
     }
 

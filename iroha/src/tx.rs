@@ -1,4 +1,4 @@
-use crate::{crypto::Signature, isi::Command};
+use crate::{crypto::Signature, isi::Contract};
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
@@ -6,8 +6,8 @@ use std::time::SystemTime;
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Transaction {
     /// An ordered set of instructions.
-    //TODO: think about constructor with `Into<Command>` parameter signature.
-    pub instructions: Vec<Command>,
+    //TODO: think about constructor with `Into<Contract>` parameter signature.
+    pub instructions: Vec<Contract>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: u128,
     /// Account ID of transaction creator (username@domain).
@@ -18,7 +18,7 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn builder(instructions: Vec<Command>, account_id: String) -> TxBuilder {
+    pub fn builder(instructions: Vec<Contract>, account_id: String) -> TxBuilder {
         TxBuilder {
             instructions,
             account_id,
@@ -68,7 +68,7 @@ impl std::convert::From<Vec<u8>> for Transaction {
 /// Builder struct for `Transaction`.
 #[derive(Default)]
 pub struct TxBuilder {
-    pub instructions: Vec<Command>,
+    pub instructions: Vec<Contract>,
     pub creation_time: u128,
     pub account_id: String,
     pub quorum: Option<u32>,

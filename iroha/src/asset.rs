@@ -14,7 +14,7 @@ impl Asset {
 
 pub mod isi {
     use super::*;
-    use crate::isi::Command;
+    use crate::isi::Contract;
     use parity_scale_codec::{Decode, Encode};
 
     /// The purpose of add asset quantity command is to increase the quantity of an asset on account of
@@ -25,6 +25,18 @@ pub mod isi {
         pub asset_id: Id,
         pub account_id: Id,
         pub amount: u128,
+    }
+
+    impl Instruction for AddAssetQuantity {
+        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            world_state_view
+                .world
+                .account(&self.account_id)
+                .unwrap()
+                .assets
+                .insert(self.asset_id.clone(), Asset::new(self.asset_id.clone()));
+            Ok(())
+        }
     }
 
     /// # Example
@@ -46,22 +58,18 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, asset::isi::AddAssetQuantity};
+    /// use iroha::{prelude::*, isi::Contract, asset::isi::AddAssetQuantity};
     ///
-    /// let command_payload = &AddAssetQuantity {
+    /// let command_payload = AddAssetQuantity {
     ///     asset_id: Id::new("asset","domain"),
     ///     account_id: Id::new("account","domain"),
     ///     amount: 20002,
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&AddAssetQuantity> for Command {
-        fn from(command_payload: &AddAssetQuantity) -> Self {
-            Command {
-                version: 1,
-                command_type: 1,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<AddAssetQuantity> for Contract {
+        fn from(command_payload: AddAssetQuantity) -> Self {
+            Contract::AddAssetQuantity(command_payload)
         }
     }
 
@@ -111,22 +119,18 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{isi::Command, asset::isi::CreateAsset};
+    /// use iroha::{isi::Contract, asset::isi::CreateAsset};
     ///
-    /// let command_payload = &CreateAsset {
+    /// let command_payload = CreateAsset {
     ///     asset_name: "asset".to_string(),
     ///     domain_id: "domain".to_string(),
     ///     decimals: 0,
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&CreateAsset> for Command {
-        fn from(command_payload: &CreateAsset) -> Self {
-            Command {
-                version: 1,
-                command_type: 1,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<CreateAsset> for Contract {
+        fn from(command_payload: CreateAsset) -> Self {
+            Contract::CreateAsset(command_payload)
         }
     }
 
@@ -160,6 +164,25 @@ pub mod isi {
         pub amount: u128,
     }
 
+    impl Instruction for TransferAsset {
+        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            let asset = world_state_view
+                .world
+                .account(&self.source_account_id)
+                .unwrap()
+                .assets
+                .remove(&self.asset_id)
+                .unwrap();
+            world_state_view
+                .world
+                .account(&self.destination_account_id)
+                .unwrap()
+                .assets
+                .insert(self.asset_id.clone(), asset);
+            Ok(())
+        }
+    }
+
     /// # Example
     /// ```
     /// use iroha::{prelude::*, asset::isi::TransferAsset};
@@ -181,24 +204,20 @@ pub mod isi {
 
     /// # Example
     /// ```
-    /// use iroha::{prelude::*, isi::Command, asset::isi::TransferAsset};
+    /// use iroha::{prelude::*, isi::Contract, asset::isi::TransferAsset};
     ///
-    /// let command_payload = &TransferAsset {
+    /// let command_payload = TransferAsset {
     ///    source_account_id: Id::new("source","domain"),
     ///    destination_account_id: Id::new("destination","domain"),
     ///    asset_id: Id::new("xor","domain"),
     ///    description: "description".to_string(),
     ///    amount: 2002,
     /// };
-    /// let result: Command = command_payload.into();
+    /// let result: Contract = command_payload.into();
     /// ```
-    impl std::convert::From<&TransferAsset> for Command {
-        fn from(command_payload: &TransferAsset) -> Self {
-            Command {
-                version: 1,
-                command_type: 17,
-                payload: command_payload.into(),
-            }
+    impl std::convert::From<TransferAsset> for Contract {
+        fn from(command_payload: TransferAsset) -> Self {
+            Contract::TransferAsset(command_payload)
         }
     }
 
@@ -264,22 +283,16 @@ pub mod isi {
 
         #[test]
         fn transfer_asset_command_into_command() {
-            let transfer_asset = &TransferAsset {
+            let transfer_asset = TransferAsset {
                 source_account_id: Id::new("source", "domain"),
                 destination_account_id: Id::new("destination", "domain"),
                 asset_id: Id::new("xor", "domain"),
                 description: "description".to_string(),
                 amount: 2002,
             };
-            let expected = Command {
-                version: 1,
-                command_type: 17,
-                payload: transfer_asset.into(),
-            };
-            let actual: Command = transfer_asset.into();
-            assert_eq!(expected.version, actual.version);
-            assert_eq!(expected.command_type, actual.command_type);
-            assert_eq!(expected.payload, actual.payload);
+            let expected = Contract::TransferAsset(transfer_asset.clone());
+            let actual: Contract = transfer_asset.into();
+            assert_eq!(expected, actual);
         }
     }
 }

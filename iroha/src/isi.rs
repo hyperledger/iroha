@@ -1,13 +1,15 @@
-use crate::{
-    account::isi::CreateAccount,
-    asset::isi::{AddAssetQuantity, TransferAsset},
-    domain::isi::CreateDomain,
-    prelude::*,
-    wsv::WorldStateView,
-};
+use crate::{account, asset, domain, peer, wsv::WorldStateView};
 use parity_scale_codec::{Decode, Encode};
 
 /// Identification of an Iroha's entites. Consists of Entity's name and Domain's name.
+///
+/// # Example
+///
+/// ```
+/// use iroha::isi::Id;
+///
+/// let id = Id::new("gold", "mine");
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, std::hash::Hash, Encode, Decode)]
 pub struct Id(pub String, pub String);
 
@@ -17,106 +19,56 @@ impl Id {
     }
 }
 
-/// A command is an intention to change the state of the network.
-/// For example, in order to create a new role in Iroha you have to issue Create role command.
-#[derive(Clone, Debug, Encode, Decode)]
-pub struct Command {
-    pub version: u8,
-    pub command_type: u8,
-    pub payload: Vec<u8>,
+/// Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI).
+/// To execute logic on the ledger, these smart contracts can be invoked via either transactions
+/// or registered event listeners.
+/// This trait represents API which every ISI should be aligned with.
+pub trait Instruction {
+    /// To execute the instruction this method implementation supplied with a mutable reference
+    /// to `WorldStateView`. It's responsibility of the instruction to keep `WSV` in a consistent
+    /// state and return `Err` in case of errors.
+    fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String>;
 }
 
-impl Command {
-    pub fn apply(&self, world_state_view: &mut WorldStateView) {
-        println!("World state: {:?}", world_state_view.world);
-        match self.command_type {
-            1 => {
-                let instruction: AddAssetQuantity = self.payload.clone().into();
-                world_state_view
-                    .world
-                    .account(&instruction.account_id)
-                    .unwrap()
-                    .assets
-                    .insert(
-                        instruction.asset_id.clone(),
-                        Asset::new(instruction.asset_id),
-                    );
-            }
-            5 => {
-                let instruction: CreateAccount = self.payload.clone().into();
-                world_state_view
-                    .world
-                    .domain(&instruction.domain_name)
-                    .unwrap()
-                    .accounts
-                    .insert(
-                        instruction.account_id.clone(),
-                        Account::new(instruction.account_id),
-                    );
-            }
-            7 => {
-                let instruction: CreateDomain = self.payload.clone().into();
-                world_state_view
-                    .world
-                    .add_domain(Domain::new(instruction.domain_name));
-            }
-            17 => {
-                let instruction: TransferAsset = self.payload.clone().into();
-                let asset = world_state_view
-                    .world
-                    .account(&instruction.source_account_id)
-                    .unwrap()
-                    .assets
-                    .remove(&instruction.asset_id)
-                    .unwrap();
-                world_state_view
-                    .world
-                    .account(&instruction.destination_account_id)
-                    .unwrap()
-                    .assets
-                    .insert(instruction.asset_id.clone(), asset);
-            }
-            _ => (),
+///
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+pub enum Contract {
+    AddSignatory(account::isi::AddSignatory),
+    AppendRole(account::isi::AppendRole),
+    CreateAccount(account::isi::CreateAccount),
+    CreateRole(account::isi::CreateRole),
+    AddAssetQuantity(asset::isi::AddAssetQuantity),
+    TransferAsset(asset::isi::TransferAsset),
+    CreateAsset(asset::isi::CreateAsset),
+    CreateDomain(domain::isi::CreateDomain),
+    AddPeer(peer::isi::AddPeer),
+}
+
+impl Contract {
+    pub fn invoke(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        use Contract::*;
+        match self {
+            AddAssetQuantity(instruction) => instruction.execute(world_state_view),
+            CreateAccount(instruction) => instruction.execute(world_state_view),
+            CreateDomain(instruction) => instruction.execute(world_state_view),
+            TransferAsset(instruction) => instruction.execute(world_state_view),
+            _ => Err("Instruction is not supported yet.".to_string()),
         }
     }
 }
 
-/// # Example
-/// ```
-/// use iroha::isi::Command;
-///
-/// let command_payload = &Command {
-///     version: 0,
-///     command_type: 0,
-///     payload: Vec::new(),
-/// };
-/// let result: Vec<u8> = command_payload.into();
-/// ```
-impl std::convert::From<&Command> for Vec<u8> {
-    fn from(command_payload: &Command) -> Self {
+impl std::convert::From<&Contract> for Vec<u8> {
+    fn from(command_payload: &Contract) -> Self {
         command_payload.encode()
     }
 }
 
-/// # Example
-/// ```
-/// # use iroha::isi::Command;
-///
-/// # let command_payload = &Command {
-/// #     version: 0,
-/// #     command_type: 0,
-/// #     payload: Vec::new(),
-/// # };
-/// # let result: Vec<u8> = command_payload.into();
-/// let command_payload: Command = result.into();
-/// ```
-impl std::convert::From<Vec<u8>> for Command {
+impl std::convert::From<Vec<u8>> for Contract {
     fn from(command_payload: Vec<u8>) -> Self {
-        Command::decode(&mut command_payload.as_slice()).expect("Failed to deserialize payload.")
+        Contract::decode(&mut command_payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }
 
-//TODO[@humb1t:RH2-16]: rename
 pub enum Relation {
     /// Belongs to account with defined identification.
     /// For example we can fill a map of accounts to assets by this relation.
@@ -131,16 +83,16 @@ pub trait Property {
     fn relations(&self) -> Vec<Relation>;
 }
 
-impl Property for Command {
+impl Property for Contract {
     //TODO: implement
     fn relations(&self) -> Vec<Relation> {
         use Relation::*;
-        match &self.command_type {
-            17 => {
-                let command: TransferAsset = self.payload.clone().into();
+        match self {
+            Contract::TransferAsset(instruction) => {
+                let instruction = instruction.clone();
                 vec![
-                    GoingTo(command.destination_account_id),
-                    OwnedBy(command.source_account_id),
+                    GoingTo(instruction.destination_account_id),
+                    OwnedBy(instruction.source_account_id),
                 ]
             }
             _ => Vec::new(),
@@ -152,13 +104,13 @@ pub trait Assetibility {
     fn assets(&self) -> Vec<Id>;
 }
 
-impl Assetibility for Command {
+impl Assetibility for Contract {
     //TODO: implement
     fn assets(&self) -> Vec<Id> {
-        match &self.command_type {
-            17 => {
-                let command: TransferAsset = self.payload.clone().into();
-                vec![command.asset_id]
+        match self {
+            Contract::TransferAsset(instruction) => {
+                let instruction = instruction.clone();
+                vec![instruction.asset_id]
             }
             _ => Vec::new(),
         }
