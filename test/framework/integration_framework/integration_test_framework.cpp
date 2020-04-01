@@ -31,7 +31,6 @@
 #include "datetime/time.hpp"
 #include "endpoint.grpc.pb.h"
 #include "framework/common_constants.hpp"
-#include "framework/integration_framework/default_crypto_signer.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/iroha_instance.hpp"
