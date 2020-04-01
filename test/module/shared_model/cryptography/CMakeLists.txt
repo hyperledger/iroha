@@ -3,6 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+add_library(test_make_default_signer make_default_crypto_signer.cpp)
+target_link_libraries(test_make_default_signer
+        shared_model_cryptography
+        )
+
 addtest(blob_test blob_test.cpp)
 target_link_libraries(blob_test
         shared_model_cryptography_model
