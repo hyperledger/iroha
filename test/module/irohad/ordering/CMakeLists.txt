@@ -7,6 +7,7 @@ target_link_libraries(on_demand_os_test
     shared_model_default_builders
     ametsuchi
     test_logger
+    test_make_default_signer
     )
 
 addtest(on_demand_os_client_grpc_test on_demand_os_client_grpc_test.cpp)
@@ -29,6 +30,7 @@ target_link_libraries(on_demand_connection_manager_test
 
 addtest(on_demand_ordering_gate_test on_demand_ordering_gate_test.cpp)
 target_link_libraries(on_demand_ordering_gate_test
+    common_test_constants
     on_demand_ordering_gate
     ordering_gate_common
     shared_model_interfaces_factories

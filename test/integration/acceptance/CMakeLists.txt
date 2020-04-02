@@ -17,6 +17,7 @@ add_library(grantable_permissions_fixture
 target_link_libraries(grantable_permissions_fixture
     acceptance_fixture
     integration_framework
+    test_make_default_signer
     )
 
 addtest(add_peer_test add_peer_test.cpp)
@@ -41,11 +42,15 @@ addtest(get_transactions_test get_transactions_test.cpp)
 target_link_libraries(get_transactions_test
     acceptance_fixture
     integration_framework
+    test_make_default_signer
     )
 
 addtest(grant_permission_test grant_permission_test.cpp)
 target_link_libraries(grant_permission_test
     grantable_permissions_fixture
+    )
+target_compile_definitions(grant_permission_test
+    PUBLIC BOOST_NO_IOSTREAM
     )
 
 addtest(revoke_permission_test revoke_permission_test.cpp)
@@ -162,9 +167,10 @@ target_link_libraries(set_account_quorum_test
     )
 
 addtest(hex_keys_test
-   hex_keys_test.cpp
-   )
+    hex_keys_test.cpp
+    )
 target_link_libraries(hex_keys_test
-   acceptance_fixture
-   integration_framework
-   )
+    acceptance_fixture
+    integration_framework
+    test_make_default_signer
+    )

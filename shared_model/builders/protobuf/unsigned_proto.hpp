@@ -8,9 +8,7 @@
 
 #include "backend/protobuf/common_objects/signature.hpp"
 #include "backend/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
-#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/keypair.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -64,21 +62,10 @@ namespace shared_model {
         }
         object_.addSignature(
             shared_model::interface::types::SignedHexStringView{
-                signer.sign(object_.payload())},
+                signer.sign(object_.payload()).hex()},
             signer.publicKey());
         // TODO: 05.12.2017 luckychess think about false case
         return *this;
-      }
-
-      /**
-       * Add signature and retrieve signed result
-       * @param keypair to initialize default internal signer
-       * @return signed object
-       */
-      UnsignedWrapper &signAndAddSignature(const crypto::Keypair &keypair) {
-        using namespace ::shared_model::crypto;
-        return signAndAddSignature(
-            CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{keypair}});
       }
 
       /**

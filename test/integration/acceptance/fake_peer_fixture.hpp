@@ -6,6 +6,8 @@
 #ifndef IROHA_FAKE_PEER_FIXTURE_HPP
 #define IROHA_FAKE_PEER_FIXTURE_HPP
 
+#include <string_view>
+
 #include "integration/acceptance/acceptance_fixture.hpp"
 
 #include "backend/protobuf/block.hpp"
@@ -71,7 +73,7 @@ class FakePeerFixture : public AcceptanceFixture {
         .sendTxAwait(complete(baseTx(common_constants::kAdminId)
                                   .addAssetQuantity(common_constants::kAssetId,
                                                     "20000.0"),
-                              common_constants::kAdminKeypair),
+                              *common_constants::kAdminSigner),
                      checkBlockHasNTxs<1>);
   }
 
@@ -79,7 +81,7 @@ class FakePeerFixture : public AcceptanceFixture {
   void SetUp() override {
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
         1, boost::none, true, true);
-    itf_->initPipeline(common_constants::kAdminKeypair);
+    itf_->initPipeline(common_constants::kAdminSigner);
   }
 
   std::vector<std::shared_ptr<FakePeer>> fake_peers_;

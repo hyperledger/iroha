@@ -17,6 +17,7 @@
 #include "module/irohad/multi_sig_transactions/mock_mst_transport_notification.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 #include "mst_mock.grpc.pb.h"
@@ -30,6 +31,7 @@ using namespace iroha::network;
 using namespace iroha::model;
 using namespace shared_model::interface;
 
+using shared_model::crypto::makeDefaultSigner;
 using ::testing::_;
 using ::testing::A;
 using ::testing::DoAll;
@@ -40,7 +42,7 @@ using ::testing::SaveArg;
 class TransportTest : public ::testing::Test {
  public:
   TransportTest()
-      : my_key_(makeKey()),
+      : my_signer_(makeDefaultSigner()),
         stub(new iroha::network::transport::MockMstTransportGrpcStub()) {}
   void SetUp() override {
     async_call_ = std::make_shared<AsyncGrpcClient<google::protobuf::Empty>>(
@@ -81,7 +83,7 @@ class TransportTest : public ::testing::Test {
                                            batch_factory_,
                                            tx_presence_cache_,
                                            completer_,
-                                           my_key_.publicKey(),
+                                           my_signer_->publicKey(),
                                            getTestLogger("MstState"),
                                            getTestLogger("MstTransportGrpc"),
                                            sender_factory_);
@@ -99,7 +101,7 @@ class TransportTest : public ::testing::Test {
       batch_validator_;
   std::shared_ptr<TransactionBatchFactoryImpl> batch_factory_;
   std::shared_ptr<iroha::ametsuchi::MockTxPresenceCache> tx_presence_cache_;
-  shared_model::crypto::Keypair my_key_;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> my_signer_;
   std::shared_ptr<iroha::DefaultCompleter> completer_;
   std::shared_ptr<iroha::MockMstTransportNotification>
       mst_notification_transport_;
@@ -152,20 +154,20 @@ TEST_F(TransportTest, SendAndReceive) {
   auto time = iroha::time::now();
   auto state = iroha::MstState::empty(getTestLogger("MstState"), completer_);
   state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time)), 0, makeKey());
+      makeTestBatch(txBuilder(1, time)), 0, *makeDefaultSigner());
   state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(2, time)), 0, makeKey());
+      makeTestBatch(txBuilder(2, time)), 0, *makeDefaultSigner());
   state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(3, time)), 0, makeKey());
+      makeTestBatch(txBuilder(3, time)), 0, *makeDefaultSigner());
   state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(3, time)), 0, makeKey());
+      makeTestBatch(txBuilder(3, time)), 0, *makeDefaultSigner());
   ASSERT_EQ(3, state.getBatches().size());
   // we want to ensure that server side will call onNewState()
   // with same parameters as on the client side
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
           [this, &state](const auto &from_key, auto const &target_state) {
-            EXPECT_EQ(this->my_key_.publicKey(), from_key);
+            EXPECT_EQ(this->my_signer_->publicKey(), from_key);
             EXPECT_TRUE(statesEqual(state, target_state));
           }));
 
@@ -198,7 +200,9 @@ TEST_F(TransportTest, ReplayAttack) {
   auto batch = makeTestBatch(txBuilder(1), txBuilder(2));
   auto state = iroha::MstState::empty(getTestLogger("MstState"), completer_);
   state += addSignaturesFromKeyPairs(
-      addSignaturesFromKeyPairs(batch, 0, makeKey()), 1, makeKey());
+      addSignaturesFromKeyPairs(batch, 0, *makeDefaultSigner()),
+      1,
+      *makeDefaultSigner());
 
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .Times(1)  // an empty state should not be propagated
@@ -222,7 +226,7 @@ TEST_F(TransportTest, ReplayAttack) {
           iroha::ametsuchi::tx_cache_status_responses::Rejected{second_hash}};
 
   transport::MstState proto_state;
-  std::string_view public_key = my_key_.publicKey();
+  std::string_view public_key{my_signer_->publicKey()};
   proto_state.set_source_peer_key(public_key.data(), public_key.size());
 
   state.iterateTransactions([&proto_state](const auto &tx) {

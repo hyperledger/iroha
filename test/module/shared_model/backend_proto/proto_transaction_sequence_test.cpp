@@ -12,8 +12,11 @@
 #include "framework/result_fixture.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 using namespace shared_model;
+using namespace shared_model::interface::types;
+
 using ::testing::_;
 using ::testing::A;
 using ::testing::Return;
@@ -98,12 +101,9 @@ TEST_F(TransactionSequenceTestFixture, CreateBatches) {
         clone(framework::batch::prepareTransactionBuilder(
                   "single_tx_account@domain" + std::to_string(i))
                   .build()));
-    auto keypair = crypto::DefaultCryptoAlgorithmType::generateKeypair();
-    auto signed_blob =
-        crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
-    tx->addSignature(
-        shared_model::interface::types::SignedHexStringView{signed_blob},
-        keypair.publicKey());
+    auto signer = crypto::makeDefaultSigner();
+    auto signature_hex = signer->sign(tx->payload());
+    tx->addSignature(SignedHexStringView{signature_hex}, signer->publicKey());
 
     tx_collection.emplace_back(tx);
   }

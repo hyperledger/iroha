@@ -63,6 +63,8 @@ namespace shared_model {
       static constexpr size_t kPublicKeyLength = 256 / 8;
       static constexpr size_t kPrivateKeyLength = 512 / 8;
       static constexpr size_t kSignatureLength = 512 / 8;
+
+      static const char *kName;
     };
   }  // namespace crypto
 }  // namespace shared_model

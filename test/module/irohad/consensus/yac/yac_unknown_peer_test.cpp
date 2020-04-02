@@ -5,7 +5,7 @@
 
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 
-#include "framework/strong_type_literals.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
@@ -83,6 +83,6 @@ TEST_F(YacTest, UnknownVoteAfterCommit) {
 
   VoteMessage vote;
   vote.hash = my_hash;
-  vote.signature = createSig("unknown"_pubkey);
+  vote.signature = createSig("unknown"_hex_pubkey);
   yac->onState({vote});
 }

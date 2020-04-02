@@ -21,26 +21,6 @@ using namespace common_constants;
 
 class QueriesAcceptanceTest : public AcceptanceFixture {
  public:
-  QueriesAcceptanceTest()
-      : itf(1),
-        invalidPrivateKey(kUserKeypair.privateKey().hex()),
-        invalidPublicKey(kUserSigner->publicKey()) {
-    /*
-     * It's deliberately break the public and private keys to simulate a
-     * non-valid signature and public key and use their combinations in the
-     * tests below
-     * Both keys are hex values represented as a std::string so
-     * characters can be values only in the range 0-9 and a-f
-     */
-    invalidPrivateKey[0] == '9' or invalidPrivateKey[0] == 'f'
-        ? --invalidPrivateKey[0]
-        : ++invalidPrivateKey[0];
-    invalidPublicKey[0] == '9' or invalidPublicKey[0] == 'f'
-        ? --invalidPublicKey[0]
-        : ++invalidPublicKey[0];
-    invalidPublicKeyView = invalidPublicKey;
-  };
-
   void SetUp() {
     itf.setInitialState(kAdminSigner)
         .sendTxAwait(
@@ -59,10 +39,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     });
   }
 
-  IntegrationTestFramework itf;
-  std::string invalidPrivateKey;
-  std::string invalidPublicKey;
-  PublicKeyHexStringView invalidPublicKeyView;
+  IntegrationTestFramework itf{1};
   const std::string NonExistentUserId = "aaaa@aaaa";
 };
 
@@ -213,11 +190,10 @@ TEST_F(QueriesAcceptanceTest, TenMinutesFromFuture) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
-  crypto::Keypair kInvalidSignValidPubKeypair = crypto::Keypair(
-      kUserSigner->publicKey(),
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+  auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  auto query = complete(baseQry().getRoles(), *kInvalidSignValidPubSigner);
+  proto_query.mutable_signature()->set_signature("BAAD");
+  auto query = proto::Query(proto_query);
 
   itf.sendQuery(
       query,
@@ -233,10 +209,10 @@ TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
-  crypto::Keypair kValidSignInvalidPubKeypair =
-      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
+  auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  auto query = complete(baseQry().getRoles(), *kValidSignInvalidPubSigner);
+  proto_query.mutable_signature()->set_public_key("BAAD");
+  auto query = proto::Query(proto_query);
 
   itf.sendQuery(
       query,
@@ -252,11 +228,11 @@ TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
-  crypto::Keypair kFullyInvalidKeypair = crypto::Keypair(
-      invalidPublicKeyView,
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+  auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  auto query = complete(baseQry().getRoles(), *kFullyInvalidSigner);
+  proto_query.mutable_signature()->set_signature("BAD1");
+  proto_query.mutable_signature()->set_public_key("BAD2");
+  auto query = proto::Query(proto_query);
 
   itf.sendQuery(
       query,
@@ -328,13 +304,9 @@ TEST_F(QueriesAcceptanceTest, FullyEmptyPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
-  crypto::Keypair kInvalidSignEmptyPubKeypair = crypto::Keypair(
-      kUserSigner->publicKey(),
-      crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
+  auto proto_query = complete(baseQry().getRoles()).getTransport();
 
-  auto proto_query = complete(baseQry().getRoles(), *kInvalidSignEmptyPubSigner)
-                         .getTransport();
-
+  proto_query.mutable_signature()->set_signature("BAAD");
   proto_query.mutable_signature()->clear_public_key();
   auto query = proto::Query(proto_query);
 
@@ -356,13 +328,10 @@ TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, EmptySignInvalidPubKeypair) {
-  crypto::Keypair kEmptySignInvalidPubKeypair =
-      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
-
-  auto proto_query = complete(baseQry().getRoles(), *kEmptySignInvalidPubSigner)
-                         .getTransport();
+  auto proto_query = complete(baseQry().getRoles()).getTransport();
 
   proto_query.clear_signature();
+  proto_query.mutable_signature()->set_public_key("BAAD");
   auto query = proto::Query(proto_query);
 
   itf.sendQuery(

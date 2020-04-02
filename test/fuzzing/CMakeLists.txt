@@ -92,6 +92,7 @@ target_link_libraries(consensus_fuzz
   protobuf-mutator
   GTest::gtest
   GTest::gmock
+  test_make_default_signer
   yac_transport
   yac
   test_logger
@@ -105,6 +106,7 @@ target_link_libraries(mst_fuzz
   GTest::gmock
   mst_transport
   ametsuchi
+  test_make_default_signer
   ${fuzzing_engine}
   )
 

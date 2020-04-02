@@ -8,21 +8,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "framework/result_gtest_checkers.hpp"
+#include "framework/crypto_literals.hpp"
 #include "multihash/type.hpp"
 #include "multihash/varint.hpp"
 
 using namespace iroha::multihash;
 using namespace shared_model::interface::types;
-
-inline ByteRange operator""_byterange(const char *c, size_t s) {
-  return ByteRange{reinterpret_cast<const std::byte *>(c), s};
-}
-
-inline std::basic_string<std::byte> operator""_bytestring(const char *c,
-                                                          size_t s) {
-  return std::basic_string<std::byte>{reinterpret_cast<const std::byte *>(c),
-                                      s};
-}
 
 static const std::initializer_list<uint64_t> kInts = {
     0, 1, 0xF0, 0xFF, 0xFFFF, 0xFFFFFF};

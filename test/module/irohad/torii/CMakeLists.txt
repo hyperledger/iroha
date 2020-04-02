@@ -18,6 +18,7 @@ addtest(torii_queries_test torii_queries_test.cpp)
 target_link_libraries(torii_queries_test
     torii_service
     command_client
+    common_test_constants
     query_client
     server_runner
     processors
@@ -26,6 +27,7 @@ target_link_libraries(torii_queries_test
 
 addtest(query_service_test query_service_test.cpp)
 target_link_libraries(query_service_test
+    common_test_constants
     torii_service
     query_client
     test_logger
@@ -33,6 +35,7 @@ target_link_libraries(query_service_test
 
 addtest(torii_service_query_test torii_service_query_test.cpp)
 target_link_libraries(torii_service_query_test
+    common_test_constants
     torii_service
     server_runner
     query_client
@@ -55,6 +58,7 @@ addtest(command_service_replay_test
 target_link_libraries(command_service_replay_test
     torii_service
     test_logger
+    test_make_default_signer
     )
 
 addtest(command_service_test

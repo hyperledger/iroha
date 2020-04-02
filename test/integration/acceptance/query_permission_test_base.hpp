@@ -81,7 +81,7 @@ class QueryPermissionTestBase {
       AcceptanceFixture &fixture,
       const interface::types::AccountIdType &target,
       const interface::types::AccountIdType &spectator,
-      const crypto::Keypair &spectator_keypair) = 0;
+      const crypto::CryptoSigner &spectator_signer) = 0;
 
   /**
    * Implementations must define this function to check general response

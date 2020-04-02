@@ -124,5 +124,7 @@ namespace shared_model {
       ursa_ed25519_bytebuffer_free(private_key);
       return result;
     }
+
+    const char *CryptoProviderEd25519Ursa::kName = "Internal Ed25519 with Ursa";
   }  // namespace crypto
 }  // namespace shared_model

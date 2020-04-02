@@ -18,6 +18,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "framework/crypto_literals.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
@@ -66,17 +67,16 @@ namespace fuzzing {
       auto cache =
           std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
       completer_ = std::make_shared<iroha::TestCompleter>();
-      mst_transport_grpc_ = std::make_shared<MstTransportGrpc>(
-          async_call_,
-          std::move(tx_factory),
-          std::move(parser),
-          std::move(batch_factory),
-          std::move(cache),
-          completer_,
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-              .publicKey(),
-          logger::getDummyLoggerPtr(),
-          logger::getDummyLoggerPtr());
+      mst_transport_grpc_ =
+          std::make_shared<MstTransportGrpc>(async_call_,
+                                             std::move(tx_factory),
+                                             std::move(parser),
+                                             std::move(batch_factory),
+                                             std::move(cache),
+                                             completer_,
+                                             "D0BB1E"_hex_pubkey,
+                                             logger::getDummyLoggerPtr(),
+                                             logger::getDummyLoggerPtr());
     }
   };
 }  // namespace fuzzing

@@ -52,7 +52,7 @@ TEST_F(FakePeerFixture,
       baseTx(kAdminId)
           .transferAsset(kAdminId, kUserId, kAssetId, "income", "500.0")
           .quorum(2),
-      kAdminKeypair));
+      *kAdminSigner));
 
   mst_states_observable
       .timeout(kMstStateWaitingTime, rxcpp::observe_on_new_thread())
@@ -96,11 +96,11 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
   // Add two blocks to the ledger.
   itf.sendTx(complete(baseTx(kAdminId).transferAsset(
                           kAdminId, kUserId, kAssetId, "common_tx1", "1.0"),
-                      kAdminKeypair))
+                      *kAdminSigner))
       .skipBlock();
   itf.sendTx(complete(baseTx(kAdminId).transferAsset(
                           kAdminId, kUserId, kAssetId, "common_tx2", "2.0"),
-                      kAdminKeypair))
+                      *kAdminSigner))
       .skipBlock();
 
   // Create the valid branch, supported by the good fake peers:
@@ -126,7 +126,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
   // Function to sign a block with a peer's key.
   auto sign_block_by_peers = [](auto &&block, const auto &peers) {
     for (auto &peer : peers) {
-      block.signAndAddSignature(peer->getKeypair());
+      block.signAndAddSignature(peer->getSigner());
     }
     return std::move(block);
   };
@@ -152,7 +152,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
                             kAdminId, kUserId, kAssetId, "bad_tx3", "300.0"),
-                        kAdminKeypair)}),
+                        *kAdminSigner)}),
           bad_fake_peers)
           .finish()));
   for (auto &bad_fake_peer : bad_fake_peers) {
@@ -166,7 +166,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
                             kAdminId, kUserId, kAssetId, "valid_tx3", "3.0"),
-                        kAdminKeypair)}),
+                        *kAdminSigner)}),
           good_fake_peers)
           .finish()));
   for (auto &good_fake_peer : good_fake_peers) {
@@ -180,8 +180,8 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
                             kAdminId, kUserId, kAssetId, "valid_tx4", "4.0"),
-                        kAdminKeypair)})
-              .signAndAddSignature(rantipole_peer->getKeypair()),
+                        *kAdminSigner)})
+              .signAndAddSignature(rantipole_peer->getSigner()),
           good_fake_peers)
           .finish());
 
@@ -259,7 +259,7 @@ TEST_F(FakePeerFixture, OnDemandOrderingProposalAfterValidCommandReceived) {
   // Create the tx:
   const auto tx = complete(
       baseTx(kAdminId).transferAsset(kAdminId, kUserId, kAssetId, "tx1", "1.0"),
-      kAdminKeypair);
+      *kAdminSigner);
 
   createFakePeers(1);
 

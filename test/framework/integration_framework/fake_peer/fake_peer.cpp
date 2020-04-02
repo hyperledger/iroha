@@ -91,7 +91,7 @@ namespace integration_framework {
           batch_parser_(batch_parser),
           listen_ip_(listen_ip),
           internal_port_(internal_port),
-          signer_(makeSigner(std::move(signer))),
+          signer_(makeDefaultSigner(std::move(signer))),
           this_peer_(createPeer(
               common_objects_factory, getAddress(), signer_->publicKey())),
           real_peer_(std::move(real_peer)),

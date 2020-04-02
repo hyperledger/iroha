@@ -31,22 +31,8 @@ class SetAccountDetail : public AcceptanceFixture {
     return baseTx(account_id, kKey, kValue);
   }
 
-  auto makeSecondUser(const interface::RolePermissionSet &perms = {
-                          interface::permissions::Role::kAddPeer}) {
-    static const std::string kRole2 = "roletwo";
-    return AcceptanceFixture::createUserWithPerms(
-               kUser2, kUser2Signer->publicKey(), kRole2, perms)
-        .build()
-        .signAndAddSignature(*kAdminSigner)
-        .finish();
-  }
-
   const interface::types::AccountDetailKeyType kKey = "key";
   const interface::types::AccountDetailValueType kValue = "value";
-  const std::string kUser2 = "user2";
-  const std::string kUser2Id = kUser2 + "@" + kDomain;
-  const crypto::Keypair kUser2Keypair =
-      crypto::DefaultCryptoAlgorithmType::generateKeypair();
 };
 
 /**

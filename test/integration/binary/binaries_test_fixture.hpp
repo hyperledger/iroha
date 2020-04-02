@@ -134,7 +134,8 @@ class BinaryTestFixture : public ::testing::Test {
    * @return - genesis block
    */
   shared_model::proto::Block genesis() {
-    return makeGenesis(launcher.transactions[0], *launcher.admin_key);
+    return makeGenesis(launcher.transactions[0],
+                       *launcher.admin_signer.value());
   }
 
   /**
@@ -164,7 +165,7 @@ class BinaryTestFixture : public ::testing::Test {
     if (launcher.initialized(transactions_expected, queries_expected)) {
       integration_framework::IntegrationTestFramework itf(1);
 
-      itf.setInitialState(launcher.admin_key.value(), genesis());
+      itf.setInitialState(launcher.admin_signer.value(), genesis());
 
       std::for_each(
           std::next(  // first transaction was used as genesis transaction
@@ -190,7 +191,7 @@ class BinaryTestFixture : public ::testing::Test {
 
   shared_model::proto::Block makeGenesis(
       const shared_model::proto::Transaction &genesis_tx,
-      const shared_model::crypto::Keypair &keypair) {
+      const shared_model::crypto::CryptoSigner &signer) {
     return shared_model::proto::BlockBuilder()
         .transactions(std::vector<shared_model::proto::Transaction>{genesis_tx})
         .height(1)
@@ -198,7 +199,7 @@ class BinaryTestFixture : public ::testing::Test {
             shared_model::crypto::Blob("")))
         .createdTime(iroha::time::now())
         .build()
-        .signAndAddSignature(keypair)
+        .signAndAddSignature(signer)
         .finish();
   }
 };

@@ -7,6 +7,7 @@ addtest(ametsuchi_test ametsuchi_test.cpp)
 target_link_libraries(ametsuchi_test
     ametsuchi
     ametsuchi_fixture
+    common_test_constants
     shared_model_stateless_validation
     test_logger
     )

@@ -41,6 +41,7 @@ addtest(container_validator_test
 target_link_libraries(container_validator_test
     shared_model_proto_backend
     shared_model_stateless_validation
+    test_make_default_signer
     )
 
 addtest(block_validator_test
@@ -49,6 +50,7 @@ addtest(block_validator_test
 target_link_libraries(block_validator_test
     shared_model_proto_backend
     shared_model_stateless_validation
+    test_make_default_signer
     )
 
 addtest(proto_transaction_validator_test
@@ -74,6 +76,7 @@ target_link_libraries(proposal_validator_test
     shared_model_proto_backend
     shared_model_interfaces_factories
     shared_model_stateless_validation
+    test_make_default_signer
     )
 
 addtest(batch_validator_test
@@ -83,4 +86,5 @@ target_link_libraries(batch_validator_test
     shared_model_proto_backend
     shared_model_interfaces_factories
     shared_model_stateless_validation
+    test_make_default_signer
     )

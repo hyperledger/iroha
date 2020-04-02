@@ -17,9 +17,12 @@
 #include "module/shared_model/builders/protobuf/test_query_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "validators/field_validator.hpp"
 
+using namespace common_constants;
 using namespace shared_model::crypto;
+using namespace shared_model::interface::types;
 
 using shared_model::validation::ValidationError;
 
@@ -59,11 +62,10 @@ class CryptoUsageTest : public ::testing::Test {
   template <typename T>
   void signIncorrect(T &signable) {
     // initialize wrong signature
-    auto signedBlob = shared_model::crypto::DefaultCryptoAlgorithmType::sign(
-        shared_model::crypto::Blob("wrong payload"), keypair);
-    signable.addSignature(
-        shared_model::interface::types::SignedHexStringView{signedBlob},
-        keypair.publicKey());
+    auto signature_hex =
+        signer_->sign(shared_model::crypto::Blob{"wrong payload"});
+    signable.addSignature(SignedHexStringView{signature_hex},
+                          signer_->publicKey());
   }
 
   template <typename T>
@@ -73,16 +75,13 @@ class CryptoUsageTest : public ::testing::Test {
   }
 
   Blob data;
-  shared_model::crypto::Keypair keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-
-  shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType> signer =
-      shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType>(
-          shared_model::crypto::Keypair{keypair});
+  std::shared_ptr<shared_model::crypto::CryptoSigner> signer_ =
+      shared_model::crypto::makeDefaultSigner();
 
   template <typename T>
   void sign(T &o) {
-    o.addSignature(signer.sign(o.payload()), signer.publicKey());
+    o.addSignature(SignedHexStringView{signer_->sign(o.payload())},
+                   signer_->publicKey());
   }
 
   shared_model::validation::FieldValidator field_validator_{
@@ -99,14 +98,10 @@ class CryptoUsageTest : public ::testing::Test {
  * @then check that siganture valid without clarification of algorithm
  */
 TEST_F(CryptoUsageTest, RawSignAndVerifyTest) {
-  auto signature = iroha::hexstringToBytestringResult(
-                       DefaultCryptoAlgorithmType::sign(data, keypair))
-                       .assumeValue();
+  auto signature_hex = signer_->sign(data);
   using namespace shared_model::interface::types;
   auto verified = CryptoVerifier::verify(
-      SignedHexStringView{iroha::bytestringToHexstring(signature)},
-      data,
-      keypair.publicKey());
+      SignedHexStringView{signature_hex}, data, signer_->publicKey());
   IROHA_ASSERT_RESULT_VALUE(verified);
 }
 

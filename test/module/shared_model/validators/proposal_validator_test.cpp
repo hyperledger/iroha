@@ -15,6 +15,7 @@
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/validation_error_output.hpp"
 
@@ -41,7 +42,7 @@ class ProposalValidatorTest : public ValidatorsTest {
     return getBaseTransactionBuilder<shared_model::proto::TransactionBuilder>()
         .creatorAccountId(account_id)
         .build()
-        .signAndAddSignature(keypair)
+        .signAndAddSignature(*signer_)
         .finish();
   }
 
@@ -62,8 +63,8 @@ class ProposalValidatorTest : public ValidatorsTest {
   }
 
  protected:
-  shared_model::crypto::Keypair keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
+  const std::shared_ptr<shared_model::crypto::CryptoSigner> signer_ =
+      shared_model::crypto::makeDefaultSigner();
 };
 
 /**

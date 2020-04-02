@@ -9,6 +9,7 @@
 #include <optional>
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
+#include "framework/crypto_dummies.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "interfaces/query_responses/account_response.hpp"
@@ -256,10 +257,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
 TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
   const HashType kQueryHash{"my_super_hash"};
 
-  std::vector<std::string> signatories;
-  signatories.emplace_back(
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-          .publicKey());
+  std::vector<std::string> signatories{"b0bb1e", "d0bb1e"};
   auto query_response =
       response_factory->createSignatoriesResponse(signatories, kQueryHash);
 

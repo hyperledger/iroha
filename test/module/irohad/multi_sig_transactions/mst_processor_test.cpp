@@ -5,7 +5,6 @@
 
 #include <gtest/gtest.h>
 #include <tuple>
-#include "cryptography/keypair.hpp"
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -14,6 +13,7 @@
 #include "module/irohad/multi_sig_transactions/mock_mst_transport.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
@@ -24,6 +24,7 @@ using namespace std::literals;
 using namespace iroha;
 using namespace framework::test_subscriber;
 
+using shared_model::crypto::makeDefaultSigner;
 using shared_model::interface::types::PublicKeyHexStringView;
 using testing::_;
 using testing::Return;
@@ -125,15 +126,15 @@ void check(T &t) {
  */
 TEST_F(MstProcessorTest, receivedSameSignatures) {
   // ---------------------------------| given |---------------------------------
-  auto same_key = makeKey();
+  auto same_signer = makeDefaultSigner();
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 2)), 0, same_key));
+      makeTestBatch(txBuilder(1, time_now, 2)), 0, *same_signer));
 
   auto observers = initObservers(mst_processor, 0, 0, 0);
 
   // ---------------------------------| when |----------------------------------
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 2)), 0, same_key));
+      makeTestBatch(txBuilder(1, time_now, 2)), 0, *same_signer));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -155,8 +156,8 @@ TEST_F(MstProcessorTest, notCompletedTransactionUsecase) {
   auto observers = initObservers(mst_processor, 1, 0, 0);
 
   // ---------------------------------| when |----------------------------------
-  mst_processor->propagateBatch(
-      addSignaturesFromKeyPairs(makeTestBatch(txBuilder(1)), 0, makeKey()));
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1)), 0, *makeDefaultSigner()));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -177,15 +178,14 @@ TEST_F(MstProcessorTest, notCompletedTransactionUsecase) {
  */
 TEST_F(MstProcessorTest, newSignatureNotCompleted) {
   // ---------------------------------| given |---------------------------------
-  auto same_key = makeKey();
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, 3)), 0, *makeDefaultSigner()));
 
   auto observers = initObservers(mst_processor, 1, 0, 0);
 
   // ---------------------------------| when |----------------------------------
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, 3)), 0, *makeDefaultSigner()));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -209,11 +209,11 @@ TEST_F(MstProcessorTest, completedTransactionUsecase) {
 
   // ---------------------------------| when |----------------------------------
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, 3)), 0, *makeDefaultSigner()));
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, 3)), 0, *makeDefaultSigner()));
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 3)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, 3)), 0, *makeDefaultSigner()));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -238,7 +238,9 @@ TEST_F(MstProcessorTest, expiredTransactionUsecase) {
   // ---------------------------------| when |----------------------------------
   auto quorum = 1u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_before, quorum)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_before, quorum)),
+      0,
+      *makeDefaultSigner()));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -261,7 +263,7 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_now, quorum)), 0, *makeDefaultSigner()));
 
   auto observers = initObservers(mst_processor, 0, 1, 0);
 
@@ -269,7 +271,7 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   auto transported_state = MstState::empty(getTestLogger("MstState"),
                                            std::make_shared<TestCompleter>());
   transported_state += addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
+      makeTestBatch(txBuilder(1, time_now, quorum)), 0, *makeDefaultSigner());
   mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
 
   // ---------------------------------| then |----------------------------------
@@ -289,7 +291,7 @@ TEST_F(MstProcessorTest, onNewPropagationUsecase) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, *makeDefaultSigner()));
   EXPECT_CALL(*transport, sendState(_, _))
       .Times(2)
       .WillRepeatedly(Return(rxcpp::observable<>::just(true)));
@@ -313,7 +315,7 @@ TEST_F(MstProcessorTest, SendStateSuccess) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, *makeDefaultSigner()));
   EXPECT_CALL(*transport, sendState(_, _))
       .WillOnce(Return(rxcpp::observable<>::just(true)));
 
@@ -340,7 +342,7 @@ TEST_F(MstProcessorTest, SendStateFailure) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, *makeDefaultSigner()));
   EXPECT_CALL(*transport, sendState(_, _))
       .WillOnce(Return(rxcpp::observable<>::just(false)));
 
@@ -410,7 +412,8 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
   {
     auto transported_state = MstState::empty(getTestLogger("MstState"),
                                              std::make_shared<TestCompleter>());
-    transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
+    transported_state +=
+        addSignaturesFromKeyPairs(expired_batch, 0, *makeDefaultSigner());
     mst_processor->onNewState(another_peer_key_hex,
                               std::move(transported_state));
   }
@@ -430,10 +433,10 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
  */
 TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
   const auto batch = addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(1, time_now, 2)), 0, makeKey());
+      makeTestBatch(txBuilder(1, time_now, 2)), 0, *makeDefaultSigner());
   mst_processor->propagateBatch(batch);
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
-      makeTestBatch(txBuilder(2, time_now, 2)), 0, makeKey()));
+      makeTestBatch(txBuilder(2, time_now, 2)), 0, *makeDefaultSigner()));
 
   auto received_state = MstState::empty(getTestLogger("MstState"),
                                         std::make_shared<TestCompleter>());

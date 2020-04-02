@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
-#include "framework/strong_type_literals.hpp"
+#include "framework/crypto_literals.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -22,7 +22,7 @@ using namespace shared_model::interface::types;
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
-const auto kNewPubkey{"hey im new here"_pubkey};
+const auto kNewPubkey{"hey im new here"_hex_pubkey};
 
 class AddSignatoryTest : public ExecutorTestBase {
  public:

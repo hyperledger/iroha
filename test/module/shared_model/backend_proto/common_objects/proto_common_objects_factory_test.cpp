@@ -9,7 +9,7 @@
 #include "common/hexutils.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/stateless_valid_field_helpers.hpp"
-#include "framework/strong_type_literals.hpp"
+#include "framework/crypto_literals.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "validators/field_validator.hpp"
@@ -30,7 +30,7 @@ class ProtoFixture : public ::testing::Test {
 class PeerTest : public ProtoFixture {
  public:
   std::string valid_address = "127.0.0.1:8080";
-  interface::types::PublicKeyHexStringView valid_pubkey{"600D"_pubkey};
+  interface::types::PublicKeyHexStringView valid_pubkey{"600D"_hex_pubkey};
   std::string invalid_address = "127.0.0.1";
 
   void testValidPeerCreation(const std::string &address,

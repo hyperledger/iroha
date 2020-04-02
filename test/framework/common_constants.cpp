@@ -13,7 +13,7 @@
 using namespace shared_model::crypto;
 
 namespace {
-  std::shared_ptr<CryptoSigner> makeSigner(Keypair keypair) {
+  std::shared_ptr<CryptoSigner> makeDefaultSigner(Keypair keypair) {
     return std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
         std::move(keypair));
   }
@@ -56,12 +56,14 @@ namespace common_constants {
       CryptoProviderEd25519Sha3::generateKeypair();
 
   // signers
-  const std::shared_ptr<CryptoSigner> kAdminSigner = makeSigner(kAdminKeypair);
-  const std::shared_ptr<CryptoSigner> kUserSigner = makeSigner(kUserKeypair);
+  const std::shared_ptr<CryptoSigner> kAdminSigner =
+      makeDefaultSigner(kAdminKeypair);
+  const std::shared_ptr<CryptoSigner> kUserSigner =
+      makeDefaultSigner(kUserKeypair);
   const std::shared_ptr<CryptoSigner> kSameDomainUserSigner =
-      makeSigner(kSameDomainUserKeypair);
+      makeDefaultSigner(kSameDomainUserKeypair);
   const std::shared_ptr<CryptoSigner> kSecondDomainUserSigner =
-      makeSigner(kSecondDomainUserKeypair);
+      makeDefaultSigner(kSecondDomainUserKeypair);
 
   // misc
   const shared_model::interface::Amount kAmountPrec1Max{

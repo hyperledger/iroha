@@ -24,7 +24,7 @@ class ReplayFixture : public AcceptanceFixture {
                      .createRole(kReceiverRole, {Role::kReceive})
                      .appendRole(kUserId, kReceiverRole)
                      .addAssetQuantity(kAssetId, "10000.0"),
-                 kAdminKeypair);
+                 *kAdminSigner);
     itf.setInitialState(kAdminSigner)
         .sendTxAwait(create_user_tx, CHECK_TXS_QUANTITY(1));
   }

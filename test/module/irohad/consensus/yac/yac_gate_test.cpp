@@ -10,7 +10,7 @@
 #include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
-#include "framework/strong_type_literals.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
@@ -47,9 +47,6 @@ static const std::string kActualPubkey2{"actual_pubkey_2"};
 class YacGateTest : public ::testing::Test {
  public:
   void SetUp() override {
-    auto keypair =
-        shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-
     expected_hash = YacHash(round, "proposal", "block");
 
     auto block = std::make_shared<MockBlock>();
@@ -113,7 +110,7 @@ class YacGateTest : public ::testing::Test {
                                          block_cache,
                                          getTestLogger("YacGateImpl"));
 
-    auto peer = makePeer("127.0.0.1", "111"_pubkey);
+    auto peer = makePeer("127.0.0.1", "111"_hex_pubkey);
     ledger_state = std::make_shared<iroha::LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         block->height() - 1,

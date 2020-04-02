@@ -8,9 +8,12 @@
 
 #include "cryptography/crypto_provider/crypto_signer.hpp"
 
+#include <fmt/format.h>
+#include "common/to_string.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/keypair.hpp"
 #include "cryptography/signed.hpp"
+#include "logger/logger.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -34,6 +37,12 @@ namespace shared_model {
       shared_model::interface::types::PublicKeyHexStringView publicKey()
           const override {
         return keypair_.publicKey();
+      }
+
+      std::string toString() const override {
+        return fmt::format("Internal cryptographic signer of {}, {}",
+                           Algorithm::kName,
+                           iroha::to_string::toString(publicKey()));
       }
 
      private:

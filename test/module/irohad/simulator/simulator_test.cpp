@@ -5,6 +5,7 @@
 
 #include "simulator/impl/simulator.hpp"
 
+#include <chrono>
 #include <vector>
 
 #include <boost/range/adaptor/transformed.hpp>
@@ -13,7 +14,8 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "datetime/time.hpp"
-#include "framework/strong_type_literals.hpp"
+#include "framework/common_constants.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
@@ -28,12 +30,14 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
+using namespace common_constants;
 using namespace iroha;
 using namespace iroha::validation;
 using namespace iroha::ametsuchi;
 using namespace iroha::simulator;
 using namespace iroha::network;
 using namespace framework::test_subscriber;
+using namespace std::chrono_literals;
 
 using ::testing::_;
 using ::testing::A;
@@ -80,19 +84,17 @@ class SimulatorTest : public ::testing::Test {
 
   std::shared_ptr<Simulator> simulator;
   shared_model::interface::types::PeerList ledger_peers{
-      makePeer("127.0.0.1", "111"_pubkey)};
+      makePeer("127.0.0.1", "111"_hex_pubkey)};
 };
 
 auto makeProposal(int height) {
   auto tx = shared_model::proto::TransactionBuilder()
                 .createdTime(iroha::time::now())
-                .creatorAccountId("admin@ru")
-                .addAssetQuantity("coin#coin", "1.0")
+                .creatorAccountId(kAdminId)
+                .addAssetQuantity(kAssetId, "1.0")
                 .quorum(1)
                 .build()
-                .signAndAddSignature(
-                    shared_model::crypto::DefaultCryptoAlgorithmType::
-                        generateKeypair())
+                .signAndAddSignature(*kAdminSigner)
                 .finish();
   std::vector<shared_model::proto::Transaction> txs = {tx, tx};
   auto proposal = shared_model::proto::ProposalBuilder()
@@ -105,21 +107,21 @@ auto makeProposal(int height) {
           std::move(proposal)));
 }
 
-auto makeTx(size_t created_time = iroha::time::now()) {
+auto makeTx(std::chrono::milliseconds time_offset = 0ms) {
   return shared_model::proto::TransactionBuilder()
-      .createdTime(created_time)
-      .creatorAccountId("admin@ru")
-      .addAssetQuantity("coin#coin", "1.0")
+      .createdTime(iroha::time::now(time_offset))
+      .creatorAccountId(kAdminId)
+      .addAssetQuantity(kAssetId, "1.0")
       .quorum(1)
       .build()
-      .signAndAddSignature(
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair())
+      .signAndAddSignature(*kAdminSigner)
       .finish();
 }
 
 TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   // proposal with height 2 => height 1 block present => new block generated
-  std::vector<shared_model::proto::Transaction> txs = {makeTx(), makeTx()};
+  std::vector<shared_model::proto::Transaction> txs = {makeTx(0ms),
+                                                       makeTx(1ms)};
 
   auto validation_result =
       std::make_unique<iroha::validation::VerifiedProposalAndErrors>();
@@ -187,9 +189,8 @@ TEST_F(SimulatorTest, SomeFailingTxs) {
   // verified proposal
   const int kNumTransactions = 3;
   std::vector<shared_model::proto::Transaction> txs;
-  uint64_t created_time = iroha::time::now();
   for (int i = 0; i < kNumTransactions; ++i) {
-    txs.push_back(makeTx(created_time + i));
+    txs.push_back(makeTx(std::chrono::milliseconds{i}));
   }
   auto proposal = std::make_shared<shared_model::proto::Proposal>(
       shared_model::proto::ProposalBuilder()

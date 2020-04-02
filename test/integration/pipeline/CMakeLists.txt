@@ -13,10 +13,12 @@ addtest(batch_pipeline_test batch_pipeline_test.cpp)
 target_link_libraries(batch_pipeline_test
     acceptance_fixture
     integration_framework
+    test_make_default_signer
     )
 
 addtest(multisig_tx_pipeline_test multisig_tx_pipeline_test.cpp)
 target_link_libraries(multisig_tx_pipeline_test
     acceptance_fixture
     integration_framework
+    test_make_default_signer
     )

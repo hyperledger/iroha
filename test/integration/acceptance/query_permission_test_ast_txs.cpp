@@ -31,7 +31,7 @@ IntegrationTestFramework &QueryPermissionAssetTxs::prepareState(
       fixture.baseTx(kAdminId)
           .addAssetQuantity(kAssetId, "20000.0")
           .transferAsset(kAdminId, kUserId, kAssetId, "incoming", "500.0"),
-      kAdminKeypair);
+      *kAdminSigner);
 
   // Transfer assets back to admin
   auto prepare_tx_2 = fixture.complete(fixture.baseTx().transferAsset(
@@ -78,9 +78,9 @@ shared_model::proto::Query QueryPermissionAssetTxs::makeQuery(
     AcceptanceFixture &fixture,
     const interface::types::AccountIdType &target,
     const interface::types::AccountIdType &spectator,
-    const crypto::Keypair &spectator_keypair) {
+    const crypto::CryptoSigner &spectator_signer) {
   return fixture.complete(
       fixture.baseQry(spectator).getAccountAssetTransactions(
           target, kAssetId, kTxPageSize),
-      spectator_keypair);
+      spectator_signer);
 }

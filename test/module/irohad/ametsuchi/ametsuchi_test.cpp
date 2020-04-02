@@ -13,6 +13,7 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -20,6 +21,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
+using namespace common_constants;
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
@@ -407,24 +409,21 @@ TEST_F(AmetsuchiTest, TestRestoreWSV) {
   std::string default_role = "admin";
 
   std::vector<shared_model::proto::Transaction> genesis_tx;
-  genesis_tx.push_back(
-      shared_model::proto::TransactionBuilder()
-          .creatorAccountId("admin@test")
-          .createdTime(iroha::time::now())
-          .quorum(1)
-          .createRole(default_role,
-                      {Role::kCreateDomain,
-                       Role::kCreateAccount,
-                       Role::kAddAssetQty,
-                       Role::kAddPeer,
-                       Role::kReceive,
-                       Role::kTransfer})
-          .createDomain(default_domain, default_role)
-          .build()
-          .signAndAddSignature(
-              shared_model::crypto::DefaultCryptoAlgorithmType::
-                  generateKeypair())
-          .finish());
+  genesis_tx.push_back(shared_model::proto::TransactionBuilder()
+                           .creatorAccountId("admin@test")
+                           .createdTime(iroha::time::now())
+                           .quorum(1)
+                           .createRole(default_role,
+                                       {Role::kCreateDomain,
+                                        Role::kCreateAccount,
+                                        Role::kAddAssetQty,
+                                        Role::kAddPeer,
+                                        Role::kReceive,
+                                        Role::kTransfer})
+                           .createDomain(default_domain, default_role)
+                           .build()
+                           .signAndAddSignature(*kAdminSigner)
+                           .finish());
 
   auto genesis_block = createBlock(genesis_tx);
 
@@ -460,28 +459,26 @@ TEST_F(AmetsuchiTest, TestRestoreWSV) {
 TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
   ASSERT_TRUE(storage);
 
-  shared_model::crypto::Keypair key{
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()};
-
-  auto genesis_tx = shared_model::proto::TransactionBuilder()
-                        .creatorAccountId("admin@test")
-                        .createdTime(iroha::time::now())
-                        .quorum(1)
-                        .createRole("admin",
-                                    {Role::kCreateDomain,
-                                     Role::kCreateAccount,
-                                     Role::kAddAssetQty,
-                                     Role::kAddPeer,
-                                     Role::kReceive,
-                                     Role::kTransfer})
-                        .createDomain("test", "admin")
-                        .createAccount("admin", "test", key.publicKey())
-                        .createAccount("receiver", "test", key.publicKey())
-                        .createAsset("coin", "test", 2)
-                        .addAssetQuantity("coin#test", "20.00")
-                        .build()
-                        .signAndAddSignature(key)
-                        .finish();
+  auto genesis_tx =
+      shared_model::proto::TransactionBuilder()
+          .creatorAccountId("admin@test")
+          .createdTime(iroha::time::now())
+          .quorum(1)
+          .createRole("admin",
+                      {Role::kCreateDomain,
+                       Role::kCreateAccount,
+                       Role::kAddAssetQty,
+                       Role::kAddPeer,
+                       Role::kReceive,
+                       Role::kTransfer})
+          .createDomain("test", "admin")
+          .createAccount("admin", "test", kAdminSigner->publicKey())
+          .createAccount("receiver", "test", kAdminSigner->publicKey())
+          .createAsset("coin", "test", 2)
+          .addAssetQuantity("coin#test", "20.00")
+          .build()
+          .signAndAddSignature(*kAdminSigner)
+          .finish();
 
   auto genesis_block = createBlock({genesis_tx});
   apply(storage, genesis_block);
@@ -494,7 +491,7 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
           .transferAsset(
               "admin@test", "receiver@test", "coin#test", "deal", "10.00")
           .build()
-          .signAndAddSignature(key)
+          .signAndAddSignature(*kAdminSigner)
           .finish();
 
   auto expected_block = createBlock({add_ast_tx}, 2, genesis_block->hash());
@@ -516,10 +513,6 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
 
 class PreparedBlockTest : public AmetsuchiTest {
  public:
-  PreparedBlockTest()
-      : key(shared_model::crypto::DefaultCryptoAlgorithmType::
-                generateKeypair()) {}
-
   shared_model::proto::Transaction createAddAsset(const std::string &amount) {
     return shared_model::proto::TransactionBuilder()
         .creatorAccountId("admin@test")
@@ -527,7 +520,7 @@ class PreparedBlockTest : public AmetsuchiTest {
         .quorum(1)
         .addAssetQuantity("coin#test", amount)
         .build()
-        .signAndAddSignature(key)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -546,11 +539,11 @@ class PreparedBlockTest : public AmetsuchiTest {
                                Role::kReceive,
                                Role::kTransfer})
                   .createDomain(default_domain, default_role)
-                  .createAccount("admin", "test", key.publicKey())
+                  .createAccount("admin", "test", kAdminSigner->publicKey())
                   .createAsset("coin", default_domain, 2)
                   .addAssetQuantity("coin#test", base_balance.toStringRepr())
                   .build()
-                  .signAndAddSignature(key)
+                  .signAndAddSignature(*kAdminSigner)
                   .finish());
     genesis_block = createBlock({*genesis_tx});
     initial_tx = clone(createAddAsset("5.00"));
@@ -559,7 +552,6 @@ class PreparedBlockTest : public AmetsuchiTest {
     temp_wsv = storage->createTemporaryWsv(command_executor);
   }
 
-  shared_model::crypto::Keypair key;
   std::string default_domain{"test"};
   std::string default_role{"admin"};
   std::unique_ptr<shared_model::proto::Transaction> genesis_tx;

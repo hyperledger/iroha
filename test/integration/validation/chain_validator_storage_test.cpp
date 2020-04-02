@@ -15,6 +15,7 @@
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
@@ -32,8 +33,7 @@ namespace iroha {
           supermajority_checker, getTestLogger("ChainValidator"));
 
       for (size_t i = 0; i < 5; ++i) {
-        keys.push_back(shared_model::crypto::DefaultCryptoAlgorithmType::
-                           generateKeypair());
+        signers.push_back(shared_model::crypto::makeDefaultSigner());
       }
     }
 
@@ -48,7 +48,7 @@ namespace iroha {
     /// Complete builder by adding a signature and return a signed transaction
     template <typename Builder>
     auto completeTx(Builder builder) {
-      return builder.build().signAndAddSignature(keys.at(0)).finish();
+      return builder.build().signAndAddSignature(*signers.at(0)).finish();
     }
 
     /// Generate a dummy transaction with create role command
@@ -79,17 +79,17 @@ namespace iroha {
     auto generateAndApplyFirstBlock() {
       auto tx =
           completeTx(baseTx()
-                         .addPeer("0.0.0.0:50541", keys.at(0).publicKey())
-                         .addPeer("0.0.0.0:50542", keys.at(1).publicKey())
-                         .addPeer("0.0.0.0:50543", keys.at(2).publicKey())
-                         .addPeer("0.0.0.0:50544", keys.at(3).publicKey()));
+                         .addPeer("0.0.0.0:50541", signers.at(0)->publicKey())
+                         .addPeer("0.0.0.0:50542", signers.at(1)->publicKey())
+                         .addPeer("0.0.0.0:50543", signers.at(2)->publicKey())
+                         .addPeer("0.0.0.0:50544", signers.at(3)->publicKey()));
 
       auto block = completeBlock(
           baseBlock({tx},
                     1,
                     shared_model::crypto::DefaultHashProvider::makeHash(
                         shared_model::crypto::Blob("")))
-              .signAndAddSignature(keys.at(0)));
+              .signAndAddSignature(*signers.at(0)));
 
       auto ms = createMutableStorage();
 
@@ -110,7 +110,7 @@ namespace iroha {
     }
 
     std::shared_ptr<validation::ChainValidatorImpl> validator;
-    std::vector<shared_model::crypto::Keypair> keys;
+    std::vector<std::shared_ptr<shared_model::crypto::CryptoSigner>> signers;
     std::shared_ptr<consensus::yac::SupermajorityChecker>
         supermajority_checker = consensus::yac::getSupermajorityChecker(
             kConsistencyModel  // TODO mboldyrev 13.12.2018 IR-
@@ -130,19 +130,19 @@ namespace iroha {
   TEST_F(ChainValidatorStorageTest, PeerAdded) {
     auto block1 = generateAndApplyFirstBlock();
 
-    auto add_peer =
-        completeTx(baseTx().addPeer("0.0.0.0:50545", keys.at(4).publicKey()));
+    auto add_peer = completeTx(
+        baseTx().addPeer("0.0.0.0:50545", signers.at(4)->publicKey()));
     auto block2 = completeBlock(baseBlock({add_peer}, 2, block1->hash())
-                                    .signAndAddSignature(keys.at(0))
-                                    .signAndAddSignature(keys.at(1))
-                                    .signAndAddSignature(keys.at(2)));
+                                    .signAndAddSignature(*signers.at(0))
+                                    .signAndAddSignature(*signers.at(1))
+                                    .signAndAddSignature(*signers.at(2)));
 
     auto block3 = completeBlock(baseBlock({dummyTx(3)}, 3, block2->hash())
-                                    .signAndAddSignature(keys.at(0))
-                                    .signAndAddSignature(keys.at(1))
-                                    .signAndAddSignature(keys.at(2))
-                                    .signAndAddSignature(keys.at(3))
-                                    .signAndAddSignature(keys.at(4)));
+                                    .signAndAddSignature(*signers.at(0))
+                                    .signAndAddSignature(*signers.at(1))
+                                    .signAndAddSignature(*signers.at(2))
+                                    .signAndAddSignature(*signers.at(3))
+                                    .signAndAddSignature(*signers.at(4)));
 
     ASSERT_TRUE(createAndValidateChain({block2, block3}));
   }
@@ -159,15 +159,15 @@ namespace iroha {
     auto block1 = generateAndApplyFirstBlock();
 
     auto block2 = completeBlock(baseBlock({dummyTx(2)}, 2, block1->hash())
-                                    .signAndAddSignature(keys.at(0))
-                                    .signAndAddSignature(keys.at(1))
-                                    .signAndAddSignature(keys.at(2)));
+                                    .signAndAddSignature(*signers.at(0))
+                                    .signAndAddSignature(*signers.at(1))
+                                    .signAndAddSignature(*signers.at(2)));
 
     auto block3 = completeBlock(baseBlock({dummyTx(3)}, 3, block2->hash())
-                                    .signAndAddSignature(keys.at(0))
-                                    .signAndAddSignature(keys.at(1))
-                                    .signAndAddSignature(keys.at(2))
-                                    .signAndAddSignature(keys.at(3)));
+                                    .signAndAddSignature(*signers.at(0))
+                                    .signAndAddSignature(*signers.at(1))
+                                    .signAndAddSignature(*signers.at(2))
+                                    .signAndAddSignature(*signers.at(3)));
 
     ASSERT_TRUE(createAndValidateChain({block2, block3}));
   }
@@ -187,10 +187,10 @@ namespace iroha {
                   2,
                   shared_model::crypto::DefaultHashProvider::makeHash(
                       shared_model::crypto::Blob("bad_hash")))
-            .signAndAddSignature(keys.at(0))
-            .signAndAddSignature(keys.at(1))
-            .signAndAddSignature(keys.at(2))
-            .signAndAddSignature(keys.at(3)));
+            .signAndAddSignature(*signers.at(0))
+            .signAndAddSignature(*signers.at(1))
+            .signAndAddSignature(*signers.at(2))
+            .signAndAddSignature(*signers.at(3)));
 
     ASSERT_FALSE(createAndValidateChain({block2}));
   }
@@ -208,8 +208,8 @@ namespace iroha {
     ASSERT_FALSE(supermajority_checker->hasSupermajority(2, 4))
         << "This test assumes that 2 out of 4 peers do not have supermajority!";
     auto block2 = completeBlock(baseBlock({dummyTx(2)}, 2, block1->hash())
-                                    .signAndAddSignature(keys.at(0))
-                                    .signAndAddSignature(keys.at(1)));
+                                    .signAndAddSignature(*signers.at(0))
+                                    .signAndAddSignature(*signers.at(1)));
 
     ASSERT_FALSE(createAndValidateChain({block2}));
   }

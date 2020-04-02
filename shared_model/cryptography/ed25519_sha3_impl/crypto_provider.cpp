@@ -51,5 +51,7 @@ namespace shared_model {
     constexpr size_t CryptoProviderEd25519Sha3::kPrivateKeyLength;
     constexpr size_t CryptoProviderEd25519Sha3::kSignatureLength;
     constexpr size_t CryptoProviderEd25519Sha3::kSeedLength;
+
+    const char *CryptoProviderEd25519Sha3::kName = "Internal Ed25519 with SHA3";
   }  // namespace crypto
 }  // namespace shared_model

@@ -47,6 +47,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/validators/always_valid_validators.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
@@ -97,15 +98,6 @@ namespace {
     ip.append(":");
     ip.append(std::to_string(port));
     return ip;
-  }
-
-  std::shared_ptr<CryptoSigner> makeSigner(
-      std::optional<std::shared_ptr<CryptoSigner>> optional_signer) {
-    if (optional_signer) {
-      return std::move(optional_signer).value();
-    }
-    return std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
-        DefaultCryptoAlgorithmType::generateKeypair());
   }
 }  // namespace
 
@@ -250,7 +242,7 @@ namespace integration_framework {
     auto fake_peer = std::make_shared<FakePeer>(
         kLocalHost,
         port,
-        makeSigner(std::move(signer)),
+        makeDefaultSigner(std::move(signer)),
         this_peer_,
         common_objects_factory_,
         transaction_factory_,
