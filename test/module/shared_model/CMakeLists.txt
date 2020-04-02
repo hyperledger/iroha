@@ -21,6 +21,7 @@ AddTest(interface_test
 target_link_libraries(interface_test
     shared_model_default_builders
     test_logger
+    test_make_default_signer
     )
 
 add_library(commands_mocks_factory

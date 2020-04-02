@@ -22,6 +22,7 @@
 #include "module/irohad/consensus/yac/mock_yac_timer.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "validators/field_validator.hpp"
 
 #include "yac_mock.grpc.pb.h"
@@ -37,7 +38,6 @@ namespace fuzzing {
         std::unique_ptr<iroha::consensus::yac::proto::Yac::StubInterface>(
             const shared_model::interface::Peer &)>
         client_creator_;
-    const shared_model::crypto::Keypair keypair_;
     std::shared_ptr<iroha::consensus::yac::YacNetworkNotifications> yac_;
     std::shared_ptr<iroha::network::AsyncGrpcClient<google::protobuf::Empty>>
         async_call_;
@@ -52,8 +52,6 @@ namespace fuzzing {
             return std::make_unique<
                 iroha::consensus::yac::proto::MockYacStub>();
           }),
-          keypair_(shared_model::crypto::DefaultCryptoAlgorithmType::
-                       generateKeypair()),
           async_call_(std::make_shared<
                       iroha::network::AsyncGrpcClient<google::protobuf::Empty>>(
               logger::getDummyLoggerPtr())),
@@ -63,7 +61,8 @@ namespace fuzzing {
 
       crypto_provider_ =
           std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-              keypair_, logger::getDummyLoggerPtr());
+              shared_model::crypto::makeDefaultSigner(),
+              logger::getDummyLoggerPtr());
 
       std::vector<std::shared_ptr<shared_model::interface::Peer>>
           default_peers = [] {

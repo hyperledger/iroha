@@ -8,6 +8,7 @@ target_link_libraries(state_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    test_make_default_signer
     )
 
 AddTest(storage_test storage_test.cpp)
@@ -17,6 +18,7 @@ target_link_libraries(storage_test
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    test_make_default_signer
     )
 
 AddTest(completer_test completer_test.cpp)
@@ -32,6 +34,7 @@ target_link_libraries(transport_test
     shared_model_cryptography
     shared_model_stateless_validation
     shared_model_proto_backend
+    test_make_default_signer
     )
 
 AddTest(mst_processor_test mst_processor_test.cpp)
@@ -40,6 +43,7 @@ target_link_libraries(mst_processor_test
     test_logger
     shared_model_default_builders
     shared_model_stateless_validation
+    test_make_default_signer
     )
 
 AddTest(gossip_propagation_strategy_test
@@ -51,6 +55,7 @@ target_link_libraries(gossip_propagation_strategy_test
     shared_model_cryptography
     shared_model_stateless_validation
     shared_model_proto_backend
+    test_make_default_signer
     )
 
 AddTest(mst_net_input_test mst_net_input_test.cpp)

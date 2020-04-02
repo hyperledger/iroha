@@ -155,18 +155,19 @@ class AcceptanceFixture : public ::testing::Test {
    * Completes pre-built object with specified keypair for signing
    * @tparam Builder - is a type of a pre-built object
    * @param builder - is a pre-built object
-   * @param keypair - keypair used for signing
+   * @param signer - signer used for signing
    * @return built object
    */
   template <typename Builder>
-  auto complete(Builder builder, const shared_model::crypto::Keypair &keypair)
+  auto complete(Builder builder,
+                const shared_model::crypto::CryptoSigner &signer)
       -> decltype(builder.build()
                       .signAndAddSignature(
-                          std::declval<shared_model::crypto::Keypair>())
+                          std::declval<shared_model::crypto::CryptoSigner>())
                       .finish());
 
   /**
-   * Completes pre-built object with kUserKeypair used for signing
+   * Completes pre-built object with kUserSigner used for signing
    * @param builder is a pre-built object
    * @return built object
    */

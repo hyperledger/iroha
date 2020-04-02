@@ -15,6 +15,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 using namespace shared_model;
 using namespace common_constants;
@@ -56,7 +57,7 @@ class BatchPipelineTest
                 kFirstUserId,
                 PublicKeyHexStringView{kFirstUserSecondSigner->publicKey()})
             .setAccountQuorum(kFirstUserId, 2),
-        kFirstUserKeypair);
+        *kFirstUserSigner);
   }
 
   /**
@@ -106,13 +107,13 @@ class BatchPipelineTest
    * @param account_id account for which amount of asset is added
    * @param asset_name name of the asset to be created and added to the account
    * @param amount amount of the asset to be added to the account
-   * @param keypair is used to sign transaction
+   * @param signer is used to sign transaction
    * @return transaction with create asset and add asset quantity commands
    */
   auto createAndAddAssets(const interface::types::AccountIdType &account_id,
                           const interface::types::AssetNameType &asset_name,
                           const std::string &amount,
-                          const crypto::Keypair &keypair) {
+                          const crypto::CryptoSigner &signer) {
     return proto::TransactionBuilder()
         .creatorAccountId(account_id)
         .quorum(1)
@@ -120,7 +121,7 @@ class BatchPipelineTest
         .createAsset(asset_name, kDomain, 2)
         .addAssetQuantity(asset_name + "#" + kDomain, amount)
         .build()
-        .signAndAddSignature(keypair)
+        .signAndAddSignature(signer)
         .finish();
   }
 
@@ -154,17 +155,16 @@ class BatchPipelineTest
   /**
    * Take transaction and sign it with provided signature
    * @param tx to be signed
-   * @param keypair to sign
+   * @param signer to sign with
    * @return signed transaction
    */
   auto signedTx(std::shared_ptr<interface::Transaction> tx,
-                const crypto::Keypair &keypair) {
-    auto signed_blob =
-        crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
+                const crypto::CryptoSigner &signer) {
+    auto signature_hex = signer.sign(tx->payload());
     auto clone_tx = clone(tx.get());
     clone_tx->addSignature(
-        shared_model::interface::types::SignedHexStringView{signed_blob},
-        PublicKeyHexStringView{keypair.publicKey()});
+        shared_model::interface::types::SignedHexStringView{signature_hex},
+        PublicKeyHexStringView{signer.publicKey()});
     return std::shared_ptr<interface::Transaction>(std::move(clone_tx));
   }
 
@@ -202,10 +202,10 @@ class BatchPipelineTest
         .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))
         .sendTxAwait(addRoleToUsers(), CHECK_TXS_QUANTITY(1))
         .sendTxAwait(createAndAddAssets(
-                         kFirstUserId, kAssetA, amount1, kFirstUserKeypair),
+                         kFirstUserId, kAssetA, amount1, *kFirstUserSigner),
                      CHECK_TXS_QUANTITY(1))
         .sendTxAwait(createAndAddAssets(
-                         kSecondUserId, kAssetB, amount2, kSecondUserKeypair),
+                         kSecondUserId, kAssetB, amount2, *kSecondUserSigner),
                      CHECK_TXS_QUANTITY(1));
   }
 
@@ -217,12 +217,12 @@ class BatchPipelineTest
   const std::string kFirstUserId = kFirstUser + "@" + kDomain;
   const std::string kSecondUserId = kSecondUser + "@" + kDomain;
 
-  const crypto::Keypair kFirstUserKeypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  const crypto::Keypair kFirstUserSecondKeypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  const crypto::Keypair kSecondUserKeypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
+  const std::shared_ptr<crypto::CryptoSigner> kFirstUserSigner =
+      shared_model::crypto::makeDefaultSigner();
+  const std::shared_ptr<crypto::CryptoSigner> kFirstUserSecondSigner =
+      shared_model::crypto::makeDefaultSigner();
+  const std::shared_ptr<crypto::CryptoSigner> kSecondUserSigner =
+      shared_model::crypto::makeDefaultSigner();
 
   const std::string kAssetA = "usd";
   const std::string kAssetB = "euro";
@@ -253,8 +253,8 @@ TEST_P(BatchPipelineTest, ValidBatch) {
 
   SCOPED_TRACE("From valid batch test");
   auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair)});
+      {signedTx(batch_transactions[0], *kFirstUserSigner),
+       signedTx(batch_transactions[1], *kSecondUserSigner)});
   integration_framework::IntegrationTestFramework itf(2);
   prepareState(itf, "1.0", "1.0")
       .sendTxSequenceAwait(
@@ -285,8 +285,8 @@ TEST_F(BatchPipelineTest, InvalidAtomicBatch) {
 
   SCOPED_TRACE("From invalid atomic batch test");
   auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair)});
+      {signedTx(batch_transactions[0], *kFirstUserSigner),
+       signedTx(batch_transactions[1], *kSecondUserSigner)});
 
   integration_framework::IntegrationTestFramework itf(2);
   prepareState(itf, "1.0", "1.0")
@@ -336,9 +336,9 @@ TEST_F(BatchPipelineTest, InvalidOrderedBatch) {
 
   SCOPED_TRACE("From InvalidOrderedBatch");
   auto transaction_sequence = createTransactionSequence(
-      {signedTx(batch_transactions[0], kFirstUserKeypair),
-       signedTx(batch_transactions[1], kSecondUserKeypair),
-       signedTx(batch_transactions[2], kFirstUserKeypair)});
+      {signedTx(batch_transactions[0], *kFirstUserSigner),
+       signedTx(batch_transactions[1], *kSecondUserSigner),
+       signedTx(batch_transactions[2], *kFirstUserSigner)});
 
   integration_framework::IntegrationTestFramework itf(3);
   prepareState(itf, "1.0", "1.0")
@@ -380,7 +380,7 @@ TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
           kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
       prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
-  batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
+  batch = addSignaturesFromKeyPairs(batch, 0, *kFirstUserSigner);
   auto firstTxHash = batch->transactions()[0]->hash();
 
   integration_framework::IntegrationTestFramework itf(2);
@@ -390,7 +390,7 @@ TEST_F(BatchPipelineTest, SemisignedAtomicBatch) {
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
       .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  batch = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
+  batch = addSignaturesFromKeyPairs(batch, 0, *kFirstUserSecondSigner);
   itf.sendTxSequence(batchToSequence(batch))
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
       .checkStatus(firstTxHash, CHECK_MST_PENDING);
@@ -416,7 +416,7 @@ TEST_F(BatchPipelineTest, CommitAtomicBatchStepByStepSigning) {
           kFirstUserId, kSecondUserId, kAssetA, "1.0", 2),
       prepareTransferAssetBuilder(kSecondUserId, kFirstUserId, kAssetB, "1.0"));
 
-  auto batch1 = addSignaturesFromKeyPairs(batch, 0, kFirstUserKeypair);
+  auto batch1 = addSignaturesFromKeyPairs(batch, 0, *kFirstUserSigner);
   auto firstTxHash = batch->transactions()[0]->hash();
 
   integration_framework::IntegrationTestFramework itf(2);
@@ -426,12 +426,12 @@ TEST_F(BatchPipelineTest, CommitAtomicBatchStepByStepSigning) {
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
       .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  auto batch2 = addSignaturesFromKeyPairs(batch, 0, kFirstUserSecondKeypair);
+  auto batch2 = addSignaturesFromKeyPairs(batch, 0, *kFirstUserSecondSigner);
   itf.sendTxSequence(batchToSequence(batch2))
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
       .checkStatus(firstTxHash, CHECK_MST_PENDING);
 
-  auto batch3 = addSignaturesFromKeyPairs(batch, 1, kSecondUserKeypair);
+  auto batch3 = addSignaturesFromKeyPairs(batch, 1, *kSecondUserSigner);
   itf.sendTxSequence(batchToSequence(batch3))
       .checkStatus(firstTxHash, CHECK_STATELESS_VALID)
       .checkStatus(firstTxHash, CHECK_ENOUGH_SIGNATURES)

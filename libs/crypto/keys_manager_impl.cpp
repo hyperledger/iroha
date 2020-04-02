@@ -70,7 +70,9 @@ namespace iroha {
 
   KeysManagerImpl::KeysManagerImpl(
       const boost::filesystem::path &path_to_keypair, logger::LoggerPtr log)
-      : KeysManagerImpl("", path_to_keypair, std::move(log)) {}
+      : path_to_priv_key_(path_to_keypair.native() + kPrivateKeyExtension),
+        path_to_pub_key_(path_to_keypair.native() + kPublicKeyExtension),
+        log_(std::move(log)) {}
 
   iroha::expected::Result<Keypair, std::string> KeysManagerImpl::loadKeys(
       const boost::optional<std::string> &pass_phrase) {

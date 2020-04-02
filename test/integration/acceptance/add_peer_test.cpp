@@ -62,7 +62,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   // send addPeer command
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_hex_pubkey),
-               kAdminKeypair),
+               *kAdminSigner),
       checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
@@ -118,7 +118,7 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
   auto &itf = prepareState();
 
   // then create a fake peer
-  auto new_peer = itf.addFakePeer(boost::none);
+  auto new_peer = itf.addFakePeer(std::nullopt);
   auto mst_states_observable = new_peer->getMstStatesObservable().replay();
   mst_states_observable.connect();
   auto new_peer_server = new_peer->run();
@@ -127,13 +127,13 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
   // and add it with addPeer
   itf.sendTxWithoutValidation(complete(
       baseTx(kAdminId).setAccountDetail(kAdminId, "fav_meme", "doge").quorum(2),
-      kAdminKeypair));
+      *kAdminSigner));
 
   itf.sendTxAwait(
       complete(baseTx(kAdminId).addPeer(
                    new_peer->getAddress(),
-                   PublicKeyHexStringView{new_peer->getKeypair().publicKey()}),
-               kAdminKeypair),
+                   PublicKeyHexStringView{new_peer->getSigner().publicKey()}),
+               *kAdminSigner),
       checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
@@ -162,7 +162,7 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
 TEST_F(FakePeerFixture, RealPeerIsAdded) {
   // ------------------------ GIVEN ------------------------
   // create the initial fake peer
-  auto initial_peer = itf_->addFakePeer(boost::none);
+  auto initial_peer = itf_->addFakePeer(std::nullopt);
 
   // create a genesis block without only initial fake peer in it
   shared_model::interface::RolePermissionSet all_perms{};
@@ -176,7 +176,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .createdTime(iroha::time::now())
           .addPeer(
               initial_peer->getAddress(),
-              PublicKeyHexStringView{initial_peer->getKeypair().publicKey()})
+              PublicKeyHexStringView{initial_peer->getSigner().publicKey()})
           .createRole(kAdminRole, all_perms)
           .createRole(kDefaultRole, {})
           .createDomain(kDomain, kDefaultRole)
@@ -198,7 +198,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .prevHash(crypto::DefaultHashProvider::makeHash(crypto::Blob("")))
           .createdTime(iroha::time::now())
           .build()
-          .signAndAddSignature(initial_peer->getKeypair())
+          .signAndAddSignature(initial_peer->getSigner())
           .finish();
 
   auto block_with_add_peer =
@@ -207,12 +207,12 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
               baseTx(kAdminId).addPeer(
                   itf_->getAddress(),
                   PublicKeyHexStringView{itf_->getThisPeer()->pubkey()}),
-              kAdminKeypair)})
+              *kAdminSigner)})
           .height(genesis_block.height() + 1)
           .prevHash(genesis_block.hash())
           .createdTime(iroha::time::now())
           .build()
-          .signAndAddSignature(initial_peer->getKeypair())
+          .signAndAddSignature(initial_peer->getSigner())
           .finish();
 
   // provide the initial_peer with the blocks
@@ -307,7 +307,7 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
   itf_->sendTxAwait(complete(baseTx(kAdminId)
                                  .setAccountDetail(kUserId, "fav_meme", "doge")
                                  .quorum(1),
-                             kAdminKeypair),
+                             *kAdminSigner),
                     checkBlockHasNTxs<1>);
 
   new_peer_server->shutdown();

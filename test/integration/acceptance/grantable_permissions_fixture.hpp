@@ -17,6 +17,7 @@
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 class GrantablePermissionsFixture : public AcceptanceFixture {
  public:
@@ -27,14 +28,14 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
    * a set of permissions. The default domain role will be detached from the
    * user and the new role will be attached to the user.
    * @param user - user name without domain
-   * @param key - keypair used to sign user creation tx
+   * @param key - public key of newly created user
    * @param perms - permissions to be contained in role
    * @param role - role name to be attached to the user
    * @return proto::Transaction
    */
   shared_model::proto::Transaction makeAccountWithPerms(
       const shared_model::interface::types::AccountNameType &user,
-      const shared_model::crypto::Keypair &key,
+      shared_model::interface::types::PublicKeyHexStringView key,
       const shared_model::interface::RolePermissionSet &perms,
       const shared_model::interface::types::RoleIdType &role);
 
@@ -56,7 +57,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   /**
    * Create a transaction such that the creator grants permittee a permission
    * @param creator_account_name - first's account name without domain
-   * @param creator_key - the keypair to sign the transaction
+   * @param signer to sign the transaction
    * @param permittee_account_name - a name of permittee account (receives the
    * grantable permission)
    * @param grant_permission - grantable permisssion to be granted
@@ -65,7 +66,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   shared_model::proto::Transaction grantPermission(
       const shared_model::interface::types::AccountNameType
           &creator_account_name,
-      const shared_model::crypto::Keypair &creator_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
       const shared_model::interface::permissions::Grantable &grant_permission);
@@ -74,7 +75,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
    * Forms a transaction such that creator of transaction revokes a permission
    * from permittee
    * @param creator_account_name - first's account name without domain
-   * @param creator_key - the keypair to sign the transaction
+   * @param signer to sign the transaction
    * @param permittee_account_name - a name of permittee account (lost the
    * grantable permission)
    * @param revoke_permission - grantable permission to be revoked
@@ -83,7 +84,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   shared_model::proto::Transaction revokePermission(
       const shared_model::interface::types::AccountNameType
           &creator_account_name,
-      const shared_model::crypto::Keypair &creator_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
       const shared_model::interface::permissions::Grantable &revoke_permission);
@@ -91,14 +92,14 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   /**
    * Forms a transaction that adds signatory to an account
    * @param permittee_account_name name of account which is granted permission
-   * @param permittee_key key of account which is granted permission
+   * @param permittee_signer signer of account which grantes the permission
    * @param account_name account name which has granted permission to permittee
    * @return a transaction
    */
   shared_model::proto::Transaction permitteeAddSignatory(
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
-      const shared_model::crypto::Keypair &permittee_key,
+      const shared_model::crypto::CryptoSigner &permittee_signer,
       const shared_model::interface::types::AccountNameType &account_name);
 
   /**
@@ -111,21 +112,21 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   shared_model::proto::Transaction permitteeRemoveSignatory(
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
-      const shared_model::crypto::Keypair &permittee_key,
+      const shared_model::crypto::CryptoSigner &permittee_signer,
       const shared_model::interface::types::AccountNameType &account_name);
 
   /**
    * Forms a transaction that allows permitted user to modify quorum field
    * @param permittee_account_name name of account which is granted permission
-   * @param permittee_key key of account which is granted permission
-   * @param account_name account name which has granted permission to permittee
+   * @param signer to sign the transaction
+   * @param account_name account to seq quorum to
    * @param quorum quorum field
    * @return a transaction
    */
   shared_model::proto::Transaction setQuorum(
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
-      const shared_model::crypto::Keypair &permittee_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType &account_name,
       shared_model::interface::types::QuorumType quorum);
 
@@ -133,8 +134,8 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
    * Forms a transaction that allows permitted user to set details of the
    * account
    * @param permittee_account_name name of account which is granted permission
-   * @param permittee_key key of account which is granted permission
-   * @param account_name account name which has granted permission to permittee
+   * @param signer to sign the transaction
+   * @param account_name to set detail to
    * @param key of the data to set
    * @param detail is the data value
    * @return a transaction
@@ -142,7 +143,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   shared_model::proto::Transaction setAccountDetail(
       const shared_model::interface::types::AccountNameType
           &permittee_account_name,
-      const shared_model::crypto::Keypair &permittee_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType &account_name,
       const shared_model::interface::types::AccountDetailKeyType &key,
       const shared_model::interface::types::AccountDetailValueType &detail);
@@ -150,14 +151,14 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   /**
    * Adds specified amount of an asset and transfers it
    * @param creator_name account name which is creating transfer transaction
-   * @param creator_key account key which is creating transfer transaction
+   * @param signer to sign the transaction
    * @param amount created amount of a default asset in AcceptanceFixture
    * @param receiver_name name of an account which receives transfer
    * @return a transaction
    */
   shared_model::proto::Transaction addAssetAndTransfer(
       const shared_model::interface::types::AccountNameType &creator_name,
-      const shared_model::crypto::Keypair &creator_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType &amount,
       const shared_model::interface::types::AccountNameType &receiver_name);
 
@@ -165,7 +166,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
    * Transaction, that transfers default asset (from default ITF genesis block)
    * from source account to receiver
    * @param creator_name account name which is creating transfer transaction
-   * @param creator_key account key which is creating transfer transaction
+   * @param signer to sign the transaction
    * @param source_account_name account which has assets to transfer
    * @param amount amount of transferred asset
    * @param receiver_name name of an account which receives transfer
@@ -173,7 +174,7 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
    */
   shared_model::proto::Transaction transferAssetFromSource(
       const shared_model::interface::types::AccountNameType &creator_name,
-      const shared_model::crypto::Keypair &creator_key,
+      const shared_model::crypto::CryptoSigner &signer,
       const shared_model::interface::types::AccountNameType
           &source_account_name,
       const std::string &amount,
@@ -182,56 +183,51 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   /**
    * Get signatories of an account (same as transaction creator)
    * @param account_name account name which has signatories
-   * @param account_key account key which has signatories
+   * @param signer to sign the query
    * @return a query
    */
   shared_model::proto::Query querySignatories(
       const shared_model::interface::types::AccountNameType &account_name,
-      const shared_model::crypto::Keypair &account_key);
+      const shared_model::crypto::CryptoSigner &signer);
 
   /**
    * Get account metadata in order to check quorum field
    * @param account_name account name
-   * @param account_key account key
+   * @query account_key account key
    * @return a query
    */
   shared_model::proto::Query queryAccount(
       const shared_model::interface::types::AccountNameType &account_name,
-      const shared_model::crypto::Keypair &account_key);
+      const shared_model::crypto::CryptoSigner &signer);
 
   /**
    * Get account details
    * @param account_name account name which has AccountDetails in JSON
-   * @param account_key account key which has AccountDetails in JSON
+   * @param signer to sign the query
    * @return a query
    */
   shared_model::proto::Query queryAccountDetail(
       const shared_model::interface::types::AccountNameType &account_name,
-      const shared_model::crypto::Keypair &account_key);
+      const shared_model::crypto::CryptoSigner &signer);
 
   /**
    * Creates a lambda that checks query response for signatures
-   * @param signatory a keypair that has a public key to compare
+   * @param signatory a public key that has to be found in the response
    * @param quantity required quantity of signatories
    * @param is_contained true if the signatory is in the set
    * @return function
    */
-  static auto checkSignatorySet(const shared_model::crypto::Keypair &signatory,
-                                int quantity,
-                                bool is_contained) {
-    return [&signatory, quantity, is_contained](
+  static auto makeSignatoryResponceChecker(
+      ::testing::Matcher<
+          shared_model::interface::types::PublicKeyCollectionType> matcher) {
+    return [matcher = std::move(matcher)](
                const shared_model::proto::QueryResponse &query_response) {
       ASSERT_NO_THROW({
         const auto &resp =
             boost::get<const shared_model::interface::SignatoriesResponse &>(
                 query_response.get());
 
-        ASSERT_EQ(resp.keys().size(), quantity);
-        auto &keys = resp.keys();
-
-        ASSERT_EQ((std::find(keys.begin(), keys.end(), signatory.publicKey())
-                   != keys.end()),
-                  is_contained);
+        EXPECT_THAT(resp.keys(), matcher);
       });
     };
   }
@@ -281,10 +277,10 @@ class GrantablePermissionsFixture : public AcceptanceFixture {
   const std::string kRole1 = "roleone";
   const std::string kRole2 = "roletwo";
 
-  const shared_model::crypto::Keypair kAccount1Keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  const shared_model::crypto::Keypair kAccount2Keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
+  const std::shared_ptr<shared_model::crypto::CryptoSigner> kAccount1Signer =
+      shared_model::crypto::makeDefaultSigner();
+  const std::shared_ptr<shared_model::crypto::CryptoSigner> kAccount2Signer =
+      shared_model::crypto::makeDefaultSigner();
 
   const std::string kAccountDetailKey = "some_key";
   const std::string kAccountDetailValue = "some_value";

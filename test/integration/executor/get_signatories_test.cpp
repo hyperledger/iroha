@@ -9,6 +9,7 @@
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
+#include "common/to_string.hpp"
 #include "framework/common_constants.hpp"
 #include "integration/executor/query_permission_test.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -43,18 +44,15 @@ struct GetSignatoriesTest : public ExecutorTestBase {
       signatories_.emplace_back(makePubKey(i));
       IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
           *getItf().getMockCommandFactory()->constructAddSignatory(
-              shared_model::interface::types::PublicKeyHexStringView{
-                  signatories_.back()},
-              kUserId)));
+              PublicKeyHexStringView{signatories_.back()}, kUserId)));
     }
   }
 
   void prepareState(size_t n) {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
-    using shared_model::interface::types::PublicKeyHexStringView;
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, PublicKeyHexStringView{kUserSigner->publicKey()}, {}));
+        kUser, kDomain, kUserSigner->publicKey(), {}));
     addSignatories(n);
   }
 
@@ -72,7 +70,8 @@ struct GetSignatoriesTest : public ExecutorTestBase {
   }
 
   /// The signatories of the default account.
-  std::vector<std::string> signatories_{kUserSigner->publicKey()};
+  std::vector<std::string> signatories_{
+      iroha::to_string::toString(kUserSigner->publicKey())};
 };
 
 using GetSignatoriesBasicTest = BasicExecutorTest<GetSignatoriesTest>;

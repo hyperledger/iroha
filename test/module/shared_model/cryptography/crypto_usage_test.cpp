@@ -31,7 +31,9 @@
 #include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
 #endif
 
+using namespace common_constants;
 using namespace shared_model::crypto;
+using namespace shared_model::interface::types;
 
 using shared_model::validation::ValidationError;
 
@@ -74,11 +76,10 @@ class CryptoUsageTest : public ::testing::Test {
   template <typename T>
   void signIncorrect(T &signable) {
     // initialize wrong signature
-    auto signedBlob = CurrentCryptoProvider::sign(
-        shared_model::crypto::Blob("wrong payload"), keypair);
-    using namespace shared_model::interface::types;
-    signable.addSignature(SignedHexStringView{signedBlob},
-                          PublicKeyHexStringView{keypair.publicKey()});
+    auto signature_hex =
+        signer_->sign(shared_model::crypto::Blob{"wrong payload"});
+    signable.addSignature(SignedHexStringView{signature_hex},
+                          PublicKeyHexStringView{signer_->publicKey()});
   }
 
   template <typename T>
@@ -88,16 +89,14 @@ class CryptoUsageTest : public ::testing::Test {
   }
 
   Blob data;
-  shared_model::crypto::Keypair keypair =
-      CurrentCryptoProvider::generateKeypair();
-
-  shared_model::crypto::CryptoModelSigner<CurrentCryptoProvider> signer =
-      shared_model::crypto::CryptoModelSigner<CurrentCryptoProvider>(
-          shared_model::crypto::Keypair{keypair});
+  std::shared_ptr<shared_model::crypto::CryptoSigner> signer_ =
+      std::make_shared<CryptoSignerInternal<CurrentCryptoProvider>>(
+          CurrentCryptoProvider::generateKeypair());
 
   template <typename T>
   void sign(T &o) {
-    o.addSignature(signer.sign(o.payload()), signer.publicKey());
+    o.addSignature(SignedHexStringView{signer_->sign(o.payload())},
+                   signer_->publicKey());
   }
 
   shared_model::validation::FieldValidator field_validator_{
@@ -122,14 +121,12 @@ TYPED_TEST_CASE(CryptoUsageTest, CryptoUsageTestTypes, );
  * @then check that siganture valid without clarification of algorithm
  */
 TYPED_TEST(CryptoUsageTest, RawSignAndVerifyTest) {
-  auto signature = iroha::hexstringToBytestringResult(
-                       CryptoSigner::sign(this->data, this->keypair))
-                       .assumeValue();
+  auto signature_hex = this->signer_->sign(this->data);
   using namespace shared_model::interface::types;
   auto verified = CryptoVerifier::verify(
-      SignedHexStringView{iroha::bytestringToHexstring(signature)},
+      SignedHexStringView{signature_hex},
       this->data,
-      PublicKeyHexStringView{this->keypair.publicKey()});
+      PublicKeyHexStringView{this->signer_->publicKey()});
   IROHA_ASSERT_RESULT_VALUE(verified);
 }
 

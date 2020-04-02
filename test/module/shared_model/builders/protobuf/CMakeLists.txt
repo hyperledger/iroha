@@ -8,9 +8,11 @@ if (IROHA_ROOT_PROJECT)
       transport_builder_test.cpp
       )
   target_link_libraries(transport_builder_test
+      common_test_constants
       shared_model_default_builders
       shared_model_stateless_validation
       shared_model_interfaces_factories
+      test_make_default_signer
       )
 endif ()
 
@@ -27,6 +29,7 @@ addtest(block_builder_test
     )
 
 target_link_libraries(block_builder_test
+    common_test_constants
     shared_model_default_builders
     shared_model_stateless_validation
     )

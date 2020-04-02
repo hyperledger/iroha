@@ -47,9 +47,6 @@ static const std::string kActualPubkey2{"actual_hex_pubkey_2"};
 class YacGateTest : public ::testing::Test {
  public:
   void SetUp() override {
-    auto keypair =
-        shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-
     expected_hash = YacHash(round, "proposal", "block");
 
     auto block = std::make_shared<MockBlock>();

@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/indirected.hpp>
+#include "framework/common_constants.hpp"
 #include "framework/crypto_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -20,6 +21,7 @@
 #include "module/shared_model/interface_mocks.hpp"
 #include "ordering/impl/on_demand_common.hpp"
 
+using namespace common_constants;
 using namespace iroha;
 using namespace iroha::ordering;
 using namespace iroha::ordering::transport;
@@ -77,17 +79,13 @@ class OnDemandOrderingGateTest : public ::testing::Test {
    * @return created transaction
    */
   auto generateTx() {
-    const shared_model::crypto::Keypair kDefaultKey =
-        shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-    std::string creator = "account@domain";
-
     return TestUnsignedTransactionBuilder()
-        .creatorAccountId(creator)
-        .setAccountQuorum(creator, 1)
+        .creatorAccountId(kUserId)
+        .setAccountQuorum(kUserId, 1)
         .createdTime(iroha::time::now())
         .quorum(1)
         .build()
-        .signAndAddSignature(kDefaultKey)
+        .signAndAddSignature(*kUserSigner)
         .finish();
   }
 

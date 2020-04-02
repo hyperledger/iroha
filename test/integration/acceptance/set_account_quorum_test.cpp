@@ -21,7 +21,7 @@ class QuorumFixture : public AcceptanceFixture {
     auto add_public_key_tx = complete(
         baseTx(kAdminId).addSignatory(
             kAdminId, PublicKeyHexStringView{kUserSigner->publicKey()}),
-        kAdminKeypair);
+        *kAdminSigner);
     itf.setInitialState(kAdminSigner)
         .sendTxAwait(add_public_key_tx, CHECK_TXS_QUANTITY(1));
   }
@@ -41,7 +41,7 @@ class QuorumFixture : public AcceptanceFixture {
 TEST_F(QuorumFixture, CanRaiseQuorum) {
   const auto new_quorum = 2;
   auto raise_quorum_tx = complete(
-      baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), kAdminKeypair);
+      baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), *kAdminSigner);
   itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(1));
 }
 
@@ -57,7 +57,7 @@ TEST_F(QuorumFixture, CanRaiseQuorum) {
 TEST_F(QuorumFixture, CannotRaiseQuorumMoreThanSignatures) {
   const auto new_quorum = 3;
   auto raise_quorum_tx = complete(
-      baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), kAdminKeypair);
+      baseTx(kAdminId).setAccountQuorum(kAdminId, new_quorum), *kAdminSigner);
   itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(0));
 }
 
@@ -73,7 +73,7 @@ TEST_F(QuorumFixture, CanLowerQuorum) {
   const auto first_quorum = 2;
   const auto second_quorum = 1;
   auto raise_quorum_tx = complete(
-      baseTx(kAdminId).setAccountQuorum(kAdminId, first_quorum), kAdminKeypair);
+      baseTx(kAdminId).setAccountQuorum(kAdminId, first_quorum), *kAdminSigner);
   auto lower_quorum_tx = baseTx(kAdminId)
                              .quorum(2)
                              .setAccountQuorum(kAdminId, second_quorum)
@@ -95,6 +95,6 @@ TEST_F(QuorumFixture, CanLowerQuorum) {
 TEST_F(QuorumFixture, CannotSetZeroQuorum) {
   const auto quorum = 0;
   auto quorum_tx = complete(baseTx(kAdminId).setAccountQuorum(kAdminId, quorum),
-                            kAdminKeypair);
+                            *kAdminSigner);
   itf.sendTx(quorum_tx, CHECK_STATELESS_INVALID);
 }

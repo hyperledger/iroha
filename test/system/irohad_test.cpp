@@ -28,6 +28,7 @@
 #include "common/files.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/blob.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
@@ -236,8 +237,8 @@ class IrohadTest : public AcceptanceFixture {
         getIrohadTestLoggerManager()->getChild("CommandClient")->getLogger());
   }
 
-  auto createDefaultTx(const shared_model::crypto::Keypair &key_pair) {
-    return complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), key_pair);
+  auto createDefaultTx(const shared_model::crypto::CryptoSigner &signer) {
+    return complete(baseTx(kAdminId).setAccountQuorum(kAdminId, 1), signer);
   }
 
   void prepareTestData() {
@@ -254,17 +255,25 @@ class IrohadTest : public AcceptanceFixture {
     ASSERT_TRUE(keys_manager_node_.createKeys(boost::none));
     ASSERT_TRUE(keys_manager_testuser_.createKeys(boost::none));
 
+    using shared_model::crypto::CryptoSignerInternal;
+    using shared_model::crypto::DefaultCryptoAlgorithmType;
     auto admin_keys_result = keys_manager_admin_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(admin_keys_result);
-    auto admin_keys = std::move(admin_keys_result).assumeValue();
+    admin_signer_ =
+        std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
+            std::move(admin_keys_result).assumeValue());
 
     auto node0_keys_result = keys_manager_node_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(node0_keys_result);
-    auto node0_keys = std::move(node0_keys_result).assumeValue();
+    node0_signer_ =
+        std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
+            std::move(node0_keys_result).assumeValue());
 
     auto user_keys_result = keys_manager_testuser_.loadKeys(boost::none);
     IROHA_ASSERT_RESULT_VALUE(user_keys_result);
-    auto user_keys = std::move(user_keys_result).assumeValue();
+    user_signer_ =
+        std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
+            std::move(user_keys_result).assumeValue());
 
     shared_model::interface::RolePermissionSet admin_perms{
         shared_model::interface::permissions::Role::kAddPeer,
@@ -309,7 +318,7 @@ class IrohadTest : public AcceptanceFixture {
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
             .addPeer("0.0.0.0:10001",
-                     PublicKeyHexStringView{node0_keys.publicKey()})
+                     PublicKeyHexStringView{node0_signer_->publicKey()})
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
             .createRole(kMoneyCreator, money_perms)
@@ -317,14 +326,15 @@ class IrohadTest : public AcceptanceFixture {
             .createAsset(kAssetName, kDomain, 2)
             .createAccount(kAdminName,
                            kDomain,
-                           PublicKeyHexStringView{admin_keys.publicKey()})
-            .createAccount(
-                kUser, kDomain, PublicKeyHexStringView{user_keys.publicKey()})
+                           PublicKeyHexStringView{admin_signer_->publicKey()})
+            .createAccount(kUser,
+                           kDomain,
+                           PublicKeyHexStringView{user_signer_->publicKey()})
             .appendRole(kAdminId, kAdminName)
             .appendRole(kAdminId, kMoneyCreator)
             .quorum(1)
             .build()
-            .signAndAddSignature(node0_keys)
+            .signAndAddSignature(*node0_signer_)
             .finish();
 
     auto genesis_block =
@@ -336,7 +346,7 @@ class IrohadTest : public AcceptanceFixture {
                 shared_model::crypto::Blob("")))
             .createdTime(iroha::time::now())
             .build()
-            .signAndAddSignature(node0_keys)
+            .signAndAddSignature(*node0_signer_)
             .finish();
 
     std::ofstream output_file(path_genesis_.string());
@@ -358,16 +368,17 @@ class IrohadTest : public AcceptanceFixture {
    * Send default transaction with given key pair.
    * Method will wait until transaction reach COMMITTED status
    * OR until limit of attempts is exceeded.
-   * @param key_pair Key pair for signing transaction
+   * @param signer for signing transaction
    * @param enable_tls use TLS to send the transaction
    * @return Response object from Torii
    */
   iroha::protocol::ToriiResponse sendDefaultTx(
-      const shared_model::crypto::Keypair &key_pair, bool enable_tls = false) {
+      const shared_model::crypto::CryptoSigner &signer,
+      bool enable_tls = false) {
     iroha::protocol::TxStatusRequest tx_request;
     iroha::protocol::ToriiResponse torii_response;
 
-    auto tx = createDefaultTx(key_pair);
+    auto tx = createDefaultTx(signer);
     tx_request.set_tx_hash(tx.hash().hex());
 
     auto client = createToriiClient(enable_tls);
@@ -395,12 +406,12 @@ class IrohadTest : public AcceptanceFixture {
    * COMMITED status.
    * Method will wait until transaction reach COMMITTED status
    * OR until limit of attempts is exceeded.
-   * @param key_pair Key pair for signing transaction
+   * @param signer for signing transaction
    * @param enable_tls use TLS to send the transaction
    */
-  void sendDefaultTxAndCheck(const shared_model::crypto::Keypair &key_pair,
+  void sendDefaultTxAndCheck(const shared_model::crypto::CryptoSigner &signer,
                              bool enable_tls = false) {
-    auto response = sendDefaultTx(key_pair, enable_tls);
+    auto response = sendDefaultTx(signer, enable_tls);
     ASSERT_EQ(response.tx_status(), iroha::protocol::TxStatus::COMMITTED);
   }
 
@@ -454,6 +465,9 @@ class IrohadTest : public AcceptanceFixture {
   iroha::KeysManagerImpl keys_manager_node_;
   iroha::KeysManagerImpl keys_manager_admin_;
   iroha::KeysManagerImpl keys_manager_testuser_;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> node0_signer_;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> admin_signer_;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> user_signer_;
   std::string root_ca_;
   iroha::utility_service::UtilityClient utility_client_;
 
@@ -479,11 +493,8 @@ TEST_F(IrohadTest, RunIrohad) {
 TEST_F(IrohadTest, SendTx) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair);
-
   SCOPED_TRACE("From send transaction test");
-  sendDefaultTxAndCheck(std::move(key_pair).assumeValue());
+  sendDefaultTxAndCheck(*admin_signer_);
 }
 
 /**
@@ -497,11 +508,8 @@ TEST_F(IrohadTest, SendTx) {
 TEST_F(IrohadTest, SendTxSecure) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair);
-
   SCOPED_TRACE("From secure send transaction test");
-  sendDefaultTxAndCheck(std::move(key_pair).assumeValue(), true);
+  sendDefaultTxAndCheck(*admin_signer_, true);
 }
 
 /**
@@ -514,10 +522,7 @@ TEST_F(IrohadTest, SendTxSecure) {
 TEST_F(IrohadTest, SendTxInsecureWithTls) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair);
-
-  auto tx = createDefaultTx(std::move(key_pair).assumeValue());
+  auto tx = createDefaultTx(*admin_signer_);
 
   auto client = createToriiClient(false, kSecurePort);
   auto response = client.Torii(tx.getTransport());
@@ -537,12 +542,8 @@ TEST_F(IrohadTest, SendTxInsecureWithTls) {
 TEST_F(IrohadTest, SendQuery) {
   launchIroha();
 
-  auto key_pair = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair);
-
   iroha::protocol::QueryResponse response;
-  auto query =
-      complete(baseQry(kAdminId).getRoles(), std::move(key_pair).assumeValue());
+  auto query = complete(baseQry(kAdminId).getRoles(), *admin_signer_);
   auto client = torii_utils::QuerySyncClient(kAddress, kPort);
   client.Find(query.getTransport(), response);
   shared_model::proto::QueryResponse resp{std::move(response)};
@@ -564,12 +565,8 @@ TEST_F(IrohadTest, SendQuery) {
 TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   launchIroha();
 
-  auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair_result);
-  auto key_pair = std::move(key_pair_result).assumeValue();
-
   SCOPED_TRACE("From restart with --overwrite-ledger flag test");
-  sendDefaultTxAndCheck(key_pair);
+  sendDefaultTxAndCheck(*admin_signer_);
 
   terminateIroha();
 
@@ -581,7 +578,7 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
   ASSERT_EQ(getBlockCount(), 1);
 
   SCOPED_TRACE("From restart with --overwrite-ledger flag test");
-  sendDefaultTxAndCheck(key_pair);
+  sendDefaultTxAndCheck(*admin_signer_);
 }
 
 /**
@@ -596,12 +593,8 @@ TEST_F(IrohadTest, RestartWithOverwriteLedger) {
 TEST_F(IrohadTest, RestartWithoutResetting) {
   launchIroha();
 
-  auto key_pair_result = keys_manager_admin_.loadKeys(boost::none);
-  IROHA_ASSERT_RESULT_VALUE(key_pair_result);
-  auto key_pair = std::move(key_pair_result).assumeValue();
-
   SCOPED_TRACE("From restart without resetting test");
-  sendDefaultTxAndCheck(key_pair);
+  sendDefaultTxAndCheck(*admin_signer_);
 
   int height = getBlockCount();
 
@@ -615,5 +608,5 @@ TEST_F(IrohadTest, RestartWithoutResetting) {
   ASSERT_EQ(getBlockCount(), height);
 
   SCOPED_TRACE("From restart without resetting test");
-  sendDefaultTxAndCheck(key_pair);
+  sendDefaultTxAndCheck(*admin_signer_);
 }

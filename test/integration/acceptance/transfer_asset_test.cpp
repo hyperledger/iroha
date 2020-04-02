@@ -44,8 +44,8 @@ class TransferAsset : public AcceptanceFixture {
   auto makeSecondUser(const interface::RolePermissionSet &perms = {
                           interface::permissions::Role::kReceive}) {
     return createUserWithPerms(
-               kUser2,
-               PublicKeyHexStringView{kUser2Signer->publicKey()},
+               kSecondUser,
+               PublicKeyHexStringView{kSameDomainUserSigner->publicKey()},
                kRole2,
                perms)
         .build()
@@ -62,8 +62,8 @@ class TransferAsset : public AcceptanceFixture {
   }
 
   proto::Transaction makeTransfer(const std::string &amount) {
-    return complete(
-        baseTx().transferAsset(kUserId, kUser2Id, kAssetId, kDesc, amount));
+    return complete(baseTx().transferAsset(
+        kUserId, kSameDomainUserId, kAssetId, kDesc, amount));
   }
 
   proto::Transaction makeTransfer() {
@@ -73,10 +73,6 @@ class TransferAsset : public AcceptanceFixture {
   const std::string kAmount = "1.0";
   const std::string kDesc = "description";
   const std::string kRole2 = "roletwo";
-  const std::string kUser2 = "usertwo";
-  const std::string kUser2Id = kUser2 + "@" + kDomain;
-  const crypto::Keypair kUser2Keypair =
-      crypto::DefaultCryptoAlgorithmType::generateKeypair();
 };
 
 /**
@@ -181,7 +177,7 @@ TEST_F(TransferAsset, NonexistentAsset) {
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
       .sendTx(complete(baseTx().transferAsset(
-          kUserId, kUser2Id, nonexistent, kDesc, kAmount)))
+          kUserId, kSameDomainUserId, nonexistent, kDesc, kAmount)))
       .skipProposal()
       .checkVerifiedProposal(
           [](auto &proposal) { ASSERT_EQ(proposal->transactions().size(), 0); })
@@ -219,7 +215,7 @@ TEST_F(TransferAsset, EmptyDesc) {
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(complete(baseTx().transferAsset(
-                       kUserId, kUser2Id, kAssetId, "", kAmount)),
+                       kUserId, kSameDomainUserId, kAssetId, "", kAmount)),
                    CHECK_TXS_QUANTITY(1));
 }
 
@@ -237,10 +233,12 @@ TEST_F(TransferAsset, LongDesc) {
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(
-          complete(baseTx().transferAsset(
-              kUserId, kUser2Id, kAssetId, std::string(100000, 'a'), kAmount)),
-          CHECK_STATELESS_INVALID);
+      .sendTx(complete(baseTx().transferAsset(kUserId,
+                                              kSameDomainUserId,
+                                              kAssetId,
+                                              std::string(100000, 'a'),
+                                              kAmount)),
+              CHECK_STATELESS_INVALID);
 }
 
 /**
@@ -324,25 +322,23 @@ TEST_F(TransferAsset, SourceIsDest) {
  * @then the tx is commited
  */
 TEST_F(TransferAsset, InterDomain) {
-  const std::string kNewDomain = "newdom";
-  const std::string kUser2Id = kUser2 + "@" + kNewDomain;
-  const std::string kNewAssetId = kAssetName + "#" + kNewDomain;
-
   auto make_second_user =
       baseTx()
           .creatorAccountId(kAdminId)
           .createRole(kRole2, {interface::permissions::Role::kReceive})
-          .createDomain(kNewDomain, kRole2)
-          .createAccount(kUser2,
-                         kNewDomain,
-                         PublicKeyHexStringView{kUser2Signer->publicKey()})
-          .createAsset(kAssetName, kNewDomain, 1)
+          .createDomain(kSecondDomain, kRole2)
+          .createAccount(
+              kSecondUser,
+              kSecondDomain,
+              PublicKeyHexStringView{kSecondDomainUserSigner->publicKey()})
+          .createAsset(kAssetName, kSecondDomain, 1)
           .build()
           .signAndAddSignature(*kAdminSigner)
           .finish();
-  auto add_assets = complete(baseTx().addAssetQuantity(kNewAssetId, kAmount));
-  auto make_transfer = complete(
-      baseTx().transferAsset(kUserId, kUser2Id, kNewAssetId, kDesc, kAmount));
+  auto add_assets =
+      complete(baseTx().addAssetQuantity(kSecondDomainAssetId, kAmount));
+  auto make_transfer = complete(baseTx().transferAsset(
+      kUserId, kSecondDomainUserId, kSecondDomainAssetId, kDesc, kAmount));
 
   IntegrationTestFramework(1)
       .setInitialState(kAdminSigner)
@@ -376,7 +372,7 @@ TEST_F(TransferAsset, BigPrecision) {
                           .finish();
   auto add_assets = complete(baseTx().addAssetQuantity(kNewAssetId, kInitial));
   auto make_transfer = complete(baseTx().transferAsset(
-      kUserId, kUser2Id, kNewAssetId, kDesc, kForTransfer));
+      kUserId, kSameDomainUserId, kNewAssetId, kDesc, kForTransfer));
 
   auto check_balance = [](std::string account_id, std::string val) {
     return [a = std::move(account_id), v = val](auto &resp) {
@@ -408,5 +404,6 @@ TEST_F(TransferAsset, BigPrecision) {
       .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
       .sendTxAwait(make_transfer, CHECK_TXS_QUANTITY(1))
       .sendQuery(make_query(kUserId), check_balance(kUserId, kLeft))
-      .sendQuery(make_query(kUser2Id), check_balance(kUser2Id, kForTransfer));
+      .sendQuery(make_query(kSameDomainUserId),
+                 check_balance(kSameDomainUserId, kForTransfer));
 }

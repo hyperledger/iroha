@@ -25,6 +25,7 @@
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "validation/chain_validator.hpp"
 
@@ -77,12 +78,9 @@ class SynchronizerTest : public ::testing::Test {
 
     for (int i = 0; i < 3; ++i) {
       // TODO mboldyrev 21.03.2019 IR-424 Avoid using honest crypto
-      ledger_peer_keys.push_back(
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair());
-      using shared_model::interface::types::PublicKeyHexStringView;
-      ledger_peers.push_back(makePeer(
-          std::to_string(i),
-          PublicKeyHexStringView{ledger_peer_keys.back().publicKey()}));
+      ledger_peer_signers.push_back(shared_model::crypto::makeDefaultSigner());
+      ledger_peers.push_back(
+          makePeer(std::to_string(i), ledger_peer_signers.back()->publicKey()));
     }
 
     commit_message = makeCommit();
@@ -128,8 +126,8 @@ class SynchronizerTest : public ::testing::Test {
       size_t time = iroha::time::now()) const {
     shared_model::proto::UnsignedWrapper<shared_model::proto::Block> block{
         TestUnsignedBlockBuilder().height(height).createdTime(time).build()};
-    for (const auto &key : ledger_peer_keys) {
-      block.signAndAddSignature(key);
+    for (const auto &key : ledger_peer_signers) {
+      block.signAndAddSignature(*key);
     }
     return std::make_shared<shared_model::proto::Block>(
         std::move(block).finish());
@@ -147,7 +145,8 @@ class SynchronizerTest : public ::testing::Test {
   shared_model::interface::types::HashType hash;
   shared_model::interface::types::PeerList ledger_peers;
   std::shared_ptr<LedgerState> ledger_state;
-  std::vector<shared_model::crypto::Keypair> ledger_peer_keys;
+  std::vector<std::shared_ptr<shared_model::crypto::CryptoSigner>>
+      ledger_peer_signers;
 
   rxcpp::subjects::subject<ConsensusGate::GateObject> gate_outcome;
 

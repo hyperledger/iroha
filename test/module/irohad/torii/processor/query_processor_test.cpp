@@ -7,7 +7,6 @@
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
 #include "backend/protobuf/query_responses/proto_error_query_response.hpp"
-#include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
@@ -27,6 +26,7 @@
 #include "torii/processor/query_processor_impl.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
+using namespace common_constants;
 using namespace iroha;
 using namespace iroha::ametsuchi;
 using namespace iroha::validation;
@@ -61,15 +61,12 @@ class QueryProcessorTest : public ::testing::Test {
         .creatorAccountId(creator_account_id)
         .queryCounter(kCounter)
         .build()
-        .signAndAddSignature(keypair)
+        .signAndAddSignature(*kUserSigner)
         .finish();
   }
 
   const decltype(iroha::time::now()) kCreatedTime = iroha::time::now();
-  const std::string kAccountId = "account@domain";
   const uint64_t kCounter = 1048576;
-  shared_model::crypto::Keypair keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 
   std::unique_ptr<MockQueryExecutor> qry_exec;
   std::shared_ptr<MockBlockQuery> block_queries;
@@ -87,10 +84,10 @@ class QueryProcessorTest : public ::testing::Test {
 TEST_F(QueryProcessorTest,
        QueryProcessorWhereInvokeInvalidQueryAndQueryExecutorFailsToCreate) {
   auto qry = TestUnsignedQueryBuilder()
-                 .creatorAccountId(kAccountId)
-                 .getAccountDetail(kMaxPageSize, kAccountId)
+                 .creatorAccountId(kUserId)
+                 .getAccountDetail(kMaxPageSize, kUserId)
                  .build()
-                 .signAndAddSignature(keypair)
+                 .signAndAddSignature(*kAdminSigner)
                  .finish();
 
   const std::string error_text{"QueryExecutor fails to create"};
@@ -110,10 +107,10 @@ TEST_F(QueryProcessorTest,
  */
 TEST_F(QueryProcessorTest, QueryProcessorWhereInvokeInvalidQuery) {
   auto qry = TestUnsignedQueryBuilder()
-                 .creatorAccountId(kAccountId)
-                 .getAccountDetail(kMaxPageSize, kAccountId)
+                 .creatorAccountId(kUserId)
+                 .getAccountDetail(kMaxPageSize, kUserId)
                  .build()
-                 .signAndAddSignature(keypair)
+                 .signAndAddSignature(*kAdminSigner)
                  .finish();
   auto *qry_resp =
       query_response_factory
@@ -138,12 +135,10 @@ TEST_F(QueryProcessorTest, QueryProcessorWhereInvokeInvalidQuery) {
  */
 TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
   auto query = TestUnsignedQueryBuilder()
-                   .creatorAccountId(kAccountId)
-                   .getAccountDetail(kMaxPageSize, kAccountId)
+                   .creatorAccountId(kUserId)
+                   .getAccountDetail(kMaxPageSize, kUserId)
                    .build()
-                   .signAndAddSignature(
-                       shared_model::crypto::DefaultCryptoAlgorithmType::
-                           generateKeypair())
+                   .signAndAddSignature(*kUserSigner)
                    .finish();
   auto *qry_resp = query_response_factory
                        ->createErrorQueryResponse(
@@ -173,7 +168,7 @@ TEST_F(QueryProcessorTest, QueryProcessorWithWrongKey) {
  */
 TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
   auto block_number = 5;
-  auto block_query = getBlocksQuery(kAccountId);
+  auto block_query = getBlocksQuery(kUserId);
 
   EXPECT_CALL(*storage, createQueryExecutor(_, _))
       .WillRepeatedly([](const auto &, const auto &) {
@@ -207,7 +202,7 @@ TEST_F(QueryProcessorTest, GetBlocksQueryWhenQueryExecutorFailsToCreate) {
  */
 TEST_F(QueryProcessorTest, GetBlocksQuery) {
   auto block_number = 5;
-  auto block_query = getBlocksQuery(kAccountId);
+  auto block_query = getBlocksQuery(kUserId);
 
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(true));
   EXPECT_CALL(*storage, createQueryExecutor(_, _))
@@ -235,7 +230,7 @@ TEST_F(QueryProcessorTest, GetBlocksQuery) {
  */
 TEST_F(QueryProcessorTest, GetBlocksQueryNoPerms) {
   auto block_number = 5;
-  auto block_query = getBlocksQuery(kAccountId);
+  auto block_query = getBlocksQuery(kUserId);
 
   EXPECT_CALL(*qry_exec, validate(_, _)).WillOnce(Return(false));
   EXPECT_CALL(*storage, createQueryExecutor(_, _))

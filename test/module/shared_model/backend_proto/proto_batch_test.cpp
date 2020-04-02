@@ -7,6 +7,7 @@
 
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/result_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -14,7 +15,10 @@
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "validators/default_validator.hpp"
 
+using namespace common_constants;
 using namespace shared_model;
+using namespace shared_model::interface::types;
+
 using ::testing::_;
 using ::testing::Return;
 using ::testing::Test;
@@ -63,8 +67,6 @@ class TransactionBatchTest : public Test {
    */
   auto createBatchWithTransactionsWithQuorum(
       const interface::types::QuorumType &quorum) {
-    auto keypair = crypto::DefaultCryptoAlgorithmType::generateKeypair();
-
     auto now = iroha::time::now();
 
     auto batch_type = shared_model::interface::types::BatchType::ATOMIC;
@@ -169,12 +171,9 @@ TEST_F(TransactionBatchTest, CreateBatchWithValidAndInvalidTx) {
  */
 TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenValid) {
   auto tx1 = createValidUnsignedTransaction();
-  auto keypair = crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signed_blob =
-      crypto::DefaultCryptoAlgorithmType::sign(tx1->payload(), keypair);
-  tx1->addSignature(
-      interface::types::SignedHexStringView{signed_blob},
-      interface::types::PublicKeyHexStringView{keypair.publicKey()});
+  auto signature_hex = kUserSigner->sign(tx1->payload());
+  tx1->addSignature(SignedHexStringView{signature_hex},
+                    PublicKeyHexStringView{kUserSigner->publicKey()});
 
   auto transaction_batch = factory_->createTransactionBatch(tx1);
 

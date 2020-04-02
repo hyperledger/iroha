@@ -57,11 +57,11 @@ namespace common_constants {
   extern const Keypair kSecondDomainUserKeypair;
 
   // signers
-  const std::shared_ptr<shared_model::crypto::CryptoSigner> kAdminSigner;
-  const std::shared_ptr<shared_model::crypto::CryptoSigner> kUserSigner;
-  const std::shared_ptr<shared_model::crypto::CryptoSigner>
+  extern const std::shared_ptr<shared_model::crypto::CryptoSigner> kAdminSigner;
+  extern const std::shared_ptr<shared_model::crypto::CryptoSigner> kUserSigner;
+  extern const std::shared_ptr<shared_model::crypto::CryptoSigner>
       kSameDomainUserSigner;
-  const std::shared_ptr<shared_model::crypto::CryptoSigner>
+  extern const std::shared_ptr<shared_model::crypto::CryptoSigner>
       kSecondDomainUserSigner;
 
   // misc

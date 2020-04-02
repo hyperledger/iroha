@@ -9,21 +9,21 @@
 #include "builders/protobuf/transaction.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 class TransactionFixture : public ::testing::Test {
  public:
   TransactionFixture()
-      : keypair(shared_model::crypto::DefaultCryptoAlgorithmType::
-                    generateKeypair()),
+      : signer_(shared_model::crypto::makeDefaultSigner()),
         time(iroha::time::now()) {}
 
-  shared_model::crypto::Keypair keypair;
+  std::shared_ptr<shared_model::crypto::CryptoSigner> signer_;
   shared_model::interface::types::TimestampType time;
 
   logger::LoggerPtr log = getTestLogger("TransactionFixture");
 
   auto makeTx() {
-    log->info("keypair = {}, timestemp = {}", keypair, time);
+    log->info("signer = {}, timestemp = {}", *signer_, time);
     return std::make_shared<shared_model::proto::Transaction>(
         shared_model::proto::TransactionBuilder()
             .createdTime(time)
@@ -31,7 +31,7 @@ class TransactionFixture : public ::testing::Test {
             .setAccountQuorum("user@test", 1u)
             .quorum(1)
             .build()
-            .signAndAddSignature(keypair)
+            .signAndAddSignature(*signer_)
             .finish());
   }
 };

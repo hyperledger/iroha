@@ -33,6 +33,7 @@ add_library(integration_framework
     )
 target_link_libraries(integration_framework
     PRIVATE
+    test_make_default_signer
     yac_transport
     Boost::thread
     PUBLIC

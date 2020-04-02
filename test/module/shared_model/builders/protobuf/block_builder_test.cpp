@@ -5,10 +5,12 @@
 
 #include <gtest/gtest.h>
 
+#include "framework/common_constants.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
+using namespace common_constants;
 using namespace shared_model::proto;
 
 /**
@@ -24,9 +26,7 @@ TEST(BlockBuilderTest, BlockWithTransactions) {
                     .quorum(1)
                     .addAssetQuantity("coin#test", "1.0")
                     .build()
-                    .signAndAddSignature(
-                        shared_model::crypto::DefaultCryptoAlgorithmType::
-                            generateKeypair())
+                    .signAndAddSignature(*kUserSigner)
                     .finish());
 
   ASSERT_NO_THROW(

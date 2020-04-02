@@ -47,6 +47,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/proposal.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/validators/always_valid_validators.hpp"
 #include "multi_sig_transactions/mst_processor.hpp"
 #include "multi_sig_transactions/transport/mst_transport_grpc.hpp"
@@ -99,15 +100,6 @@ namespace {
     ip.append(":");
     ip.append(std::to_string(port));
     return ip;
-  }
-
-  std::shared_ptr<CryptoSigner> makeSigner(
-      std::optional<std::shared_ptr<CryptoSigner>> optional_signer) {
-    if (optional_signer) {
-      return std::move(optional_signer).value();
-    }
-    return std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
-        DefaultCryptoAlgorithmType::generateKeypair());
   }
 }  // namespace
 
@@ -254,7 +246,7 @@ namespace integration_framework {
     auto fake_peer = std::make_shared<FakePeer>(
         kLocalHost,
         port,
-        makeSigner(std::move(signer)),
+        makeDefaultSigner(std::move(signer)),
         this_peer_,
         common_objects_factory_,
         transaction_factory_,
@@ -268,7 +260,8 @@ namespace integration_framework {
     fake_peers_.emplace_back(fake_peer);
     log_->debug("Added a fake peer at {} with {}.",
                 fake_peer->getAddress(),
-                fake_peer->getKeypair().publicKey());
+                static_cast<std::string_view const &>(
+                    fake_peer->getSigner().publicKey()));
     return fake_peer;
   }
 
@@ -308,7 +301,8 @@ namespace integration_framework {
     // add fake peers
     for (const auto &fake_peer : fake_peers_) {
       genesis_tx_builder = genesis_tx_builder.addPeer(
-          fake_peer->getAddress(), PublicKeyHexStringView{fake_peer->getSigner().publicKey()});
+          fake_peer->getAddress(),
+          PublicKeyHexStringView{fake_peer->getSigner().publicKey()});
     };
     auto genesis_tx =
         genesis_tx_builder.build().signAndAddSignature(*signer).finish();

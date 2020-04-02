@@ -14,6 +14,7 @@ target_link_libraries(regression_test
 addtest(query_regression_test query_test.cpp)
 
 target_link_libraries(query_regression_test
-        application
-        integration_framework
-        )
+    application
+    integration_framework
+    test_make_default_signer
+    )

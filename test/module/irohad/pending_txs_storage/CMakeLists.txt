@@ -15,6 +15,7 @@ target_link_libraries(pending_txs_storage_test
     shared_model_proto_backend
     shared_model_interfaces_factories
     test_logger
+    test_make_default_signer
     )
 
 addtest(old_pending_txs_storage_test
@@ -28,4 +29,5 @@ target_link_libraries(old_pending_txs_storage_test
     shared_model_proto_backend
     shared_model_interfaces_factories
     test_logger
+    test_make_default_signer
     )

@@ -256,10 +256,7 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
 TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
   const HashType kQueryHash{"my_super_hash"};
 
-  std::vector<std::string> signatories;
-  signatories.emplace_back(
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-          .publicKey());
+  std::vector<std::string> signatories{"b0bb1e", "d0bb1e"};
   auto query_response =
       response_factory->createSignatoriesResponse(signatories, kQueryHash);
 

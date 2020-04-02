@@ -12,6 +12,7 @@
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;
@@ -172,8 +173,7 @@ TEST_F(GetTransactions, InvalidSignatures) {
                    .queryCounter(1)
                    .getTransactions(std::vector<crypto::Hash>{dummy_tx.hash()})
                    .build()
-                   .signAndAddSignature(
-                       crypto::DefaultCryptoAlgorithmType::generateKeypair())
+                   .signAndAddSignature(*crypto::makeDefaultSigner())
                    .finish();
 
   IntegrationTestFramework(1)
