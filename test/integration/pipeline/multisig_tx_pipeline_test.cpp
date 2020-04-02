@@ -12,6 +12,7 @@
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 using namespace std::string_literals;
 using namespace integration_framework;
@@ -45,10 +46,9 @@ class MstPipelineTest : public AcceptanceFixture {
             .finish();
     auto add_signatories_tx = baseTx().quorum(1);
     for (size_t i = 0; i < sigs; ++i) {
-      signatories.push_back(
-          crypto::DefaultCryptoAlgorithmType::generateKeypair());
+      signatories.push_back(crypto::makeDefaultSigner());
       add_signatories_tx = add_signatories_tx.addSignatory(
-          kUserId, PublicKeyHexStringView{signatories[i].publicKey()});
+          kUserId, PublicKeyHexStringView{signatories[i]->publicKey()});
     }
     add_signatories_tx.setAccountQuorum(kUserId, sigs + 1);
     itf.sendTx(create_user_tx)
@@ -81,25 +81,25 @@ class MstPipelineTest : public AcceptanceFixture {
    *
    * Makes a ready-to-send query to get pending transactions
    * @param creator - account, which asks for pending transactions
-   * @param key - that account's keypair
+   * @param signer - that account's signer
    * @return built and signed query
    */
   auto makeGetPendingTxsQuery(const std::string &creator,
-                              const crypto::Keypair &key) {
+                              const crypto::CryptoSigner &signer) {
     return shared_model::proto::QueryBuilder()
         .createdTime(getUniqueTime())
         .creatorAccountId(creator)
         .queryCounter(1)
         .getPendingTransactions()
         .build()
-        .signAndAddSignature(key)
+        .signAndAddSignature(signer)
         .finish();
   }
 
   /**
    * Makes a ready-to-send query to get pending transactions
    * @param creator - account, which asks for pending transactions
-   * @param key - that account's keypair
+   * @param signer - that account's signer
    * @param page_size - maximum number of transactions to be returned
    * @param first_tx_hash - the hash of the first transaction of the batch that
    * should begin the resulting set
@@ -107,7 +107,7 @@ class MstPipelineTest : public AcceptanceFixture {
    */
   auto makeGetPendingTxsQuery(
       const std::string &creator,
-      const crypto::Keypair &key,
+      const crypto::CryptoSigner &signer,
       const interface::types::TransactionsNumberType &page_size,
       const std::optional<interface::types::HashType> &first_tx_hash =
           std::nullopt) {
@@ -117,7 +117,7 @@ class MstPipelineTest : public AcceptanceFixture {
         .queryCounter(1)
         .getPendingTransactions(page_size, first_tx_hash)
         .build()
-        .signAndAddSignature(key)
+        .signAndAddSignature(signer)
         .finish();
   }
 
@@ -204,7 +204,7 @@ class MstPipelineTest : public AcceptanceFixture {
 
   const std::string kNewRole = "rl"s;
   static const size_t kSignatories = 2;
-  std::vector<crypto::Keypair> signatories;
+  std::vector<std::shared_ptr<crypto::CryptoSigner>> signatories;
 };
 
 /**
@@ -220,8 +220,8 @@ TEST_F(MstPipelineTest, OnePeerSendsTest) {
 
   auto &mst_itf = prepareMstItf();
   mst_itf.sendTx(complete(tx, *kUserSigner))
-      .sendTx(complete(tx, signatories[0]))
-      .sendTxAwait(complete(tx, signatories[1]), [](auto &block) {
+      .sendTx(complete(tx, *signatories[0]))
+      .sendTxAwait(complete(tx, *signatories[1]), [](auto &block) {
         ASSERT_EQ(block->transactions().size(), 1);
       });
 }
@@ -251,7 +251,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsAwaitingForThisPeer) {
 
   // send pending transaction, signing it only with one signatory
   mst_itf.sendTx(signed_tx).sendQuery(
-      makeGetPendingTxsQuery(kUserId, kUserKeypair), pending_tx_check);
+      makeGetPendingTxsQuery(kUserId, *kUserSigner), pending_tx_check);
 }
 
 /**
@@ -269,12 +269,12 @@ TEST_F(MstPipelineTest, OldGetPendingTxsLatestSignatures) {
                         .quorum(kSignatories + 1);
 
   // make the same queries have different hashes with help of timestamps
-  const auto q1 = makeGetPendingTxsQuery(kUserId, kUserKeypair);
-  const auto q2 = makeGetPendingTxsQuery(kUserId, kUserKeypair);
+  const auto q1 = makeGetPendingTxsQuery(kUserId, *kUserSigner);
+  const auto q2 = makeGetPendingTxsQuery(kUserId, *kUserSigner);
   auto &mst_itf = prepareMstItf();
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
       .sendQuery(q1, oldSignatoryCheck(1))
-      .sendTx(complete(pending_tx, signatories[1]))
+      .sendTx(complete(pending_tx, *signatories[1]))
       .sendQuery(q2, oldSignatoryCheck(2));
 }
 
@@ -293,8 +293,8 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
   auto user_tx = complete(pending_tx, *kUserSigner);
 
   auto &mst_itf = prepareMstItf();
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
-      .sendTx(complete(pending_tx, signatories[1]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
+      .sendTx(complete(pending_tx, *signatories[1]))
       .sendTx(user_tx)
       .checkProposal([&user_tx](auto &proposal) {
         ASSERT_EQ(proposal->transactions().size(), 1);
@@ -302,7 +302,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
+      .sendQuery(makeGetPendingTxsQuery(kUserId, *kUserSigner), oldNoTxsCheck);
 }
 
 /**
@@ -319,12 +319,12 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
       baseTx().setAccountDetail(kUserId, "age", "10").quorum(kSignatories + 1);
 
   auto fully_signed_tx = pending_tx.build()
-                             .signAndAddSignature(signatories[0])
-                             .signAndAddSignature(signatories[1])
+                             .signAndAddSignature(*signatories[0])
+                             .signAndAddSignature(*signatories[1])
                              .signAndAddSignature(*kUserSigner)
                              .finish();
 
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
       .sendTx(fully_signed_tx)
       .checkProposal([&fully_signed_tx](auto &proposal) {
         ASSERT_EQ(proposal->transactions().size(), 1);
@@ -332,7 +332,7 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
+      .sendQuery(makeGetPendingTxsQuery(kUserId, *kUserSigner), oldNoTxsCheck);
 }
 
 /**
@@ -360,7 +360,7 @@ TEST_F(MstPipelineTest, GetPendingTxsAwaitingForThisPeer) {
 
   // send pending transaction, signing it only with one signatory
   mst_itf.sendTx(signed_tx).sendQuery(
-      makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+      makeGetPendingTxsQuery(kUserId, *kUserSigner, kPageSize),
       pending_tx_check);
 }
 
@@ -378,12 +378,12 @@ TEST_F(MstPipelineTest, GetPendingTxsLatestSignatures) {
                         .quorum(kSignatories + 1);
 
   // make the same queries have different hashes with the help of timestamps
-  const auto q1 = makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize);
-  const auto q2 = makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize);
+  const auto q1 = makeGetPendingTxsQuery(kUserId, *kUserSigner, kPageSize);
+  const auto q2 = makeGetPendingTxsQuery(kUserId, *kUserSigner, kPageSize);
   auto &mst_itf = prepareMstItf();
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
       .sendQuery(q1, signatoryCheck(1))
-      .sendTx(complete(pending_tx, signatories[1]))
+      .sendTx(complete(pending_tx, *signatories[1]))
       .sendQuery(q2, signatoryCheck(2));
 }
 
@@ -401,8 +401,8 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
   auto user_tx = complete(pending_tx, *kUserSigner);
 
   auto &mst_itf = prepareMstItf();
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
-      .sendTx(complete(pending_tx, signatories[1]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
+      .sendTx(complete(pending_tx, *signatories[1]))
       .sendTx(user_tx)
       .checkProposal([&user_tx](auto &proposal) {
         ASSERT_EQ(proposal->transactions().size(), 1);
@@ -410,7 +410,7 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+      .sendQuery(makeGetPendingTxsQuery(kUserId, *kUserSigner, kPageSize),
                  noTxsCheck);
 }
 
@@ -427,12 +427,12 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
       baseTx().setAccountDetail(kUserId, "age", "10").quorum(kSignatories + 1);
 
   auto fully_signed_tx = pending_tx.build()
-                             .signAndAddSignature(signatories[0])
-                             .signAndAddSignature(signatories[1])
+                             .signAndAddSignature(*signatories[0])
+                             .signAndAddSignature(*signatories[1])
                              .signAndAddSignature(*kUserSigner)
                              .finish();
 
-  mst_itf.sendTx(complete(pending_tx, signatories[0]))
+  mst_itf.sendTx(complete(pending_tx, *signatories[0]))
       .sendTx(fully_signed_tx)
       .checkProposal([&fully_signed_tx](auto &proposal) {
         ASSERT_EQ(proposal->transactions().size(), 1);
@@ -440,6 +440,6 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
       })
       .skipVerifiedProposal()
       .skipBlock()
-      .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
+      .sendQuery(makeGetPendingTxsQuery(kUserId, *kUserSigner, kPageSize),
                  noTxsCheck);
 }

@@ -12,6 +12,7 @@
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "validators/default_validator.hpp"
 #include "validators/validation_error_output.hpp"
 
@@ -41,7 +42,7 @@ class BlockValidatorTest : public ValidatorsTest {
         .createdTime(iroha::time::now())
         .quorum(1)
         .build()
-        .signAndAddSignature(kDefaultKey)
+        .signAndAddSignature(*signer_)
         .finish();
   }
 
@@ -64,14 +65,14 @@ class BlockValidatorTest : public ValidatorsTest {
         .rejectedTransactions(rejected_hashes)
         .transactions(txs)
         .build()
-        .signAndAddSignature(kDefaultKey)
+        .signAndAddSignature(*signer_)
         .finish();
   }
 
   DefaultUnsignedBlockValidator validator_;
   const Hash kPrevHash =
       Hash(std::string(DefaultCryptoAlgorithmType::kHashLength, '0'));
-  const Keypair kDefaultKey = DefaultCryptoAlgorithmType::generateKeypair();
+  const std::shared_ptr<CryptoSigner> signer_ = makeDefaultSigner();
 };
 
 /**

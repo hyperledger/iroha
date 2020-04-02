@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <boost/asio.hpp>
 #include "common/byteutils.hpp"
+#include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/keypair.hpp"
 #include "cryptography/seed.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
@@ -74,8 +75,11 @@ namespace binary_test {
         auto binary_type = packed_line.at(0);
         switch (binary_type) {
           case 'K': {
-            if (not admin_key) {
-              admin_key = fromPrivateKey(raw_payload);
+            if (not admin_signer) {
+              using namespace shared_model::crypto;
+              admin_signer = std::make_shared<
+                  CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
+                  Keypair{fromPrivateKey(raw_payload)});
             }
             break;
           }
@@ -101,13 +105,13 @@ namespace binary_test {
   bool Launcher::initialized(const unsigned &transactions_expected,
                              const unsigned &queries_expected) {
     checkAsserts(transactions_expected, queries_expected);
-    return admin_key and transactions.size() == transactions_expected
+    return admin_signer and transactions.size() == transactions_expected
         and queries.size() == queries_expected;
   }
 
   void Launcher::checkAsserts(const unsigned &transactions_expected,
                               const unsigned &queries_expected) {
-    ASSERT_TRUE(admin_key);
+    ASSERT_TRUE(admin_signer);
     ASSERT_EQ(transactions.size(), transactions_expected);
     ASSERT_EQ(queries.size(), queries_expected);
   }

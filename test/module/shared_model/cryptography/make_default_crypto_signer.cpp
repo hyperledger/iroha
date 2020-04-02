@@ -11,17 +11,17 @@
 
 namespace shared_model {
   namespace crypto {
-    std::shared_ptr<CryptoSigner> makeSigner() {
+    std::shared_ptr<CryptoSigner> makeDefaultSigner() {
       return std::make_shared<CryptoSignerInternal<DefaultCryptoAlgorithmType>>(
           DefaultCryptoAlgorithmType::generateKeypair());
     }
 
-    std::shared_ptr<CryptoSigner> makeSigner(
+    std::shared_ptr<CryptoSigner> makeDefaultSigner(
         std::optional<std::shared_ptr<CryptoSigner>> optional_signer) {
       if (optional_signer) {
         return std::move(optional_signer).value();
       }
-      return makeSigner();
+      return makeDefaultSigner();
     }
   }  // namespace crypto
 }  // namespace shared_model

@@ -22,7 +22,7 @@ class QueryPermissionFixture : public AcceptanceFixture {
  protected:
   void SetUp() override {
     impl_.itf_ = std::make_unique<IntegrationTestFramework>(1);
-    impl_.itf_->setInitialState(common_constants::kAdminKeypair);
+    impl_.itf_->setInitialState(common_constants::kAdminSigner);
   }
 };
 

@@ -94,6 +94,7 @@ target_link_libraries(yac_common_test
 addtest(yac_crypto_provider_test yac_crypto_provider_test.cpp)
 target_link_libraries(yac_crypto_provider_test
     test_logger
+    test_make_default_signer
     yac
     yac_transport
     )

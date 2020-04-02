@@ -9,6 +9,7 @@
 #include <memory>
 
 #include "builders/protobuf/builder_templates/transaction_template.hpp"
+#include "framework/common_constants.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/validators/validators.hpp"
 
@@ -48,9 +49,7 @@ template <typename Builder>
 inline auto completeUnsignedTxBuilder(Builder &&builder) {
   return std::make_shared<ProtoTxType>(
       builder.build()
-          .signAndAddSignature(
-              shared_model::crypto::DefaultCryptoAlgorithmType::
-                  generateKeypair())
+          .signAndAddSignature(*::common_constants::kUserSigner)
           .finish());
 }
 

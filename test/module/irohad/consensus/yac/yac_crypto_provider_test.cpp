@@ -8,9 +8,9 @@
 #include <gtest/gtest.h>
 
 #include "consensus/yac/outcome_messages.hpp"
-#include "framework/integration_framework/default_crypto_signer.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using ::testing::_;
@@ -29,9 +29,9 @@ namespace iroha {
       class YacCryptoProviderTest : public ::testing::Test {
        public:
         void SetUp() override {
+          using namespace shared_model::crypto;
           crypto_provider = std::make_shared<CryptoProviderImpl>(
-              shared_model::crypto::makeSigner(),
-              getTestLogger("CryptoProviderImpl"));
+              makeDefaultSigner(), getTestLogger("CryptoProviderImpl"));
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature(

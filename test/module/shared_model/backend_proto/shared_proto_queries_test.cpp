@@ -13,6 +13,7 @@
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
 #include "framework/common_constants.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 
 /**
  * For each protobuf query type

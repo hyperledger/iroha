@@ -41,7 +41,7 @@ IntegrationTestFramework &QueryPermissionTestBase::prepareState(
                   // spectator gets this role by default (from domain)
                   .appendRole(kSameDomainUserId, kSecondUser)
                   .detachRole(kSameDomainUserId, kDefaultRole),
-              kAdminKeypair),
+              *kAdminSigner),
           getBlockTransactionsAmountChecker(1));
 }
 

@@ -38,8 +38,7 @@ TEST(RegressionTest, SequentialInitialization) {
                 .quorum(1)
                 .build()
                 .signAndAddSignature(
-                    shared_model::crypto::DefaultCryptoAlgorithmType::
-                        generateKeypair())
+                    *kSameDomainUserSigner)  // note inconsistent account-signer
                 .finish();
 
   auto check_stateless_valid_status = [](auto &status) {
@@ -88,22 +87,23 @@ TEST(RegressionTest, SequentialInitialization) {
 TEST(RegressionTest, StateRecovery) {
   auto userKeypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto tx =
-      shared_model::proto::TransactionBuilder()
-          .createdTime(iroha::time::now())
-          .creatorAccountId(kAdminId)
-          .createAccount(
-              kUser, kDomain, PublicKeyHexStringView{userKeypair.publicKey()})
-          .createRole(kRole, {Role::kReceive})
-          .appendRole(kUserId, kRole)
-          .addAssetQuantity(kAssetId, "133.0")
-          .transferAsset(kAdminId, kUserId, kAssetId, "descrs", "97.8")
-          .quorum(1)
-          .build()
-          .signAndAddSignature(*kAdminSigner)
-          .finish();
+  auto tx = shared_model::proto::TransactionBuilder()
+                .createdTime(iroha::time::now())
+                .creatorAccountId(kAdminId)
+                .createAccount(
+                    kUser,
+                    kDomain,
+                    PublicKeyHexStringView{kSameDomainUserSigner->publicKey()})
+                .createRole(kRole, {Role::kReceive})
+                .appendRole(kUserId, kRole)
+                .addAssetQuantity(kAssetId, "133.0")
+                .transferAsset(kAdminId, kUserId, kAssetId, "descrs", "97.8")
+                .quorum(1)
+                .build()
+                .signAndAddSignature(*kAdminSigner)
+                .finish();
   auto hash = tx.hash();
-  auto makeQuery = [&hash](int query_counter, auto kAdminKeypair) {
+  auto makeQuery = [&hash](int query_counter) {
     return shared_model::proto::QueryBuilder()
         .createdTime(iroha::time::now())
         .creatorAccountId(kAdminId)
@@ -135,13 +135,13 @@ TEST(RegressionTest, StateRecovery) {
         .checkProposal(checkOne)
         .checkVerifiedProposal(checkOne)
         .checkBlock(checkOne)
-        .sendQuery(makeQuery(1, kAdminKeypair), checkQuery);
+        .sendQuery(makeQuery(1), checkQuery);
   }
   {
     integration_framework::IntegrationTestFramework(
         1, dbname, iroha::StartupWsvDataPolicy::kReuse, false)
-        .recoverState(kAdminKeypair)
-        .sendQuery(makeQuery(2, kAdminKeypair), checkQuery);
+        .recoverState(kAdminSigner)
+        .sendQuery(makeQuery(2), checkQuery);
   }
 }
 

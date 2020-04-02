@@ -21,10 +21,6 @@
 #include "multi_sig_transactions/mst_types.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 
-inline auto makeKey() {
-  return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-}
-
 inline auto txBuilder(
     const shared_model::interface::types::CounterType &counter,
     iroha::TimeType created_time = iroha::time::now(),
@@ -67,26 +63,24 @@ auto addSignatures(Batch &&batch, int tx_number, Signatures... signatures) {
   return std::forward<Batch>(batch);
 }
 
-template <typename Batch, typename... KeyPairs>
+template <typename Batch, typename... Signers>
 auto addSignaturesFromKeyPairs(Batch &&batch,
                                int tx_number,
-                               KeyPairs... keypairs) {
-  auto create_signature = [&](auto &&key_pair) {
+                               Signers const &... signers) {
+  auto create_signature = [&](const auto &signer) {
     using namespace shared_model::crypto;
     using namespace shared_model::interface::types;
     auto &payload = batch->transactions().at(tx_number)->payload();
-    auto signature_hex =
-        CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{key_pair}}
-            .sign(payload);
+    auto signature_hex = signer.sign(payload);
     batch->addSignature(tx_number,
                         SignedHexStringView{signature_hex},
-                        PublicKeyHexStringView{key_pair.publicKey()});
+                        PublicKeyHexStringView{signer.publicKey()});
   };
 
   // pack expansion trick:
   // an ellipsis operator applies insert_signatures to each signature, operator
   // comma returns the rightmost argument, which is 0
-  int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};
+  int temp[] = {(create_signature(signers), 0)...};
   // use unused variable
   (void)temp;
 
@@ -98,21 +92,6 @@ inline auto makeSignature(
     shared_model::interface::types::PublicKeyHexStringView public_key) {
   return std::make_pair(std::string{std::string_view{sign}},
                         std::string{std::string_view{public_key}});
-}
-
-inline auto makeTx(const shared_model::interface::types::CounterType &counter,
-                   iroha::TimeType created_time = iroha::time::now(),
-                   shared_model::crypto::Keypair keypair = makeKey(),
-                   uint8_t quorum = 3) {
-  return std::make_shared<shared_model::proto::Transaction>(
-      shared_model::proto::TransactionBuilder()
-          .createdTime(created_time)
-          .creatorAccountId("user@test")
-          .setAccountQuorum("user@test", counter)
-          .quorum(quorum)
-          .build()
-          .signAndAddSignature(keypair)
-          .finish());
 }
 
 namespace iroha {

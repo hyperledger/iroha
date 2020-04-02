@@ -11,6 +11,7 @@
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
+#include "framework/common_constants.hpp"
 #include "framework/test_logger.hpp"
 #include "main/server_runner.hpp"
 #include "module/irohad/common/validators_config.hpp"
@@ -20,6 +21,8 @@
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
+
+using namespace common_constants;
 
 using ::testing::_;
 using ::testing::Return;
@@ -88,9 +91,6 @@ class ToriiQueryServiceTest : public ::testing::Test {
 
   iroha::protocol::Block block;
 
-  shared_model::crypto::Keypair keypair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-
   const std::string ip = "127.0.0.1";
   int port;
 };
@@ -108,9 +108,7 @@ TEST_F(ToriiQueryServiceTest, FetchBlocksWhenValidQuery) {
           .createdTime(iroha::time::now())
           .queryCounter(1)
           .build()
-          .signAndAddSignature(
-              shared_model::crypto::DefaultCryptoAlgorithmType::
-                  generateKeypair())
+          .signAndAddSignature(*kUserSigner)
           .finish());
 
   iroha::protocol::Block block;
@@ -153,9 +151,7 @@ TEST_F(ToriiQueryServiceTest, FetchBlocksWhenInvalidQuery) {
           .createdTime(iroha::time::now())
           .queryCounter(1)
           .build()
-          .signAndAddSignature(
-              shared_model::crypto::DefaultCryptoAlgorithmType::
-                  generateKeypair())
+          .signAndAddSignature(*kUserSigner)
           .finish());
 
   auto client = torii_utils::QuerySyncClient(ip, port);

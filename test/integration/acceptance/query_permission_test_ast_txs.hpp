@@ -39,7 +39,7 @@ class QueryPermissionAssetTxs final : public QueryPermissionTestBase {
       AcceptanceFixture &fixture,
       const interface::types::AccountIdType &target,
       const interface::types::AccountIdType &spectator,
-      const crypto::Keypair &spectator_keypair) override;
+      const crypto::CryptoSigner &spectator_signer) override;
 
   /**
    * @return a functor that verifies that query response contains all the hashes

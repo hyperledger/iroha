@@ -33,12 +33,9 @@ class EngineCall : public AcceptanceFixture {
   auto makeSecondUser(const interface::RolePermissionSet &perms =
                           shared_model::interface::RolePermissionSet()) {
     return AcceptanceFixture::createUserWithPerms(
-               kSecondUser,
-               PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
-               kRole2,
-               perms)
+               kSecondUser, kSameDomainUserSigner->publicKey(), kRole2, perms)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -284,7 +281,7 @@ class EngineCall : public AcceptanceFixture {
  */
 TEST_F(EngineCall, Basic) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(
           makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
       .skipProposal()
@@ -327,7 +324,7 @@ TEST_F(EngineCall, Basic) {
 
 TEST_F(EngineCall, CreatorStorageSmartContract) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(
           makeUserWithPerms({Role::kCallEngine, Role::kGetMyEngineReceipts}))
       .skipProposal()
@@ -376,7 +373,7 @@ TEST_F(EngineCall, CreatorStorageSmartContract) {
  */
 TEST_F(EngineCall, QueryAccountBalance) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
                                  Role::kCreateAsset,
@@ -430,7 +427,7 @@ TEST_F(EngineCall, QueryAccountBalance) {
  */
 TEST_F(EngineCall, TransferAsset) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
                                  Role::kCreateAsset,
@@ -489,7 +486,7 @@ TEST_F(EngineCall, TransferAsset) {
  */
 TEST_F(EngineCall, AccountMissingError) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
                                  Role::kCreateAsset,
@@ -545,7 +542,7 @@ TEST_F(EngineCall, AccountMissingError) {
  */
 TEST_F(EngineCall, PermissionError) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
                                  Role::kCreateAsset,
@@ -603,7 +600,7 @@ TEST_F(EngineCall, PermissionError) {
  */
 TEST_F(EngineCall, InsufficientBalanceError) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({Role::kCallEngine,
                                  Role::kGetMyEngineReceipts,
                                  Role::kCreateAsset,

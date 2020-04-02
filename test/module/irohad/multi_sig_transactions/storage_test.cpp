@@ -131,9 +131,9 @@ TEST_F(StorageTest, DiffStateContainsNewSignature) {
   using namespace testing;
   using namespace shared_model::interface;
 
-  std::vector<shared_model::crypto::Keypair> keypairs;
-  std::generate_n(std::back_inserter(keypairs), 2, [] {
-    return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
+  std::vector<std::shared_ptr<shared_model::crypto::CryptoSigner>> signers;
+  std::generate_n(std::back_inserter(signers), 2, [] {
+    return shared_model::crypto::makeDefaultSigner();
   });
 
   auto make_batch = [this] {
@@ -146,7 +146,7 @@ TEST_F(StorageTest, DiffStateContainsNewSignature) {
   // storage gets a batch from peer A with 1st signature
   {
     auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
-    new_state += addSignaturesFromKeyPairs(make_batch(), 0, keypairs[0]);
+    new_state += addSignaturesFromKeyPairs(make_batch(), 0, *signers[0]);
 
     storage->apply(peer_A_key, std::move(new_state));
   }
@@ -160,7 +160,7 @@ TEST_F(StorageTest, DiffStateContainsNewSignature) {
 
   // storage gets another signature for the batch from Torii
   storage->updateOwnState(
-      addSignaturesFromKeyPairs(make_batch(), 0, keypairs[1]));
+      addSignaturesFromKeyPairs(make_batch(), 0, *signers[1]));
 
   // diff with peer A now has the batch with the signature that just came Torii
   EXPECT_THAT(
@@ -171,5 +171,5 @@ TEST_F(StorageTest, DiffStateContainsNewSignature) {
               Property(&Transaction::reducedHash, Eq(reduced_hash)),
               Property(&Transaction::signatures,
                        Contains(Property(&Signature::publicKey,
-                                         Eq(keypairs[1].publicKey())))))))))));
+                                         Eq(signers[1]->publicKey())))))))))));
 }

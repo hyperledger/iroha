@@ -88,8 +88,8 @@ shared_model::proto::Query QueryPermissionTxs::makeQuery(
     AcceptanceFixture &fixture,
     const interface::types::AccountIdType &target,
     const interface::types::AccountIdType &spectator,
-    const crypto::Keypair &spectator_keypair) {
+    const crypto::CryptoSigner &spectator_signer) {
   return fixture.complete(
       fixture.baseQry(spectator).getAccountTransactions(target, kTxPageSize),
-      spectator_keypair);
+      spectator_signer);
 }

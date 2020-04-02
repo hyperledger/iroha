@@ -52,10 +52,10 @@ TEST_F(FakePeerFixture, FakePeerIsRemoved) {
 
   // ------------------------ WHEN -------------------------
   // send removePeer command
-  itf.sendTxAwait(complete(baseTx(kAdminId).removePeer(PublicKeyHexStringView{
-                               fake_peer->getKeypair().publicKey()}),
-                           kAdminKeypair),
-                  checkBlockHasNTxs<1>);
+  itf.sendTxAwait(
+      complete(baseTx(kAdminId).removePeer(fake_peer->getSigner().publicKey()),
+               *kAdminSigner),
+      checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------
   // check that ledger state contains one peer
@@ -118,7 +118,7 @@ TEST_F(FakePeerFixture, RealPeerIsRemoved) {
   // send removePeer command
   itf.sendTxAwait(complete(baseTx(kAdminId).removePeer(PublicKeyHexStringView{
                                itf_->getThisPeer()->pubkey()}),
-                           kAdminKeypair),
+                           *kAdminSigner),
                   checkBlockHasNTxs<1>);
 
   // ------------------------ THEN -------------------------

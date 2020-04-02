@@ -46,6 +46,7 @@ using ::testing::AtLeast;
 using ::testing::ByMove;
 using ::testing::Return;
 
+using namespace common_constants;
 using namespace iroha::ametsuchi;
 using namespace iroha::torii;
 using namespace shared_model::interface::permissions;
@@ -59,7 +60,6 @@ using ErrorQueryType =
 class ToriiQueriesTest : public testing::Test {
  public:
   virtual void SetUp() {
-    signatories.emplace_back(pair.publicKey());
     runner = std::make_unique<iroha::network::ServerRunner>(
         ip + ":0", getTestLogger("ServerRunner"));
     wsv_query = std::make_shared<MockWsvQuery>();
@@ -127,9 +127,7 @@ class ToriiQueriesTest : public testing::Test {
   }
 
   std::unique_ptr<iroha::network::ServerRunner> runner;
-  shared_model::crypto::Keypair pair =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  std::vector<std::string> signatories;
+  std::vector<std::string> signatories{"sig1", "sig2"};
 
   std::shared_ptr<MockWsvQuery> wsv_query;
   std::shared_ptr<MockBlockQuery> block_query;
@@ -156,7 +154,7 @@ TEST_F(ToriiQueriesTest, QueryClient) {
                    .creatorAccountId("accountA")
                    .getAccount("accountB")
                    .build()
-                   .signAndAddSignature(pair)
+                   .signAndAddSignature(*kUserSigner)
                    .finish();
 
   auto client1 = torii_utils::QuerySyncClient(ip, port);
@@ -182,7 +180,7 @@ TEST_F(ToriiQueriesTest, FindWhenResponseInvalid) {
                    .creatorAccountId("accountA")
                    .getAccount("accountB")
                    .build()
-                   .signAndAddSignature(pair)
+                   .signAndAddSignature(*kUserSigner)
                    .finish();
 
   auto stat = torii_utils::QuerySyncClient(ip, port).Find(query.getTransport(),
@@ -218,7 +216,7 @@ TEST_F(ToriiQueriesTest, FindAccountWhenNoGrantPermissions) {
                          .createdTime(iroha::time::now())
                          .getAccount(account_id)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   auto *r = query_response_factory
@@ -266,7 +264,7 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasReadPermissions) {
                          .createdTime(iroha::time::now())
                          .getAccount(accountB_id)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   auto *r = query_response_factory
@@ -315,7 +313,7 @@ TEST_F(ToriiQueriesTest, FindAccountWhenHasRolePermission) {
                          .createdTime(iroha::time::now())
                          .getAccount(creator)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   auto *r = query_response_factory
@@ -367,7 +365,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenNoGrantPermissions) {
           .createdTime(iroha::time::now())
           .getAccountAssets(accountb_id, kMaxPageSize, std::nullopt)
           .build()
-          .signAndAddSignature(pair)
+          .signAndAddSignature(*kUserSigner)
           .finish();
 
   auto *r = query_response_factory
@@ -412,7 +410,7 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
                          .createdTime(iroha::time::now())
                          .getAccountAssets(creator, kMaxPageSize, std::nullopt)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   std::vector<std::tuple<shared_model::interface::types::AccountIdType,
@@ -470,7 +468,7 @@ TEST_F(ToriiQueriesTest, FindSignatoriesWhenNoGrantPermissions) {
                          .createdTime(iroha::time::now())
                          .getSignatories("b@domain")
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   auto *r = query_response_factory
@@ -512,7 +510,7 @@ TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
                          .createdTime(iroha::time::now())
                          .getSignatories(creator)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   auto *r = query_response_factory
@@ -529,18 +527,18 @@ TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
   shared_model::proto::QueryResponse shared_response{
       iroha::protocol::QueryResponse{response}};
   ASSERT_NO_THROW({
-    auto resp_pubkey =
-        *boost::get<const shared_model::interface::SignatoriesResponse &>(
-             shared_response.get())
-             .keys()
-             .begin();
+    auto resp_pubkeys =
+        boost::get<const shared_model::interface::SignatoriesResponse &>(
+            shared_response.get())
+            .keys();
 
     ASSERT_TRUE(stat.ok());
     /// Should not return Error Response because tx is stateless and stateful
     /// valid
     ASSERT_FALSE(response.has_error_response());
     // check if fields in response are valid
-    ASSERT_EQ(resp_pubkey, signatories.back());
+    ASSERT_THAT(resp_pubkeys,
+                ::testing::UnorderedElementsAreArray(signatories));
     ASSERT_EQ(model_query.hash(), shared_response.queryHash());
   }) << shared_response.toString();
 }
@@ -573,7 +571,7 @@ TEST_F(ToriiQueriesTest, FindTransactionsWhenValid) {
                          .createdTime(iroha::time::now())
                          .getAccountTransactions(creator, kTxPageSize)
                          .build()
-                         .signAndAddSignature(pair)
+                         .signAndAddSignature(*kUserSigner)
                          .finish();
 
   std::vector<std::unique_ptr<shared_model::interface::Transaction>>

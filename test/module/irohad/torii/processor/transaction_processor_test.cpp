@@ -25,6 +25,7 @@
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 
@@ -39,6 +40,7 @@ using ::testing::_;
 using ::testing::A;
 using ::testing::Return;
 
+using shared_model::crypto::makeDefaultSigner;
 using shared_model::interface::TransactionBatch;
 
 class TransactionProcessorTest : public ::testing::Test {
@@ -90,22 +92,15 @@ class TransactionProcessorTest : public ::testing::Test {
         .build();
   }
 
-  inline auto makeKey() {
-    return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  }
-
-  template <typename Transaction, typename... KeyPairs>
-  auto addSignaturesFromKeyPairs(Transaction &&tx, KeyPairs... keypairs) {
-    auto create_signature = [&](auto &&key_pair) {
-      using namespace shared_model::crypto;
-      auto signed_blob =
-          CryptoSignerInternal<DefaultCryptoAlgorithmType>{Keypair{key_pair}}
-              .sign(tx.payload());
+  template <typename Transaction, typename... Signers>
+  auto addSignaturesFromKeyPairs(Transaction &&tx, Signers const &... signers) {
+    auto create_signature = [&](const auto &signer) {
+      auto signature_hex = signer.sign(tx.payload());
       tx.addSignature(SignedHexStringView{signature_hex},
-                      PublicKeyHexStringView{key_pair.publicKey()});
+                      PublicKeyHexStringView{signer.publicKey()});
     };
 
-    int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};
+    int temp[] = {(create_signature(signers), 0)...};
     (void)temp;
 
     return std::forward<Transaction>(tx);
@@ -167,7 +162,7 @@ class TransactionProcessorTest : public ::testing::Test {
 TEST_F(TransactionProcessorTest, TransactionProcessorOnProposalTest) {
   std::vector<shared_model::proto::Transaction> txs;
   for (size_t i = 0; i < proposal_size; i++) {
-    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), makeKey());
+    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), *makeDefaultSigner());
     txs.push_back(tx);
   }
 
@@ -257,7 +252,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnProposalBatchTest) {
 TEST_F(TransactionProcessorTest, TransactionProcessorVerifiedProposalTest) {
   std::vector<shared_model::proto::Transaction> txs;
   for (size_t i = 0; i < proposal_size; i++) {
-    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), makeKey());
+    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), *makeDefaultSigner());
     txs.push_back(tx);
   }
 
@@ -301,7 +296,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorVerifiedProposalTest) {
 TEST_F(TransactionProcessorTest, TransactionProcessorOnCommitTest) {
   std::vector<shared_model::proto::Transaction> txs;
   for (size_t i = 0; i < proposal_size; i++) {
-    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), makeKey());
+    auto &&tx = addSignaturesFromKeyPairs(baseTestTx(), *makeDefaultSigner());
     txs.push_back(tx);
   }
 
@@ -438,7 +433,7 @@ TEST_F(TransactionProcessorTest, TransactionProcessorInvalidTxsTest) {
  * @then checks that batch is relayed to MST
  */
 TEST_F(TransactionProcessorTest, MultisigTransactionToMst) {
-  auto &&tx = addSignaturesFromKeyPairs(baseTestTx(2), makeKey());
+  auto &&tx = addSignaturesFromKeyPairs(baseTestTx(2), *makeDefaultSigner());
 
   auto &&after_mst = framework::batch::createBatchFromSingleTransaction(
       std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
@@ -455,7 +450,8 @@ TEST_F(TransactionProcessorTest, MultisigTransactionToMst) {
  * This happens because tx processor is subscribed for MST
  */
 TEST_F(TransactionProcessorTest, MultisigTransactionFromMst) {
-  auto &&tx = addSignaturesFromKeyPairs(baseTestTx(2), makeKey(), makeKey());
+  auto &&tx = addSignaturesFromKeyPairs(
+      baseTestTx(2), *makeDefaultSigner(), *makeDefaultSigner());
 
   auto &&after_mst = framework::batch::createBatchFromSingleTransaction(
       std::shared_ptr<shared_model::interface::Transaction>(clone(tx)));
@@ -477,9 +473,7 @@ TEST_F(TransactionProcessorTest, MultisigExpired) {
       clone(base_tx()
                 .quorum(2)
                 .build()
-                .signAndAddSignature(
-                    shared_model::crypto::DefaultCryptoAlgorithmType::
-                        generateKeypair())
+                .signAndAddSignature(*makeDefaultSigner())
                 .finish());
   EXPECT_CALL(*status_bus, publish(_))
       .WillRepeatedly(testing::Invoke([](auto response) {

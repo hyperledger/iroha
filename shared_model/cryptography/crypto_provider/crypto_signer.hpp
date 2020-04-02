@@ -10,6 +10,8 @@
 
 #include "interfaces/common_objects/string_view_types.hpp"
 
+#include <string>
+
 namespace shared_model {
   namespace crypto {
 
@@ -35,6 +37,8 @@ namespace shared_model {
       /// Get public key.
       virtual shared_model::interface::types::PublicKeyHexStringView publicKey()
           const = 0;
+
+      virtual std::string toString() const = 0;
     };
   }  // namespace crypto
 }  // namespace shared_model

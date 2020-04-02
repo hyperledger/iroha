@@ -10,4 +10,5 @@ target_link_libraries(block_loader_test
     shared_model_cryptography
     shared_model_default_builders
     test_logger
+    test_make_default_signer
     )

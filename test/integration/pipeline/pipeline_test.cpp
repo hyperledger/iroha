@@ -80,8 +80,7 @@ TEST_F(PipelineIntegrationTest, SendQuery) {
                    .build()
                    .signAndAddSignature(
                        // TODO: 30/03/17 @l4l use keygen adapter IR-1189
-                       shared_model::crypto::DefaultCryptoAlgorithmType::
-                           generateKeypair())
+                       *kUserSigner)
                    .finish();
 
   auto check = [](auto &status) {

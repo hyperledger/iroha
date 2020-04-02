@@ -6,11 +6,13 @@
 #define IROHA_LAUNCHERS_HPP
 
 #include <chrono>
+#include <optional>
 #include <string>
 
 #include <boost/process.hpp>
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "backend/protobuf/transaction.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/keypair.hpp"
 
 namespace binary_test {
@@ -32,7 +34,7 @@ namespace binary_test {
 
     /**
      * Runs external binaries generator for a specific test_case and consumes
-     * its output. Initializes admin_key, transactions vector, and queries
+     * its output. Initializes admin_signer, transactions vector, and queries
      * vector fields.
      *
      * @param example - name of test_case scenario
@@ -50,7 +52,8 @@ namespace binary_test {
     bool initialized(const unsigned &transactions_expected = 0,
                      const unsigned &queries_expected = 0);
 
-    boost::optional<shared_model::crypto::Keypair> admin_key;
+    std::optional<std::shared_ptr<shared_model::crypto::CryptoSigner>>
+        admin_signer;
     std::vector<shared_model::proto::Transaction> transactions;
     std::vector<shared_model::proto::Query> queries;
 

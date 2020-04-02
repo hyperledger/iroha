@@ -6,6 +6,7 @@
 #ifndef EXECUTOR_QUERY_PERMISSION_TEST_HPP
 #define EXECUTOR_QUERY_PERMISSION_TEST_HPP
 
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/executor_itf/executor_itf.hpp"
 #include "framework/result_gtest_checkers.hpp"

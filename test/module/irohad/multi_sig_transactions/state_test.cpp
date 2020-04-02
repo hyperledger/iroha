@@ -317,7 +317,6 @@ TEST(StateTest, UpdateTxUntillQuorum) {
  */
 TEST(StateTest, UpdateStateWithNewStateUntilQuorum) {
   auto quorum = 3u;
-  auto keypair = makeKey();
   auto time = iroha::time::now();
 
   auto state1 = MstState::empty(mst_state_log_, completer_);
