@@ -119,7 +119,7 @@ option(SANITIZE_THREAD       "Build with thread sanitizer"              OFF)
 option(SANITIZE_ADDRESS      "Build with address sanitizer"             OFF)
 option(SANITIZE_MEMORY       "Build with memory sanitizer"              OFF)
 option(SANITIZE_UNDEFINED    "Build with undefined behaviour sanitizer" OFF)
-
+option(ENABLE_PROFILER       "Enables internal profiling"               OFF)
 
 if (NOT CMAKE_BUILD_TYPE)
   SET(CMAKE_BUILD_TYPE Debug)
@@ -154,6 +154,7 @@ message(STATUS "-DSANITIZE_THREAD=${SANITIZE_THREAD}")
 message(STATUS "-DSANITIZE_ADDRESS=${SANITIZE_ADDRESS}")
 message(STATUS "-DSANITIZE_MEMORY=${SANITIZE_MEMORY}")
 message(STATUS "-DSANITIZE_UNDEFINED=${SANITIZE_UNDEFINED}")
+message(STATUS "-DENABLE_PROFILER=${ENABLE_PROFILER}")
 
 set(IROHA_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/schema")
 set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")

@@ -13,6 +13,9 @@ add_library(common INTERFACE
   # result.hpp
   # set.hpp
   # visitor.hpp
+  # memory_utils.hpp
+  # murmur2.hpp
+  # spin_lock.hpp
   )
 target_link_libraries(common INTERFACE
   Boost::boost
