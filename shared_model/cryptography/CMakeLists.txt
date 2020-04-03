@@ -8,25 +8,25 @@
 
 add_subdirectory(model_impl)
 add_subdirectory(ed25519_sha3_impl)
+add_subdirectory(ed25519_ursa_impl)
 
-add_library(shared_model_cryptography INTERFACE)
+add_library(shared_model_cryptography
+  crypto_provider/crypto_verifier.cpp
+  )
 
 if (USE_LIBURSA)
-  add_subdirectory(ed25519_ursa_impl)
   set(DEFAULT_CRYPTO_PROVIDER CryptoProviderEd25519Ursa)
   set(DEFAULT_CRYPTO_INCLUDE "cryptography/ed25519_ursa_impl/crypto_provider.hpp")
-
-  target_link_libraries(shared_model_cryptography INTERFACE
-    ursa_cryptography
-  )
 else()
   set(DEFAULT_CRYPTO_PROVIDER CryptoProviderEd25519Sha3)
   set(DEFAULT_CRYPTO_INCLUDE "cryptography/ed25519_sha3_impl/crypto_provider.hpp")
-
-  target_link_libraries(shared_model_cryptography INTERFACE
-    sha3_cryptography
-  )
 endif()
+
+target_link_libraries(shared_model_cryptography
+  multihash
+  ursa_cryptography
+  sha3_cryptography
+)
 
 # configure a header file to pass some of the CMake settings
 # to the source code

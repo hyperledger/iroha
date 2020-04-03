@@ -42,5 +42,11 @@ namespace shared_model {
       return Keypair(PublicKey(keypair.pubkey.to_string()),
                      PrivateKey(keypair.privkey.to_string()));
     }
+
+    constexpr size_t CryptoProviderEd25519Sha3::kHashLength;
+    constexpr size_t CryptoProviderEd25519Sha3::kPublicKeyLength;
+    constexpr size_t CryptoProviderEd25519Sha3::kPrivateKeyLength;
+    constexpr size_t CryptoProviderEd25519Sha3::kSignatureLength;
+    constexpr size_t CryptoProviderEd25519Sha3::kSeedLength;
   }  // namespace crypto
 }  // namespace shared_model
