@@ -86,10 +86,6 @@ public:
     virtual IReportThreadIterator& getThreadIterator() = 0;
 };
 
-/// initialization
-extern void initThreadProfiler();
-extern void deinitThreadProfiler();
-
 /// functions performance profiling
 extern void pushFunctionEntry(Hash f_hash);
 extern void popFunctionEntry(PerformanceCounter value, char const* tag);

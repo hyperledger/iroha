@@ -40,17 +40,10 @@ thread_local std::unique_ptr<ProfilerThreadData> profiler_instance;
 thread_concurrency::SpinLock thread_reports_cs;
 std::unordered_map<std::thread::id, ReportData> thread_reports;
 
-void initThreadProfiler() {
+void pushFunctionEntry(Hash f_hash) {
     if (!profiler_instance)
         profiler_instance = std::make_unique<ProfilerThreadData>();
-}
 
-void deinitThreadProfiler() {
-    profiler_instance.reset();
-}
-
-void pushFunctionEntry(Hash f_hash) {
-    initThreadProfiler();
     assert(!!profiler_instance);
     profiler_instance->getProfiler().push(f_hash);
 }
