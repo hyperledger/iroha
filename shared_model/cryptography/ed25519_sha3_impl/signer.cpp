@@ -12,8 +12,11 @@
 namespace shared_model {
   namespace crypto {
     Signed Signer::sign(const Blob &blob, const Keypair &keypair) {
-      assert(keypair.publicKey().size() == iroha::pubkey_t::size());
-      assert(keypair.privateKey().size() == iroha::privkey_t::size());
+      if (keypair.publicKey().size() != iroha::pubkey_t::size()
+          || keypair.privateKey().size() != iroha::privkey_t::size()) {
+        return Signed{""};
+      }
+
       return Signed(
           iroha::sign(
               iroha::sha3_256(crypto::toBinaryString(blob)).to_string(),

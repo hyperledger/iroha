@@ -17,6 +17,8 @@ namespace shared_model {
      public:
       explicit PublicKey(const std::string &public_key);
 
+      explicit PublicKey(const Bytes &blob);
+
       explicit PublicKey(const Blob &blob);
 
       std::string toString() const override;
