@@ -6,8 +6,6 @@
 #ifndef IROHA_CRYPTO_VERIFIER_HPP
 #define IROHA_CRYPTO_VERIFIER_HPP
 
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
-
 namespace shared_model {
   namespace crypto {
 
@@ -20,7 +18,6 @@ namespace shared_model {
      * signatures
      * @tparam Algorithm - cryptographic algorithm for verification
      */
-    template <typename Algorithm = DefaultCryptoAlgorithmType>
     class CryptoVerifier {
      public:
       /**
@@ -32,9 +29,7 @@ namespace shared_model {
        */
       static bool verify(const Signed &signedData,
                          const Blob &source,
-                         const PublicKey &pubKey) {
-        return Algorithm::verify(signedData, source, pubKey);
-      }
+                         const PublicKey &pubKey);
 
       /// close constructor for forbidding instantiation
       CryptoVerifier() = delete;

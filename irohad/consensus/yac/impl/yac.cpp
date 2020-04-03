@@ -193,11 +193,7 @@ namespace iroha {
 
         const auto &current_leader = cluster_order.currentLeader();
 
-        log_->info("Vote for round {}, hash ({}, {}) to peer {}",
-                   vote.hash.vote_round,
-                   vote.hash.vote_hashes.proposal_hash,
-                   vote.hash.vote_hashes.block_hash,
-                   current_leader);
+        log_->info("Vote {} to peer {}", vote, current_leader);
 
         network_->sendState(current_leader, {vote});
         cluster_order.switchToNext();
