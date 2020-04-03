@@ -10,7 +10,7 @@ use parity_scale_codec::{Decode, Encode};
 ///
 /// let id = Id::new("gold", "mine");
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq, std::hash::Hash, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, std::hash::Hash, Encode, Decode)]
 pub struct Id(pub String, pub String);
 
 impl Id {

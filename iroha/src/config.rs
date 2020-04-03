@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn parse_example_json() {
-        let configuration = Configuration::from_path("tests/example_config.json")
+        let configuration = Configuration::from_path("config.json")
             .expect("Failed to read configuration from example config.");
         assert_eq!(DEFAULT_TORII_URL, configuration.torii_url);
         assert_eq!(DEFAULT_BLOCK_TIME_MS, configuration.block_build_step_ms);

@@ -1,5 +1,5 @@
 **/target/
-/blocks/
+**/blocks/
 Cargo.lock
 **/*.rs.bk
 

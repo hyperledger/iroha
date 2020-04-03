@@ -17,7 +17,7 @@ pub mod wsv;
 
 use crate::{
     block::Blockchain, config::Configuration, kura::Kura, sumeragi::Sumeragi, torii::Torii,
-    wsv::WorldStateView,
+    wsv::World,
 };
 use futures::channel::mpsc;
 
@@ -28,11 +28,11 @@ pub struct Iroha {
 impl Iroha {
     pub fn new(config: Configuration) -> Self {
         let (tx, rx) = mpsc::unbounded();
-        let world_state_view = WorldStateView::new(rx);
+        let world = World::new(rx);
         let torii = Torii::new(
             &config.torii_url,
             Sumeragi::new(Blockchain::new(Kura::new(config.mode, tx))),
-            world_state_view,
+            world,
         );
         Iroha { torii }
     }
@@ -54,8 +54,9 @@ pub mod prelude {
         config::Configuration,
         crypto::{Hash, Signature},
         domain::Domain,
-        isi::{Id, Instruction},
+        isi::{Contract, Id, Instruction},
         peer::Peer,
+        query::{Query, QueryResult, Request},
         tx::Transaction,
         wsv::WorldStateView,
         Iroha,

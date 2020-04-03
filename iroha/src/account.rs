@@ -1,17 +1,18 @@
 use crate::prelude::*;
-use std::collections::HashMap;
+use parity_scale_codec::{Decode, Encode};
+use std::collections::BTreeMap;
 
-#[derive(Debug)]
+#[derive(Debug, Encode, Decode)]
 pub struct Account {
     pub id: Id,
-    pub assets: HashMap<Id, Asset>,
+    pub assets: BTreeMap<Id, Asset>,
 }
 
 impl Account {
     pub fn new(account_id: Id) -> Self {
         Account {
             id: account_id,
-            assets: HashMap::new(),
+            assets: BTreeMap::new(),
         }
     }
 }
@@ -150,7 +151,6 @@ pub mod isi {
     impl Instruction for CreateAccount {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             world_state_view
-                .world
                 .domain(&self.domain_name)
                 .unwrap()
                 .accounts

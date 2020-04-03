@@ -33,9 +33,7 @@ pub mod isi {
 
     impl Instruction for CreateDomain {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            world_state_view
-                .world
-                .add_domain(Domain::new(self.domain_name.clone()));
+            world_state_view.add_domain(Domain::new(self.domain_name.clone()));
             Ok(())
         }
     }

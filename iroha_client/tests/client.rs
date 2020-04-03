@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod e2e_tests {
+mod tests {
     use futures::executor;
     use iroha::{
         account::isi::{CreateAccount, CreateRole},
@@ -7,7 +7,7 @@ mod e2e_tests {
         domain::isi::CreateDomain,
         prelude::*,
     };
-    use iroha_client::client::Client;
+    use iroha_client::client::{self, Client};
     use std::thread;
 
     static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
@@ -16,6 +16,8 @@ mod e2e_tests {
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account() {
         // Given
+        thread::spawn(|| executor::block_on(create_and_start_iroha()));
+        thread::sleep(std::time::Duration::from_millis(200));
         let create_role = CreateRole {
             role_name: "user".to_string(),
             permissions: Vec::new(),
@@ -49,38 +51,55 @@ mod e2e_tests {
             description: "description".to_string(),
             amount: 20,
         };
-        let iroha_client = Client::new();
+        let mut iroha_client = Client::new(
+            Configuration::from_path("config.json").expect("Failed to load configuration."),
+        );
         iroha_client
             .submit(create_role.into())
             .expect("Failed to create role.");
+        thread::sleep(std::time::Duration::from_millis(200));
         iroha_client
             .submit(create_domain.into())
             .expect("Failed to create domain.");
+        thread::sleep(std::time::Duration::from_millis(200));
         iroha_client
             .submit(create_account1.into())
             .expect("Failed to create account1.");
+        thread::sleep(std::time::Duration::from_millis(200));
         iroha_client
             .submit(create_account2.into())
             .expect("Failed to create accoun2.");
+        thread::sleep(std::time::Duration::from_millis(200));
         iroha_client
             .submit(create_asset.into())
             .expect("Failed to create asset.");
-        thread::spawn(|| executor::block_on(create_and_start_iroha()));
+        thread::sleep(std::time::Duration::from_millis(2000));
         //When
         iroha_client
             .submit(transfer_asset.into())
             .expect("Failed to submit command.");
         //Then
-        //let _query = client::assets::by_id(asset_id);
-        //assert_eq!(account2_id, asset.account_id);
+        let request = client::assets::by_account_id(account2_id);
+        let query_result = iroha_client
+            .request(&request)
+            .expect("Failed to execute request.");
+        dbg!(&query_result);
+        if let QueryResult::GetAccountAssets(result) = query_result {
+            assert!(!result.assets.is_empty());
+        } else {
+            panic!("QueryResult::GetAccountAssets was expected.");
+        }
         let _result = cleanup_default_block_dir().await;
     }
 
     async fn create_and_start_iroha() {
+        println!("Iroha create.");
         let mut iroha = Iroha::new(
             Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
+        println!("Iroha start.");
         iroha.start().await.expect("Failed to start Iroha.");
+        println!("Iroha started.");
     }
 
     /// Cleans up default directory of disk storage.
