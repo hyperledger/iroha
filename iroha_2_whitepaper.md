@@ -70,8 +70,13 @@ Iroha provides a library of smart contracts called **I**roha **S**pecial **I**ns
 These include the following smart contracts to support asset management use cases:
 
 * Domain registration
-* Asset creation
-* Asset Transfer
+* createAsset
+* transferAsset
+* addAssetQty
+* subAssetQty
+* groupAssets
+* ungroupAssets
+* swapAssets
 
 Arbitrary data can be stored using the following:
 
@@ -88,10 +93,17 @@ For the decentralized membership service, the following transaction types are ap
 * AddCurveLiquidity(asset, asset)
 * ChainedTrade(inputAsset, outputAsset) # Does paythingfinding to get output; oraclized inputs/outputs are special
 
+* addLimitBid
+* addLimitAsk
+* removeLimitBid
+* removeLimitAsk
+
 * DepositBTC
 * DepositERC20
 * DepositKusama
 * DepositCBDC(cb_id)
+
+* serveHttps(port)
 
 Additionally, the following two transaction types take as input (i.e., "wrap") one of the above transaction types:
 
