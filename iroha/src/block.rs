@@ -46,7 +46,7 @@ impl Blockchain {
 /// a linear sequence over time (also known as the block chain).
 //TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
 //signatures placed outside of the payload - should we store them?
-#[derive(Clone, Encode, Decode)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct Block {
     /// a number of blocks in the chain up to the block.
     pub height: u64,

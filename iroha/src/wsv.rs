@@ -1,34 +1,72 @@
 use crate::prelude::*;
-use futures::{channel::mpsc::UnboundedReceiver, stream::StreamExt};
-use std::collections::HashMap;
+use futures::{channel::mpsc::UnboundedReceiver, executor, stream::StreamExt};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 type BlockReceiver = UnboundedReceiver<Block>;
 
 /// WSV reflects the current state of the system, can be considered as a snapshot. For example, WSV
 /// holds information about an amount of assets that an account has at the moment but does not
 /// contain any info history of transaction flow.
+pub struct World {
+    pub world_state_view: Arc<Mutex<WorldStateView>>,
+    rx: Arc<Mutex<BlockReceiver>>,
+}
+
+impl World {
+    pub fn new(rx: BlockReceiver) -> Self {
+        World {
+            world_state_view: Arc::new(Mutex::new(WorldStateView::new())),
+            rx: Arc::new(Mutex::new(rx)),
+        }
+    }
+
+    pub fn init(&self) {
+        let rx = Arc::clone(&self.rx);
+        let world_state_view = Arc::clone(&self.world_state_view);
+        thread::spawn(move || {
+            executor::block_on(run_the_world(rx, world_state_view));
+        });
+    }
+
+    pub fn state_view(&self) -> Arc<Mutex<WorldStateView>> {
+        //TODO: replace Mutex with RwLock to support parallel query execution.
+        Arc::clone(&self.world_state_view)
+    }
+}
+
+async fn run_the_world(
+    rx: Arc<Mutex<BlockReceiver>>,
+    world_state_view: Arc<Mutex<WorldStateView>>,
+) {
+    while let Some(block) = rx
+        .lock()
+        .expect("Failed to lock Block Receiver.")
+        .next()
+        .await
+    {
+        world_state_view
+            .lock()
+            .expect("Failed to lock World State View")
+            .put(&block)
+            .await;
+    }
+}
+
+#[derive(Debug)]
 pub struct WorldStateView {
-    pub world: World,
-    rx: BlockReceiver,
+    domains: HashMap<String, Domain>,
+    transactions: HashMap<Hash, Transaction>,
 }
 
 impl WorldStateView {
-    pub fn new(rx: BlockReceiver) -> Self {
+    fn new() -> Self {
         WorldStateView {
-            world: World::new(),
-            rx,
-        }
-    }
-
-    pub async fn init(mut self, blocks: &[&Block]) {
-        for block in blocks {
-            self.put(block).await;
-        }
-    }
-
-    pub async fn start(&mut self) {
-        while let Some(block) = self.rx.next().await {
-            self.put(&block).await;
+            domains: HashMap::new(),
+            transactions: HashMap::new(),
         }
     }
 
@@ -41,21 +79,6 @@ impl WorldStateView {
                     eprintln!("Failed to apply instruction to WSV: {}", e);
                 }
             }
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct World {
-    domains: HashMap<String, Domain>,
-    transactions: HashMap<Hash, Transaction>,
-}
-
-impl World {
-    fn new() -> Self {
-        World {
-            domains: HashMap::new(),
-            transactions: HashMap::new(),
         }
     }
 

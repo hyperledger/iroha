@@ -1,6 +1,7 @@
 use crate::prelude::*;
+use parity_scale_codec::{Decode, Encode};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Encode, Decode)]
 pub struct Asset {
     /// identifier of asset, formatted as asset_name#domain_id
     pub id: Id,
@@ -30,7 +31,6 @@ pub mod isi {
     impl Instruction for AddAssetQuantity {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             world_state_view
-                .world
                 .account(&self.account_id)
                 .unwrap()
                 .assets
@@ -167,14 +167,12 @@ pub mod isi {
     impl Instruction for TransferAsset {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             let asset = world_state_view
-                .world
                 .account(&self.source_account_id)
                 .unwrap()
                 .assets
                 .remove(&self.asset_id)
                 .unwrap();
             world_state_view
-                .world
                 .account(&self.destination_account_id)
                 .unwrap()
                 .assets
@@ -293,6 +291,97 @@ pub mod isi {
             let expected = Contract::TransferAsset(transfer_asset.clone());
             let actual: Contract = transfer_asset.into();
             assert_eq!(expected, actual);
+        }
+    }
+}
+
+pub mod query {
+    use super::*;
+    use crate::{asset::Asset, query::IrohaQuery};
+    use parity_scale_codec::{Decode, Encode};
+    use std::time::SystemTime;
+
+    /// To get the state of all assets in an account (a balance),
+    /// GetAccountAssets query can be used.
+    #[derive(Encode, Decode)]
+    pub struct GetAccountAssets {
+        account_id: Id,
+    }
+
+    #[derive(Debug, Encode, Decode)]
+    pub struct GetAccountAssetsResult {
+        pub assets: Vec<Asset>,
+    }
+
+    impl GetAccountAssets {
+        pub fn new(account_id: Id) -> GetAccountAssets {
+            GetAccountAssets { account_id }
+        }
+
+        pub fn build_request(account_id: Id) -> Request {
+            let query = GetAccountAssets { account_id };
+            Request {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAccountAssets {
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            let assets: Vec<Asset> = world_state_view
+                .read_account(&self.account_id)
+                .ok_or("No account found.")?
+                .assets
+                .values()
+                .cloned()
+                .collect();
+            Ok(QueryResult::GetAccountAssets(GetAccountAssetsResult {
+                assets,
+            }))
+        }
+    }
+
+    /// ```
+    /// use iroha::{query::IrohaQuery, asset::query::GetAccountAssets, prelude::*};
+    ///
+    /// let query = GetAccountAssets::new(Id::new("account","domain"));
+    /// let result: IrohaQuery = query.into();
+    /// ```
+    impl std::convert::From<GetAccountAssets> for IrohaQuery {
+        fn from(query: GetAccountAssets) -> Self {
+            IrohaQuery::GetAccountAssets(query)
+        }
+    }
+
+    /// ```
+    /// use iroha::{query::Request, asset::query::GetAccountAssets, prelude::*};
+    ///
+    /// let query_payload = &GetAccountAssets::new(Id::new("account","domain"));
+    /// let result: Vec<u8> = query_payload.into();
+    /// ```
+    impl std::convert::From<&GetAccountAssets> for Vec<u8> {
+        fn from(payload: &GetAccountAssets) -> Self {
+            payload.encode()
+        }
+    }
+
+    /// # Example
+    /// ```
+    /// # use iroha::{query::Request, asset::query::GetAccountAssets, prelude::*};
+    ///
+    /// # let query_payload = &GetAccountAssets::new(Id::new("account","domain"));
+    /// # let result: Vec<u8> = query_payload.into();
+    /// let query_payload: GetAccountAssets = result.into();
+    /// ```
+    impl std::convert::From<Vec<u8>> for GetAccountAssets {
+        fn from(payload: Vec<u8>) -> Self {
+            GetAccountAssets::decode(&mut payload.as_slice())
+                .expect("Failed to deserialize payload.")
         }
     }
 }
