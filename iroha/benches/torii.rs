@@ -1,20 +1,20 @@
 use async_std::fs;
 use criterion::*;
 use futures::executor;
-use iroha::{config::Configuration, prelude::*, query::GetAccountAssets};
+use iroha::{asset::query::GetAccountAssets, config::Configuration, prelude::*};
 use std::{io::prelude::*, thread, time::Duration};
 
-const QUERY_REQUEST_HEADER: &[u8; 16] = b"GET / HTTP/1.1\r\n";
-const COMMAND_REQUEST_HEADER: &[u8; 25] = b"POST /commands HTTP/1.1\r\n";
-const _PUT: &[u8; 16] = b"PUT / HTTP/1.1\r\n";
-const OK: &[u8; 19] = b"HTTP/1.1 200 OK\r\n\r\n";
+const QUERY_REQUEST_HEADER: &[u8] = b"GET / HTTP/1.1\r\n";
+const COMMAND_REQUEST_HEADER: &[u8] = b"POST /commands HTTP/1.1\r\n";
+const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
+const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
 
 fn query_requests(criterion: &mut Criterion) {
     thread::spawn(|| executor::block_on(create_and_start_iroha()));
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
-    let query = &GetAccountAssets::build_query(Id::new("account", "domain"));
+    let query = &GetAccountAssets::build_request(Id::new("account", "domain"));
     let mut query: Vec<u8> = query.into();
     let mut query_request = QUERY_REQUEST_HEADER.to_vec();
     query_request.append(&mut query);
@@ -39,7 +39,7 @@ fn query_requests(criterion: &mut Criterion) {
             stream.flush().expect("Failed to flush a request.");
             let mut buffer = [0; 512];
             stream.read(&mut buffer).expect("Request read failed.");
-            assert!(buffer.starts_with(OK));
+            assert!(buffer.starts_with(INTERNAL_ERROR));
         });
     });
     group.finish();

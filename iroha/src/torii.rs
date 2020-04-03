@@ -1,37 +1,43 @@
-use crate::{prelude::*, query::Query, queue::Queue, sumeragi::Sumeragi, wsv::WorldStateView};
+use crate::{prelude::*, query::Request, queue::Queue, sumeragi::Sumeragi, wsv::World};
 use std::{
     io::prelude::*,
     net::TcpListener,
+    sync::Arc,
+    thread,
     time::{Duration, Instant},
 };
 
-const QUERY_REQUEST_HEADER: &[u8; 16] = b"GET / HTTP/1.1\r\n";
-const COMMAND_REQUEST_HEADER: &[u8; 25] = b"POST /commands HTTP/1.1\r\n";
-const _PUT: &[u8; 16] = b"PUT / HTTP/1.1\r\n";
-const OK: &[u8; 19] = b"HTTP/1.1 200 OK\r\n\r\n";
+const QUERY_REQUEST_HEADER: &[u8] = b"GET / HTTP/1.1\r\n";
+const COMMAND_REQUEST_HEADER: &[u8] = b"POST /commands HTTP/1.1\r\n";
+const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
+const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
 #[allow(dead_code)]
 pub struct Torii {
     url: String,
     queue: Queue,
     consensus: Sumeragi,
-    world_state_view: WorldStateView,
+    world: Arc<World>,
     last_round_time: Instant,
 }
 
 impl Torii {
-    pub fn new(url: &str, consensus: Sumeragi, world_state_view: WorldStateView) -> Self {
+    pub fn new(url: &str, consensus: Sumeragi, world: World) -> Self {
         Torii {
             url: url.to_string(),
             queue: Queue::default(),
             consensus,
-            world_state_view,
+            world: Arc::new(world),
             last_round_time: Instant::now(),
         }
     }
 
     pub async fn start(&mut self) {
         let listener = TcpListener::bind(&self.url).expect("could not start server");
+        let world = Arc::clone(&self.world);
+        thread::spawn(move || {
+            world.init();
+        });
         for connection in listener.incoming() {
             match connection {
                 Ok(mut stream) => {
@@ -52,8 +58,22 @@ impl Torii {
                             .expect("Failed to sign transactions.");
                         self.last_round_time = Instant::now();
                     } else if buffer.starts_with(QUERY_REQUEST_HEADER) {
-                        self.receive_query(&buffer[QUERY_REQUEST_HEADER.len()..]);
-                        stream.write_all(OK).expect("Failed to write a response.");
+                        match self.receive_query(&buffer[QUERY_REQUEST_HEADER.len()..]) {
+                            Ok(result) => {
+                                let mut response = OK.to_vec();
+                                let result = &result;
+                                response.append(&mut result.into());
+                                stream
+                                    .write_all(&response)
+                                    .expect("Failed to write a response.");
+                            }
+                            Err(e) => {
+                                eprintln!("{}", e);
+                                stream
+                                    .write_all(INTERNAL_ERROR)
+                                    .expect("Failed to write a response.");
+                            }
+                        }
                     }
                     stream.flush().expect("Failed to flush a stream.");
                 }
@@ -73,19 +93,28 @@ impl Torii {
         );
     }
 
-    fn receive_query(&mut self, payload: &[u8]) {
-        let _query: Query = payload.to_vec().into();
+    fn receive_query(&self, payload: &[u8]) -> Result<QueryResult, String> {
+        let request: Request = payload.to_vec().into();
+        request.query.execute(
+            &self
+                .world
+                .world_state_view
+                .lock()
+                .expect("Failed to lock World State View."),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{block::Blockchain, config::Configuration, kura::Kura, query};
+    use crate::{
+        asset::query::GetAccountAssets, block::Blockchain, config::Configuration, kura::Kura,
+    };
     use futures::{channel::mpsc, executor};
 
     #[test]
-    fn get_request_to_torii_should_return_ok() {
+    fn get_request_to_torii_should_return_internal_error() {
         std::thread::spawn(move || {
             executor::block_on(create_and_start_torii());
         });
@@ -94,7 +123,7 @@ mod tests {
             Configuration::from_path("config.json").expect("Failed to load configuration.");
         let mut stream =
             std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
-        let query = &query::GetAccountAssets::build_query(Id::new("account", "domain"));
+        let query = &GetAccountAssets::build_request(Id::new("account", "domain"));
         let mut query: Vec<u8> = query.into();
         let mut query_request = QUERY_REQUEST_HEADER.to_vec();
         query_request.append(&mut query);
@@ -104,7 +133,7 @@ mod tests {
         stream.flush().expect("Failed to flush a request.");
         let mut buffer = [0; 512];
         stream.read(&mut buffer).expect("Request read failed.");
-        assert!(buffer.starts_with(OK));
+        assert!(buffer.starts_with(INTERNAL_ERROR));
     }
 
     #[test]
@@ -146,7 +175,7 @@ mod tests {
         let mut torii = Torii::new(
             &torii_url.clone(),
             Sumeragi::new(Blockchain::new(kura)),
-            WorldStateView::new(rx),
+            World::new(rx),
         );
         torii.start().await;
     }
