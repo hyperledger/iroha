@@ -132,8 +132,8 @@ TEST_F(BlockLoaderTest, ValidWhenSameTopBlock) {
       .WillOnce(Return(std::vector<wPeer>{peer}));
   EXPECT_CALL(*storage, getTopBlockHeight()).WillOnce(Return(1));
 
-  auto wrapper = make_test_subscriber<CallExact>(
-      loader->retrieveBlocks(1, peer->pubkey()), 0);
+  auto wrapper =
+      make_test_subscriber<CallExact>(loader->retrieveBlocks(1, peer_key), 0);
   wrapper.subscribe();
 
   ASSERT_TRUE(wrapper.validate());

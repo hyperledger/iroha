@@ -358,11 +358,10 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   }
 
   common_objects_factory_
-      ->createPeer(
-          address,
-          shared_model::crypto::PublicKey(
-              shared_model::crypto::Blob::fromHexString(public_key_str)),
-          tls_certificate_str)
+      ->createPeer(address,
+                   shared_model::interface::types::PublicKeyHexStringView{
+                       public_key_str},
+                   tls_certificate_str)
       .match([&dest](auto &&v) { dest = std::move(v.value); },
              [&path](const auto &error) {
                throw JsonDeserializerException("Failed to create a peer at '"

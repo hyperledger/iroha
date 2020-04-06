@@ -27,6 +27,8 @@ using namespace shared_model;
 using namespace integration_framework;
 using namespace shared_model::interface::permissions;
 
+using interface::types::PublicKeyHexStringView;
+
 static constexpr std::chrono::seconds kMstStateWaitingTime(20);
 static constexpr std::chrono::seconds kSynchronizerWaitingTime(20);
 
@@ -193,10 +195,11 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
 
   auto block_with_add_peer =
       proto::BlockBuilder()
-          .transactions(std::vector<shared_model::proto::Transaction>{
-              complete(baseTx(kAdminId).addPeer(itf_->getAddress(),
-                                                itf_->getThisPeer()->pubkey()),
-                       kAdminKeypair)})
+          .transactions(std::vector<shared_model::proto::Transaction>{complete(
+              baseTx(kAdminId).addPeer(
+                  itf_->getAddress(),
+                  PublicKeyHexStringView{itf_->getThisPeer()->pubkey()}),
+              kAdminKeypair)})
           .height(genesis_block.height() + 1)
           .prevHash(genesis_block.hash())
           .createdTime(iroha::time::now())

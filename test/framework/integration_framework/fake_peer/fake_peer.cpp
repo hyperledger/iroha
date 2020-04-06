@@ -39,11 +39,14 @@
 using namespace shared_model::crypto;
 using namespace framework::expected;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+using shared_model::interface::types::SignedHexStringView;
+
 static std::shared_ptr<shared_model::interface::Peer> createPeer(
     const std::shared_ptr<shared_model::interface::CommonObjectsFactory>
         &common_objects_factory,
     const std::string &address,
-    const PublicKey &key) {
+    PublicKeyHexStringView key) {
   std::shared_ptr<shared_model::interface::Peer> peer;
   common_objects_factory->createPeer(address, key)
       .match([&peer](auto &&result) { peer = std::move(result.value); },
@@ -89,8 +92,10 @@ namespace integration_framework {
           internal_port_(internal_port),
           keypair_(std::make_unique<Keypair>(
               key.value_or(DefaultCryptoAlgorithmType::generateKeypair()))),
-          this_peer_(createPeer(
-              common_objects_factory, getAddress(), keypair_->publicKey())),
+          this_peer_(
+              createPeer(common_objects_factory,
+                         getAddress(),
+                         PublicKeyHexStringView{keypair_->publicKey().hex()})),
           real_peer_(std::move(real_peer)),
           async_call_(std::make_shared<AsyncCall>(
               log_manager_->getChild("AsyncNetworkClient")->getLogger())),
@@ -282,7 +287,8 @@ namespace integration_framework {
                                                                  *keypair_);
       std::shared_ptr<shared_model::interface::Signature> signature_with_pubkey;
       common_objects_factory_
-          ->createSignature(keypair_->publicKey(), bare_signature)
+          ->createSignature(PublicKeyHexStringView{keypair_->publicKey().hex()},
+                            SignedHexStringView{bare_signature.hex()})
           .match(
               [&signature_with_pubkey](auto &&sig) {
                 signature_with_pubkey = std::move(sig.value);

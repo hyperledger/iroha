@@ -159,7 +159,7 @@ namespace iroha {
 
     expected::Result<void, std::string> StorageImpl::insertPeer(
         const shared_model::interface::Peer &peer) {
-      log_->info("Insert peer {}", peer.pubkey().hex());
+      log_->info("Insert peer {}", peer.pubkey());
       soci::session sql(*connection_);
       PostgresWsvCommand wsv_command(sql);
       return wsv_command.insertPeer(peer);

@@ -97,7 +97,10 @@ class TransactionProcessorTest : public ::testing::Test {
       auto &payload = tx.payload();
       auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
           shared_model::crypto::Blob(payload), key_pair);
-      tx.addSignature(signedBlob, key_pair.publicKey());
+      tx.addSignature(
+          shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
+          shared_model::interface::types::PublicKeyHexStringView{
+              key_pair.publicKey().hex()});
     };
 
     int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};

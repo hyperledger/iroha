@@ -9,11 +9,10 @@ namespace shared_model {
   namespace proto {
 
     RemovePeer::RemovePeer(iroha::protocol::Command &command)
-        : pubkey_{crypto::Hash::fromHexString(
-              command.remove_peer().public_key())} {}
+        : remove_peer_{command.remove_peer()} {}
 
-    const interface::types::PubkeyType &RemovePeer::pubkey() const {
-      return pubkey_;
+    const std::string &RemovePeer::pubkey() const {
+      return remove_peer_.public_key();
     }
 
   }  // namespace proto

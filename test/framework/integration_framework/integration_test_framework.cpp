@@ -357,11 +357,13 @@ namespace integration_framework {
       const shared_model::crypto::Keypair &keypair) {
     log_->info("init state");
     my_key_ = keypair;
-    this_peer_ =
-        framework::expected::val(common_objects_factory_->createPeer(
-                                     getAddress(), keypair.publicKey()))
-            .value()
-            .value;
+    using shared_model::interface::types::PublicKeyHexStringView;
+    this_peer_ = framework::expected::val(
+                     common_objects_factory_->createPeer(
+                         getAddress(),
+                         PublicKeyHexStringView{keypair.publicKey().hex()}))
+                     .value()
+                     .value;
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
     log_->info("created pipeline");
   }

@@ -36,7 +36,7 @@ namespace iroha {
        * @return the peer if found, none otherwise
        */
       boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
-          const shared_model::interface::types::PubkeyType &public_key)
+          shared_model::interface::types::PublicKeyHexStringView public_key)
           const override;
 
      private:

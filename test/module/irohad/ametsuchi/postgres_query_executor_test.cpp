@@ -135,11 +135,8 @@ namespace iroha {
      public:
       QueryExecutorTest()
           : peer{"127.0.0.1",
-                 shared_model::interface::types::PubkeyType{
-                     shared_model::crypto::Blob::fromHexString(
-                         "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f"
-                         "21800"
-                         "0a5533")},
+                 "fa6ce0e0c21ce1ceaf4ba38538c1868185e9feefeafff3e42d94f218000a5"
+                 "533",
                  std::nullopt} {
         role_permissions.set(
             shared_model::interface::permissions::Role::kAddMySignatory);

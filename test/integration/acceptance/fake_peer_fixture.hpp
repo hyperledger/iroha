@@ -19,12 +19,17 @@ void checkBlockHasNTxs(
 }
 
 auto makePeerPointeeMatcher(shared_model::interface::types::AddressType address,
-                            shared_model::interface::types::PubkeyType pubkey) {
+                            std::string pubkey) {
   return ::testing::Truly(
       [address = std::move(address), pubkey = std::move(pubkey)](
           std::shared_ptr<shared_model::interface::Peer> peer) {
         return peer->address() == address and peer->pubkey() == pubkey;
       });
+}
+
+auto makePeerPointeeMatcher(shared_model::interface::types::AddressType address,
+                            shared_model::interface::types::PubkeyType pubkey) {
+  return makePeerPointeeMatcher(address, pubkey.hex());
 }
 
 auto makePeerPointeeMatcher(

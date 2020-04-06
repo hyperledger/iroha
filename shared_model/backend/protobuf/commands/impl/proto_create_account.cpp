@@ -11,11 +11,10 @@ namespace shared_model {
   namespace proto {
 
     CreateAccount::CreateAccount(iroha::protocol::Command &command)
-        : create_account_{command.create_account()},
-          pubkey_{crypto::Hash::fromHexString(create_account_.public_key())} {}
+        : create_account_{command.create_account()} {}
 
-    const interface::types::PubkeyType &CreateAccount::pubkey() const {
-      return pubkey_;
+    const std::string &CreateAccount::pubkey() const {
+      return create_account_.public_key();
     }
 
     const interface::types::AccountNameType &CreateAccount::accountName()

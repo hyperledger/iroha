@@ -24,9 +24,11 @@ using ::testing::ReturnRefOfCopy;
 auto makeSignature() {
   auto signature = std::make_unique<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::PublicKey("key")));
+      .WillRepeatedly(
+          ReturnRefOfCopy(shared_model::crypto::PublicKey("key").hex()));
   EXPECT_CALL(*signature, signedData())
-      .WillRepeatedly(ReturnRefOfCopy(shared_model::crypto::Signed("data")));
+      .WillRepeatedly(
+          ReturnRefOfCopy(shared_model::crypto::Signed("data").hex()));
   return signature;
 }
 

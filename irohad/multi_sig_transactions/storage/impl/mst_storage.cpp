@@ -11,7 +11,7 @@ namespace iroha {
   MstStorage::MstStorage(logger::LoggerPtr log) : log_{std::move(log)} {}
 
   StateUpdateResult MstStorage::apply(
-      const shared_model::crypto::PublicKey &target_peer_key,
+      shared_model::interface::types::PublicKeyHexStringView target_peer_key,
       const MstState &new_state) {
     std::lock_guard<std::mutex> lock{this->mutex_};
     return applyImpl(target_peer_key, new_state);
@@ -29,7 +29,7 @@ namespace iroha {
   }
 
   MstState MstStorage::getDiffState(
-      const shared_model::crypto::PublicKey &target_peer_key,
+      shared_model::interface::types::PublicKeyHexStringView target_peer_key,
       const TimeType &current_time) {
     std::lock_guard<std::mutex> lock{this->mutex_};
     return getDiffStateImpl(target_peer_key, current_time);

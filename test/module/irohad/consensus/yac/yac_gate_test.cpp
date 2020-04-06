@@ -29,7 +29,7 @@ using namespace shared_model::crypto;
 using iroha::consensus::ConsensusResultCache;
 
 using ::testing::_;
-using ::testing::An;
+using ::testing::A;
 using ::testing::AtLeast;
 using ::testing::InSequence;
 using ::testing::Return;
@@ -46,7 +46,12 @@ class YacGateTest : public ::testing::Test {
     auto block = std::make_shared<MockBlock>();
     EXPECT_CALL(*block, payload())
         .WillRepeatedly(ReturnRefOfCopy(Blob(std::string())));
-    EXPECT_CALL(*block, addSignature(_, _)).WillRepeatedly(Return(true));
+    EXPECT_CALL(
+        *block,
+        addSignature(
+            A<shared_model::interface::types::SignedHexStringView>(),
+            A<shared_model::interface::types::PublicKeyHexStringView>()))
+        .WillRepeatedly(Return(true));
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(round.block_round));
     EXPECT_CALL(*block, txsNumber()).WillRepeatedly(Return(0));
     EXPECT_CALL(*block, createdTime()).WillRepeatedly(Return(1));
@@ -67,9 +72,9 @@ class YacGateTest : public ::testing::Test {
 
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
-        .WillRepeatedly(ReturnRefOfCopy(expected_pubkey));
+        .WillRepeatedly(ReturnRefOfCopy(expected_pubkey.hex()));
     EXPECT_CALL(*signature, signedData())
-        .WillRepeatedly(ReturnRefOfCopy(expected_signed));
+        .WillRepeatedly(ReturnRefOfCopy(expected_signed.hex()));
 
     expected_hash.block_signature = signature;
     message.hash = expected_hash;
@@ -272,7 +277,7 @@ TEST_F(YacGateTest, DifferentCommit) {
   PublicKey actual_pubkey("actual_pubkey");
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(actual_pubkey));
+      .WillRepeatedly(ReturnRefOfCopy(actual_pubkey.hex()));
 
   message.hash = YacHash(round, "actual_proposal", "actual_block");
   message.signature = signature;
@@ -401,7 +406,7 @@ class CommitFromTheFuture : public YacGateTest {
     PublicKey actual_pubkey("actual_pubkey");
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
-        .WillRepeatedly(ReturnRefOfCopy(actual_pubkey));
+        .WillRepeatedly(ReturnRefOfCopy(actual_pubkey.hex()));
 
     future_round =
         iroha::consensus::Round(round.block_round, round.reject_round + 1);
@@ -446,7 +451,7 @@ TEST_F(CommitFromTheFuture, ProposalReject) {
   PublicKey second_actual_pubkey("actual_pubkey_2");
   auto second_signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*second_signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(second_actual_pubkey));
+      .WillRepeatedly(ReturnRefOfCopy(second_actual_pubkey.hex()));
 
   VoteMessage second_message;
   second_message.hash =
@@ -522,7 +527,7 @@ TEST_F(YacGateOlderTest, OlderVote) {
 TEST_F(YacGateOlderTest, OlderCommit) {
   auto signature = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey")));
+      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey").hex()));
 
   VoteMessage message{YacHash({round.block_round - 1, round.reject_round},
                               "actual_proposal",
@@ -547,9 +552,9 @@ TEST_F(YacGateOlderTest, OlderReject) {
   auto signature1 = std::make_shared<MockSignature>(),
        signature2 = std::make_shared<MockSignature>();
   EXPECT_CALL(*signature1, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey1")));
+      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey1").hex()));
   EXPECT_CALL(*signature2, publicKey())
-      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey2")));
+      .WillRepeatedly(ReturnRefOfCopy(PublicKey("actual_pubkey2").hex()));
 
   VoteMessage message1{YacHash({round.block_round - 1, round.reject_round},
                                "actual_proposal1",

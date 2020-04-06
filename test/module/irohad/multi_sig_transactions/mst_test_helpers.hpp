@@ -44,7 +44,11 @@ auto addSignatures(Batch &&batch, int tx_number, Signatures... signatures) {
   static logger::LoggerPtr log_ = getTestLogger("addSignatures");
 
   auto insert_signatures = [&](auto &&sig_pair) {
-    batch->addSignature(tx_number, sig_pair.first, sig_pair.second);
+    batch->addSignature(tx_number,
+                        shared_model::interface::types::SignedHexStringView{
+                            sig_pair.first.hex()},
+                        shared_model::interface::types::PublicKeyHexStringView{
+                            sig_pair.second.hex()});
   };
 
   // pack expansion trick:
@@ -68,7 +72,11 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
     auto &payload = batch->transactions().at(tx_number)->payload();
     auto signed_blob = shared_model::crypto::CryptoSigner<>::sign(
         shared_model::crypto::Blob(payload), key_pair);
-    batch->addSignature(tx_number, signed_blob, key_pair.publicKey());
+    batch->addSignature(
+        tx_number,
+        shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
+        shared_model::interface::types::PublicKeyHexStringView{
+            key_pair.publicKey().hex()});
   };
 
   // pack expansion trick:

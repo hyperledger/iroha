@@ -29,20 +29,20 @@ class ChainValidationTest : public ::testing::Test {
  public:
   void SetUp() override {
     validator = std::make_shared<ChainValidatorImpl>(
-        supermajority_checker, getTestLogger("ChainValidato"));
+        supermajority_checker, getTestLogger("ChainValidator"));
     storage = std::make_shared<MockMutableStorage>();
     peers = std::vector<std::shared_ptr<shared_model::interface::Peer>>();
 
     auto peer = std::make_shared<MockPeer>();
     EXPECT_CALL(*peer, pubkey())
         .WillRepeatedly(ReturnRefOfCopy(
-            shared_model::interface::types::PubkeyType(std::string(32, '0'))));
+            iroha::bytestringToHexstring(std::string(32, '0'))));
     peers.push_back(peer);
 
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
         .WillRepeatedly(ReturnRefOfCopy(
-            shared_model::interface::types::PubkeyType(std::string(32, '0'))));
+            iroha::bytestringToHexstring(std::string(32, '0'))));
     signatures.push_back(signature);
 
     EXPECT_CALL(*block, height()).WillRepeatedly(Return(height));

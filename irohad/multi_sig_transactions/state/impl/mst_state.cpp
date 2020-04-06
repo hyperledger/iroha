@@ -141,8 +141,11 @@ namespace iroha {
           std::end(donor_tx->signatures()),
           inserted_new_signatures,
           [&target_tx](bool accumulator, const auto &signature) {
-            return target_tx->addSignature(signature.signedData(),
-                                           signature.publicKey())
+            return target_tx->addSignature(
+                       shared_model::interface::types::SignedHexStringView{
+                           signature.signedData()},
+                       shared_model::interface::types::PublicKeyHexStringView{
+                           signature.publicKey()})
                 or accumulator;
           });
     }

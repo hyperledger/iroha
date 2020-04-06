@@ -25,7 +25,8 @@ namespace {
     return boost::copy_range<
         shared_model::interface::types::PublicKeyCollectionType>(
         votes | boost::adaptors::transformed([](auto &vote) {
-          return vote.signature->publicKey();
+          return shared_model::crypto::Blob::fromHexString(
+              vote.signature->publicKey());
         }));
   }
 }  // namespace
@@ -121,8 +122,11 @@ namespace iroha {
       void YacGateImpl::copySignatures(const CommitMessage &commit) {
         for (const auto &vote : commit.votes) {
           auto sig = vote.hash.block_signature;
-          current_block_.value()->addSignature(sig->signedData(),
-                                               sig->publicKey());
+          current_block_.value()->addSignature(
+              shared_model::interface::types::SignedHexStringView{
+                  sig->signedData()},
+              shared_model::interface::types::PublicKeyHexStringView{
+                  sig->publicKey()});
         }
       }
 

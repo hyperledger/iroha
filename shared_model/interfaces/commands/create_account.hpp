@@ -29,7 +29,7 @@ namespace shared_model {
       /**
        * @return Initial account public key
        */
-      virtual const types::PubkeyType &pubkey() const = 0;
+      virtual const std::string &pubkey() const = 0;
 
       std::string toString() const override;
 

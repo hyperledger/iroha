@@ -155,7 +155,10 @@ class BatchPipelineTest
     auto signed_blob =
         crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
     auto clone_tx = clone(tx.get());
-    clone_tx->addSignature(signed_blob, keypair.publicKey());
+    clone_tx->addSignature(
+        shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
+        shared_model::interface::types::PublicKeyHexStringView{
+            keypair.publicKey().hex()});
     return std::shared_ptr<interface::Transaction>(std::move(clone_tx));
   }
 

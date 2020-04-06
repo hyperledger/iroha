@@ -25,7 +25,11 @@ namespace shared_model {
       template <typename T>
       inline void sign(T &signable) const noexcept {
         auto signedBlob = Algorithm::sign(signable.payload(), keypair_);
-        signable.addSignature(signedBlob, keypair_.publicKey());
+        signable.addSignature(
+            shared_model::interface::types::SignedHexStringView{
+                signedBlob.hex()},
+            shared_model::interface::types::PublicKeyHexStringView{
+                keypair_.publicKey().hex()});
       }
 
       void sign(interface::Block &m) const override {
