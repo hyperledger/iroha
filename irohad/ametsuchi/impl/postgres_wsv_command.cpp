@@ -7,6 +7,7 @@
 
 #include <numeric>
 
+#include <fmt/core.h>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "backend/protobuf/permissions.hpp"
@@ -244,8 +245,8 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::insertSignatory(
         const shared_model::interface::types::PubkeyType &signatory) {
       soci::statement st = sql_.prepare
-          << "INSERT INTO signatory(public_key) VALUES (:pk) ON CONFLICT DO "
-             "NOTHING;";
+          << "INSERT INTO signatory(public_key) VALUES (lower(:pk)) ON "
+             "CONFLICT DO NOTHING;";
       st.exchange(soci::use(signatory.hex()));
 
       auto msg = [&] {
@@ -262,7 +263,7 @@ namespace iroha {
         const shared_model::interface::types::PubkeyType &signatory) {
       soci::statement st = sql_.prepare
           << "INSERT INTO account_has_signatory(account_id, public_key) "
-             "VALUES (:account_id, :pk)";
+             "VALUES (:account_id, lower(:pk))";
       st.exchange(soci::use(account_id));
       st.exchange(soci::use(signatory.hex()));
 
@@ -280,7 +281,7 @@ namespace iroha {
         const shared_model::interface::types::PubkeyType &signatory) {
       soci::statement st = sql_.prepare
           << "DELETE FROM account_has_signatory WHERE account_id = "
-             ":account_id AND public_key = :pk";
+             ":account_id AND public_key = lower(:pk)";
       st.exchange(soci::use(account_id));
       st.exchange(soci::use(signatory.hex()));
 
@@ -296,10 +297,10 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deleteSignatory(
         const shared_model::interface::types::PubkeyType &signatory) {
       soci::statement st = sql_.prepare
-          << "DELETE FROM signatory WHERE public_key = :pk AND NOT EXISTS "
-             "(SELECT 1 FROM account_has_signatory "
-             "WHERE public_key = :pk) AND NOT EXISTS (SELECT 1 FROM peer "
-             "WHERE public_key = :pk)";
+          << "DELETE FROM signatory WHERE public_key = lower(:pk) AND NOT "
+             "EXISTS (SELECT 1 FROM account_has_signatory WHERE public_key = "
+             "lower(:pk)) AND NOT EXISTS (SELECT 1 FROM peer WHERE public_key "
+             "= lower(:pk))";
       st.exchange(soci::use(signatory.hex(), "pk"));
 
       auto msg = [&] {
@@ -315,8 +316,8 @@ namespace iroha {
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
           << "INSERT INTO peer(public_key, address, tls_certificate)"
-             " VALUES (:pk, :address, :tls_certificate)";
-      st.exchange(soci::use(peer.pubkey().hex()));
+             " VALUES (lower(:pk), :address, :tls_certificate)";
+      st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
       st.exchange(soci::use(peer.tlsCertificate()));
 
@@ -329,15 +330,16 @@ namespace iroha {
     WsvCommandResult PostgresWsvCommand::deletePeer(
         const shared_model::interface::Peer &peer) {
       soci::statement st = sql_.prepare
-          << "DELETE FROM peer WHERE public_key = :pk AND address = :address";
-      st.exchange(soci::use(peer.pubkey().hex()));
+          << "DELETE FROM peer WHERE public_key = lower(:pk) AND address = "
+             ":address";
+      st.exchange(soci::use(peer.pubkey()));
       st.exchange(soci::use(peer.address()));
 
       auto msg = [&] {
-        return (boost::format(
-                    "failed to delete peer, public key: '%s', address: '%s'")
-                % peer.pubkey().hex() % peer.address())
-            .str();
+        return fmt::format(
+            "failed to delete peer, public key: '{}', address: '{}'",
+            peer.pubkey(),
+            peer.address());
       };
       return execute(st, msg);
     }

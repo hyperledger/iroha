@@ -119,11 +119,12 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
     return boost::none;
   }
 
-  auto &blob = pubkey.blob();
-  auto it = std::find_if(
-      peers.value().begin(), peers.value().end(), [&blob](const auto &peer) {
-        return peer->pubkey().blob() == blob;
-      });
+  auto &target_pubkey_hex = pubkey.hex();
+  auto it = std::find_if(peers.value().begin(),
+                         peers.value().end(),
+                         [&target_pubkey_hex](const auto &peer) {
+                           return peer->pubkey() == target_pubkey_hex;
+                         });
   if (it == peers.value().end()) {
     log_->error("{}", kPeerFindFail);
     return boost::none;

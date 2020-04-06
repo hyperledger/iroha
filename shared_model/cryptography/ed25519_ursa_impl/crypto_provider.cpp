@@ -110,13 +110,5 @@ namespace shared_model {
       ursa_ed25519_bytebuffer_free(private_key);
       return result;
     }
-
-    // Ursa provides functions for retrieving key lengths, but we use hardcoded
-    // values
-    const size_t CryptoProviderEd25519Ursa::kHashLength = 256 / 8;
-    const size_t CryptoProviderEd25519Ursa::kPublicKeyLength = 256 / 8;
-    const size_t CryptoProviderEd25519Ursa::kPrivateKeyLength = 512 / 8;
-    const size_t CryptoProviderEd25519Ursa::kSignatureLength = 512 / 8;
-
   }  // namespace crypto
 }  // namespace shared_model

@@ -66,19 +66,30 @@ shared_model::proto::Transaction GrantablePermissionsFixture::revokePermission(
 }
 
 shared_model::proto::Transaction
-GrantablePermissionsFixture::permitteeModifySignatory(
-    GrantablePermissionsFixture::TxBuilder (
-        GrantablePermissionsFixture::TxBuilder::*f)(
-        const shared_model::interface::types::AccountIdType &,
-        const shared_model::interface::types::PubkeyType &) const,
+GrantablePermissionsFixture::permitteeAddSignatory(
     const shared_model::interface::types::AccountNameType
         &permittee_account_name,
     const shared_model::crypto::Keypair &permittee_key,
     const shared_model::interface::types::AccountNameType &account_name) {
   const auto permittee_account_id = permittee_account_name + "@" + kDomain;
   const auto account_id = account_name + "@" + kDomain;
-  return (baseTx(permittee_account_id).*f)(account_id,
-                                           permittee_key.publicKey())
+  return baseTx(permittee_account_id)
+      .addSignatory(account_id, permittee_key.publicKey())
+      .build()
+      .signAndAddSignature(permittee_key)
+      .finish();
+}
+
+shared_model::proto::Transaction
+GrantablePermissionsFixture::permitteeRemoveSignatory(
+    const shared_model::interface::types::AccountNameType
+        &permittee_account_name,
+    const shared_model::crypto::Keypair &permittee_key,
+    const shared_model::interface::types::AccountNameType &account_name) {
+  const auto permittee_account_id = permittee_account_name + "@" + kDomain;
+  const auto account_id = account_name + "@" + kDomain;
+  return baseTx(permittee_account_id)
+      .removeSignatory(account_id, permittee_key.publicKey())
       .build()
       .signAndAddSignature(permittee_key)
       .finish();

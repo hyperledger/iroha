@@ -70,11 +70,7 @@ TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
                 [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       // Add signatory
       .sendTxAwait(
-          permitteeModifySignatory(
-              &TestUnsignedTransactionBuilder::addSignatory,
-              kAccount2,
-              kAccount2Keypair,
-              kAccount1),
+          permitteeAddSignatory(kAccount2, kAccount2Keypair, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(querySignatories(kAccount1, kAccount1Keypair),
                  check_if_signatory_is_contained);
@@ -121,18 +117,10 @@ TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
                           permissions::Grantable::kRemoveMySignatory),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          permitteeModifySignatory(
-              &TestUnsignedTransactionBuilder::addSignatory,
-              kAccount2,
-              kAccount2Keypair,
-              kAccount1),
+          permitteeAddSignatory(kAccount2, kAccount2Keypair, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendTxAwait(
-          permitteeModifySignatory(
-              &TestUnsignedTransactionBuilder::removeSignatory,
-              kAccount2,
-              kAccount2Keypair,
-              kAccount1),
+          permitteeRemoveSignatory(kAccount2, kAccount2Keypair, kAccount1),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(querySignatories(kAccount1, kAccount1Keypair),
                  check_if_signatory_is_not_contained);
@@ -176,11 +164,7 @@ TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
       .skipProposal()
       .skipVerifiedProposal()
       .skipBlock()
-      .sendTx(permitteeModifySignatory(
-          &TestUnsignedTransactionBuilder::addSignatory,
-          kAccount2,
-          kAccount2Keypair,
-          kAccount1))
+      .sendTx(permitteeAddSignatory(kAccount2, kAccount2Keypair, kAccount1))
       .skipProposal()
       .skipVerifiedProposal()
       .skipBlock()

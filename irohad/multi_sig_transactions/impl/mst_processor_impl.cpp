@@ -85,8 +85,9 @@ namespace iroha {
 
   // -------------------| MstTransportNotification override |-------------------
 
-  void FairMstProcessor::onNewState(const shared_model::crypto::PublicKey &from,
-                                    MstState &&new_state) {
+  void FairMstProcessor::onNewState(
+      shared_model::interface::types::PublicKeyHexStringView from,
+      MstState &&new_state) {
     log_->info("Applying new state");
     auto current_time = time_provider_->getCurrentTime();
 
@@ -113,16 +114,16 @@ namespace iroha {
       const PropagationStrategy::PropagationData &data) {
     auto current_time = time_provider_->getCurrentTime();
     auto size = data.size();
-    std::for_each(data.begin(),
-                  data.end(),
-                  [this, &current_time, size](const auto &dst_peer) {
-                    auto diff = storage_->getDiffState(dst_peer->pubkey(),
-                                                       current_time);
-                    if (not diff.isEmpty()) {
-                      log_->info("Propagate new data[{}]", size);
-                      transport_->sendState(*dst_peer, diff);
-                    }
-                  });
+    for (auto const &dst_peer : data) {
+      auto diff = storage_->getDiffState(
+          shared_model::interface::types::PublicKeyHexStringView{
+              dst_peer->pubkey()},
+          current_time);
+      if (not diff.isEmpty()) {
+        log_->info("Propagate new data[{}]", size);
+        transport_->sendState(*dst_peer, diff);
+      }
+    }
   }
 
 }  // namespace iroha

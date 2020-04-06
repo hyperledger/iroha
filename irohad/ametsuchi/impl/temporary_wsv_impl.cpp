@@ -35,7 +35,7 @@ namespace iroha {
         const shared_model::interface::Transaction &transaction) {
       auto keys_range = transaction.signatures()
           | boost::adaptors::transformed(
-                            [](const auto &s) { return s.publicKey().hex(); });
+                            [](const auto &s) { return s.publicKey(); });
       auto keys = boost::algorithm::join(keys_range, "'), ('");
       // not using bool since it is not supported by SOCI
       boost::optional<uint8_t> signatories_valid;

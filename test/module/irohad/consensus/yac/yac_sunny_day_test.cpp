@@ -12,7 +12,6 @@
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
-using ::testing::An;
 using ::testing::AtLeast;
 using ::testing::Return;
 
@@ -47,7 +46,8 @@ TEST_F(YacTest, ValidCaseWhenReceiveSupermajority) {
 
   for (auto i = 0; i < 3; ++i) {
     auto peer = my_peers.at(i);
-    auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
+    auto pubkey =
+        iroha::hexstringToBytestringResult(peer->pubkey()).assumeValue();
     yac->onState({createVote(my_hash, pubkey)});
   };
 }

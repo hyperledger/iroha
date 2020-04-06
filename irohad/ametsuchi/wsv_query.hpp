@@ -10,6 +10,7 @@
 
 #include <boost/optional.hpp>
 #include "interfaces/common_objects/peer.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -43,8 +44,8 @@ namespace iroha {
        * @return the peer if found, none otherwise
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-      getPeerByPublicKey(
-          const shared_model::interface::types::PubkeyType &public_key) = 0;
+      getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
+                             public_key) = 0;
     };
 
   }  // namespace ametsuchi

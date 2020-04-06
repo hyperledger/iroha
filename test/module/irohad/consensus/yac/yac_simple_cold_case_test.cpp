@@ -17,7 +17,6 @@
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
-using ::testing::An;
 using ::testing::AtLeast;
 using ::testing::Invoke;
 using ::testing::Ref;

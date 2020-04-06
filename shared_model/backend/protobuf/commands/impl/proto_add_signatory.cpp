@@ -11,15 +11,14 @@ namespace shared_model {
   namespace proto {
 
     AddSignatory::AddSignatory(iroha::protocol::Command &command)
-        : add_signatory_{command.add_signatory()},
-          pubkey_{crypto::Hash::fromHexString(add_signatory_.public_key())} {}
+        : add_signatory_{command.add_signatory()} {}
 
     const interface::types::AccountIdType &AddSignatory::accountId() const {
       return add_signatory_.account_id();
     }
 
-    const interface::types::PubkeyType &AddSignatory::pubkey() const {
-      return pubkey_;
+    const std::string &AddSignatory::pubkey() const {
+      return add_signatory_.public_key();
     }
 
   }  // namespace proto

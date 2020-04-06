@@ -18,7 +18,7 @@ namespace shared_model {
      public:
       explicit CreateAccount(iroha::protocol::Command &command);
 
-      const interface::types::PubkeyType &pubkey() const override;
+      const std::string &pubkey() const override;
 
       const interface::types::AccountNameType &accountName() const override;
 
@@ -26,8 +26,6 @@ namespace shared_model {
 
      private:
       const iroha::protocol::CreateAccount &create_account_;
-
-      const interface::types::PubkeyType pubkey_;
     };
 
   }  // namespace proto

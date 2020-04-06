@@ -21,7 +21,7 @@ namespace shared_model {
       /**
        * @return New signatory is identified with public key
        */
-      virtual const types::PubkeyType &pubkey() const = 0;
+      virtual const std::string &pubkey() const = 0;
       /**
        * @return Account to which add new signatory
        */

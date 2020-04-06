@@ -19,6 +19,7 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -1364,11 +1365,7 @@ namespace iroha {
                     if (peer_key and address) {
                       peers.push_back(
                           std::make_shared<shared_model::plain::Peer>(
-                              *address,
-                              shared_model::interface::types::PubkeyType{
-                                  shared_model::crypto::Blob::fromHexString(
-                                      *peer_key)},
-                              tls_certificate));
+                              *address, *std::move(peer_key), tls_certificate));
                     } else {
                       log_->error(
                           "Address or public key not set for some peer!");

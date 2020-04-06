@@ -6,9 +6,11 @@
 #ifndef IROHA_PEER_QUERY_HPP
 #define IROHA_PEER_QUERY_HPP
 
-#include <boost/optional.hpp>
 #include <memory>
 #include <vector>
+
+#include <boost/optional.hpp>
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -41,7 +43,7 @@ namespace iroha {
        * @return the peer if found, none otherwise
        */
       virtual boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
-          const shared_model::interface::types::PubkeyType &public_key)
+          shared_model::interface::types::PublicKeyHexStringView public_key)
           const = 0;
 
       virtual ~PeerQuery() = default;

@@ -15,6 +15,7 @@
 #include "interfaces/common_objects/domain.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/signature.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -33,7 +34,7 @@ namespace shared_model {
        */
       virtual FactoryResult<std::unique_ptr<Peer>> createPeer(
           const types::AddressType &address,
-          const types::PubkeyType &public_key,
+          types::PublicKeyHexStringView public_key,
           const std::optional<types::TLSCertificateType> &tls_certificate =
               std::nullopt) = 0;
 
@@ -73,8 +74,8 @@ namespace shared_model {
        * Create signature instance
        */
       virtual FactoryResult<std::unique_ptr<Signature>> createSignature(
-          const interface::types::PubkeyType &key,
-          const interface::Signature::SignedType &signed_data) = 0;
+          types::PublicKeyHexStringView key,
+          types::SignedHexStringView signed_data) = 0;
 
       virtual ~CommonObjectsFactory() = default;
     };

@@ -21,9 +21,6 @@
 #include "validators/protobuf/proto_query_validator.hpp"
 
 using ::testing::_;
-using ::testing::A;
-using ::testing::An;
-using ::testing::Invoke;
 using ::testing::Return;
 using ::testing::Truly;
 

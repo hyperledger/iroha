@@ -231,14 +231,15 @@ namespace iroha {
         peer = std::make_unique<MockPeer>();
         EXPECT_CALL(*peer, address())
             .WillRepeatedly(testing::ReturnRef(*address));
-        EXPECT_CALL(*peer, pubkey()).WillRepeatedly(testing::ReturnRef(*pk));
+        EXPECT_CALL(*peer, pubkey())
+            .WillRepeatedly(testing::ReturnRef(pk->hex()));
         EXPECT_CALL(*peer, tlsCertificate())
             .WillRepeatedly(testing::ReturnRef(*blank_tls_certificate));
         peer_with_cert = std::make_unique<MockPeer>();
         EXPECT_CALL(*peer_with_cert, address())
             .WillRepeatedly(testing::ReturnRef(*address));
         EXPECT_CALL(*peer_with_cert, pubkey())
-            .WillRepeatedly(testing::ReturnRef(*pk));
+            .WillRepeatedly(testing::ReturnRef(pk->hex()));
         EXPECT_CALL(*peer_with_cert, tlsCertificate())
             .WillRepeatedly(testing::ReturnRef(*tls_certificate));
         createDefaultRole();
@@ -288,8 +289,7 @@ namespace iroha {
     TEST_F(AddPeer, NoPerms) {
       auto cmd_result = execute(*mock_command_factory->constructAddPeer(*peer));
 
-      std::vector<std::string> query_args{peer->address(),
-                                          peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->address(), peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -308,11 +308,8 @@ namespace iroha {
      public:
       void SetUp() override {
         CommandExecutorTest::SetUp();
-        peer = makePeer("address",
-                        shared_model::interface::types::PubkeyType{"pubkey"});
-        another_peer = makePeer(
-            "another_address",
-            shared_model::interface::types::PubkeyType{"another_pubkey"});
+        peer = makePeer("address", peer_public_key);
+        another_peer = makePeer("another_address", another_peer_public_key);
         createDefaultRole();
         createDefaultDomain();
         createDefaultAccount();
@@ -320,6 +317,9 @@ namespace iroha {
             execute(*mock_command_factory->constructAddPeer(*peer), true));
       }
 
+      shared_model::interface::types::PubkeyType peer_public_key{"pubkey"};
+      shared_model::interface::types::PubkeyType another_peer_public_key{
+          "another_pubkey"};
       std::unique_ptr<MockPeer> peer, another_peer;
     };
 
@@ -334,7 +334,7 @@ namespace iroha {
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+          execute(*mock_command_factory->constructRemovePeer(peer_public_key)));
 
       auto peers = wsv_query->getPeers();
       ASSERT_TRUE(peers);
@@ -356,9 +356,9 @@ namespace iroha {
       CHECK_SUCCESSFUL_RESULT(execute(
           *mock_command_factory->constructAddPeer(*another_peer), true));
       auto cmd_result =
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+          execute(*mock_command_factory->constructRemovePeer(peer_public_key));
 
-      std::vector<std::string> query_args{peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 2, query_args);
     }
 
@@ -370,9 +370,9 @@ namespace iroha {
     TEST_F(RemovePeer, NoPeer) {
       addAllPermsWithoutRoot();
       auto cmd_result = execute(
-          *mock_command_factory->constructRemovePeer(another_peer->pubkey()));
+          *mock_command_factory->constructRemovePeer(another_peer_public_key));
 
-      std::vector<std::string> query_args{another_peer->pubkey().hex()};
+      std::vector<std::string> query_args{another_peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 3, query_args);
     }
 
@@ -384,10 +384,10 @@ namespace iroha {
     TEST_F(RemovePeer, NoPeerWithoutValidation) {
       addAllPermsWithoutRoot();
       auto cmd_result = execute(
-          *mock_command_factory->constructRemovePeer(another_peer->pubkey()),
+          *mock_command_factory->constructRemovePeer(another_peer_public_key),
           true);
 
-      std::vector<std::string> query_args{another_peer->pubkey().hex()};
+      std::vector<std::string> query_args{another_peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 1, query_args);
     }
 
@@ -399,9 +399,9 @@ namespace iroha {
     TEST_F(RemovePeer, LastPeer) {
       addAllPermsWithoutRoot();
       auto cmd_result =
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey()));
+          execute(*mock_command_factory->constructRemovePeer(peer_public_key));
 
-      std::vector<std::string> query_args{peer->pubkey().hex()};
+      std::vector<std::string> query_args{peer->pubkey()};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
     }
 
@@ -416,7 +416,7 @@ namespace iroha {
           *mock_command_factory->constructAddPeer(*another_peer), true));
 
       CHECK_SUCCESSFUL_RESULT(
-          execute(*mock_command_factory->constructRemovePeer(peer->pubkey())));
+          execute(*mock_command_factory->constructRemovePeer(peer_public_key)));
 
       auto peers = wsv_query->getPeers();
       ASSERT_TRUE(peers);

@@ -24,7 +24,7 @@ namespace shared_model {
       /**
        * @return Public key to remove from account
        */
-      virtual const types::PubkeyType &pubkey() const = 0;
+      virtual const std::string &pubkey() const = 0;
 
       std::string toString() const override;
 

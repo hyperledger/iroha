@@ -34,8 +34,8 @@ namespace shared_model {
       MOCK_CONST_METHOD0(queryCounter, types::CounterType());
       MOCK_CONST_METHOD0(signatures, types::SignatureRangeType());
       MOCK_METHOD2(addSignature,
-                   bool(const crypto::Signed &signed_blob,
-                        const crypto::PublicKey &public_key));
+                   bool(types::SignedHexStringView,
+                        types::PublicKeyHexStringView));
       MOCK_CONST_METHOD0(createdTime, types::TimestampType());
       MOCK_CONST_METHOD0(payload, const types::BlobType &());
       MOCK_CONST_METHOD0(blob, const types::BlobType &());

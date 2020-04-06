@@ -22,6 +22,8 @@
 using namespace iroha;
 using namespace iroha::network;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 using iroha::ConstRefState;
 namespace {
   auto default_sender_factory = [](const shared_model::interface::Peer &to) {
@@ -107,7 +109,7 @@ grpc::Status MstTransportGrpc::SendState(
 
   log_->info("batches in MstState: {}", new_state.getBatches().size());
 
-  shared_model::crypto::PublicKey source_key(request->source_peer_key());
+  auto source_key = iroha::bytestringToHexstring(request->source_peer_key());
   auto key_invalid_reason =
       shared_model::validation::validatePubkey(source_key);
   if (key_invalid_reason) {
@@ -124,7 +126,8 @@ grpc::Status MstTransportGrpc::SendState(
   }
 
   if (auto subscriber = subscriber_.lock()) {
-    subscriber->onNewState(source_key, std::move(new_state));
+    subscriber->onNewState(PublicKeyHexStringView{source_key},
+                           std::move(new_state));
   } else {
     log_->warn("No subscriber for MST SendState event is set");
   }

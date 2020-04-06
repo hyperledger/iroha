@@ -12,7 +12,6 @@
 #include <boost/format.hpp>
 #include <boost/range/adaptor/indexed.hpp>
 #include "common/bind.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "interfaces/common_objects/account.hpp"
 #include "interfaces/common_objects/account_asset.hpp"
@@ -48,8 +47,8 @@ namespace {
               }) {}
 
     std::optional<shared_model::validation::ValidationError> validate(
-        const std::string &value) const {
-      if (not std::regex_match(value, regex_)) {
+        std::string_view value) const {
+      if (not std::regex_match(value.begin(), value.end(), regex_)) {
         return shared_model::validation::ValidationError(
             name_,
             {fmt::format("passed value: '{}' does not match regex '{}'.{}",
@@ -102,20 +101,20 @@ namespace {
   const RegexValidator kAccountDetailKeyValidator{"DetailKey",
                                                   R"([A-Za-z0-9_]{1,64})"};
   const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kPublicKeyHexValidator{
+      "PublicKeyHex",
+      fmt::format(
+          "[A-Fa-f0-9]{{{}}}",
+          shared_model::validation::FieldValidator::public_key_size * 2)};
+  const RegexValidator kSignatureHexValidator{
+      "SignatureHex",
+      fmt::format(
+          "[A-Fa-f0-9]{{{}}}",
+          shared_model::validation::FieldValidator::signature_size * 2)};
 }  // namespace
 
 namespace shared_model {
   namespace validation {
-
-    const size_t FieldValidator::public_key_size =
-        crypto::DefaultCryptoAlgorithmType::kPublicKeyLength;
-    const size_t FieldValidator::signature_size =
-        crypto::DefaultCryptoAlgorithmType::kSignatureLength;
-    const size_t FieldValidator::hash_size =
-        crypto::DefaultCryptoAlgorithmType::kHashLength;
-    /// limit for the set account detail size in bytes
-    const size_t FieldValidator::value_size = 4 * 1024 * 1024;
-
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
@@ -151,7 +150,7 @@ namespace shared_model {
     }
 
     std::optional<ValidationError> FieldValidator::validatePubkey(
-        const interface::types::PubkeyType &pubkey) const {
+        std::string_view pubkey) const {
       return shared_model::validation::validatePubkey(pubkey);
     }
 
@@ -296,11 +295,7 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateSignatureForm(
         const interface::Signature &signature) const {
       ValidationErrorCreator error_creator;
-      const auto passed_size = signature.signedData().blob().size();
-      if (passed_size != signature_size) {
-        error_creator.addReason(fmt::format(
-            "Invalid size: {} instead of {}.", passed_size, signature_size));
-      }
+      error_creator |= kSignatureHexValidator.validate(signature.signedData());
       error_creator |= validatePubkey(signature.publicKey());
       return std::move(error_creator).getValidationError("Signature");
     }
@@ -321,9 +316,11 @@ namespace shared_model {
 
         if (not sig_format_error
             and not shared_model::crypto::CryptoVerifier<>::verify(
-                    signature.value().signedData(),
+                    crypto::Signed(crypto::Blob::fromHexString(
+                        signature.value().signedData())),
                     source,
-                    signature.value().publicKey())) {
+                    crypto::PublicKey(crypto::Blob::fromHexString(
+                        signature.value().publicKey())))) {
           sig_error_creator.addReason("Crypto verification failed.");
         }
         error_creator |= std::move(sig_error_creator)
@@ -378,15 +375,8 @@ namespace shared_model {
       return std::nullopt;
     }
 
-    std::optional<ValidationError> validatePubkey(
-        const interface::types::PubkeyType &pubkey) {
-      if (pubkey.blob().size() != FieldValidator::public_key_size) {
-        return ValidationError("PublicKey",
-                               {fmt::format("Wrong size: {}, should be {}.",
-                                            pubkey.blob().size(),
-                                            FieldValidator::public_key_size)});
-      }
-      return std::nullopt;
+    std::optional<ValidationError> validatePubkey(std::string_view pubkey) {
+      return kPublicKeyHexValidator.validate(pubkey);
     }
 
     std::optional<ValidationError> validatePaginationMetaPageSize(

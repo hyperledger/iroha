@@ -82,12 +82,10 @@ class FieldValidatorTest : public ValidatorsTest {
             std::make_shared<const shared_model::validation::Settings>(
                 std::move(testSettings)));
 
-    field_validators.insert(makeTransformValidator(
-        "public_key",
-        &FieldValidator::validatePubkey,
-        &FieldValidatorTest::public_key,
-        [](auto &&x) { return interface::types::PubkeyType(x); },
-        public_key_test_cases));
+    field_validators.insert(makeValidator("public_key",
+                                          &FieldValidator::validatePubkey,
+                                          &FieldValidatorTest::public_key,
+                                          public_key_test_cases));
 
     for (const auto &field : {"role_name", "default_role", "role_id"}) {
       field_validators.insert(makeValidator(field,
@@ -410,8 +408,8 @@ class FieldValidatorTest : public ValidatorsTest {
   }
 
   std::vector<FieldTestCase> public_key_test_cases{
-      makeValidCase(&FieldValidatorTest::public_key, std::string(32, '0')),
-      invalidPublicKeyTestCase("invalid_key_length", std::string(64, '0')),
+      makeValidCase(&FieldValidatorTest::public_key, std::string(64, '0')),
+      invalidPublicKeyTestCase("invalid_key_length", std::string(128, '0')),
       invalidPublicKeyTestCase("empty_string", "")};
 
   std::vector<FieldTestCase> peer_test_cases{

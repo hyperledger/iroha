@@ -570,7 +570,7 @@ namespace iroha {
             inserted AS (
                 INSERT INTO peer(public_key, address, tls_certificate)
                 (
-                    SELECT :pubkey, :address, :tls_certificate
+                    SELECT lower(:pubkey), :address, :tls_certificate
                     %s
                 ) RETURNING (1)
             )
@@ -590,7 +590,7 @@ namespace iroha {
             insert_signatory AS
             (
                 INSERT INTO signatory(public_key)
-                (SELECT :pubkey %s)
+                (SELECT lower(:pubkey) %s)
                 ON CONFLICT (public_key)
                   DO UPDATE SET public_key = excluded.public_key
                 RETURNING (1)
@@ -599,7 +599,7 @@ namespace iroha {
             (
                 INSERT INTO account_has_signatory(account_id, public_key)
                 (
-                    SELECT :target, :pubkey
+                    SELECT :target, lower(:pubkey)
                     WHERE EXISTS (SELECT * FROM insert_signatory)
                 )
                 RETURNING (1)
@@ -755,7 +755,7 @@ namespace iroha {
             (
                 INSERT INTO signatory(public_key)
                 (
-                    SELECT :pubkey
+                    SELECT lower(:pubkey)
                     WHERE EXISTS (SELECT * FROM get_domain_default_role)
                       %s
                 )
@@ -776,7 +776,7 @@ namespace iroha {
             (
                 INSERT INTO account_has_signatory(account_id, public_key)
                 (
-                    SELECT :account_id, :pubkey WHERE
+                    SELECT :account_id, lower(:pubkey) WHERE
                        EXISTS (SELECT * FROM insert_account)
                 )
                 RETURNING (1)
@@ -968,7 +968,7 @@ namespace iroha {
                                                       R"(
           WITH %s
           removed AS (
-              DELETE FROM peer WHERE public_key = :pubkey
+              DELETE FROM peer WHERE public_key = lower(:pubkey)
               %s
               RETURNING (1)
           )
@@ -980,7 +980,7 @@ namespace iroha {
                                                       {(boost::format(R"(
             has_perm AS (%s),
             get_peer AS (
-              SELECT * from peer WHERE public_key = :pubkey LIMIT 1
+              SELECT * from peer WHERE public_key = lower(:pubkey) LIMIT 1
             ),
             check_peers AS (
               SELECT 1 WHERE (SELECT COUNT(*) FROM peer) > 1
@@ -1001,15 +1001,16 @@ namespace iroha {
           WITH %s
             delete_account_signatory AS (DELETE FROM account_has_signatory
                 WHERE account_id = :target
-                AND public_key = :pubkey
+                AND public_key = lower(:pubkey)
                 %s
                 RETURNING (1)),
             delete_signatory AS
             (
-                DELETE FROM signatory WHERE public_key = :pubkey AND
+                DELETE FROM signatory WHERE public_key = lower(:pubkey) AND
                     NOT EXISTS (SELECT 1 FROM account_has_signatory
-                                WHERE public_key = :pubkey)
-                    AND NOT EXISTS (SELECT 1 FROM peer WHERE public_key = :pubkey)
+                                WHERE public_key = lower(:pubkey))
+                    AND NOT EXISTS (SELECT 1 FROM peer
+                                    WHERE public_key = lower(:pubkey))
                 RETURNING (1)
             )
           SELECT CASE
@@ -1017,9 +1018,9 @@ namespace iroha {
             CASE
                 WHEN EXISTS (SELECT * FROM delete_signatory) THEN 0
                 WHEN EXISTS (SELECT 1 FROM account_has_signatory
-                             WHERE public_key = :pubkey) THEN 0
+                             WHERE public_key = lower(:pubkey)) THEN 0
                 WHEN EXISTS (SELECT 1 FROM peer
-                             WHERE public_key = :pubkey) THEN 0
+                             WHERE public_key = lower(:pubkey)) THEN 0
                 ELSE 1
             END
             %s
@@ -1036,7 +1037,7 @@ namespace iroha {
           ),
           get_signatory AS (
               SELECT * FROM get_signatories
-              WHERE public_key = :pubkey
+              WHERE public_key = lower(:pubkey)
           ),
           check_account_signatories AS (
               SELECT quorum FROM get_account
@@ -1415,7 +1416,7 @@ namespace iroha {
           add_peer_statements_, do_validation, "AddPeer", perm_converter_);
       executor.use("creator", creator_account_id);
       executor.use("address", peer.address());
-      executor.use("pubkey", peer.pubkey().hex());
+      executor.use("pubkey", peer.pubkey());
       executor.use("tls_certificate", peer.tlsCertificate());
 
       return executor.execute();
@@ -1426,7 +1427,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
       auto &target = command.accountId();
-      const auto &pubkey = command.pubkey().hex();
+      const auto &pubkey = command.pubkey();
 
       StatementExecutor executor(add_signatory_statements_,
                                  do_validation,
@@ -1490,7 +1491,7 @@ namespace iroha {
         bool do_validation) {
       auto &account_name = command.accountName();
       auto &domain_id = command.domainId();
-      auto &pubkey = command.pubkey().hex();
+      auto &pubkey = command.pubkey();
       shared_model::interface::types::AccountIdType account_id =
           account_name + "@" + domain_id;
 
@@ -1606,7 +1607,7 @@ namespace iroha {
         const shared_model::interface::RemovePeer &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
-      auto pubkey = command.pubkey().hex();
+      auto pubkey = command.pubkey();
 
       StatementExecutor executor(remove_peer_statements_,
                                  do_validation,
@@ -1623,7 +1624,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
       auto &account_id = command.accountId();
-      auto &pubkey = command.pubkey().hex();
+      auto &pubkey = command.pubkey();
 
       StatementExecutor executor(remove_signatory_statements_,
                                  do_validation,

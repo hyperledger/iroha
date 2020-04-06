@@ -20,6 +20,8 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 #include "utils/variant_deserializer.hpp"
 
 namespace {
@@ -116,15 +118,18 @@ namespace shared_model {
       return impl_->signatures_;
     }
 
-    bool Query::addSignature(const crypto::Signed &signed_blob,
-                             const crypto::PublicKey &public_key) {
+    bool Query::addSignature(
+        interface::types::SignedHexStringView signed_blob,
+        interface::types::PublicKeyHexStringView public_key) {
       if (impl_->proto_.has_signature()) {
         return false;
       }
 
       auto sig = impl_->proto_.mutable_signature();
-      sig->set_signature(signed_blob.hex());
-      sig->set_public_key(public_key.hex());
+      std::string_view const &signed_string{signed_blob};
+      sig->set_signature(signed_string.data(), signed_string.size());
+      std::string_view const &public_key_string{public_key};
+      sig->set_public_key(public_key_string.data(), public_key_string.size());
 
       impl_->signatures_ =
           SignatureSetType<proto::Signature>{proto::Signature{*sig}};

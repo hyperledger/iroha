@@ -14,7 +14,6 @@
 #include "interfaces/query_responses/block_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 #include "logger/logger.hpp"
-#include "validation/utils.hpp"
 
 namespace iroha {
   namespace torii {

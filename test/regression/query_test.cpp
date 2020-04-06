@@ -26,8 +26,11 @@ auto makeQuery() {
 template <typename Query>
 auto createInvalidQuery(Query query,
                         const shared_model::crypto::Keypair &keypair) {
-  query.addSignature(shared_model::crypto::Signed(std::string(32, 'a')),
-                     keypair.publicKey());
+  shared_model::crypto::Signed signature{std::string(32, 'a')};
+  query.addSignature(
+      shared_model::interface::types::SignedHexStringView{signature.hex()},
+      shared_model::interface::types::PublicKeyHexStringView{
+          keypair.publicKey().hex()});
   return query;
 }
 

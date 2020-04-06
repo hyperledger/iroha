@@ -51,10 +51,12 @@ namespace shared_model {
        */
       static Keypair generateKeypair(const Seed &seed);
 
-      static const size_t kHashLength;
-      static const size_t kPublicKeyLength;
-      static const size_t kPrivateKeyLength;
-      static const size_t kSignatureLength;
+      // Ursa provides functions for retrieving key lengths, but we use
+      // hardcoded values
+      static constexpr size_t kHashLength = 256 / 8;
+      static constexpr size_t kPublicKeyLength = 256 / 8;
+      static constexpr size_t kPrivateKeyLength = 512 / 8;
+      static constexpr size_t kSignatureLength = 512 / 8;
     };
   }  // namespace crypto
 }  // namespace shared_model

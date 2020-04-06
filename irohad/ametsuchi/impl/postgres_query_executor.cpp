@@ -34,7 +34,7 @@ namespace iroha {
     bool PostgresQueryExecutor::validateSignatures(const Q &query) {
       auto keys_range =
           query.signatures() | boost::adaptors::transformed([](const auto &s) {
-            return s.publicKey().hex();
+            return s.publicKey();
           });
 
       if (boost::size(keys_range) != 1) {

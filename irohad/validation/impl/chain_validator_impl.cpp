@@ -84,12 +84,12 @@ namespace iroha {
             "public keys: [{}]",
             boost::algorithm::join(
                 signatures | boost::adaptors::transformed([](const auto &s) {
-                  return s.publicKey().toString();
+                  return s.publicKey();
                 }),
                 ", "),
             boost::algorithm::join(
                 peers | boost::adaptors::transformed([](const auto &p) {
-                  return p->pubkey().toString();
+                  return p->pubkey();
                 }),
                 ", "));
       }

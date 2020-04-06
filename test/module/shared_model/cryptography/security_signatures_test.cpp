@@ -22,13 +22,13 @@ TEST(SecuritySignature, SignatureOperatorEqual) {
   auto second_signature = std::make_unique<MockSignature>();
 
   EXPECT_CALL(*first_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk1));
+      .WillRepeatedly(testing::ReturnRef(pk1.hex()));
   EXPECT_CALL(*second_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk2));
+      .WillRepeatedly(testing::ReturnRef(pk2.hex()));
   EXPECT_CALL(*first_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data1));
+      .WillRepeatedly(testing::ReturnRef(data1.hex()));
   EXPECT_CALL(*second_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data2));
+      .WillRepeatedly(testing::ReturnRef(data2.hex()));
 
   ASSERT_TRUE(*first_signature == *second_signature);
 }
@@ -39,11 +39,13 @@ TEST(SecuritySignature, SignatureOperatorEqual) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, TransactionAddsignature) {
+  using namespace std::literals;
   auto tx = TestTransactionBuilder().build();
-  ASSERT_TRUE(tx.addSignature(shared_model::crypto::Signed("sign_one"),
-                              shared_model::crypto::PublicKey("key_one")));
-  ASSERT_FALSE(tx.addSignature(shared_model::crypto::Signed("sign_two"),
-                               shared_model::crypto::PublicKey("key_one")));
+  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
+  ASSERT_TRUE(tx.addSignature(
+      shared_model::interface::types::SignedHexStringView{"0A"sv}, public_key));
+  ASSERT_FALSE(tx.addSignature(
+      shared_model::interface::types::SignedHexStringView{"0C"sv}, public_key));
 }
 
 /**
@@ -52,9 +54,11 @@ TEST(SecuritySignature, TransactionAddsignature) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, BlockAddSignature) {
+  using namespace std::literals;
   auto block = TestBlockBuilder().build();
-  ASSERT_TRUE(block.addSignature(shared_model::crypto::Signed("sign_one"),
-                                 shared_model::crypto::PublicKey("key_one")));
-  ASSERT_FALSE(block.addSignature(shared_model::crypto::Signed("sign_two"),
-                                  shared_model::crypto::PublicKey("key_one")));
+  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
+  ASSERT_TRUE(block.addSignature(
+      shared_model::interface::types::SignedHexStringView{"0A"sv}, public_key));
+  ASSERT_FALSE(block.addSignature(
+      shared_model::interface::types::SignedHexStringView{"0C"sv}, public_key));
 }

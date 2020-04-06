@@ -20,12 +20,10 @@ namespace shared_model {
 
       const interface::types::AccountIdType &accountId() const override;
 
-      const interface::types::PubkeyType &pubkey() const override;
+      const std::string &pubkey() const override;
 
      private:
       const iroha::protocol::RemoveSignatory &remove_signatory_;
-
-      const interface::types::PubkeyType pubkey_;
     };
 
   }  // namespace proto

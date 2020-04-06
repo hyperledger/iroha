@@ -6,8 +6,6 @@
 #include "validation/impl/stateful_validator_impl.hpp"
 
 #include <gtest/gtest.h>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/algorithm_ext/push_back.hpp>
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "common/result.hpp"
 #include "cryptography/crypto_provider/crypto_defaults.hpp"
@@ -35,8 +33,12 @@ using ::testing::ReturnArg;
 
 class SignaturesSubset : public testing::Test {
  public:
-  std::vector<PublicKey> keys{PublicKey("a"), PublicKey("b"), PublicKey("c")};
+  std::vector<std::string> keys{"0a", "0b", "0c"};
 };
+
+auto makePublicKeyHexStringView(std::string const &x) {
+  return shared_model::interface::types::PublicKeyHexStringView{x};
+}
 
 /**
  * @given three different keys and three signatures with the same keys
@@ -47,9 +49,11 @@ TEST_F(SignaturesSubset, Equal) {
   std::array<MockSignature, 3> signatures;
   for (size_t i = 0; i < signatures.size(); ++i) {
     EXPECT_CALL(signatures[i], publicKey())
-        .WillRepeatedly(testing::ReturnRef(keys[i]));
+        .WillRepeatedly(testing::ReturnRefOfCopy(keys[i]));
   }
-  ASSERT_TRUE(signaturesSubset(signatures, keys));
+  ASSERT_TRUE(signaturesSubset(
+      signatures,
+      keys | boost::adaptors::transformed(makePublicKeyHexStringView)));
 }
 
 /**
@@ -59,13 +63,15 @@ TEST_F(SignaturesSubset, Equal) {
  * @then returned false
  */
 TEST_F(SignaturesSubset, Lesser) {
-  std::vector<PublicKey> subkeys{keys.begin(), keys.end() - 1};
+  std::vector<std::string> subkeys{keys.begin(), keys.end() - 1};
   std::array<MockSignature, 3> signatures;
   for (size_t i = 0; i < signatures.size(); ++i) {
     EXPECT_CALL(signatures[i], publicKey())
-        .WillRepeatedly(testing::ReturnRef(keys[i]));
+        .WillRepeatedly(testing::ReturnRefOfCopy(keys[i]));
   }
-  ASSERT_FALSE(signaturesSubset(signatures, subkeys));
+  ASSERT_FALSE(signaturesSubset(
+      signatures,
+      subkeys | boost::adaptors::transformed(makePublicKeyHexStringView)));
 }
 
 /**
@@ -77,9 +83,11 @@ TEST_F(SignaturesSubset, StrictSubset) {
   std::array<MockSignature, 2> signatures;
   for (size_t i = 0; i < signatures.size(); ++i) {
     EXPECT_CALL(signatures[i], publicKey())
-        .WillRepeatedly(testing::ReturnRef(keys[i]));
+        .WillRepeatedly(testing::ReturnRefOfCopy(keys[i]));
   }
-  ASSERT_TRUE(signaturesSubset(signatures, keys));
+  ASSERT_TRUE(signaturesSubset(
+      signatures,
+      keys | boost::adaptors::transformed(makePublicKeyHexStringView)));
 }
 
 /**
@@ -88,13 +96,16 @@ TEST_F(SignaturesSubset, StrictSubset) {
  * @then returned false
  */
 TEST_F(SignaturesSubset, PublickeyUniqueness) {
-  std::vector<PublicKey> repeated_keys{2, keys[0]};
+  std::vector<std::string> repeated_keys{2, keys[0]};
   std::array<MockSignature, 2> signatures;
   for (size_t i = 0; i < signatures.size(); ++i) {
     EXPECT_CALL(signatures[i], publicKey())
-        .WillRepeatedly(testing::ReturnRef(keys[i]));
+        .WillRepeatedly(testing::ReturnRefOfCopy(keys[i]));
   }
-  ASSERT_FALSE(signaturesSubset(signatures, repeated_keys));
+  ASSERT_FALSE(signaturesSubset(
+      signatures,
+      repeated_keys
+          | boost::adaptors::transformed(makePublicKeyHexStringView)));
 }
 
 class Validator : public testing::Test {

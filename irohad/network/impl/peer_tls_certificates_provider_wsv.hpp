@@ -39,7 +39,7 @@ namespace iroha {
       iroha::expected::Result<
           shared_model::interface::types::TLSCertificateType,
           std::string>
-      get(const shared_model::interface::types::PubkeyType &public_key)
+      get(shared_model::interface::types::PublicKeyHexStringView public_key)
           const override;
 
      private:

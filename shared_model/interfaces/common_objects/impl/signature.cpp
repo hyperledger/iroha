@@ -5,8 +5,7 @@
 
 #include "interfaces/common_objects/signature.hpp"
 
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
+#include "utils/string_builder.hpp"
 
 namespace shared_model {
   namespace interface {
@@ -17,8 +16,8 @@ namespace shared_model {
     std::string Signature::toString() const {
       return detail::PrettyStringBuilder()
           .init("Signature")
-          .appendNamed("publicKey", publicKey().hex())
-          .appendNamed("signedData", signedData().hex())
+          .appendNamed("publicKey", publicKey())
+          .appendNamed("signedData", signedData())
           .finalize();
     }
   }  // namespace interface

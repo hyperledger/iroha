@@ -16,8 +16,6 @@ auto log_ = getTestLogger("MstStorageTest");
 
 class StorageTest : public testing::Test {
  public:
-  StorageTest() : absent_peer_key("absent") {}
-
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
     storage = std::make_shared<MstStorageStateImpl>(
@@ -32,7 +30,8 @@ class StorageTest : public testing::Test {
   }
 
   std::shared_ptr<MstStorage> storage;
-  const shared_model::crypto::PublicKey absent_peer_key;
+  const shared_model::interface::types::PublicKeyHexStringView absent_peer_key{
+      std::string_view{"0A"}};
 
   const unsigned quorum = 3u;
   const shared_model::interface::types::TimestampType creation_time =
@@ -41,6 +40,7 @@ class StorageTest : public testing::Test {
 };
 
 TEST_F(StorageTest, StorageWhenApplyOtherState) {
+  using namespace std::literals;
   log_->info(
       "create state with default peers and other state => "
       "apply state");
@@ -50,7 +50,8 @@ TEST_F(StorageTest, StorageWhenApplyOtherState) {
   new_state += makeTestBatch(txBuilder(6, creation_time));
   new_state += makeTestBatch(txBuilder(7, creation_time));
 
-  storage->apply(shared_model::crypto::PublicKey("another"), new_state);
+  storage->apply(shared_model::interface::types::PublicKeyHexStringView{"0B"sv},
+                 new_state);
 
   ASSERT_EQ(6,
             storage->getDiffState(absent_peer_key, creation_time)

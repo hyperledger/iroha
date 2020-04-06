@@ -164,7 +164,7 @@ TEST_F(TransportTest, SendAndReceive) {
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
           [this, &state](const auto &from_key, auto const &target_state) {
-            EXPECT_EQ(this->my_key_.publicKey(), from_key);
+            EXPECT_EQ(this->my_key_.publicKey().hex(), from_key);
             EXPECT_TRUE(statesEqual(state, target_state));
           }));
 
