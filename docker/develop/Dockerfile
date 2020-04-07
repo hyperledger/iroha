@@ -27,7 +27,7 @@ RUN set -e; \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
         # Pythons
-        python-pip python3-pip python3-setuptools python-dev \
+        python-pip python3-pip python-setuptools python3-setuptools python-dev \
         # other
         curl file gdb gdbserver ccache \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
