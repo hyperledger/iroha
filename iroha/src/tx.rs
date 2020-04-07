@@ -1,9 +1,10 @@
 use crate::{crypto::Signature, isi::Contract};
+use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
 /// An ordered set of instructions, which is applied to the ledger atomically.
-#[derive(Clone, Debug, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct Transaction {
     /// An ordered set of instructions.
     //TODO: think about constructor with `Into<Contract>` parameter signature.
@@ -33,35 +34,6 @@ impl Transaction {
     //TODO: make Transaction an Enum and return Transaction::Valid
     pub fn validate(self) -> Result<Transaction, ()> {
         Ok(self)
-    }
-}
-
-/// # Example
-/// ```
-/// use iroha::prelude::*;
-///
-/// let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
-///     .build();
-/// let result: Vec<u8> = tx_payload.into();
-/// ```
-impl std::convert::From<&Transaction> for Vec<u8> {
-    fn from(tx_payload: &Transaction) -> Self {
-        tx_payload.encode()
-    }
-}
-
-/// # Example
-/// ```
-/// # use iroha::prelude::*;
-///
-/// # let tx_payload = &Transaction::builder(Vec::new(),"account@domain".to_string())
-/// #     .build();
-/// # let result: Vec<u8> = tx_payload.into();
-/// let tx_payload: Transaction = result.into();
-/// ```
-impl std::convert::From<Vec<u8>> for Transaction {
-    fn from(tx_payload: Vec<u8>) -> Self {
-        Transaction::decode(&mut tx_payload.as_slice()).expect("Failed to decode payload.")
     }
 }
 
