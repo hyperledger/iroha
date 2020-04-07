@@ -48,20 +48,24 @@ class CryptoUsageTest : public ::testing::Test {
     // initialize wrong signature
     auto signedBlob = shared_model::crypto::DefaultCryptoAlgorithmType::sign(
         shared_model::crypto::Blob("wrong payload"), keypair);
-    signable.addSignature(signedBlob, keypair.publicKey());
+    signable.addSignature(
+        shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
+        shared_model::interface::types::PublicKeyHexStringView{
+            keypair.publicKey().hex()});
   }
 
   template <typename T>
   bool verify(const T &signable) const {
     return boost::size(signable.signatures()) > 0
-        and std::all_of(signable.signatures().begin(),
-                        signable.signatures().end(),
-                        [&signable](const auto &signature) {
-                          return shared_model::crypto::CryptoVerifier<>::verify(
-                              signature.signedData(),
-                              signable.payload(),
-                              signature.publicKey());
-                        });
+        and std::all_of(
+                signable.signatures().begin(),
+                signable.signatures().end(),
+                [&signable](const auto &signature) {
+                  return shared_model::crypto::CryptoVerifier<>::verify(
+                      Signed(Blob::fromHexString(signature.signedData())),
+                      signable.payload(),
+                      PublicKey(Blob::fromHexString(signature.publicKey())));
+                });
   }
 
   Blob data;

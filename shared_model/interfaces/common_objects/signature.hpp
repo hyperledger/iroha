@@ -8,15 +8,8 @@
 
 #include "common/cloneable.hpp"
 #include "interfaces/base/model_primitive.hpp"
-#include "utils/string_builder.hpp"
 
 namespace shared_model {
-
-  namespace crypto {
-    class PublicKey;
-    class Signed;
-  }  // namespace crypto
-
   namespace interface {
 
     /**
@@ -26,24 +19,14 @@ namespace shared_model {
                       public Cloneable<Signature> {
      public:
       /**
-       * Type of public key
-       */
-      using PublicKeyType = crypto::PublicKey;
-
-      /**
        * @return public key of signatory
        */
-      virtual const PublicKeyType &publicKey() const = 0;
-
-      /**
-       * Type of signed data
-       */
-      using SignedType = crypto::Signed;
+      virtual const std::string &publicKey() const = 0;
 
       /**
        * @return signed data
        */
-      virtual const SignedType &signedData() const = 0;
+      virtual const std::string &signedData() const = 0;
 
       bool operator==(const Signature &rhs) const override;
 

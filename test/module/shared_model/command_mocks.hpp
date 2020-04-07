@@ -50,11 +50,11 @@ namespace shared_model {
     };
 
     struct MockRemovePeer : public shared_model::interface::RemovePeer {
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockAddSignatory : public shared_model::interface::AddSignatory {
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
     };
 
@@ -66,7 +66,7 @@ namespace shared_model {
     struct MockCreateAccount : public shared_model::interface::CreateAccount {
       MOCK_CONST_METHOD0(accountName, const types::AccountNameType &());
       MOCK_CONST_METHOD0(domainId, const types::DomainIdType &());
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockCreateAsset : public shared_model::interface::CreateAsset {
@@ -110,7 +110,7 @@ namespace shared_model {
     struct MockRemoveSignatory
         : public shared_model::interface::RemoveSignatory {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
-      MOCK_CONST_METHOD0(pubkey, const types::PubkeyType &());
+      MOCK_CONST_METHOD0(pubkey, const std::string &());
     };
 
     struct MockRevokePermission

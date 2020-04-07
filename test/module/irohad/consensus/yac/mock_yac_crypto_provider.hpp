@@ -27,11 +27,11 @@ namespace iroha {
         auto sig = std::make_shared<MockSignature>();
         EXPECT_CALL(*sig, publicKey())
             .WillRepeatedly(
-                ::testing::ReturnRefOfCopy(shared_model::crypto::PublicKey(
+                ::testing::ReturnRefOfCopy(iroha::bytestringToHexstring(
                     framework::padPubKeyString(pub_key))));
         EXPECT_CALL(*sig, signedData())
             .WillRepeatedly(
-                ::testing::ReturnRefOfCopy(shared_model::crypto::Signed(
+                ::testing::ReturnRefOfCopy(iroha::bytestringToHexstring(
                     framework::padSignatureString(signature))));
 
         return sig;

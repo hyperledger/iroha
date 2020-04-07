@@ -20,8 +20,9 @@ namespace integration_framework {
     class MstNetworkNotifier final
         : public iroha::network::MstTransportNotification {
      public:
-      void onNewState(const shared_model::crypto::PublicKey &from,
-                      iroha::MstState &&new_state) override;
+      void onNewState(
+          shared_model::interface::types::PublicKeyHexStringView from,
+          iroha::MstState &&new_state) override;
 
       rxcpp::observable<std::shared_ptr<MstMessage>> getObservable();
 

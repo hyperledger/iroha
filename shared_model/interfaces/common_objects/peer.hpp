@@ -33,7 +33,7 @@ namespace shared_model {
       /**
        * @return Public key, for fetching data
        */
-      virtual const interface::types::PubkeyType &pubkey() const = 0;
+      virtual const std::string &pubkey() const = 0;
 
       std::string toString() const override;
 

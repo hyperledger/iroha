@@ -163,7 +163,7 @@ TEST_F(AmetsuchiTest, PeerTest) {
   ASSERT_EQ(peers->size(), 1);
   ASSERT_EQ(peers->at(0)->address(), "192.168.9.1:50051");
 
-  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey);
+  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey.hex());
 }
 
 TEST_F(AmetsuchiTest, AddSignatoryTest) {

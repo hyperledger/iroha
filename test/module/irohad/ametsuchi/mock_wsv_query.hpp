@@ -27,7 +27,7 @@ namespace iroha {
       MOCK_METHOD1(
           getPeerByPublicKey,
           boost::optional<std::shared_ptr<shared_model::interface::Peer>>(
-              const shared_model::interface::types::PubkeyType &public_key));
+              shared_model::interface::types::PublicKeyHexStringView));
     };
 
   }  // namespace ametsuchi

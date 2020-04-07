@@ -19,6 +19,6 @@ Result<TLSCertificateType, std::string> PeerTlsCertificatesProviderRoot::get(
 }
 
 Result<TLSCertificateType, std::string> PeerTlsCertificatesProviderRoot::get(
-    const PubkeyType &) const {
+    shared_model::interface::types::PublicKeyHexStringView) const {
   return makeValue(root_certificate_);
 }

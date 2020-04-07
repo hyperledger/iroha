@@ -29,8 +29,8 @@ namespace iroha {
       getPeers() override;
 
       boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-      getPeerByPublicKey(const shared_model::interface::types::PubkeyType
-                             &public_key) override;
+      getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
+                             public_key) override;
 
      private:
       /**

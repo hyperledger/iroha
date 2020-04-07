@@ -15,7 +15,6 @@
 #include "common/result.hpp"
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "logger/logger.hpp"
-#include "validation/utils.hpp"
 
 namespace iroha {
   namespace validation {

@@ -38,9 +38,9 @@ namespace iroha {
             shared_model::crypto::Signed signed_value) {
           auto sig = std::make_unique<MockSignature>();
           EXPECT_CALL(*sig, publicKey())
-              .WillRepeatedly(ReturnRefOfCopy(public_key));
+              .WillRepeatedly(ReturnRefOfCopy(public_key.hex()));
           EXPECT_CALL(*sig, signedData())
-              .WillRepeatedly(ReturnRefOfCopy(signed_value));
+              .WillRepeatedly(ReturnRefOfCopy(signed_value.hex()));
           return sig;
         }
 

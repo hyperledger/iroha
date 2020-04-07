@@ -25,9 +25,13 @@ namespace iroha {
               auto blob = shared_model::crypto::Blob(serialized);
 
               return shared_model::crypto::CryptoVerifier<>::verify(
-                  vote.signature->signedData(),
+                  shared_model::crypto::Signed(
+                      shared_model::crypto::Blob::fromHexString(
+                          vote.signature->signedData())),
                   blob,
-                  vote.signature->publicKey());
+                  shared_model::crypto::PublicKey(
+                      shared_model::crypto::Blob::fromHexString(
+                          vote.signature->publicKey())));
             });
       }
 
@@ -44,8 +48,8 @@ namespace iroha {
 
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote
-        vote.signature =
-            std::make_shared<shared_model::plain::Signature>(signature, pubkey);
+        vote.signature = std::make_shared<shared_model::plain::Signature>(
+            signature.hex(), pubkey.hex());
 
         return vote;
       }

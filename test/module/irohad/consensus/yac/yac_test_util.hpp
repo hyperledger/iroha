@@ -24,8 +24,8 @@ namespace iroha {
         EXPECT_CALL(*peer, address())
             .WillRepeatedly(::testing::ReturnRefOfCopy(address));
         EXPECT_CALL(*peer, pubkey())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::interface::types::PubkeyType(
+            .WillRepeatedly(
+                ::testing::ReturnRefOfCopy(iroha::bytestringToHexstring(
                     framework::padPubKeyString(address))));
         EXPECT_CALL(*peer, tlsCertificate())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
@@ -42,20 +42,20 @@ namespace iroha {
         auto block_signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*block_signature, publicKey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::PublicKey(padded_pub_key)));
+                iroha::bytestringToHexstring(padded_pub_key)));
         EXPECT_CALL(*block_signature, signedData())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::Signed(padded_pub_key)));
+                iroha::bytestringToHexstring(padded_pub_key)));
         hash.block_signature = block_signature;
         vote.hash = std::move(hash);
 
         auto signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*signature, publicKey())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::PublicKey(padded_pub_key)));
+                iroha::bytestringToHexstring(padded_pub_key)));
         EXPECT_CALL(*signature, signedData())
             .WillRepeatedly(::testing::ReturnRefOfCopy(
-                shared_model::crypto::Signed(padded_pub_key)));
+                iroha::bytestringToHexstring(padded_pub_key)));
 
         vote.signature = signature;
         return vote;

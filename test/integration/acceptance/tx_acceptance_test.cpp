@@ -160,12 +160,15 @@ TEST_F(AcceptanceTest, Transaction10MinutesFromFuture) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
+  using namespace std::literals;
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
 
   auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
-  tx.addSignature(signedBlob, shared_model::crypto::PublicKey(""));
+  tx.addSignature(
+      shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
+      shared_model::interface::types::PublicKeyHexStringView{""sv});
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -181,9 +184,12 @@ TEST_F(AcceptanceTest, TransactionEmptyPubKey) {
  * @then receive STATELESS_VALIDATION_FAILED status
  */
 TEST_F(AcceptanceTest, TransactionEmptySignedblob) {
+  using namespace std::literals;
   shared_model::proto::Transaction tx =
       baseTx<TestTransactionBuilder>().build();
-  tx.addSignature(shared_model::crypto::Signed(""), kAdminKeypair.publicKey());
+  tx.addSignature(shared_model::interface::types::SignedHexStringView{""sv},
+                  shared_model::interface::types::PublicKeyHexStringView{
+                      kAdminKeypair.publicKey().hex()});
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -201,11 +207,11 @@ TEST_F(AcceptanceTest, TransactionInvalidPublicKey) {
       baseTx<TestTransactionBuilder>().build();
   auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
+  shared_model::crypto::PublicKey public_key{std::string(
+      shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength, 'a')};
   tx.addSignature(
-      signedBlob,
-      shared_model::crypto::PublicKey(std::string(
-          shared_model::crypto::DefaultCryptoAlgorithmType::kPublicKeyLength,
-          'a')));
+      shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
+      shared_model::interface::types::PublicKeyHexStringView{public_key.hex()});
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTx(tx, CHECK_STATELESS_INVALID);
@@ -226,9 +232,12 @@ TEST_F(AcceptanceTest, TransactionInvalidSignedBlob) {
       shared_model::crypto::Blob(tx.payload()), kAdminKeypair);
   auto raw = signedBlob.blob();
   raw[0] = (raw[0] == std::numeric_limits<uint8_t>::max() ? 0 : raw[0] + 1);
-  auto wrongBlob = shared_model::crypto::Signed(raw);
+  shared_model::crypto::Signed wrongBlob{raw};
 
-  tx.addSignature(wrongBlob, kAdminKeypair.publicKey());
+  tx.addSignature(
+      shared_model::interface::types::SignedHexStringView{wrongBlob.hex()},
+      shared_model::interface::types::PublicKeyHexStringView{
+          kAdminKeypair.publicKey().hex()});
 
   integration_framework::IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)

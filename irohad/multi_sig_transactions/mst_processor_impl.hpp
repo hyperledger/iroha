@@ -57,7 +57,7 @@ namespace iroha {
 
     // ------------------| MstTransportNotification override |------------------
 
-    void onNewState(const shared_model::crypto::PublicKey &from,
+    void onNewState(shared_model::interface::types::PublicKeyHexStringView from,
                     MstState &&new_state) override;
 
     // ----------------------------| end override |-----------------------------

@@ -32,8 +32,8 @@ namespace iroha {
       : public network::MstTransportNotification {
    public:
     MOCK_METHOD2(onNewState,
-                 void(const shared_model::crypto::PublicKey &from,
-                      MstState &&state));
+                 void(shared_model::interface::types::PublicKeyHexStringView,
+                      MstState &&));
   };
 
   /**

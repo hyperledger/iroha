@@ -10,8 +10,6 @@
 #include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
-using ::testing::An;
-using ::testing::AtLeast;
 using ::testing::Return;
 
 using namespace iroha::consensus::yac;
@@ -127,7 +125,8 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
     ASSERT_LT(i, peers_number) << "Reject must had already happened when "
                                   "all peers have voted for different hashes.";
     auto peer = my_order->getPeers().at(i);
-    auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
+    auto pubkey =
+        iroha::hexstringToBytestringResult(peer->pubkey()).assumeValue();
     votes.push_back(createVote(makeYacHash(i), pubkey));
     vote_groups.push_back({1});
   };
@@ -138,6 +137,7 @@ TEST_F(YacTest, ValidCaseWhenReceiveOnVoteAfterReject) {
 
   yac->onState(votes);
   auto peer = my_order->getPeers().back();
-  auto pubkey = shared_model::crypto::toBinaryString(peer->pubkey());
+  auto pubkey =
+      iroha::hexstringToBytestringResult(peer->pubkey()).assumeValue();
   yac->onState({createVote(makeYacHash(peers_number), pubkey)});
 }

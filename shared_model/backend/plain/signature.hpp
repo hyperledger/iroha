@@ -6,8 +6,6 @@
 #ifndef IROHA_SHARED_MODEL_PLAIN_SIGNATURE_HPP
 #define IROHA_SHARED_MODEL_PLAIN_SIGNATURE_HPP
 
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/common_objects/signature.hpp"
 
 namespace shared_model {
@@ -16,18 +14,18 @@ namespace shared_model {
 
     class Signature final : public interface::Signature {
      public:
-      Signature(const SignedType &signedData, const PublicKeyType &publicKey);
+      Signature(std::string signed_data_hex, std::string public_key_hex);
 
-      const interface::Signature::PublicKeyType &publicKey() const override;
+      const std::string &publicKey() const override;
 
-      const interface::Signature::SignedType &signedData() const override;
+      const std::string &signedData() const override;
 
      protected:
       interface::Signature *clone() const override;
 
      private:
-      const interface::Signature::SignedType signed_data_;
-      const interface::Signature::PublicKeyType public_key_;
+      const std::string signed_data_hex_;
+      const std::string public_key_hex_;
     };
 
   }  // namespace plain

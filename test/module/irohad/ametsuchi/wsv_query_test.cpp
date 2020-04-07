@@ -49,15 +49,11 @@ namespace iroha {
     TEST_F(WsvQueryTest, GetPeers) {
       std::shared_ptr<shared_model::interface::Peer> peer1 =
           std::make_shared<shared_model::plain::Peer>(
-              "some-address",
-              shared_model::crypto::PublicKey("some-public-key"),
-              std::nullopt);
+              "some-address", "0a", std::nullopt);
       command->insertPeer(*peer1);
       std::shared_ptr<shared_model::interface::Peer> peer2 =
           std::make_shared<shared_model::plain::Peer>(
-              "another-address",
-              shared_model::crypto::PublicKey("another-public-key"),
-              std::nullopt);
+              "another-address", "0b", std::nullopt);
       command->insertPeer(*peer2);
 
       auto result = query->getPeers();

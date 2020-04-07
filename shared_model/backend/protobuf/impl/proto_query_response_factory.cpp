@@ -366,7 +366,7 @@ shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
         for (const auto &peer : peers) {
           auto *proto_peer = protocol_specific_response->add_peers();
           proto_peer->set_address(peer->address());
-          proto_peer->set_peer_key(peer->pubkey().hex());
+          proto_peer->set_peer_key(peer->pubkey());
         }
       },
       query_hash);

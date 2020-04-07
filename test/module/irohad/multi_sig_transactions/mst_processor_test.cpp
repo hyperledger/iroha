@@ -46,6 +46,10 @@ class MstProcessorTest : public testing::Test {
   const shared_model::interface::types::CounterType time_before = time_now - 1;
   const shared_model::interface::types::CounterType time_after = time_now + 1;
 
+  shared_model::crypto::PublicKey another_peer_key{"another_pubkey"};
+  shared_model::interface::types::PublicKeyHexStringView another_peer_key_hex{
+      another_peer_key.hex()};
+
  protected:
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
@@ -256,12 +260,11 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
   auto observers = initObservers(mst_processor, 0, 1, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   auto transported_state = MstState::empty(getTestLogger("MstState"),
                                            std::make_shared<TestCompleter>());
   transported_state += addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_now, quorum)), 0, makeKey());
-  mst_processor->onNewState(another_peer_key, std::move(transported_state));
+  mst_processor->onNewState(another_peer_key_hex, std::move(transported_state));
 
   // ---------------------------------| then |----------------------------------
   check(observers);
@@ -305,17 +308,23 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   EXPECT_CALL(*transport, sendState(_, _)).Times(0);
 
   // ---------------------------------| given |---------------------------------
-  auto another_peer = makePeer(
-      "another", shared_model::interface::types::PubkeyType("sign_one"));
+  shared_model::interface::types::PubkeyType public_key{"sign_one"};
+  auto another_peer = makePeer("another", public_key);
 
   auto another_peer_state = MstState::empty(
       getTestLogger("MstState"),
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)));
   another_peer_state += makeTestBatch(txBuilder(1));
 
-  storage->apply(another_peer->pubkey(), another_peer_state);
-  ASSERT_TRUE(
-      storage->getDiffState(another_peer->pubkey(), time_now).isEmpty());
+  storage->apply(
+      shared_model::interface::types::PublicKeyHexStringView{public_key.hex()},
+      another_peer_state);
+  ASSERT_TRUE(storage
+                  ->getDiffState(
+                      shared_model::interface::types::PublicKeyHexStringView{
+                          another_peer->pubkey()},
+                      time_now)
+                  .isEmpty());
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
@@ -338,13 +347,13 @@ TEST_F(MstProcessorTest, receivedOutdatedState) {
   auto observers = initObservers(mst_processor, 0, 0, 0);
 
   // ---------------------------------| when |----------------------------------
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
   const auto expired_batch = makeTestBatch(txBuilder(1, time_before, 3));
   {
     auto transported_state = MstState::empty(getTestLogger("MstState"),
                                              std::make_shared<TestCompleter>());
     transported_state += addSignaturesFromKeyPairs(expired_batch, 0, makeKey());
-    mst_processor->onNewState(another_peer_key, std::move(transported_state));
+    mst_processor->onNewState(another_peer_key_hex,
+                              std::move(transported_state));
   }
 
   // ---------------------------------| then |----------------------------------
@@ -371,8 +380,7 @@ TEST_F(MstProcessorTest, receivedOneOfExistingTxs) {
                                         std::make_shared<TestCompleter>());
   received_state += batch;
   auto observers = initObservers(mst_processor, 0, 0, 0);
-  shared_model::crypto::PublicKey another_peer_key("another_pubkey");
-  mst_processor->onNewState(another_peer_key, std::move(received_state));
+  mst_processor->onNewState(another_peer_key_hex, std::move(received_state));
 
   check(observers);
 }

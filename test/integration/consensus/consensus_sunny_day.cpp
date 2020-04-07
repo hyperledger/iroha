@@ -27,7 +27,6 @@
 #include "network/impl/grpc_channel_builder.hpp"
 
 using ::testing::_;
-using ::testing::An;
 using ::testing::InvokeWithoutArgs;
 using ::testing::Return;
 
@@ -58,9 +57,9 @@ class FixedCryptoProvider : public MockYacCryptoProvider {
     auto vote = MockYacCryptoProvider::getVote(hash);
     auto signature = std::make_shared<MockSignature>();
     EXPECT_CALL(*signature, publicKey())
-        .WillRepeatedly(testing::ReturnRef(*pubkey));
+        .WillRepeatedly(testing::ReturnRefOfCopy(pubkey->hex()));
     EXPECT_CALL(*signature, signedData())
-        .WillRepeatedly(testing::ReturnRef(*data));
+        .WillRepeatedly(testing::ReturnRefOfCopy(data->hex()));
     vote.signature = signature;
     return vote;
   }
@@ -83,7 +82,8 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 
   ConsensusSunnyDayTest()
       : my_peer(mk_local_peer(port + my_num)),
-        my_pub_key(shared_model::crypto::toBinaryString(my_peer->pubkey())) {
+        my_pub_key(iroha::hexstringToBytestringResult(my_peer->pubkey())
+                       .assumeValue()) {
     for (decltype(num_peers) i = 0; i < num_peers; ++i) {
       default_peers.push_back(mk_local_peer(port + i));
     }

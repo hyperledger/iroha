@@ -23,10 +23,7 @@ namespace {
         [&](auto &public_key, auto &address, auto &tls_certificate) {
           return boost::make_optional(
               std::make_shared<shared_model::plain::Peer>(
-                  address,
-                  shared_model::crypto::PublicKey{
-                      shared_model::crypto::Blob::fromHexString(public_key)},
-                  tls_certificate));
+                  address, std::move(public_key), tls_certificate));
         });
   }
 }  // namespace
@@ -86,15 +83,17 @@ namespace iroha {
     }
 
     boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-    PostgresWsvQuery::getPeerByPublicKey(const PubkeyType &public_key) {
+    PostgresWsvQuery::getPeerByPublicKey(
+        shared_model::interface::types::PublicKeyHexStringView public_key) {
       using T = boost::
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
+      std::string target_public_key{public_key};
       auto result = execute<T>([&] {
         return (sql_.prepare << R"(
             SELECT public_key, address, tls_certificate
             FROM peer
             WHERE public_key = :public_key)",
-                soci::use(public_key.hex(), "public_key"));
+                soci::use(target_public_key, "public_key"));
       });
 
       return getPeersFromSociRowSet(result) | [](auto &&peers)

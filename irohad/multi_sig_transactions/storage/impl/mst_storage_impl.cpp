@@ -9,12 +9,13 @@ namespace iroha {
   // ------------------------------| private API |------------------------------
 
   auto MstStorageStateImpl::getState(
-      const shared_model::crypto::PublicKey &target_peer_key) {
-    auto target_state_iter = peer_states_.find(target_peer_key);
+      shared_model::interface::types::PublicKeyHexStringView target_peer_key) {
+    auto target_state_iter =
+        peer_states_.find(StringViewOrString{target_peer_key});
     if (target_state_iter == peer_states_.end()) {
       return peer_states_
-          .insert(
-              {target_peer_key, MstState::empty(mst_state_logger_, completer_)})
+          .emplace(StringViewOrString{std::string{target_peer_key}},
+                   MstState::empty(mst_state_logger_, completer_))
           .first;
     }
     return target_state_iter;
@@ -30,7 +31,7 @@ namespace iroha {
         mst_state_logger_(std::move(mst_state_logger)) {}
 
   auto MstStorageStateImpl::applyImpl(
-      const shared_model::crypto::PublicKey &target_peer_key,
+      shared_model::interface::types::PublicKeyHexStringView target_peer_key,
       const MstState &new_state)
       -> decltype(apply(target_peer_key, new_state)) {
     auto target_state_iter = getState(target_peer_key);
@@ -53,7 +54,7 @@ namespace iroha {
   }
 
   auto MstStorageStateImpl::getDiffStateImpl(
-      const shared_model::crypto::PublicKey &target_peer_key,
+      shared_model::interface::types::PublicKeyHexStringView target_peer_key,
       const TimeType &current_time)
       -> decltype(getDiffState(target_peer_key, current_time)) {
     auto target_current_state_iter = getState(target_peer_key);

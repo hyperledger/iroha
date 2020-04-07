@@ -205,11 +205,8 @@ namespace grantables {
 
     proto::Transaction testTransaction(
         GrantablePermissionsFixture &f) override {
-      return f.permitteeModifySignatory(
-          &TestUnsignedTransactionBuilder::addSignatory,
-          f.kAccount2,
-          f.kAccount2Keypair,
-          f.kAccount1);
+      return f.permitteeAddSignatory(
+          f.kAccount2, f.kAccount2Keypair, f.kAccount1);
     }
   };
 
@@ -244,11 +241,8 @@ namespace grantables {
 
     proto::Transaction testTransaction(
         GrantablePermissionsFixture &f) override {
-      return f.permitteeModifySignatory(
-          &TestUnsignedTransactionBuilder::removeSignatory,
-          f.kAccount2,
-          f.kAccount2Keypair,
-          f.kAccount1);
+      return f.permitteeRemoveSignatory(
+          f.kAccount2, f.kAccount2Keypair, f.kAccount1);
     }
   };
 

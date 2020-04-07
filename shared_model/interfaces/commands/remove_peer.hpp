@@ -8,7 +8,6 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
@@ -22,7 +21,7 @@ namespace shared_model {
       /**
        * Return public key of peer to be removed by the command.
        */
-      virtual const interface::types::PubkeyType &pubkey() const = 0;
+      virtual const std::string &pubkey() const = 0;
 
       std::string toString() const override;
 

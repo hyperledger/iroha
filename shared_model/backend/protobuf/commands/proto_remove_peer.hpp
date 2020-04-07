@@ -18,10 +18,10 @@ namespace shared_model {
      public:
       explicit RemovePeer(iroha::protocol::Command &command);
 
-      const interface::types::PubkeyType &pubkey() const override;
+      const std::string &pubkey() const override;
 
      private:
-      const interface::types::PubkeyType pubkey_;
+      const iroha::protocol::RemovePeer &remove_peer_;
     };
   }  // namespace proto
 }  // namespace shared_model

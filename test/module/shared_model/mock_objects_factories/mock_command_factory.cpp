@@ -52,7 +52,7 @@ namespace shared_model {
       return createFactoryResult<MockRemovePeer>(
           [&pubkey](FactoryResult<MockRemovePeer> specific_cmd_mock) {
             ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey));
+                .WillByDefault(ReturnRefOfCopy(pubkey.hex()));
             return specific_cmd_mock;
           });
     }
@@ -65,7 +65,7 @@ namespace shared_model {
           [&pubkey,
            &account_id](FactoryResult<MockAddSignatory> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             return specific_cmd_mock;
@@ -100,7 +100,7 @@ namespace shared_model {
             EXPECT_CALL(*specific_cmd_mock, domainId())
                 .WillRepeatedly(ReturnRefOfCopy(domain_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
             return specific_cmd_mock;
           });
     }
@@ -210,7 +210,7 @@ namespace shared_model {
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey));
+                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
             return specific_cmd_mock;
           });
     }

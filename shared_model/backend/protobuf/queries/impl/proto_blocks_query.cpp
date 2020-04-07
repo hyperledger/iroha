@@ -6,6 +6,8 @@
 #include "backend/protobuf/queries/proto_blocks_query.hpp"
 
 #include "backend/protobuf/util.hpp"
+#include "cryptography/public_key.hpp"
+#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -47,15 +49,18 @@ namespace shared_model {
       return signatures_;
     }
 
-    bool BlocksQuery::addSignature(const crypto::Signed &signed_blob,
-                                   const crypto::PublicKey &public_key) {
+    bool BlocksQuery::addSignature(
+        interface::types::SignedHexStringView signed_blob,
+        interface::types::PublicKeyHexStringView public_key) {
       if (proto_.has_signature()) {
         return false;
       }
 
       auto sig = proto_.mutable_signature();
-      sig->set_signature(signed_blob.hex());
-      sig->set_public_key(public_key.hex());
+      std::string_view const &signed_string{signed_blob};
+      sig->set_signature(signed_string.data(), signed_string.size());
+      std::string_view const &public_key_string{public_key};
+      sig->set_public_key(public_key_string.data(), public_key_string.size());
       // TODO: nickaleks IR-120 12.12.2018 remove set
       signatures_.emplace(*proto_.mutable_signature());
       blob_ = makeBlob(proto_);

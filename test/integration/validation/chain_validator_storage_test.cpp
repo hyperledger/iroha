@@ -16,6 +16,8 @@
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 // TODO mboldyrev 14.02.2019 IR-324 Use supermajority checker mock
 static const iroha::consensus::yac::ConsistencyModel kConsistencyModel =
     iroha::consensus::yac::ConsistencyModel::kBft;

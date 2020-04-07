@@ -35,7 +35,8 @@ class NetworkUtil {
     BOOST_ASSERT_MSG(from < peers_.size(), "Requested unknown index of peer");
     return iroha::consensus::yac::createVote(
         yac_hash,
-        *iroha::hexstringToBytestring(peers_.at(from)->pubkey().hex()));
+        iroha::hexstringToBytestringResult(peers_.at(from)->pubkey())
+            .assumeValue());
   }
   /// create votes of peers by their number
   auto createVotes(

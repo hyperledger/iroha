@@ -62,7 +62,11 @@ namespace shared_model {
         if (object_finalized_) {
           throw std::runtime_error("object has already been finalized");
         }
-        object_.addSignature(signedBlob, keypair.publicKey());
+        object_.addSignature(
+            shared_model::interface::types::SignedHexStringView{
+                signedBlob.hex()},
+            shared_model::interface::types::PublicKeyHexStringView{
+                keypair.publicKey().hex()});
         // TODO: 05.12.2017 luckychess think about false case
         return *this;
       }
