@@ -1,4 +1,5 @@
 use crate::{kura::Kura, prelude::*};
+use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
@@ -46,7 +47,7 @@ impl Blockchain {
 /// a linear sequence over time (also known as the block chain).
 //TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
 //signatures placed outside of the payload - should we store them?
-#[derive(Clone, Debug, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct Block {
     /// a number of blocks in the chain up to the block.
     pub height: u64,
@@ -117,27 +118,20 @@ impl BlockBuilder {
     }
 }
 
-impl std::convert::From<&Block> for Vec<u8> {
-    fn from(block: &Block) -> Self {
-        block.encode()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_hash() {
+        let block = Block {
+            height: 0,
+            timestamp: 1,
+            transactions: Vec::new(),
+            previous_block_hash: None,
+            rejected_transactions_hashes: None,
+        };
+
+        assert_ne!(block.hash(), [0; 32]);
     }
-}
-
-impl std::convert::From<Vec<u8>> for Block {
-    fn from(bytes: Vec<u8>) -> Self {
-        Block::decode(&mut bytes.as_slice()).expect("Failed to deserialize block.")
-    }
-}
-
-#[test]
-fn block_hash() {
-    let block = Block {
-        height: 0,
-        timestamp: 1,
-        transactions: Vec::new(),
-        previous_block_hash: None,
-        rejected_transactions_hashes: None,
-    };
-
-    assert_ne!(block.hash(), [0; 32]);
 }

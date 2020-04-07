@@ -3,4 +3,6 @@
 members = [
   "iroha",
   "iroha_client",
+  "iroha_macro",
+  "iroha_macro/iroha_derive",
 ]

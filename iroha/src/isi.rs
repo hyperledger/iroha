@@ -1,5 +1,11 @@
 use crate::{account, asset, domain, peer, wsv::WorldStateView};
+use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
+
+pub mod prelude {
+    //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
+    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, peer::isi::*};
+}
 
 /// Identification of an Iroha's entites. Consists of Entity's name and Domain's name.
 ///
@@ -31,7 +37,7 @@ pub trait Instruction {
 }
 
 ///
-#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Io, Encode, Decode)]
 pub enum Contract {
     AddSignatory(account::isi::AddSignatory),
     AppendRole(account::isi::AppendRole),
@@ -54,18 +60,6 @@ impl Contract {
             TransferAsset(instruction) => instruction.execute(world_state_view),
             _ => Err("Instruction is not supported yet.".to_string()),
         }
-    }
-}
-
-impl std::convert::From<&Contract> for Vec<u8> {
-    fn from(command_payload: &Contract) -> Self {
-        command_payload.encode()
-    }
-}
-
-impl std::convert::From<Vec<u8>> for Contract {
-    fn from(command_payload: Vec<u8>) -> Self {
-        Contract::decode(&mut command_payload.as_slice()).expect("Failed to deserialize payload.")
     }
 }
 
