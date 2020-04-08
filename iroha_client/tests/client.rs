@@ -11,6 +11,7 @@ mod tests {
     use std::thread;
 
     static DEFAULT_BLOCK_STORE_LOCATION: &str = "./blocks/";
+    const CONFIGURATION_PATH: &str = "config.json";
 
     #[async_std::test]
     //TODO: use cucumber to write `gherkin` instead of code.
@@ -52,7 +53,7 @@ mod tests {
             amount: 20,
         };
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
         );
         iroha_client
             .submit(create_role.into())
@@ -83,19 +84,15 @@ mod tests {
         let query_result = iroha_client
             .request(&request)
             .expect("Failed to execute request.");
-        dbg!(&query_result);
-        if let QueryResult::GetAccountAssets(result) = query_result {
-            assert!(!result.assets.is_empty());
-        } else {
-            panic!("QueryResult::GetAccountAssets was expected.");
-        }
         let _result = cleanup_default_block_dir().await;
+        let QueryResult::GetAccountAssets(result) = query_result;
+        assert!(!result.assets.is_empty());
     }
 
     async fn create_and_start_iroha() {
         println!("Iroha create.");
         let mut iroha = Iroha::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
         );
         println!("Iroha start.");
         iroha.start().await.expect("Failed to start Iroha.");

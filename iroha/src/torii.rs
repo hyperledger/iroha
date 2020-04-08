@@ -113,14 +113,16 @@ mod tests {
     };
     use futures::{channel::mpsc, executor};
 
+    const CONFIGURATION_PATH: &str = "config.json";
+
     #[test]
-    fn get_request_to_torii_should_return_internal_error() {
+    fn get_request_to_torii_should_return_500() {
         std::thread::spawn(move || {
             executor::block_on(create_and_start_torii());
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         let config =
-            Configuration::from_path("config.json").expect("Failed to load configuration.");
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let mut stream =
             std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
         let query = &GetAccountAssets::build_request(Id::new("account", "domain"));
@@ -143,7 +145,7 @@ mod tests {
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         let config =
-            Configuration::from_path("config.json").expect("Failed to load configuration.");
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let mut stream =
             std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
         stream
@@ -167,7 +169,7 @@ mod tests {
 
     async fn create_and_start_torii() {
         let config =
-            Configuration::from_path("config.json").expect("Failed to load configuration.");
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
         let (tx, rx) = mpsc::unbounded();
         let mut kura = Kura::new("strict".to_string(), tx);

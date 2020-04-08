@@ -72,10 +72,11 @@ impl ConfigurationBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const CONFIGURATION_PATH: &str = "config.json";
 
     #[test]
     fn parse_example_json() {
-        let configuration = Configuration::from_path("config.json")
+        let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .expect("Failed to read configuration from example config.");
         assert_eq!(DEFAULT_TORII_URL, configuration.torii_url);
         assert_eq!(DEFAULT_BLOCK_TIME_MS, configuration.block_build_step_ms);
