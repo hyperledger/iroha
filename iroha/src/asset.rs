@@ -5,11 +5,12 @@ use parity_scale_codec::{Decode, Encode};
 pub struct Asset {
     /// identifier of asset, formatted as asset_name#domain_id
     pub id: Id,
+    pub amount: u128,
 }
 
 impl Asset {
     pub fn new(id: Id) -> Self {
-        Asset { id }
+        Asset { id, amount: 0 }
     }
 }
 
@@ -31,11 +32,15 @@ pub mod isi {
 
     impl Instruction for AddAssetQuantity {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            world_state_view
+            let assets = &mut world_state_view
                 .account(&self.account_id)
-                .unwrap()
-                .assets
-                .insert(self.asset_id.clone(), Asset::new(self.asset_id.clone()));
+                .ok_or("Account not found.")?
+                .assets;
+            if let Some(asset) = assets.get_mut(&self.asset_id) {
+                asset.amount += self.amount;
+            } else {
+                assets.insert(self.asset_id.clone(), Asset::new(self.asset_id.clone()));
+            }
             Ok(())
         }
     }
@@ -64,13 +69,13 @@ pub mod isi {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             let asset = world_state_view
                 .account(&self.source_account_id)
-                .unwrap()
+                .ok_or("Source account not found")?
                 .assets
                 .remove(&self.asset_id)
-                .unwrap();
+                .ok_or("Asset not found")?;
             world_state_view
                 .account(&self.destination_account_id)
-                .unwrap()
+                .ok_or("Destionation account not found")?
                 .assets
                 .insert(self.asset_id.clone(), asset);
             Ok(())
