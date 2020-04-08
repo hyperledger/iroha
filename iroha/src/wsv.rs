@@ -102,7 +102,7 @@ impl WorldStateView {
         self.domain(&id.1)?.accounts.get_mut(id)
     }
 
-    pub fn assets(&mut self, account_id: &Id, asset_id: &Id) -> Option<&mut Asset> {
+    pub fn read_asset(&mut self, account_id: &Id, asset_id: &Id) -> Option<&mut Asset> {
         self.account(account_id)?.assets.get_mut(asset_id)
     }
 }

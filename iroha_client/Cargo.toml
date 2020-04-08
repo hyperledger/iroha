@@ -10,5 +10,10 @@ edition = "2018"
 iroha = { path = "../iroha" }
 
 [dev-dependencies]
-futures = "0.3.4"
 async-std = { version = "1.5", features = ["attributes"] }
+criterion = "0.3"
+futures = "0.3.4"
+
+[[bench]]
+name = "torii"
+harness = false
