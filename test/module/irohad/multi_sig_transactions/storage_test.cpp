@@ -124,7 +124,7 @@ TEST_F(StorageTest, StorageDoesNotFindNonExistingBatch) {
  * @when the batch gets updated with a new signature from Torii
  * @then the diff for peer A has the new signature
  */
-TEST_F(StorageTest, ClearStalledPeerStatesTest) {
+TEST_F(StorageTest, DiffStateContainsNewSignature) {
   using namespace testing;
   using namespace shared_model::interface;
 
@@ -133,45 +133,40 @@ TEST_F(StorageTest, ClearStalledPeerStatesTest) {
     return shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
   });
 
-  const auto batch =
-      framework::batch::makeTestBatch(txBuilder(1, creation_time));
+  auto make_batch = [this] {
+    return framework::batch::makeTestBatch(txBuilder(1, creation_time));
+  };
 
-  const auto peerAKey = shared_model::crypto::PublicKey("A");
+  auto const reduced_hash = make_batch()->transactions().front()->reducedHash();
+  shared_model::interface::types::PublicKeyHexStringView const peer_A_key{"OB"};
 
   // storage gets a batch from peer A with 1st signature
   {
     auto new_state = MstState::empty(getTestLogger("MstState"), completer_);
-    new_state += addSignaturesFromKeyPairs(
-        std::make_unique<TransactionBatchImpl>(batch->transactions()),
-        0,
-        keypairs[0]);
+    new_state += addSignaturesFromKeyPairs(make_batch(), 0, keypairs[0]);
 
-    storage->apply(peerAKey, std::move(new_state));
+    storage->apply(peer_A_key, std::move(new_state));
   }
 
   // diff with peer A does not have this batch
-  ASSERT_THAT(storage->getDiffState(peerAKey, creation_time).getBatches(),
-              Not(Contains(Pointee(Property(
-                  &TransactionBatch::transactions,
-                  Contains(Pointee(Property(
-                      &Transaction::reducedHash,
-                      Eq(batch->transactions().front()->reducedHash())))))))));
+  ASSERT_THAT(storage->getDiffState(peer_A_key, creation_time).getBatches(),
+              Not(Contains(Pointee(
+                  Property(&TransactionBatch::transactions,
+                           Contains(Pointee(Property(&Transaction::reducedHash,
+                                                     Eq(reduced_hash)))))))));
 
   // storage gets another signature for the batch from Torii
-  storage->updateOwnState(addSignaturesFromKeyPairs(
-      std::make_unique<TransactionBatchImpl>(batch->transactions()),
-      0,
-      keypairs[1]));
+  storage->updateOwnState(
+      addSignaturesFromKeyPairs(make_batch(), 0, keypairs[1]));
 
   // diff with peer A now has the batch with the signature that just came Torii
-  EXPECT_THAT(
-      storage->getDiffState(peerAKey, creation_time).getBatches(),
-      Contains(Pointee(Property(
-          &TransactionBatch::transactions,
-          ElementsAre(Pointee(AllOf(
-              Property(&Transaction::reducedHash,
-                       Eq(batch->transactions().front()->reducedHash())),
-              Property(&Transaction::signatures,
-                       Contains(Property(&Signature::publicKey,
-                                         Eq(keypairs[1].publicKey())))))))))));
+  EXPECT_THAT(storage->getDiffState(peer_A_key, creation_time).getBatches(),
+              Contains(Pointee(Property(
+                  &TransactionBatch::transactions,
+                  ElementsAre(Pointee(AllOf(
+                      Property(&Transaction::reducedHash, Eq(reduced_hash)),
+                      Property(&Transaction::signatures,
+                               Contains(Property(
+                                   &Signature::publicKey,
+                                   Eq(keypairs[1].publicKey().hex())))))))))));
 }
