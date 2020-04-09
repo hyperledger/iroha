@@ -50,22 +50,22 @@ namespace shared_model {
                                       AddPeer,
                                       AddSignatory,
                                       AppendRole,
+                                      CallEngine,
+                                      CompareAndSetAccountDetail,
                                       CreateAccount,
                                       CreateAsset,
                                       CreateDomain,
                                       CreateRole,
                                       DetachRole,
                                       GrantPermission,
+                                      RemovePeer,
                                       RemoveSignatory,
                                       RevokePermission,
                                       SetAccountDetail,
                                       SetQuorum,
-                                      SubtractAssetQuantity,
-                                      TransferAsset,
-                                      RemovePeer,
-                                      CompareAndSetAccountDetail,
                                       SetSettingValue,
-                                      CallEngine>;
+                                      SubtractAssetQuantity,
+                                      TransferAsset>;
 
       /**
        * @return reference to const variant with concrete command

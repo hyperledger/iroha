@@ -42,6 +42,13 @@ namespace {
   using ProtoQueryResponseListType = ProtoQueryResponseVariantType::types;
 }  // namespace
 
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                   \
+  case iroha::protocol::QueryResponse::ResponseCase::val: \
+    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
+
 namespace shared_model {
   namespace proto {
 
@@ -50,12 +57,32 @@ namespace shared_model {
 
       TransportType proto_;
 
-      const ProtoQueryResponseVariantType variant_{[this] {
+      const ProtoQueryResponseVariantType variant_{[this]() -> decltype(
+                                                                variant_) {
         auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::variant_impl<ProtoQueryResponseListType>::
-            template load<ProtoQueryResponseVariantType>(ar, which);
+        switch (ar.response_case()) {
+          IROHA_BIND_TYPE(kAccountAssetsResponse, AccountAssetResponse, ar);
+          IROHA_BIND_TYPE(kAccountDetailResponse, AccountDetailResponse, ar);
+          IROHA_BIND_TYPE(kAccountResponse, AccountResponse, ar);
+          IROHA_BIND_TYPE(kErrorResponse, ErrorQueryResponse, ar);
+          IROHA_BIND_TYPE(kSignatoriesResponse, SignatoriesResponse, ar);
+          IROHA_BIND_TYPE(kTransactionsResponse, TransactionsResponse, ar);
+          IROHA_BIND_TYPE(kAssetResponse, AssetResponse, ar);
+          IROHA_BIND_TYPE(kRolesResponse, RolesResponse, ar);
+          IROHA_BIND_TYPE(
+              kRolePermissionsResponse, RolePermissionsResponse, ar);
+          IROHA_BIND_TYPE(
+              kTransactionsPageResponse, TransactionsPageResponse, ar);
+          IROHA_BIND_TYPE(kPendingTransactionsPageResponse,
+                          PendingTransactionsPageResponse,
+                          ar);
+          IROHA_BIND_TYPE(kBlockResponse, GetBlockResponse, ar);
+          IROHA_BIND_TYPE(kPeersResponse, PeersResponse, ar);
+
+          default:
+          case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
+            throw std::runtime_error("Unexpected query response case.");
+        };
       }()};
 
       const QueryResponseVariantType ivariant_{variant_};
@@ -84,3 +111,5 @@ namespace shared_model {
 
   }  // namespace proto
 }  // namespace shared_model
+
+#undef IROHA_BIND_TYPE

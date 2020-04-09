@@ -17,6 +17,13 @@ namespace {
                      shared_model::proto::BlockErrorResponse>;
 }  // namespace
 
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                        \
+  case iroha::protocol::BlockQueryResponse::ResponseCase::val: \
+    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
+
 namespace shared_model {
   namespace proto {
 
@@ -25,14 +32,20 @@ namespace shared_model {
 
       TransportType proto_;
 
-      const ProtoQueryResponseVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::
-            variant_impl<ProtoQueryResponseVariantType::types>::template load<
-                ProtoQueryResponseVariantType>(ar, which);
-      }()};
+      const ProtoQueryResponseVariantType variant_{
+          [this]() -> decltype(variant_) {
+            auto &ar = proto_;
+
+            switch (ar.response_case()) {
+              IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
+              IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
+
+              default:
+              case iroha::protocol::BlockQueryResponse::ResponseCase::
+                  RESPONSE_NOT_SET:
+                throw std::runtime_error("Unexpected response case.");
+            };
+          }()};
 
       const QueryResponseVariantType ivariant_{variant_};
     };
@@ -55,3 +68,5 @@ namespace shared_model {
 
   }  // namespace proto
 }  // namespace shared_model
+
+#undef IROHA_BIND_TYPE
