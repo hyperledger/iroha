@@ -34,26 +34,33 @@ namespace {
                        shared_model::proto::AddPeer,
                        shared_model::proto::AddSignatory,
                        shared_model::proto::AppendRole,
+                       shared_model::proto::CallEngine,
+                       shared_model::proto::CompareAndSetAccountDetail,
                        shared_model::proto::CreateAccount,
                        shared_model::proto::CreateAsset,
                        shared_model::proto::CreateDomain,
                        shared_model::proto::CreateRole,
                        shared_model::proto::DetachRole,
                        shared_model::proto::GrantPermission,
+                       shared_model::proto::RemovePeer,
                        shared_model::proto::RemoveSignatory,
                        shared_model::proto::RevokePermission,
                        shared_model::proto::SetAccountDetail,
                        shared_model::proto::SetQuorum,
-                       shared_model::proto::SubtractAssetQuantity,
-                       shared_model::proto::TransferAsset,
-                       shared_model::proto::RemovePeer,
-                       shared_model::proto::CompareAndSetAccountDetail,
                        shared_model::proto::SetSettingValue,
-                       shared_model::proto::CallEngine>;
+                       shared_model::proto::SubtractAssetQuantity,
+                       shared_model::proto::TransferAsset>;
 
   /// list of types in proto variant
   using ProtoCommandListType = ProtoCommandVariantType::types;
 }  // namespace
+
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)            \
+  case iroha::protocol::Command::CommandCase::val: \
+    return ProtoCommandVariantType(shared_model::proto::type(__VA_ARGS__))
 
 namespace shared_model {
   namespace proto {
@@ -63,12 +70,36 @@ namespace shared_model {
 
       TransportType &proto_;
 
-      ProtoCommandVariantType variant_{[this] {
+      ProtoCommandVariantType variant_{[this]() -> decltype(variant_) {
         auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.command_case())->index();
-        return shared_model::detail::variant_impl<ProtoCommandListType>::
-            template load<ProtoCommandVariantType>(ar, which);
+
+        switch (ar.command_case()) {
+          IROHA_BIND_TYPE(kAddAssetQuantity, AddAssetQuantity, ar);
+          IROHA_BIND_TYPE(kAddPeer, AddPeer, ar);
+          IROHA_BIND_TYPE(kAddSignatory, AddSignatory, ar);
+          IROHA_BIND_TYPE(kAppendRole, AppendRole, ar);
+          IROHA_BIND_TYPE(kCreateAccount, CreateAccount, ar);
+          IROHA_BIND_TYPE(kCreateAsset, CreateAsset, ar);
+          IROHA_BIND_TYPE(kCreateDomain, CreateDomain, ar);
+          IROHA_BIND_TYPE(kCreateRole, CreateRole, ar);
+          IROHA_BIND_TYPE(kDetachRole, DetachRole, ar);
+          IROHA_BIND_TYPE(kGrantPermission, GrantPermission, ar);
+          IROHA_BIND_TYPE(kRemovePeer, RemovePeer, ar);
+          IROHA_BIND_TYPE(kRemoveSignatory, RemoveSignatory, ar);
+          IROHA_BIND_TYPE(kRevokePermission, RevokePermission, ar);
+          IROHA_BIND_TYPE(kSetAccountDetail, SetAccountDetail, ar);
+          IROHA_BIND_TYPE(kSetAccountQuorum, SetQuorum, ar);
+          IROHA_BIND_TYPE(kSubtractAssetQuantity, SubtractAssetQuantity, ar);
+          IROHA_BIND_TYPE(kTransferAsset, TransferAsset, ar);
+          IROHA_BIND_TYPE(
+              kCompareAndSetAccountDetail, CompareAndSetAccountDetail, ar);
+          IROHA_BIND_TYPE(kSetSettingValue, SetSettingValue, ar);
+          IROHA_BIND_TYPE(kCallEngine, CallEngine, ar);
+
+          default:
+          case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
+            throw std::runtime_error("Unexpected command case.");
+        };
       }()};
 
       CommandVariantType ivariant_{variant_};
@@ -86,3 +117,5 @@ namespace shared_model {
 
   }  // namespace proto
 }  // namespace shared_model
+
+#undef IROHA_BIND_TYPE

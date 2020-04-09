@@ -43,6 +43,13 @@ namespace {
   using ProtoQueryListType = ProtoQueryVariantType::types;
 }  // namespace
 
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                \
+  case iroha::protocol::Query_Payload::QueryCase::val: \
+    return ProtoQueryVariantType(shared_model::proto::type(__VA_ARGS__))
+
 namespace shared_model {
   namespace proto {
 
@@ -52,15 +59,28 @@ namespace shared_model {
 
       TransportType proto_;
 
-      ProtoQueryVariantType variant_{[this] {
+      ProtoQueryVariantType variant_{[this]() -> decltype(variant_) {
         auto &ar = proto_;
-        int which = ar.payload()
-                        .GetDescriptor()
-                        ->FindFieldByNumber(ar.payload().query_case())
-                        ->index_in_oneof();
-        return shared_model::detail::variant_impl<
-            ProtoQueryListType>::template load<ProtoQueryVariantType>(ar,
-                                                                      which);
+        switch (ar.payload().query_case()) {
+          IROHA_BIND_TYPE(kGetAccount, GetAccount, ar);
+          IROHA_BIND_TYPE(kGetAccountAssets, GetAccountAssets, ar);
+          IROHA_BIND_TYPE(kGetAccountDetail, GetAccountDetail, ar);
+          IROHA_BIND_TYPE(
+              kGetAccountAssetTransactions, GetAccountAssetTransactions, ar);
+          IROHA_BIND_TYPE(kGetSignatories, GetSignatories, ar);
+          IROHA_BIND_TYPE(kGetAccountTransactions, GetAccountTransactions, ar);
+          IROHA_BIND_TYPE(kGetTransactions, GetTransactions, ar);
+          IROHA_BIND_TYPE(kGetRoles, GetRoles, ar);
+          IROHA_BIND_TYPE(kGetAssetInfo, GetAssetInfo, ar);
+          IROHA_BIND_TYPE(kGetRolePermissions, GetRolePermissions, ar);
+          IROHA_BIND_TYPE(kGetPendingTransactions, GetPendingTransactions, ar);
+          IROHA_BIND_TYPE(kGetBlock, GetBlock, ar);
+          IROHA_BIND_TYPE(kGetPeers, GetPeers, ar);
+
+          default:
+          case iroha::protocol::Query_Payload::QueryCase::QUERY_NOT_SET:
+            throw std::runtime_error("Unexpected query case.");
+        };
       }()};
 
       QueryVariantType ivariant_{variant_};
@@ -150,3 +170,5 @@ namespace shared_model {
 
   }  // namespace proto
 }  // namespace shared_model
+
+#undef IROHA_BIND_TYPE

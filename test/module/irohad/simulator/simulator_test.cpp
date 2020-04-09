@@ -122,7 +122,8 @@ auto makeTx(size_t created_time = iroha::time::now()) {
 
 TEST_F(SimulatorTest, ValidWhenPreviousBlock) {
   // proposal with height 2 => height 1 block present => new block generated
-  std::vector<shared_model::proto::Transaction> txs = {makeTx(), makeTx()};
+  auto const now = iroha::time::now();
+  std::vector<shared_model::proto::Transaction> txs = {makeTx(now), makeTx(now + 1ull)};
 
   auto validation_result =
       std::make_unique<iroha::validation::VerifiedProposalAndErrors>();
