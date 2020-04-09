@@ -8,7 +8,6 @@
 #include <mutex>
 
 #include "ametsuchi/peer_query.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
 using namespace iroha::expected;

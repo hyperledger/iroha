@@ -13,14 +13,15 @@
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "common/files.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace common_constants;
 using shared_model::interface::permissions::Role;
+using shared_model::interface::types::PublicKeyHexStringView;
 
 static logger::LoggerPtr log_ = getTestLogger("RegressionTest");
 
@@ -85,18 +86,20 @@ TEST(RegressionTest, SequentialInitialization) {
 TEST(RegressionTest, StateRecovery) {
   auto userKeypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto tx = shared_model::proto::TransactionBuilder()
-                .createdTime(iroha::time::now())
-                .creatorAccountId(kAdminId)
-                .createAccount(kUser, kDomain, userKeypair.publicKey())
-                .createRole(kRole, {Role::kReceive})
-                .appendRole(kUserId, kRole)
-                .addAssetQuantity(kAssetId, "133.0")
-                .transferAsset(kAdminId, kUserId, kAssetId, "descrs", "97.8")
-                .quorum(1)
-                .build()
-                .signAndAddSignature(kAdminKeypair)
-                .finish();
+  auto tx =
+      shared_model::proto::TransactionBuilder()
+          .createdTime(iroha::time::now())
+          .creatorAccountId(kAdminId)
+          .createAccount(
+              kUser, kDomain, PublicKeyHexStringView{userKeypair.publicKey()})
+          .createRole(kRole, {Role::kReceive})
+          .appendRole(kUserId, kRole)
+          .addAssetQuantity(kAssetId, "133.0")
+          .transferAsset(kAdminId, kUserId, kAssetId, "descrs", "97.8")
+          .quorum(1)
+          .build()
+          .signAndAddSignature(kAdminKeypair)
+          .finish();
   auto hash = tx.hash();
   auto makeQuery = [&hash](int query_counter, auto kAdminKeypair) {
     return shared_model::proto::QueryBuilder()

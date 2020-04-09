@@ -10,6 +10,7 @@
 #include <string>
 
 #include "common/result.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permissions.hpp"
 
@@ -166,7 +167,7 @@ namespace iroha {
        * @return WsvCommandResult, which will contain error in case of failure
        */
       virtual WsvCommandResult insertSignatory(
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Insert account signatory relationship
@@ -176,7 +177,7 @@ namespace iroha {
        */
       virtual WsvCommandResult insertAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Delete account signatory relationship
@@ -186,7 +187,7 @@ namespace iroha {
        */
       virtual WsvCommandResult deleteAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        * Delete signatory
@@ -194,7 +195,7 @@ namespace iroha {
        * @return WsvCommandResult, which will contain error in case of failure
        */
       virtual WsvCommandResult deleteSignatory(
-          const shared_model::interface::types::PubkeyType &signatory) = 0;
+          shared_model::interface::types::PublicKeyHexStringView signatory) = 0;
 
       /**
        *

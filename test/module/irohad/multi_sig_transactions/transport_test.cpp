@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/mock_stream.h"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
@@ -25,6 +26,7 @@
 #include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
+using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::model;
 using namespace shared_model::interface;
@@ -73,23 +75,20 @@ class TransportTest : public ::testing::Test {
           return std::unique_ptr<transport::MstTransportGrpc::StubInterface>(
               stub);
         });
-    transport =
-        std::make_shared<MstTransportGrpc>(async_call_,
-                                           tx_factory,
-                                           parser_,
-                                           batch_factory_,
-                                           tx_presence_cache_,
-                                           completer_,
-                                           my_key_.publicKey(),
-                                           getTestLogger("MstState"),
-                                           getTestLogger("MstTransportGrpc"),
-                                           sender_factory_);
+    transport = std::make_shared<MstTransportGrpc>(
+        async_call_,
+        tx_factory,
+        parser_,
+        batch_factory_,
+        tx_presence_cache_,
+        completer_,
+        types::PublicKeyHexStringView{my_key_.publicKey()},
+        getTestLogger("MstState"),
+        getTestLogger("MstTransportGrpc"),
+        sender_factory_);
     transport->subscribe(mst_notification_transport_);
 
-    shared_model::interface::types::PubkeyType pk(
-        shared_model::crypto::Hash::fromHexString(
-            "abcdabcdabcdabcdabcdabcdabcdabcd"));
-    peer = makePeer("localhost:0", pk);
+    peer = makePeer("localhost:0", "abcdabcdabcdabcdabcdabcd"_hex_pubkey);
   }
 
   std::shared_ptr<AsyncGrpcClient<google::protobuf::Empty>> async_call_;
@@ -165,7 +164,7 @@ TEST_F(TransportTest, SendAndReceive) {
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
           [this, &state](const auto &from_key, auto const &target_state) {
-            EXPECT_EQ(this->my_key_.publicKey().hex(), from_key);
+            EXPECT_EQ(this->my_key_.publicKey(), from_key);
             EXPECT_TRUE(statesEqual(state, target_state));
           }));
 
@@ -222,8 +221,7 @@ TEST_F(TransportTest, ReplayAttack) {
           iroha::ametsuchi::tx_cache_status_responses::Rejected{second_hash}};
 
   transport::MstState proto_state;
-  proto_state.set_source_peer_key(
-      shared_model::crypto::toBinaryString(my_key_.publicKey()));
+  proto_state.set_source_peer_key(my_key_.publicKey());
 
   state.iterateTransactions([&proto_state](const auto &tx) {
     *proto_state.add_transactions() =

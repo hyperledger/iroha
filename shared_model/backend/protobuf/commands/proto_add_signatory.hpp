@@ -9,7 +9,6 @@
 #include "interfaces/commands/add_signatory.hpp"
 
 #include "commands.pb.h"
-#include "cryptography/public_key.hpp"
 
 namespace shared_model {
   namespace proto {

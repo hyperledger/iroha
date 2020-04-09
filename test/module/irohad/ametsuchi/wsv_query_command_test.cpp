@@ -12,6 +12,8 @@
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
+using namespace std::literals;
+
 namespace iroha {
   namespace ametsuchi {
 
@@ -56,7 +58,7 @@ namespace iroha {
       }
       std::shared_ptr<MockPeer> peer;
       shared_model::interface::types::AddressType address{""};
-      shared_model::interface::types::PubkeyType pk{""};
+      shared_model::interface::types::PublicKeyHexStringView pk{""sv};
     };
 
     /**

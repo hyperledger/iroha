@@ -6,7 +6,6 @@
 #include <gtest/gtest.h>
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"

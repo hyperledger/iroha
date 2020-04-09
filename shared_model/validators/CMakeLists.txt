@@ -21,5 +21,4 @@ target_link_libraries(shared_model_stateless_validation
         fmt::fmt
         schema
         shared_model_interfaces
-        fmt
         )

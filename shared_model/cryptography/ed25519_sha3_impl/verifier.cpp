@@ -8,18 +8,17 @@
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 
+using shared_model::interface::types::PublicKeyByteRangeView;
+using shared_model::interface::types::SignatureByteRangeView;
+
 namespace shared_model {
   namespace crypto {
-    bool Verifier::verify(const Signed &signedData,
+    bool Verifier::verify(SignatureByteRangeView signature,
                           const Blob &orig,
-                          const PublicKey &publicKey) {
+                          PublicKeyByteRangeView public_key) {
       auto blob_hash = iroha::sha3_256(orig.blob());
-      return publicKey.size() == iroha::pubkey_t::size()
-          and signedData.size() == iroha::sig_t::size()
-          and iroha::verify(blob_hash.data(),
-                            blob_hash.size(),
-                            iroha::pubkey_t::from_raw(publicKey.blob().data()),
-                            iroha::sig_t::from_raw(signedData.blob().data()));
+      return iroha::verify(
+          blob_hash.data(), blob_hash.size(), public_key, signature);
     }
   }  // namespace crypto
 }  // namespace shared_model

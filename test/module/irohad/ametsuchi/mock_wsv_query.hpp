@@ -16,8 +16,7 @@ namespace iroha {
     class MockWsvQuery : public WsvQuery {
      public:
       MOCK_METHOD1(getSignatories,
-                   boost::optional<
-                       std::vector<shared_model::interface::types::PubkeyType>>(
+                   boost::optional<std::vector<std::string>>(
                        const std::string &account_id));
       MOCK_METHOD0(
           getPeers,

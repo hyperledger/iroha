@@ -5,21 +5,14 @@
 
 #include "backend/protobuf/query_responses/proto_signatories_response.hpp"
 
-#include <boost/range/adaptor/transformed.hpp>
-#include "cryptography/hash.hpp"
-
 namespace shared_model {
   namespace proto {
 
     SignatoriesResponse::SignatoriesResponse(
         iroha::protocol::QueryResponse &query_response)
         : signatories_response_{query_response.signatories_response()},
-          keys_{boost::copy_range<interface::types::PublicKeyCollectionType>(
-              signatories_response_.keys()
-              | boost::adaptors::transformed([](const auto &key) {
-                  return crypto::PublicKey{
-                      crypto::PublicKey::fromHexString(key)};
-                }))} {}
+          keys_{signatories_response_.keys().begin(),
+                signatories_response_.keys().end()} {}
 
     const interface::types::PublicKeyCollectionType &SignatoriesResponse::keys()
         const {

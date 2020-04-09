@@ -50,6 +50,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
+using namespace std::literals;
 using namespace framework::expected;
 using namespace shared_model::interface;
 
@@ -78,6 +79,8 @@ namespace {
       "id@" + another_domain_id;
   const shared_model::interface::types::AccountIdType account_id2 =
       "id2@" + domain_id;
+  const types::PublicKeyHexStringView kPublicKey{"public key"sv};
+  const types::PublicKeyHexStringView kPublicKey2{"another public key"sv};
 }  // namespace
 
 namespace iroha {
@@ -142,10 +145,6 @@ namespace iroha {
             shared_model::interface::permissions::Role::kAddMySignatory);
         grantable_permission =
             shared_model::interface::permissions::Grantable::kAddMySignatory;
-        pubkey = std::make_unique<shared_model::interface::types::PubkeyType>(
-            std::string('1', 32));
-        pubkey2 = std::make_unique<shared_model::interface::types::PubkeyType>(
-            std::string('2', 32));
 
         query_response_factory =
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
@@ -177,14 +176,14 @@ namespace iroha {
         execute(*mock_command_factory->constructCreateDomain(domain_id, role),
                 true);
         execute(*mock_command_factory->constructCreateAccount(
-                    "id", domain_id, *pubkey),
+                    "id", domain_id, kPublicKey),
                 true);
 
         execute(*mock_command_factory->constructCreateDomain(another_domain_id,
                                                              role),
                 true);
         execute(*mock_command_factory->constructCreateAccount(
-                    "id", another_domain_id, *pubkey),
+                    "id", another_domain_id, kPublicKey),
                 true);
       }
 
@@ -276,7 +275,7 @@ namespace iroha {
 
       void createDefaultAccount() {
         execute(*mock_command_factory->constructCreateAccount(
-                    "id2", domain_id, *pubkey2),
+                    "id2", domain_id, kPublicKey2),
                 true);
       }
 
@@ -289,9 +288,6 @@ namespace iroha {
       std::string role = "role";
       shared_model::interface::RolePermissionSet role_permissions;
       shared_model::interface::permissions::Grantable grantable_permission;
-
-      std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey;
-      std::unique_ptr<shared_model::interface::types::PubkeyType> pubkey2;
 
       std::unique_ptr<shared_model::interface::Command> command;
 
@@ -612,8 +608,6 @@ namespace iroha {
       }
 
       void commitBlocks() {
-        auto fake_pubkey = shared_model::crypto::PublicKey(zero_string);
-
         std::vector<shared_model::proto::Transaction> txs1;
         txs1.push_back(TestTransactionBuilder()
                            .creatorAccountId(account_id)
@@ -676,7 +670,6 @@ namespace iroha {
       }
 
       const std::string asset_id = "coin#domain";
-      shared_model::crypto::PublicKey fake_pubkey{zero_string};
       shared_model::crypto::Hash hash1;
       shared_model::crypto::Hash hash2;
       shared_model::crypto::Hash hash3;

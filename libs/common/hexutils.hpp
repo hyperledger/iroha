@@ -5,11 +5,13 @@
 #ifndef IROHA_HEXUTILS_HPP
 #define IROHA_HEXUTILS_HPP
 
+#include <iterator>
 #include <string>
 
 #include <boost/algorithm/hex.hpp>
 #include <boost/optional.hpp>
 #include "common/result.hpp"
+#include "interfaces/common_objects/byte_range.hpp"
 
 namespace iroha {
 
@@ -18,13 +20,27 @@ namespace iroha {
    * @param str - raw bytes string to convert
    * @return - converted hex string
    */
-  inline std::string bytestringToHexstring(const std::string &str) {
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0');
-    for (const auto &c : str) {
-      ss << std::setw(2) << (static_cast<int>(c) & 0xff);
-    }
-    return ss.str();
+  template <typename OutputContainer>
+  inline void bytestringToHexstringAppend(
+      shared_model::interface::types::ByteRange input,
+      OutputContainer &destination) {
+    static_assert(sizeof(*input.data()) == sizeof(uint8_t), "type mismatch");
+    const auto beg = reinterpret_cast<const uint8_t *>(input.data());
+    const auto end = beg + input.size();
+    destination.reserve(destination.size() + input.size() * 2);
+    boost::algorithm::hex_lower(beg, end, std::back_inserter(destination));
+  }
+
+  /**
+   * Convert string of raw bytes to printable hex string
+   * @param str - raw bytes string to convert
+   * @return - converted hex string
+   */
+  inline std::string bytestringToHexstring(std::string_view str) {
+    std::string result;
+    bytestringToHexstringAppend(
+        shared_model::interface::types::makeByteRange(str), result);
+    return result;
   }
 
   /**
@@ -33,8 +49,8 @@ namespace iroha {
    * @return - raw bytes converted string or boost::noneif provided string
    * was not a correct hex string
    */
-  inline iroha::expected::Result<std::string, std::string>
-  hexstringToBytestringResult(const std::string &str) {
+  inline iroha::expected::Result<std::string, const char *>
+  hexstringToBytestringResult(std::string_view str) {
     using namespace iroha::expected;
     if (str.empty()) {
       return makeError("Empty hex string.");

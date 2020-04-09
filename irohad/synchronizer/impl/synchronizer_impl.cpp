@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include <boost/range/adaptor/transformed.hpp>
 #include <rxcpp/operators/rx-tap.hpp>
 #include "ametsuchi/block_query_factory.hpp"
 #include "ametsuchi/command_executor.hpp"
@@ -83,6 +84,7 @@ namespace iroha {
                      });
     }
 
+    template <typename PublicKeysRange>
     ametsuchi::CommitResult SynchronizerImpl::downloadAndCommitMissingBlocks(
         const shared_model::interface::types::HeightType start_height,
         const shared_model::interface::types::HeightType target_height,
@@ -156,7 +158,11 @@ namespace iroha {
       auto commit_result = downloadAndCommitMissingBlocks(
           msg.ledger_state->top_block_info.height,
           required_height,
-          msg.public_keys);
+          msg.public_keys
+              | boost::adaptors::transformed([](const auto &public_key) {
+                  return shared_model::interface::types::PublicKeyHexStringView{
+                      public_key};
+                }));
 
       commit_result.match(
           [this, &msg](auto &value) {

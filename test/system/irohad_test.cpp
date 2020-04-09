@@ -50,6 +50,7 @@ using namespace boost::filesystem;
 using namespace std::chrono_literals;
 using namespace common_constants;
 using iroha::operator|;
+using shared_model::interface::types::PublicKeyHexStringView;
 
 static logger::LoggerManagerTreePtr getIrohadTestLoggerManager() {
   static logger::LoggerManagerTreePtr irohad_test_logger_manager;
@@ -279,14 +280,18 @@ class IrohadTest : public AcceptanceFixture {
         shared_model::proto::TransactionBuilder()
             .creatorAccountId(kAdminId)
             .createdTime(iroha::time::now())
-            .addPeer("0.0.0.0:10001", node0_keys.publicKey())
+            .addPeer("0.0.0.0:10001",
+                     PublicKeyHexStringView{node0_keys.publicKey()})
             .createRole(kAdminName, admin_perms)
             .createRole(kDefaultRole, default_perms)
             .createRole(kMoneyCreator, money_perms)
             .createDomain(kDomain, kDefaultRole)
             .createAsset(kAssetName, kDomain, 2)
-            .createAccount(kAdminName, kDomain, admin_keys.publicKey())
-            .createAccount(kUser, kDomain, user_keys.publicKey())
+            .createAccount(kAdminName,
+                           kDomain,
+                           PublicKeyHexStringView{admin_keys.publicKey()})
+            .createAccount(
+                kUser, kDomain, PublicKeyHexStringView{user_keys.publicKey()})
             .appendRole(kAdminId, kAdminName)
             .appendRole(kAdminId, kMoneyCreator)
             .quorum(1)

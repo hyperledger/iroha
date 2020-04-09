@@ -12,7 +12,6 @@
 
 #include "backend/protobuf/util.hpp"
 #include "cryptography/hash.hpp"
-#include "cryptography/public_key.hpp"
 #include "primitive.pb.h"
 #include "utils/reference_holder.hpp"
 

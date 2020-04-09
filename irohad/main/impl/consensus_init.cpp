@@ -28,8 +28,9 @@ namespace {
     return std::make_shared<PeerOrdererImpl>(peer_query_factory);
   }
 
-  auto createCryptoProvider(const shared_model::crypto::Keypair &keypair) {
-    auto crypto = std::make_shared<CryptoProviderImpl>(keypair);
+  auto createCryptoProvider(const shared_model::crypto::Keypair &keypair,
+                            logger::LoggerPtr log) {
+    auto crypto = std::make_shared<CryptoProviderImpl>(keypair, std::move(log));
 
     return crypto;
   }
@@ -54,7 +55,8 @@ namespace {
                        getSupermajorityChecker(consistency_model),
                        consensus_log_manager->getChild("VoteStorage")),
         std::move(network),
-        createCryptoProvider(keypair),
+        createCryptoProvider(
+            keypair, consensus_log_manager->getChild("Crypto")->getLogger()),
         std::move(timer),
         initial_order,
         initial_round,

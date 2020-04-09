@@ -8,7 +8,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/size.hpp>
 #include "ametsuchi/specific_query_executor.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"

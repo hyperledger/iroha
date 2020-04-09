@@ -48,24 +48,24 @@ namespace shared_model {
 
     MockCommandFactory::FactoryResult<MockRemovePeer>
     MockCommandFactory::constructRemovePeer(
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemovePeer>(
           [&pubkey](FactoryResult<MockRemovePeer> specific_cmd_mock) {
             ON_CALL(*specific_cmd_mock, pubkey())
-                .WillByDefault(ReturnRefOfCopy(pubkey.hex()));
+                .WillByDefault(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }
 
     MockCommandFactory::FactoryResult<MockAddSignatory>
     MockCommandFactory::constructAddSignatory(
-        const types::PubkeyType &pubkey,
+        types::PublicKeyHexStringView pubkey,
         const types::AccountIdType &account_id) const {
       return createFactoryResult<MockAddSignatory>(
           [&pubkey,
            &account_id](FactoryResult<MockAddSignatory> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             return specific_cmd_mock;
@@ -91,7 +91,7 @@ namespace shared_model {
     MockCommandFactory::constructCreateAccount(
         const types::AccountNameType &account_name,
         const types::DomainIdType &domain_id,
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockCreateAccount>(
           [&account_name, &domain_id, &pubkey](
               FactoryResult<MockCreateAccount> specific_cmd_mock) {
@@ -100,7 +100,7 @@ namespace shared_model {
             EXPECT_CALL(*specific_cmd_mock, domainId())
                 .WillRepeatedly(ReturnRefOfCopy(domain_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }
@@ -203,14 +203,14 @@ namespace shared_model {
     MockCommandFactory::FactoryResult<MockRemoveSignatory>
     MockCommandFactory::constructRemoveSignatory(
         const types::AccountIdType &account_id,
-        const types::PubkeyType &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemoveSignatory>(
           [&account_id,
            &pubkey](FactoryResult<MockRemoveSignatory> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, accountId())
                 .WillRepeatedly(ReturnRefOfCopy(account_id));
             EXPECT_CALL(*specific_cmd_mock, pubkey())
-                .WillRepeatedly(ReturnRefOfCopy(pubkey.hex()));
+                .WillRepeatedly(ReturnRefOfCopy(std::string{pubkey}));
             return specific_cmd_mock;
           });
     }

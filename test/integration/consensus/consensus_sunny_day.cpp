@@ -13,7 +13,7 @@
 #include "consensus/yac/storage/yac_vote_storage.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
@@ -44,30 +44,6 @@ auto mk_local_peer(uint64_t num) {
   return iroha::consensus::yac::makePeer(address);
 }
 
-class FixedCryptoProvider : public MockYacCryptoProvider {
- public:
-  explicit FixedCryptoProvider(const std::string &public_key) {
-    pubkey = clone(shared_model::crypto::PublicKey{
-        framework::padPubKeyString(public_key)});
-    data = std::make_unique<shared_model::crypto::Signed>(
-        framework::padSignatureString("signed_data"));
-  }
-
-  VoteMessage getVote(YacHash hash) override {
-    auto vote = MockYacCryptoProvider::getVote(hash);
-    auto signature = std::make_shared<MockSignature>();
-    EXPECT_CALL(*signature, publicKey())
-        .WillRepeatedly(testing::ReturnRefOfCopy(pubkey->hex()));
-    EXPECT_CALL(*signature, signedData())
-        .WillRepeatedly(testing::ReturnRefOfCopy(data->hex()));
-    vote.signature = signature;
-    return vote;
-  }
-
-  std::unique_ptr<shared_model::crypto::PublicKey> pubkey;
-  std::unique_ptr<shared_model::crypto::Signed> data;
-};
-
 class ConsensusSunnyDayTest : public ::testing::Test {
  public:
   std::shared_ptr<CleanupStrategy> cleanup_strategy;
@@ -80,10 +56,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 
   static const size_t port = 50541;
 
-  ConsensusSunnyDayTest()
-      : my_peer(mk_local_peer(port + my_num)),
-        my_pub_key(iroha::hexstringToBytestringResult(my_peer->pubkey())
-                       .assumeValue()) {
+  ConsensusSunnyDayTest() : my_peer(mk_local_peer(port + my_num)) {
     for (decltype(num_peers) i = 0; i < num_peers; ++i) {
       default_peers.push_back(mk_local_peer(port + i));
     }
@@ -108,7 +81,9 @@ class ConsensusSunnyDayTest : public ::testing::Test {
           return iroha::network::createClient<proto::Yac>(peer.address());
         },
         getTestLogger("YacNetwork"));
-    crypto = std::make_shared<FixedCryptoProvider>(my_pub_key);
+    crypto = std::make_shared<MockYacCryptoProvider>(
+        shared_model::interface::types::PublicKeyHexStringView{
+            my_peer->pubkey()});
     timer = std::make_shared<TimerImpl>(std::chrono::milliseconds(delay),
                                         rxcpp::observe_on_new_thread());
     auto order = ClusterOrdering::create(default_peers);
@@ -143,7 +118,6 @@ class ConsensusSunnyDayTest : public ::testing::Test {
 
   uint64_t delay_before, delay_after;
   std::shared_ptr<shared_model::interface::Peer> my_peer;
-  const std::string my_pub_key;
   std::vector<std::shared_ptr<shared_model::interface::Peer>> default_peers;
   iroha::consensus::Round initial_round{1, 1};
 };
@@ -168,7 +142,9 @@ TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
   std::this_thread::sleep_for(std::chrono::milliseconds(delay_before));
 
   YacHash my_hash(initial_round, "proposal_hash", "block_hash");
-  my_hash.block_signature = createSig(my_pub_key);
+  my_hash.block_signature =
+      createSig(shared_model::interface::types::PublicKeyHexStringView{
+          my_peer->pubkey()});
   auto order = ClusterOrdering::create(default_peers);
   ASSERT_TRUE(order);
 

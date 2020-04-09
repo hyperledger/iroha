@@ -1,4 +1,8 @@
-add_library(ursa UNKNOWN IMPORTED)
+if (TARGET ursa)
+  return()
+endif()
+
+add_library(ursa STATIC IMPORTED GLOBAL)
 find_package(OpenSSL REQUIRED)
 
 get_filename_component(_OPENSSL_INCLUDE_PARENT_DIR ${OPENSSL_INCLUDE_DIR} DIRECTORY)
@@ -27,15 +31,20 @@ externalproject_add(hyperledger_ursa
 )
 
 add_custom_command(TARGET hyperledger_ursa POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy ${URSA_SRC_LIB} ${URSA_LIB}
-  COMMAND ${CMAKE_COMMAND} -E copy ${URSA_SRC_INCL}/ursa_crypto_ed25519.h ${URSA_INCL}
-  COMMAND ${CMAKE_COMMAND} -E copy ${URSA_SRC_INCL}/ursa_crypto.h ${URSA_INCL}
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${URSA_SRC_LIB} ${URSA_LIB}
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${URSA_SRC_INCL}/ursa_crypto_ed25519.h ${URSA_INCL}
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different ${URSA_SRC_INCL}/ursa_crypto.h ${URSA_INCL}
 )
 
 add_dependencies(ursa hyperledger_ursa)
 
+set(URSA_STATIC_LIB_FILE ${URSA_LIB}/libursa.a)
+if (EXISTS ${URSA_STATIC_LIB_FILE})
+  find_package_handle_standard_args(ursa DEFAULT_MSG)
+endif()
+
 set_target_properties(ursa PROPERTIES
+    IMPORTED_LOCATION ${URSA_STATIC_LIB_FILE}
     INTERFACE_INCLUDE_DIRECTORIES ${URSA_INCL}
-    IMPORTED_LOCATION ${URSA_LIB}/libursa.a
     INTERFACE_LINK_LIBRARIES "OpenSSL::SSL;OpenSSL::Crypto;dl;pthread"
 )

@@ -13,21 +13,24 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "ametsuchi/temporary_wsv.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
+using namespace shared_model::interface::types;
 using framework::expected::err;
 using framework::expected::val;
 
 auto zero_string = std::string(32, '0');
 auto fake_hash = shared_model::crypto::Hash(zero_string);
-auto fake_pubkey = shared_model::crypto::PublicKey(zero_string);
+const PublicKeyHexStringView fake_pubkey{zero_string};
 
 // Allows to print amount string in case of test failure
 namespace shared_model {
@@ -163,15 +166,15 @@ TEST_F(AmetsuchiTest, PeerTest) {
   ASSERT_EQ(peers->size(), 1);
   ASSERT_EQ(peers->at(0)->address(), "192.168.9.1:50051");
 
-  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey.hex());
+  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey);
 }
 
 TEST_F(AmetsuchiTest, AddSignatoryTest) {
   ASSERT_TRUE(storage);
   auto wsv = storage->getWsvQuery();
 
-  shared_model::crypto::PublicKey pubkey1(std::string(32, '1'));
-  shared_model::crypto::PublicKey pubkey2(std::string(32, '2'));
+  auto pubkey1{"1"_hex_pubkey};
+  auto pubkey2{"2"_hex_pubkey};
 
   auto user1id = "userone@domain";
   auto user2id = "usertwo@domain";
@@ -460,25 +463,28 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
   shared_model::crypto::Keypair key{
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()};
 
-  auto genesis_tx = shared_model::proto::TransactionBuilder()
-                        .creatorAccountId("admin@test")
-                        .createdTime(iroha::time::now())
-                        .quorum(1)
-                        .createRole("admin",
-                                    {Role::kCreateDomain,
-                                     Role::kCreateAccount,
-                                     Role::kAddAssetQty,
-                                     Role::kAddPeer,
-                                     Role::kReceive,
-                                     Role::kTransfer})
-                        .createDomain("test", "admin")
-                        .createAccount("admin", "test", key.publicKey())
-                        .createAccount("receiver", "test", key.publicKey())
-                        .createAsset("coin", "test", 2)
-                        .addAssetQuantity("coin#test", "20.00")
-                        .build()
-                        .signAndAddSignature(key)
-                        .finish();
+  auto genesis_tx =
+      shared_model::proto::TransactionBuilder()
+          .creatorAccountId("admin@test")
+          .createdTime(iroha::time::now())
+          .quorum(1)
+          .createRole("admin",
+                      {Role::kCreateDomain,
+                       Role::kCreateAccount,
+                       Role::kAddAssetQty,
+                       Role::kAddPeer,
+                       Role::kReceive,
+                       Role::kTransfer})
+          .createDomain("test", "admin")
+          .createAccount(
+              "admin", "test", PublicKeyHexStringView{key.publicKey()})
+          .createAccount(
+              "receiver", "test", PublicKeyHexStringView{key.publicKey()})
+          .createAsset("coin", "test", 2)
+          .addAssetQuantity("coin#test", "20.00")
+          .build()
+          .signAndAddSignature(key)
+          .finish();
 
   auto genesis_block = createBlock({genesis_tx});
   apply(storage, genesis_block);
@@ -543,7 +549,8 @@ class PreparedBlockTest : public AmetsuchiTest {
                                Role::kReceive,
                                Role::kTransfer})
                   .createDomain(default_domain, default_role)
-                  .createAccount("admin", "test", key.publicKey())
+                  .createAccount(
+                      "admin", "test", PublicKeyHexStringView{key.publicKey()})
                   .createAsset("coin", default_domain, 2)
                   .addAssetQuantity("coin#test", base_balance.toStringRepr())
                   .build()
