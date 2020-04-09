@@ -77,6 +77,7 @@ These include the following smart contracts to support asset management use case
 * groupAssets
 * ungroupAssets
 * swapAssets
+* invoiceAsset
 
 Arbitrary data can be stored using the following:
 
@@ -126,7 +127,11 @@ As an example illustrating why conditional multisig is useful, consider a situat
 
 ### 2.5.1 Event Listeners
 
-Triggers can be either based on time or on a confirmed transaction.
+Triggers can be either based on time or on a confirmed transaction (event). This is very powerful and enables Turing complete computation for Iroha's smart contracts.
+
+* Trigger at timestamp
+* Trigger at blockchain
+* Trigger at *conditional*
 
 ### 2.6. Transactions
 
