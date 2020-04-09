@@ -1,0 +1,8 @@
+[package]
+name = "iroha_macro"
+version = "0.1.0"
+authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+edition = "2018"
+
+[dependencies]
+parity-scale-codec = "1.2"

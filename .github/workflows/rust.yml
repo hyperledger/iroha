@@ -13,6 +13,30 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Cache cargo registry
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo index
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache workspace target
+      uses: actions/cache@v1
+      env:
+        cache-name: ${{ runner.os }}-cargo-build-target
+      with:
+        path: target
+        key: workspace-target
+    - name: Cache iroha target
+      uses: actions/cache@v1
+      env:
+        cache-name: criterion-iroha-target
+      with:
+        path: iroha/target
+        key: iroha-target
     - name: Format check
       run: cargo fmt -- --check
     - name: Static analysis
@@ -25,3 +49,5 @@ jobs:
       run: |
         cargo install --debug cargo-make
         cargo make test-flow
+    - name: Run benchmarks
+      run: cargo bench
