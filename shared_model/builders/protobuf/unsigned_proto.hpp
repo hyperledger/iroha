@@ -57,16 +57,14 @@ namespace shared_model {
        * @return signed object
        */
       UnsignedWrapper &signAndAddSignature(const crypto::Keypair &keypair) {
-        auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
+        auto signature_hex = shared_model::crypto::CryptoSigner<>::sign(
             shared_model::crypto::Blob(object_.payload()), keypair);
         if (object_finalized_) {
           throw std::runtime_error("object has already been finalized");
         }
-        object_.addSignature(
-            shared_model::interface::types::SignedHexStringView{
-                signedBlob.hex()},
-            shared_model::interface::types::PublicKeyHexStringView{
-                keypair.publicKey().hex()});
+        using namespace shared_model::interface::types;
+        object_.addSignature(SignedHexStringView{signature_hex},
+                             PublicKeyHexStringView{keypair.publicKey()});
         // TODO: 05.12.2017 luckychess think about false case
         return *this;
       }

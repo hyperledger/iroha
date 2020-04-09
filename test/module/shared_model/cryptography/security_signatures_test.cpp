@@ -5,7 +5,10 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <string>
 
+#include "framework/crypto_literals.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -16,19 +19,17 @@
  * @then  Expect true
  */
 TEST(SecuritySignature, SignatureOperatorEqual) {
-  shared_model::crypto::PublicKey pk1("one"), pk2("one");
-  shared_model::crypto::Signed data1("signed_one"), data2("signed_two");
   auto first_signature = std::make_unique<MockSignature>();
   auto second_signature = std::make_unique<MockSignature>();
 
   EXPECT_CALL(*first_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk1.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"one"}));
   EXPECT_CALL(*second_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk2.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"one"}));
   EXPECT_CALL(*first_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data1.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"signed_one"}));
   EXPECT_CALL(*second_signature, signedData())
-      .WillRepeatedly(testing::ReturnRef(data2.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{"signed_two"}));
 
   ASSERT_TRUE(*first_signature == *second_signature);
 }
@@ -39,13 +40,10 @@ TEST(SecuritySignature, SignatureOperatorEqual) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, TransactionAddsignature) {
-  using namespace std::literals;
   auto tx = TestTransactionBuilder().build();
-  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
-  ASSERT_TRUE(tx.addSignature(
-      shared_model::interface::types::SignedHexStringView{"0A"sv}, public_key));
-  ASSERT_FALSE(tx.addSignature(
-      shared_model::interface::types::SignedHexStringView{"0C"sv}, public_key));
+  auto public_key{"same_pubkey"_hex_pubkey};
+  ASSERT_TRUE(tx.addSignature("signature 1"_hex_sig, public_key));
+  ASSERT_FALSE(tx.addSignature("signature 2"_hex_sig, public_key));
 }
 
 /**
@@ -54,11 +52,8 @@ TEST(SecuritySignature, TransactionAddsignature) {
  * @then  Expect that second signature wasn't added
  */
 TEST(SecuritySignature, BlockAddSignature) {
-  using namespace std::literals;
   auto block = TestBlockBuilder().build();
-  shared_model::interface::types::PublicKeyHexStringView public_key{"0B"sv};
-  ASSERT_TRUE(block.addSignature(
-      shared_model::interface::types::SignedHexStringView{"0A"sv}, public_key));
-  ASSERT_FALSE(block.addSignature(
-      shared_model::interface::types::SignedHexStringView{"0C"sv}, public_key));
+  auto public_key{"same_pubkey"_hex_pubkey};
+  ASSERT_TRUE(block.addSignature("signature 1"_hex_sig, public_key));
+  ASSERT_FALSE(block.addSignature("signature 2"_hex_sig, public_key));
 }

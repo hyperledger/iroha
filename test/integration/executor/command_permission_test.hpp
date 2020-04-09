@@ -11,6 +11,7 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/executor_fixture.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 
 namespace executor_testing {
@@ -68,6 +69,7 @@ namespace executor_testing {
                             additional_actor_permissions = {}) {
         using namespace common_constants;
         using namespace framework::expected;
+        using shared_model::interface::types::PublicKeyHexStringView;
 
         auto &target_permissions = additional_target_permissions;
         if (getActor() == kUserId) {
@@ -83,17 +85,20 @@ namespace executor_testing {
 
         // create target user
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-            kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
+            kUser,
+            kDomain,
+            PublicKeyHexStringView{kUserKeypair.publicKey()},
+            target_permissions));
 
         if (getActor() != kUserId) {
           auto &actor_permissions = additional_actor_permissions;
           actor_permissions |= permissions_param_.actor_role_permissions;
           auto split_actor_id = splitAccountId(getActor());
-          IROHA_ASSERT_RESULT_VALUE(
-              getItf().createUserWithPerms(split_actor_id.first,
-                                           split_actor_id.second,
-                                           kSameDomainUserKeypair.publicKey(),
-                                           actor_permissions));
+          IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
+              split_actor_id.first,
+              split_actor_id.second,
+              PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+              actor_permissions));
         }
 
         // grant current actor the permissions

@@ -10,7 +10,6 @@
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"

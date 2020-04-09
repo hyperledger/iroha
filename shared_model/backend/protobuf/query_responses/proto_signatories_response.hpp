@@ -8,7 +8,6 @@
 
 #include "interfaces/query_responses/signatories_response.hpp"
 
-#include "cryptography/public_key.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {

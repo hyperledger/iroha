@@ -103,7 +103,7 @@ CommandResult ExecutorItf::createRoleWithPerms(
 CommandResult ExecutorItf::createUserWithPerms(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    shared_model::interface::types::PublicKeyHexStringView pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   return createUserWithPermsInternal(account_name, domain, pubkey, role_perms) |
       [&, this] { return this->grantAllToAdmin(account_name + "@" + domain); };
@@ -145,7 +145,7 @@ CommandResult ExecutorItf::grantAllToAdmin(
 CommandResult ExecutorItf::createUserWithPermsInternal(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    shared_model::interface::types::PublicKeyHexStringView pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   createDomain(domain);
 
@@ -175,6 +175,10 @@ Result<void, std::string> ExecutorItf::prepareState() const {
 CommandResult ExecutorItf::createAdmin() const {
   shared_model::interface::RolePermissionSet all_role_perms;
   all_role_perms.setAll();
+  using shared_model::interface::types::PublicKeyHexStringView;
   return createUserWithPermsInternal(
-      kAdminName, kDomain, kAdminKeypair.publicKey(), all_role_perms);
+      kAdminName,
+      kDomain,
+      PublicKeyHexStringView{kAdminKeypair.publicKey()},
+      all_role_perms);
 }

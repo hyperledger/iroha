@@ -7,10 +7,6 @@
 
 namespace shared_model {
   namespace crypto {
-
-    PrivateKey::PrivateKey(const std::string &private_key)
-        : Blob(private_key) {}
-
     PrivateKey::PrivateKey(const Blob &blob) : Blob(blob.blob()) {}
 
     std::string PrivateKey::toString() const {

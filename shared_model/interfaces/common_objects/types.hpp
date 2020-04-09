@@ -18,8 +18,6 @@ namespace shared_model {
   namespace crypto {
     class Blob;
     class Hash;
-    class PublicKey;
-    class Signed;
   }  // namespace crypto
 
   namespace interface {
@@ -43,10 +41,8 @@ namespace shared_model {
       using HeightType = uint64_t;
       /// Type of peer address
       using AddressType = std::string;
-      /// Type of public key
-      using PubkeyType = crypto::PublicKey;
       /// Type of public keys' collection
-      using PublicKeyCollectionType = std::vector<PubkeyType>;
+      using PublicKeyCollectionType = std::vector<std::string>;
       /// Type of role (i.e admin, user)
       using RoleIdType = std::string;
       /// Iroha domain id type

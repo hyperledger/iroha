@@ -42,7 +42,8 @@ PropagationData generate(std::vector<std::string> &ids, size_t num) {
   PropagationData peers;
   std::transform(
       ids.begin(), ids.end(), std::back_inserter(peers), [](auto &s) {
-        return makePeer(s, shared_model::interface::types::PubkeyType(""));
+        return makePeer(
+            s, shared_model::interface::types::PublicKeyHexStringView{});
       });
   return peers;
 }

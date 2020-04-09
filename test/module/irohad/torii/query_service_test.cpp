@@ -11,6 +11,7 @@
 #include "framework/test_logger.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/torii/processor/mock_query_processor.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "utils/query_error_response_visitor.hpp"
 #include "validators/protobuf/proto_query_validator.hpp"
 

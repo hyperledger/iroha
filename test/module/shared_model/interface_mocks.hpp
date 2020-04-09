@@ -7,8 +7,6 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -202,16 +200,6 @@ inline auto makePeer(
   EXPECT_CALL(*peer, tlsCertificate())
       .WillRepeatedly(testing::ReturnRefOfCopy(tls_certificate));
   return peer;
-}
-
-inline auto makePeer(
-    std::string_view address,
-    const shared_model::crypto::PublicKey &pub_key,
-    const std::optional<shared_model::interface::types::TLSCertificateType>
-        &tls_certificate = std::nullopt) {
-  using shared_model::interface::types::PublicKeyHexStringView;
-  return makePeer(
-      address, PublicKeyHexStringView{pub_key.hex()}, tls_certificate);
 }
 
 struct MockUnsafeProposalFactory

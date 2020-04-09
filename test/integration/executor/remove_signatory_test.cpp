@@ -6,29 +6,34 @@
 #include "integration/executor/executor_fixture.hpp"
 
 #include <gtest/gtest.h>
-#include "cryptography/public_key.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 
+using namespace std::literals;
 using namespace common_constants;
 using namespace executor_testing;
 using namespace framework::expected;
 
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
+using shared_model::interface::types::PublicKeyHexStringView;
 
-static const shared_model::crypto::PublicKey kTargetSignatory{
-    "target_signatory"};
+static const shared_model::interface::types::PublicKeyHexStringView
+    kTargetSignatory{"target_signatory"sv};
 
 class RemoveSignatoryTest : public ExecutorTestBase {
  public:
   void addTargetUser(const shared_model::interface::RolePermissionSet &perms) {
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), perms));
+        kUser,
+        kDomain,
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        perms));
   }
 
   void addSignatory() {
@@ -48,7 +53,8 @@ class RemoveSignatoryTest : public ExecutorTestBase {
   }
 
  protected:
-  const shared_model::crypto::PublicKey &old_sig_{kUserKeypair.publicKey()};
+  shared_model::interface::types::PublicKeyHexStringView old_sig_{
+      PublicKeyHexStringView{kUserKeypair.publicKey()}};
 };
 
 using RemoveSignatoryBasicTest = BasicExecutorTest<RemoveSignatoryTest>;
@@ -59,11 +65,11 @@ using RemoveSignatoryBasicTest = BasicExecutorTest<RemoveSignatoryTest>;
  * @then the command fails
  */
 TEST_P(RemoveSignatoryBasicTest, NonExistentUser) {
-  IROHA_ASSERT_RESULT_VALUE(
-      getItf().createUserWithPerms(kSecondUser,
-                                   kDomain,
-                                   kSameDomainUserKeypair.publicKey(),
-                                   {Role::kRemoveSignatory}));
+  IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
+      kSecondUser,
+      kDomain,
+      PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+      {Role::kRemoveSignatory}));
 
   checkCommandError(issueRemoveSignatoryBy(kSameDomainUserId), 3);
 }

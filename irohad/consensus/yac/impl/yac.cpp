@@ -15,8 +15,6 @@
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/timer.hpp"
 #include "consensus/yac/yac_crypto_provider.hpp"
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
 

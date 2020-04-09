@@ -10,7 +10,6 @@
 #include "backend/protobuf/query_responses/proto_block_query_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/common_objects/peer.hpp"
 
@@ -204,7 +203,7 @@ shared_model::proto::ProtoQueryResponseFactory::createErrorQueryResponse(
 
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createSignatoriesResponse(
-    std::vector<shared_model::interface::types::PubkeyType> signatories,
+    std::vector<std::string> signatories,
     const crypto::Hash &query_hash) const {
   return createQueryResponse(
       [signatories = std::move(signatories)](
@@ -212,7 +211,7 @@ shared_model::proto::ProtoQueryResponseFactory::createSignatoriesResponse(
         iroha::protocol::SignatoriesResponse *protocol_specific_response =
             protocol_query_response.mutable_signatories_response();
         for (const auto &key : signatories) {
-          protocol_specific_response->add_keys(key.hex());
+          protocol_specific_response->add_keys(key);
         }
       },
       query_hash);

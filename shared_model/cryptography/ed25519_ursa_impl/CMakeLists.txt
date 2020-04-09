@@ -3,21 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(USE_LIBURSA)
-	add_library(ursa_cryptography
-	    crypto_provider.cpp
-	    )
-	target_link_libraries(ursa_cryptography
-		ursa
-		multihash
-		)
-else()
-	add_library(ursa_cryptography
-	    crypto_provider_stub.cpp
-	    )
-endif()
+find_package(ursa REQUIRED)
 
-target_link_libraries(ursa_cryptography
-    shared_model_cryptography_model
-    common
+add_library(ursa_cryptography
+    crypto_provider.cpp
     )
+target_link_libraries(ursa_cryptography
+    common
+    shared_model_cryptography_model
+    ursa
+    )
+
+target_compile_definitions(ursa_cryptography
+  PUBLIC
+    USE_LIBURSA
+  )

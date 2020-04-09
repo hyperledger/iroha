@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 
 #include <gmock/gmock.h>
@@ -19,6 +20,7 @@
 #include "module/irohad/validation/validation_mocks.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "validation/chain_validator.hpp"
 
@@ -70,8 +72,10 @@ class SynchronizerTest : public ::testing::Test {
       // TODO mboldyrev 21.03.2019 IR-424 Avoid using honest crypto
       ledger_peer_keys.push_back(
           shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair());
-      ledger_peers.push_back(
-          makePeer(std::to_string(i), ledger_peer_keys.back().publicKey()));
+      using shared_model::interface::types::PublicKeyHexStringView;
+      ledger_peers.push_back(makePeer(
+          std::to_string(i),
+          PublicKeyHexStringView{ledger_peer_keys.back().publicKey()}));
     }
 
     commit_message = makeCommit();

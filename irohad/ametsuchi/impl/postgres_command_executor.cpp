@@ -14,7 +14,6 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"

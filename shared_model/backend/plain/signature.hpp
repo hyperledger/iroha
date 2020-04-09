@@ -8,13 +8,18 @@
 
 #include "interfaces/common_objects/signature.hpp"
 
+#include "interfaces/common_objects/string_view_types.hpp"
+
 namespace shared_model {
 
   namespace plain {
 
     class Signature final : public interface::Signature {
      public:
-      Signature(std::string signed_data_hex, std::string public_key_hex);
+      Signature(
+          shared_model::interface::types::SignedHexStringView signed_data_hex,
+          shared_model::interface::types::PublicKeyHexStringView
+              public_key_hex);
 
       const std::string &publicKey() const override;
 

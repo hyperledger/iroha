@@ -9,12 +9,12 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
 
@@ -77,12 +77,13 @@ namespace iroha {
 
     /// Create first block with 4 peers, apply it to storage and return it
     auto generateAndApplyFirstBlock() {
+      using Pk = PublicKeyHexStringView;
       auto tx =
           completeTx(baseTx()
-                         .addPeer("0.0.0.0:50541", keys.at(0).publicKey())
-                         .addPeer("0.0.0.0:50542", keys.at(1).publicKey())
-                         .addPeer("0.0.0.0:50543", keys.at(2).publicKey())
-                         .addPeer("0.0.0.0:50544", keys.at(3).publicKey()));
+                         .addPeer("0.0.0.0:50541", Pk{keys.at(0).publicKey()})
+                         .addPeer("0.0.0.0:50542", Pk{keys.at(1).publicKey()})
+                         .addPeer("0.0.0.0:50543", Pk{keys.at(2).publicKey()})
+                         .addPeer("0.0.0.0:50544", Pk{keys.at(3).publicKey()}));
 
       auto block = completeBlock(
           baseBlock({tx},
@@ -130,8 +131,8 @@ namespace iroha {
   TEST_F(ChainValidatorStorageTest, PeerAdded) {
     auto block1 = generateAndApplyFirstBlock();
 
-    auto add_peer =
-        completeTx(baseTx().addPeer("0.0.0.0:50545", keys.at(4).publicKey()));
+    auto add_peer = completeTx(baseTx().addPeer(
+        "0.0.0.0:50545", PublicKeyHexStringView{keys.at(4).publicKey()}));
     auto block2 = completeBlock(baseBlock({add_peer}, 2, block1->hash())
                                     .signAndAddSignature(keys.at(0))
                                     .signAndAddSignature(keys.at(1))
