@@ -33,8 +33,8 @@ namespace iroha {
    * @return - raw bytes converted string or boost::noneif provided string
    * was not a correct hex string
    */
-  inline iroha::expected::Result<std::string, std::string>
-  hexstringToBytestringResult(const std::string &str) {
+  inline iroha::expected::Result<std::string, const char *>
+  hexstringToBytestringResult(const std::string_view &str) {
     using namespace iroha::expected;
     if (str.empty()) {
       return makeError("Empty hex string.");

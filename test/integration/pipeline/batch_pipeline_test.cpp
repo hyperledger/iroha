@@ -14,6 +14,7 @@
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
 using namespace common_constants;

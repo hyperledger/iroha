@@ -9,11 +9,11 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;

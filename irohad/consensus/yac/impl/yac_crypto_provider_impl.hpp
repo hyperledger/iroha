@@ -9,13 +9,15 @@
 #include "consensus/yac/yac_crypto_provider.hpp"
 
 #include "cryptography/keypair.hpp"
+#include "logger/logger_fwd.hpp"
 
 namespace iroha {
   namespace consensus {
     namespace yac {
       class CryptoProviderImpl : public YacCryptoProvider {
        public:
-        CryptoProviderImpl(const shared_model::crypto::Keypair &keypair);
+        CryptoProviderImpl(const shared_model::crypto::Keypair &keypair,
+                           logger::LoggerPtr log);
 
         bool verify(const std::vector<VoteMessage> &msg) override;
 
@@ -23,6 +25,7 @@ namespace iroha {
 
        private:
         shared_model::crypto::Keypair keypair_;
+        logger::LoggerPtr log_;
       };
     }  // namespace yac
   }    // namespace consensus

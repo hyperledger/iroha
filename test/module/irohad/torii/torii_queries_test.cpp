@@ -30,6 +30,7 @@
 
 #include "framework/common_constants.hpp"
 #include "main/server_runner.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "torii/processor/query_processor_impl.hpp"
 #include "torii/query_client.hpp"
 #include "torii/query_service.hpp"

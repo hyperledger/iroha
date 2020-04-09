@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "module/irohad/consensus/yac/yac_fixture.hpp"
+
 #include <iostream>
 #include <memory>
 #include <string>
@@ -14,7 +16,6 @@
 
 #include "backend/plain/peer.hpp"
 #include "framework/test_subscriber.hpp"
-#include "module/irohad/consensus/yac/yac_fixture.hpp"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -58,7 +59,8 @@ TEST_F(YacTest, YacWhenColdStartAndAchieveOneVote) {
 
   YacHash received_hash(initial_round, "my_proposal", "my_block");
   // assume that our peer receive message
-  network->notification->onState({crypto->getVote(received_hash, "0")});
+  network->notification->onState(
+      {crypto->getVote(received_hash, default_peers[0]->pubkey())});
 
   ASSERT_TRUE(wrapper.validate());
 }
@@ -89,9 +91,9 @@ TEST_F(YacTest, DISABLED_YacWhenColdStartAndAchieveSupermajorityOfVotes) {
       .WillRepeatedly(Return(true));
 
   YacHash received_hash(initial_round, "my_proposal", "my_block");
-  for (size_t i = 0; i < default_peers.size(); ++i) {
+  for (auto peer : default_peers) {
     network->notification->onState(
-        {crypto->getVote(received_hash, std::to_string(i))});
+        {crypto->getVote(received_hash, peer->pubkey())});
   }
 
   ASSERT_TRUE(wrapper.validate());

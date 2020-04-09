@@ -42,6 +42,15 @@ namespace shared_model {
       return blob_;
     }
 
+    shared_model::interface::types::ByteRange Blob::range() const {
+      const auto &_blob = blob();
+      static_assert(sizeof(std::byte)
+                        == sizeof(std::decay_t<decltype(_blob)>::value_type),
+                    "Type size mismatch!");
+      return shared_model::interface::types::ByteRange{
+          reinterpret_cast<const std::byte *>(_blob.data()), _blob.size()};
+    }
+
     const std::string &Blob::hex() const {
       return hex_;
     }

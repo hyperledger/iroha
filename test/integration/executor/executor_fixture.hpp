@@ -10,11 +10,11 @@
 
 #include <gtest/gtest.h>
 #include "common/result.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/executor_fixture_param.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 

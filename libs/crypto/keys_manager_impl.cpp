@@ -11,12 +11,14 @@
 #include "common/byteutils.hpp"
 #include "common/files.hpp"
 #include "common/result.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
 
 using namespace shared_model::crypto;
 
 using iroha::operator|;
+
+using CryptoAlgorithmType = CryptoProviderEd25519Sha3;
 
 namespace {
   /**
@@ -24,20 +26,15 @@ namespace {
    * @param keypair - keypair for validation
    * @return error if any, boost::none otherwise
    */
-  boost::optional<std::string> validate(const Keypair &keypair) {
-    if (keypair.publicKey().blob().size()
-        != DefaultCryptoAlgorithmType::kPublicKeyLength) {
-      return std::string{"Wrong public key size."};
-    }
-    if (keypair.privateKey().blob().size()
-        != DefaultCryptoAlgorithmType::kPrivateKeyLength) {
-      return std::string{"Wrong private key size."};
-    }
+  boost::optional<const char *> validate(const Keypair &keypair) {
     auto test = Blob("12345");
-    auto sig = DefaultCryptoAlgorithmType::sign(test, keypair);
-    if (not DefaultCryptoAlgorithmType::verify(
-            sig, test, keypair.publicKey())) {
-      return std::string{"Key validation failed."};
+    auto sig = CryptoAlgorithmType::sign(test, keypair);
+    if (not CryptoAlgorithmType::verify(
+            shared_model::interface::types::SignatureByteRangeView{sig.range()},
+            test,
+            shared_model::interface::types::PublicKeyByteRangeView{
+                keypair.publicKey().range()})) {
+      return "Key validation failed.";
     }
     return boost::none;
   }
@@ -87,7 +84,10 @@ namespace iroha {
     auto load_from_file = [this](const auto &extension) {
       return iroha::readTextFile(
                  (path_to_keypair_ / (account_id_ + extension)).string())
-          | [](auto &&hex) { return iroha::hexstringToBytestringResult(hex); };
+                 | [](auto &&hex)
+                 -> iroha::expected::Result<std::string, std::string> {
+        return iroha::hexstringToBytestringResult(hex);
+      };
     };
 
     return load_from_file(kPublicKeyExtension) | [&](auto &&pubkey_blob) {
@@ -107,7 +107,7 @@ namespace iroha {
 
   bool KeysManagerImpl::createKeys(
       const boost::optional<std::string> &pass_phrase) {
-    Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
+    Keypair keypair = CryptoAlgorithmType::generateKeypair();
 
     auto pub = keypair.publicKey().hex();
     auto &&priv = pass_phrase

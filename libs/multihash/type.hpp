@@ -8,18 +8,26 @@
 
 #include <cstdint>
 
-namespace libp2p {
-  namespace multi {
+namespace iroha {
+  namespace multihash {
     /// https://github.com/multiformats/js-multihash/blob/master/src/constants.js
-    enum HashType : uint64_t {
+    enum Type : uint64_t {
+      //
+      // --- Hash types ---
+      //
       sha1 = 0x11,
       sha256 = 0x12,
       sha512 = 0x13,
       blake2s128 = 0xb250,
       blake2s256 = 0xb260,
+
+      //
+      // --- PublicKey types ---
+      //
       ed25519pub = 0xed,
+
     };
-  }  // namespace multi
-}  // namespace libp2p
+  }  // namespace multihash
+}  // namespace iroha
 
 #endif  // KAGOME_HASH_TYPE_HPP

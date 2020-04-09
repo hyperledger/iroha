@@ -24,6 +24,7 @@
 #include "builders/protobuf/queries.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/validators/validators_fixture.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_output.hpp"
@@ -409,7 +410,7 @@ class FieldValidatorTest : public ValidatorsTest {
 
   std::vector<FieldTestCase> public_key_test_cases{
       makeValidCase(&FieldValidatorTest::public_key, std::string(64, '0')),
-      invalidPublicKeyTestCase("invalid_key_length", std::string(128, '0')),
+      invalidPublicKeyTestCase("invalid_key_length", std::string(200, '0')),
       invalidPublicKeyTestCase("empty_string", "")};
 
   std::vector<FieldTestCase> peer_test_cases{
@@ -457,7 +458,7 @@ class FieldValidatorTest : public ValidatorsTest {
       // invalid pubkey
       makeInvalidPeerPubkeyTestCase("invalid_peer_pubkey_length",
                                     "182.13.35.1:3040",
-                                    std::string(123, '0')),
+                                    std::string(200, '0')),
       makeInvalidPeerPubkeyTestCase(
           "invalid_peer_pubkey_empty", "182.13.35.1:3040", "")
       // clang-format on

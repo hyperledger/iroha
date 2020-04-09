@@ -10,7 +10,6 @@
 #include <rxcpp/rx-lite.hpp>
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
@@ -19,6 +18,7 @@
 #include "module/irohad/consensus/yac/mock_yac_peer_orderer.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
 #include "module/irohad/simulator/simulator_mocks.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha::consensus::yac;

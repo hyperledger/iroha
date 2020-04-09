@@ -49,8 +49,8 @@ namespace iroha {
 
           // getTransport is not used in network at the moment, please check if
           // test fails
-          message.hash.block_signature = createSig("");
-          message.signature = createSig("");
+          message.hash.block_signature = createSig();
+          message.signature = createSig();
           message.hash.vote_round = {};
           network->subscribe(notifications);
 

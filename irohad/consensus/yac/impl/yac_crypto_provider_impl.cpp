@@ -6,32 +6,39 @@
 #include "consensus/yac/impl/yac_crypto_provider_impl.hpp"
 
 #include "backend/plain/signature.hpp"
+#include "common/result.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
+#include "logger/logger.hpp"
 
 namespace iroha {
   namespace consensus {
     namespace yac {
       CryptoProviderImpl::CryptoProviderImpl(
-          const shared_model::crypto::Keypair &keypair)
-          : keypair_(keypair) {}
+          const shared_model::crypto::Keypair &keypair, logger::LoggerPtr log)
+          : keypair_(keypair), log_(std::move(log)) {}
 
       bool CryptoProviderImpl::verify(const std::vector<VoteMessage> &msg) {
         return std::all_of(
-            std::begin(msg), std::end(msg), [](const auto &vote) {
+            std::begin(msg), std::end(msg), [this](const auto &vote) {
               auto serialized =
                   PbConverters::serializeVote(vote).hash().SerializeAsString();
               auto blob = shared_model::crypto::Blob(serialized);
 
-              return shared_model::crypto::CryptoVerifier<>::verify(
-                  shared_model::crypto::Signed(
-                      shared_model::crypto::Blob::fromHexString(
-                          vote.signature->signedData())),
-                  blob,
-                  shared_model::crypto::PublicKey(
-                      shared_model::crypto::Blob::fromHexString(
-                          vote.signature->publicKey())));
+              using namespace shared_model::interface::types;
+              return shared_model::crypto::CryptoVerifier::verify(
+                         makeStrongView<SignedHexStringView>(
+                             vote.signature->signedData()),
+                         blob,
+                         makeStrongView<PublicKeyHexStringView>(
+                             vote.signature->publicKey()))
+                  .match([](const auto &) { return true; },
+                         [this](const auto &error) {
+                           log_->debug("Vote signature verification failed: {}",
+                                       error.error);
+                           return false;
+                         });
             });
       }
 

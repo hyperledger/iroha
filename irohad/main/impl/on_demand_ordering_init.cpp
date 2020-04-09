@@ -17,7 +17,6 @@
 #include "common/bind.hpp"
 #include "common/delay.hpp"
 #include "common/permutation_generator.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/types.hpp"

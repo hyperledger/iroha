@@ -11,6 +11,7 @@
 #include "framework/batch_helper.hpp"
 #include "framework/result_fixture.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
 using ::testing::_;

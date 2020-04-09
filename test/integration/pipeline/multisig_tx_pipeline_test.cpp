@@ -7,11 +7,11 @@
 
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "builders/protobuf/queries.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/transactions_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace std::string_literals;
 using namespace integration_framework;

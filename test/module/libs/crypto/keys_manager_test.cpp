@@ -10,9 +10,9 @@
 #include <fstream>
 #include <string>
 #include "crypto/keys_manager_impl.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace iroha;
 using namespace boost::filesystem;

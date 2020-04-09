@@ -24,6 +24,7 @@
 #include "common/files.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "generator/generator.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -572,8 +573,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
   decltype(top_height) block_hashes =
       top_height > kNumBlocks ? kNumBlocks : top_height;
 
-  auto hash_stub = shared_model::interface::types::HashType{std::string(
-      shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0')};
+  auto hash_stub = shared_model::interface::types::HashType{
+      std::string(shared_model::crypto::DefaultHashProvider::kHashLength, '0')};
   std::vector<shared_model::interface::types::HashType> hashes{
       kNumBlocks - block_hashes, hash_stub};
 

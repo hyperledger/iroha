@@ -9,12 +9,12 @@
 #include "ametsuchi/mutable_storage.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using shared_model::interface::types::PublicKeyHexStringView;
 

@@ -10,7 +10,6 @@
 
 #include "builders/protobuf/builder_templates/transaction_template.hpp"
 #include "consensus/consensus_block_cache.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/hash.hpp"
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
@@ -21,6 +20,7 @@
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "network/impl/block_loader_impl.hpp"
 #include "network/impl/block_loader_service.hpp"

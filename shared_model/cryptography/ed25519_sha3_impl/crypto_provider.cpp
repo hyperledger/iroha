@@ -8,6 +8,9 @@
 #include "cryptography/ed25519_sha3_impl/signer.hpp"
 #include "cryptography/ed25519_sha3_impl/verifier.hpp"
 
+using shared_model::interface::types::PublicKeyByteRangeView;
+using shared_model::interface::types::SignatureByteRangeView;
+
 namespace shared_model {
   namespace crypto {
 
@@ -16,10 +19,11 @@ namespace shared_model {
       return Signer::sign(blob, keypair);
     }
 
-    bool CryptoProviderEd25519Sha3::verify(const Signed &signedData,
-                                           const Blob &orig,
-                                           const PublicKey &publicKey) {
-      return Verifier::verify(signedData, orig, publicKey);
+    bool CryptoProviderEd25519Sha3::verify(
+        const SignatureByteRangeView &signature,
+        const Blob &orig,
+        const PublicKeyByteRangeView &public_key) {
+      return Verifier::verify(signature, orig, public_key);
     }
 
     Seed CryptoProviderEd25519Sha3::generateSeed() {

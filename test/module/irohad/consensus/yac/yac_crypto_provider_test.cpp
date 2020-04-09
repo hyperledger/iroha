@@ -8,8 +8,8 @@
 #include <gtest/gtest.h>
 
 #include "consensus/yac/outcome_messages.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
-
+#include "framework/test_logger.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using ::testing::_;
@@ -30,7 +30,8 @@ namespace iroha {
                           generateKeypair()) {}
 
         void SetUp() override {
-          crypto_provider = std::make_shared<CryptoProviderImpl>(keypair);
+          crypto_provider = std::make_shared<CryptoProviderImpl>(
+              keypair, getTestLogger("CryptoProviderImpl"));
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature(

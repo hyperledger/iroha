@@ -7,6 +7,15 @@
 
 #include "ursa_crypto.h"
 
+using shared_model::interface::types::ByteRange;
+
+namespace {
+  ByteRange irohaToUrsaBuffer(const ByteRange buffer) {
+    return ByteBuffer{(int64_t)buffer.size(),
+                      static_cast<uint8_t *>(buffer.data())};
+  }
+}  // namespace
+
 namespace shared_model {
   namespace crypto {
     Signed CryptoProviderEd25519Ursa::sign(const Blob &blob,
@@ -28,28 +37,24 @@ namespace shared_model {
         return Signed{""};
       }
 
-      Signed result(std::string((const std::string::value_type *)signature.data,
-                                signature.len));
+      Signed result(
+          {(const std::string::value_type *)signature.data, signature.len});
 
       ursa_ed25519_bytebuffer_free(signature);
       return result;
     }
 
-    bool CryptoProviderEd25519Ursa::verify(const Signed &signed_data,
-                                           const Blob &orig,
-                                           const PublicKey &public_key) {
-      ExternError err;
+    bool CryptoProviderEd25519Ursa::verify(const ByteRange &signed_data,
+                                           const ByteRange &source,
+                                           const ByteRange &public_key) {
+      assert(signed_data.size() == kSignatureLength);
+      assert(public_key.size() == kPublicKeyLength);
 
-      const ByteBuffer kMessage = {(int64_t)orig.blob().size(),
-                                   const_cast<uint8_t *>(orig.blob().data())};
+      ExternErkor err;
 
-      const ByteBuffer kSignature = {
-          (int64_t)signed_data.blob().size(),
-          const_cast<uint8_t *>(signed_data.blob().data())};
-
-      const ByteBuffer kPublicKey = {
-          (int64_t)public_key.blob().size(),
-          const_cast<uint8_t *>(public_key.blob().data())};
+      const ByteBuffer kMessage = irohaToUrsaBuffer(source);
+      const ByteBuffer kSignature = irohaToUrsaBuffer(signed_data);
+      const ByteBuffer kPublicKey = irohaToUrsaBuffer(public_key);
 
       if (!ursa_ed25519_verify(&kMessage, &kSignature, &kPublicKey, &err)) {
         // handle error
@@ -71,9 +76,16 @@ namespace shared_model {
         return Keypair{PublicKey{""}, PrivateKey{""}};
       }
 
-      Keypair result(PublicKey(std::string(
-                         (const std::string::value_type *)public_key.data,
-                         public_key.len)),
+      std::string multi_blob{(const std::string::value_type *)public_key.data,
+                             public_key.len};
+
+      auto mh_pubkey = *iroha::expected::resultToOptionalValue(
+          libp2p::multi::Multihash::create(
+              libp2p::multi::HashType::ed25519pub,
+              kagome::common::Buffer{
+                  std::vector<uint8_t>{multi_blob.begin(), multi_blob.end()}}));
+
+      Keypair result(PublicKey(mh_pubkey.toBuffer().toVector()),
                      PrivateKey(std::string(
                          (const std::string::value_type *)private_key.data,
                          private_key.len)));
@@ -99,9 +111,16 @@ namespace shared_model {
         return Keypair{PublicKey{""}, PrivateKey{""}};
       }
 
-      Keypair result(PublicKey(std::string(
-                         (const std::string::value_type *)public_key.data,
-                         public_key.len)),
+      std::string multi_blob{(const std::string::value_type *)public_key.data,
+                             public_key.len};
+
+      auto mh_pubkey = *iroha::expected::resultToOptionalValue(
+          libp2p::multi::Multihash::create(
+              libp2p::multi::HashType::ed25519pub,
+              kagome::common::Buffer{
+                  std::vector<uint8_t>{multi_blob.begin(), multi_blob.end()}}));
+
+      Keypair result(PublicKey(mh_pubkey.toBuffer().toVector()),
                      PrivateKey(std::string(
                          (const std::string::value_type *)private_key.data,
                          private_key.len)));

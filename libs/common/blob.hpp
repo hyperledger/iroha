@@ -14,6 +14,7 @@
 
 #include "common/hexutils.hpp"
 #include "common/result.hpp"
+#include "interfaces/common_objects/byte_range.hpp"
 
 namespace iroha {
   using BadFormatException = std::invalid_argument;

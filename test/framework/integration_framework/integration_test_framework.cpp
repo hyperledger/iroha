@@ -25,7 +25,6 @@
 #include "builders/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction_sequence_builder.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
 #include "endpoint.grpc.pb.h"

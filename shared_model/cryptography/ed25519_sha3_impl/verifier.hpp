@@ -6,8 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_VERIFIER_HPP
 #define IROHA_SHARED_MODEL_VERIFIER_HPP
 
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
+#include "cryptography/blob.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -16,9 +16,12 @@ namespace shared_model {
      */
     class Verifier {
      public:
-      static bool verify(const Signed &signedData,
-                         const Blob &orig,
-                         const PublicKey &publicKey);
+      static bool verify(
+          const shared_model::interface::types::SignatureByteRangeView
+              &signature,
+          const Blob &orig,
+          const shared_model::interface::types::PublicKeyByteRangeView
+              &public_key);
     };
 
   }  // namespace crypto

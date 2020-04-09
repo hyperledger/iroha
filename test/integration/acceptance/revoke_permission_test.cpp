@@ -6,6 +6,7 @@
 #include "builders/protobuf/builder_templates/query_template.hpp"
 
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace integration_framework;
 

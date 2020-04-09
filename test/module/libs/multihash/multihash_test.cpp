@@ -3,102 +3,141 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <gtest/gtest.h>
-
-#include "multihash/hexutil.hpp"
 #include "multihash/multihash.hpp"
-#include "multihash/uvarint.hpp"
 
-using kagome::common::Buffer;
-using kagome::common::hex_upper;
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include "framework/result_gtest_checkers.hpp"
+#include "multihash/type.hpp"
+#include "multihash/varint.hpp"
 
-using libp2p::multi::HashType;
-using libp2p::multi::Multihash;
-using libp2p::multi::UVarint;
+using namespace iroha::multihash;
+using namespace shared_model::interface::types;
 
-inline auto operator""_unhex(const char *c, size_t s) {
-  return Buffer{*iroha::expected::resultToOptionalValue(
-      kagome::common::unhex(std::string(c, s)))};
+inline ByteRange operator""_byterange(const char *c, size_t s) {
+  return ByteRange{reinterpret_cast<const std::byte *>(c), s};
 }
 
-/// creates a multihash instance from a hex string
-inline libp2p::multi::Multihash operator""_multihash(const char *c, size_t s) {
-  return *iroha::expected::resultToOptionalValue(
-      libp2p::multi::Multihash::createFromHex(std::string(c, s)));
+inline std::basic_string<std::byte> operator""_bytestring(const char *c,
+                                                          size_t s) {
+  return std::basic_string<std::byte>{reinterpret_cast<const std::byte *>(c),
+                                      s};
 }
+
+template <typename Container>
+void encodeVarIntType(Type type, Container &buffer) {
+  using NumberType = std::underlying_type_t<Type>;
+  encodeVarInt(static_cast<NumberType>(type), buffer);
+}
+
+static const std::initializer_list<uint64_t> kInts = {
+    0, 1, 0xF0, 0xFF, 0xFFFF, 0xFFFFFF};
+
+class VarIntTestParam : public ::testing::TestWithParam<uint64_t> {};
+
+/**
+ *   @given an integer
+ *   @when encode and decode varint
+ *   @then result is equal to former integer
+ **/
+TEST_P(VarIntTestParam, SingleIntEncDec) {
+  std::basic_string<std::byte> buffer;
+  encodeVarInt(GetParam(), buffer);
+  uint64_t read_number = 0;
+  ByteRange buffer_view{buffer.data(), buffer.size()};
+  EXPECT_TRUE(readVarInt(buffer_view, read_number));
+  EXPECT_EQ(GetParam(), read_number);
+}
+
+INSTANTIATE_TEST_SUITE_P(Ints, VarIntTestParam, ::testing::ValuesIn(kInts));
+
+/**
+ *   @given a sequence of integers
+ *   @when encode and decode the sequentially to varint
+ *   @then result is equal to former integer
+ *      @and past-the-end read fails
+ **/
+TEST(VarIntTest, SequentialValid) {
+  std::basic_string<std::byte> buffer;
+  for (auto i : kInts) {
+    encodeVarInt(i, buffer);
+  }
+  ByteRange buffer_view{buffer.data(), buffer.size()};
+  for (auto i : kInts) {
+    uint64_t read_number = 0;
+    EXPECT_TRUE(readVarInt(buffer_view, read_number));
+    EXPECT_EQ(i, read_number);
+  }
+  // past-the-end read must fail
+  EXPECT_THAT(buffer_view, ::testing::IsEmpty());
+  uint64_t read_number = 0;
+  EXPECT_FALSE(readVarInt(buffer_view, read_number));
+}
+
+static const std::initializer_list<Type> kTypes = {
+    Type::sha256, Type::blake2s128, Type::ed25519pub};
+static const std::basic_string<std::byte> kData = "some data"_bytestring;
+
+class MultihashTestTypeParam : public ::testing::TestWithParam<Type> {};
 
 /**
  *   @given a buffer with a hash
  *   @when creating a multihash using the buffer
- *   @then a correct multihash object is created if the hash size is not greater
- *         than maximum length
+ *   @then a correct multihash object is created
  **/
-TEST(Multihash, Create) {
-  Buffer hash{2, 3, 4};
-  ASSERT_NO_THROW({
-    auto m = *iroha::expected::resultToOptionalValue(
-        Multihash::create(HashType::blake2s128, hash));
-    ASSERT_EQ(m.getType(), HashType::blake2s128);
-    ASSERT_EQ(m.getHash(), hash);
-  });
+TEST_P(MultihashTestTypeParam, CreateFromValidBuffer) {
+  std::basic_string<std::byte> buffer;
+  encodeVarIntType(GetParam(), buffer);
+  encodeVarInt(kData.size(), buffer);
+  buffer.append(kData);
 
-  ASSERT_FALSE(iroha::expected::resultToOptionalValue(
-      Multihash::create(HashType::blake2s128, Buffer(200, 42))))
-      << "The multihash mustn't accept hashes of the size greater than 127";
+  const auto multihash_result =
+      createFromBuffer(ByteRange{buffer.data(), buffer.size()});
+  IROHA_ASSERT_RESULT_VALUE(multihash_result);
+  const iroha::multihash::Multihash &multihash = multihash_result.assumeValue();
+  EXPECT_EQ(multihash.type, GetParam());
+  EXPECT_EQ(multihash.data, kData);
+}
+
+INSTANTIATE_TEST_SUITE_P(Types,
+                         MultihashTestTypeParam,
+                         ::testing::ValuesIn(kTypes));
+
+/**
+ *   @given a buffer with invalid varint in type field
+ *   @when creating a multihash using the buffer
+ *   @then error is returned
+ **/
+TEST(MultihashTest, CreateFromBufferWithBadType) {
+  const auto multihash_result =
+      createFromBuffer("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"_byterange);
+  IROHA_ASSERT_RESULT_ERROR(multihash_result);
+  const char *error = multihash_result.assumeError();
+  EXPECT_THAT(error, ::testing::HasSubstr("type"));
 }
 
 /**
- *   @given a buffer with a hash or a hex string with a hash
- *   @when creating a multihash from them
- *   @then a correct multihash object is created if the given hash object was
- *         valid, and the hex representation of the created multihash matches
- *the given hash string
+ *   @given a buffer with invalid varint in length field
+ *   @when creating a multihash using the buffer
+ *   @then error is returned
  **/
-TEST(Multihash, FromToHex) {
-  Buffer hash{2, 3, 4};
-
-  ASSERT_NO_THROW({
-    auto m = *iroha::expected::resultToOptionalValue(
-        Multihash::create(HashType::blake2s128, hash));
-    UVarint var(HashType::blake2s128);
-    auto hex_s = hex_upper(var.toBytes()) + "03" + hex_upper(hash.toVector());
-    ASSERT_EQ(m.toHex(), hex_s);
-  });
-
-  ASSERT_NO_THROW({
-    auto m = "1203020304"_multihash;
-    ASSERT_EQ(m.toHex(), "1203020304");
-  });
-
-  ASSERT_FALSE(iroha::expected::resultToOptionalValue(
-      Multihash::createFromHex("32004324234234")))
-      << "The length mustn't be zero";
-  ASSERT_FALSE(iroha::expected::resultToOptionalValue(
-      Multihash::createFromHex("32034324234234")))
-      << "The length must be equal to the hash size";
-  ASSERT_FALSE(iroha::expected::resultToOptionalValue(
-      Multihash::createFromHex("3204abcdefgh")))
-      << "The hex string is invalid";
+TEST(MultihashTest, CreateFromBufferWithBadLength) {
+  const auto multihash_result =
+      createFromBuffer("\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff"_byterange);
+  IROHA_ASSERT_RESULT_ERROR(multihash_result);
+  const char *error = multihash_result.assumeError();
+  EXPECT_THAT(error, ::testing::HasSubstr("length"));
 }
 
 /**
- *   @given a multihash or a buffer
- *   @when converting a multihash to a buffer or creating one from a buffer
- *   @then a correct multihash object is created if the hash size is not greater
- *         than maximum length or correct buffer object representing the
- *multihash is returned
+ *   @given a buffer with data length mismatch
+ *   @when creating a multihash using the buffer
+ *   @then error is returned
  **/
-TEST(Multihash, FromToBuffer) {
-  auto hash = "8203020304"_unhex;
-
-  ASSERT_NO_THROW({
-    auto m = *iroha::expected::resultToOptionalValue(
-        Multihash::createFromBuffer(hash));
-    ASSERT_EQ(m.toBuffer(), hash);
-  });
-
-  Buffer v{2, 3, 1, 3};
-  ASSERT_FALSE(
-      iroha::expected::resultToOptionalValue(Multihash::createFromBuffer(v)))
-      << "Length in the header does not equal actual length";
+TEST(MultihashTest, CreateFromBufferWithWrongLength) {
+  const auto multihash_result =
+      createFromBuffer("\x00\x01\xff\xff\xff\xff\xff\xff\xff\xff"_byterange);
+  IROHA_ASSERT_RESULT_ERROR(multihash_result);
+  const char *error = multihash_result.assumeError();
+  EXPECT_THAT(error, ::testing::HasSubstr("actual length"));
 }

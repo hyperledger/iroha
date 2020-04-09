@@ -9,6 +9,7 @@
 #include <string>
 
 #include "crypto/keypair.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
 
@@ -37,12 +38,16 @@ namespace iroha {
    * @param sig
    * @return true if signature is valid, false otherwise
    */
-  bool verify(const uint8_t *msg,
-              size_t msgsize,
-              const pubkey_t &pub,
-              const sig_t &sig);
+  bool verify(
+      const uint8_t *msg,
+      size_t msgsize,
+      const shared_model::interface::types::PublicKeyByteRangeView &public_key,
+      const shared_model::interface::types::SignatureByteRangeView &signature);
 
-  bool verify(const std::string &msg, const pubkey_t &pub, const sig_t &sig);
+  bool verify(
+      const std::string &msg,
+      const shared_model::interface::types::PublicKeyByteRangeView &public_key,
+      const shared_model::interface::types::SignatureByteRangeView &signature);
 
   /**
    * Generate random seed reading from /dev/urandom

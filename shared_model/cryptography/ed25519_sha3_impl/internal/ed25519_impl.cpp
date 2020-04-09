@@ -8,6 +8,9 @@
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "cryptography/ed25519_sha3_impl/internal/sha3_hash.hpp"
 
+using shared_model::interface::types::PublicKeyByteRangeView;
+using shared_model::interface::types::SignatureByteRangeView;
+
 namespace iroha {
 
   /**
@@ -38,8 +41,12 @@ namespace iroha {
    */
   bool verify(const uint8_t *msg,
               size_t msgsize,
-              const pubkey_t &pub,
-              const sig_t &sig) {
+              const PublicKeyByteRangeView &public_key,
+              const SignatureByteRangeView &signature) {
+    const shared_model::interface::types::ByteRange &pub = public_key;
+    const shared_model::interface::types::ByteRange &sig = signature;
+    assert(pub.size() == iroha::pubkey_t::size());
+    assert(sig.size() == iroha::sig_t::size());
     return 1
         == ed25519_verify(reinterpret_cast<const signature_t *>(sig.data()),
                           msg,
@@ -47,12 +54,14 @@ namespace iroha {
                           reinterpret_cast<const public_key_t *>(pub.data()));
   }
 
-  bool verify(const std::string &msg, const pubkey_t &pub, const sig_t &sig) {
+  bool verify(const std::string &msg,
+              const PublicKeyByteRangeView &public_key,
+              const SignatureByteRangeView &signature) {
     return 1
         == verify(reinterpret_cast<const uint8_t *>(msg.data()),
                   msg.size(),
-                  pub,
-                  sig);
+                  public_key,
+                  signature);
   }
 
   /**

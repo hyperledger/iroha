@@ -9,6 +9,7 @@
 #include "cryptography/keypair.hpp"
 #include "cryptography/seed.hpp"
 #include "cryptography/signed.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -27,14 +28,17 @@ namespace shared_model {
 
       /**
        * Verifies signature.
-       * @param signedData - data to verify
+       * @param signed_data - data to verify
        * @param orig - original message
-       * @param publicKey - public key
+       * @param public_key - public key
        * @return true if verify was OK or false otherwise
        */
-      static bool verify(const Signed &signedData,
-                         const Blob &orig,
-                         const PublicKey &publicKey);
+      static bool verify(
+          const shared_model::interface::types::SignatureByteRangeView
+              &signature,
+          const Blob &orig,
+          const shared_model::interface::types::PublicKeyByteRangeView
+              &public_key);
       /**
        * Generates new seed
        * @return Seed generated

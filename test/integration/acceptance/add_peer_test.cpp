@@ -20,6 +20,7 @@
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "ordering/impl/on_demand_common.cpp"
 
 using namespace common_constants;
