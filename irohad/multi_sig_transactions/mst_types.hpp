@@ -33,6 +33,7 @@ namespace iroha {
   using ConstRefPeer = ConstRefT<shared_model::interface::Peer>;
   using ConstRefTime = ConstRefT<TimeType>;
 
+  class Completer;
   class MstState;
 
   using ConstRefState = ConstRefT<MstState>;
