@@ -7,10 +7,15 @@
 #define IROHA_MST_TRANSPORT_HPP
 
 #include <memory>
+
+#include <rxcpp/rx-observable-fwd.hpp>
 #include "interfaces/common_objects/peer.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
+
+  class MstState;
+
   namespace network {
 
     /**
@@ -47,9 +52,11 @@ namespace iroha {
        * Share state with other peer
        * @param to - peer recipient of message
        * @param providing_state - state for transmitting
+       * @return true if transmission was successful, false otherwise
        */
-      virtual void sendState(const shared_model::interface::Peer &to,
-                             const MstState &providing_state) = 0;
+      virtual rxcpp::observable<bool> sendState(
+          shared_model::interface::Peer const &to,
+          MstState const &providing_state) = 0;
 
       virtual ~MstTransport() = default;
     };

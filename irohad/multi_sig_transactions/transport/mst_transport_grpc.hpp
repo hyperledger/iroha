@@ -15,7 +15,7 @@
 #include "interfaces/iroha_internal/transaction_batch_factory.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser.hpp"
 #include "logger/logger_fwd.hpp"
-#include "multi_sig_transactions/state/mst_state.hpp"
+#include "multi_sig_transactions/mst_types.hpp"
 #include "network/impl/async_grpc_client.hpp"
 
 namespace iroha {
@@ -66,8 +66,9 @@ namespace iroha {
       void subscribe(
           std::shared_ptr<MstTransportNotification> notification) override;
 
-      void sendState(const shared_model::interface::Peer &to,
-                     ConstRefState providing_state) override;
+      rxcpp::observable<bool> sendState(
+          shared_model::interface::Peer const &to,
+          MstState const &providing_state) override;
 
      private:
       std::weak_ptr<MstTransportNotification> subscriber_;
@@ -90,10 +91,13 @@ namespace iroha {
       boost::optional<SenderFactory> sender_factory_;
     };
 
-    void sendStateAsync(const shared_model::interface::Peer &to,
-                        iroha::ConstRefState state,
-                        const shared_model::crypto::PublicKey &sender_key,
-                        AsyncGrpcClient<google::protobuf::Empty> &async_call);
+    void sendStateAsync(
+        const shared_model::interface::Peer &to,
+        iroha::ConstRefState state,
+        const shared_model::crypto::PublicKey &sender_key,
+        AsyncGrpcClient<google::protobuf::Empty> &async_call,
+        std::function<void(grpc::Status &, google::protobuf::Empty &)>
+            on_response = {});
 
   }  // namespace network
 }  // namespace iroha

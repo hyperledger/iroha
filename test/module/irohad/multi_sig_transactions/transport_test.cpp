@@ -14,6 +14,7 @@
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/irohad/multi_sig_transactions/mock_mst_transport_notification.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -174,7 +175,7 @@ TEST_F(TransportTest, SendAndReceive) {
       grpc::testing::MockClientAsyncResponseReader<google::protobuf::Empty>>();
   EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
       .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
-  transport->sendState(*peer, state);
+  transport->sendState(*peer, state).subscribe();
   auto response = transport->SendState(&context, &request, nullptr);
   ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
 }

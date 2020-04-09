@@ -14,8 +14,8 @@ namespace iroha {
      public:
       void subscribe(std::shared_ptr<MstTransportNotification>) override;
 
-      void sendState(const shared_model::interface::Peer &,
-                     ConstRefState) override;
+      rxcpp::observable<bool> sendState(const shared_model::interface::Peer &,
+                                        MstState const &) override;
     };
   }  // namespace network
 }  // namespace iroha

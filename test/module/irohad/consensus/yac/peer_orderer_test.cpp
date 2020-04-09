@@ -24,6 +24,7 @@ using namespace iroha::ametsuchi;
 using namespace iroha::consensus::yac;
 
 using namespace std;
+using shared_model::interface::types::PublicKeyHexStringView;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
 
@@ -57,7 +58,8 @@ class YacPeerOrdererTest : public ::testing::Test {
     std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
     for (size_t i = 1; i <= kPeersQuantity; ++i) {
       auto tmp = iroha::consensus::yac::makePeer(std::to_string(i));
-      auto peer = makePeer(tmp->address(), tmp->pubkey());
+      auto peer =
+          makePeer(tmp->address(), PublicKeyHexStringView{tmp->pubkey()});
 
       result.emplace_back(std::move(peer));
     }
