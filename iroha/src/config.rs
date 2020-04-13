@@ -3,9 +3,11 @@ use std::{collections::HashMap, env, fs, path::Path};
 const TORII_URL: &str = "TORII_URL";
 const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
 const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
+const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 const DEFAULT_KURA_INIT_MODE: &str = "strict";
+const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 
 /// Configuration parameters container.
 pub struct Configuration {
@@ -13,6 +15,7 @@ pub struct Configuration {
     pub block_build_step_ms: u64,
     /// Possible modes: `strict`, `fast`.
     pub mode: String,
+    pub kura_block_store_path: String,
 }
 
 impl Configuration {
@@ -40,8 +43,18 @@ impl Configuration {
             mode: env::var(KURA_INIT_MODE)
                 .ok()
                 .or_else(|| config_map.remove(KURA_INIT_MODE)),
+            kura_block_store_path: env::var(KURA_BLOCK_STORE_PATH)
+                .ok()
+                .or_else(|| config_map.remove(KURA_INIT_MODE)),
         }
         .build())
+    }
+
+    pub fn kura_block_store_path(&mut self, path: &Path) {
+        self.kura_block_store_path = path
+            .to_str()
+            .expect("Failed to yield slice from path")
+            .to_string();
     }
 }
 
@@ -49,6 +62,7 @@ struct ConfigurationBuilder {
     torii_url: Option<String>,
     block_build_step_ms: Option<String>,
     mode: Option<String>,
+    kura_block_store_path: Option<String>,
 }
 
 impl ConfigurationBuilder {
@@ -65,6 +79,9 @@ impl ConfigurationBuilder {
             mode: self
                 .mode
                 .unwrap_or_else(|| DEFAULT_KURA_INIT_MODE.to_string()),
+            kura_block_store_path: self
+                .kura_block_store_path
+                .unwrap_or_else(|| DEFAULT_KURA_BLOCK_STORE_PATH.to_string()),
         }
     }
 }

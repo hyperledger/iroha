@@ -20,6 +20,7 @@ use crate::{
     wsv::World,
 };
 use futures::channel::mpsc;
+use std::path::Path;
 
 pub struct Iroha {
     torii: Torii,
@@ -31,7 +32,11 @@ impl Iroha {
         let world = World::new(rx);
         let torii = Torii::new(
             &config.torii_url,
-            Sumeragi::new(Blockchain::new(Kura::new(config.mode, tx))),
+            Sumeragi::new(Blockchain::new(Kura::new(
+                config.mode,
+                Path::new(&config.kura_block_store_path),
+                tx,
+            ))),
             world,
         );
         Iroha { torii }
