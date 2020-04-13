@@ -23,7 +23,7 @@ mod tests {
     fn push_pending_transaction() {
         let mut queue = Queue::default();
         queue.push_pending_transaction(
-            Transaction::builder(Vec::new(), "account@domain".to_string()).build(),
+            Transaction::builder(Vec::new(), Id::new("account", "domain")).build(),
         );
     }
 
@@ -31,7 +31,7 @@ mod tests {
     fn push_multisignature_transaction() {
         let mut queue = Queue::default();
         queue.push_pending_transaction(
-            Transaction::builder(Vec::new(), "account@domain".to_string()).build(),
+            Transaction::builder(Vec::new(), Id::new("account", "domain")).build(),
         );
     }
 }

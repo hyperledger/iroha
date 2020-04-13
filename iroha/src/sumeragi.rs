@@ -1,26 +1,21 @@
-use crate::{block::Blockchain, prelude::*};
+use crate::prelude::*;
 
-pub struct Sumeragi {
-    blockchain: Blockchain,
-}
+#[derive(Default)]
+pub struct Sumeragi {}
 
 impl Sumeragi {
-    pub fn new(blockchain: Blockchain) -> Self {
-        Sumeragi { blockchain }
+    pub fn new() -> Self {
+        Sumeragi {}
     }
 
-    pub async fn sign(&mut self, transactions: &[Transaction]) -> Result<(), ()> {
-        self.vote(transactions)?;
-        self.blockchain.accept(transactions.to_vec()).await;
-        self.publish(transactions)?;
-        Ok(())
-    }
-
-    fn vote(&self, _transactions: &[Transaction]) -> Result<(), ()> {
-        Ok(())
-    }
-
-    fn publish(&self, _transactions: &[Transaction]) -> Result<(), ()> {
-        Ok(())
+    pub async fn sign(
+        &mut self,
+        transactions: Vec<Transaction>,
+    ) -> Result<Vec<Transaction>, String> {
+        Ok(transactions
+            .into_iter()
+            .map(|tx| tx.sign(Vec::new()))
+            .filter_map(Result::ok)
+            .collect())
     }
 }

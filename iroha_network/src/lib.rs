@@ -275,7 +275,7 @@ mod tests {
     fn single_threaded_async() {
         use async_std::task;
 
-        async fn handle_request(request: Request) -> Result<Response, String> {
+        async fn handle_request(_request: Request) -> Result<Response, String> {
             Ok("pong".as_bytes().to_vec())
         };
 
@@ -378,7 +378,7 @@ mod tests {
                         Network::send_request_to(
                             peer.to_string().as_ref(),
                             Request::new("/add_peer".to_string(), request.payload.clone()),
-                        );
+                        )?;
                         std::thread::spawn(move || {
                             std::thread::sleep(Duration::from_millis(50));
                             Network::send_request_to(
@@ -387,7 +387,8 @@ mod tests {
                                     "/add_peer".to_string(),
                                     peer.to_string().into_bytes(),
                                 ),
-                            );
+                            )
+                            .expect("Failed to send request.");
                         });
                     }
                     self.peers.insert(address, ());
@@ -426,15 +427,19 @@ mod tests {
     #[test]
     fn peer_to_peer() {
         std::thread::spawn(|| {
-            Peer::new().start(7879);
+            Peer::new().start(7879).expect("Failed to start Peer.");
         });
         std::thread::sleep(Duration::from_millis(50));
         std::thread::spawn(|| {
-            Peer::new().start_and_connect(7880, "127.0.0.1:7879");
+            Peer::new()
+                .start_and_connect(7880, "127.0.0.1:7879")
+                .expect("Failed to start Peer and connect.");
         });
         std::thread::sleep(Duration::from_millis(50));
         std::thread::spawn(|| {
-            Peer::new().start_and_connect(7881, "127.0.0.1:7879");
+            Peer::new()
+                .start_and_connect(7881, "127.0.0.1:7879")
+                .expect("Failed to start Peer and connect.");
         });
         std::thread::sleep(Duration::from_millis(200));
         assert_eq!(

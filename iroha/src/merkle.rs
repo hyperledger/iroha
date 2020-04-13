@@ -1,10 +1,5 @@
 use crate::prelude::*;
 
-/// Conduct statefull validation of `blocks`.
-pub fn validate(_blocks: Vec<&Block>) -> Result<(), String> {
-    Ok(())
-}
-
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
 /// Our implementation uses binary hash tree.

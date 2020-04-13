@@ -1,7 +1,4 @@
-use crate::{
-    prelude::*,
-    validation::{self, MerkleTree},
-};
+use crate::{merkle::MerkleTree, prelude::*};
 use async_std::{
     fs::{metadata, File},
     prelude::*,
@@ -17,16 +14,16 @@ type BlockSender = UnboundedSender<Block>;
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
 pub struct Kura {
-    mode: String,
+    _mode: String,
     block_store: BlockStore,
     world_state_view_tx: BlockSender,
     merkle_tree: MerkleTree,
 }
 
 impl Kura {
-    pub fn new(mode: String, block_store_path: &Path, world_state_view_tx: BlockSender) -> Self {
+    pub fn new(_mode: String, block_store_path: &Path, world_state_view_tx: BlockSender) -> Self {
         Kura {
-            mode,
+            _mode,
             block_store: BlockStore::new(block_store_path),
             world_state_view_tx,
             merkle_tree: MerkleTree::new(),
@@ -37,9 +34,6 @@ impl Kura {
         let blocks = self.block_store.read_all().await;
         let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
         self.merkle_tree.build(&blocks_refs);
-        if self.mode == "strict" {
-            validation::validate(blocks_refs)?;
-        }
         Ok(blocks)
     }
 

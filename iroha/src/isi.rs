@@ -1,28 +1,10 @@
-use crate::{account, asset, domain, peer, wsv::WorldStateView};
+use crate::{account, asset, domain, peer, prelude::*, wsv::WorldStateView};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
     pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, peer::isi::*};
-}
-
-/// Identification of an Iroha's entites. Consists of Entity's name and Domain's name.
-///
-/// # Example
-///
-/// ```
-/// use iroha::isi::Id;
-///
-/// let id = Id::new("gold", "mine");
-/// ```
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, std::hash::Hash, Encode, Decode)]
-pub struct Id(pub String, pub String);
-
-impl Id {
-    pub fn new(entity_name: &str, domain_name: &str) -> Self {
-        Id(entity_name.to_string(), domain_name.to_string())
-    }
 }
 
 /// Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI).

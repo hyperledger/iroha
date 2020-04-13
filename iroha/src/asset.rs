@@ -124,7 +124,10 @@ pub mod query {
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             let assets: Vec<Asset> = world_state_view
                 .read_account(&self.account_id)
-                .ok_or("No account found.")?
+                .ok_or(format!(
+                    "No account with id: {:?} found in the current world state: {:?}.",
+                    &self.account_id, world_state_view
+                ))?
                 .assets
                 .values()
                 .cloned()
