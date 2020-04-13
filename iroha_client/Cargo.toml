@@ -13,6 +13,7 @@ iroha = { path = "../iroha" }
 async-std = { version = "1.5", features = ["attributes"] }
 criterion = "0.3"
 futures = "0.3.4"
+tempfile = "3"
 
 [[bench]]
 name = "torii"
