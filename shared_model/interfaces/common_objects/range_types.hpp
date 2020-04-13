@@ -26,7 +26,7 @@ namespace shared_model {
       using TransactionsCollectionType =
           boost::any_range<Transaction,
                            boost::random_access_traversal_tag,
-                           const Transaction &>;
+                           Transaction &>;
       using AccountAssetCollectionType =
           boost::any_range<AccountAsset,
                            boost::random_access_traversal_tag,

@@ -37,8 +37,8 @@ namespace {
      * Returns boost::none - it is not required to fetch individual blocks
      * during WSV reindexing
      */
-    boost::optional<std::shared_ptr<const shared_model::interface::Block>>
-    fetch(HeightType height) const override {
+    boost::optional<std::unique_ptr<shared_model::interface::Block>> fetch(
+        HeightType height) const override {
       return boost::none;
     }
 

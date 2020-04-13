@@ -433,7 +433,7 @@ TEST_F(AmetsuchiTest, TestingStorageWhenCommitBlock) {
   static auto wrapper =
       make_test_subscriber<CallExact>(storage->on_commit(), 1);
   wrapper.subscribe([&expected_block](const auto &block) {
-    ASSERT_EQ(block, expected_block);
+    ASSERT_EQ(*block, *expected_block);
   });
 
   auto mutable_storage = createMutableStorage();

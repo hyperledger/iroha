@@ -226,7 +226,7 @@ namespace iroha {
         }
         auto &tx = block->transactions()[tx_id];
         if (pred(tx)) {
-          *dest_it++ = clone(tx);
+          *dest_it++ = tx.moveTo();
         }
       }
 
