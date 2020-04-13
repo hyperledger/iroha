@@ -22,8 +22,15 @@ impl Blockchain {
         Ok(())
     }
 
-    pub async fn accept(&mut self, transactions: Vec<Transaction>) {
-        let mut block = Block::builder(transactions).build();
+    pub async fn accept(&mut self, transactions: Vec<Transaction>) -> Result<(), String> {
+        let mut block = Block::builder(
+            transactions
+                .into_iter()
+                .map(Transaction::validate)
+                .filter_map(Result::ok)
+                .collect(),
+        )
+        .build();
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;
@@ -34,6 +41,7 @@ impl Blockchain {
             .await
             .expect("Failed to store block into Kura.");
         self.blocks.push(block);
+        Ok(())
     }
 
     pub fn last(&self) -> &Block {
@@ -58,9 +66,6 @@ pub struct Block {
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
     pub previous_block_hash: Option<Hash>,
-    /// rejected transactions hashes — array of transaction hashes, which did not pass stateful
-    /// validation step; this field is optional.
-    pub rejected_transactions_hashes: Option<Vec<Hash>>,
 }
 
 impl Block {
@@ -98,7 +103,7 @@ pub struct BlockBuilder {
     pub timestamp: u128,
     pub transactions: Vec<Transaction>,
     pub previous_block_hash: Option<Hash>,
-    pub rejected_transactions_hashes: Option<Vec<Hash>>,
+    pub rejected_transactions_hashes: Vec<Hash>,
 }
 
 impl BlockBuilder {
@@ -113,7 +118,6 @@ impl BlockBuilder {
             timestamp: self.timestamp,
             transactions: self.transactions,
             previous_block_hash: self.previous_block_hash,
-            rejected_transactions_hashes: self.rejected_transactions_hashes,
         }
     }
 }
@@ -129,7 +133,6 @@ mod tests {
             timestamp: 1,
             transactions: Vec::new(),
             previous_block_hash: None,
-            rejected_transactions_hashes: None,
         };
 
         assert_ne!(block.hash(), [0; 32]);

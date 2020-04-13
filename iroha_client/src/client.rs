@@ -23,7 +23,7 @@ impl Client {
         let mut stream = TcpStream::connect(&self.torii_url)
             .map_err(|e| format!("Failet connect to the server: {}", e))?;
         let transaction =
-            &Transaction::builder(vec![command], "account@domain".to_string()).build();
+            &Transaction::builder(vec![command], Id::new("account", "domain")).build();
         let mut transaction: Vec<u8> = transaction.into();
         let mut transaction_request = COMMAND_REQUEST_HEADER.to_vec();
         transaction_request.append(&mut transaction);

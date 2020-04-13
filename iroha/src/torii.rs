@@ -1,4 +1,6 @@
-use crate::{prelude::*, query::Request, queue::Queue, sumeragi::Sumeragi, wsv::World};
+use crate::{
+    block::Blockchain, prelude::*, query::Request, queue::Queue, sumeragi::Sumeragi, wsv::World,
+};
 use std::{
     io::prelude::*,
     net::TcpListener,
@@ -17,16 +19,18 @@ pub struct Torii {
     url: String,
     queue: Queue,
     consensus: Sumeragi,
+    blockchain: Blockchain,
     world: Arc<World>,
     last_round_time: Instant,
 }
 
 impl Torii {
-    pub fn new(url: &str, consensus: Sumeragi, world: World) -> Self {
+    pub fn new(url: &str, consensus: Sumeragi, blockchain: Blockchain, world: World) -> Self {
         Torii {
             url: url.to_string(),
             queue: Queue::default(),
             consensus,
+            blockchain,
             world: Arc::new(world),
             last_round_time: Instant::now(),
         }
@@ -52,10 +56,15 @@ impl Torii {
                     if buffer.starts_with(COMMAND_REQUEST_HEADER) {
                         self.receive_command(&buffer[COMMAND_REQUEST_HEADER.len()..]);
                         stream.write_all(OK).expect("Failed to write a response.");
-                        self.consensus
-                            .sign(&self.queue.pop_pending_transactions())
+                        self.blockchain
+                            .accept(
+                                self.consensus
+                                    .sign(self.queue.pop_pending_transactions())
+                                    .await
+                                    .expect("Failed to sign transactions."),
+                            )
                             .await
-                            .expect("Failed to sign transactions.");
+                            .expect("Failed to accept transactions into blockchain.");
                         self.last_round_time = Instant::now();
                     } else if buffer.starts_with(QUERY_REQUEST_HEADER) {
                         match self.receive_query(&buffer[QUERY_REQUEST_HEADER.len()..]) {
@@ -86,11 +95,8 @@ impl Torii {
 
     fn receive_command(&mut self, payload: &[u8]) {
         let transaction: Transaction = payload.to_vec().into();
-        self.queue.push_pending_transaction(
-            transaction
-                .validate()
-                .expect("Failed to validate transaction."),
-        );
+        self.queue
+            .push_pending_transaction(transaction.accept().expect("Failed to accept transaction."));
     }
 
     fn receive_query(&self, payload: &[u8]) -> Result<QueryResult, String> {
@@ -154,7 +160,7 @@ mod tests {
         stream
             .set_write_timeout(Some(Duration::new(2, 0)))
             .expect("Failed to set read timeout");
-        let transaction = &Transaction::builder(Vec::new(), "account@domain".to_string()).build();
+        let transaction = &Transaction::builder(Vec::new(), Id::new("account", "domain")).build();
         let mut transaction: Vec<u8> = transaction.into();
         let mut transaction_request = COMMAND_REQUEST_HEADER.to_vec();
         transaction_request.append(&mut transaction);
@@ -177,7 +183,8 @@ mod tests {
         kura.init().await.expect("Failed to init Kura");
         let mut torii = Torii::new(
             &torii_url.clone(),
-            Sumeragi::new(Blockchain::new(kura)),
+            Sumeragi::new(),
+            Blockchain::new(kura),
             World::new(rx),
         );
         torii.start().await;
