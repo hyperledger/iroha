@@ -26,8 +26,8 @@ RUN set -e; \
         build-essential g++-9 ninja-build \
         # CI dependencies
         git ssh tar gzip ca-certificates gnupg \
-        # Pythons
-        python-pip python3-pip python3-setuptools python-dev \
+        # Python3
+        python3-pip python3-setuptools\
         # other
         curl file gdb gdbserver ccache python3.6-dev \
         gcovr cppcheck doxygen rsync graphviz graphviz-dev unzip vim zip pkg-config; \
@@ -80,7 +80,6 @@ RUN set -e; \
 
 # python bindings dependencies
 RUN set -e; \
-    pip install grpcio_tools pysha3; \
     pip3 install grpcio_tools pysha3 iroha==0.0.5.4
 
 # install lcov
