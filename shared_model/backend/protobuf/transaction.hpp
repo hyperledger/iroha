@@ -47,6 +47,8 @@ namespace shared_model {
 
       const interface::types::HashType &hash() const override;
 
+      std::unique_ptr<interface::Transaction> moveTo() override;
+
       const TransportType &getTransport() const;
 
       interface::types::TimestampType createdTime() const override;

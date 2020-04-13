@@ -32,8 +32,7 @@ namespace iroha {
        * Get block with given height
        * @return block if exists, boost::none otherwise
        */
-      virtual boost::optional<
-          std::shared_ptr<const shared_model::interface::Block>>
+      virtual boost::optional<std::unique_ptr<shared_model::interface::Block>>
       fetch(shared_model::interface::types::HeightType height) const = 0;
 
       /**
@@ -48,7 +47,7 @@ namespace iroha {
 
       /// type of function which can be applied to the elements of the storage
       using FunctionType = std::function<void(
-          std::shared_ptr<const shared_model::interface::Block>)>;
+          std::unique_ptr<shared_model::interface::Block> &)>;
 
       /**
        * Iterates through all the stored blocks
