@@ -1,25 +1,51 @@
-use crate::{crypto::Signature, isi::Contract};
+use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
 
 /// An ordered set of instructions, which is applied to the ledger atomically.
 #[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct Transaction {
-    /// An ordered set of instructions.
-    //TODO: think about constructor with `Into<Contract>` parameter signature.
-    pub instructions: Vec<Contract>,
-    /// Time of creation (unix time, in milliseconds).
-    creation_time: u128,
-    /// Account ID of transaction creator (username@domain).
-    pub account_id: String,
-    /// Quorum field (indicates required number of signatures).
-    quorum: u32, //TODO: this will almost certainly change; accounts need conditional multisig based on some rules, not associated with a transaction
-    pub signatures: Vec<Signature>,
+pub enum Transaction {
+    Requested {
+        /// An ordered set of instructions.
+        instructions: Vec<Contract>,
+        /// Time of creation (unix time, in milliseconds).
+        creation_time: u128,
+        /// Account ID of transaction creator (username@domain).
+        account_id: Id,
+        signatures: Vec<Signature>,
+    },
+    Accepted {
+        /// An ordered set of instructions.
+        instructions: Vec<Contract>,
+        /// Time of creation (unix time, in milliseconds).
+        creation_time: u128,
+        /// Account ID of transaction creator (username@domain).
+        account_id: Id,
+        signatures: Vec<Signature>,
+    },
+    Signed {
+        /// An ordered set of instructions.
+        instructions: Vec<Contract>,
+        /// Time of creation (unix time, in milliseconds).
+        creation_time: u128,
+        /// Account ID of transaction creator (username@domain).
+        account_id: Id,
+        signatures: Vec<Signature>,
+    },
+    Valid {
+        /// An ordered set of instructions.
+        instructions: Vec<Contract>,
+        /// Time of creation (unix time, in milliseconds).
+        creation_time: u128,
+        /// Account ID of transaction creator (username@domain).
+        account_id: Id,
+        signatures: Vec<Signature>,
+    },
 }
 
 impl Transaction {
-    pub fn builder(instructions: Vec<Contract>, account_id: String) -> TxBuilder {
+    pub fn builder(instructions: Vec<Contract>, account_id: Id) -> TxBuilder {
         TxBuilder {
             instructions,
             account_id,
@@ -27,33 +53,100 @@ impl Transaction {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.")
                 .as_millis(),
-            ..Default::default()
+            signatures: Option::None,
         }
     }
 
-    //TODO: make Transaction an Enum and return Transaction::Valid
-    pub fn validate(self) -> Result<Transaction, ()> {
-        Ok(self)
+    pub fn accept(self) -> Result<Transaction, String> {
+        if let Transaction::Requested {
+            instructions,
+            creation_time,
+            account_id,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Accepted {
+                instructions,
+                creation_time,
+                account_id,
+                signatures,
+            })
+        } else {
+            Err("Transaction should be in Requested state to be accepted.".to_string())
+        }
+    }
+
+    pub fn sign(self, new_signatures: Vec<Signature>) -> Result<Transaction, String> {
+        if let Transaction::Accepted {
+            instructions,
+            creation_time,
+            account_id,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Signed {
+                signatures: vec![signatures, new_signatures]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+                instructions,
+                creation_time,
+                account_id,
+            })
+        } else {
+            Err("Transaction should be in Accepted state to be signed.".to_string())
+        }
+    }
+
+    pub fn validate(self) -> Result<Transaction, String> {
+        if let Transaction::Signed {
+            instructions,
+            creation_time,
+            account_id,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Valid {
+                instructions,
+                creation_time,
+                account_id,
+                signatures,
+            })
+        } else {
+            Err("Transaction should be in Signed state to be validated.".to_string())
+        }
+    }
+
+    pub fn hash(&self) -> Hash {
+        use ursa::blake2::{
+            digest::{Input, VariableOutput},
+            VarBlake2b,
+        };
+        let bytes: Vec<u8> = self.into();
+        let vec_hash = VarBlake2b::new(32)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .vec_result();
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&vec_hash);
+        hash
     }
 }
 
 /// Builder struct for `Transaction`.
-#[derive(Default)]
 pub struct TxBuilder {
     pub instructions: Vec<Contract>,
     pub creation_time: u128,
-    pub account_id: String,
-    pub quorum: Option<u32>,
+    pub account_id: Id,
     pub signatures: Option<Vec<Signature>>,
 }
 
 impl TxBuilder {
     pub fn build(self) -> Transaction {
-        Transaction {
+        Transaction::Requested {
             instructions: self.instructions,
             creation_time: self.creation_time,
             account_id: self.account_id,
-            quorum: self.quorum.unwrap_or(1),
             signatures: self.signatures.unwrap_or_default(),
         }
     }
