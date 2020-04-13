@@ -1,4 +1,3 @@
-use async_std::fs;
 use criterion::*;
 use futures::executor;
 use iroha::{config::Configuration, isi::prelude::*, prelude::*};
@@ -59,7 +58,6 @@ fn query_requests(criterion: &mut Criterion) {
         });
     });
     group.finish();
-    executor::block_on(cleanup_default_block_dir()).expect("Failed to clean up storage.");
 }
 
 fn command_requests(criterion: &mut Criterion) {
@@ -107,7 +105,6 @@ fn command_requests(criterion: &mut Criterion) {
         })
     });
     group.finish();
-    executor::block_on(cleanup_default_block_dir()).expect("Failed to clean up storage.");
 }
 
 async fn create_and_start_iroha() {
@@ -115,16 +112,6 @@ async fn create_and_start_iroha() {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     iroha.start().await.expect("Failed to start Iroha.");
-}
-
-/// Cleans up default directory of disk storage.
-/// Should be used in tests that may potentially read from disk
-/// to prevent failures due to changes in block structure.
-pub async fn cleanup_default_block_dir() -> Result<(), String> {
-    fs::remove_dir_all(DEFAULT_BLOCK_STORE_LOCATION)
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(())
 }
 
 criterion_group!(queries, query_requests);

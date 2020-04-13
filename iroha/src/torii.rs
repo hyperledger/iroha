@@ -168,11 +168,12 @@ mod tests {
     }
 
     async fn create_and_start_torii() {
+        let dir = tempfile::tempdir().unwrap();
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
         let (tx, rx) = mpsc::unbounded();
-        let mut kura = Kura::new("strict".to_string(), tx);
+        let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura");
         let mut torii = Torii::new(
             &torii_url.clone(),
