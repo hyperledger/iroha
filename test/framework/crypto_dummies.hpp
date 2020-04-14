@@ -6,8 +6,6 @@
 #ifndef IROHA_TEST_CRYPTO_DUMMIES_HPP
 #define IROHA_TEST_CRYPTO_DUMMIES_HPP
 
-#include <gmock/gmock.h>
-
 #include "cryptography/blob.hpp"
 #include "cryptography/hash.hpp"
 #include "cryptography/private_key.hpp"
