@@ -1,192 +1,135 @@
-use crate::{
-    block::Blockchain, prelude::*, query::Request, queue::Queue, sumeragi::Sumeragi, wsv::World,
-};
-use std::{
-    io::prelude::*,
-    net::TcpListener,
-    sync::Arc,
-    thread,
-    time::{Duration, Instant},
-};
+use crate::prelude::*;
+use futures::{executor::ThreadPool, lock::Mutex};
+use iroha_network::prelude::*;
+use std::{convert::TryFrom, sync::Arc};
 
-const QUERY_REQUEST_HEADER: &[u8] = b"GET / HTTP/1.1\r\n";
-const COMMAND_REQUEST_HEADER: &[u8] = b"POST /commands HTTP/1.1\r\n";
+const QUERY_REQUEST_HEADER: &str = "/queries";
+const COMMAND_REQUEST_HEADER: &str = "/commands";
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
 #[allow(dead_code)]
 pub struct Torii {
     url: String,
-    queue: Queue,
-    consensus: Sumeragi,
-    blockchain: Blockchain,
-    world: Arc<World>,
-    last_round_time: Instant,
+    pool_ref: ThreadPool,
+    world_state_view: Arc<Mutex<WorldStateView>>,
+    transaction_sender: Arc<Mutex<TransactionSender>>,
 }
 
 impl Torii {
-    pub fn new(url: &str, consensus: Sumeragi, blockchain: Blockchain, world: World) -> Self {
+    pub fn new(
+        url: &str,
+        pool_ref: ThreadPool,
+        world_state_view: Arc<Mutex<WorldStateView>>,
+        transaction_sender: TransactionSender,
+    ) -> Self {
         Torii {
             url: url.to_string(),
-            queue: Queue::default(),
-            consensus,
-            blockchain,
-            world: Arc::new(world),
-            last_round_time: Instant::now(),
+            world_state_view,
+            pool_ref,
+            transaction_sender: Arc::new(Mutex::new(transaction_sender)),
         }
     }
 
     pub async fn start(&mut self) {
-        let listener = TcpListener::bind(&self.url).expect("could not start server");
-        let world = Arc::clone(&self.world);
-        thread::spawn(move || {
-            world.init();
-        });
-        for connection in listener.incoming() {
-            match connection {
-                Ok(mut stream) => {
-                    stream
-                        .set_read_timeout(Some(Duration::new(2, 0)))
-                        .expect("Failed to set read timeout");
-                    stream
-                        .set_write_timeout(Some(Duration::new(2, 0)))
-                        .expect("Failed to set read timeout");
-                    let mut buffer = [0; 512];
-                    let _read_size = stream.read(&mut buffer).expect("Request read failed.");
-                    if buffer.starts_with(COMMAND_REQUEST_HEADER) {
-                        self.receive_command(&buffer[COMMAND_REQUEST_HEADER.len()..]);
-                        stream.write_all(OK).expect("Failed to write a response.");
-                        self.blockchain
-                            .accept(
-                                self.consensus
-                                    .sign(self.queue.pop_pending_transactions())
-                                    .await
-                                    .expect("Failed to sign transactions."),
-                            )
-                            .await
-                            .expect("Failed to accept transactions into blockchain.");
-                        self.last_round_time = Instant::now();
-                    } else if buffer.starts_with(QUERY_REQUEST_HEADER) {
-                        match self.receive_query(&buffer[QUERY_REQUEST_HEADER.len()..]) {
-                            Ok(result) => {
-                                let mut response = OK.to_vec();
-                                let result = &result;
-                                response.append(&mut result.into());
-                                stream
-                                    .write_all(&response)
-                                    .expect("Failed to write a response.");
-                            }
-                            Err(e) => {
-                                eprintln!("{}", e);
-                                stream
-                                    .write_all(INTERNAL_ERROR)
-                                    .expect("Failed to write a response.");
-                            }
-                        }
-                    }
-                    stream.flush().expect("Failed to flush a stream.");
+        let url = &self.url.clone();
+        let world_state_view = Arc::clone(&self.world_state_view);
+        let transaction_sender = Arc::clone(&self.transaction_sender);
+        let state = ToriiState {
+            pool: self.pool_ref.clone(),
+            world_state_view,
+            transaction_sender,
+        };
+        Network::listen(Arc::new(Mutex::new(state)), url, handle_connection)
+            .await
+            .expect("Failed to start listening Torii.");
+    }
+}
+
+struct ToriiState {
+    pool: ThreadPool,
+    world_state_view: Arc<Mutex<WorldStateView>>,
+    transaction_sender: Arc<Mutex<TransactionSender>>,
+}
+
+async fn handle_connection(
+    state: State<ToriiState>,
+    stream: Box<dyn AsyncStream>,
+) -> Result<(), String> {
+    //TODO: Why network can't spawn new task?
+    let state22 = Arc::clone(&state);
+    state.lock().await.pool.spawn_ok(async move {
+        Network::handle_message_async(state22, stream, handle_request)
+            .await
+            .expect("Failed to handle message.")
+    });
+    Ok(())
+}
+
+async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
+    match request.url() {
+        COMMAND_REQUEST_HEADER => match Transaction::try_from(request.payload().to_vec()) {
+            Ok(transaction) => {
+                state
+                    .lock()
+                    .await
+                    .transaction_sender
+                    .lock()
+                    .await
+                    .start_send(transaction.accept().expect("Failed to accept transaction."))
+                    .map_err(|e| format!("{}", e))?;
+                Ok(OK.to_vec())
+            }
+            Err(e) => {
+                eprintln!("Failed to decode transaction: {}", e);
+                Ok(INTERNAL_ERROR.to_vec())
+            }
+        },
+        QUERY_REQUEST_HEADER => match QueryRequest::try_from(request.payload().to_vec()) {
+            Ok(request) => match request
+                .query
+                .execute(&*state.lock().await.world_state_view.lock().await)
+            {
+                Ok(result) => {
+                    let mut response = OK.to_vec();
+                    let result = &result;
+                    response.append(&mut result.into());
+                    Ok(response)
                 }
                 Err(e) => {
-                    println!("Connection failed {}.", e);
+                    eprintln!("{}", e);
+                    Ok(INTERNAL_ERROR.to_vec())
                 }
+            },
+            Err(e) => {
+                eprintln!("Failed to decode transaction: {}", e);
+                Ok(INTERNAL_ERROR.to_vec())
             }
-        }
-    }
-
-    fn receive_command(&mut self, payload: &[u8]) {
-        let transaction: Transaction = payload.to_vec().into();
-        self.queue
-            .push_pending_transaction(transaction.accept().expect("Failed to accept transaction."));
-    }
-
-    fn receive_query(&self, payload: &[u8]) -> Result<QueryResult, String> {
-        let request: Request = payload.to_vec().into();
-        request.query.execute(
-            &self
-                .world
-                .world_state_view
-                .lock()
-                .expect("Failed to lock World State View."),
-        )
+        },
+        non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        asset::query::GetAccountAssets, block::Blockchain, config::Configuration, kura::Kura,
-    };
-    use futures::{channel::mpsc, executor};
+    use crate::config::Configuration;
+    use futures::channel::mpsc;
 
     const CONFIGURATION_PATH: &str = "config.json";
 
-    #[test]
-    fn get_request_to_torii_should_return_500() {
-        std::thread::spawn(move || {
-            executor::block_on(create_and_start_torii());
-        });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let config =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let mut stream =
-            std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
-        let query = &GetAccountAssets::build_request(Id::new("account", "domain"));
-        let mut query: Vec<u8> = query.into();
-        let mut query_request = QUERY_REQUEST_HEADER.to_vec();
-        query_request.append(&mut query);
-        stream
-            .write(&query_request)
-            .expect("Failed to write a get request.");
-        stream.flush().expect("Failed to flush a request.");
-        let mut buffer = [0; 512];
-        stream.read(&mut buffer).expect("Request read failed.");
-        assert!(buffer.starts_with(INTERNAL_ERROR));
-    }
-
-    #[test]
-    fn post_command_request_to_torii_should_return_ok() {
-        std::thread::spawn(move || {
-            executor::block_on(create_and_start_torii());
-        });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let config =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let mut stream =
-            std::net::TcpStream::connect(&config.torii_url).expect("Failet connect to the server.");
-        stream
-            .set_read_timeout(Some(Duration::new(2, 0)))
-            .expect("Failed to set read timeout");
-        stream
-            .set_write_timeout(Some(Duration::new(2, 0)))
-            .expect("Failed to set read timeout");
-        let transaction = &Transaction::builder(Vec::new(), Id::new("account", "domain")).build();
-        let mut transaction: Vec<u8> = transaction.into();
-        let mut transaction_request = COMMAND_REQUEST_HEADER.to_vec();
-        transaction_request.append(&mut transaction);
-        stream
-            .write(&transaction_request)
-            .expect("Failed to write a transaction request.");
-        stream.flush().expect("Failed to flush a request.");
-        let mut buffer = [0; 512];
-        stream.read(&mut buffer).expect("Request read failed.");
-        assert!(buffer.starts_with(OK));
-    }
-
+    #[async_std::test]
     async fn create_and_start_torii() {
-        let dir = tempfile::tempdir().unwrap();
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
-        let (tx, rx) = mpsc::unbounded();
-        let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
-        kura.init().await.expect("Failed to init Kura");
-        let mut torii = Torii::new(
+        let (tx, _) = mpsc::unbounded();
+        let _torii = Torii::new(
             &torii_url.clone(),
-            Sumeragi::new(),
-            Blockchain::new(kura),
-            World::new(rx),
+            ThreadPool::new().expect("Failed to build Thread Pool."),
+            Arc::new(Mutex::new(WorldStateView::new())),
+            tx,
         );
-        torii.start().await;
+        //torii.start().await;
     }
 }

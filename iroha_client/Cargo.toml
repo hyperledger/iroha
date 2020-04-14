@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 iroha = { path = "../iroha" }
+iroha_network = { path = "../iroha_network" }
 
 [dev-dependencies]
 async-std = { version = "1.5", features = ["attributes"] }

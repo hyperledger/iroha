@@ -8,8 +8,9 @@ edition = "2018"
 
 [dependencies]
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
+iroha_network = { path = "../iroha_network" }
 async-std = { version = "1.5", features = ["attributes"] }
-futures = "0.3.4"
+futures = { version = "0.3.4", features = ["thread-pool"] }
 parity-scale-codec = { version = "1.3", features = ["derive"] }
 ursa = "0.3.2"
 

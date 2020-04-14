@@ -38,10 +38,18 @@ fn impl_io(ast: &syn::DeriveInput) -> TokenStream {
             }
         }
 
-        impl std::convert::From<Vec<u8>> for #name {
-            fn from(vector: Vec<u8>) -> Self {
+        impl std::convert::TryFrom<Vec<u8>> for #name {
+            type Error = String;
+
+            fn try_from(vector: Vec<u8>) -> Result<Self, Self::Error> {
                 #name::decode(&mut vector.as_slice())
-                    .expect(&format!("Failed to deserialize vector into {}.", stringify!(#name)))
+                    .map_err(|e| format!(
+                            "Failed to deserialize vector {:?} into {}, because: {}.",
+                            &vector,
+                            stringify!(#name),
+                            e
+                        )
+                    )
             }
         }
     };
