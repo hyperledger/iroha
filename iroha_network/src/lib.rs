@@ -4,16 +4,19 @@ use std::{
     error::Error,
     io::prelude::*,
     net::{TcpListener, TcpStream},
+    sync::{Arc, Mutex},
 };
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Request, Response, Stream};
+    pub use crate::{AsyncStream, Request, Response, State, Stream};
 }
 
 pub const BUFFER_SIZE: usize = 2048;
+
+pub type State<T> = Arc<Mutex<T>>;
 
 pub struct Network {
     server_url: String,
@@ -56,11 +59,10 @@ impl Network {
     ///
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
-    /// * `state` - the state that you want to capture, place `()` there if don't need the state, use some reference to the state otherwise
-    pub fn listen<H, S>(state: S, server_url: &str, mut handler: H) -> Result<(), String>
+    /// * `state` - the state that you want to capture
+    pub fn listen<H, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<(), String>
     where
-        H: FnMut(S, Box<dyn Stream>) -> Result<(), String>,
-        S: Clone,
+        H: FnMut(State<S>, Box<dyn Stream>) -> Result<(), String>,
     {
         let listener = TcpListener::bind(server_url).map_err(|e| e.to_string())?;
         while let Some(stream) = listener.incoming().next() {
@@ -77,17 +79,15 @@ impl Network {
     ///
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
-    /// * `state` - the state that you want to capture, place `()` there if don't need the state, use some reference to the state otherwise
-    /// As this is an async function, you may consider using `Arc` for `state`.
+    /// * `state` - the state that you want to capture
     pub async fn listen_async<H, F, S>(
-        state: S,
+        state: State<S>,
         server_url: &str,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(S, Box<dyn AsyncStream>) -> F,
+        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<(), String>>,
-        S: Clone,
     {
         use async_std::{net::TcpListener, prelude::*};
 
@@ -106,12 +106,12 @@ impl Network {
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen` for the description of the `state`.
     pub fn handle_message<H, S>(
-        state: S,
+        state: State<S>,
         stream: &mut impl Stream,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(S, Request) -> Result<Response, String>,
+        H: FnMut(State<S>, Request) -> Result<Response, String>,
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream.read(&mut buffer).expect("Request read failed.");
@@ -131,12 +131,12 @@ impl Network {
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen_async` for the description of the `state`.
     pub async fn handle_message_async<H, F, S>(
-        state: S,
+        state: State<S>,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(S, Request) -> F,
+        H: FnMut(State<S>, Request) -> F,
         F: Future<Output = Result<Response, String>>,
     {
         use async_std::prelude::*;
@@ -244,8 +244,13 @@ mod tests {
         convert::TryFrom,
         net::{IpAddr, SocketAddr},
         str::FromStr,
+        sync::{Arc, Mutex},
         time::Duration,
     };
+
+    fn get_empty_state() -> State<()> {
+        Arc::new(Mutex::new(()))
+    }
 
     #[test]
     fn request_correctly_built() {
@@ -272,11 +277,12 @@ mod tests {
     #[test]
     fn single_threaded() {
         std::thread::spawn(|| {
-            let _result = Network::listen((), "127.0.0.1:7878", |state, mut stream| {
-                Network::handle_message(state, &mut stream, |_state, _request| {
-                    Ok("pong".as_bytes().to_vec())
-                })
-            });
+            let _result =
+                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
+                    Network::handle_message(state, &mut stream, |_state, _request| {
+                        Ok("pong".as_bytes().to_vec())
+                    })
+                });
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(
@@ -290,15 +296,23 @@ mod tests {
     fn single_threaded_async() {
         use async_std::task;
 
-        async fn handle_request(_state: (), _request: Request) -> Result<Response, String> {
+        async fn handle_request<S>(
+            _state: State<S>,
+            _request: Request,
+        ) -> Result<Response, String> {
             Ok("pong".as_bytes().to_vec())
         };
 
-        async fn handle_connection(state: (), stream: Box<dyn AsyncStream>) -> Result<(), String> {
+        async fn handle_connection<S>(
+            state: State<S>,
+            stream: Box<dyn AsyncStream>,
+        ) -> Result<(), String> {
             Network::handle_message_async(state, stream, handle_request).await
         };
 
-        task::spawn(async { Network::listen_async((), "127.0.0.1:7878", handle_connection).await });
+        task::spawn(async {
+            Network::listen_async(get_empty_state(), "127.0.0.1:7878", handle_connection).await
+        });
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(
             Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
@@ -310,21 +324,20 @@ mod tests {
     #[test]
     fn single_threaded_async_stateful() {
         use async_std::task;
-        use std::sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        };
-        type State = Arc<AtomicUsize>;
 
-        let counter: State = Arc::new(AtomicUsize::new(0));
+        let counter: State<usize> = Arc::new(Mutex::new(0));
 
-        async fn handle_request(state: State, _request: Request) -> Result<Response, String> {
-            state.fetch_add(1, Ordering::SeqCst);
+        async fn handle_request(
+            state: State<usize>,
+            _request: Request,
+        ) -> Result<Response, String> {
+            let mut data = state.lock().expect("Failed to acquire mutex.");
+            *data += 1;
             Ok("pong".as_bytes().to_vec())
         };
 
         async fn handle_connection(
-            state: State,
+            state: State<usize>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<(), String> {
             Network::handle_message_async(state, stream, handle_request).await
@@ -343,17 +356,19 @@ mod tests {
         );
 
         std::thread::sleep(std::time::Duration::from_millis(200));
-        assert_eq!(counter.load(Ordering::SeqCst), 1)
+        let data = counter.lock().expect("Failed to acquire mutex.");
+        assert_eq!(*data, 1)
     }
 
     #[test]
     fn network_client() {
         std::thread::spawn(|| {
-            let _result = Network::listen((), "127.0.0.1:7878", |state, mut stream| {
-                Network::handle_message(state, &mut stream, |_state, _request| {
-                    Ok("pong".as_bytes().to_vec())
-                })
-            });
+            let _result =
+                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
+                    Network::handle_message(state, &mut stream, |_state, _request| {
+                        Ok("pong".as_bytes().to_vec())
+                    })
+                });
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         let client = Network::new("127.0.0.1:7878");
@@ -374,15 +389,16 @@ mod tests {
     #[test]
     fn multi_threaded() {
         std::thread::spawn(|| {
-            let _result = Network::listen((), "127.0.0.1:7878", |state, mut stream| {
-                std::thread::spawn(move || {
-                    let _result =
-                        Network::handle_message(state, &mut stream, |_state, _request| {
-                            Ok("pong".as_bytes().to_vec())
-                        });
+            let _result =
+                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
+                    std::thread::spawn(move || {
+                        let _result =
+                            Network::handle_message(state, &mut stream, |_state, _request| {
+                                Ok("pong".as_bytes().to_vec())
+                            });
+                    });
+                    Ok(())
                 });
-                Ok(())
-            });
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         std::thread::spawn(|| {
@@ -457,7 +473,7 @@ mod tests {
 
         pub fn start(&self, port: u16) -> Result<(), String> {
             Network::listen(
-                self,
+                get_empty_state(),
                 SocketAddr::new(
                     IpAddr::from_str("127.0.0.1").map_err(|e| e.to_string())?,
                     port,
@@ -465,8 +481,8 @@ mod tests {
                 .to_string()
                 .as_ref(),
                 |state, mut stream| {
-                    Network::handle_message(state, &mut stream, |state, request| {
-                        state.handle_message(request)
+                    Network::handle_message(state, &mut stream, |_state, request| {
+                        self.handle_message(request)
                     })
                 },
             )
