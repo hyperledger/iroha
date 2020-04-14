@@ -56,6 +56,7 @@ impl Network {
     ///
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
+    /// * `state` - the state that you want to capture, place `()` there if don't need the state, use some reference to the state otherwise
     pub fn listen<H, S>(state: S, server_url: &str, mut handler: H) -> Result<(), String>
     where
         H: FnMut(S, Box<dyn Stream>) -> Result<(), String>,
@@ -76,6 +77,8 @@ impl Network {
     ///
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
+    /// * `state` - the state that you want to capture, place `()` there if don't need the state, use some reference to the state otherwise
+    /// As this is an async function, you may consider using `Arc` for `state`.
     pub async fn listen_async<H, F, S>(
         state: S,
         server_url: &str,
@@ -101,6 +104,7 @@ impl Network {
 
     /// Helper function to call inside `listen` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
+    /// See `listen` for the description of the `state`.
     pub fn handle_message<H, S>(
         state: S,
         stream: &mut impl Stream,
@@ -125,6 +129,7 @@ impl Network {
 
     /// Helper function to call inside `listen_async` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
+    /// See `listen_async` for the description of the `state`.
     pub async fn handle_message_async<H, F, S>(
         state: S,
         mut stream: Box<dyn AsyncStream>,
