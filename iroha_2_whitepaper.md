@@ -69,32 +69,48 @@ Iroha provides a library of smart contracts called **I**roha **S**pecial **I**ns
 
 These include the following smart contracts to support asset management use cases:
 
-* Domain registration
-* createAsset
-* transferAsset
-* addAssetQty
-* subAssetQty
-* groupAssets
-* ungroupAssets
 * swapAssets
 * invoiceAsset
 
-Arbitrary data can be stored using the following:
 
-* Message blob
+**Primitives**:
 
-For the decentralized membership service, the following transaction types are applicable:
+* RegisterDomain(Name, *permissions*)
+* RegisterAsset(Name, PrecisionDecimals, *quantity*)
+* Add(WhatAsset, WhatAmount, WhereToAdd)
+* Sub(WhatAsset, WhatAmount, WhereToSub)
+* CreateAccount(Name, *permissions*)
+* Batch(*)
+	* Batch executes a list of instructions atomically and in order. Batches must always conserve assets (meaning that you cannot have more of an asset after executing a batch). If for for reason you want to mint an asset inside a batch, use *BatchUnconserved*.
+* BatchUnconserved(*)
+	* Works the same as Batch, above, but allows minting of assets (meaning that more of an asset can exist after executing a batch, if permissions exist for minting).
+* GroupAssets(Alias, WhatAsset1, WhatAmount1, ..., WhatAssetN, WhatAmountN)
+	* Groups a set of assets and amounts into one atomic group that can be transfered together.
+* DisbandGroup(Alias)
+
+* StoreBlob(bytes)
+	* Can be used to store arbitrary data in the blockchain.
 
 * Add validating peer
+	* Adds a peer to the consensus process.
 * Remove validating peer
+	* Removes a peer from the consensus process.
 
-* AddPair(asset, asset)
+**Compound Instructions**
+
+**Transfer** = Batch(Sub(WhatAsset, WhatAmount, Account1) & Add(WhatAsset, WhatAmount, Account2))
+NOTE: Should probably inline Transfer as a primitive because it is going to be one of the most common instructions that is executed.
+
+**SwapAssets** = Batch(Sub(WhatAsset1, WhatAmount1, Account1) & Sub(WhatAsset2, WhatAmount2, Account2) & Add(WhatAsset2, WhatAmount2, Account1) & Add(WhatAsset1, WhatAmount1, Account2))
+
+**AddExchLimitBid** = Batch(CreateAccount(Account2) & Sub(Asset, Amount, Account1) & Add(Asset, Amount, Pool) & CreateEventTrigger(*condition*=, *action*=))
+
+* AddXYKExchangePair(asset, asset)
 * AddOraclizedPair(mintableAsset, mintableAsset, oracle)
-* CurveTrade(Asset)
-* AddCurveLiquidity(asset, asset)
+* XYKTrade(Asset)
+* AddXYKLiquidity(asset, asset)
 * ChainedTrade(inputAsset, outputAsset) # Does paythingfinding to get output; oraclized inputs/outputs are special
 
-* addLimitBid
 * addLimitAsk
 * removeLimitBid
 * removeLimitAsk
@@ -131,7 +147,7 @@ Triggers can be either based on time or on a confirmed transaction (event). This
 
 * Trigger at timestamp
 * Trigger at blockchain
-* Trigger at *conditional*
+* Trigger at *condition*
 
 ### 2.6. Transactions
 
