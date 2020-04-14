@@ -16,36 +16,109 @@ pub mod tx;
 pub mod wsv;
 
 use crate::{
-    block::Blockchain, config::Configuration, kura::Kura, sumeragi::Sumeragi, torii::Torii,
-    wsv::World,
+    block::Blockchain, config::Configuration, kura::Kura, prelude::*, queue::Queue,
+    sumeragi::Sumeragi, torii::Torii,
 };
-use futures::channel::mpsc;
+use futures::{
+    channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    executor::ThreadPool,
+    lock::Mutex,
+    prelude::*,
+};
 use parity_scale_codec::{Decode, Encode};
-use std::path::Path;
+use std::{path::Path, sync::Arc, time::Instant};
 
+pub type BlockSender = UnboundedSender<Block>;
+pub type TransactionSender = UnboundedSender<Transaction>;
+pub type TransactionReceiver = UnboundedReceiver<Transaction>;
+pub type BlockReceiver = UnboundedReceiver<Block>;
+
+/// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
+/// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
 pub struct Iroha {
-    torii: Torii,
+    torii: Arc<Mutex<Torii>>,
+    queue: Arc<Mutex<Queue>>,
+    sumeragi: Arc<Mutex<Sumeragi>>,
+    blockchain: Arc<Mutex<Blockchain>>,
+    last_round_time: Arc<Mutex<Instant>>,
+    transactions_receiver: Arc<Mutex<TransactionReceiver>>,
+    blocks_receiver: Arc<Mutex<BlockReceiver>>,
+    world_state_view: Arc<Mutex<WorldStateView>>,
+    pool: ThreadPool,
 }
 
 impl Iroha {
     pub fn new(config: Configuration) -> Self {
-        let (tx, rx) = mpsc::unbounded();
-        let world = World::new(rx);
+        let (transactions_sender, transactions_receiver) = mpsc::unbounded();
+        let (blocks_sender, blocks_receiver) = mpsc::unbounded();
+        let world_state_view = Arc::new(Mutex::new(WorldStateView::new()));
+        let pool = ThreadPool::new().expect("Failed to create new Thread Pool.");
         let torii = Torii::new(
             &config.torii_url,
-            Sumeragi::new(),
-            Blockchain::new(Kura::new(
-                config.mode,
-                Path::new(&config.kura_block_store_path),
-                tx,
-            )),
-            world,
+            pool.clone(),
+            Arc::clone(&world_state_view),
+            transactions_sender,
         );
-        Iroha { torii }
+        let sumeragi = Sumeragi::new();
+        let blockchain = Blockchain::new(Kura::new(
+            config.mode,
+            Path::new(&config.kura_block_store_path),
+            blocks_sender,
+        ));
+        Iroha {
+            queue: Arc::new(Mutex::new(Queue::default())),
+            torii: Arc::new(Mutex::new(torii)),
+            sumeragi: Arc::new(Mutex::new(sumeragi)),
+            blockchain: Arc::new(Mutex::new(blockchain)),
+            transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
+            world_state_view,
+            blocks_receiver: Arc::new(Mutex::new(blocks_receiver)),
+            last_round_time: Arc::new(Mutex::new(Instant::now())),
+            pool,
+        }
     }
 
-    pub async fn start(&mut self) -> Result<(), String> {
-        self.torii.start().await;
+    pub async fn start(self) -> Result<(), String> {
+        let torii = Arc::clone(&self.torii);
+        self.pool.spawn_ok(async move {
+            torii.lock().await.start().await;
+        });
+        let transactions_receiver = Arc::clone(&self.transactions_receiver);
+        let queue = Arc::clone(&self.queue);
+        self.pool.spawn_ok(async move {
+            while let Some(transaction) = transactions_receiver.lock().await.next().await {
+                queue.lock().await.push_pending_transaction(transaction);
+            }
+        });
+        let queue = Arc::clone(&self.queue);
+        let blockchain = Arc::clone(&self.blockchain);
+        let sumeragi = Arc::clone(&self.sumeragi);
+        let last_round_time = Arc::clone(&self.last_round_time);
+        self.pool.spawn_ok(async move {
+            loop {
+                blockchain
+                    .lock()
+                    .await
+                    .accept(
+                        sumeragi
+                            .lock()
+                            .await
+                            .sign(queue.lock().await.pop_pending_transactions())
+                            .await
+                            .expect("Failed to sign transactions."),
+                    )
+                    .await
+                    .expect("Failed to accept transactions into blockchain.");
+                *last_round_time.lock().await = Instant::now();
+            }
+        });
+        let blocks_receiver = Arc::clone(&self.blocks_receiver);
+        let world_state_view = Arc::clone(&self.world_state_view);
+        self.pool.spawn_ok(async move {
+            while let Some(block) = blocks_receiver.lock().await.next().await {
+                world_state_view.lock().await.put(&block).await;
+            }
+        });
         Ok(())
     }
 }
@@ -87,9 +160,9 @@ pub mod prelude {
         domain::Domain,
         isi::{Contract, Instruction},
         peer::Peer,
-        query::{Query, QueryResult, Request},
+        query::{Query, QueryRequest, QueryResult},
         tx::Transaction,
         wsv::WorldStateView,
-        Id, Iroha,
+        BlockReceiver, BlockSender, Id, Iroha, TransactionReceiver, TransactionSender,
     };
 }

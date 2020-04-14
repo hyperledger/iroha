@@ -1,17 +1,20 @@
+use async_std::{
+    net::{TcpListener, TcpStream},
+    prelude::*,
+};
+use futures::lock::Mutex;
 use std::future::Future;
 use std::{
     convert::{TryFrom, TryInto},
     error::Error,
-    io::prelude::*,
-    net::{TcpListener, TcpStream},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Request, Response, State, Stream};
+    pub use crate::{AsyncStream, Network, Request, Response, State};
 }
 
 pub const BUFFER_SIZE: usize = 2048;
@@ -42,37 +45,26 @@ impl Network {
     }
 
     /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
-    pub fn send_request(&self, request: Request) -> Result<Response, String> {
-        let mut stream = TcpStream::connect(self.server_url.clone()).map_err(|e| e.to_string())?;
-        Self::send_over_stream(&mut stream, request)
+    pub async fn send_request(&self, request: Request) -> Result<Response, String> {
+        Network::send_request_to(&self.server_url, request).await
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
-    pub fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
-        let mut stream = TcpStream::connect(server_url).map_err(|e| e.to_string())?;
-        Self::send_over_stream(&mut stream, request)
+    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+        let mut stream = TcpStream::connect(server_url)
+            .await
+            .map_err(|e| e.to_string())?;
+        let payload: Vec<u8> = request.into();
+        stream
+            .write_all(&payload)
+            .await
+            .map_err(|e| e.to_string())?;
+        stream.flush().await.map_err(|e| e.to_string())?;
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let read_size = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
+        Ok(buffer[..read_size].to_vec())
     }
 
-    /// Listens on the specified `server_url`.
-    /// When there is an incoming connection, it passes it's `Stream` to `handler`.
-    /// # Arguments
-    ///
-    /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
-    /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
-    /// * `state` - the state that you want to capture
-    pub fn listen<H, S>(state: State<S>, server_url: &str, mut handler: H) -> Result<(), String>
-    where
-        H: FnMut(State<S>, Box<dyn Stream>) -> Result<(), String>,
-    {
-        let listener = TcpListener::bind(server_url).map_err(|e| e.to_string())?;
-        while let Some(stream) = listener.incoming().next() {
-            handler(state.clone(), Box::new(stream.map_err(|e| e.to_string())?))?;
-        }
-        Ok(())
-    }
-
-    /// Same as `listen` but asynchronous with the use of `async_std`
-    ///
     /// Listens on the specified `server_url`.
     /// When there is an incoming connection, it passes it's `AsyncStream` to `handler`.
     /// # Arguments
@@ -80,7 +72,7 @@ impl Network {
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
-    pub async fn listen_async<H, F, S>(
+    pub async fn listen<H, F, S>(
         state: State<S>,
         server_url: &str,
         mut handler: H,
@@ -89,41 +81,16 @@ impl Network {
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<(), String>>,
     {
-        use async_std::{net::TcpListener, prelude::*};
-
         let listener = TcpListener::bind(server_url)
             .await
             .map_err(|e| e.to_string())?;
-        let mut incoming = listener.incoming();
-
-        while let Some(stream) = incoming.next().await {
-            handler(state.clone(), Box::new(stream.map_err(|e| e.to_string())?)).await?;
+        while let Some(stream) = listener.incoming().next().await {
+            handler(
+                Arc::clone(&state),
+                Box::new(stream.map_err(|e| e.to_string())?),
+            )
+            .await?;
         }
-        Ok(())
-    }
-
-    /// Helper function to call inside `listen` `handler` function to parse and send response.
-    /// The `handler` specified here will need to generate `Response` from `Request`.
-    /// See `listen` for the description of the `state`.
-    pub fn handle_message<H, S>(
-        state: State<S>,
-        stream: &mut impl Stream,
-        mut handler: H,
-    ) -> Result<(), String>
-    where
-        H: FnMut(State<S>, Request) -> Result<Response, String>,
-    {
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let read_size = stream.read(&mut buffer).expect("Request read failed.");
-        let response = handler(
-            state,
-            buffer[..read_size]
-                .to_vec()
-                .try_into()
-                .map_err(|_| "Failed to parse message.")?,
-        )?;
-        stream.write_all(&response).map_err(|e| e.to_string())?;
-        stream.flush().map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -139,8 +106,6 @@ impl Network {
         H: FnMut(State<S>, Request) -> F,
         F: Future<Output = Result<Response, String>>,
     {
-        use async_std::prelude::*;
-
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream
             .read(&mut buffer)
@@ -158,20 +123,7 @@ impl Network {
         stream.flush().await.map_err(|e| e.to_string())?;
         Ok(())
     }
-
-    /// Function for internal use to send messages over TcpStream.
-    fn send_over_stream(stream: &mut TcpStream, request: Request) -> Result<Response, String> {
-        let payload: Vec<u8> = request.into();
-        stream.write_all(&payload).map_err(|e| e.to_string())?;
-        stream.flush().map_err(|e| e.to_string())?;
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let read_size = stream.read(&mut buffer).map_err(|e| e.to_string())?;
-        Ok(buffer[..read_size].to_vec())
-    }
 }
-
-pub trait Stream: Read + Write + Send {}
-impl<T> Stream for T where T: Read + Write + Send {}
 
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
@@ -238,15 +190,9 @@ pub type Response = Vec<u8>;
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::*, Network};
-    use chashmap::CHashMap;
-    use std::{
-        convert::TryFrom,
-        net::{IpAddr, SocketAddr},
-        str::FromStr,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use super::*;
+    use async_std::task;
+    use std::convert::TryFrom;
 
     fn get_empty_state() -> State<()> {
         Arc::new(Mutex::new(()))
@@ -274,28 +220,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn single_threaded() {
-        std::thread::spawn(|| {
-            let _result =
-                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
-                    Network::handle_message(state, &mut stream, |_state, _request| {
-                        Ok("pong".as_bytes().to_vec())
-                    })
-                });
-        });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        assert_eq!(
-            Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
-            "pong".as_bytes()
-        )
-    }
-
-    #[test]
-    fn single_threaded_async() {
-        use async_std::task;
-
+    #[async_std::test]
+    async fn single_threaded_async() {
         async fn handle_request<S>(
             _state: State<S>,
             _request: Request,
@@ -311,27 +237,26 @@ mod tests {
         };
 
         task::spawn(async {
-            Network::listen_async(get_empty_state(), "127.0.0.1:7878", handle_connection).await
+            Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(
             Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
+                .await
+                .expect("Failed to send request."),
             "pong".as_bytes()
         )
     }
 
-    #[test]
-    fn single_threaded_async_stateful() {
-        use async_std::task;
-
+    #[async_std::test]
+    async fn single_threaded_async_stateful() {
         let counter: State<usize> = Arc::new(Mutex::new(0));
 
         async fn handle_request(
             state: State<usize>,
             _request: Request,
         ) -> Result<Response, String> {
-            let mut data = state.lock().expect("Failed to acquire mutex.");
+            let mut data = state.lock().await;
             *data += 1;
             Ok("pong".as_bytes().to_vec())
         };
@@ -345,193 +270,22 @@ mod tests {
 
         let counter_move = counter.clone();
         task::spawn(async move {
-            Network::listen_async(counter_move, "127.0.0.1:7870", handle_connection).await
+            Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
 
         std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(
             Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
+                .await
+                .expect("Failed to send request."),
             "pong".as_bytes()
         );
 
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let data = counter.lock().expect("Failed to acquire mutex.");
-        assert_eq!(*data, 1)
-    }
-
-    #[test]
-    fn network_client() {
-        std::thread::spawn(|| {
-            let _result =
-                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
-                    Network::handle_message(state, &mut stream, |_state, _request| {
-                        Ok("pong".as_bytes().to_vec())
-                    })
-                });
+        task::spawn(async move {
+            let data = counter.lock().await;
+            assert_eq!(*data, 1)
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        let client = Network::new("127.0.0.1:7878");
-        assert_eq!(
-            client
-                .send_request(Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
-            "pong".as_bytes()
-        );
-        assert_eq!(
-            client
-                .send_request(Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
-            "pong".as_bytes()
-        )
-    }
-
-    #[test]
-    fn multi_threaded() {
-        std::thread::spawn(|| {
-            let _result =
-                Network::listen(get_empty_state(), "127.0.0.1:7878", |state, mut stream| {
-                    std::thread::spawn(move || {
-                        let _result =
-                            Network::handle_message(state, &mut stream, |_state, _request| {
-                                Ok("pong".as_bytes().to_vec())
-                            });
-                    });
-                    Ok(())
-                });
-        });
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        std::thread::spawn(|| {
-            assert_eq!(
-                Network::send_request_to(
-                    "127.0.0.1:7878",
-                    Request::new("/ping".to_string(), vec![])
-                )
-                .unwrap(),
-                "pong".as_bytes()
-            )
-        });
-        assert_eq!(
-            Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-                .unwrap(),
-            "pong".as_bytes()
-        )
-    }
-
-    struct Peer {
-        peers: CHashMap<SocketAddr, ()>,
-    }
-
-    impl Peer {
-        pub fn new() -> Peer {
-            Peer {
-                peers: CHashMap::new(),
-            }
-        }
-
-        pub fn handle_message(&self, request: Request) -> Result<Response, String> {
-            match request.url() {
-                "/number_of_peers" => Ok(vec![self.peers.len() as u8]),
-                "/add_peer" => {
-                    self.peers.insert(
-                        SocketAddr::from_str(
-                            String::from_utf8(request.payload.clone()).unwrap().as_ref(),
-                        )
-                        .unwrap(),
-                        (),
-                    );
-                    Ok(vec![])
-                }
-                "/add_me" => {
-                    let address = SocketAddr::from_str(
-                        String::from_utf8(request.payload.clone()).unwrap().as_ref(),
-                    )
-                    .unwrap();
-                    for (peer, _) in self.peers.clone() {
-                        Network::send_request_to(
-                            peer.to_string().as_ref(),
-                            Request::new("/add_peer".to_string(), request.payload.clone()),
-                        )?;
-                        std::thread::spawn(move || {
-                            std::thread::sleep(Duration::from_millis(50));
-                            Network::send_request_to(
-                                address.to_string().as_ref(),
-                                Request::new(
-                                    "/add_peer".to_string(),
-                                    peer.to_string().into_bytes(),
-                                ),
-                            )
-                            .expect("Failed to send request.");
-                        });
-                    }
-                    self.peers.insert(address, ());
-                    Ok(vec![])
-                }
-                _ => unimplemented!(),
-            }
-        }
-
-        pub fn start(&self, port: u16) -> Result<(), String> {
-            Network::listen(
-                get_empty_state(),
-                SocketAddr::new(
-                    IpAddr::from_str("127.0.0.1").map_err(|e| e.to_string())?,
-                    port,
-                )
-                .to_string()
-                .as_ref(),
-                |state, mut stream| {
-                    Network::handle_message(state, &mut stream, |_state, request| {
-                        self.handle_message(request)
-                    })
-                },
-            )
-        }
-
-        pub fn start_and_connect(&self, port: u16, peer: &str) -> Result<(), String> {
-            self.peers
-                .insert(SocketAddr::from_str(peer).map_err(|e| e.to_string())?, ());
-            Network::send_request_to(
-                peer,
-                Request::new(
-                    "/add_me".to_string(),
-                    SocketAddr::new(
-                        IpAddr::from_str("127.0.0.1").map_err(|e| e.to_string())?,
-                        port,
-                    )
-                    .to_string()
-                    .into_bytes(),
-                ),
-            )?;
-            self.start(port)
-        }
-    }
-
-    #[test]
-    fn peer_to_peer() {
-        std::thread::spawn(|| {
-            Peer::new().start(7879).expect("Failed to start Peer.");
-        });
-        std::thread::sleep(Duration::from_millis(50));
-        std::thread::spawn(|| {
-            Peer::new()
-                .start_and_connect(7880, "127.0.0.1:7879")
-                .expect("Failed to start Peer and connect.");
-        });
-        std::thread::sleep(Duration::from_millis(50));
-        std::thread::spawn(|| {
-            Peer::new()
-                .start_and_connect(7881, "127.0.0.1:7879")
-                .expect("Failed to start Peer and connect.");
-        });
-        std::thread::sleep(Duration::from_millis(200));
-        assert_eq!(
-            Network::send_request_to(
-                "127.0.0.1:7881",
-                Request::new("/number_of_peers".to_string(), vec![])
-            )
-            .unwrap(),
-            vec![2]
-        )
     }
 }

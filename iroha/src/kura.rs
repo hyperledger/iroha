@@ -3,13 +3,11 @@ use async_std::{
     fs::{metadata, File},
     prelude::*,
 };
-use futures::channel::mpsc::UnboundedSender;
 use std::{
+    convert::TryFrom,
     fs,
     path::{Path, PathBuf},
 };
-
-type BlockSender = UnboundedSender<Block>;
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
@@ -106,7 +104,7 @@ impl BlockStore {
         file.read(&mut buffer)
             .await
             .map_err(|_| "Buffer overflow.")?;
-        Ok(Block::from(buffer))
+        Ok(Block::try_from(buffer).expect("Failed to read block from store."))
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.

@@ -3,7 +3,7 @@ use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
 #[derive(Io, Encode, Decode)]
-pub struct Request {
+pub struct QueryRequest {
     pub timestamp: u128,
     pub signature: Option<Signature>,
     pub query: IrohaQuery,
