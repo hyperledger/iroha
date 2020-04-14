@@ -107,9 +107,9 @@ pub mod query {
             GetAccountAssets { account_id }
         }
 
-        pub fn build_request(account_id: Id) -> Request {
+        pub fn build_request(account_id: Id) -> QueryRequest {
             let query = GetAccountAssets { account_id };
-            Request {
+            QueryRequest {
                 timestamp: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time.")

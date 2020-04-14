@@ -2,7 +2,7 @@
 mod tests {
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, convert::TryFrom};
 
     #[derive(Io, Encode, Decode, PartialEq, Debug, Clone)]
     struct SampleContract {
@@ -28,7 +28,8 @@ mod tests {
         let sample_contract = SampleContract::new();
         let sample_contract_ref = &sample_contract;
         let vector_from_ref: Vec<u8> = sample_contract_ref.into();
-        let result_from_ref: SampleContract = vector_from_ref.into();
+        let result_from_ref =
+            SampleContract::try_from(vector_from_ref).expect("Failed to try from vector.");
         assert_eq!(sample_contract, result_from_ref);
     }
 
@@ -37,7 +38,8 @@ mod tests {
         let sample_contract = SampleContract::new();
         let sample_contract_clone = sample_contract.clone();
         let vector_from_clone: Vec<u8> = sample_contract_clone.into();
-        let result_from_clone: SampleContract = vector_from_clone.into();
+        let result_from_clone =
+            SampleContract::try_from(vector_from_clone).expect("Failed to try from vector.");
         assert_eq!(sample_contract, result_from_clone);
     }
 }
