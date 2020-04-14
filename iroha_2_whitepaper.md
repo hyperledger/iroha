@@ -91,9 +91,9 @@ These include the following smart contracts to support asset management use case
 * StoreBlob(bytes)
 	* Can be used to store arbitrary data in the blockchain.
 
-* Add validating peer
+* AddValidatingPeer(peerIP, peerPublicKey)
 	* Adds a peer to the consensus process.
-* Remove validating peer
+* RemoveValidatingPeer(peerIP, peerPublicKey)
 	* Removes a peer from the consensus process.
 
 **Compound Instructions**
@@ -103,9 +103,12 @@ NOTE: Should probably inline Transfer as a primitive because it is going to be o
 
 **SwapAssets** = Batch(Sub(WhatAsset1, WhatAmount1, Account1) & Sub(WhatAsset2, WhatAmount2, Account2) & Add(WhatAsset2, WhatAmount2, Account1) & Add(WhatAsset1, WhatAmount1, Account2))
 
-**AddExchLimitBid** = Batch(CreateAccount(Account2) & Sub(Asset, Amount, Account1) & Add(Asset, Amount, Pool) & CreateEventTrigger(*condition*=, *action*=))
+**AddXYKExchangePair(asset1, asset2)** = CreateAccount(Asset1Asset2Pair, Permissions(Permissions.Ownership.PoolShares))
 
-* AddXYKExchangePair(asset, asset)
+The following are still WIP:
+
+**AddExchLimitBid** = Batch(CreateEventTrigger(Event1, *condition*=bidPrice<=Exists(askPrice), *action*= SwapAssets(askAsset, bidAsset)) & CreateAccount(Account2, Permissions(Permissions.OwnedByEvent(Event1))) & Sub(Asset, Amount, Account1) & Add(Asset, Amount, Pool))
+
 * AddOraclizedPair(mintableAsset, mintableAsset, oracle)
 * XYKTrade(Asset)
 * AddXYKLiquidity(asset, asset)
