@@ -24,43 +24,59 @@ namespace iroha {
     template <typename NumberType>
     inline bool readVarInt(shared_model::interface::types::ByteRange &buffer,
                            NumberType &number) {
+      static_assert(not std::is_signed<NumberType>::value,
+                    "VarInt must be unsigned.");
+
       if (buffer.empty()) {
         return false;
       }
       number = 0;
-      constexpr NumberType kSignificantBitsMask{0x7F};
+      constexpr std::byte kSignificantBitsMask{0x7F};
       constexpr std::byte kContinuationBitMask{0x80};
       constexpr size_t kMaxVarIntLength = 8;
-      for (size_t i = 0; i < kMaxVarIntLength && i < buffer.size(); i++) {
-        if (i >= buffer.size()) {
-          return false;
-        }
-        number |= ((static_cast<NumberType>(buffer[i]) & kSignificantBitsMask)
-                   << (7 * i));
-        if ((buffer[i] & kContinuationBitMask) == std::byte{0}) {
-          const size_t read_bytes = i + 1;
-          buffer = shared_model::interface::types::ByteRange{
-              buffer.data() + read_bytes, buffer.size() - read_bytes};
-          return true;
-        }
-      }
-      return false;
+
+      /// How many varint bytes can a number of NumberType occupy.
+      /// This is basically ceil(sizeof(number) * 8 / 7).
+      constexpr size_t kTargetCapacityVarIntChunks =
+          ((sizeof(number) << size_t(3)) + size_t(6)) / size_t(7);
+      /// How much bytes are we going to read at most.
+      const size_t kMaxPayloadSize =
+          std::min(kTargetCapacityVarIntChunks,
+                   std::min(kMaxVarIntLength, buffer.size()));
+      auto const *const beg = &buffer[0];
+      auto const *const end = &buffer[kMaxPayloadSize];
+      auto const *ptr = beg;
+      bool is_last_block_read = false;
+      size_t counter = 0;
+
+      do {
+        number |= (static_cast<NumberType>(*ptr & kSignificantBitsMask)
+                   << (size_t(7) * counter++));
+        is_last_block_read = std::byte(0) == (*ptr++ & kContinuationBitMask);
+      } while (not is_last_block_read && ptr != end);
+
+      const auto read_bytes = ptr - beg;
+      buffer = shared_model::interface::types::ByteRange{
+          beg + read_bytes, buffer.size() - read_bytes};
+      return is_last_block_read;
     }
 
     template <typename NumberType, typename Container>
     inline void encodeVarInt(NumberType number, Container &buffer) {
+      static_assert(not std::is_signed<NumberType>::value,
+                    "VarInt must be unsigned.");
+
       constexpr NumberType kSignificantBitsMask{0x7F};
       constexpr NumberType kContinuationBitMask{0x80};
 
       do {
         NumberType next = number >> 7;
         number &= kSignificantBitsMask;
-        if (next != 0) {
-          number |= kContinuationBitMask;
-        }
+        number |= kContinuationBitMask;
         buffer.push_back(static_cast<std::byte>(number));
         number = next;
       } while (number != 0);
+      *std::prev(buffer.end()) &= static_cast<std::byte>(~kContinuationBitMask);
     }
 
   }  // namespace multihash
