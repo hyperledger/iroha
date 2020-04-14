@@ -64,7 +64,6 @@ target_link_libraries(bm_iroha_ed25519
     )
 
 if(USE_LIBURSA)
-    find_package(ursa)
     add_executable(bm_ursa_ed25519 bm_ursa_ed25519.cpp)
     target_link_libraries(bm_ursa_ed25519
         benchmark::benchmark
