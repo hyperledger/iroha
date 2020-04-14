@@ -39,14 +39,14 @@ impl Network {
     }
 
     /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
-    pub fn send_request(&self, request: Request) -> Result<Response, Box<dyn Error>> {
-        let mut stream = TcpStream::connect(self.server_url.clone())?;
+    pub fn send_request(&self, request: Request) -> Result<Response, String> {
+        let mut stream = TcpStream::connect(self.server_url.clone()).map_err(|e| e.to_string())?;
         Self::send_over_stream(&mut stream, request)
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
-    pub fn send_request_to(server_url: &str, request: Request) -> Result<Response, Box<dyn Error>> {
-        let mut stream = TcpStream::connect(server_url)?;
+    pub fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+        let mut stream = TcpStream::connect(server_url).map_err(|e| e.to_string())?;
         Self::send_over_stream(&mut stream, request)
     }
 
@@ -56,14 +56,14 @@ impl Network {
     ///
     /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
-    pub fn listen<H, S>(state: S, server_url: &str, mut handler: H) -> Result<(), Box<dyn Error>>
+    pub fn listen<H, S>(state: S, server_url: &str, mut handler: H) -> Result<(), String>
     where
-        H: FnMut(S, Box<dyn Stream>) -> Result<(), Box<dyn Error>>,
+        H: FnMut(S, Box<dyn Stream>) -> Result<(), String>,
         S: Clone,
     {
-        let listener = TcpListener::bind(server_url)?;
+        let listener = TcpListener::bind(server_url).map_err(|e| e.to_string())?;
         while let Some(stream) = listener.incoming().next() {
-            handler(state.clone(), Box::new(stream?))?;
+            handler(state.clone(), Box::new(stream.map_err(|e| e.to_string())?))?;
         }
         Ok(())
     }
@@ -105,9 +105,9 @@ impl Network {
         state: S,
         stream: &mut impl Stream,
         mut handler: H,
-    ) -> Result<(), Box<dyn Error>>
+    ) -> Result<(), String>
     where
-        H: FnMut(S, Request) -> Result<Response, Box<dyn Error>>,
+        H: FnMut(S, Request) -> Result<Response, String>,
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream.read(&mut buffer).expect("Request read failed.");
@@ -118,8 +118,8 @@ impl Network {
                 .try_into()
                 .map_err(|_| "Failed to parse message.")?,
         )?;
-        stream.write_all(&response)?;
-        stream.flush()?;
+        stream.write_all(&response).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -155,15 +155,12 @@ impl Network {
     }
 
     /// Function for internal use to send messages over TcpStream.
-    fn send_over_stream(
-        stream: &mut TcpStream,
-        request: Request,
-    ) -> Result<Response, Box<dyn Error>> {
+    fn send_over_stream(stream: &mut TcpStream, request: Request) -> Result<Response, String> {
         let payload: Vec<u8> = request.into();
-        stream.write_all(&payload)?;
-        stream.flush()?;
+        stream.write_all(&payload).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
         let mut buffer = [0u8; BUFFER_SIZE];
-        let read_size = stream.read(&mut buffer)?;
+        let read_size = stream.read(&mut buffer).map_err(|e| e.to_string())?;
         Ok(buffer[..read_size].to_vec())
     }
 }
@@ -240,7 +237,6 @@ mod tests {
     use chashmap::CHashMap;
     use std::{
         convert::TryFrom,
-        error::Error,
         net::{IpAddr, SocketAddr},
         str::FromStr,
         time::Duration,
@@ -412,7 +408,7 @@ mod tests {
             }
         }
 
-        pub fn handle_message(&self, request: Request) -> Result<Response, Box<dyn Error>> {
+        pub fn handle_message(&self, request: Request) -> Result<Response, String> {
             match request.url() {
                 "/number_of_peers" => Ok(vec![self.peers.len() as u8]),
                 "/add_peer" => {
@@ -454,12 +450,15 @@ mod tests {
             }
         }
 
-        pub fn start(&self, port: u16) -> Result<(), Box<dyn Error>> {
+        pub fn start(&self, port: u16) -> Result<(), String> {
             Network::listen(
                 self,
-                SocketAddr::new(IpAddr::from_str("127.0.0.1")?, port)
-                    .to_string()
-                    .as_ref(),
+                SocketAddr::new(
+                    IpAddr::from_str("127.0.0.1").map_err(|e| e.to_string())?,
+                    port,
+                )
+                .to_string()
+                .as_ref(),
                 |state, mut stream| {
                     Network::handle_message(state, &mut stream, |state, request| {
                         state.handle_message(request)
@@ -468,15 +467,19 @@ mod tests {
             )
         }
 
-        pub fn start_and_connect(&self, port: u16, peer: &str) -> Result<(), Box<dyn Error>> {
-            self.peers.insert(SocketAddr::from_str(peer)?, ());
+        pub fn start_and_connect(&self, port: u16, peer: &str) -> Result<(), String> {
+            self.peers
+                .insert(SocketAddr::from_str(peer).map_err(|e| e.to_string())?, ());
             Network::send_request_to(
                 peer,
                 Request::new(
                     "/add_me".to_string(),
-                    SocketAddr::new(IpAddr::from_str("127.0.0.1")?, port)
-                        .to_string()
-                        .into_bytes(),
+                    SocketAddr::new(
+                        IpAddr::from_str("127.0.0.1").map_err(|e| e.to_string())?,
+                        port,
+                    )
+                    .to_string()
+                    .into_bytes(),
                 ),
             )?;
             self.start(port)
