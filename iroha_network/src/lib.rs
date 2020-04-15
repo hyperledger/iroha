@@ -3,10 +3,10 @@ use async_std::{
     prelude::*,
 };
 use futures::lock::Mutex;
-use std::future::Future;
 use std::{
     convert::{TryFrom, TryInto},
     error::Error,
+    future::Future,
     sync::Arc,
 };
 
