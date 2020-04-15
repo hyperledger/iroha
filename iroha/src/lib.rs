@@ -16,7 +16,7 @@ pub mod tx;
 pub mod wsv;
 
 use crate::{
-    block::Blockchain, config::Configuration, kura::Kura, prelude::*, queue::Queue,
+    block::Blockchain, config::Configuration, kura::Kura, peer::Peer, prelude::*, queue::Queue,
     sumeragi::Sumeragi, torii::Torii,
 };
 use futures::{
@@ -37,6 +37,7 @@ pub type BlockReceiver = UnboundedReceiver<Block>;
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
 pub struct Iroha {
     torii: Arc<Mutex<Torii>>,
+    peer: Arc<Mutex<Peer>>,
     queue: Arc<Mutex<Queue>>,
     sumeragi: Arc<Mutex<Sumeragi>>,
     blockchain: Arc<Mutex<Blockchain>>,
@@ -65,9 +66,12 @@ impl Iroha {
             Path::new(&config.kura_block_store_path),
             blocks_sender,
         ));
+        //TODO: Get peer params from config
+        let peer = Peer::new("127.0.0.1:7878".to_string(), 10, 15);
         Iroha {
             queue: Arc::new(Mutex::new(Queue::default())),
             torii: Arc::new(Mutex::new(torii)),
+            peer: Arc::new(Mutex::new(peer)),
             sumeragi: Arc::new(Mutex::new(sumeragi)),
             blockchain: Arc::new(Mutex::new(blockchain)),
             transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
@@ -118,6 +122,14 @@ impl Iroha {
             while let Some(block) = blocks_receiver.lock().await.next().await {
                 world_state_view.lock().await.put(&block).await;
             }
+        });
+        let peer = Arc::clone(&self.peer);
+        self.pool.spawn_ok(async move {
+            peer.lock()
+                .await
+                .start()
+                .await
+                .expect("Peer execution failed.")
         });
         Ok(())
     }
