@@ -3,6 +3,7 @@ use async_std::{
     prelude::*,
 };
 use futures::lock::Mutex;
+use iroha_derive::log;
 use std::{
     convert::{TryFrom, TryInto},
     error::Error,
@@ -50,6 +51,7 @@ impl Network {
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
+    #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
         let mut stream = TcpStream::connect(server_url)
             .await

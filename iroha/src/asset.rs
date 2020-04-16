@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use iroha_derive::log;
 use parity_scale_codec::{Decode, Encode};
 
 #[derive(Clone, Debug, Encode, Decode)]
@@ -11,6 +12,11 @@ pub struct Asset {
 impl Asset {
     pub fn new(id: Id) -> Self {
         Asset { id, amount: 0 }
+    }
+
+    pub fn with_amount(mut self, amount: u128) -> Self {
+        self.amount = amount;
+        self
     }
 }
 
@@ -40,6 +46,10 @@ pub mod isi {
                 asset.amount += self.amount;
             } else {
                 assets.insert(self.asset_id.clone(), Asset::new(self.asset_id.clone()));
+                assets
+                    .get_mut(&self.asset_id)
+                    .ok_or("Failed to get asset.")?
+                    .amount += self.amount;
             }
             Ok(())
         }
@@ -71,13 +81,23 @@ pub mod isi {
                 .account(&self.source_account_id)
                 .ok_or("Source account not found")?
                 .assets
-                .remove(&self.asset_id)
+                .get_mut(&self.asset_id)
                 .ok_or("Asset not found")?;
-            world_state_view
+            asset.amount -= self.amount;
+            let destination_account = world_state_view
                 .account(&self.destination_account_id)
-                .ok_or("Destionation account not found")?
-                .assets
-                .insert(self.asset_id.clone(), asset);
+                .ok_or("Destionation account not found")?;
+            match destination_account.assets.get_mut(&self.asset_id.clone()) {
+                Some(asset) => {
+                    asset.amount += self.amount;
+                }
+                None => {
+                    destination_account.assets.insert(
+                        self.destination_account_id.clone(),
+                        Asset::new(self.asset_id.clone()).with_amount(self.amount),
+                    );
+                }
+            }
             Ok(())
         }
     }
@@ -92,7 +112,7 @@ pub mod query {
 
     /// To get the state of all assets in an account (a balance),
     /// GetAccountAssets query can be used.
-    #[derive(Io, IntoQuery, Encode, Decode)]
+    #[derive(Debug, Io, IntoQuery, Encode, Decode)]
     pub struct GetAccountAssets {
         account_id: Id,
     }
@@ -121,6 +141,7 @@ pub mod query {
     }
 
     impl Query for GetAccountAssets {
+        #[log]
         fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
             let assets: Vec<Asset> = world_state_view
                 .read_account(&self.account_id)
