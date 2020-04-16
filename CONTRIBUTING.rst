@@ -107,7 +107,7 @@ community could help you. You can also help others!
 Your First Code Contribution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Read our `C++ Style Guide <#c-style-guide>`__ and start with
+Read our `Rust Style Guide <#rust-style-guide>`__ and start with
 beginner-friendly issues with JIRA label
 `good-first-issue <https://jira.hyperledger.org/issues/?jql=project%20%3D%20IR%20and%20labels%20%3D%20good-first-issue%20ORDER%20BY%20updated%20DESC>`__.
 Indicate somehow that you are working on this task: get in touch with
@@ -142,6 +142,13 @@ Pull Requests
 -  When working with **PRs from forks** check `this
    manual <https://help.github.com/articles/checking-out-pull-requests-locally>`__
 
+Tests and Benchmarks
+~~~~~~~~~~~~~~~~~~~~
+
+-  To run tests execute `cargo test` command
+
+-  To run benchmarks execute `cargo bench` command, if you want to debug output in benchmark, execute `RUSTFLAGS="--cfg debug_assertions" cargo bench` command
+
 Styleguides
 -----------
 
@@ -168,6 +175,7 @@ Rust Style Guide
 - Do not place code inside `mod.rs` files
 - Use domain-first modules structure. For example `domain::isi::*`. Such a way 
 complex uses will be easier to incude in dependent modules.
+- Do not use whitespaces or empty lines inside function bodies.
 
 Documentation Styleguide
 ~~~~~~~~~~~~~~~~~~~~~~~~

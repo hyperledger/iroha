@@ -1,4 +1,5 @@
 use iroha::prelude::*;
+use iroha_derive::log;
 use iroha_network::prelude::*;
 use std::convert::TryFrom;
 
@@ -7,6 +8,7 @@ const COMMAND_REQUEST_HEADER: &str = "/commands";
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
+#[derive(Debug)]
 pub struct Client {
     torii_url: String,
 }
@@ -20,6 +22,7 @@ impl Client {
     }
 
     /// Contract API entry point. Submits contracts to `Iroha` peers.
+    #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction =
@@ -43,6 +46,7 @@ impl Client {
     }
 
     /// Query API entry point. Requests queries from `Iroha` peers.
+    #[log]
     pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
         let network = Network::new(&self.torii_url);
         let response = network

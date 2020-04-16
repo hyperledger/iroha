@@ -1,5 +1,6 @@
 use crate::prelude::*;
 use futures::{executor::ThreadPool, lock::Mutex};
+use iroha_derive::log;
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
 
@@ -66,6 +67,7 @@ async fn handle_connection(
     Ok(())
 }
 
+#[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
         COMMAND_REQUEST_HEADER => match Transaction::try_from(request.payload().to_vec()) {

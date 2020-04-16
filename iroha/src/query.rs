@@ -2,14 +2,14 @@ use crate::{asset, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
-#[derive(Io, Encode, Decode)]
+#[derive(Debug, Io, Encode, Decode)]
 pub struct QueryRequest {
     pub timestamp: u128,
     pub signature: Option<Signature>,
     pub query: IrohaQuery,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Debug, Encode, Decode)]
 pub enum IrohaQuery {
     GetAccountAssets(asset::query::GetAccountAssets),
 }
