@@ -6,7 +6,8 @@ RUN apt-get update; \
 
 #Install iroha
 COPY iroha.deb /tmp/iroha.deb
-RUN set -e; apt-get install -y /tmp/iroha.deb; \
+RUN set -e; apt-get update; \
+    apt-get install -y /tmp/iroha.deb; \
     rm -f /tmp/iroha.deb; \
     apt-get -y clean && \
     rm -rf /var/lib/apt/lists/*
