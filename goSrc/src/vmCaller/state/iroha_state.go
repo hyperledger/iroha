@@ -1,59 +1,57 @@
 package state
 
+// #cgo CFLAGS: -I ../../../../irohad
+// #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
+// #include <stdlib.h>
+// #include "ametsuchi/impl/reader_writer.h"
+import "C"
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
-
-	"vmCaller/api"
+	"unsafe"
 
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
+	berrors "github.com/hyperledger/burrow/execution/errors"
 )
 
-type IrohaState struct{}
+type IrohaState struct {
+	Storage unsafe.Pointer
+}
 
 // check that IrohaState implements acmstate.ReaderWriter
 var _ acmstate.ReaderWriter = &IrohaState{}
 
-func NewIrohaState() *IrohaState {
-	return &IrohaState{}
+func NewIrohaState(storage unsafe.Pointer) *IrohaState {
+	return &IrohaState{
+		Storage: storage,
+	}
 }
 
-func (st *IrohaState) GetAccount(addr crypto.Address) (*acm.Account, error) {
-	mirrorAccExist, err := api.GetIrohaAccount(addr)
+func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
+	caddress := C.CString(address.String())
+	result := C.Iroha_GetAccount(st.Storage, caddress)
+	C.free(unsafe.Pointer(caddress))
+
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return nil, errors.New(error)
+	}
+
+	accountBytes, err := hex.DecodeString(C.GoString(result.result))
+	C.free(unsafe.Pointer(result.result))
 	if err != nil {
-		fmt.Printf("[GetAccount] Error getting Iroha account %s\n", addr.String())
 		return nil, err
 	}
 
-	if !mirrorAccExist {
-		// Corresponding account doesn't exist in Iroha
-		return nil, nil
-	} else {
-		// Account exists, fetching its data
-		resp, err := api.GetIrohaAccountDetail(addr, "evm_account_data")
-		if err != nil {
-			return nil, fmt.Errorf("[GetAccount] error getting account details for address %s\n", addr.String())
-		}
-		accountBytes, err := hex.DecodeString(resp)
-		if err != nil {
-			return nil, fmt.Errorf("[GetAccount] error decoding hex string %s\n", resp)
-		}
-		account := &acm.Account{}
-		err = account.Unmarshal(accountBytes)
+	account := &acm.Account{}
+	err = account.Unmarshal(accountBytes)
 
-		// Unmarshlling bytecode replaces nil slices with empty ones []byte{}
-		// Hence the workaround below to revert this and make native.InitCode work
-		if account.EVMCode != nil && len(account.EVMCode) == 0 {
-			account.EVMCode = nil
-		}
-		if account.WASMCode != nil && len(account.WASMCode) == 0 {
-			account.WASMCode = nil
-		}
-		return account, err
-	}
+	return account, err
 }
 
 // mock
@@ -70,50 +68,80 @@ func (st *IrohaState) SetMetadata(metahash acmstate.MetadataHash, metadata strin
 
 func (st *IrohaState) UpdateAccount(account *acm.Account) error {
 	if account == nil {
-		return fmt.Errorf("[UpdateAccount] account passed is nil")
-	}
-
-	exist, err := api.GetIrohaAccount(account.Address)
-	if err != nil {
-		fmt.Errorf("[UpdateAccount] error getting Iroha account %s", account.String())
-		return err
-	}
-	if !exist {
-		// Account doesn't yet exist in Iroha; create it
-		err = api.CreateIrohaEvmAccount(account.Address)
-		if err != nil {
-			fmt.Errorf("[UpdateAccount] error creating Iroha account %s", account.String())
-			return err
-		}
+		return berrors.Errorf(berrors.Codes.IllegalWrite, "UpdateAccount passed nil account in MemoryState")
 	}
 
 	marshalledData, err := account.Marshal()
 	if err != nil {
-		fmt.Printf("[UpdateAccount] Error marshalling account data: %s\n", account.String())
 		return err
 	}
 
-	err = api.SetIrohaAccountDetail(account.Address, "evm_account_data", hex.EncodeToString(marshalledData))
+	caddress := C.CString(account.GetAddress().String())
+	caccount := C.CString(hex.EncodeToString(marshalledData))
+	result := C.Iroha_UpdateAccount(st.Storage, caddress, caccount)
+	C.free(unsafe.Pointer(caddress))
+	C.free(unsafe.Pointer(caccount))
 
-	return err
-}
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return errors.New(error)
+	}
 
-func (st *IrohaState) RemoveAccount(address crypto.Address) error {
-	fmt.Printf("[RemoveAccount] account: %s\n", address.String())
 	return nil
 }
 
-func (st *IrohaState) GetStorage(addr crypto.Address, key binary.Word256) ([]byte, error) {
-	detail, err := api.GetIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()))
-	if err != nil {
-		return []byte{}, err
+func (st *IrohaState) RemoveAccount(address crypto.Address) error {
+	caddress := C.CString(address.String())
+	result := C.Iroha_RemoveAccount(st.Storage, caddress)
+	C.free(unsafe.Pointer(caddress))
+
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return errors.New(error)
 	}
-	if detail == "" {
-		return nil, nil
-	}
-	return hex.DecodeString(detail)
+
+	return nil
 }
 
-func (st *IrohaState) SetStorage(addr crypto.Address, key binary.Word256, value []byte) error {
-	return api.SetIrohaAccountDetail(addr, hex.EncodeToString(key.Bytes()), hex.EncodeToString(value))
+func (st *IrohaState) GetStorage(address crypto.Address, key binary.Word256) ([]byte, error) {
+	caddress := C.CString(address.String())
+	ckey := C.CString(hex.EncodeToString(key.Bytes()))
+	result := C.Iroha_GetStorage(st.Storage, caddress, ckey)
+	C.free(unsafe.Pointer(caddress))
+	C.free(unsafe.Pointer(ckey))
+
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return nil, errors.New(error)
+	}
+
+	if result.result == nil {
+		return nil, nil
+	}
+
+	valueHex := C.GoString(result.result)
+	C.free(unsafe.Pointer(result.result))
+
+	return hex.DecodeString(valueHex)
+}
+
+func (st *IrohaState) SetStorage(address crypto.Address, key binary.Word256, value []byte) error {
+	caddress := C.CString(address.String())
+	ckey := C.CString(hex.EncodeToString(key.Bytes()))
+	cvalue := C.CString(hex.EncodeToString(value))
+	result := C.Iroha_SetStorage(st.Storage, caddress, ckey, cvalue)
+	C.free(unsafe.Pointer(caddress))
+	C.free(unsafe.Pointer(ckey))
+	C.free(unsafe.Pointer(cvalue))
+
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return errors.New(error)
+	}
+
+	return nil
 }
