@@ -23,9 +23,6 @@ import (
 const defaultPermissions permission.PermFlag = permission.Send | permission.Call | permission.CreateContract | permission.CreateAccount
 
 var (
-	// Iroha world state
-	worldState = state.NewIrohaState()
-
 	// Create EVM instance
 	burrowEVM = evm.New(evm.Options{
 		DebugOpcodes: true,
@@ -35,11 +32,14 @@ var (
 )
 
 //export VmCall
-func VmCall(input, caller, callee *C.char, commandExecutor unsafe.Pointer, queryExecutor unsafe.Pointer) (*C.char, bool) {
+func VmCall(input, caller, callee *C.char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, bool) {
 
 	// Update executors
 	api.IrohaCommandExecutor = commandExecutor
 	api.IrohaQueryExecutor = queryExecutor
+
+	// Iroha world state
+	worldState := state.NewIrohaState(storage)
 
 	worldState.UpdateAccount(&acm.Account{
 		Address:     acm.GlobalPermissionsAddress,

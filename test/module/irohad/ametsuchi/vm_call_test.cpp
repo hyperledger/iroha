@@ -40,6 +40,7 @@
 #include "interfaces/queries/query.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor_visitor.hpp"
+#include "module/irohad/ametsuchi/mock_reader_writer.hpp"
 
 template <typename T>
 class VariantTypeMatcher {
@@ -72,15 +73,41 @@ inline auto VariantWithType() {
   return ::testing::MakePolymorphicMatcher(VariantTypeMatcher<T>());
 }
 
-using AccountName = std::string;
-using Key = std::string;
+using ::testing::_;
+
+struct StringViewOrString {
+  std::string s;
+  std::string_view v;
+
+  explicit StringViewOrString(std::string_view v) : v(v) {}
+  explicit StringViewOrString(std::string s) : s(s), v(this->s) {}
+
+  StringViewOrString(StringViewOrString const &o)
+      : s(o.s), v(not this->s.empty() ? this->s : o.v) {}
+  StringViewOrString(StringViewOrString &&o) noexcept
+      : s(std::move(o).s), v(not this->s.empty() ? this->s : std::move(o).v) {}
+
+  bool operator==(StringViewOrString const &x) const {
+    return v == x.v;
+  }
+
+  struct Hash {
+    std::size_t operator()(StringViewOrString const &x) const {
+      return std::hash<std::string_view>()(x.v);
+    }
+  };
+};
+
+using AccountName = StringViewOrString;
+using Key = StringViewOrString;
 using Value = std::string;
 
-class TestAccount {
- public:
-  // Emulate Iroha AccountDetail
-  std::unordered_map<Key, Value> storage;
+struct TestAccount {
+  std::string account;
+  std::unordered_map<Key, Value, Key::Hash> storage;
 };
+
+using namespace iroha;
 
 TEST(VmCallTest, UsageTest) {
   /*
@@ -131,135 +158,88 @@ contract C {
        *callee = const_cast<char *>("Callee");
 
   // Emulate accounts' storages for the smart contract engine
-  std::unordered_map<AccountName, TestAccount> testAccounts;
+  std::unordered_map<AccountName, TestAccount, AccountName::Hash> accounts;
 
   iroha::ametsuchi::MockCommandExecutor command_executor;
-  EXPECT_CALL(
-      command_executor,
-      execute(VariantWithType<const shared_model::interface::CreateAccount &>(),
-              ::testing::_,
-              ::testing::_,
-              ::testing::_,
-              ::testing::_))
-      .WillRepeatedly(
-          [&testAccounts](
-              const auto &cmd, const auto &, const auto &, auto, auto) {
-            const auto &cmdNewAcc =
-                boost::get<const shared_model::interface::CreateAccount &>(
-                    cmd.get());
-            testAccounts.insert(std::make_pair(
-                cmdNewAcc.accountName() + "@" + cmdNewAcc.domainId(),
-                TestAccount{}));
-            return iroha::ametsuchi::CommandResult{};
-          });
-
-  EXPECT_CALL(
-      command_executor,
-      execute(
-          VariantWithType<const shared_model::interface::SetAccountDetail &>(),
-          ::testing::_,
-          ::testing::_,
-          ::testing::_,
-          ::testing::_))
-      .WillRepeatedly(
-          [&testAccounts](
-              const auto &cmd, const auto &, const auto &, auto, auto) {
-            const auto &cmdSetDetail =
-                boost::get<const shared_model::interface::SetAccountDetail &>(
-                    cmd.get());
-            // Check if account exist to get storage of the requested detail
-            const auto iterToAcc = testAccounts.find(cmdSetDetail.accountId());
-            if (iterToAcc != testAccounts.end()) {
-              (*iterToAcc).second.storage[cmdSetDetail.key()] =
-                  cmdSetDetail.value();
-              return iroha::ametsuchi::CommandResult{};
-            } else {
-              // TODO(IvanTyulyandin): Fix magic number 1
-              return iroha::ametsuchi::CommandResult{
-                  iroha::ametsuchi::CommandError{
-                      "SetAccountDetail", 1, "Mocked_No_Such_Account"}};
-            }
-          });
-
   iroha::ametsuchi::MockSpecificQueryExecutor specific_query_executor;
-  auto query_response_factory =
-      std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
 
-  EXPECT_CALL(specific_query_executor, execute(::testing::_))
-      .WillRepeatedly([query_response_factory, &testAccounts, query_hash](
-                          const shared_model::interface::Query &query) {
-        // Try to cast to GetAccount query.
-        // If fail, then it is GetIrohaAccountDetail,
-        // according to the internals of Burrow EVM integration.
-        const auto &queryVariant = query.get();
-        if (boost::get<const shared_model::interface::GetAccount &>(
-                &queryVariant)
-            != nullptr) {
-          // Get data from GetAccount
-          const auto &getAccQuery =
-              boost::get<const shared_model::interface::GetAccount &>(
-                  queryVariant);
-          const auto &accountId = getAccQuery.accountId();
+  iroha::ametsuchi::MockReaderWriter reader_writer;
 
-          // Check the requested account exists in testAccounts
-          if (testAccounts.find(accountId) != testAccounts.end()) {
-            return query_response_factory->createAccountResponse(
-                accountId, "@evm", 1, {}, {"user"}, query_hash);
-          } else {
-            // TODO(IvanTyulyandin): Fix magic number 2
-            return query_response_factory->createErrorQueryResponse(
-                shared_model::interface::QueryResponseFactory::ErrorQueryType::
-                    kNoAccount,
-                "No account " + accountId,
-                2,
-                query_hash);
-          }
-        } else {
-          // Get data from GetAccountDetail
-          const auto &getAccDetailQuery =
-              boost::get<const shared_model::interface::GetAccountDetail &>(
-                  queryVariant);
-          const auto &accountId = getAccDetailQuery.accountId();
-          // Since Burrow should always set a key, no need to check for
-          // boost::optional emptiness
-          const std::string key = getAccDetailQuery.key().value();
-
-          // Check the requested account and detail exist
-          const auto iterToTestAccount = testAccounts.find(accountId);
-          if (iterToTestAccount != testAccounts.end()) {
-            const auto iterToValue =
-                (*iterToTestAccount).second.storage.find(key);
-            if (iterToValue != (*iterToTestAccount).second.storage.end()) {
-              std::string response = "{\"evm@evm\": {\"" + key + "\": \""
-                  + (*iterToValue).second + "\"}}";
-              return query_response_factory->createAccountDetailResponse(
-                  response, 1, {}, query_hash);
-            } else {
-              // TODO(IvanTyulyandin): Fix magic number 3
-              return query_response_factory->createErrorQueryResponse(
-                  shared_model::interface::QueryResponseFactory::
-                      ErrorQueryType::kNoAccountDetail,
-                  "No detail " + key + " for account " + accountId,
-                  3,
-                  query_hash);
+  EXPECT_CALL(reader_writer, getAccount(_))
+      .WillRepeatedly(
+          [&accounts](auto address)
+              -> expected::Result<std::optional<std::string>, std::string> {
+            auto it = accounts.find(StringViewOrString{address});
+            if (it == accounts.end()) {
+              return expected::Value<std::optional<std::string>>();
             }
-          } else {
-            // TODO(IvanTyulyandin): Fix magic number 4
-            return query_response_factory->createErrorQueryResponse(
-                shared_model::interface::QueryResponseFactory::ErrorQueryType::
-                    kNoAccount,
-                "No account " + accountId + " for query detail " + key,
-                4,
-                query_hash);
-          }
+            return expected::Value<std::optional<std::string>>(
+                it->second.account);
+          });
+
+  EXPECT_CALL(reader_writer, updateAccount(_, _))
+      .WillRepeatedly(
+          [&accounts](auto address,
+                      auto account) -> expected::Result<void, std::string> {
+            auto it = accounts.find(StringViewOrString{address});
+            if (it == accounts.end()) {
+              it = accounts
+                       .emplace(StringViewOrString{std::string{address}},
+                                TestAccount{})
+                       .first;
+            }
+            it->second.account = account;
+            return expected::Value<void>();
+          });
+
+  EXPECT_CALL(reader_writer, removeAccount(_))
+      .WillRepeatedly(
+          [&accounts](auto address) -> expected::Result<void, std::string> {
+            accounts.erase(StringViewOrString{address});
+            return expected::Value<void>();
+          });
+
+  EXPECT_CALL(reader_writer, getStorage(_, _))
+      .WillRepeatedly(
+          [&accounts](auto address, auto key)
+              -> expected::Result<std::optional<std::string>, std::string> {
+            auto it = accounts.find(StringViewOrString{address});
+            if (it == accounts.end()) {
+              return expected::Error<std::string>("No account");
+            }
+
+            auto vit = it->second.storage.find(StringViewOrString{key});
+            if (vit == it->second.storage.end()) {
+              return expected::Value<std::optional<std::string>>();
+            }
+            return expected::Value<std::optional<std::string>>(vit->second);
+          });
+
+  EXPECT_CALL(reader_writer, setStorage(_, _, _))
+      .WillRepeatedly([&accounts](auto address, auto key, auto value)
+                          -> expected::Result<void, std::string> {
+        auto it = accounts.find(StringViewOrString{address});
+        if (it == accounts.end()) {
+          return expected::Error<std::string>("No account");
         }
+
+        auto vit = it->second.storage.find(StringViewOrString{key});
+        if (vit == it->second.storage.end()) {
+          vit =
+              it->second.storage
+                  .emplace(StringViewOrString{std::string{key}}, std::string{})
+                  .first;
+        }
+        vit->second = value;
+        return expected::Value<void>();
       });
 
   auto res = VmCall(deploySCdata,
                     caller,
                     callee,
                     &command_executor,
-                    &specific_query_executor);
+                    &specific_query_executor,
+                    &reader_writer);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
@@ -267,7 +247,8 @@ contract C {
                caller,
                callee,
                &command_executor,
-               &specific_query_executor);
+               &specific_query_executor,
+               &reader_writer);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 
@@ -275,7 +256,8 @@ contract C {
                caller,
                callee,
                &command_executor,
-               &specific_query_executor);
+               &specific_query_executor,
+               &reader_writer);
   std::cout << "Vm output: " << res.r0 << std::endl;
   ASSERT_TRUE(res.r1);
 }
