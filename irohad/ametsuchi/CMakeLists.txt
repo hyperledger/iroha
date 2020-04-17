@@ -67,6 +67,13 @@ target_link_libraries(tx_executor
     common
     )
 
+add_library(reader_writer
+    impl/reader_writer.cpp
+    )
+target_link_libraries(reader_writer
+    common
+    )
+
 add_library(ametsuchi
     impl/storage_impl.cpp
     impl/temporary_wsv_impl.cpp
