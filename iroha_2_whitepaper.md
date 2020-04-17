@@ -24,9 +24,8 @@ Generally, 3*f*+1 nodes are needed to tolerate *f* Byzantine nodes in the networ
 
 The following node types are considered:
 
-* Client
 * Validating peers (participate in consensus)
-* Normal peer (receives and relays blocks, but does not participate in consensus; however, normal peers do validate all received data, with the mantra of *don't trust, verify*)
+* Non-validating peers (receives and relays blocks, but does not participate in consensus; however, normal peers do validate all received data, with the mantra of *don't trust, verify*)
 
 ### 2.2. Membership service
 
@@ -96,6 +95,9 @@ These include the following smart contracts to support asset management use case
 * RemoveValidatingPeer(peerIP, peerPublicKey)
 	* Removes a peer from the consensus process.
 
+* CreateOracle(Name, URL, Protocol)
+	* Can 
+
 **Compound Instructions**
 
 **Transfer** = Batch(Sub(WhatAsset, WhatAmount, Account1) & Add(WhatAsset, WhatAmount, Account2))
@@ -105,11 +107,13 @@ NOTE: Should probably inline Transfer as a primitive because it is going to be o
 
 **AddXYKExchangePair(asset1, asset2)** = CreateAccount(Asset1Asset2Pair, Permissions(Permissions.Ownership.PoolShares))
 
+**AddOraclizedPair(mintableAsset, mintableAsset, oracle)** = Batch()
+
+
 The following are still WIP:
 
 **AddExchLimitBid** = Batch(CreateEventTrigger(Event1, *condition*=bidPrice<=Exists(askPrice), *action*= SwapAssets(askAsset, bidAsset)) & CreateAccount(Account2, Permissions(Permissions.OwnedByEvent(Event1))) & Sub(Asset, Amount, Account1) & Add(Asset, Amount, Pool))
 
-* AddOraclizedPair(mintableAsset, mintableAsset, oracle)
 * XYKTrade(Asset)
 * AddXYKLiquidity(asset, asset)
 * ChainedTrade(inputAsset, outputAsset) # Does paythingfinding to get output; oraclized inputs/outputs are special
