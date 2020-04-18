@@ -5,6 +5,7 @@
 
 #include "builders/protobuf/builder_templates/query_template.hpp"
 
+#include "framework/strong_type_literals.hpp"
 #include "integration/acceptance/grantable_permissions_fixture.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
@@ -219,16 +220,13 @@ namespace grantables {
     IntegrationTestFramework &prepare(GrantablePermissionsFixture &f,
                                       IntegrationTestFramework &itf) override {
       auto account_id = f.kAccount1 + "@" + kDomain;
-      auto pkey =
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-              .publicKey();
       auto add_signatory_tx =
           GrantablePermissionsFixture::TxBuilder()
               .createdTime(f.getUniqueTime())
               .creatorAccountId(account_id)
               .quorum(1)
               .addSignatory(account_id, f.kAccount2Keypair.publicKey())
-              .addSignatory(account_id, pkey)
+              .addSignatory(account_id, "516A"_pubkey)
               .build()
               .signAndAddSignature(f.kAccount1Keypair)
               .finish();

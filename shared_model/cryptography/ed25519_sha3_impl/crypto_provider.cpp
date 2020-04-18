@@ -8,14 +8,13 @@
 #include "cryptography/ed25519_sha3_impl/signer.hpp"
 #include "cryptography/ed25519_sha3_impl/verifier.hpp"
 
-using shared_model::interface::types::PublicKeyByteRangeView;
-using shared_model::interface::types::SignatureByteRangeView;
+using namespace shared_model::interface::types;
 
 namespace shared_model {
   namespace crypto {
 
-    Signed CryptoProviderEd25519Sha3::sign(const Blob &blob,
-                                           const Keypair &keypair) {
+    std::string CryptoProviderEd25519Sha3::sign(const Blob &blob,
+                                                const Keypair &keypair) {
       return Signer::sign(blob, keypair);
     }
 
@@ -43,8 +42,9 @@ namespace shared_model {
       assert(seed.size() == kSeedLength);
       auto keypair = iroha::create_keypair(
           iroha::blob_t<kSeedLength>::from_raw(seed.blob().data()));
-      return Keypair(PublicKey(keypair.pubkey.to_string()),
-                     PrivateKey(keypair.privkey.to_string()));
+      return Keypair(
+          makeStrongView<PublicKeyHexStringView>(keypair.pubkey.to_hexstring()),
+          PrivateKey(keypair.privkey.to_string()));
     }
 
     constexpr size_t CryptoProviderEd25519Sha3::kHashLength;

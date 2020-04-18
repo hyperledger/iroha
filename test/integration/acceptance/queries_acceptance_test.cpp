@@ -9,12 +9,14 @@
 #include "backend/protobuf/transaction.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/roles_response.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
+using namespace shared_model::interface::types;
 using namespace common_constants;
 
 class QueriesAcceptanceTest : public AcceptanceFixture {
@@ -22,7 +24,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
   QueriesAcceptanceTest()
       : itf(1),
         invalidPrivateKey(kUserKeypair.privateKey().hex()),
-        invalidPublicKey(kUserKeypair.publicKey().hex()) {
+        invalidPublicKey(kUserKeypair.publicKey()) {
     /*
      * It's deliberately break the public and private keys to simulate a
      * non-valid signature and public key and use their combinations in the
@@ -36,6 +38,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
     invalidPublicKey[0] == '9' or invalidPublicKey[0] == 'f'
         ? --invalidPublicKey[0]
         : ++invalidPublicKey[0];
+    invalidPublicKeyView = invalidPublicKey;
   };
 
   void SetUp() {
@@ -59,6 +62,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
   IntegrationTestFramework itf;
   std::string invalidPrivateKey;
   std::string invalidPublicKey;
+  PublicKeyHexStringView invalidPublicKeyView;
   const std::string NonExistentUserId = "aaaa@aaaa";
 };
 
@@ -229,9 +233,8 @@ TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
-  crypto::Keypair kValidSignInvalidPubKeypair = crypto::Keypair(
-      crypto::PublicKey(crypto::Blob::fromHexString(invalidPublicKey)),
-      kUserKeypair.privateKey());
+  crypto::Keypair kValidSignInvalidPubKeypair =
+      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
   auto query = complete(baseQry().getRoles(), kValidSignInvalidPubKeypair);
 
@@ -250,7 +253,7 @@ TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
   crypto::Keypair kFullyInvalidKeypair = crypto::Keypair(
-      crypto::PublicKey(crypto::Blob::fromHexString(invalidPublicKey)),
+      invalidPublicKeyView,
       crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
   auto query = complete(baseQry().getRoles(), kFullyInvalidKeypair);
@@ -353,9 +356,8 @@ TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
  * @then the query should not pass stateless validation
  */
 TEST_F(QueriesAcceptanceTest, EmptySignInvalidPubKeypair) {
-  crypto::Keypair kEmptySignInvalidPubKeypair = crypto::Keypair(
-      crypto::PublicKey(crypto::Blob::fromHexString(invalidPublicKey)),
-      kUserKeypair.privateKey());
+  crypto::Keypair kEmptySignInvalidPubKeypair =
+      crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
   auto proto_query = complete(baseQry().getRoles(), kEmptySignInvalidPubKeypair)
                          .getTransport();

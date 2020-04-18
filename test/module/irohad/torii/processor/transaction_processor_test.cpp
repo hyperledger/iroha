@@ -11,6 +11,7 @@
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "framework/batch_helper.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -64,7 +65,7 @@ class TransactionProcessorTest : public ::testing::Test {
         commit_notifier.get_observable(),
         getTestLogger("TransactionProcessor"));
 
-    auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+    auto peer = makePeer("127.0.0.1", "111"_pubkey);
     ledger_state = std::make_shared<LedgerState>(
         shared_model::interface::types::PeerList{std::move(peer)},
         round.block_round - 1,
@@ -99,9 +100,8 @@ class TransactionProcessorTest : public ::testing::Test {
       auto signedBlob = shared_model::crypto::CryptoSigner<>::sign(
           shared_model::crypto::Blob(payload), key_pair);
       tx.addSignature(
-          shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
-          shared_model::interface::types::PublicKeyHexStringView{
-              key_pair.publicKey().hex()});
+          shared_model::interface::types::SignedHexStringView{signedBlob},
+          key_pair.publicKey());
     };
 
     int temp[] = {(create_signature(std::forward<KeyPairs>(keypairs)), 0)...};

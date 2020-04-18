@@ -33,13 +33,15 @@ namespace shared_model {
        * Create blob from a string
        * @param blob - string to create blob from
        */
-      explicit Blob(const std::string &blob);
+      explicit Blob(const std::string_view &blob);
 
       /**
        * Create blob from a vector
        * @param blob - vector to create blob from
        */
       explicit Blob(const Bytes &blob);
+
+      explicit Blob(shared_model::interface::types::ByteRange range);
 
       explicit Blob(Bytes &&blob) noexcept;
 

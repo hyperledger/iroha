@@ -66,20 +66,24 @@ namespace iroha {
           WsvCommandResult(const shared_model::interface::AccountAsset &));
       MOCK_METHOD1(
           insertSignatory,
-          WsvCommandResult(const shared_model::interface::types::PubkeyType &));
+          WsvCommandResult(
+              const shared_model::interface::types::PublicKeyHexStringView &));
       MOCK_METHOD1(
           deleteSignatory,
-          WsvCommandResult(const shared_model::interface::types::PubkeyType &));
+          WsvCommandResult(
+              const shared_model::interface::types::PublicKeyHexStringView &));
 
       MOCK_METHOD2(
           insertAccountSignatory,
-          WsvCommandResult(const std::string &,
-                           const shared_model::interface::types::PubkeyType &));
+          WsvCommandResult(
+              const std::string &,
+              const shared_model::interface::types::PublicKeyHexStringView &));
 
       MOCK_METHOD2(
           deleteAccountSignatory,
-          WsvCommandResult(const std::string &,
-                           const shared_model::interface::types::PubkeyType &));
+          WsvCommandResult(
+              const std::string &,
+              const shared_model::interface::types::PublicKeyHexStringView &));
 
       MOCK_METHOD1(insertPeer,
                    WsvCommandResult(const shared_model::interface::Peer &));

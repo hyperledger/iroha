@@ -15,11 +15,7 @@ namespace shared_model {
         iroha::protocol::QueryResponse &query_response)
         : signatories_response_{query_response.signatories_response()},
           keys_{boost::copy_range<interface::types::PublicKeyCollectionType>(
-              signatories_response_.keys()
-              | boost::adaptors::transformed([](const auto &key) {
-                  return crypto::PublicKey{
-                      crypto::PublicKey::fromHexString(key)};
-                }))} {}
+              signatories_response_.keys())} {}
 
     const interface::types::PublicKeyCollectionType &SignatoriesResponse::keys()
         const {

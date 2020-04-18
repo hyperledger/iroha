@@ -21,13 +21,13 @@ using namespace shared_model::crypto;
 
 class KeyManager : public ::testing::Test {
  public:
-  bool create_file(const path &ph, const std::string &contents) {
+  bool create_file(const path &ph, const std::string_view &contents) {
     std::ofstream f(ph.c_str());
     if (not f) {
       return false;
     }
     if (not contents.empty()) {
-      f.write(contents.c_str(), contents.size());
+      f.write(contents.data(), contents.size());
     }
     return f.good();
   }
@@ -48,7 +48,8 @@ class KeyManager : public ::testing::Test {
   const path pri_key_path = filepath + KeysManagerImpl::kPrivateKeyExtension;
 
   Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
-  const std::string pubkey = keypair.publicKey().hex();
+  shared_model::interface::types::PublicKeyHexStringView pubkey =
+      keypair.publicKey();
   const std::string prikey = keypair.privateKey().hex();
 
   const logger::LoggerPtr kKeysManagerLogger = getTestLogger("KeysManager");

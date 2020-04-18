@@ -24,12 +24,6 @@ inline std::basic_string<std::byte> operator""_bytestring(const char *c,
                                       s};
 }
 
-template <typename Container>
-void encodeVarIntType(Type type, Container &buffer) {
-  using NumberType = std::underlying_type_t<Type>;
-  encodeVarInt(static_cast<NumberType>(type), buffer);
-}
-
 static const std::initializer_list<uint64_t> kInts = {
     0, 1, 0xF0, 0xFF, 0xFFFF, 0xFFFFFF};
 

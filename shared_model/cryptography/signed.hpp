@@ -16,11 +16,7 @@ namespace shared_model {
      */
     class Signed : public Blob {
      public:
-      explicit Signed(const std::string &blob);
-
-      explicit Signed(const Bytes &blob);
-
-      explicit Signed(const Blob &blob);
+      using Blob::Blob;
 
       std::string toString() const override;
     };

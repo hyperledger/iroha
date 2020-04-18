@@ -139,7 +139,7 @@ void ExecutorTestBase::checkAssetQuantities(
 
 void ExecutorTestBase::checkSignatories(
     const std::string &account_id,
-    const std::vector<shared_model::crypto::PublicKey> &keys) {
+    const std::vector<PublicKeyHexStringView> &keys) {
   getItf()
       .executeQueryAndConvertResult(
           *getItf().getMockQueryFactory()->constructGetSignatories(account_id))

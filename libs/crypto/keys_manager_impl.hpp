@@ -50,7 +50,7 @@ namespace iroha {
      * @param priv is a private key
      * @return true, if saving was successful
      */
-    bool store(const std::string &pub, const std::string &priv);
+    bool store(const std::string_view &pub, const std::string_view &priv);
 
     boost::filesystem::path path_to_keypair_;
     std::string account_id_;

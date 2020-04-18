@@ -26,6 +26,7 @@
 #include "network/impl/block_loader_service.hpp"
 #include "validators/default_validator.hpp"
 
+using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
@@ -105,8 +106,7 @@ class BlockLoaderTest : public testing::Test {
 
   std::shared_ptr<MockPeer> peer;
   std::string address;
-  PublicKey peer_key =
-      DefaultCryptoAlgorithmType::generateKeypair().publicKey();
+  shared_model::interface::types::PublicKeyHexStringView peer_key{"peer_key"sv};
   Keypair key = DefaultCryptoAlgorithmType::generateKeypair();
   std::shared_ptr<MockPeerQuery> peer_query;
   std::shared_ptr<MockPeerQueryFactory> peer_query_factory;

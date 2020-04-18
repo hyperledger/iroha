@@ -103,7 +103,7 @@ CommandResult ExecutorItf::createRoleWithPerms(
 CommandResult ExecutorItf::createUserWithPerms(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    const shared_model::interface::types::PublicKeyHexStringView &pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   return createUserWithPermsInternal(account_name, domain, pubkey, role_perms) |
       [&, this] { return this->grantAllToAdmin(account_name + "@" + domain); };
@@ -145,7 +145,7 @@ CommandResult ExecutorItf::grantAllToAdmin(
 CommandResult ExecutorItf::createUserWithPermsInternal(
     const std::string &account_name,
     const std::string &domain,
-    const shared_model::crypto::PublicKey &pubkey,
+    const shared_model::interface::types::PublicKeyHexStringView &pubkey,
     const shared_model::interface::RolePermissionSet &role_perms) const {
   createDomain(domain);
 

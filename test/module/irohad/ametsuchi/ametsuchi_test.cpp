@@ -23,12 +23,13 @@
 using namespace iroha::ametsuchi;
 using namespace framework::test_subscriber;
 using namespace shared_model::interface::permissions;
+using namespace shared_model::interface::types;
 using framework::expected::err;
 using framework::expected::val;
 
 auto zero_string = std::string(32, '0');
 auto fake_hash = shared_model::crypto::Hash(zero_string);
-auto fake_pubkey = shared_model::crypto::PublicKey(zero_string);
+const PublicKeyHexStringView fake_pubkey{zero_string};
 
 // Allows to print amount string in case of test failure
 namespace shared_model {
@@ -164,15 +165,15 @@ TEST_F(AmetsuchiTest, PeerTest) {
   ASSERT_EQ(peers->size(), 1);
   ASSERT_EQ(peers->at(0)->address(), "192.168.9.1:50051");
 
-  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey.hex());
+  ASSERT_EQ(peers->at(0)->pubkey(), fake_pubkey);
 }
 
 TEST_F(AmetsuchiTest, AddSignatoryTest) {
   ASSERT_TRUE(storage);
   auto wsv = storage->getWsvQuery();
 
-  shared_model::crypto::PublicKey pubkey1(std::string(32, '1'));
-  shared_model::crypto::PublicKey pubkey2(std::string(32, '2'));
+  std::string pubkey1{32, '1'};
+  std::string pubkey2{32, '2'};
 
   auto user1id = "userone@domain";
   auto user2id = "usertwo@domain";
@@ -185,7 +186,7 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
           .createRole("user",
                       {Role::kAddPeer, Role::kCreateAsset, Role::kGetMyAccount})
           .createDomain("domain", "user")
-          .createAccount("userone", "domain", pubkey1)
+          .createAccount("userone", "domain", PublicKeyHexStringView{pubkey1})
           .build());
   auto block1 = createBlock(txs, 1, fake_hash);
 
@@ -201,14 +202,14 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories = wsv->getSignatories(user1id);
     ASSERT_TRUE(signatories);
     ASSERT_EQ(signatories->size(), 1);
-    ASSERT_EQ(signatories->at(0), pubkey1);
+    ASSERT_EQ(signatories->at(0), PublicKeyHexStringView{pubkey1});
   }
 
   // 2nd tx (add sig2 to user1)
   txs.clear();
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId(user1id)
-                    .addSignatory(user1id, pubkey2)
+                    .addSignatory(user1id, PublicKeyHexStringView{pubkey2})
                     .build());
 
   auto block2 = createBlock(txs, 2, block1->hash());
@@ -222,16 +223,17 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories = wsv->getSignatories(user1id);
     ASSERT_TRUE(signatories);
     ASSERT_EQ(signatories->size(), 2);
-    ASSERT_EQ(signatories->at(0), pubkey1);
-    ASSERT_EQ(signatories->at(1), pubkey2);
+    ASSERT_EQ(signatories->at(0), PublicKeyHexStringView{pubkey1});
+    ASSERT_EQ(signatories->at(1), PublicKeyHexStringView{pubkey2});
   }
 
   // 3rd tx (create user2 with pubkey1 that is same as user1's key)
   txs.clear();
-  txs.push_back(TestTransactionBuilder()
-                    .creatorAccountId("admintwo")
-                    .createAccount("usertwo", "domain", pubkey1)
-                    .build());
+  txs.push_back(
+      TestTransactionBuilder()
+          .creatorAccountId("admintwo")
+          .createAccount("usertwo", "domain", PublicKeyHexStringView{pubkey1})
+          .build());
 
   auto block3 = createBlock(txs, 3, block2->hash());
 
@@ -247,20 +249,20 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories1 = wsv->getSignatories(user1id);
     ASSERT_TRUE(signatories1);
     ASSERT_EQ(signatories1->size(), 2);
-    ASSERT_EQ(signatories1->at(0), pubkey1);
-    ASSERT_EQ(signatories1->at(1), pubkey2);
+    ASSERT_EQ(signatories1->at(0), PublicKeyHexStringView{pubkey1});
+    ASSERT_EQ(signatories1->at(1), PublicKeyHexStringView{pubkey2});
 
     auto signatories2 = wsv->getSignatories(user2id);
     ASSERT_TRUE(signatories2);
     ASSERT_EQ(signatories2->size(), 1);
-    ASSERT_EQ(signatories2->at(0), pubkey1);
+    ASSERT_EQ(signatories2->at(0), PublicKeyHexStringView{pubkey1});
   }
 
   // 4th tx (remove pubkey1 from user1)
   txs.clear();
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId(user1id)
-                    .removeSignatory(user1id, pubkey1)
+                    .removeSignatory(user1id, PublicKeyHexStringView{pubkey1})
                     .build());
 
   auto block4 = createBlock(txs, 4, block3->hash());
@@ -275,20 +277,20 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories1 = wsv->getSignatories(user1id);
     ASSERT_TRUE(signatories1);
     ASSERT_EQ(signatories1->size(), 1);
-    ASSERT_EQ(signatories1->at(0), pubkey2);
+    ASSERT_EQ(signatories1->at(0), PublicKeyHexStringView{pubkey2});
 
     // user2 still has pubkey1.
     auto signatories2 = wsv->getSignatories(user2id);
     ASSERT_TRUE(signatories2);
     ASSERT_EQ(signatories2->size(), 1);
-    ASSERT_EQ(signatories2->at(0), pubkey1);
+    ASSERT_EQ(signatories2->at(0), PublicKeyHexStringView{pubkey1});
   }
 
   // 5th tx (add sig2 to user2 and set quorum = 1)
   txs.clear();
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId(user1id)
-                    .addSignatory(user2id, pubkey2)
+                    .addSignatory(user2id, PublicKeyHexStringView{pubkey2})
                     .setAccountQuorum(user2id, 2)
                     .build());
 
@@ -306,15 +308,15 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories = wsv->getSignatories(user2id);
     ASSERT_TRUE(signatories);
     ASSERT_EQ(signatories->size(), 2);
-    ASSERT_EQ(signatories->at(0), pubkey1);
-    ASSERT_EQ(signatories->at(1), pubkey2);
+    ASSERT_EQ(signatories->at(0), PublicKeyHexStringView{pubkey1});
+    ASSERT_EQ(signatories->at(1), PublicKeyHexStringView{pubkey2});
   }
 
   // 6th tx (remove sig2 fro user2: This must success)
   txs.clear();
   txs.push_back(TestTransactionBuilder()
                     .creatorAccountId(user2id)
-                    .removeSignatory(user2id, pubkey2)
+                    .removeSignatory(user2id, PublicKeyHexStringView{pubkey2})
                     .setAccountQuorum(user2id, 2)
                     .build());
 
@@ -327,7 +329,7 @@ TEST_F(AmetsuchiTest, AddSignatoryTest) {
     auto signatories = wsv->getSignatories(user2id);
     ASSERT_TRUE(signatories);
     ASSERT_EQ(signatories->size(), 1);
-    ASSERT_EQ(signatories->at(0), pubkey1);
+    ASSERT_EQ(signatories->at(0), PublicKeyHexStringView{pubkey1});
   }
 }
 

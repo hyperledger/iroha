@@ -29,8 +29,7 @@ auto createInvalidQuery(Query query,
   shared_model::crypto::Signed signature{std::string(32, 'a')};
   query.addSignature(
       shared_model::interface::types::SignedHexStringView{signature.hex()},
-      shared_model::interface::types::PublicKeyHexStringView{
-          keypair.publicKey().hex()});
+      keypair.publicKey());
   return query;
 }
 

@@ -12,6 +12,7 @@
 #include "consensus/yac/yac_crypto_provider.hpp"
 #include "framework/crypto_dummies.hpp"
 #include "framework/stateless_valid_field_helpers.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 namespace iroha {
@@ -24,8 +25,12 @@ namespace iroha {
        * @return new signature
        */
       inline std::shared_ptr<shared_model::interface::Signature> createSig(
-          const std::string &pub_key = "7EC7",
-          const std::string &signature = "516A") {
+          shared_model::interface::types::PublicKeyHexStringView pub_key =
+              shared_model::interface::types::PublicKeyHexStringView{
+                  std::string_view{"7EC7"}},
+          shared_model::interface::types::SignedHexStringView signature =
+              shared_model::interface::types::SignedHexStringView{
+                  std::string_view{"516A"}}) {
         return std::make_shared<shared_model::plain::Signature>(signature,
                                                                 pub_key);
       }
@@ -41,17 +46,16 @@ namespace iroha {
         VoteMessage getVote(YacHash hash, const std::string &pub_key) {
           VoteMessage vote;
           vote.hash = std::move(hash);
-          vote.signature = createSig(pub_key);
+          vote.signature = createSig(
+              shared_model::interface::types::PublicKeyHexStringView{pub_key});
           return vote;
         }
 
         MockYacCryptoProvider() = default;
 
-        MockYacCryptoProvider(std::string public_key)
+        MockYacCryptoProvider(
+            shared_model::interface::types::PublicKeyHexStringView public_key)
             : public_key_(public_key) {}
-
-        MockYacCryptoProvider(shared_model::crypto::PublicKey public_key)
-            : MockYacCryptoProvider(public_key.hex()) {}
 
         std::string public_key_{""};
       };

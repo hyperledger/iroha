@@ -28,9 +28,9 @@ namespace shared_model {
        * Signs the message.
        * @param blob - blob to sign
        * @param keypair - keypair
-       * @return Signed object with signed data
+       * @return hex signature data string
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair);
+      static std::string sign(const Blob &blob, const Keypair &keypair);
 
       /**
        * Verifies signature.

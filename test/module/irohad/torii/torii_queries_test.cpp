@@ -59,6 +59,7 @@ using ErrorQueryType =
 class ToriiQueriesTest : public testing::Test {
  public:
   virtual void SetUp() {
+    signatories.emplace_back(pair.publicKey());
     runner = std::make_unique<iroha::network::ServerRunner>(
         ip + ":0", getTestLogger("ServerRunner"));
     wsv_query = std::make_shared<MockWsvQuery>();
@@ -128,8 +129,7 @@ class ToriiQueriesTest : public testing::Test {
   std::unique_ptr<iroha::network::ServerRunner> runner;
   shared_model::crypto::Keypair pair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  std::vector<shared_model::interface::types::PubkeyType> signatories = {
-      pair.publicKey()};
+  std::vector<std::string> signatories;
 
   std::shared_ptr<MockWsvQuery> wsv_query;
   std::shared_ptr<MockBlockQuery> block_query;
@@ -458,12 +458,6 @@ TEST_F(ToriiQueriesTest, FindAccountAssetWhenHasRolePermissions) {
  */
 
 TEST_F(ToriiQueriesTest, FindSignatoriesWhenNoGrantPermissions) {
-  iroha::pubkey_t pubkey;
-  std::fill(pubkey.begin(), pubkey.end(), 0x1);
-  std::vector<shared_model::interface::types::PubkeyType> keys;
-  keys.push_back(
-      shared_model::interface::types::PubkeyType(pubkey.to_string()));
-
   auto creator = "a@domain";
   EXPECT_CALL(*wsv_query, getSignatories(creator))
       .WillRepeatedly(Return(signatories));
@@ -506,11 +500,6 @@ TEST_F(ToriiQueriesTest, FindSignatoriesWhenNoGrantPermissions) {
 
 TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
   auto creator = "a@domain";
-  iroha::pubkey_t pubkey;
-  std::fill(pubkey.begin(), pubkey.end(), 0x1);
-  std::vector<shared_model::interface::types::PubkeyType> keys;
-  keys.emplace_back(shared_model::interface::types::PubkeyType::fromHexString(
-      pubkey.to_hexstring()));
 
   EXPECT_CALL(*wsv_query, getSignatories(creator))
       .WillRepeatedly(Return(signatories));
@@ -551,7 +540,7 @@ TEST_F(ToriiQueriesTest, FindSignatoriesHasRolePermissions) {
     /// valid
     ASSERT_FALSE(response.has_error_response());
     // check if fields in response are valid
-    ASSERT_EQ(resp_pubkey.toString(), signatories.back().toString());
+    ASSERT_EQ(resp_pubkey, signatories.back());
     ASSERT_EQ(model_query.hash(), shared_response.queryHash());
   }) << shared_response.toString();
 }

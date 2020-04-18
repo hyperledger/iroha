@@ -13,10 +13,13 @@
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/shared_container_iterator.hpp>
 #include <boost/shared_ptr.hpp>
+#include "framework/strong_type_literals.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
 using namespace iroha;
 using namespace iroha::consensus::yac;
+using namespace shared_model::interface::types;
 
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
@@ -24,8 +27,7 @@ using ::testing::ReturnRefOfCopy;
 auto makeSignature() {
   auto signature = std::make_unique<MockSignature>();
   EXPECT_CALL(*signature, publicKey())
-      .WillRepeatedly(
-          ReturnRefOfCopy(shared_model::crypto::PublicKey("key").hex()));
+      .WillRepeatedly(ReturnRefOfCopy(std::string{"key"}));
   EXPECT_CALL(*signature, signedData())
       .WillRepeatedly(
           ReturnRefOfCopy(shared_model::crypto::Signed("data").hex()));
@@ -42,7 +44,7 @@ auto signature() {
 TEST(YacHashProviderTest, MakeYacHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
-  auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+  auto peer = makePeer("127.0.0.1", "111"_pubkey);
   shared_model::crypto::Hash block_hash("hash");
   auto ledger_state = std::make_shared<LedgerState>(
       shared_model::interface::types::PeerList{std::move(peer)}, 1, block_hash);
@@ -79,7 +81,7 @@ TEST(YacHashProviderTest, MakeYacHashTest) {
 TEST(YacHashProviderTest, ToModelHashTest) {
   YacHashProviderImpl hash_provider;
   iroha::consensus::Round round{1, 0};
-  auto peer = makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"));
+  auto peer = makePeer("127.0.0.1", "111"_pubkey);
   shared_model::crypto::Hash block_hash("hash");
   auto ledger_state = std::make_shared<LedgerState>(
       shared_model::interface::types::PeerList{std::move(peer)}, 1, block_hash);

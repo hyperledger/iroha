@@ -27,7 +27,7 @@ namespace shared_model {
        * @param keypair - (public, private) keys for signing
        * @return signature's blob
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair) {
+      static std::string sign(const Blob &blob, const Keypair &keypair) {
         return Algorithm::sign(blob, keypair);
       }
 

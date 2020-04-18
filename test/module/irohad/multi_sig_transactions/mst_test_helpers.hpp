@@ -11,6 +11,7 @@
 #include "datetime/time.hpp"
 #include "framework/batch_helper.hpp"
 #include "framework/test_logger.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
@@ -48,7 +49,7 @@ auto addSignatures(Batch &&batch, int tx_number, Signatures... signatures) {
                         shared_model::interface::types::SignedHexStringView{
                             sig_pair.first.hex()},
                         shared_model::interface::types::PublicKeyHexStringView{
-                            sig_pair.second.hex()});
+                            sig_pair.second});
   };
 
   // pack expansion trick:
@@ -74,9 +75,9 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
         shared_model::crypto::Blob(payload), key_pair);
     batch->addSignature(
         tx_number,
-        shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
+        shared_model::interface::types::SignedHexStringView{signed_blob},
         shared_model::interface::types::PublicKeyHexStringView{
-            key_pair.publicKey().hex()});
+            key_pair.publicKey()});
   };
 
   // pack expansion trick:
@@ -89,10 +90,11 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
   return std::forward<Batch>(batch);
 }
 
-inline auto makeSignature(const std::string &sign,
-                          const std::string &public_key) {
+inline auto makeSignature(
+    const std::string &sign,
+    shared_model::interface::types::PublicKeyHexStringView public_key) {
   return std::make_pair(shared_model::crypto::Signed(sign),
-                        shared_model::crypto::PublicKey(public_key));
+                        std::string{std::string_view{public_key}});
 }
 
 inline auto makeTx(const shared_model::interface::types::CounterType &counter,

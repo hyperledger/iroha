@@ -62,10 +62,11 @@ TEST(ProtoQueryBuilder, Builder) {
   auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(proto_query.payload().SerializeAsString()),
       keypair);
+  std::string_view public_key = keypair.publicKey();
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(public_key.data(), public_key.size());
+  sig->set_signature(signedProto);
 
   auto query = shared_model::proto::QueryBuilder()
                    .createdTime(created_time)
@@ -98,10 +99,11 @@ TEST(ProtoQueryBuilder, BlocksQueryBuilder) {
   auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(proto_query.meta().SerializeAsString()),
       keypair);
+  std::string_view public_key = keypair.publicKey();
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(public_key.data(), public_key.size());
+  sig->set_signature(signedProto);
 
   auto query = shared_model::proto::BlocksQueryBuilder()
                    .createdTime(created_time)

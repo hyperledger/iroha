@@ -45,7 +45,7 @@ namespace iroha {
                   FROM
                       (SELECT count(public_key)
                       FROM ( VALUES ('%s') ) AS CTE1(public_key)
-                      WHERE public_key IN
+                      WHERE lower(public_key) IN
                           (SELECT public_key
                           FROM account_has_signatory
                           WHERE account_id = :account_id ) ) AS CTE2(count),

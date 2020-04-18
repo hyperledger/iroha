@@ -9,6 +9,7 @@
 #include "cryptography/private_key.hpp"
 #include "cryptography/public_key.hpp"
 #include "interfaces/base/model_primitive.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -18,19 +19,18 @@ namespace shared_model {
      */
     class Keypair : public interface::ModelPrimitive<Keypair> {
      public:
-      /// Type of public key
-      using PublicKeyType = PublicKey;
-
       /// Type of private key
       using PrivateKeyType = PrivateKey;
 
-      explicit Keypair(const PublicKeyType &public_key,
-                       const PrivateKeyType &private_key);
+      explicit Keypair(
+          const shared_model::interface::types::PublicKeyHexStringView
+              &public_key_hex,
+          const PrivateKeyType &private_key);
 
       /**
        * @return public key
        */
-      const PublicKeyType &publicKey() const;
+      shared_model::interface::types::PublicKeyHexStringView publicKey() const;
 
       /**
        * @return private key
@@ -42,7 +42,7 @@ namespace shared_model {
       std::string toString() const override;
 
      private:
-      PublicKey public_key_;
+      std::string public_key_hex_;
       PrivateKey private_key_;
     };
   }  // namespace crypto

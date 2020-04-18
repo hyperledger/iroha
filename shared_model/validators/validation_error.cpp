@@ -48,3 +48,10 @@ std::ostream &shared_model::validation::operator<<(std::ostream &os,
                                                    const ValidationError &o) {
   return os << o.toString();
 }
+
+std::ostream &operator<<(
+    std::ostream &out,
+    const std::optional<shared_model::validation::ValidationError> &error) {
+  out << error.value();
+  return out;
+}

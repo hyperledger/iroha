@@ -61,13 +61,14 @@ TEST(ProtoTransaction, Builder) {
 
   auto keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
+  auto signature_hex = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(proto_tx.payload().SerializeAsString()),
       keypair);
+  std::string_view public_key = keypair.publicKey();
 
   auto sig = proto_tx.add_signatures();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(public_key.data(), public_key.size());
+  sig->set_signature(signature_hex);
 
   auto tx = shared_model::proto::TransactionBuilder()
                 .creatorAccountId(creator_account_id)

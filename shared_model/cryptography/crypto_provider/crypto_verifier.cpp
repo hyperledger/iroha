@@ -27,23 +27,17 @@ using DefaultVerifier = CryptoProviderEd25519Sha3;
 
 namespace {
   inline Result<bool, const char *> verifyMultihash(
-      const Multihash &signature,
+      const ByteRange &signature,
       const Blob &source,
       const Multihash &public_key) {
-    if (signature.type != public_key.type) {
-      return makeError("The types of signature and public key do not match.");
-    }
-
-    const ByteRange &signature_range = signature.data;
     const ByteRange source_range = source.range();
     const ByteRange &pubkey_range = public_key.data;
 
     using iroha::multihash::Type;
-    switch (signature.type) {
+    switch (public_key.type) {
 #if defined(ED25519_PROVIDER)
       case Type::ed25519pub:
-        return ED25519_PROVIDER::verify(
-            signature_range, source_range, pubkey_range);
+        return ED25519_PROVIDER::verify(signature, source_range, pubkey_range);
 #endif
       default:
         return makeError("Unimplemented signature algorithm.");
@@ -62,13 +56,9 @@ namespace {
       return DefaultVerifier::verify(signature, source, public_key);
     }
 
-    using iroha::multihash::createFromBuffer;
-    return createFromBuffer(signature) |
-        [&source, &public_key](const Multihash &signature) {
-          return createFromBuffer(public_key) |
-              [&signature, &source](const Multihash &public_key) {
-                return verifyMultihash(signature, source, public_key);
-              };
+    return iroha::multihash::createFromBuffer(public_key) |
+        [&source, &signature](const Multihash &public_key) {
+          return verifyMultihash(signature, source, public_key);
         };
   }
 }  // namespace

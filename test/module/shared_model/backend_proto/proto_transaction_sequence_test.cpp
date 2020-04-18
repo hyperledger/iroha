@@ -102,9 +102,8 @@ TEST_F(TransactionSequenceTestFixture, CreateBatches) {
     auto signed_blob =
         crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
     tx->addSignature(
-        shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
-        shared_model::interface::types::PublicKeyHexStringView{
-            keypair.publicKey().hex()});
+        shared_model::interface::types::SignedHexStringView{signed_blob},
+        keypair.publicKey());
 
     tx_collection.emplace_back(tx);
   }

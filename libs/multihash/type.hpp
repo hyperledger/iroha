@@ -22,7 +22,7 @@ namespace iroha {
       blake2s256 = 0xb260,
 
       //
-      // --- PublicKey types ---
+      // --- public key and signature types ---
       //
       ed25519pub = 0xed,
 

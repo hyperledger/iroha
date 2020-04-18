@@ -21,17 +21,17 @@ namespace iroha {
 
     inline shared_model::crypto::PublicKey createPublicKey(
         const std::string &str = "public_key") {
-      return shared_model::crypto::PublicKey{shared_model::crypto::Blob{str}};
+      return shared_model::crypto::PublicKey{str};
     }
 
     inline shared_model::crypto::PrivateKey createPrivateKey(
         const std::string &str = "public_key") {
-      return shared_model::crypto::PrivateKey{shared_model::crypto::Blob{str}};
+      return shared_model::crypto::PrivateKey{str};
     }
 
     inline shared_model::crypto::Signed createSigned(
         const std::string &str = "signed") {
-      return shared_model::crypto::Signed{shared_model::crypto::Blob{str}};
+      return shared_model::crypto::Signed{str};
     }
   }  // namespace dummy
 }  // namespace iroha

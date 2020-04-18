@@ -20,9 +20,9 @@ namespace iroha {
       PostgresWsvQuery(std::unique_ptr<soci::session> sql,
                        logger::LoggerPtr log);
 
-      boost::optional<std::vector<shared_model::interface::types::PubkeyType>>
-      getSignatories(const shared_model::interface::types::AccountIdType
-                         &account_id) override;
+      boost::optional<std::vector<std::string>> getSignatories(
+          const shared_model::interface::types::AccountIdType &account_id)
+          override;
 
       boost::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>

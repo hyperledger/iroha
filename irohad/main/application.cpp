@@ -329,9 +329,7 @@ Irohad::RunResult Irohad::restoreWsv() {
 
 Irohad::RunResult Irohad::validateKeypair() {
   auto peers = storage->createPeerQuery() | [this](auto &&peer_query) {
-    return peer_query->getLedgerPeerByPublicKey(
-        shared_model::interface::types::PublicKeyHexStringView{
-            keypair.publicKey().hex()});
+    return peer_query->getLedgerPeerByPublicKey(keypair.publicKey());
   };
   if (not peers) {
     log_->warn("There is no peer in the ledger with my public key!");

@@ -7,8 +7,8 @@
 
 #include <vector>
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
-#include <boost/format.hpp>
 #include "framework/common_constants.hpp"
 #include "integration/executor/query_permission_test.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
@@ -28,8 +28,8 @@ struct GetSignatoriesTest : public ExecutorTestBase {
    * Generate a public key in format `public_key_NNNN', where NNNN is
    * a zero-padded serial number.
    */
-  PubkeyType makePubKey(size_t n) {
-    return PubkeyType{(boost::format("public_key_%04d") % n).str()};
+  std::string makePubKey(size_t n) {
+    return fmt::format("public_key_{:04}", n);
   }
 
   /**
@@ -43,7 +43,9 @@ struct GetSignatoriesTest : public ExecutorTestBase {
       signatories_.emplace_back(makePubKey(i));
       IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
           *getItf().getMockCommandFactory()->constructAddSignatory(
-              signatories_.back(), kUserId)));
+              shared_model::interface::types::PublicKeyHexStringView{
+                  signatories_.back()},
+              kUserId)));
     }
   }
 
@@ -69,7 +71,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
   }
 
   /// The signatories of the default account.
-  std::vector<PubkeyType> signatories_{{kUserKeypair.publicKey()}};
+  std::vector<std::string> signatories_{std::string{kUserKeypair.publicKey()}};
 };
 
 using GetSignatoriesBasicTest = BasicExecutorTest<GetSignatoriesTest>;

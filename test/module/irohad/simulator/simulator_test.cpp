@@ -13,6 +13,7 @@
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/transaction.hpp"
 #include "datetime/time.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
@@ -82,7 +83,7 @@ class SimulatorTest : public ::testing::Test {
 
   std::shared_ptr<Simulator> simulator;
   shared_model::interface::types::PeerList ledger_peers{
-      makePeer("127.0.0.1", shared_model::crypto::PublicKey("111"))};
+      makePeer("127.0.0.1", "111"_pubkey)};
 };
 
 auto makeProposal(int height) {

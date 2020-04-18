@@ -62,9 +62,8 @@ class CryptoUsageTest : public ::testing::Test {
     auto signedBlob = shared_model::crypto::DefaultCryptoAlgorithmType::sign(
         shared_model::crypto::Blob("wrong payload"), keypair);
     signable.addSignature(
-        shared_model::interface::types::SignedHexStringView{signedBlob.hex()},
-        shared_model::interface::types::PublicKeyHexStringView{
-            keypair.publicKey().hex()});
+        shared_model::interface::types::SignedHexStringView{signedBlob},
+        keypair.publicKey());
   }
 
   template <typename T>
@@ -77,8 +76,9 @@ class CryptoUsageTest : public ::testing::Test {
   shared_model::crypto::Keypair keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 
-  shared_model::crypto::CryptoModelSigner<> signer =
-      shared_model::crypto::CryptoModelSigner<>(keypair);
+  shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType> signer =
+      shared_model::crypto::CryptoModelSigner<DefaultCryptoAlgorithmType>(
+          keypair);
 
   shared_model::validation::FieldValidator field_validator_{
       iroha::test::kTestsValidatorsConfig};
@@ -94,13 +94,15 @@ class CryptoUsageTest : public ::testing::Test {
  * @then check that siganture valid without clarification of algorithm
  */
 TEST_F(CryptoUsageTest, RawSignAndVerifyTest) {
-  auto signature = DefaultCryptoAlgorithmType::sign(data, keypair);
+  auto signature = iroha::hexstringToBytestringResult(
+                       DefaultCryptoAlgorithmType::sign(data, keypair))
+                       .assumeValue();
   using namespace shared_model::interface::types;
-  auto verified = DefaultCryptoAlgorithmType::verify(
-      makeStrongView<SignatureByteRangeView>(signature.range()),
+  auto verified = CryptoVerifier::verify(
+      SignedHexStringView{iroha::bytestringToHexstring(signature)},
       data,
-      makeStrongView<PublicKeyByteRangeView>(keypair.publicKey().range()));
-  EXPECT_TRUE(verified);
+      keypair.publicKey());
+  IROHA_ASSERT_RESULT_VALUE(verified);
 }
 
 /**

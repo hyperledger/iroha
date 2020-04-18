@@ -20,11 +20,8 @@ namespace shared_model {
   }  // namespace validation
 }  // namespace shared_model
 
-inline std::ostream &operator<<(
+std::ostream &operator<<(
     std::ostream &out,
-    const std::optional<shared_model::validation::ValidationError> &error) {
-  out << error.value();
-  return out;
-}
+    const std::optional<shared_model::validation::ValidationError> &error);
 
 #endif

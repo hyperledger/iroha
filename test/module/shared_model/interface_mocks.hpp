@@ -191,25 +191,17 @@ struct MockPeer : public shared_model::interface::Peer {
 
 inline auto makePeer(
     const std::string &address,
-    const std::string &pub_key,
+    shared_model::interface::types::PublicKeyHexStringView pub_key,
     const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate = std::nullopt) {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
       .WillRepeatedly(testing::ReturnRefOfCopy(address));
   EXPECT_CALL(*peer, pubkey())
-      .WillRepeatedly(testing::ReturnRefOfCopy(pub_key));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pub_key}));
   EXPECT_CALL(*peer, tlsCertificate())
       .WillRepeatedly(testing::ReturnRefOfCopy(tls_certificate));
   return peer;
-}
-
-inline auto makePeer(
-    const std::string &address,
-    const shared_model::crypto::PublicKey &pub_key,
-    const std::optional<shared_model::interface::types::TLSCertificateType>
-        &tls_certificate = std::nullopt) {
-  return makePeer(address, pub_key.hex(), tls_certificate);
 }
 
 struct MockUnsafeProposalFactory

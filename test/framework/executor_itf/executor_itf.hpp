@@ -18,6 +18,7 @@
 #include "framework/executor_itf/executor_itf_helper.hpp"
 #include "framework/executor_itf/executor_itf_param.hpp"
 #include "interfaces/commands/command.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/queries/query.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
@@ -25,9 +26,6 @@
 #include "module/shared_model/query_mocks.hpp"
 
 namespace shared_model {
-  namespace crypto {
-    class PublicKey;
-  }
   namespace interface {
     class MockCommandFactory;
     class MockQueryFactory;
@@ -253,7 +251,7 @@ namespace iroha {
       iroha::ametsuchi::CommandResult createUserWithPerms(
           const std::string &account_name,
           const std::string &domain,
-          const shared_model::crypto::PublicKey &pubkey,
+          const shared_model::interface::types::PublicKeyHexStringView &pubkey,
           const shared_model::interface::RolePermissionSet &role_perms) const;
 
       /**
@@ -293,7 +291,7 @@ namespace iroha {
       iroha::ametsuchi::CommandResult createUserWithPermsInternal(
           const std::string &account_name,
           const std::string &domain,
-          const shared_model::crypto::PublicKey &pubkey,
+          const shared_model::interface::types::PublicKeyHexStringView &pubkey,
           const shared_model::interface::RolePermissionSet &role_perms) const;
 
       /// Grant all grantable permissions of the given account to admin.

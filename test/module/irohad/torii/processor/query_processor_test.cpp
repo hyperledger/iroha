@@ -71,8 +71,6 @@ class QueryProcessorTest : public ::testing::Test {
   shared_model::crypto::Keypair keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
 
-  std::vector<shared_model::interface::types::PubkeyType> signatories = {
-      keypair.publicKey()};
   std::unique_ptr<MockQueryExecutor> qry_exec;
   std::shared_ptr<MockBlockQuery> block_queries;
   std::shared_ptr<MockStorage> storage;

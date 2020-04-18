@@ -22,7 +22,6 @@ namespace shared_model {
 
   namespace crypto {
     class Signed;
-    class PublicKey;
   }  // namespace crypto
 
   namespace interface {

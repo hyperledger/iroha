@@ -19,8 +19,7 @@ namespace iroha {
       iroha::keypair_t *makeOldModel(
           const shared_model::crypto::Keypair &keypair) {
         return new iroha::keypair_t{
-            iroha::pubkey_t::from_string(toBinaryString(keypair.publicKey()))
-                .assumeValue(),
+            iroha::pubkey_t::from_string(keypair.publicKey()).assumeValue(),
             iroha::privkey_t::from_string(toBinaryString(keypair.privateKey()))
                 .assumeValue()};
       }

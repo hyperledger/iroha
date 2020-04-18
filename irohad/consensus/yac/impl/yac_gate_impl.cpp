@@ -25,8 +25,7 @@ namespace {
     return boost::copy_range<
         shared_model::interface::types::PublicKeyCollectionType>(
         votes | boost::adaptors::transformed([](auto &vote) {
-          return shared_model::crypto::Blob::fromHexString(
-              vote.signature->publicKey());
+          return vote.signature->publicKey();
         }));
   }
 }  // namespace

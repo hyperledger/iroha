@@ -24,6 +24,7 @@
 #include "validators/field_validator.hpp"
 #include "validators/protobuf/proto_transaction_validator.hpp"
 
+using namespace std::literals;
 using namespace iroha::network;
 using namespace iroha::model;
 using namespace shared_model::interface;
@@ -85,9 +86,8 @@ class TransportTest : public ::testing::Test {
                                            sender_factory_);
     transport->subscribe(mst_notification_transport_);
 
-    shared_model::interface::types::PubkeyType pk(
-        shared_model::crypto::Hash::fromHexString(
-            "abcdabcdabcdabcdabcdabcdabcdabcd"));
+    shared_model::interface::types::PublicKeyHexStringView pk{
+        "abcdabcdabcdabcdabcdabcdabcdabcd"sv};
     peer = makePeer("localhost:0", pk);
   }
 
@@ -164,7 +164,7 @@ TEST_F(TransportTest, SendAndReceive) {
   EXPECT_CALL(*mst_notification_transport_, onNewState(_, _))
       .WillOnce(Invoke(
           [this, &state](const auto &from_key, auto const &target_state) {
-            EXPECT_EQ(this->my_key_.publicKey().hex(), from_key);
+            EXPECT_EQ(this->my_key_.publicKey(), from_key);
             EXPECT_TRUE(statesEqual(state, target_state));
           }));
 
@@ -221,8 +221,8 @@ TEST_F(TransportTest, ReplayAttack) {
           iroha::ametsuchi::tx_cache_status_responses::Rejected{second_hash}};
 
   transport::MstState proto_state;
-  proto_state.set_source_peer_key(
-      shared_model::crypto::toBinaryString(my_key_.publicKey()));
+  std::string_view public_key = my_key_.publicKey();
+  proto_state.set_source_peer_key(public_key.data(), public_key.size());
 
   state.iterateTransactions([&proto_state](const auto &tx) {
     *proto_state.add_transactions() =

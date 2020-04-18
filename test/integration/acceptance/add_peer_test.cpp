@@ -3,6 +3,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <iostream>
+#include "interfaces/common_objects/peer.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
+std::ostream &operator<<(
+    std::ostream &out,
+    const shared_model::interface::types::PublicKeyHexStringView &pk) {
+  out << std::string_view{pk};
+  return out;
+}
+std::ostream &operator<<(std::ostream &out,
+                         const shared_model::interface::Peer &peer) {
+  out << peer.toString();
+  return out;
+}
+std::ostream &operator<<(
+    std::ostream &out,
+    const std::shared_ptr<shared_model::interface::Peer> &peer) {
+  out << *peer;
+  return out;
+}
+
 #include "integration/acceptance/fake_peer_fixture.hpp"
 
 #include <rxcpp/operators/rx-filter.hpp>
@@ -18,6 +39,7 @@
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/integration_framework/iroha_instance.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
@@ -48,9 +70,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   const auto prepared_height = itf.getBlockQuery()->getTopBlockHeight();
 
   const std::string new_peer_address = "127.0.0.1:1234";
-  const auto new_peer_pubkey =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-          .publicKey();
+  const auto new_peer_pubkey = "b055"_pubkey;
 
   // capture itf synchronization events
   auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();

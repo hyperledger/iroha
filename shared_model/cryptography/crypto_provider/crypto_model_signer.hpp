@@ -24,12 +24,11 @@ namespace shared_model {
 
       template <typename T>
       inline void sign(T &signable) const noexcept {
-        auto signedBlob = Algorithm::sign(signable.payload(), keypair_);
+        auto signature_hex = Algorithm::sign(signable.payload(), keypair_);
+        using namespace shared_model::interface::types;
         signable.addSignature(
-            shared_model::interface::types::SignedHexStringView{
-                signedBlob.hex()},
-            shared_model::interface::types::PublicKeyHexStringView{
-                keypair_.publicKey().hex()});
+            makeStrongView<SignedHexStringView>(signature_hex),
+            keypair_.publicKey());
       }
 
       void sign(interface::Block &m) const override {

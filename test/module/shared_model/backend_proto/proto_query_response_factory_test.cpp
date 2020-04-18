@@ -4,6 +4,7 @@
  */
 
 #include "backend/protobuf/proto_query_response_factory.hpp"
+
 #include <gtest/gtest.h>
 #include <optional>
 #include "backend/plain/account_detail_record_id.hpp"
@@ -255,10 +256,10 @@ TEST_F(ProtoQueryResponseFactoryTest, CreateErrorQueryResponse) {
 TEST_F(ProtoQueryResponseFactoryTest, CreateSignatoriesResponse) {
   const HashType kQueryHash{"my_super_hash"};
 
-  const auto pub_key =
+  std::vector<std::string> signatories;
+  signatories.emplace_back(
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-          .publicKey();
-  const std::vector<PubkeyType> signatories{pub_key};
+          .publicKey());
   auto query_response =
       response_factory->createSignatoriesResponse(signatories, kQueryHash);
 

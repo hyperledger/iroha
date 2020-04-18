@@ -357,12 +357,12 @@ namespace integration_framework {
     log_->info("init state");
     my_key_ = keypair;
     using shared_model::interface::types::PublicKeyHexStringView;
-    this_peer_ = framework::expected::val(
-                     common_objects_factory_->createPeer(
-                         getAddress(),
-                         PublicKeyHexStringView{keypair.publicKey().hex()}))
-                     .value()
-                     .value;
+    this_peer_ =
+        framework::expected::val(
+            common_objects_factory_->createPeer(
+                getAddress(), PublicKeyHexStringView{keypair.publicKey()}))
+            .value()
+            .value;
     iroha_instance_->initPipeline(keypair, maximum_proposal_size_);
     log_->info("created pipeline");
   }
@@ -683,7 +683,7 @@ namespace integration_framework {
   }
 
   IntegrationTestFramework &IntegrationTestFramework::sendMstState(
-      const shared_model::crypto::PublicKey &src_key,
+      const shared_model::interface::types::PublicKeyHexStringView &src_key,
       const iroha::MstState &mst_state) {
     iroha::network::sendStateAsync(
         *this_peer_, mst_state, src_key, *async_call_);

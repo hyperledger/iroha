@@ -5,21 +5,31 @@
 
 #include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
 
+#include "common/hexutils.hpp"
+#include "multihash/multihash.hpp"
 #include "ursa_crypto.h"
 
-using shared_model::interface::types::ByteRange;
+using namespace std::literals;
+using namespace shared_model::interface::types;
 
 namespace {
-  ByteRange irohaToUrsaBuffer(const ByteRange buffer) {
-    return ByteBuffer{(int64_t)buffer.size(),
-                      static_cast<uint8_t *>(buffer.data())};
+  inline ByteBuffer irohaToUrsaBuffer(const ByteRange buffer) {
+    return ByteBuffer{
+        static_cast<int64_t>(buffer.size()),
+        reinterpret_cast<uint8_t *>(const_cast<std::byte *>(buffer.data()))};
+  }
+
+  inline ByteRange ursaToIrohaBuffer(const ByteBuffer buffer) {
+    assert(buffer.len > 0);
+    return ByteRange{reinterpret_cast<std::byte *>(buffer.data),
+                     static_cast<size_t>(buffer.len)};
   }
 }  // namespace
 
 namespace shared_model {
   namespace crypto {
-    Signed CryptoProviderEd25519Ursa::sign(const Blob &blob,
-                                           const Keypair &keypair) {
+    std::string CryptoProviderEd25519Ursa::sign(const Blob &blob,
+                                                const Keypair &keypair) {
       ByteBuffer signature;
 
       const ByteBuffer kMessage = {(int64_t)blob.blob().size(),
@@ -34,23 +44,20 @@ namespace shared_model {
       if (!ursa_ed25519_sign(&kMessage, &kPrivateKey, &signature, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-        return Signed{""};
+        return {};
       }
 
-      Signed result(
-          {(const std::string::value_type *)signature.data, signature.len});
-
+      std::string hex_signature;
+      iroha::bytestringToHexstringAppend(ursaToIrohaBuffer(signature),
+                                         hex_signature);
       ursa_ed25519_bytebuffer_free(signature);
-      return result;
+      return hex_signature;
     }
 
     bool CryptoProviderEd25519Ursa::verify(const ByteRange &signed_data,
                                            const ByteRange &source,
                                            const ByteRange &public_key) {
-      assert(signed_data.size() == kSignatureLength);
-      assert(public_key.size() == kPublicKeyLength);
-
-      ExternErkor err;
+      ExternError err;
 
       const ByteBuffer kMessage = irohaToUrsaBuffer(source);
       const ByteBuffer kSignature = irohaToUrsaBuffer(signed_data);
@@ -73,22 +80,17 @@ namespace shared_model {
       if (!ursa_ed25519_keypair_new(&public_key, &private_key, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-        return Keypair{PublicKey{""}, PrivateKey{""}};
+        return Keypair{PublicKeyHexStringView{""sv}, PrivateKey{""}};
       }
 
-      std::string multi_blob{(const std::string::value_type *)public_key.data,
-                             public_key.len};
+      std::string multuhash_public_key;
+      iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
+                                        ursaToIrohaBuffer(public_key),
+                                        multuhash_public_key);
 
-      auto mh_pubkey = *iroha::expected::resultToOptionalValue(
-          libp2p::multi::Multihash::create(
-              libp2p::multi::HashType::ed25519pub,
-              kagome::common::Buffer{
-                  std::vector<uint8_t>{multi_blob.begin(), multi_blob.end()}}));
-
-      Keypair result(PublicKey(mh_pubkey.toBuffer().toVector()),
-                     PrivateKey(std::string(
-                         (const std::string::value_type *)private_key.data,
-                         private_key.len)));
+      Keypair result(
+          makeStrongView<PublicKeyHexStringView>(multuhash_public_key),
+          PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
       ursa_ed25519_bytebuffer_free(private_key);
@@ -108,22 +110,17 @@ namespace shared_model {
               &kSeed, &public_key, &private_key, &err)) {
         // handle error
         ursa_ed25519_string_free(err.message);
-        return Keypair{PublicKey{""}, PrivateKey{""}};
+        return Keypair{PublicKeyHexStringView{""sv}, PrivateKey{""}};
       }
 
-      std::string multi_blob{(const std::string::value_type *)public_key.data,
-                             public_key.len};
+      std::string multuhash_public_key;
+      iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
+                                        ursaToIrohaBuffer(public_key),
+                                        multuhash_public_key);
 
-      auto mh_pubkey = *iroha::expected::resultToOptionalValue(
-          libp2p::multi::Multihash::create(
-              libp2p::multi::HashType::ed25519pub,
-              kagome::common::Buffer{
-                  std::vector<uint8_t>{multi_blob.begin(), multi_blob.end()}}));
-
-      Keypair result(PublicKey(mh_pubkey.toBuffer().toVector()),
-                     PrivateKey(std::string(
-                         (const std::string::value_type *)private_key.data,
-                         private_key.len)));
+      Keypair result(
+          makeStrongView<PublicKeyHexStringView>(multuhash_public_key),
+          PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
       ursa_ed25519_bytebuffer_free(private_key);

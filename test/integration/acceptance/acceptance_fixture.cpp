@@ -17,7 +17,7 @@ AcceptanceFixture::AcceptanceFixture()
 
 TestUnsignedTransactionBuilder AcceptanceFixture::createUser(
     const shared_model::interface::types::AccountNameType &user,
-    const shared_model::crypto::PublicKey &key) {
+    const shared_model::interface::types::PublicKeyHexStringView &key) {
   return TestUnsignedTransactionBuilder()
       .createAccount(user, kDomain, key)
       .creatorAccountId(kAdminId)
@@ -27,7 +27,7 @@ TestUnsignedTransactionBuilder AcceptanceFixture::createUser(
 
 TestUnsignedTransactionBuilder AcceptanceFixture::createUserWithPerms(
     const shared_model::interface::types::AccountNameType &user,
-    const shared_model::crypto::PublicKey &key,
+    const shared_model::interface::types::PublicKeyHexStringView &key,
     const shared_model::interface::types::RoleIdType &role_id,
     const shared_model::interface::RolePermissionSet &perms) {
   const auto user_id = user + "@" + kDomain;

@@ -6,9 +6,12 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+
+using namespace std::literals;
 
 /**
  * @given Two signatures with same pub key but different signed
@@ -16,15 +19,16 @@
  * @then  Expect true
  */
 TEST(SecuritySignature, SignatureOperatorEqual) {
-  shared_model::crypto::PublicKey pk1("one"), pk2("one");
+  shared_model::interface::types::PublicKeyHexStringView pk1("one"sv),
+      pk2("one"sv);
   shared_model::crypto::Signed data1("signed_one"), data2("signed_two");
   auto first_signature = std::make_unique<MockSignature>();
   auto second_signature = std::make_unique<MockSignature>();
 
   EXPECT_CALL(*first_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk1.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pk1}));
   EXPECT_CALL(*second_signature, publicKey())
-      .WillRepeatedly(testing::ReturnRef(pk2.hex()));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pk2}));
   EXPECT_CALL(*first_signature, signedData())
       .WillRepeatedly(testing::ReturnRef(data1.hex()));
   EXPECT_CALL(*second_signature, signedData())

@@ -50,11 +50,11 @@ namespace iroha {
           retrieveBlocks,
           rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>(
               const shared_model::interface::types::HeightType,
-              const shared_model::crypto::PublicKey &));
+              const shared_model::interface::types::PublicKeyHexStringView &));
       MOCK_METHOD2(
           retrieveBlock,
           boost::optional<std::shared_ptr<shared_model::interface::Block>>(
-              const shared_model::crypto::PublicKey &,
+              const shared_model::interface::types::PublicKeyHexStringView &,
               shared_model::interface::types::HeightType));
     };
 

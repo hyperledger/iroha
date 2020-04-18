@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <rxcpp/rx-lite.hpp>
 #include "datetime/time.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
@@ -58,7 +59,7 @@ class PendingTxsStorageFixture : public ::testing::Test {
         makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                       txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
         0,
-        makeSignature("1", "pub_key_1"));
+        makeSignature("1", "pub_key_1"_pubkey));
   }
 
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
@@ -382,10 +383,10 @@ TEST_F(PendingTxsStorageFixture, SignaturesUpdate) {
   auto transactions = addSignatures(
       makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
       0,
-      makeSignature("1", "pub_key_1"));
+      makeSignature("1", "pub_key_1"_pubkey));
   *state1 += transactions;
   transactions =
-      addSignatures(transactions, 0, makeSignature("2", "pub_key_2"));
+      addSignatures(transactions, 0, makeSignature("2", "pub_key_2"_pubkey));
   *state2 += transactions;
 
   auto updates = updatesObservable({state1, state2});
@@ -422,11 +423,11 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
       0,
-      makeSignature("1", "pub_key_1"));
+      makeSignature("1", "pub_key_1"_pubkey));
   auto batch3 = addSignatures(
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "bob@iroha")),
       0,
-      makeSignature("2", "pub_key_2"));
+      makeSignature("2", "pub_key_2"_pubkey));
   *state += batch1;
   *state += batch2;
   *state += batch3;
@@ -477,7 +478,7 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
       makeTestBatch(txBuilder(2, getUniqueTime(), 2, "alice@iroha"),
                     txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
       0,
-      makeSignature("1", "pub_key_1"));
+      makeSignature("1", "pub_key_1"_pubkey));
   *state2 += batch2;
 
   auto updates = updatesObservable({state1, state2});
@@ -524,7 +525,7 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
           0,
-          makeSignature("1", "pub_key_1"));
+          makeSignature("1", "pub_key_1"_pubkey));
   *state += batch;
 
   rxcpp::subjects::subject<decltype(batch)> prepared_batches_subject;
@@ -538,8 +539,8 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
 
   batch = addSignatures(batch,
                         0,
-                        makeSignature("2", "pub_key_2"),
-                        makeSignature("3", "pub_key_3"));
+                        makeSignature("2", "pub_key_2"_pubkey),
+                        makeSignature("3", "pub_key_3"_pubkey));
   prepared_batches_subject.get_subscriber().on_next(batch);
   prepared_batches_subject.get_subscriber().on_completed();
   const auto kPageSize = 100u;
@@ -567,7 +568,7 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
       addSignatures(
           makeTestBatch(txBuilder(3, getUniqueTime(), 3, "alice@iroha")),
           0,
-          makeSignature("1", "pub_key_1"));
+          makeSignature("1", "pub_key_1"_pubkey));
   *state += batch;
 
   rxcpp::subjects::subject<decltype(batch)> expired_batches_subject;

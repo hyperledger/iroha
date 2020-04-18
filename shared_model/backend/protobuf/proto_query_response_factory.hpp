@@ -49,7 +49,7 @@ namespace shared_model {
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createSignatoriesResponse(
-          std::vector<interface::types::PubkeyType> signatories,
+          std::vector<std::string> signatories,
           const crypto::Hash &query_hash) const override;
 
       std::unique_ptr<interface::QueryResponse> createTransactionsResponse(

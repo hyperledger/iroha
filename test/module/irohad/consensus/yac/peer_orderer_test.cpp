@@ -14,6 +14,7 @@
 #include <boost/range/counting_range.hpp>
 #include <boost/range/numeric.hpp>
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query.hpp"
 #include "module/irohad/ametsuchi/mock_peer_query_factory.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
@@ -24,6 +25,7 @@ using namespace iroha::ametsuchi;
 using namespace iroha::consensus::yac;
 
 using namespace std;
+using shared_model::interface::types::PublicKeyHexStringView;
 using ::testing::Return;
 using ::testing::ReturnRefOfCopy;
 
@@ -45,9 +47,7 @@ class YacPeerOrdererTest : public ::testing::Test {
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers = [] {
     std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
     for (size_t i = 1; i <= kPeersQuantity; ++i) {
-      auto peer = makePeer(
-          std::to_string(i),
-          shared_model::interface::types::PubkeyType(std::string(32, '0')));
+      auto peer = makePeer(std::to_string(i), "public key"_pubkey);
       result.push_back(std::move(peer));
     }
     return result;
@@ -57,7 +57,8 @@ class YacPeerOrdererTest : public ::testing::Test {
     std::vector<std::shared_ptr<shared_model::interface::Peer>> result;
     for (size_t i = 1; i <= kPeersQuantity; ++i) {
       auto tmp = iroha::consensus::yac::makePeer(std::to_string(i));
-      auto peer = makePeer(tmp->address(), tmp->pubkey());
+      auto peer =
+          makePeer(tmp->address(), PublicKeyHexStringView{tmp->pubkey()});
 
       result.emplace_back(std::move(peer));
     }

@@ -81,7 +81,9 @@ class ConsensusSunnyDayTest : public ::testing::Test {
           return iroha::network::createClient<proto::Yac>(peer.address());
         },
         getTestLogger("YacNetwork"));
-    crypto = std::make_shared<MockYacCryptoProvider>(my_peer->pubkey());
+    crypto = std::make_shared<MockYacCryptoProvider>(
+        shared_model::interface::types::PublicKeyHexStringView{
+            my_peer->pubkey()});
     timer = std::make_shared<TimerImpl>(std::chrono::milliseconds(delay),
                                         rxcpp::observe_on_new_thread());
     auto order = ClusterOrdering::create(default_peers);
@@ -140,7 +142,9 @@ TEST_F(ConsensusSunnyDayTest, SunnyDayTest) {
   std::this_thread::sleep_for(std::chrono::milliseconds(delay_before));
 
   YacHash my_hash(initial_round, "proposal_hash", "block_hash");
-  my_hash.block_signature = createSig(my_peer->pubkey());
+  my_hash.block_signature =
+      createSig(shared_model::interface::types::PublicKeyHexStringView{
+          my_peer->pubkey()});
   auto order = ClusterOrdering::create(default_peers);
   ASSERT_TRUE(order);
 

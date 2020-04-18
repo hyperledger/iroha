@@ -10,10 +10,6 @@
 namespace shared_model {
   namespace crypto {
 
-    PublicKey::PublicKey(const std::string &public_key) : Blob(public_key) {}
-
-    PublicKey::PublicKey(const Bytes &blob) : Blob(blob) {}
-
     PublicKey::PublicKey(const Blob &blob) : Blob(blob.blob()) {}
 
     std::string PublicKey::toString() const {

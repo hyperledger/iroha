@@ -8,9 +8,9 @@
 #include <gtest/gtest.h>
 #include "common/result.hpp"
 #include "framework/common_constants.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
-#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 
@@ -23,9 +23,7 @@ using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
 static const AccountNameType kNewName{"new_account"};
-static const PubkeyType kNewPubkey =
-    shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-        .publicKey();
+const auto kNewPubkey{"hey im new here"_pubkey};
 
 /// do not call during static init!
 const AccountIdType &getNewId() {
@@ -37,7 +35,7 @@ class CreateAccountTest : public ExecutorTestBase {
  public:
   void checkAccount(
       const boost::optional<AccountIdType> &account_id = boost::none,
-      const PubkeyType &pubkey = kNewPubkey) {
+      PublicKeyHexStringView pubkey = kNewPubkey) {
     auto account_id_val = account_id.value_or(getNewId());
     ASSERT_NO_FATAL_FAILURE(checkSignatories(account_id_val, {pubkey}););
   }
@@ -56,7 +54,7 @@ class CreateAccountTest : public ExecutorTestBase {
       const AccountIdType &issuer,
       const AccountNameType &target_name = kNewName,
       const DomainIdType &target_domain = kSecondDomain,
-      const PubkeyType &pubkey = kNewPubkey,
+      PublicKeyHexStringView pubkey = kNewPubkey,
       bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructCreateAccount(

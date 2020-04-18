@@ -14,6 +14,7 @@
 #include "backend/protobuf/transaction_responses/proto_tx_response.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/common_constants.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/query_response.hpp"
 #include "interfaces/transaction_responses/tx_response.hpp"
@@ -71,7 +72,7 @@ class AcceptanceFixture : public ::testing::Test {
    */
   TestUnsignedTransactionBuilder createUser(
       const shared_model::interface::types::AccountNameType &user,
-      const shared_model::crypto::PublicKey &key);
+      const shared_model::interface::types::PublicKeyHexStringView &key);
 
   /**
    * Creates a set of transactions for user creation with specified permissions
@@ -83,7 +84,7 @@ class AcceptanceFixture : public ::testing::Test {
    */
   TestUnsignedTransactionBuilder createUserWithPerms(
       const shared_model::interface::types::AccountNameType &user,
-      const shared_model::crypto::PublicKey &key,
+      const shared_model::interface::types::PublicKeyHexStringView &key,
       const shared_model::interface::types::RoleIdType &role_id,
       const shared_model::interface::RolePermissionSet &perms);
 

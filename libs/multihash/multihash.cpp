@@ -5,8 +5,6 @@
 
 #include "multihash.hpp"
 
-#include "multihash/varint.hpp"
-
 using shared_model::interface::types::ByteRange;
 
 namespace iroha {

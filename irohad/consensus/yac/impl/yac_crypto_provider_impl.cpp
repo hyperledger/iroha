@@ -55,8 +55,9 @@ namespace iroha {
 
         // TODO 30.08.2018 andrei: IR-1670 Remove optional from YAC
         // CryptoProviderImpl::getVote
+        using namespace shared_model::interface::types;
         vote.signature = std::make_shared<shared_model::plain::Signature>(
-            signature.hex(), pubkey.hex());
+            makeStrongView<SignedHexStringView>(signature), pubkey);
 
         return vote;
       }

@@ -20,25 +20,6 @@ namespace iroha {
   using BadFormatException = std::invalid_argument;
   using byte_t = uint8_t;
 
-  namespace {
-    static const std::string code = {'0',
-                                     '1',
-                                     '2',
-                                     '3',
-                                     '4',
-                                     '5',
-                                     '6',
-                                     '7',
-                                     '8',
-                                     '9',
-                                     'a',
-                                     'b',
-                                     'c',
-                                     'd',
-                                     'e',
-                                     'f'};
-  }
-
   /**
    * Base type which represents blob of fixed size.
    *
@@ -75,15 +56,8 @@ namespace iroha {
      * Converts current blob to hex string.
      */
     std::string to_hexstring() const noexcept {
-      std::string res(size_ * 2, 0);
-      auto ptr = this->data();
-      for (uint32_t i = 0, k = 0; i < size_; i++) {
-        const auto front = (uint8_t)(ptr[i] & 0xF0) >> 4;
-        const auto back = (uint8_t)(ptr[i] & 0xF);
-        res[k++] = code[front];
-        res[k++] = code[back];
-      }
-      return res;
+      return bytestringToHexstring(std::string_view{
+          reinterpret_cast<const char *>(this->data()), this->size()});
     }
 
     static blob_t<size_> from_raw(const byte_t data[size_]) {
@@ -93,7 +67,7 @@ namespace iroha {
     }
 
     static expected::Result<blob_t<size_>, std::string> from_string(
-        const std::string &data) {
+        const std::string_view &data) {
       if (data.size() != size_) {
         return expected::makeError(
             std::string{"blob_t: input string has incorrect length. Found: "}
@@ -104,7 +78,7 @@ namespace iroha {
     }
 
     static expected::Result<blob_t<size_>, std::string> from_hexstring(
-        const std::string &hex) {
+        const std::string_view &hex) {
       return iroha::hexstringToBytestringResult(hex) |
           [](auto &&bytes) { return from_string(bytes); };
     }

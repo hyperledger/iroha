@@ -8,9 +8,9 @@
 #include <gtest/gtest.h>
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
+#include "framework/strong_type_literals.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
-#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 #include "module/shared_model/mock_objects_factories/mock_query_factory.hpp"
 
@@ -22,16 +22,14 @@ using namespace shared_model::interface::types;
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
 
-const auto kNewPubkey =
-    shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-        .publicKey();
+const auto kNewPubkey{"hey im new here"_pubkey};
 
 class AddSignatoryTest : public ExecutorTestBase {
  public:
   iroha::ametsuchi::CommandResult addSignatory(
       const AccountIdType &issuer,
       const AccountIdType &target = kUserId,
-      const PubkeyType &pubkey = kNewPubkey,
+      PublicKeyHexStringView pubkey = kNewPubkey,
       bool validation_enabled = true) {
     return getItf().executeCommandAsAccount(
         *getItf().getMockCommandFactory()->constructAddSignatory(pubkey,

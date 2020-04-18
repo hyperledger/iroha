@@ -172,10 +172,8 @@ TEST_F(TransactionBatchTest, CreateSingleTxBatchWhenValid) {
   auto keypair = crypto::DefaultCryptoAlgorithmType::generateKeypair();
   auto signed_blob =
       crypto::DefaultCryptoAlgorithmType::sign(tx1->payload(), keypair);
-  tx1->addSignature(
-      shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
-      shared_model::interface::types::PublicKeyHexStringView{
-          keypair.publicKey().hex()});
+  tx1->addSignature(interface::types::SignedHexStringView{signed_blob},
+                    keypair.publicKey());
 
   auto transaction_batch = factory_->createTransactionBatch(tx1);
 

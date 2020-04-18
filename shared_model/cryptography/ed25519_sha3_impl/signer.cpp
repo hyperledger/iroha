@@ -11,18 +11,18 @@
 
 namespace shared_model {
   namespace crypto {
-    Signed Signer::sign(const Blob &blob, const Keypair &keypair) {
-      if (keypair.publicKey().size() != iroha::pubkey_t::size()
-          || keypair.privateKey().size() != iroha::privkey_t::size()) {
-        return Signed{""};
-      }
-
-      return Signed(
-          iroha::sign(
-              iroha::sha3_256(crypto::toBinaryString(blob)).to_string(),
-              iroha::pubkey_t::from_raw(keypair.publicKey().blob().data()),
-              iroha::privkey_t::from_raw(keypair.privateKey().blob().data()))
-              .to_string());
+    std::string Signer::sign(const Blob &blob, const Keypair &keypair) {
+      return iroha::pubkey_t::from_hexstring(keypair.publicKey())
+          .match(
+              [&](auto &&public_key) {
+                return iroha::sign(iroha::sha3_256(crypto::toBinaryString(blob))
+                                       .to_string(),
+                                   std::move(public_key).value,
+                                   iroha::privkey_t::from_raw(
+                                       keypair.privateKey().blob().data()))
+                    .to_hexstring();
+              },
+              [](const auto & /* error */) { return std::string{}; });
     }
   }  // namespace crypto
 }  // namespace shared_model
