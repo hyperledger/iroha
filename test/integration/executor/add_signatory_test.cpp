@@ -59,14 +59,14 @@ TEST_P(AddSignatoryBasicTest, NonExistentUser) {
  */
 TEST_P(AddSignatoryBasicTest, ExistingPubKey) {
   IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-      kUser, kDomain, PublicKeyHexStringView{kUserKeypair.publicKey()}, {}));
+      kUser, kDomain, PublicKeyHexStringView{kUserSigner->publicKey()}, {}));
 
   checkCommandError(
       addSignatory(
-          kAdminId, kUserId, PublicKeyHexStringView{kUserKeypair.publicKey()}),
+          kAdminId, kUserId, PublicKeyHexStringView{kUserSigner->publicKey()}),
       4);
 
-  checkSignatories(kUserId, {PublicKeyHexStringView{kUserKeypair.publicKey()}});
+  checkSignatories(kUserId, {PublicKeyHexStringView{kUserSigner->publicKey()}});
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,
@@ -81,16 +81,16 @@ TEST_P(AddSignatoryPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
   ASSERT_NO_FATAL_FAILURE(checkSignatories(
-      kUserId, {PublicKeyHexStringView{kUserKeypair.publicKey()}}));
+      kUserId, {PublicKeyHexStringView{kUserSigner->publicKey()}}));
 
   if (checkResponse(addSignatory(
           getActor(), kUserId, kNewPubkey, getValidationEnabled()))) {
     checkSignatories(
         kUserId,
-        {PublicKeyHexStringView{kUserKeypair.publicKey()}, kNewPubkey});
+        {PublicKeyHexStringView{kUserSigner->publicKey()}, kNewPubkey});
   } else {
     checkSignatories(kUserId,
-                     {PublicKeyHexStringView{kUserKeypair.publicKey()}});
+                     {PublicKeyHexStringView{kUserSigner->publicKey()}});
   }
 }
 

@@ -35,7 +35,7 @@ TEST_F(AcceptanceFixture, CanGetRolePermissions) {
   auto query = complete(baseQry().getRolePermissions(kRole));
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(
               {shared_model::interface::permissions::Role::kGetRoles}),
@@ -56,7 +56,7 @@ TEST_F(AcceptanceFixture, CanNotGetRolePermissions) {
   auto query = complete(baseQry().getRolePermissions(kRole));
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms({}),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })

@@ -42,11 +42,11 @@ shared_model::proto::Transaction AcceptanceFixture::makeUserWithPerms(
     const shared_model::interface::RolePermissionSet &perms) {
   using shared_model::interface::types::PublicKeyHexStringView;
   return createUserWithPerms(kUser,
-                             PublicKeyHexStringView{kUserKeypair.publicKey()},
+                             PublicKeyHexStringView{kUserSigner->publicKey()},
                              role_name,
                              perms)
       .build()
-      .signAndAddSignature(kAdminKeypair)
+      .signAndAddSignature(*kAdminSigner)
       .finish();
 }
 
@@ -132,7 +132,7 @@ template auto AcceptanceFixture::complete<TestUnsignedQueryBuilder>(
 template <typename Builder>
 auto AcceptanceFixture::complete(Builder builder)
     -> decltype(builder.build().finish()) {
-  return complete(builder, kUserKeypair);
+  return complete(builder, *kUserSigner);
 }
 
 template <typename ErrorResponse>

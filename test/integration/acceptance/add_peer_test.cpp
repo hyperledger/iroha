@@ -182,13 +182,13 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
           .createDomain(kDomain, kDefaultRole)
           .createAccount(kAdminName,
                          kDomain,
-                         PublicKeyHexStringView{kAdminKeypair.publicKey()})
+                         PublicKeyHexStringView{kAdminSigner->publicKey()})
           .detachRole(kAdminId, kDefaultRole)
           .appendRole(kAdminId, kAdminRole)
           .createAsset(kAssetName, kDomain, 1)
           .quorum(1)
           .build()
-          .signAndAddSignature(kAdminKeypair)
+          .signAndAddSignature(*kAdminSigner)
           .finish();
   auto genesis_block =
       proto::BlockBuilder()

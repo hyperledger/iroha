@@ -110,7 +110,7 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
   ASSERT_NO_FATAL_FAILURE(getItf().createUserWithPerms(
       kUser,
       kDomain,
-      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      PublicKeyHexStringView{kUserSigner->publicKey()},
       {Role::kCreateAccount}));
   ASSERT_NO_FATAL_FAILURE(
       getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));

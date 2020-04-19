@@ -23,7 +23,7 @@ using namespace common_constants;
  */
 TEST_F(GrantablePermissionsFixture, GrantToInexistingAccount) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, kCanGrantAll, kRole1))
       .skipProposal()
@@ -60,7 +60,7 @@ TEST_F(GrantablePermissionsFixture, GrantAddSignatoryPermission) {
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   auto &x = createTwoAccounts(
       itf, {Role::kAddMySignatory, Role::kGetMySignatories}, {Role::kReceive});
   x.sendTxAwait(grantPermission(kAccount1,
@@ -97,7 +97,7 @@ TEST_F(GrantablePermissionsFixture, GrantRemoveSignatoryPermission) {
       kAccount2Keypair, expected_number_of_signatories, is_contained);
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf,
                     {Role::kAddMySignatory,
                      Role::kRemoveMySignatory,
@@ -145,7 +145,7 @@ TEST_F(GrantablePermissionsFixture, GrantSetQuorumPermission) {
   auto check_quorum_quantity = checkQuorum(quorum_quantity);
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(
       itf,
       {Role::kSetMyQuorum, Role::kAddMySignatory, Role::kGetMyAccount},
@@ -193,7 +193,7 @@ TEST_F(GrantablePermissionsFixture, GrantSetAccountDetailPermission) {
       checkAccountDetail(kAccountDetailKey, kAccountDetailValue);
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(
       itf, {Role::kSetMyAccountDetail, Role::kGetMyAccDetail}, {Role::kReceive})
       .sendTxAwait(
@@ -232,7 +232,7 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
   auto amount_of_asset = "1000.0";
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf,
                     {Role::kTransferMyAssets, Role::kReceive},
                     {Role::kTransfer, Role::kReceive})
@@ -270,7 +270,7 @@ TEST_F(GrantablePermissionsFixture, GrantTransferPermission) {
 TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
   for (auto &perm : kAllGrantable) {
     IntegrationTestFramework itf(1);
-    itf.setInitialState(kAdminKeypair);
+    itf.setInitialState(kAdminSigner);
     createTwoAccounts(itf, {Role::kReceive}, {Role::kReceive})
         .sendTx(grantPermission(kAccount1, kAccount1Keypair, kAccount2, perm))
         .skipProposal()
@@ -295,7 +295,7 @@ TEST_F(GrantablePermissionsFixture, GrantWithoutGrantPermissions) {
 
 TEST_F(GrantablePermissionsFixture, GrantMoreThanOnce) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf, {kCanGrantAll}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,
                               kAccount1Keypair,

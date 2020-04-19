@@ -31,7 +31,7 @@ using shared_model::interface::types::PublicKeyHexStringView;
  */
 TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeAccountWithPerms(
           kAccount1, kAccount1Keypair, {Role::kSetMyQuorum}, kRole1))
       .skipProposal()
@@ -63,7 +63,7 @@ TEST_F(GrantablePermissionsFixture, RevokeFromNonExistingAccount) {
  */
 TEST_F(GrantablePermissionsFixture, RevokeTwice) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTx(grantPermission(kAccount1,
                               kAccount1Keypair,
@@ -106,7 +106,7 @@ TEST_F(GrantablePermissionsFixture, RevokeTwice) {
  */
 TEST_F(GrantablePermissionsFixture, RevokeWithoutPermission) {
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf, {}, {Role::kReceive})
       .sendTxAwait(
           makeUserWithPerms({interface::permissions::Role::kSetMyQuorum}),
@@ -143,11 +143,11 @@ TEST_F(GrantablePermissionsFixture,
                             .quorum(1)
                             .detachRole(kAccount1 + "@" + kDomain, kRole1)
                             .build()
-                            .signAndAddSignature(kAdminKeypair)
+                            .signAndAddSignature(*kAdminSigner)
                             .finish();
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   createTwoAccounts(itf, {Role::kSetMyQuorum}, {Role::kReceive})
       .sendTxAwait(
           grantPermission(kAccount1,
@@ -229,7 +229,7 @@ namespace grantables {
               .quorum(1)
               .addSignatory(
                   account_id,
-                  PublicKeyHexStringView{f.kAccount2Keypair.publicKey()})
+                  PublicKeyHexStringView{f.kAccount2Signer->publicKey()})
               .addSignatory(account_id, "516A"_hex_pubkey)
               .build()
               .signAndAddSignature(f.kAccount1Keypair)
@@ -293,7 +293,7 @@ namespace grantables {
                              "init top up",
                              "8000.0")
               .build()
-              .signAndAddSignature(kAdminKeypair)
+              .signAndAddSignature(*kAdminSigner)
               .finish();
       itf.sendTx(create_and_transfer_coins)
           .checkProposal(
@@ -338,7 +338,7 @@ namespace grantables {
    */
   TYPED_TEST(GrantRevokeFixture, GrantAndRevokePermission) {
     IntegrationTestFramework itf(1);
-    itf.setInitialState(kAdminKeypair);
+    itf.setInitialState(kAdminSigner);
 
     gpf::createTwoAccounts(itf,
                            {this->grantable_type_.can_grant_permission_,
@@ -375,7 +375,7 @@ namespace grantables {
                                     .queryCounter(1)
                                     .getTransactions(hashes)
                                     .build()
-                                    .signAndAddSignature(kAdminKeypair)
+                                    .signAndAddSignature(*kAdminSigner)
                                     .finish();
     itf.sendTx(last_check_tx)
         .checkProposal([](auto &proposal) {

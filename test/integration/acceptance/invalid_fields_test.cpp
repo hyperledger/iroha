@@ -28,7 +28,7 @@ TEST_F(InvalidField, Signature) {
   sig->resize(sig->size() + 1, 'a');
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
 }
 
@@ -46,6 +46,6 @@ TEST_F(InvalidField, Pubkey) {
   pkey->resize(pkey->size() + 1, 'a');
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(proto::Transaction(tx), CHECK_STATELESS_INVALID);
 }

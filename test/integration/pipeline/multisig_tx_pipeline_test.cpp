@@ -35,13 +35,13 @@ class MstPipelineTest : public AcceptanceFixture {
                                         size_t sigs = kSignatories) {
     auto create_user_tx =
         createUserWithPerms(kUser,
-                            PublicKeyHexStringView{kUserKeypair.publicKey()},
+                            PublicKeyHexStringView{kUserSigner->publicKey()},
                             kNewRole,
                             {interface::permissions::Role::kSetQuorum,
                              interface::permissions::Role::kAddSignatory,
                              interface::permissions::Role::kSetDetail})
             .build()
-            .signAndAddSignature(kAdminKeypair)
+            .signAndAddSignature(*kAdminSigner)
             .finish();
     auto add_signatories_tx = baseTx().quorum(1);
     for (size_t i = 0; i < sigs; ++i) {
@@ -62,7 +62,7 @@ class MstPipelineTest : public AcceptanceFixture {
           ASSERT_EQ(proposal->transactions().size(), 1);
         })
         .sendTx(add_signatories_tx.build()
-                    .signAndAddSignature(kUserKeypair)
+                    .signAndAddSignature(*kUserSigner)
                     .finish())
         .checkProposal([](auto &proposal) {
           ASSERT_EQ(proposal->transactions().size(), 1);
@@ -196,7 +196,7 @@ class MstPipelineTest : public AcceptanceFixture {
    * @return reference to the MST ITF
    */
   IntegrationTestFramework &prepareMstItf() {
-    mst_itf_.setInitialState(kAdminKeypair);
+    mst_itf_.setInitialState(kAdminSigner);
     return makeMstUser(mst_itf_);
   }
 
@@ -219,7 +219,7 @@ TEST_F(MstPipelineTest, OnePeerSendsTest) {
   auto hash = tx.build().hash();
 
   auto &mst_itf = prepareMstItf();
-  mst_itf.sendTx(complete(tx, kUserKeypair))
+  mst_itf.sendTx(complete(tx, *kUserSigner))
       .sendTx(complete(tx, signatories[0]))
       .sendTxAwait(complete(tx, signatories[1]), [](auto &block) {
         ASSERT_EQ(block->transactions().size(), 1);
@@ -239,7 +239,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsAwaitingForThisPeer) {
                         .quorum(kSignatories + 1);
 
   auto &mst_itf = prepareMstItf();
-  auto signed_tx = complete(pending_tx, kUserKeypair);
+  auto signed_tx = complete(pending_tx, *kUserSigner);
 
   auto pending_tx_check = [pending_hash = signed_tx.hash()](auto &response) {
     ASSERT_NO_THROW({
@@ -290,7 +290,7 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
   auto pending_tx = baseTx()
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
-  auto user_tx = complete(pending_tx, kUserKeypair);
+  auto user_tx = complete(pending_tx, *kUserSigner);
 
   auto &mst_itf = prepareMstItf();
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
@@ -321,7 +321,7 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
   auto fully_signed_tx = pending_tx.build()
                              .signAndAddSignature(signatories[0])
                              .signAndAddSignature(signatories[1])
-                             .signAndAddSignature(kUserKeypair)
+                             .signAndAddSignature(*kUserSigner)
                              .finish();
 
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
@@ -347,7 +347,7 @@ TEST_F(MstPipelineTest, GetPendingTxsAwaitingForThisPeer) {
                         .quorum(kSignatories + 1);
 
   auto &mst_itf = prepareMstItf();
-  auto signed_tx = complete(pending_tx, kUserKeypair);
+  auto signed_tx = complete(pending_tx, *kUserSigner);
 
   auto pending_tx_check = [pending_hash = signed_tx.hash()](auto &response) {
     ASSERT_NO_THROW({
@@ -398,7 +398,7 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
   auto pending_tx = baseTx()
                         .setAccountDetail(kUserId, "fav_meme", "doge")
                         .quorum(kSignatories + 1);
-  auto user_tx = complete(pending_tx, kUserKeypair);
+  auto user_tx = complete(pending_tx, *kUserSigner);
 
   auto &mst_itf = prepareMstItf();
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
@@ -429,7 +429,7 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
   auto fully_signed_tx = pending_tx.build()
                              .signAndAddSignature(signatories[0])
                              .signAndAddSignature(signatories[1])
-                             .signAndAddSignature(kUserKeypair)
+                             .signAndAddSignature(*kUserSigner)
                              .finish();
 
   mst_itf.sendTx(complete(pending_tx, signatories[0]))
