@@ -38,7 +38,7 @@ BlockLoaderImpl::BlockLoaderImpl(
 
 rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
-    const types::PublicKeyHexStringView &peer_pubkey) {
+    types::PublicKeyHexStringView peer_pubkey) {
   return rxcpp::observable<>::create<std::shared_ptr<Block>>(
       [this, height, &peer_pubkey](auto subscriber) {
         auto peer = this->findPeer(peer_pubkey);
@@ -78,8 +78,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
 }
 
 boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
-    const types::PublicKeyHexStringView &peer_pubkey,
-    types::HeightType block_height) {
+    types::PublicKeyHexStringView peer_pubkey, types::HeightType block_height) {
   auto peer = findPeer(peer_pubkey);
   if (not peer) {
     log_->error("{}", kPeerNotFound);
@@ -112,7 +111,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
 }
 
 boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-BlockLoaderImpl::findPeer(const types::PublicKeyHexStringView &pubkey) {
+BlockLoaderImpl::findPeer(types::PublicKeyHexStringView pubkey) {
   auto peers = peer_query_factory_->createPeerQuery() |
       [](const auto &query) { return query->getLedgerPeers(); };
   if (not peers) {

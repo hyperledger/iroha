@@ -210,7 +210,7 @@ namespace shared_model {
     };
 
     std::optional<ValidationError> validatePubkey(
-        const shared_model::interface::types::PublicKeyHexStringView &pubkey);
+        shared_model::interface::types::PublicKeyHexStringView pubkey);
 
     std::optional<ValidationError> validatePubkey(std::string_view pubkey);
 

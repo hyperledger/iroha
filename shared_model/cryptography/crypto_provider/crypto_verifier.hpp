@@ -32,8 +32,7 @@ namespace shared_model {
       static iroha::expected::Result<void, const char *> verify(
           const shared_model::interface::types::SignedHexStringView &signature,
           const Blob &source,
-          const shared_model::interface::types::PublicKeyHexStringView
-              &public_key);
+          shared_model::interface::types::PublicKeyHexStringView public_key);
 
       /// close constructor for forbidding instantiation
       CryptoVerifier() = delete;

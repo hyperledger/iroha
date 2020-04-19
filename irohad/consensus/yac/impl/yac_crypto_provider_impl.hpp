@@ -19,6 +19,7 @@ namespace iroha {
         CryptoProviderImpl(const shared_model::crypto::Keypair &keypair,
                            logger::LoggerPtr log);
 
+        // TODO 18.04.2020 IR-710 @mboldyrev: make it return Result
         bool verify(const std::vector<VoteMessage> &msg) override;
 
         VoteMessage getVote(YacHash hash) override;

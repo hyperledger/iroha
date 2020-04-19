@@ -21,6 +21,6 @@ const std::string &Signature::signedData() const {
 }
 
 shared_model::interface::Signature *Signature::clone() const {
-  return new Signature(makeStrongView<SignedHexStringView>(signed_data_hex_),
-                       makeStrongView<PublicKeyHexStringView>(public_key_hex_));
+  return new Signature(SignedHexStringView{signed_data_hex_},
+                       PublicKeyHexStringView{public_key_hex_});
 }

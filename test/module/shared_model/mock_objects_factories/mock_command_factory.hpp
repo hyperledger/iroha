@@ -38,7 +38,7 @@ namespace shared_model {
        * @return pointer to the created command
        */
       FactoryResult<MockRemovePeer> constructRemovePeer(
-          const types::PublicKeyHexStringView &pubkey) const;
+          types::PublicKeyHexStringView pubkey) const;
 
       /**
        * Construct a mocked AddSignatory
@@ -47,7 +47,7 @@ namespace shared_model {
        * @return pointer to the created command
        */
       FactoryResult<MockAddSignatory> constructAddSignatory(
-          const types::PublicKeyHexStringView &pubkey,
+          types::PublicKeyHexStringView pubkey,
           const types::AccountIdType &account_id) const;
 
       /**
@@ -70,7 +70,7 @@ namespace shared_model {
       FactoryResult<MockCreateAccount> constructCreateAccount(
           const types::AccountNameType &account_name,
           const types::DomainIdType &domain_id,
-          const types::PublicKeyHexStringView &pubkey) const;
+          types::PublicKeyHexStringView pubkey) const;
 
       /**
        * Construct a mocked CreateAsset
@@ -132,7 +132,7 @@ namespace shared_model {
        */
       FactoryResult<MockRemoveSignatory> constructRemoveSignatory(
           const types::AccountIdType &account_id,
-          const types::PublicKeyHexStringView &pubkey) const;
+          types::PublicKeyHexStringView pubkey) const;
 
       /**
        * Construct a mocked RevokePermission

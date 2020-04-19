@@ -27,15 +27,13 @@ namespace iroha {
           logger::LoggerPtr log);
 
       rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-      retrieveBlocks(
-          const shared_model::interface::types::HeightType height,
-          const shared_model::interface::types::PublicKeyHexStringView
-              &peer_pubkey) override;
+      retrieveBlocks(const shared_model::interface::types::HeightType height,
+                     shared_model::interface::types::PublicKeyHexStringView
+                         peer_pubkey) override;
 
       boost::optional<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlock(
-          const shared_model::interface::types::PublicKeyHexStringView
-              &peer_pubkey,
+          shared_model::interface::types::PublicKeyHexStringView peer_pubkey,
           shared_model::interface::types::HeightType block_height) override;
 
      private:
@@ -46,7 +44,7 @@ namespace iroha {
        * TODO 14/02/17 (@l4l) IR-960 rework method with returning result
        */
       boost::optional<std::shared_ptr<shared_model::interface::Peer>> findPeer(
-          const shared_model::interface::types::PublicKeyHexStringView &pubkey);
+          shared_model::interface::types::PublicKeyHexStringView pubkey);
       /**
        * Get or create a RPC stub for connecting to peer
        * @param peer for connecting

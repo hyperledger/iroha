@@ -26,9 +26,8 @@ namespace shared_model {
       inline void sign(T &signable) const noexcept {
         auto signature_hex = Algorithm::sign(signable.payload(), keypair_);
         using namespace shared_model::interface::types;
-        signable.addSignature(
-            makeStrongView<SignedHexStringView>(signature_hex),
-            keypair_.publicKey());
+        signable.addSignature(SignedHexStringView{signature_hex},
+                              keypair_.publicKey());
       }
 
       void sign(interface::Block &m) const override {

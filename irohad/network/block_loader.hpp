@@ -27,10 +27,9 @@ namespace iroha {
        * @return
        */
       virtual rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
-      retrieveBlocks(
-          const shared_model::interface::types::HeightType height,
-          const shared_model::interface::types::PublicKeyHexStringView
-              &peer_pubkey) = 0;
+      retrieveBlocks(const shared_model::interface::types::HeightType height,
+                     shared_model::interface::types::PublicKeyHexStringView
+                         peer_pubkey) = 0;
 
       /**
        * Retrieve block by its block_height from given peer
@@ -41,8 +40,7 @@ namespace iroha {
        */
       virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
       retrieveBlock(
-          const shared_model::interface::types::PublicKeyHexStringView
-              &peer_pubkey,
+          shared_model::interface::types::PublicKeyHexStringView peer_pubkey,
           shared_model::interface::types::HeightType block_height) = 0;
 
       virtual ~BlockLoader() = default;

@@ -28,11 +28,9 @@ namespace iroha {
 
               using namespace shared_model::interface::types;
               return shared_model::crypto::CryptoVerifier::verify(
-                         makeStrongView<SignedHexStringView>(
-                             vote.signature->signedData()),
+                         SignedHexStringView{vote.signature->signedData()},
                          blob,
-                         makeStrongView<PublicKeyHexStringView>(
-                             vote.signature->publicKey()))
+                         PublicKeyHexStringView{vote.signature->publicKey()})
                   .match([](const auto &) { return true; },
                          [this](const auto &error) {
                            log_->debug("Vote signature verification failed: {}",
@@ -57,7 +55,7 @@ namespace iroha {
         // CryptoProviderImpl::getVote
         using namespace shared_model::interface::types;
         vote.signature = std::make_shared<shared_model::plain::Signature>(
-            makeStrongView<SignedHexStringView>(signature), pubkey);
+            SignedHexStringView{signature}, pubkey);
 
         return vote;
       }

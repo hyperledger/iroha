@@ -4,7 +4,9 @@
  */
 
 #include "model/model_crypto_provider_impl.hpp"
+
 #include <algorithm>
+
 #include "cryptography/ed25519_sha3_impl/internal/ed25519_impl.hpp"
 #include "model/queries/get_account.hpp"
 #include "model/queries/get_account_assets.hpp"
@@ -14,7 +16,7 @@
 #include "model/queries/get_transactions.hpp"
 #include "model/sha3_hash.hpp"
 
-using shared_model::interface::types::makeStrongView;
+using shared_model::interface::types::makeStrongByteRangeView;
 using shared_model::interface::types::PublicKeyByteRangeView;
 using shared_model::interface::types::SignatureByteRangeView;
 
@@ -30,16 +32,17 @@ namespace iroha {
           [tx](const Signature &sig) {
             return iroha::verify(
                 iroha::hash(tx).to_string(),
-                makeStrongView<PublicKeyByteRangeView>(sig.pubkey),
-                makeStrongView<SignatureByteRangeView>(sig.signature));
+                makeStrongByteRangeView<PublicKeyByteRangeView>(sig.pubkey),
+                makeStrongByteRangeView<SignatureByteRangeView>(sig.signature));
           });
     }
 
     bool ModelCryptoProviderImpl::verify(const Query &query) const {
-      return iroha::verify(
-          iroha::hash(query).to_string(),
-          makeStrongView<PublicKeyByteRangeView>(query.signature.pubkey),
-          makeStrongView<SignatureByteRangeView>(query.signature.signature));
+      return iroha::verify(iroha::hash(query).to_string(),
+                           makeStrongByteRangeView<PublicKeyByteRangeView>(
+                               query.signature.pubkey),
+                           makeStrongByteRangeView<SignatureByteRangeView>(
+                               query.signature.signature));
     }
 
     bool ModelCryptoProviderImpl::verify(const Block &block) const {
@@ -47,8 +50,8 @@ namespace iroha {
           block.sigs.begin(), block.sigs.end(), [block](const Signature &sig) {
             return iroha::verify(
                 iroha::hash(block).to_string(),
-                makeStrongView<PublicKeyByteRangeView>(sig.pubkey),
-                makeStrongView<SignatureByteRangeView>(sig.signature));
+                makeStrongByteRangeView<PublicKeyByteRangeView>(sig.pubkey),
+                makeStrongByteRangeView<SignatureByteRangeView>(sig.signature));
           });
     }
 

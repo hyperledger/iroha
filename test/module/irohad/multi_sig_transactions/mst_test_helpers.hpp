@@ -76,8 +76,7 @@ auto addSignaturesFromKeyPairs(Batch &&batch,
     batch->addSignature(
         tx_number,
         shared_model::interface::types::SignedHexStringView{signed_blob},
-        shared_model::interface::types::PublicKeyHexStringView{
-            key_pair.publicKey()});
+        key_pair.publicKey());
   };
 
   // pack expansion trick:

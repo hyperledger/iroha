@@ -88,9 +88,8 @@ namespace shared_model {
                                         ursaToIrohaBuffer(public_key),
                                         multuhash_public_key);
 
-      Keypair result(
-          makeStrongView<PublicKeyHexStringView>(multuhash_public_key),
-          PrivateKey{ursaToIrohaBuffer(private_key)});
+      Keypair result(PublicKeyHexStringView{multuhash_public_key},
+                     PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
       ursa_ed25519_bytebuffer_free(private_key);
@@ -118,9 +117,8 @@ namespace shared_model {
                                         ursaToIrohaBuffer(public_key),
                                         multuhash_public_key);
 
-      Keypair result(
-          makeStrongView<PublicKeyHexStringView>(multuhash_public_key),
-          PrivateKey{ursaToIrohaBuffer(private_key)});
+      Keypair result(PublicKeyHexStringView{multuhash_public_key},
+                     PrivateKey{ursaToIrohaBuffer(private_key)});
 
       ursa_ed25519_bytebuffer_free(public_key);
       ursa_ed25519_bytebuffer_free(private_key);

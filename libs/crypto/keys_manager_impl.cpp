@@ -32,9 +32,7 @@ namespace {
     auto test = Blob("12345");
     auto signature = CryptoAlgorithmType::sign(test, keypair);
     return CryptoVerifier::verify(
-        makeStrongView<SignedHexStringView>(signature),
-        test,
-        keypair.publicKey());
+        SignedHexStringView{signature}, test, keypair.publicKey());
   }
 }  // namespace
 
@@ -92,7 +90,7 @@ namespace iroha {
           auto &&decrypted_privkey_blob = pass_phrase
               ? xorCrypt(privkey_blob, pass_phrase.value())
               : privkey_blob;
-          Keypair keypair(makeStrongView<PublicKeyHexStringView>(pubkey_hex),
+          Keypair keypair(PublicKeyHexStringView{pubkey_hex},
                           PrivateKey{decrypted_privkey_blob});
 
           return validate(keypair).match(

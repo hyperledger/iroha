@@ -319,11 +319,9 @@ namespace shared_model {
           using namespace shared_model::interface::types;
           if (auto e = resultToOptionalError(
                   shared_model::crypto::CryptoVerifier::verify(
-                      makeStrongView<SignedHexStringView>(
-                          signature.value().signedData()),
+                      SignedHexStringView{signature.value().signedData()},
                       source,
-                      makeStrongView<PublicKeyHexStringView>(
-                          signature.value().publicKey())))) {
+                      PublicKeyHexStringView{signature.value().publicKey()}))) {
             sig_error_creator.addReason(e.value());
           }
         }

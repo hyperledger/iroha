@@ -23,8 +23,7 @@ namespace shared_model {
       using PrivateKeyType = PrivateKey;
 
       explicit Keypair(
-          const shared_model::interface::types::PublicKeyHexStringView
-              &public_key_hex,
+          shared_model::interface::types::PublicKeyHexStringView public_key_hex,
           const PrivateKeyType &private_key);
 
       /**

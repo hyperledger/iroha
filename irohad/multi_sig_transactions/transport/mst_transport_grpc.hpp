@@ -94,8 +94,7 @@ namespace iroha {
     void sendStateAsync(
         const shared_model::interface::Peer &to,
         iroha::ConstRefState state,
-        const shared_model::interface::types::PublicKeyHexStringView
-            &sender_key,
+        shared_model::interface::types::PublicKeyHexStringView sender_key,
         AsyncGrpcClient<google::protobuf::Empty> &async_call);
 
   }  // namespace network

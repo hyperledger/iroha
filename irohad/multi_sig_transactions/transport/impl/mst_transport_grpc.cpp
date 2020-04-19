@@ -33,7 +33,7 @@ namespace {
 void sendStateAsyncImpl(
     const shared_model::interface::Peer &to,
     ConstRefState state,
-    const PublicKeyHexStringView &sender_key,
+    PublicKeyHexStringView sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call,
     MstTransportGrpc::SenderFactory sender_factory = default_sender_factory);
 
@@ -153,14 +153,14 @@ void MstTransportGrpc::sendState(const shared_model::interface::Peer &to,
 void iroha::network::sendStateAsync(
     const shared_model::interface::Peer &to,
     ConstRefState state,
-    const PublicKeyHexStringView &sender_key,
+    PublicKeyHexStringView sender_key,
     AsyncGrpcClient<google::protobuf::Empty> &async_call) {
   sendStateAsyncImpl(to, state, sender_key, async_call);
 }
 
 void sendStateAsyncImpl(const shared_model::interface::Peer &to,
                         ConstRefState state,
-                        const PublicKeyHexStringView &sender_key,
+                        PublicKeyHexStringView sender_key,
                         AsyncGrpcClient<google::protobuf::Empty> &async_call,
                         MstTransportGrpc::SenderFactory sender_factory) {
   auto client = sender_factory(to);

@@ -13,7 +13,7 @@ namespace shared_model {
   namespace crypto {
 
     PublicKeyHexStringView Keypair::publicKey() const {
-      return makeStrongView<PublicKeyHexStringView>(public_key_hex_);
+      return PublicKeyHexStringView{public_key_hex_};
     }
 
     const Keypair::PrivateKeyType &Keypair::privateKey() const {
@@ -33,7 +33,7 @@ namespace shared_model {
           .finalize();
     }
 
-    Keypair::Keypair(const PublicKeyHexStringView &public_key_hex,
+    Keypair::Keypair(PublicKeyHexStringView public_key_hex,
                      const Keypair::PrivateKeyType &private_key)
         : public_key_hex_(public_key_hex), private_key_(private_key) {}
 

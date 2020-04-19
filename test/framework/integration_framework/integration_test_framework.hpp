@@ -342,7 +342,7 @@ namespace integration_framework {
      * @return this
      */
     IntegrationTestFramework &sendMstState(
-        const shared_model::interface::types::PublicKeyHexStringView &src_key,
+        shared_model::interface::types::PublicKeyHexStringView src_key,
         const iroha::MstState &mst_state);
 
     /**

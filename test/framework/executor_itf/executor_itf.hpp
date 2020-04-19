@@ -251,7 +251,7 @@ namespace iroha {
       iroha::ametsuchi::CommandResult createUserWithPerms(
           const std::string &account_name,
           const std::string &domain,
-          const shared_model::interface::types::PublicKeyHexStringView &pubkey,
+          shared_model::interface::types::PublicKeyHexStringView pubkey,
           const shared_model::interface::RolePermissionSet &role_perms) const;
 
       /**
@@ -291,7 +291,7 @@ namespace iroha {
       iroha::ametsuchi::CommandResult createUserWithPermsInternal(
           const std::string &account_name,
           const std::string &domain,
-          const shared_model::interface::types::PublicKeyHexStringView &pubkey,
+          shared_model::interface::types::PublicKeyHexStringView pubkey,
           const shared_model::interface::RolePermissionSet &role_perms) const;
 
       /// Grant all grantable permissions of the given account to admin.

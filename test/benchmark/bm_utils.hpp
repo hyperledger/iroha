@@ -16,7 +16,7 @@ namespace benchmark {
   namespace utils {
     TestUnsignedTransactionBuilder createUserWithPerms(
         const std::string &user,
-        const shared_model::interface::types::PublicKeyHexStringView &key,
+        shared_model::interface::types::PublicKeyHexStringView key,
         const std::string &role_id,
         const shared_model::interface::RolePermissionSet &perms) {
       const auto user_id = user + "@" + common_constants::kDomain;

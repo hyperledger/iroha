@@ -284,7 +284,7 @@ namespace integration_framework {
       auto bare_signature = CryptoProviderEd25519Sha3::sign(hash, *keypair_);
       std::shared_ptr<shared_model::interface::Signature> signature_with_pubkey;
       common_objects_factory_
-          ->createSignature(PublicKeyHexStringView{keypair_->publicKey()},
+          ->createSignature(keypair_->publicKey(),
                             SignedHexStringView{bare_signature})
           .match(
               [&signature_with_pubkey](auto &&sig) {

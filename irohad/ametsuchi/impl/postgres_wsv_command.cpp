@@ -244,8 +244,7 @@ namespace iroha {
     }
 
     WsvCommandResult PostgresWsvCommand::insertSignatory(
-        const shared_model::interface::types::PublicKeyHexStringView
-            &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "INSERT INTO signatory(public_key) VALUES (lower(:pk)) ON "
              "CONFLICT DO NOTHING;";
@@ -260,8 +259,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::insertAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
-        const shared_model::interface::types::PublicKeyHexStringView
-            &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "INSERT INTO account_has_signatory(account_id, public_key) "
              "VALUES (:account_id, lower(:pk))";
@@ -280,8 +278,7 @@ namespace iroha {
 
     WsvCommandResult PostgresWsvCommand::deleteAccountSignatory(
         const shared_model::interface::types::AccountIdType &account_id,
-        const shared_model::interface::types::PublicKeyHexStringView
-            &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "DELETE FROM account_has_signatory WHERE account_id = "
              ":account_id AND public_key = lower(:pk)";
@@ -299,8 +296,7 @@ namespace iroha {
     }
 
     WsvCommandResult PostgresWsvCommand::deleteSignatory(
-        const shared_model::interface::types::PublicKeyHexStringView
-            &signatory) {
+        shared_model::interface::types::PublicKeyHexStringView signatory) {
       soci::statement st = sql_.prepare
           << "DELETE FROM signatory WHERE public_key = lower(:pk) AND NOT "
              "EXISTS (SELECT 1 FROM account_has_signatory WHERE public_key = "

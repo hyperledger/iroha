@@ -47,19 +47,19 @@ namespace iroha {
       WsvCommandResult upsertAccountAsset(
           const shared_model::interface::AccountAsset &asset) override;
       WsvCommandResult insertSignatory(
-          const shared_model::interface::types::PublicKeyHexStringView
-              &signatory) override;
+          shared_model::interface::types::PublicKeyHexStringView signatory)
+          override;
       WsvCommandResult insertAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PublicKeyHexStringView
-              &signatory) override;
+          shared_model::interface::types::PublicKeyHexStringView signatory)
+          override;
       WsvCommandResult deleteAccountSignatory(
           const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::PublicKeyHexStringView
-              &signatory) override;
+          shared_model::interface::types::PublicKeyHexStringView signatory)
+          override;
       WsvCommandResult deleteSignatory(
-          const shared_model::interface::types::PublicKeyHexStringView
-              &signatory) override;
+          shared_model::interface::types::PublicKeyHexStringView signatory)
+          override;
       WsvCommandResult insertPeer(
           const shared_model::interface::Peer &peer) override;
       WsvCommandResult deletePeer(

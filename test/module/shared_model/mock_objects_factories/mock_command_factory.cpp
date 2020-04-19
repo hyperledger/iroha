@@ -48,7 +48,7 @@ namespace shared_model {
 
     MockCommandFactory::FactoryResult<MockRemovePeer>
     MockCommandFactory::constructRemovePeer(
-        const types::PublicKeyHexStringView &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemovePeer>(
           [&pubkey](FactoryResult<MockRemovePeer> specific_cmd_mock) {
             ON_CALL(*specific_cmd_mock, pubkey())
@@ -59,7 +59,7 @@ namespace shared_model {
 
     MockCommandFactory::FactoryResult<MockAddSignatory>
     MockCommandFactory::constructAddSignatory(
-        const types::PublicKeyHexStringView &pubkey,
+        types::PublicKeyHexStringView pubkey,
         const types::AccountIdType &account_id) const {
       return createFactoryResult<MockAddSignatory>(
           [&pubkey,
@@ -91,7 +91,7 @@ namespace shared_model {
     MockCommandFactory::constructCreateAccount(
         const types::AccountNameType &account_name,
         const types::DomainIdType &domain_id,
-        const types::PublicKeyHexStringView &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockCreateAccount>(
           [&account_name, &domain_id, &pubkey](
               FactoryResult<MockCreateAccount> specific_cmd_mock) {
@@ -203,7 +203,7 @@ namespace shared_model {
     MockCommandFactory::FactoryResult<MockRemoveSignatory>
     MockCommandFactory::constructRemoveSignatory(
         const types::AccountIdType &account_id,
-        const types::PublicKeyHexStringView &pubkey) const {
+        types::PublicKeyHexStringView pubkey) const {
       return createFactoryResult<MockRemoveSignatory>(
           [&account_id,
            &pubkey](FactoryResult<MockRemoveSignatory> specific_cmd_mock) {

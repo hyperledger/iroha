@@ -8,7 +8,7 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 std::ostream &operator<<(
     std::ostream &out,
-    const shared_model::interface::types::PublicKeyHexStringView &pk) {
+    shared_model::interface::types::PublicKeyHexStringView pk) {
   out << std::string_view{pk};
   return out;
 }

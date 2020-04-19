@@ -42,9 +42,8 @@ namespace shared_model {
       assert(seed.size() == kSeedLength);
       auto keypair = iroha::create_keypair(
           iroha::blob_t<kSeedLength>::from_raw(seed.blob().data()));
-      return Keypair(
-          makeStrongView<PublicKeyHexStringView>(keypair.pubkey.to_hexstring()),
-          PrivateKey(keypair.privkey.to_string()));
+      return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
+                     PrivateKey(keypair.privkey.to_string()));
     }
 
     constexpr size_t CryptoProviderEd25519Sha3::kHashLength;

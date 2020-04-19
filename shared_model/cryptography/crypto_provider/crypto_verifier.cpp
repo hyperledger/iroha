@@ -66,15 +66,17 @@ namespace {
 Result<void, const char *> CryptoVerifier::verify(
     const SignedHexStringView &signature,
     const Blob &source,
-    const PublicKeyHexStringView &public_key) {
+    PublicKeyHexStringView public_key) {
   return iroha::hexstringToBytestringResult(signature) |
       [&source, &public_key](const auto &signature) {
         return iroha::hexstringToBytestringResult(public_key) |
             [&signature, &source](const auto &public_key) {
               return verifyDefaultOrMultihash(
-                         makeStrongView<SignatureByteRangeView>(signature),
+                         makeStrongByteRangeView<SignatureByteRangeView>(
+                             signature),
                          source,
-                         makeStrongView<PublicKeyByteRangeView>(public_key))
+                         makeStrongByteRangeView<PublicKeyByteRangeView>(
+                             public_key))
                          | [](const auto &verification_result)
                          -> Result<void, const char *> {
                 if (not verification_result) {
