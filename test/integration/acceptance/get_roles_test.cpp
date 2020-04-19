@@ -37,11 +37,11 @@ TEST_F(AcceptanceFixture, CanGetRoles) {
                    .queryCounter(1)
                    .getRoles()
                    .build()
-                   .signAndAddSignature(kUserKeypair)
+                   .signAndAddSignature(*kUserSigner)
                    .finish();
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms(
           {shared_model::interface::permissions::Role::kGetRoles}))
       .skipProposal()
@@ -75,11 +75,11 @@ TEST_F(AcceptanceFixture, CanNotGetRoles) {
                    .queryCounter(1)
                    .getRoles()
                    .build()
-                   .signAndAddSignature(kUserKeypair)
+                   .signAndAddSignature(*kUserSigner)
                    .finish();
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({}))
       .skipProposal()
       .checkVerifiedProposal(

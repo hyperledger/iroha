@@ -69,7 +69,7 @@ using SetAccountDetailBasicTest = BasicExecutorTest<SetAccountDetailTest>;
  */
 TEST_P(SetAccountDetailBasicTest, Self) {
   getItf().createUserWithPerms(
-      kUser, kDomain, PublicKeyHexStringView{kUserKeypair.publicKey()}, {});
+      kUser, kDomain, PublicKeyHexStringView{kUserSigner->publicKey()}, {});
   IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
 }
@@ -92,11 +92,11 @@ TEST_P(SetAccountDetailBasicTest, NonExistentUser) {
  */
 TEST_P(SetAccountDetailBasicTest, NoPerms) {
   getItf().createUserWithPerms(
-      kUser, kDomain, PublicKeyHexStringView{kUserKeypair.publicKey()}, {});
+      kUser, kDomain, PublicKeyHexStringView{kUserSigner->publicKey()}, {});
   getItf().createUserWithPerms(
       kSecondUser,
       kDomain,
-      PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+      PublicKeyHexStringView{kSameDomainUserSigner->publicKey()},
       {});
   IROHA_ASSERT_RESULT_ERROR(setDetail(kSameDomainUserId, kKey, kVal, kUserId));
   checkDetails(kSameDomainUserId, DetailsByKeyByWriter{});
@@ -110,12 +110,12 @@ TEST_P(SetAccountDetailBasicTest, NoPerms) {
 TEST_P(SetAccountDetailBasicTest, ValidRolePerm) {
   getItf().createUserWithPerms(kUser,
                                kDomain,
-                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               PublicKeyHexStringView{kUserSigner->publicKey()},
                                {Role::kSetDetail});
   getItf().createUserWithPerms(
       kSecondUser,
       kDomain,
-      PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+      PublicKeyHexStringView{kSameDomainUserSigner->publicKey()},
       {});
   IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});
@@ -130,12 +130,12 @@ TEST_P(SetAccountDetailBasicTest, ValidRolePerm) {
 TEST_P(SetAccountDetailBasicTest, ValidGrantablePerm) {
   getItf().createUserWithPerms(kUser,
                                kDomain,
-                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               PublicKeyHexStringView{kUserSigner->publicKey()},
                                {Role::kSetMyAccountDetail});
   getItf().createUserWithPerms(
       kSecondUser,
       kDomain,
-      PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+      PublicKeyHexStringView{kSameDomainUserSigner->publicKey()},
       {});
   IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
       *getItf().getMockCommandFactory()->constructGrantPermission(
@@ -154,12 +154,12 @@ TEST_P(SetAccountDetailBasicTest, ValidGrantablePerm) {
 TEST_P(SetAccountDetailBasicTest, RootPermission) {
   getItf().createUserWithPerms(kUser,
                                kDomain,
-                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               PublicKeyHexStringView{kUserSigner->publicKey()},
                                {Role::kRoot});
   getItf().createUserWithPerms(
       kSecondUser,
       kDomain,
-      PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+      PublicKeyHexStringView{kSameDomainUserSigner->publicKey()},
       {});
   IROHA_ASSERT_RESULT_VALUE(setDetail(kUserId, kKey, kVal, kUserId));
   checkDetails(kUserId, DetailsByKeyByWriter{{{kUserId, {{kKey, kVal}}}}});

@@ -31,7 +31,7 @@ class CreateDomain : public AcceptanceFixture {
  */
 TEST_F(CreateDomain, Basic) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -50,7 +50,7 @@ TEST_F(CreateDomain, Basic) {
  */
 TEST_F(CreateDomain, NoPermissions) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kGetMyTxs}))
       .skipProposal()
       .skipVerifiedProposal()
@@ -74,7 +74,7 @@ TEST_F(CreateDomain, NoPermissions) {
 TEST_F(CreateDomain, NoRole) {
   const std::string nonexistent_role = "asdf";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
@@ -97,7 +97,7 @@ TEST_F(CreateDomain, NoRole) {
  */
 TEST_F(CreateDomain, ExistingName) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
@@ -125,7 +125,7 @@ TEST_F(CreateDomain, MaxLenName) {
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad."
       "maxLabelLengthIs63paddingPaddingPaddingPaddingPaddingPaddingPad";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -144,7 +144,7 @@ TEST_F(CreateDomain, MaxLenName) {
  */
 TEST_F(CreateDomain, TooLongName) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -163,7 +163,7 @@ TEST_F(CreateDomain, TooLongName) {
 TEST_F(CreateDomain, EmptyName) {
   std::string empty_name = "";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -182,7 +182,7 @@ TEST_F(CreateDomain, EmptyName) {
 TEST_F(CreateDomain, DISABLED_EmptyRoleName) {
   std::string empty_name = "";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()

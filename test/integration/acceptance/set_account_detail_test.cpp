@@ -38,11 +38,11 @@ class SetAccountDetail : public AcceptanceFixture {
     static const std::string kRole2 = "roletwo";
     return AcceptanceFixture::createUserWithPerms(
                kUser2,
-               PublicKeyHexStringView{kUser2Keypair.publicKey()},
+               PublicKeyHexStringView{kUser2Signer->publicKey()},
                kRole2,
                perms)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -65,7 +65,7 @@ class SetAccountDetail : public AcceptanceFixture {
 TEST_F(SetAccountDetail, BigPossibleKey) {
   const std::string kBigKey = std::string(64, 'a');
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -85,7 +85,7 @@ TEST_F(SetAccountDetail, BigPossibleKey) {
 TEST_F(SetAccountDetail, EmptyKey) {
   const std::string kEmptyKey = "";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -104,7 +104,7 @@ TEST_F(SetAccountDetail, EmptyKey) {
 TEST_F(SetAccountDetail, EmptyValue) {
   const std::string kEmptyValue = "";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -126,7 +126,7 @@ TEST_F(SetAccountDetail, HugeKeyValue) {
   const std::string kHugeKey = std::string(10000, 'a');
   const std::string kHugeValue = std::string(10000, 'b');
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()

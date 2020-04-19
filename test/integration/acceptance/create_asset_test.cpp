@@ -46,7 +46,7 @@ TEST_F(CreateAssetFixture, Basic) {
   const auto asset_id = kAnotherAssetName + "#" + kDomain;
   const auto asset_amount = "100.0";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kCreateAsset,
                                  interface::permissions::Role::kAddAssetQty}))
       .skipProposal()
@@ -76,7 +76,7 @@ TEST_F(CreateAssetFixture, Basic) {
  */
 TEST_F(CreateAssetFixture, ExistingName) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
@@ -104,7 +104,7 @@ TEST_F(CreateAssetFixture, ExistingName) {
  */
 TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
@@ -133,7 +133,7 @@ TEST_F(CreateAssetFixture, ExistingNameDifferentPrecision) {
  */
 TEST_F(CreateAssetFixture, WithoutPermission) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms({}),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
@@ -160,7 +160,7 @@ TEST_F(CreateAssetFixture, WithoutPermission) {
  */
 TEST_F(CreateAssetFixture, ValidNonExistingDomain) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })

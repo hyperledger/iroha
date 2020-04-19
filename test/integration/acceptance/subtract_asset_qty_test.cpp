@@ -48,7 +48,7 @@ class SubtractAssetQuantity : public AcceptanceFixture {
  */
 TEST_F(SubtractAssetQuantity, Everything) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -72,7 +72,7 @@ TEST_F(SubtractAssetQuantity, Everything) {
  */
 TEST_F(SubtractAssetQuantity, Overdraft) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
@@ -99,7 +99,7 @@ TEST_F(SubtractAssetQuantity, Overdraft) {
  */
 TEST_F(SubtractAssetQuantity, NoPermissions) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kAddAssetQty}))
       .skipProposal()
       .skipVerifiedProposal()
@@ -126,7 +126,7 @@ TEST_F(SubtractAssetQuantity, NoPermissions) {
  */
 TEST_F(SubtractAssetQuantity, ZeroAmount) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -146,7 +146,7 @@ TEST_F(SubtractAssetQuantity, ZeroAmount) {
 TEST_F(SubtractAssetQuantity, NonexistentAsset) {
   std::string nonexistent = "inexist#test";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()

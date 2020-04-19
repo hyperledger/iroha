@@ -183,6 +183,6 @@ CommandResult ExecutorItf::createAdmin() const {
   return createUserWithPermsInternal(
       kAdminName,
       kDomain,
-      PublicKeyHexStringView{kAdminKeypair.publicKey()},
+      PublicKeyHexStringView{kAdminSigner->publicKey()},
       all_role_perms);
 }

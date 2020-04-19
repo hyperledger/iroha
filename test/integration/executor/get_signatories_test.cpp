@@ -54,7 +54,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
     getItf().createDomain(kSecondDomain);
     using shared_model::interface::types::PublicKeyHexStringView;
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, PublicKeyHexStringView{kUserKeypair.publicKey()}, {}));
+        kUser, kDomain, PublicKeyHexStringView{kUserSigner->publicKey()}, {}));
     addSignatories(n);
   }
 
@@ -72,7 +72,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
   }
 
   /// The signatories of the default account.
-  std::vector<std::string> signatories_{kUserKeypair.publicKey()};
+  std::vector<std::string> signatories_{kUserSigner->publicKey()};
 };
 
 using GetSignatoriesBasicTest = BasicExecutorTest<GetSignatoriesTest>;

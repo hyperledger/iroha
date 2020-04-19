@@ -73,7 +73,7 @@ TEST_F(GetTransactions, HaveNoGetPerms) {
 
   auto dummy_tx = dummyTx();
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kReadAssets}))
       .skipProposal()
       .skipBlock()
@@ -105,7 +105,7 @@ TEST_F(GetTransactions, HaveGetAllTx) {
   };
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms({interface::permissions::Role::kGetAllTxs}))
       .skipProposal()
       .skipBlock()
@@ -137,7 +137,7 @@ TEST_F(GetTransactions, HaveGetMyTx) {
   };
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipBlock()
@@ -177,7 +177,7 @@ TEST_F(GetTransactions, InvalidSignatures) {
                    .finish();
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
@@ -208,7 +208,7 @@ TEST_F(GetTransactions, NonexistentHash) {
   };
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
@@ -238,7 +238,7 @@ TEST_F(GetTransactions, OtherUserTx) {
 
   auto tx = makeUserWithPerms();
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           tx, [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })
       .sendQuery(makeQuery(tx.hash()), check);

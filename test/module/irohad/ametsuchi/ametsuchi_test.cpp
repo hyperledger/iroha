@@ -55,15 +55,15 @@ namespace {
             .createDomain(kDomain, kRole)
             .createAccount(kUser,
                            kDomain,
-                           PublicKeyHexStringView{kUserKeypair.publicKey()})
+                           PublicKeyHexStringView{kUserSigner->publicKey()})
             .createAccount(
                 kSecondUser,
                 kDomain,
-                PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()})
+                PublicKeyHexStringView{kSameDomainUserSigner->publicKey()})
             .createAsset(kAssetName, kDomain, 2)
             .addAssetQuantity(kAssetId, base_balance.toStringRepr())
             .build()
-            .signAndAddSignature(kUserKeypair)
+            .signAndAddSignature(*kUserSigner)
             .finish();
     std::cerr << std::endl << genesis_tx.toString() << std::endl;
     return genesis_tx;
@@ -76,7 +76,7 @@ namespace {
         .quorum(1)
         .addAssetQuantity(kAssetId, amount)
         .build()
-        .signAndAddSignature(kUserKeypair)
+        .signAndAddSignature(*kUserSigner)
         .finish();
   }
 }  // namespace
@@ -687,7 +687,7 @@ TEST_F(AmetsuchiTest, TestingWsvAfterCommitBlock) {
                                        "deal",
                                        transferredAmount.toStringRepr())
                         .build()
-                        .signAndAddSignature(kSameDomainUserKeypair)
+                        .signAndAddSignature(*kSameDomainUserSigner)
                         .finish();
 
   auto expected_block = createBlock({add_ast_tx}, 2, genesis_block->hash());

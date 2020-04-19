@@ -35,7 +35,7 @@ class PipelineIntegrationTest : public AcceptanceFixture {
         .creatorAccountId(kAdminId)
         .createDomain(domain_name, kDefaultRole)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -91,7 +91,7 @@ TEST_F(PipelineIntegrationTest, SendQuery) {
         status.get()));
   };
   integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendQuery(query, check);
 }
 
@@ -122,7 +122,7 @@ TEST_F(PipelineIntegrationTest, SendTx) {
   };
 
   integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(tx, check_stateless_valid_status)
       .checkProposal(check_proposal)
       .checkVerifiedProposal(check_verified_proposal)
@@ -160,7 +160,7 @@ TEST_F(PipelineIntegrationTest, DISABLED_SendTxSequence) {
 
   integration_framework::IntegrationTestFramework(
       tx_size)  // make all transactions to fit into a single proposal
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxSequence(tx_sequence, check_stateless_valid)
       .checkProposal(check_proposal)
       .checkVerifiedProposal(check_verified_proposal)
@@ -183,7 +183,7 @@ TEST_F(PipelineIntegrationTest, DISABLED_SendTxSequenceAwait) {
   };
   integration_framework::IntegrationTestFramework(
       tx_size)  // make all transactions to fit into a single proposal
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxSequenceAwait(tx_sequence, check_block);
 }
 
@@ -205,7 +205,7 @@ TEST_F(PipelineIntegrationTest, SuccessfulCommitAfterEmptyBlock) {
   };
 
   integration_framework::IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(
           createFirstDomain(),
           [](const auto &block) { ASSERT_EQ(block->transactions().size(), 1); })

@@ -20,9 +20,9 @@ class QuorumFixture : public AcceptanceFixture {
   void SetUp() override {
     auto add_public_key_tx = complete(
         baseTx(kAdminId).addSignatory(
-            kAdminId, PublicKeyHexStringView{kUserKeypair.publicKey()}),
+            kAdminId, PublicKeyHexStringView{kUserSigner->publicKey()}),
         kAdminKeypair);
-    itf.setInitialState(kAdminKeypair)
+    itf.setInitialState(kAdminSigner)
         .sendTxAwait(add_public_key_tx, CHECK_TXS_QUANTITY(1));
   }
 
@@ -78,8 +78,8 @@ TEST_F(QuorumFixture, CanLowerQuorum) {
                              .quorum(2)
                              .setAccountQuorum(kAdminId, second_quorum)
                              .build()
-                             .signAndAddSignature(kAdminKeypair)
-                             .signAndAddSignature(kUserKeypair)
+                             .signAndAddSignature(*kAdminSigner)
+                             .signAndAddSignature(*kUserSigner)
                              .finish();
   itf.sendTxAwait(raise_quorum_tx, CHECK_TXS_QUANTITY(1));
   itf.sendTxAwait(lower_quorum_tx, CHECK_TXS_QUANTITY(1));

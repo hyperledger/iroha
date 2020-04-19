@@ -21,7 +21,7 @@ GrantablePermissionsFixture::makeAccountWithPerms(
   return createUserWithPerms(
              user, PublicKeyHexStringView{key.publicKey()}, role, perms)
       .build()
-      .signAndAddSignature(kAdminKeypair)
+      .signAndAddSignature(*kAdminSigner)
       .finish();
 }
 

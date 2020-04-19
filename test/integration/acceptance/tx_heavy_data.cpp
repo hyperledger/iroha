@@ -67,7 +67,7 @@ TEST_F(HeavyTransactionTest, DISABLED_ManyLargeTxes) {
   auto number_of_txes = 4u;
   IntegrationTestFramework itf(number_of_txes + 1);
 
-  itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
+  itf.setInitialState(kAdminSigner).sendTx(makeUserWithPerms());
 
   for (auto i = 0u; i < number_of_txes; ++i) {
     itf.sendTx(complete(setAcountDetailTx("foo_" + std::to_string(i),
@@ -92,7 +92,7 @@ TEST_F(HeavyTransactionTest, DISABLED_VeryLargeTxWithManyCommands) {
                               .setAccountDetail(kUserId, "foo_3", big_data);
 
   IntegrationTestFramework(2)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTx(makeUserWithPerms())
       .skipProposal()
       .skipVerifiedProposal()
@@ -138,7 +138,7 @@ TEST_F(HeavyTransactionTest, DISABLED_QueryLargeData) {
   };
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair).sendTx(makeUserWithPerms());
+  itf.setInitialState(kAdminSigner).sendTx(makeUserWithPerms());
 
   for (auto i = 0u; i < number_of_times; ++i) {
     itf.sendTxAwait(

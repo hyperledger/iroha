@@ -24,7 +24,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
   QueriesAcceptanceTest()
       : itf(1),
         invalidPrivateKey(kUserKeypair.privateKey().hex()),
-        invalidPublicKey(kUserKeypair.publicKey()) {
+        invalidPublicKey(kUserSigner->publicKey()) {
     /*
      * It's deliberately break the public and private keys to simulate a
      * non-valid signature and public key and use their combinations in the
@@ -42,7 +42,7 @@ class QueriesAcceptanceTest : public AcceptanceFixture {
   };
 
   void SetUp() {
-    itf.setInitialState(kAdminKeypair)
+    itf.setInitialState(kAdminSigner)
         .sendTxAwait(
             makeUserWithPerms({interface::permissions::Role::kGetRoles}),
             [](auto &block) {
@@ -214,10 +214,10 @@ TEST_F(QueriesAcceptanceTest, TenMinutesFromFuture) {
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignValidPubKeypair) {
   crypto::Keypair kInvalidSignValidPubKeypair = crypto::Keypair(
-      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      PublicKeyHexStringView{kUserSigner->publicKey()},
       crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto query = complete(baseQry().getRoles(), kInvalidSignValidPubKeypair);
+  auto query = complete(baseQry().getRoles(), *kInvalidSignValidPubSigner);
 
   itf.sendQuery(
       query,
@@ -236,7 +236,7 @@ TEST_F(QueriesAcceptanceTest, ValidSignInvalidPubKeypair) {
   crypto::Keypair kValidSignInvalidPubKeypair =
       crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
-  auto query = complete(baseQry().getRoles(), kValidSignInvalidPubKeypair);
+  auto query = complete(baseQry().getRoles(), *kValidSignInvalidPubSigner);
 
   itf.sendQuery(
       query,
@@ -256,7 +256,7 @@ TEST_F(QueriesAcceptanceTest, FullyInvalidKeypair) {
       invalidPublicKeyView,
       crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto query = complete(baseQry().getRoles(), kFullyInvalidKeypair);
+  auto query = complete(baseQry().getRoles(), *kFullyInvalidSigner);
 
   itf.sendQuery(
       query,
@@ -329,10 +329,10 @@ TEST_F(QueriesAcceptanceTest, FullyEmptyPubKeypair) {
  */
 TEST_F(QueriesAcceptanceTest, InvalidSignEmptyPubKeypair) {
   crypto::Keypair kInvalidSignEmptyPubKeypair = crypto::Keypair(
-      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      PublicKeyHexStringView{kUserSigner->publicKey()},
       crypto::PrivateKey(crypto::Blob::fromHexString(invalidPrivateKey)));
 
-  auto proto_query = complete(baseQry().getRoles(), kInvalidSignEmptyPubKeypair)
+  auto proto_query = complete(baseQry().getRoles(), *kInvalidSignEmptyPubSigner)
                          .getTransport();
 
   proto_query.mutable_signature()->clear_public_key();
@@ -359,7 +359,7 @@ TEST_F(QueriesAcceptanceTest, EmptySignInvalidPubKeypair) {
   crypto::Keypair kEmptySignInvalidPubKeypair =
       crypto::Keypair(invalidPublicKeyView, kUserKeypair.privateKey());
 
-  auto proto_query = complete(baseQry().getRoles(), kEmptySignInvalidPubKeypair)
+  auto proto_query = complete(baseQry().getRoles(), *kEmptySignInvalidPubSigner)
                          .getTransport();
 
   proto_query.clear_signature();
