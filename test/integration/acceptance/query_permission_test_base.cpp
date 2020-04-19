@@ -28,10 +28,10 @@ IntegrationTestFramework &QueryPermissionTestBase::prepareState(
                   .createRole(kSecondUser, spectator_permissions)
                   .createDomain(kSecondDomain, kSecondUser)
                   .createAccount(
-                      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey())
+                      kSecondUser, kDomain, kSameDomainUserSigner->publicKey())
                   .createAccount(kSecondUser,
                                  kSecondDomain,
-                                 kSecondDomainUserKeypair.publicKey())
+                                 kSecondDomainUserSigner->publicKey())
                   // Assign the close spectator the spectator role. Remote
                   // spectator gets this role by default (from domain)
                   .appendRole(kSameDomainUserId, kSecondUser)

@@ -74,7 +74,7 @@ TEST_F(QueryAcceptanceTest, ParallelBlockQuery) {
   };
 
   IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair)
+  itf.setInitialState(kAdminSigner)
       .sendTxAwait(
           makeUserWithPerms(),
           [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); })

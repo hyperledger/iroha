@@ -41,9 +41,9 @@ class TransferAsset : public AcceptanceFixture {
    */
   auto makeSecondUser(const interface::RolePermissionSet &perms = {
                           interface::permissions::Role::kReceive}) {
-    return createUserWithPerms(kUser2, kUser2Keypair.publicKey(), kRole2, perms)
+    return createUserWithPerms(kUser2, kUser2Signer->publicKey(), kRole2, perms)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -84,7 +84,7 @@ class TransferAsset : public AcceptanceFixture {
  */
 TEST_F(TransferAsset, Basic) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -102,7 +102,7 @@ TEST_F(TransferAsset, Basic) {
  */
 TEST_F(TransferAsset, WithoutCanTransfer) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser({}), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -124,7 +124,7 @@ TEST_F(TransferAsset, WithoutCanTransfer) {
  */
 TEST_F(TransferAsset, WithoutCanReceive) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       // TODO(@l4l) 23/06/18: remove permission with IR-1367
       .sendTxAwait(makeSecondUser({interface::permissions::Role::kAddPeer}),
@@ -148,7 +148,7 @@ TEST_F(TransferAsset, WithoutCanReceive) {
 TEST_F(TransferAsset, NonexistentDest) {
   std::string nonexistent = "inexist@test";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
       .sendTx(complete(baseTx().transferAsset(
@@ -170,7 +170,7 @@ TEST_F(TransferAsset, NonexistentDest) {
 TEST_F(TransferAsset, NonexistentAsset) {
   std::string nonexistent = "inexist#test";
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -192,7 +192,7 @@ TEST_F(TransferAsset, NonexistentAsset) {
  */
 TEST_F(TransferAsset, ZeroAmount) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -208,7 +208,7 @@ TEST_F(TransferAsset, ZeroAmount) {
  */
 TEST_F(TransferAsset, EmptyDesc) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -227,7 +227,7 @@ TEST_F(TransferAsset, EmptyDesc) {
  */
 TEST_F(TransferAsset, LongDesc) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
@@ -247,7 +247,7 @@ TEST_F(TransferAsset, LongDesc) {
  */
 TEST_F(TransferAsset, MoreThanHas) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets("50.0"), CHECK_TXS_QUANTITY(1))
@@ -271,7 +271,7 @@ TEST_F(TransferAsset, MoreThanHas) {
  */
 TEST_F(TransferAsset, DestOverflowPrecision1) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(kAmountPrec1Max.toStringRepr()),
@@ -300,7 +300,7 @@ TEST_F(TransferAsset, DestOverflowPrecision1) {
  */
 TEST_F(TransferAsset, SourceIsDest) {
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
       .sendTx(complete(baseTx().transferAsset(
@@ -327,17 +327,17 @@ TEST_F(TransferAsset, InterDomain) {
           .creatorAccountId(kAdminId)
           .createRole(kRole2, {interface::permissions::Role::kReceive})
           .createDomain(kNewDomain, kRole2)
-          .createAccount(kUser2, kNewDomain, kUser2Keypair.publicKey())
+          .createAccount(kUser2, kNewDomain, kUser2Signer->publicKey())
           .createAsset(kAssetName, kNewDomain, 1)
           .build()
-          .signAndAddSignature(kAdminKeypair)
+          .signAndAddSignature(*kAdminSigner)
           .finish();
   auto add_assets = complete(baseTx().addAssetQuantity(kNewAssetId, kAmount));
   auto make_transfer = complete(
       baseTx().transferAsset(kUserId, kUser2Id, kNewAssetId, kDesc, kAmount));
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(make_second_user, CHECK_TXS_QUANTITY(1))
       .sendTxAwait(add_assets, CHECK_TXS_QUANTITY(1))
@@ -364,7 +364,7 @@ TEST_F(TransferAsset, BigPrecision) {
                           .creatorAccountId(kAdminId)
                           .createAsset(kNewAsset, kDomain, kPrecision)
                           .build()
-                          .signAndAddSignature(kAdminKeypair)
+                          .signAndAddSignature(*kAdminSigner)
                           .finish();
   auto add_assets = complete(baseTx().addAssetQuantity(kNewAssetId, kInitial));
   auto make_transfer = complete(baseTx().transferAsset(
@@ -388,12 +388,12 @@ TEST_F(TransferAsset, BigPrecision) {
         .creatorAccountId(kAdminId)
         .getAccountAssets(account_id, kMaxPageSize, std::nullopt)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   };
 
   IntegrationTestFramework(1)
-      .setInitialState(kAdminKeypair)
+      .setInitialState(kAdminSigner)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(create_asset, CHECK_TXS_QUANTITY(1))

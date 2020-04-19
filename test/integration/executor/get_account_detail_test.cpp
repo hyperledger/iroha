@@ -57,7 +57,7 @@ struct GetAccountDetailTest : public ExecutorTestBase {
       IROHA_ASSERT_RESULT_VALUE(
           getItf().createUserWithPerms(makeAccountName(acc),
                                        kDomain,
-                                       kSameDomainUserKeypair.publicKey(),
+                                       kSameDomainUserSigner->publicKey(),
                                        {}));
       IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructGrantPermission(
@@ -111,7 +111,7 @@ struct GetAccountDetailTest : public ExecutorTestBase {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail}));
+        kUser, kDomain, kUserSigner->publicKey(), {Role::kSetMyAccountDetail}));
     addDetails(num_accounts, num_keys_per_account);
   }
 

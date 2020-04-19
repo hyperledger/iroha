@@ -63,17 +63,17 @@ namespace executor_testing {
         // create target user
         target_permissions |= permissions_param_.spectator_permissions;
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-            kUser, kDomain, kUserKeypair.publicKey(), target_permissions));
+            kUser, kDomain, kUserSigner->publicKey(), target_permissions));
         // create spectators
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kDomain,
-            kSameDomainUserKeypair.publicKey(),
+            kSameDomainUserSigner->publicKey(),
             permissions_param_.spectator_permissions));
         IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
             kSecondUser,
             kSecondDomain,
-            kSecondDomainUserKeypair.publicKey(),
+            kSecondDomainUserSigner->publicKey(),
             permissions_param_.spectator_permissions));
       }
 

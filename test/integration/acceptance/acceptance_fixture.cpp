@@ -40,9 +40,9 @@ TestUnsignedTransactionBuilder AcceptanceFixture::createUserWithPerms(
 shared_model::proto::Transaction AcceptanceFixture::makeUserWithPerms(
     const shared_model::interface::types::RoleIdType &role_name,
     const shared_model::interface::RolePermissionSet &perms) {
-  return createUserWithPerms(kUser, kUserKeypair.publicKey(), role_name, perms)
+  return createUserWithPerms(kUser, kUserSigner->publicKey(), role_name, perms)
       .build()
-      .signAndAddSignature(kAdminKeypair)
+      .signAndAddSignature(*kAdminSigner)
       .finish();
 }
 
@@ -128,7 +128,7 @@ template auto AcceptanceFixture::complete<TestUnsignedQueryBuilder>(
 template <typename Builder>
 auto AcceptanceFixture::complete(Builder builder)
     -> decltype(builder.build().finish()) {
-  return complete(builder, kUserKeypair);
+  return complete(builder, *kUserSigner);
 }
 
 template <typename ErrorResponse>

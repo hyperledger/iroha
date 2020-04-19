@@ -37,9 +37,9 @@ class BatchPipelineTest
    */
   auto createFirstUser() {
     return AcceptanceFixture::createUser(kFirstUser,
-                                         kFirstUserKeypair.publicKey())
+                                         kFirstUserSigner->publicKey())
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -49,7 +49,7 @@ class BatchPipelineTest
   auto raiseFirstUserQuorum() {
     return AcceptanceFixture::complete(
         AcceptanceFixture::baseTx(kFirstUserId)
-            .addSignatory(kFirstUserId, kFirstUserSecondKeypair.publicKey())
+            .addSignatory(kFirstUserId, kFirstUserSecondSigner->publicKey())
             .setAccountQuorum(kFirstUserId, 2),
         kFirstUserKeypair);
   }
@@ -59,9 +59,9 @@ class BatchPipelineTest
    */
   auto createSecondUser() {
     return AcceptanceFixture::createUser(kSecondUser,
-                                         kSecondUserKeypair.publicKey())
+                                         kSecondUserSigner->publicKey())
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -79,7 +79,7 @@ class BatchPipelineTest
                      Role::kAddSignatory,
                      Role::kSetQuorum})
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -91,7 +91,7 @@ class BatchPipelineTest
         .appendRole(kFirstUserId, kRole)
         .appendRole(kSecondUserId, kRole)
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   }
 
@@ -190,7 +190,7 @@ class BatchPipelineTest
       integration_framework::IntegrationTestFramework &itf,
       const std::string &amount1,
       const std::string &amount2) {
-    return itf.setInitialState(kAdminKeypair)
+    return itf.setInitialState(kAdminSigner)
         .sendTxAwait(createFirstUser(), CHECK_TXS_QUANTITY(1))
         .sendTxAwait(createSecondUser(), CHECK_TXS_QUANTITY(1))
         .sendTxAwait(createRole(), CHECK_TXS_QUANTITY(1))

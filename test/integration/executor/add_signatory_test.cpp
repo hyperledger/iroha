@@ -59,12 +59,12 @@ TEST_P(AddSignatoryBasicTest, NonExistentUser) {
  */
 TEST_P(AddSignatoryBasicTest, ExistingPubKey) {
   IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {}));
+      kUser, kDomain, kUserSigner->publicKey(), {}));
 
-  checkCommandError(addSignatory(kAdminId, kUserId, kUserKeypair.publicKey()),
+  checkCommandError(addSignatory(kAdminId, kUserId, kUserSigner->publicKey()),
                     4);
 
-  checkSignatories(kUserId, {kUserKeypair.publicKey()});
+  checkSignatories(kUserId, {kUserSigner->publicKey()});
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,
@@ -79,13 +79,13 @@ TEST_P(AddSignatoryPermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(getItf().createDomain(kSecondDomain));
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
   ASSERT_NO_FATAL_FAILURE(
-      checkSignatories(kUserId, {kUserKeypair.publicKey()}));
+      checkSignatories(kUserId, {kUserSigner->publicKey()}));
 
   if (checkResponse(addSignatory(
           getActor(), kUserId, kNewPubkey, getValidationEnabled()))) {
-    checkSignatories(kUserId, {kUserKeypair.publicKey(), kNewPubkey});
+    checkSignatories(kUserId, {kUserSigner->publicKey(), kNewPubkey});
   } else {
-    checkSignatories(kUserId, {kUserKeypair.publicKey()});
+    checkSignatories(kUserId, {kUserSigner->publicKey()});
   }
 }
 

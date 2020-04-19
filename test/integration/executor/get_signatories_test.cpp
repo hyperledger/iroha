@@ -53,7 +53,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), {}));
+        kUser, kDomain, kUserSigner->publicKey(), {}));
     addSignatories(n);
   }
 
@@ -71,7 +71,7 @@ struct GetSignatoriesTest : public ExecutorTestBase {
   }
 
   /// The signatories of the default account.
-  std::vector<std::string> signatories_{std::string{kUserKeypair.publicKey()}};
+  std::vector<std::string> signatories_{std::string{kUserSigner->publicKey()}};
 };
 
 using GetSignatoriesBasicTest = BasicExecutorTest<GetSignatoriesTest>;

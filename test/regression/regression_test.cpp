@@ -55,7 +55,7 @@ TEST(RegressionTest, SequentialInitialization) {
             .substr(0, 8);
   {
     integration_framework::IntegrationTestFramework(1, dbname, false, false)
-        .setInitialState(kAdminKeypair)
+        .setInitialState(kAdminSigner)
         .sendTx(tx, check_stateless_valid_status)
         .skipProposal()
         .checkVerifiedProposal([](auto &proposal) {
@@ -66,7 +66,7 @@ TEST(RegressionTest, SequentialInitialization) {
   }
   {
     integration_framework::IntegrationTestFramework(1, dbname, true, false)
-        .setInitialState(kAdminKeypair)
+        .setInitialState(kAdminSigner)
         .sendTx(tx, check_stateless_valid_status)
         .checkProposal(checkProposal)
         .checkVerifiedProposal([](auto &proposal) {
@@ -95,7 +95,7 @@ TEST(RegressionTest, StateRecovery) {
                 .transferAsset(kAdminId, kUserId, kAssetId, "descrs", "97.8")
                 .quorum(1)
                 .build()
-                .signAndAddSignature(kAdminKeypair)
+                .signAndAddSignature(*kAdminSigner)
                 .finish();
   auto hash = tx.hash();
   auto makeQuery = [&hash](int query_counter, auto kAdminKeypair) {
@@ -105,7 +105,7 @@ TEST(RegressionTest, StateRecovery) {
         .queryCounter(query_counter)
         .getTransactions(std::vector<shared_model::crypto::Hash>{hash})
         .build()
-        .signAndAddSignature(kAdminKeypair)
+        .signAndAddSignature(*kAdminSigner)
         .finish();
   };
   auto checkOne = [](auto &res) { ASSERT_EQ(res->transactions().size(), 1); };
@@ -124,7 +124,7 @@ TEST(RegressionTest, StateRecovery) {
 
   {
     integration_framework::IntegrationTestFramework(1, dbname, false, false)
-        .setInitialState(kAdminKeypair)
+        .setInitialState(kAdminSigner)
         .sendTx(tx)
         .checkProposal(checkOne)
         .checkVerifiedProposal(checkOne)
@@ -145,7 +145,7 @@ TEST(RegressionTest, StateRecovery) {
  */
 TEST(RegressionTest, DoubleCallOfDone) {
   integration_framework::IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair).done();
+  itf.setInitialState(kAdminSigner).done();
   itf.done();
 }
 

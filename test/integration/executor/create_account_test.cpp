@@ -108,7 +108,7 @@ TEST_P(CreateAccountBasicTest, NameExists) {
  */
 TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
   ASSERT_NO_FATAL_FAILURE(getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateAccount}));
+      kUser, kDomain, kUserSigner->publicKey(), {Role::kCreateAccount}));
   ASSERT_NO_FATAL_FAILURE(
       getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));
   IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(

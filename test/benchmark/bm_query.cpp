@@ -22,14 +22,14 @@ using namespace common_constants;
  */
 static void BM_QueryAccount(benchmark::State &state) {
   integration_framework::IntegrationTestFramework itf(1);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   itf.sendTx(createUserWithPerms(
                  kUser,
-                 kUserKeypair.publicKey(),
+                 kUserSigner->publicKey(),
                  kRole,
                  {shared_model::interface::permissions::Role::kGetAllAccounts})
                  .build()
-                 .signAndAddSignature(kAdminKeypair)
+                 .signAndAddSignature(*kAdminSigner)
                  .finish());
 
   itf.skipBlock().skipProposal();
@@ -41,7 +41,7 @@ static void BM_QueryAccount(benchmark::State &state) {
         .queryCounter(1)
         .getAccount(kUserId)
         .build()
-        .signAndAddSignature(kUserKeypair)
+        .signAndAddSignature(*kUserSigner)
         .finish();
   };
 

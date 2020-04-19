@@ -29,7 +29,7 @@ class RemoveSignatoryTest : public ExecutorTestBase {
  public:
   void addTargetUser(const shared_model::interface::RolePermissionSet &perms) {
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), perms));
+        kUser, kDomain, kUserSigner->publicKey(), perms));
   }
 
   void addSignatory() {
@@ -50,7 +50,7 @@ class RemoveSignatoryTest : public ExecutorTestBase {
 
  protected:
   shared_model::interface::types::PublicKeyHexStringView old_sig_{
-      kUserKeypair.publicKey()};
+      kUserSigner->publicKey()};
 };
 
 using RemoveSignatoryBasicTest = BasicExecutorTest<RemoveSignatoryTest>;
@@ -64,7 +64,7 @@ TEST_P(RemoveSignatoryBasicTest, NonExistentUser) {
   IROHA_ASSERT_RESULT_VALUE(
       getItf().createUserWithPerms(kSecondUser,
                                    kDomain,
-                                   kSameDomainUserKeypair.publicKey(),
+                                   kSameDomainUserSigner->publicKey(),
                                    {Role::kRemoveSignatory}));
 
   checkCommandError(issueRemoveSignatoryBy(kSameDomainUserId), 3);

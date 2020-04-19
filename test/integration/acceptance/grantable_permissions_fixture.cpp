@@ -18,7 +18,7 @@ GrantablePermissionsFixture::makeAccountWithPerms(
     const shared_model::interface::types::RoleIdType &role) {
   return createUserWithPerms(user, key.publicKey(), role, perms)
       .build()
-      .signAndAddSignature(kAdminKeypair)
+      .signAndAddSignature(*kAdminSigner)
       .finish();
 }
 

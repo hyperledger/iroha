@@ -176,5 +176,5 @@ CommandResult ExecutorItf::createAdmin() const {
   shared_model::interface::RolePermissionSet all_role_perms;
   all_role_perms.setAll();
   return createUserWithPermsInternal(
-      kAdminName, kDomain, kAdminKeypair.publicKey(), all_role_perms);
+      kAdminName, kDomain, kAdminSigner->publicKey(), all_role_perms);
 }

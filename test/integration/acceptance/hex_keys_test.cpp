@@ -257,7 +257,7 @@ TEST_F(HexKeys, CreateAccountlU) {
  * @then the transaction is considered as stateful invalid
  */
 TEST_F(HexKeys, AddPeerSameKeyDifferentCase) {
-  std::string original_key{common_constants::kAdminKeypair.publicKey()};
+  std::string original_key{common_constants::kAdminSigner->publicKey()};
   std::string same_key_uppercased = original_key;
   boost::to_upper(same_key_uppercased);
   ASSERT_NE(original_key, same_key_uppercased);

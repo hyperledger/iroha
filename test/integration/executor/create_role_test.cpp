@@ -66,7 +66,7 @@ using CreateRoleBasicTest = BasicExecutorTest<CreateRoleTest>;
  */
 TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
   getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateRole});
+      kUser, kDomain, kUserSigner->publicKey(), {Role::kCreateRole});
   IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {}));
   checkRole(kAnotherRole, {});
 }
@@ -79,7 +79,7 @@ TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
 TEST_P(CreateRoleBasicTest, NameExists) {
   getItf().createUserWithPerms(kUser,
                                kDomain,
-                               kUserKeypair.publicKey(),
+                               kUserSigner->publicKey(),
                                {Role::kCreateRole, Role::kCreateAsset});
   IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {Role::kCreateRole}));
   ASSERT_NO_FATAL_FAILURE(checkRole(kAnotherRole, {Role::kCreateRole}));

@@ -22,7 +22,7 @@ using namespace iroha::network;
 TEST(MstNetInteraction, TypelessCommand) {
   bool enable_mst = true;
   IntegrationTestFramework itf(1, {}, true, enable_mst);
-  itf.setInitialState(kAdminKeypair);
+  itf.setInitialState(kAdminSigner);
   auto internal_port = itf.internalPort();
 
   std::string peer_address = "127.0.0.1:" + std::to_string(internal_port);
