@@ -11,6 +11,7 @@
 #include "framework/test_subscriber.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger.hpp"
+#include "module/irohad/multi_sig_transactions/mock_mst_transport.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -284,18 +285,73 @@ TEST_F(MstProcessorTest, onUpdateFromTransportUsecase) {
  * @then check that:
  * transport invoked for all peers
  */
-
 TEST_F(MstProcessorTest, onNewPropagationUsecase) {
   // ---------------------------------| given |---------------------------------
   auto quorum = 2u;
   mst_processor->propagateBatch(addSignaturesFromKeyPairs(
       makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
-  EXPECT_CALL(*transport, sendState(_, _)).Times(2);
+  EXPECT_CALL(*transport, sendState(_, _))
+      .Times(2)
+      .WillRepeatedly(Return(rxcpp::observable<>::just(true)));
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
       makePeer("one", kPublicKey1), makePeer("two", kPublicKey2)};
   propagation_subject.get_subscriber().on_next(peers);
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received notification about new propagation
+ * AND transport successfully sent the state
+ *
+ * @then same diff is applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateSuccess) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillOnce(Return(rxcpp::observable<>::just(true)));
+
+  // ---------------------------------| when |----------------------------------
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
+      makePeer("one", another_peer_key_hex)};
+  propagation_subject.get_subscriber().on_next(peers);
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_TRUE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
+}
+
+/**
+ * @given initialised mst processor
+ * AND our state contains one transaction
+ *
+ * @when received notification about new propagation
+ * AND transport failed to send the state
+ *
+ * @then diff is not applied to storage
+ */
+TEST_F(MstProcessorTest, SendStateFailure) {
+  // ---------------------------------| given |---------------------------------
+  auto quorum = 2u;
+  mst_processor->propagateBatch(addSignaturesFromKeyPairs(
+      makeTestBatch(txBuilder(1, time_after, quorum)), 0, makeKey()));
+  EXPECT_CALL(*transport, sendState(_, _))
+      .WillOnce(Return(rxcpp::observable<>::just(false)));
+
+  // ---------------------------------| when |----------------------------------
+  std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
+      makePeer("one", another_peer_key_hex)};
+  propagation_subject.get_subscriber().on_next(peers);
+
+  // ---------------------------------| then |----------------------------------
+  ASSERT_FALSE(
+      storage->getDiffState(another_peer_key_hex, time_after).isEmpty());
 }
 
 /**

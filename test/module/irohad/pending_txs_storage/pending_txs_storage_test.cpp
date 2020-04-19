@@ -4,20 +4,26 @@
  */
 
 #include <gtest/gtest.h>
+
+#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/rx-lite.hpp>
+
+#include "common/result.hpp"
 #include "datetime/time.hpp"
+#include "framework/result_gtest_checkers.hpp"
 #include "framework/strong_type_literals.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 
-#include <rxcpp/operators/rx-flat_map.hpp>
-
-// TODO igor-egorov 2019-06-24 IR-573 Refactor pending txs storage tests
 class PendingTxsStorageFixture : public ::testing::Test {
  public:
   using Batch = shared_model::interface::TransactionBatch;
+  using BatchInfo =
+      shared_model::interface::PendingTransactionsPageResponse::BatchInfo;
+  using Response = iroha::PendingTransactionStorage::Response;
+  using ErrorCode = iroha::PendingTransactionStorage::ErrorCode;
 
   /**
    * Get the closest to now timestamp from the future but never return the same
@@ -62,6 +68,26 @@ class PendingTxsStorageFixture : public ::testing::Test {
         makeSignature("1", "pub_key_1"_pubkey));
   }
 
+  void checkResponse(const Response &actual, const Response &expected) {
+    EXPECT_EQ(actual.transactions.size(), expected.transactions.size());
+    // generally it's illegal way to verify the correctness.
+    // here we can do it because the order is preserved by batch meta and
+    // there are no transactions non-related to requested account
+    for (auto i = 0u; i < expected.transactions.size(); ++i) {
+      EXPECT_EQ(*actual.transactions[i], *expected.transactions[i]);
+    }
+    EXPECT_EQ(actual.all_transactions_size, expected.all_transactions_size);
+    if (expected.next_batch_info) {
+      EXPECT_TRUE(actual.next_batch_info);
+      EXPECT_EQ(actual.next_batch_info->first_tx_hash,
+                expected.next_batch_info->first_tx_hash);
+      EXPECT_EQ(actual.next_batch_info->batch_size,
+                expected.next_batch_info->batch_size);
+    } else {
+      EXPECT_FALSE(actual.next_batch_info);
+    }
+  }
+
   std::shared_ptr<iroha::DefaultCompleter> completer_ =
       std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0));
 
@@ -97,6 +123,11 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
   *state += transactions;
 
   const auto kPageSize = 100u;
+  Response expected;
+  expected.transactions.insert(expected.transactions.end(),
+                               transactions->transactions().begin(),
+                               transactions->transactions().end());
+  expected.all_transactions_size = transactions->transactions().size();
 
   iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
                                                dummyObservable(),
@@ -105,24 +136,8 @@ TEST_F(PendingTxsStorageFixture, InsertionTest) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, std::nullopt);
-    pending.match(
-        [&txs = transactions](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(response.value.all_transactions_size,
-                    txs->transactions().size());
-          EXPECT_EQ(pending_txs.size(), txs->transactions().size());
-          EXPECT_FALSE(response.value.next_batch_info);
-          // generally it's illegal way to verify the correctness.
-          // here we can do it because the order is preserved by batch meta and
-          // there are no transactions non-related to requested account
-          for (auto i = 0u; i < pending_txs.size(); ++i) {
-            ASSERT_EQ(*pending_txs[i], *(txs->transactions()[i]));
-          }
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), expected);
   }
 }
 
@@ -138,6 +153,11 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
   *state += transactions;
 
   const auto kPageSize = transactions->transactions().size();
+  Response expected;
+  expected.transactions.insert(expected.transactions.end(),
+                               transactions->transactions().begin(),
+                               transactions->transactions().end());
+  expected.all_transactions_size = transactions->transactions().size();
 
   iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
                                                dummyObservable(),
@@ -146,24 +166,8 @@ TEST_F(PendingTxsStorageFixture, ExactSize) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, std::nullopt);
-    pending.match(
-        [&txs = transactions](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(response.value.all_transactions_size,
-                    txs->transactions().size());
-          EXPECT_EQ(pending_txs.size(), txs->transactions().size());
-          EXPECT_FALSE(response.value.next_batch_info);
-          // generally it's illegal way to verify the correctness.
-          // here we can do it because the order is preserved by batch meta and
-          // there are no transactions non-related to requested account
-          for (auto i = 0u; i < pending_txs.size(); ++i) {
-            ASSERT_EQ(*pending_txs[i], *(txs->transactions()[i]));
-          }
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), expected);
   }
 }
 
@@ -191,21 +195,12 @@ TEST_F(PendingTxsStorageFixture, CompletedTransactionsAreRemoved) {
 
   iroha::PendingTransactionStorageImpl storage(
       updates, dummyObservable(), dummyObservable(), prepared);
+  Response empty_response;
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, std::nullopt);
-    pending.match(
-        [](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(pending_txs.size(), 0);
-          EXPECT_EQ(response.value.all_transactions_size, 0);
-          auto &next_batch_info = response.value.next_batch_info;
-          ASSERT_FALSE(next_batch_info);
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), empty_response);
   }
 }
 
@@ -223,6 +218,12 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
 
   const auto kPageSize = 1;
   ASSERT_NE(kPageSize, transactions->transactions().size());
+  Response expected;
+  expected.all_transactions_size = transactions->transactions().size();
+  expected.next_batch_info = BatchInfo{};
+  expected.next_batch_info->first_tx_hash =
+      transactions->transactions().front()->hash();
+  expected.next_batch_info->batch_size = transactions->transactions().size();
 
   iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
                                                dummyObservable(),
@@ -231,22 +232,8 @@ TEST_F(PendingTxsStorageFixture, InsufficientSize) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, std::nullopt);
-    pending.match(
-        [&txs = transactions](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(response.value.all_transactions_size,
-                    txs->transactions().size());
-          EXPECT_EQ(pending_txs.size(), 0);
-          EXPECT_TRUE(response.value.next_batch_info);
-          EXPECT_EQ(response.value.next_batch_info->first_tx_hash,
-                    txs->transactions().front()->hash());
-          EXPECT_EQ(response.value.next_batch_info->batch_size,
-                    txs->transactions().size());
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), expected);
   }
 }
 
@@ -266,6 +253,16 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
   const auto kPageSize =
       batch1->transactions().size() + batch2->transactions().size() - 1;
   auto updates = updatesObservable({state1, state2});
+  Response expected;
+  expected.transactions.insert(expected.transactions.end(),
+                               batch1->transactions().begin(),
+                               batch1->transactions().end());
+  expected.all_transactions_size =
+      batch1->transactions().size() + batch2->transactions().size();
+  expected.next_batch_info = BatchInfo{};
+  expected.next_batch_info->first_tx_hash =
+      batch2->transactions().front()->hash();
+  expected.next_batch_info->batch_size = batch2->transactions().size();
 
   iroha::PendingTransactionStorageImpl storage(updates,
                                                dummyObservable(),
@@ -274,26 +271,8 @@ TEST_F(PendingTxsStorageFixture, BatchAndAHalfPageSize) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending =
         storage.getPendingTransactions(creator, kPageSize, std::nullopt);
-    pending.match(
-        [&](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(
-              response.value.all_transactions_size,
-              batch1->transactions().size() + batch2->transactions().size());
-          EXPECT_EQ(pending_txs.size(), batch1->transactions().size());
-          EXPECT_TRUE(response.value.next_batch_info);
-          EXPECT_EQ(response.value.next_batch_info->first_tx_hash,
-                    batch2->transactions().front()->hash());
-          EXPECT_EQ(response.value.next_batch_info->batch_size,
-                    batch2->transactions().size());
-          for (auto i = 0u; i < pending_txs.size(); ++i) {
-            ASSERT_EQ(*pending_txs[i], *(batch1->transactions()[i]));
-          }
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), expected);
   }
 }
 
@@ -312,6 +291,12 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
 
   const auto kPageSize = batch2->transactions().size();
   auto updates = updatesObservable({state1, state2});
+  Response expected;
+  expected.transactions.insert(expected.transactions.end(),
+                               batch2->transactions().begin(),
+                               batch2->transactions().end());
+  expected.all_transactions_size =
+      batch1->transactions().size() + batch2->transactions().size();
 
   iroha::PendingTransactionStorageImpl storage(updates,
                                                dummyObservable(),
@@ -320,22 +305,8 @@ TEST_F(PendingTxsStorageFixture, StartFromTheSecondBatch) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto pending = storage.getPendingTransactions(
         creator, kPageSize, batch2->transactions().front()->hash());
-    pending.match(
-        [&](const auto &response) {
-          auto &pending_txs = response.value.transactions;
-          EXPECT_EQ(
-              response.value.all_transactions_size,
-              batch1->transactions().size() + batch2->transactions().size());
-          EXPECT_EQ(pending_txs.size(), batch2->transactions().size());
-          EXPECT_FALSE(response.value.next_batch_info);
-          for (auto i = 0u; i < pending_txs.size(); ++i) {
-            ASSERT_EQ(*pending_txs[i], *(batch2->transactions()[i]));
-          }
-        },
-        [](const auto &error) {
-          FAIL() << "An error was not expected, the error code is "
-                 << error.error;
-        });
+    IROHA_ASSERT_RESULT_VALUE(pending);
+    checkResponse(pending.assumeValue(), expected);
   }
 }
 
@@ -352,23 +323,17 @@ TEST_F(PendingTxsStorageFixture, NoPendingBatches) {
 
   const auto kThirdAccount = "clark@iroha";
   const auto kPageSize = 100u;
+  Response empty_response;
 
   iroha::PendingTransactionStorageImpl storage(updatesObservable({state}),
                                                dummyObservable(),
                                                dummyObservable(),
                                                dummyPreparedTxsObservable());
 
-  auto response =
+  auto pending =
       storage.getPendingTransactions(kThirdAccount, kPageSize, std::nullopt);
-  response.match(
-      [](const auto &response) {
-        auto &pending_txs = response.value.transactions;
-        EXPECT_EQ(pending_txs.size(), 0);
-        EXPECT_EQ(response.value.all_transactions_size, 0);
-        auto &next_batch_info = response.value.next_batch_info;
-        ASSERT_FALSE(next_batch_info);
-      },
-      [](const auto &error) { FAIL() << error.error; });
+  IROHA_ASSERT_RESULT_VALUE(pending);
+  checkResponse(pending.assumeValue(), empty_response);
 }
 
 /**
@@ -441,25 +406,13 @@ TEST_F(PendingTxsStorageFixture, SeveralBatches) {
                                                dummyPreparedTxsObservable());
   auto alice_pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
-  alice_pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 4);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(alice_pending);
+  EXPECT_EQ(alice_pending.assumeValue().transactions.size(), 4);
 
   auto bob_pending =
       storage.getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
-  bob_pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 3);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(bob_pending);
+  EXPECT_EQ(bob_pending.assumeValue().transactions.size(), 3);
 }
 
 /**
@@ -491,25 +444,13 @@ TEST_F(PendingTxsStorageFixture, SeparateBatchesDoNotOverwriteStorage) {
 
   auto alice_pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
-  alice_pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 4);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(alice_pending);
+  EXPECT_EQ(alice_pending.assumeValue().transactions.size(), 4);
 
   auto bob_pending =
       storage.getPendingTransactions("bob@iroha", kPageSize, std::nullopt);
-  bob_pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 2);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(bob_pending);
+  EXPECT_EQ(bob_pending.assumeValue().transactions.size(), 2);
 }
 
 /**
@@ -546,14 +487,8 @@ TEST_F(PendingTxsStorageFixture, PreparedBatch) {
   const auto kPageSize = 100u;
   auto pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
-  pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 0);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(pending);
+  EXPECT_EQ(pending.assumeValue().transactions.size(), 0);
 }
 
 /**
@@ -585,14 +520,8 @@ TEST_F(PendingTxsStorageFixture, ExpiredBatch) {
   const auto kPageSize = 100u;
   auto pending =
       storage.getPendingTransactions("alice@iroha", kPageSize, std::nullopt);
-  pending.match(
-      [](const auto &response) {
-        ASSERT_EQ(response.value.transactions.size(), 0);
-      },
-      [](const auto &error) {
-        FAIL() << "An error was not expected, the error code is "
-               << error.error;
-      });
+  IROHA_ASSERT_RESULT_VALUE(pending);
+  EXPECT_EQ(pending.assumeValue().transactions.size(), 0);
 }
 
 /**
@@ -615,14 +544,9 @@ TEST_F(PendingTxsStorageFixture, QueryingWrongBatch) {
 
   auto response = storage.getPendingTransactions(
       kThirdAccount, kPageSize, transactions->transactions().front()->hash());
-  response.match(
-      [](const auto &response) {
-        FAIL() << "NOT_FOUND error was expected instead of a response";
-      },
-      [](const auto &error) {
-        ASSERT_EQ(error.error,
-                  iroha::PendingTransactionStorage::ErrorCode::kNotFound);
-      });
+  IROHA_ASSERT_RESULT_ERROR(response);
+  EXPECT_EQ(response.assumeError(),
+            iroha::PendingTransactionStorage::ErrorCode::kNotFound);
 }
 
 /**
@@ -644,11 +568,26 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
   auto firstHash = [](const auto &batch) {
     return batch->transactions().front()->hash();
   };
-  auto errorResponseHandler = [](const auto &error) {
-    FAIL() << "An error was not expected, the error code is " << error.error;
-  };
 
   auto updates = updatesObservable({state1, state2});
+  Response first_page_expected;
+  first_page_expected.transactions.insert(
+      first_page_expected.transactions.end(),
+      batch1->transactions().begin(),
+      batch1->transactions().end());
+  first_page_expected.all_transactions_size =
+      batchSize(batch1) + batchSize(batch2);
+  first_page_expected.next_batch_info = BatchInfo{};
+  first_page_expected.next_batch_info->first_tx_hash = firstHash(batch2);
+  first_page_expected.next_batch_info->batch_size = batchSize(batch2);
+
+  Response second_page_expected;
+  second_page_expected.transactions.insert(
+      second_page_expected.transactions.end(),
+      batch2->transactions().begin(),
+      batch2->transactions().end());
+  second_page_expected.all_transactions_size =
+      batchSize(batch1) + batchSize(batch2);
 
   iroha::PendingTransactionStorageImpl storage(updates,
                                                dummyObservable(),
@@ -657,35 +596,11 @@ TEST_F(PendingTxsStorageFixture, QueryAllTheBatches) {
   for (const auto &creator : {"alice@iroha", "bob@iroha"}) {
     auto first_page = storage.getPendingTransactions(
         creator, batchSize(batch1), std::nullopt);
-    first_page.match(
-        [&](const auto &first_response) {
-          const auto &resp1 = first_response.value;
-          EXPECT_EQ(resp1.all_transactions_size,
-                    batchSize(batch1) + batchSize(batch2));
-          EXPECT_EQ(resp1.transactions.size(), batchSize(batch1));
-          EXPECT_TRUE(resp1.next_batch_info);
-          EXPECT_EQ(resp1.next_batch_info->batch_size, batchSize(batch2));
-          EXPECT_EQ(resp1.next_batch_info->first_tx_hash, firstHash(batch2));
-          for (auto i = 0u; i < resp1.transactions.size(); ++i) {
-            ASSERT_EQ(*resp1.transactions[i], *(batch1->transactions()[i]));
-          }
-
-          auto second_page = storage.getPendingTransactions(
-              creator, batchSize(batch2), firstHash(batch2));
-          second_page.match(
-              [&](const auto &second_response) {
-                const auto &resp2 = second_response.value;
-                EXPECT_EQ(resp2.all_transactions_size,
-                          batchSize(batch1) + batchSize(batch2));
-                EXPECT_EQ(resp2.transactions.size(), batchSize(batch2));
-                EXPECT_FALSE(resp2.next_batch_info);
-                for (auto i = 0u; i < resp2.transactions.size(); ++i) {
-                  ASSERT_EQ(*resp2.transactions[i],
-                            *(batch2->transactions()[i]));
-                }
-              },
-              errorResponseHandler);
-        },
-        errorResponseHandler);
+    IROHA_ASSERT_RESULT_VALUE(first_page);
+    checkResponse(first_page.assumeValue(), first_page_expected);
+    auto second_page = storage.getPendingTransactions(
+        creator, batchSize(batch2), firstHash(batch2));
+    IROHA_ASSERT_RESULT_VALUE(second_page);
+    checkResponse(second_page.assumeValue(), second_page_expected);
   }
 }

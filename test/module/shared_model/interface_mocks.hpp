@@ -190,13 +190,13 @@ struct MockPeer : public shared_model::interface::Peer {
 };
 
 inline auto makePeer(
-    const std::string &address,
+    std::string_view address,
     shared_model::interface::types::PublicKeyHexStringView pub_key,
     const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate = std::nullopt) {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
-      .WillRepeatedly(testing::ReturnRefOfCopy(address));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{address}));
   EXPECT_CALL(*peer, pubkey())
       .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pub_key}));
   EXPECT_CALL(*peer, tlsCertificate())
