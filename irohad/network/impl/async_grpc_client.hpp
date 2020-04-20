@@ -39,6 +39,9 @@ namespace iroha {
           if (not call->status.ok()) {
             log_->warn("RPC failed: {}", call->status.error_message());
           }
+          if (call->on_response) {
+            call->on_response(call->status, call->reply);
+          }
           delete call;
         }
       }
@@ -65,6 +68,8 @@ namespace iroha {
 
         std::unique_ptr<grpc::ClientAsyncResponseReaderInterface<Response>>
             response_reader;
+
+        std::function<void(grpc::Status &, Response &)> on_response;
       };
 
       /**
@@ -73,8 +78,11 @@ namespace iroha {
        * ClientAsyncResponseReader<Response> object
        */
       template <typename F>
-      void Call(F &&lambda) {
+      void Call(
+          F &&lambda,
+          std::function<void(grpc::Status &, Response &)> on_response = {}) {
         auto call = new AsyncClientCall;
+        call->on_response = std::move(on_response);
         call->response_reader = lambda(&call->context, &cq_);
         call->response_reader->Finish(&call->reply, &call->status, call);
       }

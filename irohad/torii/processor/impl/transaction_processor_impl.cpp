@@ -12,6 +12,7 @@
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 #include "logger/logger.hpp"
+#include "multi_sig_transactions/state/mst_state.hpp"
 #include "validation/stateful_validator_common.hpp"
 
 namespace iroha {

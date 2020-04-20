@@ -112,6 +112,8 @@ namespace iroha {
 
     rxcpp::composite_subscription propagation_subscriber_;
 
+    rxcpp::composite_subscription send_state_subscriber_;
+
     logger::LoggerPtr log_;
   };
 }  // namespace iroha
