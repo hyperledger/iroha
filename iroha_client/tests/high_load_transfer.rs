@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use futures::executor;
     use iroha::{
         account::isi::{CreateAccount, CreateRole},
         asset::isi::{AddAssetQuantity, TransferAsset},
@@ -14,11 +13,12 @@ mod tests {
     const CONFIGURATION_PATH: &str = "config.json";
 
     #[async_std::test]
+    //TODO: unignore where CI will be powerfull enough.
     #[ignore]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account_x100() {
         // Given
-        thread::spawn(|| executor::block_on(create_and_start_iroha()));
+        thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(200));
         let create_role = CreateRole {
             role_name: "user".to_string(),
@@ -82,10 +82,11 @@ mod tests {
             .expect("Failed to create asset.");
         std::thread::sleep(std::time::Duration::from_millis(1000));
         //When
-        for _ in 0..100 {
-            if let Err(e) = iroha_client.submit(transfer_asset.clone().into()).await {
-                eprintln!("Failed to submit transaction: {}", e);
-            }
+        for _ in 0..400 {
+            iroha_client
+                .submit(transfer_asset.clone().into())
+                .await
+                .expect("Failed to submit command.");
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         std::thread::sleep(std::time::Duration::from_millis(2000));
@@ -97,13 +98,13 @@ mod tests {
             .expect("Failed to execute request.");
     }
 
-    async fn create_and_start_iroha() {
+    fn create_and_start_iroha() {
         let temp_dir = TempDir::new().expect("Failed to create TempDir.");
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         configuration.kura_block_store_path(temp_dir.path());
         let iroha = Iroha::new(configuration);
-        iroha.start().await.expect("Failed to start Iroha.");
+        iroha.start().expect("Failed to start Iroha.");
         //Prevents temp_dir from clean up untill the end of the tests.
         loop {}
     }

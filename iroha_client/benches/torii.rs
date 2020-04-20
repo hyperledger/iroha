@@ -9,7 +9,7 @@ const CONFIGURATION_PATH: &str = "config.json";
 
 fn query_requests(criterion: &mut Criterion) {
     let (tx, rx) = std::sync::mpsc::channel();
-    thread::spawn(|| executor::block_on(create_and_start_iroha(rx)));
+    thread::spawn(|| create_and_start_iroha(rx));
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
     let domain_name = "domain2";
@@ -43,7 +43,7 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Failed to create account.");
     executor::block_on(iroha_client.submit(create_asset.into())).expect("Failed to create asset.");
     let request = assets::by_account_id(account_id);
-    thread::sleep(std::time::Duration::from_millis(100));
+    thread::sleep(std::time::Duration::from_millis(50));
     group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
     group.bench_function("query", |b| {
         b.iter(
@@ -62,7 +62,7 @@ fn query_requests(criterion: &mut Criterion) {
 
 fn instruction_submits(criterion: &mut Criterion) {
     let (tx, rx) = std::sync::mpsc::channel();
-    thread::spawn(|| executor::block_on(create_and_start_iroha(rx)));
+    thread::spawn(|| create_and_start_iroha(rx));
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("command-reqeuests");
     let create_role = CreateRole {
@@ -93,7 +93,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         .expect("Failed to create domain.");
     executor::block_on(iroha_client.submit(create_account.into()))
         .expect("Failed to create account.");
-    thread::sleep(std::time::Duration::from_millis(100));
+    thread::sleep(std::time::Duration::from_millis(50));
     group.throughput(Throughput::Bytes(Vec::from(&create_asset).len() as u64));
     group.bench_function("commands", |b| {
         b.iter(|| {
@@ -106,13 +106,13 @@ fn instruction_submits(criterion: &mut Criterion) {
     tx.send(0).expect("Failed to send command to stop Iroha.");
 }
 
-async fn create_and_start_iroha(rx: std::sync::mpsc::Receiver<u8>) {
+fn create_and_start_iroha(rx: std::sync::mpsc::Receiver<u8>) {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.kura_block_store_path(temp_dir.path());
     let iroha = Iroha::new(configuration);
-    iroha.start().await.expect("Failed to start Iroha.");
+    iroha.start().expect("Failed to start Iroha.");
     //Prevents temp_dir from clean up untill the end of the tests.
     rx.recv().expect("Failed to receive command to stop Iroha.");
 }
