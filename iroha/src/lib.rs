@@ -16,12 +16,12 @@ pub mod tx;
 pub mod wsv;
 
 use crate::{
-    block::Blockchain, config::Configuration, kura::Kura, peer::Peer, prelude::*, queue::Queue,
-    sumeragi::Sumeragi, torii::Torii,
+    config::Configuration, kura::Kura, peer::Peer, prelude::*, queue::Queue, sumeragi::Sumeragi,
+    torii::Torii,
 };
 use futures::{
     channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
-    executor::ThreadPool,
+    executor::{self, ThreadPool},
     lock::Mutex,
     prelude::*,
 };
@@ -40,7 +40,7 @@ pub struct Iroha {
     peer: Arc<Mutex<Peer>>,
     queue: Arc<Mutex<Queue>>,
     sumeragi: Arc<Mutex<Sumeragi>>,
-    blockchain: Arc<Mutex<Blockchain>>,
+    kura: Arc<Mutex<Kura>>,
     last_round_time: Arc<Mutex<Instant>>,
     transactions_receiver: Arc<Mutex<TransactionReceiver>>,
     blocks_receiver: Arc<Mutex<BlockReceiver>>,
@@ -61,11 +61,11 @@ impl Iroha {
             transactions_sender,
         );
         let sumeragi = Sumeragi::new();
-        let blockchain = Blockchain::new(Kura::new(
+        let kura = Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
             blocks_sender,
-        ));
+        );
         let queue = Arc::new(Mutex::new(Queue::default()));
         //TODO: Get peer params from config
         let peer = Peer::new("127.0.0.1:7878".to_string(), 10, 15, queue.clone());
@@ -74,7 +74,7 @@ impl Iroha {
             torii: Arc::new(Mutex::new(torii)),
             peer: Arc::new(Mutex::new(peer)),
             sumeragi: Arc::new(Mutex::new(sumeragi)),
-            blockchain: Arc::new(Mutex::new(blockchain)),
+            kura: Arc::new(Mutex::new(kura)),
             transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
             world_state_view,
             blocks_receiver: Arc::new(Mutex::new(blocks_receiver)),
@@ -84,6 +84,8 @@ impl Iroha {
     }
 
     pub fn start(self) -> Result<(), String> {
+        let kura = Arc::clone(&self.kura);
+        executor::block_on(async move { kura.lock().await.init().await })?;
         let torii = Arc::clone(&self.torii);
         self.pool.spawn_ok(async move {
             torii.lock().await.start().await;
@@ -96,7 +98,7 @@ impl Iroha {
             }
         });
         let queue = Arc::clone(&self.queue);
-        let blockchain = Arc::clone(&self.blockchain);
+        let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
         self.pool.spawn_ok(async move {
@@ -104,10 +106,9 @@ impl Iroha {
                 //TODO: decide what should be the minimum time to accumulate tx before creating a block
                 let transactions = queue.lock().await.pop_pending_transactions();
                 if !transactions.is_empty() {
-                    blockchain
-                        .lock()
+                    kura.lock()
                         .await
-                        .accept(
+                        .store(
                             sumeragi
                                 .lock()
                                 .await
