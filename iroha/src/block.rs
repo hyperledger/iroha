@@ -1,55 +1,7 @@
-use crate::{kura::Kura, prelude::*};
+use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
-
-/// Chain of `Blocks`.
-pub struct Blockchain {
-    blocks: Vec<Block>,
-    kura: Kura,
-}
-
-impl Blockchain {
-    pub fn new(kura: Kura) -> Self {
-        Blockchain {
-            kura,
-            blocks: Vec::new(),
-        }
-    }
-
-    pub async fn init(&mut self) -> Result<(), String> {
-        self.blocks = self.kura.init().await?;
-        Ok(())
-    }
-
-    pub async fn accept(&mut self, transactions: Vec<Transaction>) -> Result<(), String> {
-        let mut block = Block::builder(
-            transactions
-                .into_iter()
-                .map(Transaction::validate)
-                .filter_map(Result::ok)
-                .collect(),
-        )
-        .build();
-        if !self.blocks.is_empty() {
-            let last_block_index = self.blocks.len() - 1;
-            block.height = last_block_index as u64 + 1;
-            block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
-        }
-        self.kura
-            .store(&block)
-            .await
-            .expect("Failed to store block into Kura.");
-        self.blocks.push(block);
-        Ok(())
-    }
-
-    pub fn last(&self) -> &Block {
-        &self.blocks[..]
-            .last()
-            .expect("Failed to extract last block.")
-    }
-}
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).

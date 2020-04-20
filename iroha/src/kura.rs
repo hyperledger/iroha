@@ -13,6 +13,7 @@ use std::{
 /// Provides all necessary methods to read and write data, hides implementation details.
 pub struct Kura {
     _mode: String,
+    blocks: Vec<Block>,
     block_store: BlockStore,
     world_state_view_tx: BlockSender,
     merkle_tree: MerkleTree,
@@ -25,24 +26,40 @@ impl Kura {
             block_store: BlockStore::new(block_store_path),
             world_state_view_tx,
             merkle_tree: MerkleTree::new(),
+            blocks: Vec::new(),
         }
     }
 
-    pub async fn init(&mut self) -> Result<Vec<Block>, String> {
+    pub async fn init(&mut self) -> Result<(), String> {
         let blocks = self.block_store.read_all().await;
         let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
         self.merkle_tree.build(&blocks_refs);
-        Ok(blocks)
+        self.blocks = blocks;
+        Ok(())
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(&mut self, block: &Block) -> Result<Hash, String> {
+    pub async fn store(&mut self, transactions: Vec<Transaction>) -> Result<Hash, String> {
+        let mut block = Block::builder(
+            transactions
+                .into_iter()
+                .map(Transaction::validate)
+                .filter_map(Result::ok)
+                .collect(),
+        )
+        .build();
+        if !self.blocks.is_empty() {
+            let last_block_index = self.blocks.len() - 1;
+            block.height = last_block_index as u64 + 1;
+            block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
+        }
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
                 self.world_state_view_tx
                     .start_send(block.clone())
                     .map_err(|e| format!("Failed to update world state view: {}", e))?;
+                self.blocks.push(block);
                 Ok(hash)
             }
             Err(error) => {
@@ -181,7 +198,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded();
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
-        kura.store(&Block::builder(Vec::new()).build())
+        kura.store(Vec::new())
             .await
             .expect("Failed to store block into Kura.");
     }
