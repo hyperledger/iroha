@@ -1,5 +1,4 @@
-use crate::isi::Contract;
-use crate::{tx::Transaction, Id};
+use crate::{isi::Contract, tx::Transaction};
 use futures::{future::FutureExt, lock::Mutex, pin_mut, select};
 use iroha_derive::*;
 use iroha_network::{prelude::*, Network};
@@ -66,6 +65,7 @@ struct PeerState {
     pub peers: HashSet<PeerId>,
     pub sent_pings: HashMap<Ping, Duration>,
     pub listen_address: String,
+    pub tx_queue: Arc<Mutex<crate::queue::Queue>>,
 }
 
 pub struct Peer {
@@ -75,12 +75,18 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(listen_address: String, tx_interval_sec: usize, ping_interval_sec: usize) -> Peer {
+    pub fn new(
+        listen_address: String,
+        tx_interval_sec: usize,
+        ping_interval_sec: usize,
+        tx_queue: Arc<Mutex<crate::queue::Queue>>,
+    ) -> Peer {
         Peer {
             state: Arc::new(Mutex::new(PeerState {
                 peers: HashSet::new(),
                 sent_pings: HashMap::new(),
                 listen_address,
+                tx_queue,
             })),
             ping_interval_sec,
             tx_interval_sec,
@@ -121,9 +127,17 @@ impl Peer {
     }
 
     async fn broadcast_tx(state: State<PeerState>) -> Result<(), String> {
-        //TODO: check if we have pending tx and then broadcast it
-        let tx = Transaction::builder(vec![], Id::new("name", "domain")).build();
-        Self::broadcast(state, Message::PendingTx(tx)).await
+        for tx in state
+            .lock()
+            .await
+            .tx_queue
+            .lock()
+            .await
+            .get_pending_transactions()
+        {
+            Self::broadcast(state.clone(), Message::PendingTx(tx.as_requested())).await?;
+        }
+        Ok(())
     }
 
     async fn listen_and_reconnect(&self) {
@@ -265,8 +279,8 @@ mod tests {
 
     fn start_peer(listen_address: &str, connect_to: Option<String>) -> Arc<Peer> {
         use async_std::task;
-
-        let peer = Arc::new(Peer::new(listen_address.to_string(), 10, 15));
+        let queue = Arc::new(Mutex::new(crate::queue::Queue::default()));
+        let peer = Arc::new(Peer::new(listen_address.to_string(), 10, 15, queue));
         let peer_move = peer.clone();
         task::spawn(async move {
             let _result = match connect_to {

@@ -58,6 +58,45 @@ impl Transaction {
         }
     }
 
+    pub fn as_requested(&self) -> Transaction {
+        match self {
+            Transaction::Requested { .. } => self.clone(),
+            Transaction::Accepted {
+                instructions,
+                creation_time,
+                account_id,
+                signatures,
+            } => Transaction::Requested {
+                instructions: instructions.clone(),
+                creation_time: creation_time.clone(),
+                account_id: (*account_id).clone(),
+                signatures: signatures.clone(),
+            },
+            Transaction::Signed {
+                instructions,
+                creation_time,
+                account_id,
+                signatures,
+            } => Transaction::Requested {
+                instructions: instructions.clone(),
+                creation_time: creation_time.clone(),
+                account_id: (*account_id).clone(),
+                signatures: signatures.clone(),
+            },
+            Transaction::Valid {
+                instructions,
+                creation_time,
+                account_id,
+                signatures,
+            } => Transaction::Requested {
+                instructions: instructions.clone(),
+                creation_time: creation_time.clone(),
+                account_id: (*account_id).clone(),
+                signatures: signatures.clone(),
+            },
+        }
+    }
+
     pub fn accept(self) -> Result<Transaction, String> {
         if let Transaction::Requested {
             instructions,

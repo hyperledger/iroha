@@ -66,10 +66,11 @@ impl Iroha {
             Path::new(&config.kura_block_store_path),
             blocks_sender,
         ));
+        let queue = Arc::new(Mutex::new(Queue::default()));
         //TODO: Get peer params from config
-        let peer = Peer::new("127.0.0.1:7878".to_string(), 10, 15);
+        let peer = Peer::new("127.0.0.1:7878".to_string(), 10, 15, queue.clone());
         Iroha {
-            queue: Arc::new(Mutex::new(Queue::default())),
+            queue,
             torii: Arc::new(Mutex::new(torii)),
             peer: Arc::new(Mutex::new(peer)),
             sumeragi: Arc::new(Mutex::new(sumeragi)),
