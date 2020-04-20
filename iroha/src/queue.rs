@@ -13,6 +13,10 @@ impl Queue {
     pub fn pop_pending_transactions(&mut self) -> Vec<Transaction> {
         self.pending_tx.drain(..).collect()
     }
+
+    pub fn get_pending_transactions(&self) -> &[Transaction] {
+        &self.pending_tx
+    }
 }
 
 #[cfg(test)]
