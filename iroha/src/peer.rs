@@ -1,4 +1,4 @@
-use crate::{isi::Contract, tx::Transaction};
+use crate::prelude::*;
 use futures::{future::FutureExt, lock::Mutex, pin_mut, select};
 use iroha_derive::*;
 use iroha_network::{prelude::*, Network};
@@ -33,7 +33,7 @@ enum Message {
     //TODO: introduce other features like block sync, voting and etc.
     Ping(Ping),
     Pong(Ping),
-    PendingTx(Transaction),
+    PendingTx(TransactionRequest),
     AddPeer(PeerId),
     NewPeer(PeerId),
     RemovePeer(PeerId),
@@ -135,7 +135,11 @@ impl Peer {
             .await
             .get_pending_transactions()
         {
-            Self::broadcast(state.clone(), Message::PendingTx(tx.as_requested())).await?;
+            Self::broadcast(
+                state.clone(),
+                Message::PendingTx(TransactionRequest::from(tx)),
+            )
+            .await?;
         }
         Ok(())
     }
