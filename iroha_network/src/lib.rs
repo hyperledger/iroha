@@ -18,7 +18,7 @@ pub mod prelude {
     pub use crate::{AsyncStream, Network, Request, Response, State};
 }
 
-pub const BUFFER_SIZE: usize = 2048;
+pub const BUFFER_SIZE: usize = 1024;
 
 pub type State<T> = Arc<Mutex<T>>;
 
@@ -62,7 +62,7 @@ impl Network {
             .await
             .map_err(|e| e.to_string())?;
         stream.flush().await.map_err(|e| e.to_string())?;
-        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut buffer = vec![0u8; BUFFER_SIZE];
         let read_size = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
         Ok(buffer[..read_size].to_vec())
     }

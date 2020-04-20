@@ -7,19 +7,19 @@ use std::time::SystemTime;
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub enum Transaction {
     Requested {
-        /// An ordered set of instructions.
-        instructions: Vec<Contract>,
-        /// Time of creation (unix time, in milliseconds).
-        creation_time: u128,
         /// Account ID of transaction creator (username@domain).
         account_id: Id,
+        /// An ordered set of instructions.
+        instructions: Vec<Contract>,
         signatures: Vec<Signature>,
+        /// Time of creation (unix time, in milliseconds).
+        creation_time: String,
     },
     Accepted {
         /// An ordered set of instructions.
         instructions: Vec<Contract>,
         /// Time of creation (unix time, in milliseconds).
-        creation_time: u128,
+        creation_time: String,
         /// Account ID of transaction creator (username@domain).
         account_id: Id,
         signatures: Vec<Signature>,
@@ -28,7 +28,7 @@ pub enum Transaction {
         /// An ordered set of instructions.
         instructions: Vec<Contract>,
         /// Time of creation (unix time, in milliseconds).
-        creation_time: u128,
+        creation_time: String,
         /// Account ID of transaction creator (username@domain).
         account_id: Id,
         signatures: Vec<Signature>,
@@ -37,7 +37,7 @@ pub enum Transaction {
         /// An ordered set of instructions.
         instructions: Vec<Contract>,
         /// Time of creation (unix time, in milliseconds).
-        creation_time: u128,
+        creation_time: String,
         /// Account ID of transaction creator (username@domain).
         account_id: Id,
         signatures: Vec<Signature>,
@@ -52,7 +52,8 @@ impl Transaction {
             creation_time: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.")
-                .as_millis(),
+                .as_millis()
+                .to_string(),
             signatures: Option::None,
         }
     }
@@ -136,7 +137,7 @@ impl Transaction {
 /// Builder struct for `Transaction`.
 pub struct TxBuilder {
     pub instructions: Vec<Contract>,
-    pub creation_time: u128,
+    pub creation_time: String,
     pub account_id: Id,
     pub signatures: Option<Vec<Signature>>,
 }

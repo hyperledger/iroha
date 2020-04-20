@@ -82,7 +82,7 @@ impl Iroha {
         }
     }
 
-    pub async fn start(self) -> Result<(), String> {
+    pub fn start(self) -> Result<(), String> {
         let torii = Arc::clone(&self.torii);
         self.pool.spawn_ok(async move {
             torii.lock().await.start().await;
