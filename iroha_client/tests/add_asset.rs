@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use futures::executor;
     use iroha::{
         account::isi::{CreateAccount, CreateRole},
         asset::isi::AddAssetQuantity,
@@ -17,7 +16,7 @@ mod tests {
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         // Given
-        thread::spawn(|| executor::block_on(create_and_start_iroha()));
+        thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(200));
         let create_role = CreateRole {
             role_name: "user".to_string(),
@@ -88,13 +87,13 @@ mod tests {
         );
     }
 
-    async fn create_and_start_iroha() {
+    fn create_and_start_iroha() {
         let temp_dir = TempDir::new().expect("Failed to create TempDir.");
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         configuration.kura_block_store_path(temp_dir.path());
         let iroha = Iroha::new(configuration);
-        iroha.start().await.expect("Failed to start Iroha.");
+        iroha.start().expect("Failed to start Iroha.");
         //Prevents temp_dir from clean up untill the end of the tests.
         loop {}
     }
