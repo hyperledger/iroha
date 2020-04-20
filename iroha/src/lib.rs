@@ -101,20 +101,24 @@ impl Iroha {
         let last_round_time = Arc::clone(&self.last_round_time);
         self.pool.spawn_ok(async move {
             loop {
-                blockchain
-                    .lock()
-                    .await
-                    .accept(
-                        sumeragi
-                            .lock()
-                            .await
-                            .sign(queue.lock().await.pop_pending_transactions())
-                            .await
-                            .expect("Failed to sign transactions."),
-                    )
-                    .await
-                    .expect("Failed to accept transactions into blockchain.");
-                *last_round_time.lock().await = Instant::now();
+                //TODO: decide what should be the minimum time to accumulate tx before creating a block
+                let transactions = queue.lock().await.pop_pending_transactions();
+                if !transactions.is_empty() {
+                    blockchain
+                        .lock()
+                        .await
+                        .accept(
+                            sumeragi
+                                .lock()
+                                .await
+                                .sign(transactions)
+                                .await
+                                .expect("Failed to sign transactions."),
+                        )
+                        .await
+                        .expect("Failed to accept transactions into blockchain.");
+                    *last_round_time.lock().await = Instant::now();
+                }
             }
         });
         let blocks_receiver = Arc::clone(&self.blocks_receiver);
