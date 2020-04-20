@@ -25,7 +25,6 @@ using namespace shared_model::interface;
 namespace {
   const char *kPeerNotFound = "Cannot find peer";
   const char *kPeerRetrieveFail = "Failed to retrieve peers";
-  const std::chrono::seconds kBlocksRequestTimeout{5};
 }  // namespace
 
 BlockLoaderImpl::BlockLoaderImpl(
@@ -51,10 +50,6 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         proto::BlockRequest request;
         grpc::ClientContext context;
         protocol::Block block;
-
-        // set a timeout to avoid being hung
-        context.set_deadline(std::chrono::system_clock::now()
-                             + kBlocksRequestTimeout);
 
         // request next block to our top
         request.set_height(height + 1);

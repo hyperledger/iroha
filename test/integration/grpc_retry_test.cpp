@@ -38,8 +38,10 @@ class MockQueryService : public iroha::protocol::QueryService_v1::Service {
 };
 
 namespace {
-  constexpr int kAttemptsForSuccess = 4;  // 5 max attempts at reaching
-  constexpr int kAttemptsForFailure = 5;  // 5 max attempts at reaching
+  constexpr int kAttemptsForSuccess =
+      iroha::network::details::kClientRequestRetryAttempts - 1;
+  constexpr int kAttemptsForFailure =
+      iroha::network::details::kClientRequestRetryAttempts;
   constexpr auto kListenIP = "127.0.0.1";
 
   auto makeRunner() {
