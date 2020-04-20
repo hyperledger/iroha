@@ -25,8 +25,7 @@ impl Client {
     #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction =
-            &Transaction::builder(vec![command], Id::new("account", "domain")).build();
+        let transaction = &Transaction::new(vec![command], Id::new("account", "domain"));
         let response = network
             .send_request(Request::new(
                 COMMAND_REQUEST_HEADER.to_string(),

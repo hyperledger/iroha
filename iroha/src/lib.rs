@@ -178,7 +178,7 @@ pub mod prelude {
         isi::{Contract, Instruction},
         peer::Peer,
         query::{Query, QueryRequest, QueryResult},
-        tx::Transaction,
+        tx::{Transaction, TransactionRequest},
         wsv::WorldStateView,
         BlockReceiver, BlockSender, Id, Iroha, TransactionReceiver, TransactionSender,
     };
