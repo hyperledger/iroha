@@ -123,7 +123,7 @@ TYPED_TEST_CASE(CryptoUsageTest, CryptoUsageTestTypes, );
 TYPED_TEST(CryptoUsageTest, RawSignAndVerifyTest) {
   auto signature_hex = this->signer_->sign(this->data);
   using namespace shared_model::interface::types;
-  auto verified = CryptoVerifier::verify(
+  auto verified = crypto_verifier_.verify(
       SignedHexStringView{signature_hex},
       this->data,
       PublicKeyHexStringView{this->signer_->publicKey()});

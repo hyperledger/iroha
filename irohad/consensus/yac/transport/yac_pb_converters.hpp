@@ -92,7 +92,10 @@ namespace iroha {
         }
 
         static boost::optional<VoteMessage> deserializeVote(
-            const proto::Vote &pb_vote, logger::LoggerPtr log) {
+            const proto::Vote &pb_vote,
+            std::shared_ptr<shared_model::crypto::CryptoVerifier>
+                crypto_verifier,
+            logger::LoggerPtr log) {
           // TODO IR-428 igor-egorov refactor PbConverters - do the class
           // instantiable
           static const uint64_t kMaxBatchSize{0};
@@ -102,7 +105,7 @@ namespace iroha {
               shared_model::validation::FieldValidator>
               factory{
                   std::make_shared<shared_model::validation::ValidatorsConfig>(
-                      kMaxBatchSize)};
+                      kMaxBatchSize, std::move(crypto_verifier))};
 
           auto vote = deserealizeRoundAndHashes(pb_vote);
 

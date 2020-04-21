@@ -11,6 +11,7 @@
 #include "consensus/yac/storage/yac_common.hpp"
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "consensus/yac/vote_message.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
 #include "yac.pb.h"
@@ -25,9 +26,11 @@ namespace iroha {
               async_call,
           std::function<std::unique_ptr<proto::Yac::StubInterface>(
               const shared_model::interface::Peer &)> client_creator,
+          std::shared_ptr<shared_model::crypto::CryptoVerifier> crypto_verifier,
           logger::LoggerPtr log)
           : async_call_(async_call),
             client_creator_(client_creator),
+            crypto_verifier_(std::move(crypto_verifier)),
             log_(std::move(log)) {}
 
       void NetworkImpl::subscribe(
@@ -70,7 +73,8 @@ namespace iroha {
           ::google::protobuf::Empty *response) {
         std::vector<VoteMessage> state;
         for (const auto &pb_vote : request->votes()) {
-          if (auto vote = PbConverters::deserializeVote(pb_vote, log_)) {
+          if (auto vote = PbConverters::deserializeVote(
+                  pb_vote, crypto_verifier_, log_)) {
             state.push_back(*vote);
           }
         }

@@ -17,17 +17,12 @@
 #include "consensus/yac/yac_gate.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "consensus/yac/yac_peer_orderer.hpp"
+#include "cryptography/crypto_provider/crypto_provider.hpp"
 #include "cryptography/keypair.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "network/block_loader.hpp"
 #include "network/impl/async_grpc_client.hpp"
 #include "simulator/block_creator.hpp"
-
-namespace shared_model {
-  namespace crypto {
-    class CryptoSigner;
-  }
-}  // namespace shared_model
 
 namespace iroha {
   namespace consensus {
@@ -43,7 +38,7 @@ namespace iroha {
                 alternative_peers,
             std::shared_ptr<simulator::BlockCreator> block_creator,
             std::shared_ptr<network::BlockLoader> block_loader,
-            std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+            shared_model::crypto::CryptoProvider crypto_provider,
             std::shared_ptr<consensus::ConsensusResultCache> block_cache,
             std::chrono::milliseconds vote_delay_milliseconds,
             std::shared_ptr<

@@ -88,7 +88,7 @@ namespace {
 Result<void, const char *> CryptoVerifier::verify(
     SignedHexStringView signature,
     const Blob &source,
-    PublicKeyHexStringView public_key) {
+    PublicKeyHexStringView public_key) const {
   return iroha::hexstringToBytestringResult(signature) |
       [&source, &public_key](const auto &signature) {
         return iroha::hexstringToBytestringResult(public_key) |

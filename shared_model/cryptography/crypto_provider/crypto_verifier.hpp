@@ -28,13 +28,11 @@ namespace shared_model {
        * @return a result of void if signature is correct or error message
        * otherwise or if verification could not be completed
        */
-      static iroha::expected::Result<void, const char *> verify(
+      iroha::expected::Result<void, const char *> verify(
           shared_model::interface::types::SignedHexStringView signature,
           const Blob &source,
-          shared_model::interface::types::PublicKeyHexStringView public_key);
-
-      /// close constructor for forbidding instantiation
-      CryptoVerifier() = delete;
+          shared_model::interface::types::PublicKeyHexStringView public_key)
+          const;
 
       enum { kMaxPublicKeySize = 68 };
       enum { kMaxSignatureSize = 68 };

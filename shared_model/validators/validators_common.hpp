@@ -11,6 +11,10 @@
 #include "validators/settings.hpp"
 
 namespace shared_model {
+  namespace crypto {
+    class CryptoVerifier;
+  }
+
   namespace validation {
     /**
      * A struct that contains configuration parameters for all validators.
@@ -19,6 +23,7 @@ namespace shared_model {
     struct ValidatorsConfig {
       ValidatorsConfig(
           uint64_t max_batch_size,
+          std::shared_ptr<shared_model::crypto::CryptoVerifier> crypto_verifier,
           std::shared_ptr<const Settings> settings = getDefaultSettings(),
           bool partial_ordered_batches_are_valid = false,
           bool txs_duplicates_allowed = false);
@@ -41,6 +46,9 @@ namespace shared_model {
        * - BlockLoader
        */
       const bool txs_duplicates_allowed;
+
+      /// What to verify signatures with.
+      std::shared_ptr<shared_model::crypto::CryptoVerifier> crypto_verifier;
     };
 
     /**
