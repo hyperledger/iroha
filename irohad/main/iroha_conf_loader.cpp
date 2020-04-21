@@ -7,9 +7,9 @@
 
 #include <fstream>
 #include <limits>
-#include <sstream>
 #include <type_traits>
 
+#include <fmt/core.h>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 #include <rapidjson/rapidjson.h>
@@ -120,6 +120,21 @@ class JsonDeserializerImpl {
       Elem el;
       getVal(sublevelPath(path, std::to_string(i)), el, arr[i]);
       dest.emplace_back(std::move(el));
+    }
+  }
+
+  template <typename Key, typename Val>
+  void getVal(const std::string &path,
+              std::unordered_map<Key, Val> &dest,
+              const rapidjson::Value &src) {
+    assert_fatal(src.IsObject(), path + " must be a dictionary.");
+    const auto obj = src.GetObject();
+    for (auto it = obj.MemberBegin(); it != obj.MemberEnd(); ++it) {
+      assert(it->name.IsString());  // contract with RapidJSON
+      char const *key = it->name.GetString();
+      Val val;
+      getVal(fmt::format("{}[{}]", path, key), val, it->value);
+      dest.emplace(key, std::move(val));
     }
   }
 
@@ -269,10 +284,9 @@ class JsonDeserializerImpl {
    * @return the path to the sublevel
    */
   template <typename TChild>
-  inline std::string sublevelPath(std::string parent, TChild child) {
-    std::stringstream child_sstream;
-    child_sstream << child;
-    return std::move(parent) + "/" + child_sstream.str();
+  inline std::string sublevelPath(std::string const &parent,
+                                  TChild const &child) {
+    return fmt::format("{}/{}", std::move(parent), child);
   }
 
   /**
@@ -471,6 +485,55 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::UtilityService>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto>(
+    const std::string &path,
+    IrohadConfig::Crypto &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " crypto config must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.providers, obj, config_members::kProviders);
+  assert_fatal(
+      dest.providers.count(config_members::kCryptoProviderDefault) == 0,
+      fmt::format(
+          "{}: provider name '{}' is reserved and can not be redefined.",
+          path,
+          config_members::kCryptoProviderDefault));
+  getValByKey(path, dest.signer, obj, config_members::kSigner);
+  getValByKey(path, dest.verifier, obj, config_members::kVerifier);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco>(
+    const std::string &path,
+    IrohadConfig::Crypto::HsmUtimaco &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " Utimaco HSM config must be an object.");
+  const auto obj = src.GetObject();
+  // TODO
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::ProviderVariant>(
+    const std::string &path,
+    IrohadConfig::Crypto::ProviderVariant &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " crypto provider must be an object.");
+  const auto obj = src.GetObject();
+
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::kCryptoProviderDefault) {
+    dest = IrohadConfig::Crypto::Default{};
+  } else if (type == config_members::kCryptoProviderUtimaco) {
+    dest = IrohadConfig::Crypto::HsmUtimaco{};
+    getVal(path, std::get<IrohadConfig::Crypto::HsmUtimaco>(dest), src);
+  } else {
+    throw JsonDeserializerException{
+        fmt::format("Unknown crypto provider type: '{}'", type)};
+  }
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -499,6 +562,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
   getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
   getValByKey(path, dest.utility_service, obj, config_members::UtilityService);
+  getValByKey(path, dest.crypto, obj, config_members::kCrypto);
 }
 
 // ------------ end of getVal(path, dst, src) specializations ------------

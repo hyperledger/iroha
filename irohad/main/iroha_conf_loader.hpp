@@ -63,6 +63,21 @@ struct IrohadConfig {
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   boost::optional<shared_model::interface::types::PeerList> initial_peers;
   boost::optional<UtilityService> utility_service;
+
+  struct Crypto {
+    struct Default {};
+    struct HsmUtimaco {};
+
+    using ProviderVariant = std::variant<Default, HsmUtimaco>;
+    using ProviderId = std::string;
+    using ProviderList = std::unordered_map<ProviderId, ProviderVariant>;
+
+    ProviderList providers;
+    ProviderId signer;
+    ProviderId verifier;
+  };
+
+  boost::optional<Crypto> crypto;
 };
 
 /**
