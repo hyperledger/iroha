@@ -133,7 +133,8 @@ pub mod query {
                 timestamp: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time.")
-                    .as_millis(),
+                    .as_millis()
+                    .to_string(),
                 signature: Option::None,
                 query: query.into(),
             }
