@@ -57,6 +57,17 @@ struct IrohadConfig {
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   boost::optional<shared_model::interface::types::PeerList> initial_peers;
+
+  struct Crypto {
+    struct SignerInternalEd25519Sha3 {};
+    struct SignerInternalEd25519Ursa {};
+
+    using SignerVariant =
+        std::variant<SignerInternalEd25519Sha3, SignerInternalEd25519Ursa>;
+    std::variant<SignerInternalEd25519Sha3, SignerInternalEd25519Ursa> signer;
+  };
+
+  boost::optional<Crypto> crypto;
 };
 
 /**

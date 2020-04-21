@@ -432,6 +432,36 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::DbConfig>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto>(
+    const std::string &path,
+    IrohadConfig::Crypto &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " crypto config must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.signer, obj, config_members::kSigner);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::SignerVariant>(
+    const std::string &path,
+    IrohadConfig::Crypto::SignerVariant &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " signer config must be an object.");
+  const auto obj = src.GetObject();
+
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::kCryptoInternalEd25519Sha3) {
+    dest = IrohadConfig::Crypto::SignerInternalEd25519Sha3{};
+  } else if (type == config_members::kCryptoInternalEd25519Ursa) {
+    dest = IrohadConfig::Crypto::SignerInternalEd25519Ursa{};
+  } else {
+    throw JsonDeserializerException{
+        std::string{"Unknown crypto signer type: '" + type + "'"}};
+  }
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -459,6 +489,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
               config_members::StaleStreamMaxRounds);
   getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
   getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
+  getValByKey(path, dest.crypto, obj, config_members::kCrypto);
 }
 
 // ------------ end of getVal(path, dst, src) specializations ------------

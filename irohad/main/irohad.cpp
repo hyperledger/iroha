@@ -15,8 +15,10 @@
 #include "common/files.hpp"
 #include "common/irohad_version.hpp"
 #include "common/result.hpp"
+#include "common/visitor.hpp"
 #include "crypto/keys_manager_impl.hpp"
 #include "cryptography/crypto_provider/crypto_signer_internal.hpp"
+#include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -27,12 +29,20 @@
 #include "main/raw_block_loader.hpp"
 #include "validators/field_validator.hpp"
 
+#if defined(USE_LIBURSA)
+#include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
+#endif
+
 static const std::string kListenIp = "0.0.0.0";
 static const std::string kLogSettingsFromConfigFile = "config_file";
 static const uint32_t kMstExpirationTimeDefault = 1440;
 static const uint32_t kMaxRoundsDelayDefault = 3000;
 static const uint32_t kStaleStreamMaxRoundsDefault = 2;
 static const std::string kDefaultWorkingDatabaseName{"iroha_default"};
+
+/// backward compatible default crypto
+static const IrohadConfig::Crypto kDefaultCryptoConfig{
+    IrohadConfig::Crypto::SignerInternalEd25519Sha3{}};
 
 /**
  * Gflag validator.
@@ -129,6 +139,7 @@ getCommonObjectsFactory() {
       shared_model::validation::FieldValidator>>(validators_config);
 }
 
+template <typename CryptoProvider>
 std::shared_ptr<shared_model::crypto::CryptoSigner> makeCryptoSignerInternal(
     const std::string &keypair_path) {
   assert(init_log);
@@ -142,13 +153,48 @@ std::shared_ptr<shared_model::crypto::CryptoSigner> makeCryptoSignerInternal(
     assert(false);
   }
   using namespace shared_model::crypto;
-  return std::make_shared<CryptoSignerInternal<CryptoProviderEd25519Sha3>>(
+  return std::make_shared<CryptoSignerInternal<CryptoProvider>>(
       std::move(keypair).assumeValue());
 }
 
 std::shared_ptr<shared_model::crypto::CryptoSigner> makeCryptoSigner(
     IrohadConfig const &config) {
-  return makeCryptoSignerInternal(FLAGS_keypair_name);
+  using namespace shared_model::crypto;
+  using ReturnType = std::shared_ptr<shared_model::crypto::CryptoSigner>;
+  return std::visit(
+      iroha::make_visitor(
+          [](const IrohadConfig::Crypto::SignerInternalEd25519Sha3 &)
+              -> ReturnType {
+            return makeCryptoSignerInternal<CryptoProviderEd25519Sha3>(
+                FLAGS_keypair_name);
+          },
+          [](const IrohadConfig::Crypto::SignerInternalEd25519Ursa &)
+              -> ReturnType {
+#if defined(USE_LIBURSA)
+            return makeCryptoSignerInternal<CryptoProviderEd25519Ursa>(
+                FLAGS_keypair_name);
+#else
+            throw std::runtime_error{
+                "To use Ursa, please recompile with USE_LIBURSA."};
+#endif
+          }),
+      config.crypto.value_or(kDefaultCryptoConfig).signer);
+}
+
+std::shared_ptr<shared_model::crypto::CryptoSigner> makeAndCheckCryptoSigner(
+    IrohadConfig const &config) {
+  auto crypto_signer = makeCryptoSigner(config);
+  shared_model::crypto::Blob test_blob{"12345"};
+  auto signature = crypto_signer->sign(test_blob);
+  if (auto e = iroha::expected::resultToOptionalError(
+          shared_model::crypto::CryptoVerifier::verify(
+              shared_model::interface::types::SignedHexStringView{signature},
+              test_blob,
+              crypto_signer->publicKey()))) {
+    throw std::runtime_error{
+        fmt::format("{} startup check failed: {}", *crypto_signer, e.value())};
+  }
+  return crypto_signer;
 }
 
 int main(int argc, char *argv[]) {
@@ -231,7 +277,7 @@ int main(int argc, char *argv[]) {
       std::chrono::milliseconds(config.vote_delay),
       std::chrono::minutes(
           config.mst_expiration_time.value_or(kMstExpirationTimeDefault)),
-      makeCryptoSigner(config),
+      makeAndCheckCryptoSigner(config),
       std::chrono::milliseconds(
           config.max_round_delay_ms.value_or(kMaxRoundsDelayDefault)),
       config.stale_stream_max_rounds.value_or(kStaleStreamMaxRoundsDefault),

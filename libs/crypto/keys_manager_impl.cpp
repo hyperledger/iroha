@@ -22,20 +22,6 @@ using iroha::operator|;
 
 using CryptoAlgorithmType = CryptoProviderEd25519Sha3;
 
-namespace {
-  /**
-   * Check that keypair is valid
-   * @param keypair - keypair for validation
-   * @return error if any, boost::none otherwise
-   */
-  iroha::expected::Result<void, const char *> validate(const Keypair &keypair) {
-    auto test = Blob("12345");
-    auto signature = CryptoAlgorithmType::sign(test, keypair);
-    return CryptoVerifier::verify(
-        SignedHexStringView{signature}, test, keypair.publicKey());
-  }
-}  // namespace
-
 namespace iroha {
   /**
    * Function for the key (en|de)cryption via XOR
@@ -87,11 +73,7 @@ namespace iroha {
           Keypair keypair(PublicKeyHexStringView{pubkey_hex},
                           PrivateKey{decrypted_privkey_blob});
 
-          return validate(keypair).match(
-              [&keypair](const auto &) -> ReturnType {
-                return std::move(keypair);
-              },
-              [](const auto &error) -> ReturnType { return error.error; });
+          return keypair;
         };
       };
     };

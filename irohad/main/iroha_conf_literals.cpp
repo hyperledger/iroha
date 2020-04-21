@@ -47,4 +47,8 @@ namespace config_members {
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";
   const char *TlsCertificatePath = "tls_certificate_path";
+  const char *kCrypto = "crypto";
+  const char *kSigner = "signer";
+  const char *kCryptoInternalEd25519Sha3 = "ED25519 Sha3";
+  const char *kCryptoInternalEd25519Ursa = "ED25519 Ursa";
 }  // namespace config_members
