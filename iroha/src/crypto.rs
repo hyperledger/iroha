@@ -56,7 +56,12 @@ mod tests {
             .expect("Failed to sign message.");
         let mut signature: Ed25519Signature = [0; 64];
         signature.copy_from_slice(&signed_message);
-        let result = Signature::new(public_key[..].try_into().unwrap(), signature);
+        let result = Signature::new(
+            public_key[..]
+                .try_into()
+                .expect("Failed to transform public key."),
+            signature,
+        );
         assert_eq!(result.public_key, public_key[..]);
     }
 

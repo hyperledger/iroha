@@ -19,7 +19,11 @@ impl WorldStateView {
     /// into the world.
     pub async fn put(&mut self, block: &Block) {
         for transaction in &block.transactions {
-            if let Transaction::Valid(TransactionRequest { instructions, .. }) = transaction {
+            if let Transaction::Valid {
+                request: TransactionRequest { instructions, .. },
+                ..
+            } = transaction
+            {
                 for instruction in instructions {
                     if let Err(e) = instruction.invoke(self) {
                         eprintln!("Failed to apply instruction to WSV: {}", e);
