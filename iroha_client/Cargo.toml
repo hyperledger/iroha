@@ -10,6 +10,7 @@ edition = "2018"
 iroha = { path = "../iroha" }
 iroha_network = { path = "../iroha_network" }
 iroha_derive = { path = "../iroha_macro/iroha_derive" }
+ursa = "0.3.2"
 
 [dev-dependencies]
 async-std = { version = "1.5", features = ["attributes"] }

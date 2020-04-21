@@ -18,7 +18,7 @@ pub mod prelude {
     pub use crate::{AsyncStream, Network, Request, Response, State};
 }
 
-pub const BUFFER_SIZE: usize = 1024;
+pub const BUFFER_SIZE: usize = 2048;
 
 pub type State<T> = Arc<Mutex<T>>;
 
@@ -165,6 +165,7 @@ impl Request {
 }
 
 impl From<Request> for Vec<u8> {
+    #[log]
     fn from(request: Request) -> Self {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(request.uri_path.as_bytes());
@@ -177,12 +178,16 @@ impl From<Request> for Vec<u8> {
 impl TryFrom<Vec<u8>> for Request {
     type Error = Box<dyn Error>;
 
-    fn try_from(bytes: Vec<u8>) -> Result<Request, Box<dyn Error>> {
-        let mut split_iter = bytes.split(|byte| *byte == b"\n"[0]);
-        let url = split_iter.next().ok_or("Failed to get url.")?;
-        let payload: Vec<u8> = split_iter.flatten().cloned().collect();
+    #[log]
+    fn try_from(mut bytes: Vec<u8>) -> Result<Request, Box<dyn Error>> {
+        let n = bytes
+            .iter()
+            .position(|byte| *byte == b"\n"[0])
+            .expect("Request should contain \\r\\n sequence.")
+            + 1;
+        let payload: Vec<u8> = bytes.drain(n..).collect();
         Ok(Request {
-            uri_path: String::from_utf8(url[..(url.len() - 1)].to_vec())?,
+            uri_path: String::from_utf8(bytes[..(bytes.len() - 2)].to_vec())?,
             payload,
         })
     }
