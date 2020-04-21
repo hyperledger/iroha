@@ -6,6 +6,8 @@
 #include "main/application.hpp"
 
 #include <boost/filesystem.hpp>
+#include <rxcpp/operators/rx-concat.hpp>
+#include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
 #include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
@@ -313,6 +315,18 @@ Irohad::RunResult Irohad::initStorage(
                              log_manager_->getChild("Storage"))
              | [&](auto &&v) -> RunResult {
     storage = std::move(v);
+    finalized_txs_ =
+        storage->on_commit()
+            .flat_map([](auto const &block) {
+              return rxcpp::observable<>::iterate(
+                         block->transactions()
+                         | boost::adaptors::transformed(
+                             [](auto const &tx) { return tx.hash(); }))
+                  .concat(rxcpp::observable<>::iterate(
+                      block->rejected_transactions_hashes()));
+            })
+            .publish()
+            .ref_count();
     log_->info("[Init] => storage");
     return {};
   };
@@ -795,7 +809,7 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
     }
   });
 
-  pending_txs_storage_init->setSubscriptions(*pcs);
+  // pending_txs_storage_init->setSubscriptions(*pcs);
 
   log_->info("[Init] => pcs");
   return {};
@@ -814,8 +828,10 @@ Irohad::RunResult Irohad::initMstProcessor() {
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
   auto mst_storage = std::make_shared<MstStorageStateImpl>(
       mst_completer,
+      finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
+  pending_txs_storage_init->setSubscriptions(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (is_mst_supported_) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(

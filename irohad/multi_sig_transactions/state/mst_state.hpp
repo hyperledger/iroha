@@ -6,11 +6,8 @@
 #ifndef IROHA_MST_STATE_HPP
 #define IROHA_MST_STATE_HPP
 
-#include <algorithm>  // std::for_each
 #include <chrono>
-#include <queue>
 #include <unordered_set>
-#include <vector>
 
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
@@ -135,6 +132,12 @@ namespace iroha {
      * @param current_time - current time
      */
     void eraseExpired(const TimeType &current_time);
+
+    /**
+     * Erase batch by transaction hash
+     */
+    void eraseByTransactionHash(
+        const shared_model::interface::types::HashType &hash);
 
     /**
      * Check, if this MST state contains that element

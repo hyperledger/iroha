@@ -14,7 +14,8 @@ namespace iroha {
       StateObservable updated_batches,
       BatchObservable prepared_batch,
       BatchObservable expired_batch,
-      PreparedTransactionsObservable prepared_txs) {
+      PreparedTransactionsObservable prepared_txs,
+      FinalizedTransactionsObservable finalized_txs) {
     updated_batches_subscription_ =
         updated_batches.subscribe([this](const SharedState &batches) {
           this->updatedBatchesHandler(batches);
@@ -31,6 +32,8 @@ namespace iroha {
         [this](const PreparedTransactionDescriptor &prepared_transaction) {
           this->removeBatch(prepared_transaction);
         });
+    finalized_transactions_subscription_ = finalized_txs.subscribe(
+        [this](auto const &hash) { this->removeTransaction(hash); });
   }
 
   PendingTransactionStorageImpl::~PendingTransactionStorageImpl() {
@@ -38,6 +41,7 @@ namespace iroha {
     prepared_batch_subscription_.unsubscribe();
     expired_batch_subscription_.unsubscribe();
     prepared_transactions_subscription_.unsubscribe();
+    finalized_transactions_subscription_.unsubscribe();
   }
 
   PendingTransactionStorageImpl::SharedTxsCollectionType
@@ -211,6 +215,29 @@ namespace iroha {
     if (creators and batch_size) {
       std::unique_lock<std::shared_timed_mutex> lock(mutex_);
       removeFromStorage(first_transaction_hash, *creators, *batch_size);
+    }
+  }
+
+  void PendingTransactionStorageImpl::removeTransaction(const HashType &hash) {
+    std::shared_lock<std::shared_timed_mutex> read_lock(mutex_);
+    for (auto &p : storage_) {
+      auto &batches = p.second.batches;
+      for (auto it = batches.begin(); it != batches.end(); ++it) {
+        auto const &transactions = it->get()->transactions();
+        if (std::any_of(
+                transactions.begin(),
+                transactions.end(),
+                [&hash](auto const &tx) { return hash == tx->hash(); })) {
+          auto batch = *it;
+          auto const &first_transaction_hash = transactions.front()->hash();
+          auto const &creators = batchCreators(**it);
+          auto batch_size = transactions.size();
+          read_lock.unlock();
+          std::unique_lock<std::shared_timed_mutex> write_lock(mutex_);
+          removeFromStorage(first_transaction_hash, creators, batch_size);
+          return;
+        }
+      }
     }
   }
 
