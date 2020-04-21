@@ -4,7 +4,7 @@ use parity_scale_codec::{Decode, Encode};
 
 #[derive(Debug, Io, Encode, Decode)]
 pub struct QueryRequest {
-    pub timestamp: u128,
+    pub timestamp: String,
     pub signature: Option<Signature>,
     pub query: IrohaQuery,
 }
