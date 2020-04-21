@@ -11,6 +11,7 @@
 #include <fmt/format.h>
 #include "common/to_string.hpp"
 #include "cryptography/blob.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/keypair.hpp"
 
 namespace shared_model {
