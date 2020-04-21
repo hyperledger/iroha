@@ -39,6 +39,10 @@ namespace iroha {
     void setSubscriptions(
         const network::PeerCommunicationService &peer_communication_service);
 
+    void setSubscriptions(
+        rxcpp::observable<shared_model::interface::types::HashType>
+            finalized_txs);
+
     ~PendingTransactionStorageInit();
 
    protected:
@@ -54,6 +58,8 @@ namespace iroha {
         std::pair<shared_model::interface::types::AccountIdType,
                   shared_model::interface::types::HashType>>
         prepared_txs;
+    rxcpp::subjects::subject<shared_model::interface::types::HashType>
+        finalized_txs;
   };
 }  // namespace iroha
 

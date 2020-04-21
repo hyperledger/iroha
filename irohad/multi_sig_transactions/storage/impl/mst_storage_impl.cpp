@@ -22,13 +22,27 @@ namespace iroha {
   }
   // -----------------------------| interface API |-----------------------------
 
-  MstStorageStateImpl::MstStorageStateImpl(const CompleterType &completer,
-                                           logger::LoggerPtr mst_state_logger,
-                                           logger::LoggerPtr log)
+  MstStorageStateImpl::MstStorageStateImpl(
+      const CompleterType &completer,
+      rxcpp::observable<shared_model::interface::types::HashType> finalized_txs,
+      logger::LoggerPtr mst_state_logger,
+      logger::LoggerPtr log)
       : MstStorage(log),
         completer_(completer),
         own_state_(MstState::empty(mst_state_logger, completer_)),
-        mst_state_logger_(std::move(mst_state_logger)) {}
+        mst_state_logger_(std::move(mst_state_logger)) {
+    finalized_transactions_subscription_ =
+        finalized_txs.subscribe([this](auto const &hash) {
+          for (auto &p : peer_states_) {
+            p.second.eraseByTransactionHash(hash);
+          }
+          return own_state_.eraseByTransactionHash(hash);
+        });
+  }
+
+  MstStorageStateImpl::~MstStorageStateImpl() {
+    finalized_transactions_subscription_.unsubscribe();
+  }
 
   auto MstStorageStateImpl::applyImpl(
       shared_model::interface::types::PublicKeyHexStringView target_peer_key,

@@ -26,7 +26,8 @@ PendingTransactionStorageInit::createPendingTransactionsStorage() {
       updated_batches.get_observable(),
       prepared_batch.get_observable(),
       expired_batch.get_observable(),
-      prepared_txs.get_observable());
+      prepared_txs.get_observable(),
+      finalized_txs.get_observable());
 }
 
 void PendingTransactionStorageInit::setSubscriptions(
@@ -52,12 +53,18 @@ void PendingTransactionStorageInit::setSubscriptions(
         auto prepared_transactions =
             event.proposal.get()->transactions()
             | boost::adaptors::transformed(
-                  [](const auto &tx) -> PreparedTransactionDescriptor {
-                    return std::make_pair(tx.creatorAccountId(), tx.hash());
-                  });
+                [](const auto &tx) -> PreparedTransactionDescriptor {
+                  return std::make_pair(tx.creatorAccountId(), tx.hash());
+                });
         return rxcpp::observable<>::iterate(prepared_transactions);
       })
       .subscribe(pending_storage_lifetime, prepared_txs.get_subscriber());
+}
+
+void PendingTransactionStorageInit::setSubscriptions(
+    rxcpp::observable<shared_model::interface::types::HashType> finalized_txs) {
+  finalized_txs.subscribe(pending_storage_lifetime,
+                          this->finalized_txs.get_subscriber());
 }
 
 PendingTransactionStorageInit::~PendingTransactionStorageInit() {

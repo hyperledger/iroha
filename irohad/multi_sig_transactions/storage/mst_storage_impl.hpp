@@ -7,6 +7,8 @@
 #define IROHA_MST_STORAGE_IMPL_HPP
 
 #include <unordered_map>
+
+#include <rxcpp/rx-lite.hpp>
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
 #include "multi_sig_transactions/storage/mst_storage.hpp"
@@ -27,9 +29,14 @@ namespace iroha {
 
    public:
     // ----------------------------| interface API |----------------------------
-    MstStorageStateImpl(const CompleterType &completer,
-                        logger::LoggerPtr mst_state_logger,
-                        logger::LoggerPtr log);
+    MstStorageStateImpl(
+        const CompleterType &completer,
+        rxcpp::observable<shared_model::interface::types::HashType>
+            finalized_txs,
+        logger::LoggerPtr mst_state_logger,
+        logger::LoggerPtr log);
+
+    ~MstStorageStateImpl() override;
 
     auto applyImpl(
         shared_model::interface::types::PublicKeyHexStringView target_peer_key,
@@ -82,6 +89,8 @@ namespace iroha {
     std::unordered_map<StringViewOrString, MstState, StringViewOrString::Hash>
         peer_states_;
     MstState own_state_;
+
+    rxcpp::composite_subscription finalized_transactions_subscription_;
 
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                           ///< objects.
