@@ -1,7 +1,11 @@
 use iroha::prelude::*;
 use iroha_derive::log;
 use iroha_network::prelude::*;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
+use ursa::{
+    keys::PrivateKey,
+    signatures::{ed25519::Ed25519Sha512, SignatureScheme},
+};
 
 const QUERY_REQUEST_HEADER: &str = "/queries";
 const COMMAND_REQUEST_HEADER: &str = "/commands";
@@ -11,13 +15,22 @@ const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 #[derive(Debug)]
 pub struct Client {
     torii_url: String,
+    public_key: PublicKey,
+    private_key: PrivateKey,
 }
 
 /// Representation of `Iroha` client.
 impl Client {
     pub fn new(config: Configuration) -> Self {
+        let (public_key, private_key) = Ed25519Sha512
+            .keypair(Option::None)
+            .expect("Failed to generate key pair.");
         Client {
             torii_url: config.torii_url,
+            public_key: public_key[..]
+                .try_into()
+                .expect("Public key should be [u8;32]"),
+            private_key,
         }
     }
 
@@ -25,11 +38,16 @@ impl Client {
     #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction = &Transaction::new(vec![command], Id::new("account", "domain"));
+        let transaction = Transaction::new(
+            vec![command],
+            Id::new("account", "domain"),
+            &self.public_key,
+            &self.private_key,
+        );
         let response = network
             .send_request(Request::new(
                 COMMAND_REQUEST_HEADER.to_string(),
-                transaction.into(),
+                Vec::from(&transaction),
             ))
             .await
             .map_err(|e| {
