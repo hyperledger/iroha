@@ -124,7 +124,8 @@ namespace shared_model {
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
-        : future_gap_(future_gap),
+        : crypto_verifier_(config->crypto_verifier),
+          future_gap_(future_gap),
           time_provider_(time_provider),
           max_description_size(config->settings->max_description_size) {}
 
@@ -333,11 +334,10 @@ namespace shared_model {
 
         if (not sig_format_error) {
           using namespace shared_model::interface::types;
-          if (auto e = resultToOptionalError(
-                  shared_model::crypto::CryptoVerifier::verify(
-                      SignedHexStringView{signature.value().signedData()},
-                      source,
-                      PublicKeyHexStringView{signature.value().publicKey()}))) {
+          if (auto e = resultToOptionalError(crypto_verifier_->verify(
+                  SignedHexStringView{signature.value().signedData()},
+                  source,
+                  PublicKeyHexStringView{signature.value().publicKey()}))) {
             sig_error_creator.addReason(e.value());
           }
         }

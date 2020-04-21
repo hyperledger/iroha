@@ -10,6 +10,7 @@
 
 #include "consensus/consensus_block_cache.hpp"
 #include "consensus/gate_object.hpp"
+#include "cryptography/crypto_provider/crypto_provider.hpp"
 #include "cryptography/keypair.hpp"
 #include "interfaces/queries/blocks_query.hpp"
 #include "interfaces/queries/query.hpp"
@@ -72,10 +73,6 @@ namespace iroha {
 }  // namespace iroha
 
 namespace shared_model {
-  namespace crypto {
-    class CryptoSigner;
-    class Keypair;
-  }  // namespace crypto
   namespace interface {
     class QueryResponseFactory;
     class TransactionBatchFactory;
@@ -124,7 +121,7 @@ class Irohad {
          std::chrono::milliseconds proposal_delay,
          std::chrono::milliseconds vote_delay,
          std::chrono::minutes mst_expiration_time,
-         std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer,
+         shared_model::crypto::CryptoProvider crypto_provider,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
          boost::optional<shared_model::interface::types::PeerList>
@@ -284,7 +281,7 @@ class Irohad {
   std::shared_ptr<iroha::ametsuchi::WsvRestorer> wsv_restorer_;
 
   // crypto provider
-  std::shared_ptr<shared_model::crypto::CryptoSigner> crypto_signer_;
+  shared_model::crypto::CryptoProvider crypto_provider_;
 
   // batch parser
   std::shared_ptr<shared_model::interface::TransactionBatchParser> batch_parser;
