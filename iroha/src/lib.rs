@@ -174,7 +174,7 @@ pub mod prelude {
         asset::Asset,
         block::Block,
         config::Configuration,
-        crypto::{Hash, Signature},
+        crypto::{Hash, PublicKey, Signature},
         domain::Domain,
         isi::{Contract, Instruction},
         peer::Peer,

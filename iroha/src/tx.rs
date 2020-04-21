@@ -2,6 +2,10 @@ use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
+use ursa::{
+    keys::PrivateKey,
+    signatures::{ed25519::Ed25519Sha512, Signer},
+};
 
 /// This structure represents transaction in non-trusted form.
 ///
@@ -15,7 +19,6 @@ pub struct TransactionRequest {
     account_id: Id,
     /// An ordered set of instructions.
     pub instructions: Vec<Contract>,
-    signatures: Vec<Signature>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: String,
 }
@@ -28,15 +31,32 @@ pub struct TransactionRequest {
 /// with `Iroha` subsystems.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub enum Transaction {
-    Requested(TransactionRequest),
-    Accepted(TransactionRequest),
-    Signed(TransactionRequest),
-    Valid(TransactionRequest),
+    Requested {
+        request: TransactionRequest,
+        signatures: Vec<Signature>,
+    },
+    Accepted {
+        request: TransactionRequest,
+        signatures: Vec<Signature>,
+    },
+    Signed {
+        request: TransactionRequest,
+        signatures: Vec<Signature>,
+    },
+    Valid {
+        request: TransactionRequest,
+        signatures: Vec<Signature>,
+    },
 }
 
 impl Transaction {
-    pub fn new(instructions: Vec<Contract>, account_id: Id) -> Transaction {
-        Transaction::Requested(TransactionRequest {
+    pub fn new(
+        instructions: Vec<Contract>,
+        account_id: Id,
+        public_key: &PublicKey,
+        private_key: &PrivateKey,
+    ) -> Transaction {
+        let request = TransactionRequest {
             instructions,
             account_id,
             creation_time: SystemTime::now()
@@ -44,35 +64,63 @@ impl Transaction {
                 .expect("Failed to get System Time.")
                 .as_millis()
                 .to_string(),
-            signatures: Vec::new(),
-        })
+        };
+        let bytes: Vec<u8> = Vec::from(&request);
+        let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
+            .sign(&bytes)
+            .expect("Failed to sign transaction.");
+        let mut signature = [0; 64];
+        signature.copy_from_slice(&transaction_signature);
+        let signature = Signature::new(public_key.clone(), signature);
+        Transaction::Requested {
+            request,
+            signatures: vec![signature],
+        }
     }
 
     pub fn accept(self) -> Result<Transaction, String> {
-        if let Transaction::Requested(transaction_request) = self {
-            Ok(Transaction::Accepted(transaction_request))
+        if let Transaction::Requested {
+            request,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Accepted {
+                request,
+                signatures,
+            })
         } else {
             Err("Transaction should be in Requested state to be accepted.".to_string())
         }
     }
 
     pub fn sign(self, new_signatures: Vec<Signature>) -> Result<Transaction, String> {
-        if let Transaction::Accepted(transaction_request) = self {
-            Ok(Transaction::Signed(TransactionRequest {
-                signatures: vec![transaction_request.signatures, new_signatures]
+        if let Transaction::Accepted {
+            request,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Signed {
+                request,
+                signatures: vec![signatures, new_signatures]
                     .into_iter()
                     .flatten()
                     .collect(),
-                ..transaction_request
-            }))
+            })
         } else {
             Err("Transaction should be in Accepted state to be signed.".to_string())
         }
     }
 
     pub fn validate(self) -> Result<Transaction, String> {
-        if let Transaction::Signed(transaction_request) = self {
-            Ok(Transaction::Valid(transaction_request))
+        if let Transaction::Signed {
+            request,
+            signatures,
+        } = self
+        {
+            Ok(Transaction::Valid {
+                request,
+                signatures,
+            })
         } else {
             Err("Transaction should be in Signed state to be validated.".to_string())
         }
@@ -97,10 +145,10 @@ impl Transaction {
 impl From<&Transaction> for TransactionRequest {
     fn from(transaction: &Transaction) -> TransactionRequest {
         match transaction {
-            Transaction::Requested(transaction_request)
-            | Transaction::Accepted(transaction_request)
-            | Transaction::Signed(transaction_request)
-            | Transaction::Valid(transaction_request) => transaction_request.clone(),
+            Transaction::Requested { request, .. }
+            | Transaction::Accepted { request, .. }
+            | Transaction::Signed { request, .. }
+            | Transaction::Valid { request, .. } => request.clone(),
         }
     }
 }
