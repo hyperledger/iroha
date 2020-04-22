@@ -62,7 +62,7 @@ namespace shared_model {
         }
         object_.addSignature(
             shared_model::interface::types::SignedHexStringView{
-                signer.sign(object_.payload()).hex()},
+                signer.sign(object_.payload())},
             signer.publicKey());
         // TODO: 05.12.2017 luckychess think about false case
         return *this;
