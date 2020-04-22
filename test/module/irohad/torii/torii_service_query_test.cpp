@@ -60,7 +60,7 @@ class ToriiQueryServiceTest : public ::testing::Test {
         shared_model::interface::Query>>
         query_validator = std::make_unique<
             shared_model::validation::DefaultSignedQueryValidator>(
-            iroha::test::kTestsValidatorsConfig);
+            iroha::test::getTestsValidatorsConfig());
     std::unique_ptr<
         shared_model::validation::AbstractValidator<iroha::protocol::Query>>
         proto_query_validator =
@@ -72,7 +72,7 @@ class ToriiQueryServiceTest : public ::testing::Test {
 
     auto blocks_query_validator = std::make_unique<
         shared_model::validation::DefaultSignedBlocksQueryValidator>(
-        iroha::test::kTestsValidatorsConfig);
+        iroha::test::getTestsValidatorsConfig());
     auto proto_blocks_query_validator =
         std::make_unique<shared_model::validation::ProtoBlocksQueryValidator>();
     blocks_query_factory =

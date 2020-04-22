@@ -11,6 +11,7 @@ target_link_libraries(transaction_processor_test
     shared_model_stateless_validation
     test_logger
     test_make_default_signer
+    test_tx_sequence_factory
     )
 
 # Testing of query processor

@@ -13,6 +13,7 @@ if (IROHA_ROOT_PROJECT)
       shared_model_stateless_validation
       shared_model_interfaces_factories
       test_make_default_signer
+      test_tx_sequence_factory
       )
 endif ()
 

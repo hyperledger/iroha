@@ -13,9 +13,9 @@
 #include "framework/batch_helper.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 #include "utils/query_error_response_visitor.hpp"
 
 using namespace common_constants;
@@ -58,9 +58,9 @@ class PipelineIntegrationTest : public AcceptanceFixture {
         TransactionSequenceFactory::createTransactionSequence(
             txs,
             shared_model::validation::DefaultSignedTransactionsValidator(
-                iroha::test::kTestsValidatorsConfig),
+                iroha::test::getTestsValidatorsConfig()),
             shared_model::validation::FieldValidator(
-                iroha::test::kTestsValidatorsConfig));
+                iroha::test::getTestsValidatorsConfig()));
 
     return framework::expected::val(tx_sequence_result).value().value;
   }

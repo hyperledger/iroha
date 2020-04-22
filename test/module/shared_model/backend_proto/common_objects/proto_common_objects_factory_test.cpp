@@ -22,7 +22,7 @@ using interface::types::SignedHexStringView;
 
 class ProtoFixture : public ::testing::Test {
  public:
-  ProtoFixture() : factory(iroha::test::kTestsValidatorsConfig) {}
+  ProtoFixture() : factory(iroha::test::getTestsValidatorsConfig()) {}
 
   proto::ProtoCommonObjectsFactory<validation::FieldValidator> factory;
 };

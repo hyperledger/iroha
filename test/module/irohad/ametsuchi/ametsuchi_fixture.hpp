@@ -48,7 +48,7 @@ namespace iroha {
         factory =
             std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
                 shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
+                iroha::test::getTestsValidatorsConfig());
         perm_converter_ =
             std::make_shared<shared_model::proto::ProtoPermissionToString>();
         pending_txs_storage_ =

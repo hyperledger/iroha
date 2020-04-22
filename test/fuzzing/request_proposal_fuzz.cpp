@@ -26,7 +26,7 @@ struct RequestProposalFixture : public fuzzing::OrderingServiceFixture {
     proposal_factory_ =
         std::make_unique<shared_model::proto::ProtoProposalFactory<
             shared_model::validation::DefaultProposalValidator>>(
-            iroha::test::kTestsValidatorsConfig);
+            iroha::test::getTestsValidatorsConfig());
 
     storage_ = std::make_shared<iroha::ametsuchi::MockStorage>();
     persistent_cache_ =

@@ -218,7 +218,7 @@ namespace framework {
 
       auto batch_validator =
           std::make_shared<shared_model::validation::DefaultBatchValidator>(
-              iroha::test::kTestsValidatorsConfig);
+              iroha::test::getTestsValidatorsConfig());
       std::shared_ptr<shared_model::interface::TransactionBatchFactory>
           batch_factory = std::make_shared<
               shared_model::interface::TransactionBatchFactoryImpl>(
@@ -239,7 +239,7 @@ namespace framework {
         std::shared_ptr<shared_model::interface::Transaction> tx) {
       auto batch_validator =
           std::make_shared<shared_model::validation::DefaultBatchValidator>(
-              iroha::test::kTestsValidatorsConfig);
+              iroha::test::getTestsValidatorsConfig());
       auto batch_factory = std::make_shared<
           shared_model::interface::TransactionBatchFactoryImpl>(
           batch_validator);

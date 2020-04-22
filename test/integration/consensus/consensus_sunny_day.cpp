@@ -18,6 +18,7 @@
 #include <rxcpp/operators/rx-take.hpp>
 #include <rxcpp/operators/rx-timeout.hpp>
 #include "framework/stateless_valid_field_helpers.hpp"
+#include "framework/test_crypto_verifier.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "logger/logger_manager.hpp"
@@ -80,6 +81,7 @@ class ConsensusSunnyDayTest : public ::testing::Test {
         [](const shared_model::interface::Peer &peer) {
           return iroha::network::createClient<proto::Yac>(peer.address());
         },
+        iroha::test::getMockCryptoVerifier(),
         getTestLogger("YacNetwork"));
     crypto = std::make_shared<MockYacCryptoProvider>(
         shared_model::interface::types::PublicKeyHexStringView{

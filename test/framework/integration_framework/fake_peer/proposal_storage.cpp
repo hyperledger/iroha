@@ -23,7 +23,7 @@ namespace integration_framework {
         : proposal_factory_(
               std::make_unique<shared_model::proto::ProtoProposalFactory<
                   shared_model::validation::DefaultProposalValidator>>(
-                  iroha::test::kTestsValidatorsConfig)) {
+                  iroha::test::getTestsValidatorsConfig())) {
       setDefaultProvider([](auto &) { return boost::none; });
     }
 

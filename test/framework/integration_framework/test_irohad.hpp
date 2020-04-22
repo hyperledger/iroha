@@ -7,6 +7,8 @@
 #define IROHA_TESTIROHAD_HPP
 
 #include "main/application.hpp"
+
+#include "framework/test_crypto_verifier.hpp"
 #include "main/server_runner.hpp"
 
 namespace integration_framework {
@@ -46,7 +48,9 @@ namespace integration_framework {
                  proposal_delay,
                  vote_delay,
                  mst_expiration_time,
-                 std::move(crypto_signer),
+                 shared_model::crypto::CryptoProvider{
+                     std::move(crypto_signer),
+                     iroha::test::getTestCryptoVerifier()},
                  max_rounds_delay,
                  stale_stream_max_rounds,
                  std::move(opt_alternative_peers),
@@ -82,7 +86,7 @@ namespace integration_framework {
     }
 
     auto &getCryptoSigner() {
-      return crypto_signer_;
+      return crypto_provider_.signer;
     }
 
     auto getStatusBus() {

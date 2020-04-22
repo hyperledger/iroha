@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 #include <optional>
 #include "framework/batch_helper.hpp"
+#include "framework/test_crypto_verifier.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/default_validator.hpp"
@@ -17,6 +18,7 @@ struct BatchValidatorFixture : public ::testing::Test {
   auto getValidator(bool allow_partial_ordered_batches) {
     auto config = std::make_shared<shared_model::validation::ValidatorsConfig>(
         iroha::test::getTestsMaxBatchSize(),
+        iroha::test::getMockCryptoVerifier(),
         shared_model::validation::getDefaultSettings(),
         allow_partial_ordered_batches);
     auto validator =

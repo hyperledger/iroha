@@ -25,6 +25,7 @@
 #include "framework/integration_framework/fake_peer/network/yac_network_notifier.hpp"
 #include "framework/integration_framework/fake_peer/proposal_storage.hpp"
 #include "framework/result_fixture.hpp"
+#include "framework/test_crypto_verifier.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
@@ -115,6 +116,7 @@ namespace integration_framework {
                 return iroha::network::createClient<
                     iroha::consensus::yac::proto::Yac>(peer.address());
               },
+              iroha::test::getTestCryptoVerifier(),
               consensus_log_manager_->getChild("Transport")->getLogger())),
           mst_network_notifier_(std::make_shared<MstNetworkNotifier>()),
           yac_network_notifier_(std::make_shared<YacNetworkNotifier>()),
@@ -122,7 +124,8 @@ namespace integration_framework {
           og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
           yac_crypto_(
               std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-                  signer_,
+                  shared_model::crypto::CryptoProvider{
+                      signer_, iroha::test::getTestCryptoVerifier()},
                   consensus_log_manager_->getChild("Crypto")->getLogger())) {
       mst_transport_->subscribe(mst_network_notifier_);
       yac_transport_->subscribe(yac_network_notifier_);

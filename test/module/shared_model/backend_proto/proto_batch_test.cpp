@@ -29,7 +29,7 @@ class TransactionBatchTest : public Test {
   TransactionBatchTest() {
     auto batch_validator =
         std::make_shared<shared_model::validation::DefaultBatchValidator>(
-            iroha::test::kTestsValidatorsConfig);
+            iroha::test::getTestsValidatorsConfig());
     factory_ = std::make_shared<interface::TransactionBatchFactoryImpl>(
         batch_validator);
   }

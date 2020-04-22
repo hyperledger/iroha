@@ -76,7 +76,7 @@ namespace shared_model {
       // we do such default initialization only because it is deprecated and
       // used only in tests
       TemplateBlockBuilder()
-          : TemplateBlockBuilder(SV(iroha::test::kTestsValidatorsConfig)) {}
+          : TemplateBlockBuilder(SV(iroha::test::getTestsValidatorsConfig())) {}
 
       template <class T>
       auto transactions(const T &transactions) const {

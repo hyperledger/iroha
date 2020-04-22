@@ -10,12 +10,12 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 
 using namespace shared_model;
 using namespace common_constants;
@@ -174,8 +174,9 @@ class BatchPipelineTest
         interface::TransactionSequenceFactory::createTransactionSequence(
             txs,
             validation::DefaultUnsignedTransactionsValidator(
-                iroha::test::kTestsValidatorsConfig),
-            validation::FieldValidator(iroha::test::kTestsValidatorsConfig));
+                iroha::test::getTestsValidatorsConfig()),
+            validation::FieldValidator(
+                iroha::test::getTestsValidatorsConfig()));
 
     auto transaction_sequence_value =
         framework::expected::val(transaction_sequence_result);

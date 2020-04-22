@@ -81,6 +81,7 @@ target_link_libraries(proto_transaction_sequence_test
     shared_model_stateless_validation
     shared_model_interfaces_factories
     test_make_default_signer
+    test_tx_sequence_factory
     )
 
 addtest(proto_common_objects_factory_test

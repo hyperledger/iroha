@@ -20,7 +20,7 @@ using namespace shared_model;
 class TransactionValidatorTest : public ValidatorsTest {
  public:
   TransactionValidatorTest()
-      : transaction_validator(iroha::test::kTestsValidatorsConfig) {}
+      : transaction_validator(iroha::test::getTestsValidatorsConfig()) {}
 
   auto getCountIgnoredFields() {
     return ignored_fields_.size();
@@ -167,7 +167,7 @@ TEST_F(TransactionValidatorTest, BatchValidTest) {
                 .build()
                 .getTransport();
   shared_model::validation::DefaultUnsignedTransactionValidator
-      transaction_validator(iroha::test::kTestsValidatorsConfig);
+      transaction_validator(iroha::test::getTestsValidatorsConfig());
   auto result = proto::Transaction(iroha::protocol::Transaction(tx));
 
   ASSERT_EQ(transaction_validator.validate(result), std::nullopt);

@@ -55,7 +55,7 @@ class OnDemandOsTest : public ::testing::Test {
     // TODO: nickaleks IR-1811 use mock factory
     auto factory = std::make_unique<
         shared_model::proto::ProtoProposalFactory<MockProposalValidator>>(
-        iroha::test::kTestsValidatorsConfig);
+        iroha::test::getTestsValidatorsConfig());
     auto tx_cache =
         std::make_unique<NiceMock<iroha::ametsuchi::MockTxPresenceCache>>();
     mock_cache = tx_cache.get();
