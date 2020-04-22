@@ -72,7 +72,7 @@ namespace shared_model {
       // used only in tests
       TemplateBlocksQueryBuilder()
           : TemplateBlocksQueryBuilder(
-                SV(iroha::test::kTestsValidatorsConfig)) {}
+                SV(iroha::test::getTestsValidatorsConfig())) {}
 
       auto createdTime(interface::types::TimestampType created_time) const {
         return transform<CreatedTime>([&](auto &qry) {

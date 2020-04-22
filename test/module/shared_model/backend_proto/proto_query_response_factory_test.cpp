@@ -40,7 +40,7 @@ class ProtoQueryResponseFactoryTest : public ::testing::Test {
       std::make_shared<ProtoQueryResponseFactory>();
   std::shared_ptr<ProtoCommonObjectsFactory<FieldValidator>> objects_factory =
       std::make_shared<ProtoCommonObjectsFactory<FieldValidator>>(
-          iroha::test::kTestsValidatorsConfig);
+          iroha::test::getTestsValidatorsConfig());
 
   /**
    * Get value of Result<unique_ptr<_>, _>; throws exception, if there's error

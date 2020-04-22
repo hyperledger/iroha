@@ -25,7 +25,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, std::size_t size) {
   auto proposal_factory =
       std::make_unique<shared_model::proto::ProtoProposalFactory<
           shared_model::validation::DefaultProposalValidator>>(
-          iroha::test::kTestsValidatorsConfig);
+          iroha::test::getTestsValidatorsConfig());
   auto storage = std::make_shared<NiceMock<iroha::ametsuchi::MockStorage>>();
   auto cache = std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
   auto proposal_creation_strategy =

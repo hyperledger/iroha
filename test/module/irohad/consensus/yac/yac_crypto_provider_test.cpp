@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "consensus/yac/outcome_messages.hpp"
+#include "framework/test_crypto_verifier.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
@@ -31,7 +32,9 @@ namespace iroha {
         void SetUp() override {
           using namespace shared_model::crypto;
           crypto_provider = std::make_shared<CryptoProviderImpl>(
-              makeDefaultSigner(), getTestLogger("CryptoProviderImpl"));
+              shared_model::crypto::CryptoProvider{
+                  makeDefaultSigner(), iroha::test::getTestCryptoVerifier()},
+              getTestLogger("CryptoProviderImpl"));
         }
 
         std::unique_ptr<shared_model::interface::Signature> makeSignature(

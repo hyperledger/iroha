@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_TRANSACTION_SEQUENCE_FACTORY_HPP
-#define IROHA_TRANSACTION_SEQUENCE_FACTORY_HPP
+#ifndef IROHA_TEST_TRANSACTION_SEQUENCE_FACTORY_HPP
+#define IROHA_TEST_TRANSACTION_SEQUENCE_FACTORY_HPP
 
 #include "interfaces/iroha_internal/transaction_sequence.hpp"
 

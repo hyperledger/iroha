@@ -113,7 +113,7 @@ class Validator : public testing::Test {
   void SetUp() override {
     factory = std::make_unique<shared_model::proto::ProtoProposalFactory<
         shared_model::validation::DefaultProposalValidator>>(
-        iroha::test::kTestsValidatorsConfig);
+        iroha::test::getTestsValidatorsConfig());
     parser =
         std::make_shared<shared_model::interface::TransactionBatchParserImpl>();
     sfv = std::make_shared<StatefulValidatorImpl>(

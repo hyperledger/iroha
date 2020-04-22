@@ -87,7 +87,7 @@ struct CommandFixture {
         transaction_validator =
             std::make_unique<shared_model::validation::
                                  DefaultOptionalSignedTransactionValidator>(
-                iroha::test::kTestsValidatorsConfig);
+                iroha::test::getTestsValidatorsConfig());
     std::unique_ptr<shared_model::validation::AbstractValidator<
         iroha::protocol::Transaction>>
         proto_transaction_validator = std::make_unique<
@@ -108,7 +108,7 @@ struct CommandFixture {
         shared_model::interface::TransactionBatch>>
         batch_validator =
             std::make_shared<shared_model::validation::DefaultBatchValidator>(
-                iroha::test::kTestsValidatorsConfig);
+                iroha::test::getTestsValidatorsConfig());
     std::shared_ptr<shared_model::interface::TransactionBatchFactory>
         transaction_batch_factory = std::make_shared<
             shared_model::interface::TransactionBatchFactoryImpl>(

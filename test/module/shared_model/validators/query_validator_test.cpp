@@ -12,7 +12,8 @@
 
 class QueryValidatorTest : public ValidatorsTest {
  public:
-  QueryValidatorTest() : query_validator(iroha::test::kTestsValidatorsConfig) {}
+  QueryValidatorTest()
+      : query_validator(iroha::test::getTestsValidatorsConfig()) {}
 
   shared_model::validation::DefaultUnsignedQueryValidator query_validator;
 };

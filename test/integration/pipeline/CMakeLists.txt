@@ -7,6 +7,7 @@ addtest(pipeline_test pipeline_test.cpp)
 target_link_libraries(pipeline_test
     acceptance_fixture
     integration_framework
+    test_tx_sequence_factory
     )
 
 addtest(batch_pipeline_test batch_pipeline_test.cpp)
@@ -14,6 +15,7 @@ target_link_libraries(batch_pipeline_test
     acceptance_fixture
     integration_framework
     test_make_default_signer
+    test_tx_sequence_factory
     )
 
 addtest(multisig_tx_pipeline_test multisig_tx_pipeline_test.cpp)

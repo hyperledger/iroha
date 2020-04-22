@@ -147,7 +147,7 @@ namespace shared_model {
       // we do such default initialization only because it is deprecated and
       // used only in tests
       TemplateQueryBuilder()
-          : TemplateQueryBuilder(SV(iroha::test::kTestsValidatorsConfig)) {}
+          : TemplateQueryBuilder(SV(iroha::test::getTestsValidatorsConfig())) {}
 
       auto createdTime(interface::types::TimestampType created_time) const {
         return transform<CreatedTime>([&](auto &qry) {

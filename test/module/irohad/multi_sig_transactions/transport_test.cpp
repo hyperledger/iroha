@@ -51,7 +51,7 @@ class TransportTest : public ::testing::Test {
     parser_ = std::make_shared<TransactionBatchParserImpl>();
     batch_validator_ =
         std::make_shared<shared_model::validation::DefaultBatchValidator>(
-            iroha::test::kTestsValidatorsConfig);
+            iroha::test::getTestsValidatorsConfig());
     batch_factory_ =
         std::make_shared<TransactionBatchFactoryImpl>(batch_validator_);
     tx_presence_cache_ =

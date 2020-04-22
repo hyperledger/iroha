@@ -23,7 +23,8 @@ using namespace shared_model::validation;
 
 class ProposalValidatorTest : public ValidatorsTest {
  public:
-  ProposalValidatorTest() : validator_(iroha::test::kTestsValidatorsConfig) {}
+  ProposalValidatorTest()
+      : validator_(iroha::test::getTestsValidatorsConfig()) {}
 
   using BatchTypeAndCreatorPair =
       std::pair<shared_model::interface::types::BatchType, std::string>;
@@ -101,7 +102,7 @@ TEST_F(ProposalValidatorTest, TransportProposalWithDuplicateTransactions) {
   auto proposal = createProposalWithDuplicateTransactions();
 
   shared_model::validation::DefaultProposalValidator validator(
-      iroha::test::kProposalTestsValidatorsConfig);
+      iroha::test::getProposalTestsValidatorsConfig());
 
   ASSERT_EQ(validator.validate(proposal), std::nullopt);
 }

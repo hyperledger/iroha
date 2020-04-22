@@ -13,6 +13,7 @@
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
+#include "framework/test_crypto_verifier.hpp"
 #include "framework/test_logger.hpp"
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
@@ -57,11 +58,16 @@ namespace fuzzing {
               logger::getDummyLoggerPtr())),
           initial_round_{1, 1} {
       network_ = std::make_shared<iroha::consensus::yac::NetworkImpl>(
-          async_call_, client_creator_, logger::getDummyLoggerPtr());
+          async_call_,
+          client_creator_,
+          iroha::test::getMockCryptoVerifier(),
+          logger::getDummyLoggerPtr());
 
       crypto_provider_ =
           std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-              shared_model::crypto::makeDefaultSigner(),
+              shared_model::crypto::CryptoProvider{
+                  shared_model::crypto::makeDefaultSigner(),
+                  iroha::test::getMockCryptoVerifier()},
               logger::getDummyLoggerPtr());
 
       std::vector<std::shared_ptr<shared_model::interface::Peer>>

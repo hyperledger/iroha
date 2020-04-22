@@ -15,7 +15,6 @@
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
 #include "module/irohad/network/network_mocks.hpp"
@@ -26,6 +25,7 @@
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/cryptography/make_default_crypto_signer.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "torii/impl/status_bus_impl.hpp"
 
@@ -211,8 +211,8 @@ TEST_F(TransactionProcessorTest, TransactionProcessorOnProposalBatchTest) {
   auto transaction_sequence_result = shared_model::interface::
       TransactionSequenceFactory::createTransactionSequence(
           transactions,
-          TxsValidator(iroha::test::kTestsValidatorsConfig),
-          FieldValidator(iroha::test::kTestsValidatorsConfig));
+          TxsValidator(iroha::test::getTestsValidatorsConfig()),
+          FieldValidator(iroha::test::getTestsValidatorsConfig()));
   auto transaction_sequence =
       framework::expected::val(transaction_sequence_result).value().value;
 

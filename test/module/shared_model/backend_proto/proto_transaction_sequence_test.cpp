@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
@@ -25,8 +25,8 @@ using ::testing::Test;
 class TransactionSequenceTestFixture : public ::testing::Test {
  public:
   TransactionSequenceTestFixture()
-      : txs_collection_validator(iroha::test::kTestsValidatorsConfig),
-        field_validator(iroha::test::kTestsValidatorsConfig) {}
+      : txs_collection_validator(iroha::test::getTestsValidatorsConfig()),
+        field_validator(iroha::test::getTestsValidatorsConfig()) {}
 
   validation::DefaultUnsignedTransactionsValidator txs_collection_validator;
   validation::FieldValidator field_validator;

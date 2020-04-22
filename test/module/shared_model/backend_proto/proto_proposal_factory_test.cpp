@@ -19,8 +19,8 @@ using namespace framework::expected;
 class ProposalFactoryTest : public ::testing::Test {
  public:
   ProposalFactoryTest()
-      : valid_factory(iroha::test::kTestsValidatorsConfig),
-        factory(iroha::test::kTestsValidatorsConfig) {}
+      : valid_factory(iroha::test::getTestsValidatorsConfig()),
+        factory(iroha::test::getTestsValidatorsConfig()) {}
 
   shared_model::proto::ProtoProposalFactory<validation::AlwaysValidValidator>
       valid_factory;

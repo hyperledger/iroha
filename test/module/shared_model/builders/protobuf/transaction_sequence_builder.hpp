@@ -6,10 +6,11 @@
 #ifndef IROHA_TRANSACTION_SEQUENCE_BUILDER_HPP
 #define IROHA_TRANSACTION_SEQUENCE_BUILDER_HPP
 
+#include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/transport_builder.hpp"
 #include "interfaces/common_objects/types.hpp"
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 
 namespace shared_model {
   namespace proto {
@@ -32,7 +33,8 @@ namespace shared_model {
       TransportBuilder<interface::TransactionSequence, SV>(
           std::shared_ptr<validation::ValidatorsConfig> config)
           : TransportBuilder<interface::TransactionSequence, SV>(
-                SV(iroha::test::kTestsValidatorsConfig), std::move(config)) {}
+                SV(iroha::test::getTestsValidatorsConfig()),
+                std::move(config)) {}
 
       /**
        * Builds TransactionSequence from transport object

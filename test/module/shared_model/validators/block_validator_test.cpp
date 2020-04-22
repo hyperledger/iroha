@@ -21,7 +21,7 @@ using namespace shared_model::validation;
 
 class BlockValidatorTest : public ValidatorsTest {
  public:
-  BlockValidatorTest() : validator_(iroha::test::kTestsValidatorsConfig) {}
+  BlockValidatorTest() : validator_(iroha::test::getTestsValidatorsConfig()) {}
 
   /**
    * Create a simple transaction

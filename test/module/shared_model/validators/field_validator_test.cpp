@@ -74,13 +74,15 @@ class FieldValidatorTest : public ValidatorsTest {
   const size_t kCustomMaxDescriptionSize = 128;
 
  public:
-  FieldValidatorTest() : field_validator(iroha::test::kTestsValidatorsConfig) {
+  FieldValidatorTest()
+      : field_validator(iroha::test::getTestsValidatorsConfig()) {
     shared_model::validation::Settings testSettings{};
     testSettings.max_description_size = kCustomMaxDescriptionSize;
 
     this->validators_custom_config =
         std::make_shared<shared_model::validation::ValidatorsConfig>(
             iroha::test::getTestsMaxBatchSize(),
+            iroha::test::getMockCryptoVerifier(),
             std::make_shared<const shared_model::validation::Settings>(
                 std::move(testSettings)));
 

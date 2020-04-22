@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "interfaces/iroha_internal/transaction_sequence_factory.hpp"
+#include "module/shared_model/interface/transaction_sequence_factory.hpp"
 
 #include <unordered_map>
 
@@ -13,21 +13,15 @@
 #include "interfaces/iroha_internal/transaction_batch_helpers.hpp"
 #include "interfaces/iroha_internal/transaction_batch_impl.hpp"
 #include "interfaces/transaction.hpp"
+#include "module/irohad/common/validators_config.hpp"
 #include "validators/transactions_collection/batch_order_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
 namespace shared_model {
   namespace interface {
-    namespace {
-      // we use an unnamed namespace here because we don't want to add test as
-      // include path for the shared_model_interfaces_factories target
-      // TODO igor-egorov 05.06.2018 IR-438 (Re)Move TransactionSequence classes
-      const uint64_t kTestsMaxBatchSize(10000);
-      const auto kValidatorsConfig =
-          std::make_shared<validation::ValidatorsConfig>(kTestsMaxBatchSize);
-    }  // namespace
-    auto batch_validator =
-        std::make_shared<validation::DefaultBatchValidator>(kValidatorsConfig);
+    // TODO igor-egorov 05.06.2018 IR-438 (Re)Move TransactionSequence classes
+    auto batch_validator = std::make_shared<validation::DefaultBatchValidator>(
+        iroha::test::getTestsValidatorsConfig());
     const std::unique_ptr<TransactionBatchFactory> batch_factory =
         std::make_unique<TransactionBatchFactoryImpl>(batch_validator);
 

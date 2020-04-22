@@ -15,6 +15,14 @@
                           }
                        },
                        {
+                          "addPeer":{
+                             "peer":{
+                                "address":"127.0.0.1:10002",
+                                "peerKey":"ed01207680b4c15c0e1ab802dab691daa18267e2d0db7d73611724873e217198a3d437"
+                             }
+                          }
+                       },
+                       {
                           "createRole":{
                              "roleName":"admin",
                              "permissions":[

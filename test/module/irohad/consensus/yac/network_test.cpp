@@ -9,6 +9,7 @@
 
 #include "consensus/yac/transport/yac_pb_converters.hpp"
 #include "framework/mock_stream.h"
+#include "framework/test_crypto_verifier.hpp"
 #include "framework/test_logger.hpp"
 #include "module/irohad/consensus/yac/mock_yac_crypto_provider.hpp"
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
@@ -42,7 +43,10 @@ namespace iroha {
                     iroha::consensus::yac::proto::MockYacStub>(stub);
               });
           network = std::make_shared<NetworkImpl>(
-              async_call, client_creator, getTestLogger("YacNetwork"));
+              async_call,
+              client_creator,
+              iroha::test::getMockCryptoVerifier(),
+              getTestLogger("YacNetwork"));
 
           message.hash.vote_hashes.proposal_hash = "proposal";
           message.hash.vote_hashes.block_hash = "block";
