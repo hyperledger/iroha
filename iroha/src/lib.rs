@@ -16,7 +16,12 @@ pub mod tx;
 pub mod wsv;
 
 use crate::{
-    config::Configuration, kura::Kura, peer::Peer, prelude::*, queue::Queue, sumeragi::Sumeragi,
+    config::Configuration,
+    kura::Kura,
+    peer::{Peer, PeerId},
+    prelude::*,
+    queue::Queue,
+    sumeragi::Sumeragi,
     torii::Torii,
 };
 use futures::{
@@ -60,7 +65,18 @@ impl Iroha {
             Arc::clone(&world_state_view),
             transactions_sender,
         );
-        let sumeragi = Sumeragi::new();
+        //TODO: get peers from json and blockchain
+        let sumeragi = Arc::new(Mutex::new(
+            Sumeragi::new(
+                &[PeerId {
+                    address: "127.0.0.1:7878".to_string(),
+                    public_key: [0u8; 32],
+                }],
+                None,
+                0,
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
         let kura = Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
@@ -68,12 +84,18 @@ impl Iroha {
         );
         let queue = Arc::new(Mutex::new(Queue::default()));
         //TODO: Get peer params from config
-        let peer = Peer::new("127.0.0.1:7878".to_string(), 10, 15, queue.clone());
+        let peer = Peer::new(
+            "127.0.0.1:7878".to_string(),
+            10,
+            15,
+            queue.clone(),
+            sumeragi.clone(),
+        );
         Iroha {
             queue,
             torii: Arc::new(Mutex::new(torii)),
             peer: Arc::new(Mutex::new(peer)),
-            sumeragi: Arc::new(Mutex::new(sumeragi)),
+            sumeragi,
             kura: Arc::new(Mutex::new(kura)),
             transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
             world_state_view,
@@ -105,6 +127,8 @@ impl Iroha {
         self.pool.spawn_ok(async move {
             loop {
                 //TODO: decide what should be the minimum time to accumulate tx before creating a block
+                //TODO: create block only if the peer is a leader
+                //TODO: call sumeragi `on_block_created`
                 let transactions = queue.lock().await.pop_pending_transactions();
                 if !transactions.is_empty() {
                     kura.lock()
@@ -113,7 +137,7 @@ impl Iroha {
                             sumeragi
                                 .lock()
                                 .await
-                                .sign(transactions)
+                                .sign_transactions(transactions)
                                 .await
                                 .expect("Failed to sign transactions."),
                             &*world_state_view.lock().await,

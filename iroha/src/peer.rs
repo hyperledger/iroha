@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use crate::sumeragi;
 use futures::{future::FutureExt, lock::Mutex, pin_mut, select};
 use iroha_derive::*;
 use iroha_network::{prelude::*, Network};
@@ -21,26 +22,25 @@ pub mod isi {
     /// synchronization components will start using it.
     #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
     pub struct AddPeer {
-        pub address: String,
-        pub peer_key: PublicKey,
+        pub peer_id: PeerId,
     }
 }
 
 const PING_SIZE: usize = 32;
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
-enum Message {
-    //TODO: introduce other features like block sync, voting and etc.
+pub enum Message {
     Ping(Ping),
     Pong(Ping),
     PendingTx(TransactionRequest),
     AddPeer(PeerId),
     NewPeer(PeerId),
     RemovePeer(PeerId),
+    SumeragiMessage(sumeragi::Message),
 }
 
 #[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash)]
-struct Ping {
+pub struct Ping {
     payload: Vec<u8>,
     to_peer: PeerId,
     from_peer: PeerId,
@@ -56,9 +56,10 @@ impl Ping {
     }
 }
 
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash)]
-struct PeerId {
-    listen_address: String,
+#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io)]
+pub struct PeerId {
+    pub address: String,
+    pub public_key: PublicKey,
 }
 
 struct PeerState {
@@ -66,6 +67,7 @@ struct PeerState {
     pub sent_pings: HashMap<Ping, Duration>,
     pub listen_address: String,
     pub tx_queue: Arc<Mutex<crate::queue::Queue>>,
+    pub sumeragi: Arc<Mutex<crate::sumeragi::Sumeragi>>,
 }
 
 pub struct Peer {
@@ -80,6 +82,7 @@ impl Peer {
         tx_interval_sec: usize,
         ping_interval_sec: usize,
         tx_queue: Arc<Mutex<crate::queue::Queue>>,
+        sumeragi: Arc<Mutex<crate::sumeragi::Sumeragi>>,
     ) -> Peer {
         Peer {
             state: Arc::new(Mutex::new(PeerState {
@@ -87,6 +90,7 @@ impl Peer {
                 sent_pings: HashMap::new(),
                 listen_address,
                 tx_queue,
+                sumeragi,
             })),
             ping_interval_sec,
             tx_interval_sec,
@@ -180,40 +184,48 @@ impl Peer {
     #[allow(unused)]
     pub async fn start_and_connect(&self, peer_address: &str) -> Result<(), String> {
         let peer_id = PeerId {
-            listen_address: peer_address.to_string(),
+            address: peer_address.to_string(),
+            public_key: [0u8; 32],
         };
         self.state.lock().await.peers.insert(peer_id.clone());
         let message = Message::NewPeer(PeerId {
-            listen_address: self.state.lock().await.listen_address.clone(),
+            address: self.state.lock().await.listen_address.clone(),
+            public_key: [0u8; 32],
         });
         Self::send(message, peer_id).await?;
         self.start().await?;
         Ok(())
     }
 
-    async fn send(message: Message, peer_id: PeerId) -> Result<(), String> {
+    pub async fn send(message: Message, peer_id: PeerId) -> Result<(), String> {
         let _response = Network::send_request_to(
-            peer_id.listen_address.as_ref(),
+            peer_id.address.as_ref(),
             Request::new("/".to_string(), message.into()),
         )
         .await?;
         Ok(())
     }
 
-    async fn broadcast(state: State<PeerState>, message: Message) -> Result<(), String> {
+    pub async fn send_to_peers(message: Message, peers: &[PeerId]) -> Result<(), String> {
         let mut send_futures = Vec::new();
-        for peer_id in state.lock().await.peers.clone() {
-            send_futures.push(Self::send(message.clone(), peer_id));
+        for peer_id in peers {
+            send_futures.push(Self::send(message.clone(), peer_id.clone()));
         }
         let _results = futures::future::join_all(send_futures).await;
         Ok(())
+    }
+
+    async fn broadcast(state: State<PeerState>, message: Message) -> Result<(), String> {
+        let peers: Vec<PeerId> = state.lock().await.peers.clone().into_iter().collect();
+        Self::send_to_peers(message, &peers).await
     }
 
     async fn ping(state: State<PeerState>, peer_id: PeerId) -> Result<(), String> {
         let ping = Ping::new(
             peer_id.clone(),
             PeerId {
-                listen_address: state.lock().await.listen_address.clone(),
+                address: state.lock().await.listen_address.clone(),
+                public_key: [0u8; 32],
             },
         );
         state
@@ -272,6 +284,16 @@ impl Peer {
             Message::RemovePeer(peer_id) => {
                 state.lock().await.peers.remove(&peer_id);
             }
+            Message::SumeragiMessage(message) => {
+                let _result = state
+                    .lock()
+                    .await
+                    .sumeragi
+                    .lock()
+                    .await
+                    .handle_message(message)
+                    .await;
+            }
         }
         Ok(())
     }
@@ -284,7 +306,24 @@ mod tests {
     fn start_peer(listen_address: &str, connect_to: Option<String>) -> Arc<Peer> {
         use async_std::task;
         let queue = Arc::new(Mutex::new(crate::queue::Queue::default()));
-        let peer = Arc::new(Peer::new(listen_address.to_string(), 10, 15, queue));
+        let sumeragi = Arc::new(Mutex::new(
+            crate::sumeragi::Sumeragi::new(
+                &vec![PeerId {
+                    address: "127.0.0.1:7878".to_string(),
+                    public_key: [0u8; 32],
+                }],
+                None,
+                0,
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
+        let peer = Arc::new(Peer::new(
+            listen_address.to_string(),
+            10,
+            15,
+            queue,
+            sumeragi,
+        ));
         let peer_move = peer.clone();
         task::spawn(async move {
             let _result = match connect_to {

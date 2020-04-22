@@ -1,6 +1,10 @@
 use parity_scale_codec::{Decode, Encode};
 use std::fmt::{self, Debug, Formatter};
 use ursa::{
+    blake2::{
+        digest::{Input, VariableOutput},
+        VarBlake2b,
+    },
     keys::PublicKey as UrsaPublicKey,
     signatures::{ed25519::Ed25519Sha512, SignatureScheme},
 };
@@ -8,6 +12,20 @@ use ursa::{
 pub type Hash = [u8; 32];
 pub type PublicKey = [u8; 32];
 type Ed25519Signature = [u8; 64];
+
+pub struct Crypto;
+
+impl Crypto {
+    pub fn hash(bytes: Vec<u8>) -> Hash {
+        let vec_hash = VarBlake2b::new(32)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .vec_result();
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&vec_hash);
+        hash
+    }
+}
 
 #[derive(Clone, Encode, Decode)]
 pub struct Signature {
@@ -37,6 +55,14 @@ impl Signature {
             .map(|_| ())
     }
 }
+
+impl PartialEq for Signature {
+    fn eq(&self, other: &Self) -> bool {
+        self.public_key == other.public_key && self.signature.to_vec() == other.signature.to_vec()
+    }
+}
+
+impl Eq for Signature {}
 
 impl Debug for Signature {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
