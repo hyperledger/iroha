@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{crypto::Crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
@@ -18,6 +18,8 @@ pub struct Block {
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
     pub previous_block_hash: Option<Hash>,
+    /// Signatures of peers which approved this block
+    pub signatures: Vec<Signature>,
 }
 
 impl Block {
@@ -33,19 +35,7 @@ impl Block {
     }
 
     pub fn hash(&self) -> Hash {
-        use ursa::blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        };
-
-        let bytes: Vec<u8> = self.into();
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
+        Crypto::hash(self.into())
     }
 }
 
@@ -70,6 +60,7 @@ impl BlockBuilder {
             timestamp: self.timestamp,
             transactions: self.transactions,
             previous_block_hash: self.previous_block_hash,
+            signatures: vec![],
         }
     }
 }
@@ -85,6 +76,7 @@ mod tests {
             timestamp: 1,
             transactions: Vec::new(),
             previous_block_hash: None,
+            signatures: vec![],
         };
 
         assert_ne!(block.hash(), [0; 32]);
