@@ -14,6 +14,8 @@
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include "ametsuchi/impl/executor_common.hpp"
+#include "ametsuchi/impl/postgres_block_storage.hpp"
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
@@ -1368,7 +1370,9 @@ namespace iroha {
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter)
-        : sql_(std::move(sql)), perm_converter_{std::move(perm_converter)} {
+        : sql_(std::move(sql)),
+          perm_converter_{std::move(perm_converter)},
+          burrow_storage_(std::make_unique<PostgresBurrowStorage>(*sql_)) {
       initStatements();
     }
 
