@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_AMETSUCHI_READER_WRITER_H
-#define IROHA_AMETSUCHI_READER_WRITER_H
+#ifndef IROHA_AMETSUCHI_BURROW_STORAGE_H
+#define IROHA_AMETSUCHI_BURROW_STORAGE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,4 +36,4 @@ extern struct Iroha_Result Iroha_SetStorage(void *storage,
 }  // extern "C"
 #endif
 
-#endif  // IROHA_AMETSUCHI_READER_WRITER_H
+#endif

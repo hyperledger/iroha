@@ -6,14 +6,15 @@
 #ifndef IROHA_MOCK_READER_WRITER_HPP
 #define IROHA_MOCK_READER_WRITER_HPP
 
-#include "ametsuchi/reader_writer.hpp"
+#include "ametsuchi/burrow_storage.hpp"
 
 #include <gmock/gmock.h>
+#include "common/result.hpp"
 
 namespace iroha {
   namespace ametsuchi {
 
-    class MockReaderWriter : public ReaderWriter {
+    class MockReaderWriter : public BurrowStorage {
      public:
       MOCK_METHOD((expected::Result<std::optional<std::string>, std::string>),
                   getAccount,

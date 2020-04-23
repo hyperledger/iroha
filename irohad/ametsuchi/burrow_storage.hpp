@@ -3,21 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_AMETSUCHI_READER_WRITER_HPP
-#define IROHA_AMETSUCHI_READER_WRITER_HPP
+#ifndef IROHA_AMETSUCHI_BURROW_STORAGE_HPP
+#define IROHA_AMETSUCHI_BURROW_STORAGE_HPP
 
 #include <optional>
 #include <string>
 #include <string_view>
 
-#include "common/result.hpp"
+#include "common/result_fwd.hpp"
 
 namespace iroha {
   namespace ametsuchi {
 
-    class ReaderWriter {
+    class BurrowStorage {
      public:
-      virtual ~ReaderWriter() = default;
+      virtual ~BurrowStorage() = default;
 
       virtual expected::Result<std::optional<std::string>, std::string>
       getAccount(std::string_view address) = 0;
@@ -39,4 +39,4 @@ namespace iroha {
   }  // namespace ametsuchi
 }  // namespace iroha
 
-#endif  // IROHA_AMETSUCHI_READER_WRITER_HPP
+#endif
