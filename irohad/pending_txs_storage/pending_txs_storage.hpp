@@ -12,6 +12,7 @@
 #include "interfaces/common_objects/transaction_sequence_common.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
+#include "ametsuchi/tx_presence_cache.hpp"
 
 namespace iroha {
 
@@ -57,6 +58,13 @@ namespace iroha {
         getPendingTransactions(
             const shared_model::interface::types::AccountIdType &account_id)
             const = 0;
+
+    /**
+     * Stores TxPresenceCache ref, for checks.
+     * @param cache - ref to the stored object.
+     */
+    virtual void insertPresenceCache(
+      std::shared_ptr<ametsuchi::TxPresenceCache> &cache) = 0;
 
     /**
      * Fetch pending transactions associated with request originator

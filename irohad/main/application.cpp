@@ -181,6 +181,7 @@ Irohad::RunResult Irohad::init() {
   | [this]{ return initPeerCommunicationService();}
   | [this]{ return initStatusBus();}
   | [this]{ return initMstProcessor();}
+  | [this]{ return initPendingTxsStorageWithCache();}
 
   // Torii
   | [this]{ return initTransactionCommandService();}
@@ -570,6 +571,11 @@ Irohad::RunResult Irohad::initPersistentCache() {
   persistent_cache = std::make_shared<TxPresenceCacheImpl>(storage);
 
   log_->info("[Init] => persistent cache");
+  return {};
+}
+
+Irohad::RunResult Irohad::initPendingTxsStorageWithCache() {
+  pending_txs_storage_->insertPresenceCache(persistent_cache);
   return {};
 }
 

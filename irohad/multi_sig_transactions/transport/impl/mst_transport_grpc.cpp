@@ -11,6 +11,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
+#include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "backend/protobuf/deserialize_repeated_transactions.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "interfaces/iroha_internal/parse_and_create_batches.hpp"
@@ -97,14 +98,7 @@ grpc::Status MstTransportGrpc::SendState(
     auto is_replay = std::any_of(
         cache_presence->begin(),
         cache_presence->end(),
-        [](const auto &tx_status) {
-          return std::visit(
-              make_visitor(
-                  [](const iroha::ametsuchi::tx_cache_status_responses::Missing
-                         &) { return false; },
-                  [](const auto &) { return true; }),
-              tx_status);
-        });
+        &iroha::ametsuchi::isAlreadyProcessed);
 
     if (not is_replay) {
       new_state += std::move(batch);

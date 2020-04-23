@@ -6,6 +6,7 @@
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 
 #include "interfaces/transaction.hpp"
+#include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
@@ -129,6 +130,10 @@ namespace iroha {
     // need to test performance somehow - where to put the lock
     std::unique_lock<std::shared_timed_mutex> lock(mutex_);
     updated_batches->iterateBatches([this](const auto &batch) {
+      if (isReplay(*batch)) {
+        return;
+      }
+
       auto first_tx_hash = batch->transactions().front()->hash();
       auto batch_creators = batchCreators(*batch);
       auto batch_size = batch->transactions().size();
@@ -150,6 +155,9 @@ namespace iroha {
           auto inserted_batch_iterator =
               std::prev(account_batches.batches.end());
           account_batches.index.emplace(first_tx_hash, inserted_batch_iterator);
+          for (auto &tx : batch->transactions()) {
+            account_batches.trxsToBatches.insert(AccountBatches::BatchesBimap::value_type(tx->hash(), batch));
+          }
         } else {
           // updating batch
           auto &account_batch = index_iterator->second;
@@ -157,6 +165,27 @@ namespace iroha {
         }
       }
     });
+  }
+
+  bool PendingTransactionStorageImpl::isReplay(shared_model::interface::TransactionBatch const &batch) {
+    auto cache_ptr = presence_cache_.lock();
+    assert(!!cache_ptr);
+
+    auto cache_presence = cache_ptr->check(batch);
+    if (!cache_presence) {
+      return false;
+    }
+
+    return std::any_of(
+        cache_presence->begin(),
+        cache_presence->end(),
+        &ametsuchi::isAlreadyProcessed);
+  }
+
+  void PendingTransactionStorageImpl::insertPresenceCache(
+      std::shared_ptr<ametsuchi::TxPresenceCache> &cache) {
+    assert(!!cache);
+    presence_cache_ = cache;
   }
 
   inline void PendingTransactionStorageImpl::removeFromStorage(
@@ -175,6 +204,7 @@ namespace iroha {
           account_batches.batches.erase(batch_iterator);
           account_batches.index.erase(index_iterator);
           account_batches.all_transactions_quantity -= batch_size;
+          account_batches.trxsToBatches.right.erase(*batch_iterator);
         }
         if (0 == account_batches.all_transactions_quantity) {
           storage_.erase(account_batches_iterator);
@@ -221,22 +251,20 @@ namespace iroha {
   void PendingTransactionStorageImpl::removeTransaction(const HashType &hash) {
     std::shared_lock<std::shared_timed_mutex> read_lock(mutex_);
     for (auto &p : storage_) {
-      auto &batches = p.second.batches;
-      for (auto it = batches.begin(); it != batches.end(); ++it) {
-        auto const &transactions = it->get()->transactions();
-        if (std::any_of(
-                transactions.begin(),
-                transactions.end(),
-                [&hash](auto const &tx) { return hash == tx->hash(); })) {
-          auto batch = *it;
-          auto const &first_transaction_hash = transactions.front()->hash();
-          auto const &creators = batchCreators(**it);
-          auto batch_size = transactions.size();
-          read_lock.unlock();
-          std::unique_lock<std::shared_timed_mutex> write_lock(mutex_);
-          removeFromStorage(first_transaction_hash, creators, batch_size);
-          return;
-        }
+      auto &trxs_index = p.second.trxsToBatches;
+      auto it = trxs_index.left.find(hash);
+      if (trxs_index.left.end() != it) {
+        auto batch = it->second;
+        assert(!!batch);
+
+        auto const &transactions = batch->transactions();
+        auto const &first_transaction_hash = transactions.front()->hash();
+        auto const &creators = batchCreators(*batch);
+        auto batch_size = transactions.size();
+        read_lock.unlock();
+        std::unique_lock<std::shared_timed_mutex> write_lock(mutex_);
+        removeFromStorage(first_transaction_hash, creators, batch_size);
+        return;
       }
     }
   }
