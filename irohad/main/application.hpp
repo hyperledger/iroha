@@ -182,6 +182,8 @@ class Irohad {
 
   virtual RunResult initPersistentCache();
 
+  virtual RunResult initPendingTxsStorageWithCache();
+
   virtual RunResult initOrderingGate();
 
   virtual RunResult initSimulator();

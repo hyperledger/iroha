@@ -10,6 +10,9 @@
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
+#include <boost/bimap.hpp>
+#include <boost/bimap/unordered_set_of.hpp>
+#include <boost/bimap/unordered_multiset_of.hpp>
 
 #include <rxcpp/rx-lite.hpp>
 #include "interfaces/iroha_internal/transaction_batch.hpp"
@@ -53,6 +56,9 @@ namespace iroha {
         const std::optional<shared_model::interface::types::HashType>
             &first_tx_hash) const override;
 
+    void insertPresenceCache(
+      std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
+
    private:
     void updatedBatchesHandler(const SharedState &updated_batches);
 
@@ -68,6 +74,8 @@ namespace iroha {
 
     static std::set<AccountIdType> batchCreators(const TransactionBatch &batch);
 
+    bool isReplay(shared_model::interface::TransactionBatch const &batch);
+
     /**
      * Subscriptions on MST events
      */
@@ -76,6 +84,7 @@ namespace iroha {
     rxcpp::composite_subscription expired_batch_subscription_;
     rxcpp::composite_subscription prepared_transactions_subscription_;
     rxcpp::composite_subscription finalized_transactions_subscription_;
+    std::weak_ptr<ametsuchi::TxPresenceCache> presence_cache_;
 
     /**
      * Mutex for single-write multiple-read storage access
@@ -97,10 +106,23 @@ namespace iroha {
      * stored batches. Used for query response and memory management.
      */
     struct AccountBatches {
-      std::list<std::shared_ptr<TransactionBatch>> batches;
-      std::
-          unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher>
-              index;
+      class HashTypeHasher {
+      public:
+        size_t operator()(const HashType &hashVal) const {
+            return std::hash<std::string>{}(hashVal.hex());
+        }
+      };
+
+      using BatchPtr = std::shared_ptr<TransactionBatch>;
+      using BatchesBimap = boost::bimap<
+                                        boost::bimaps::unordered_set_of<HashType, HashTypeHasher>,
+                                        boost::bimaps::unordered_multiset_of<BatchPtr>
+                                        >;
+
+      std::list<BatchPtr> batches;
+      std::unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher> index;
+      BatchesBimap trxsToBatches;
+
       uint64_t all_transactions_quantity{0};
     };
 
