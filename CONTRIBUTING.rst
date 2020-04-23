@@ -121,7 +121,7 @@ Pull Requests
 -  End all files with a newline
 
 -  **Write tests** for new code. Test coverage for new code must be at
-   least 70%
+   least 70% and to check coverage use `cargo tarpaulin -v`
 
 -  Every pull request should be reviewed and **get at least two
    approvals from maintainers team**. Check who is a current maintainer

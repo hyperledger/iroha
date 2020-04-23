@@ -39,11 +39,15 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(&mut self, transactions: Vec<Transaction>) -> Result<Hash, String> {
+    pub async fn store(
+        &mut self,
+        transactions: Vec<Transaction>,
+        world_state_view: &WorldStateView,
+    ) -> Result<Hash, String> {
         let mut block = Block::builder(
             transactions
                 .into_iter()
-                .map(Transaction::validate)
+                .map(|transaction| transaction.validate(world_state_view))
                 .filter_map(Result::ok)
                 .collect(),
         )
@@ -198,7 +202,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded();
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
-        kura.store(Vec::new())
+        kura.store(Vec::new(), &WorldStateView::new())
             .await
             .expect("Failed to store block into Kura.");
     }

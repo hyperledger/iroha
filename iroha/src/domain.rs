@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 type Name = String;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Domain {
     pub name: Name,
     pub accounts: HashMap<Id, Account>,
