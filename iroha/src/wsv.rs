@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use std::collections::HashMap;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WorldStateView {
     domains: HashMap<String, Domain>,
     transactions: HashMap<Hash, Transaction>,

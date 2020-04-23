@@ -101,6 +101,7 @@ impl Iroha {
         let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
+        let world_state_view = Arc::clone(&self.world_state_view);
         self.pool.spawn_ok(async move {
             loop {
                 //TODO: decide what should be the minimum time to accumulate tx before creating a block
@@ -115,6 +116,7 @@ impl Iroha {
                                 .sign(transactions)
                                 .await
                                 .expect("Failed to sign transactions."),
+                            &*world_state_view.lock().await,
                         )
                         .await
                         .expect("Failed to accept transactions into blockchain.");

@@ -2,7 +2,7 @@ use crate::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Clone, Encode, Decode)]
 pub struct Account {
     pub id: Id,
     pub assets: BTreeMap<Id, Asset>,
