@@ -1,5 +1,9 @@
 use parity_scale_codec::{Decode, Encode};
 use std::fmt::{self, Debug, Formatter};
+use ursa::{
+    keys::PublicKey as UrsaPublicKey,
+    signatures::{ed25519::Ed25519Sha512, SignatureScheme},
+};
 
 pub type Hash = [u8; 32];
 pub type PublicKey = [u8; 32];
@@ -20,6 +24,17 @@ impl Signature {
             public_key,
             signature,
         }
+    }
+
+    pub fn verify(&self, message: &[u8]) -> Result<(), ()> {
+        Ed25519Sha512::new()
+            .verify(
+                message,
+                &self.signature,
+                &UrsaPublicKey(self.public_key.to_vec()),
+            )
+            .map_err(|_| ())
+            .map(|_| ())
     }
 }
 
