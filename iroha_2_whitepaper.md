@@ -96,21 +96,18 @@ These include the following smart contracts to support asset management use case
 	* Removes a peer from the consensus process.
 
 * CreateOracle(Name, URL, Protocol)
-	* Can 
+	* Gets an oracle from a data feed URL
 
 **Compound Instructions**
 
 **Transfer** = Batch(Sub(WhatAsset, WhatAmount, Account1) & Add(WhatAsset, WhatAmount, Account2))
 NOTE: Should probably inline Transfer as a primitive because it is going to be one of the most common instructions that is executed.
 
-**SwapAssets** = Batch(Sub(WhatAsset1, WhatAmount1, Account1) & Sub(WhatAsset2, WhatAmount2, Account2) & Add(WhatAsset2, WhatAmount2, Account1) & Add(WhatAsset1, WhatAmount1, Account2))
+**SwapAssets(asset1, asset2)** = Batch(Sub(WhatAsset1, WhatAmount1, Account1) & Sub(WhatAsset2, WhatAmount2, Account2) & Add(WhatAsset2, WhatAmount2, Account1) & Add(WhatAsset1, WhatAmount1, Account2))
 
 **AddXYKExchangePair(asset1, asset2)** = CreateAccount(Asset1Asset2Pair, Permissions(Permissions.Ownership.PoolShares))
 
 **AddOraclizedPair(mintableAsset, mintableAsset, oracle)** = Batch()
-
-
-The following are still WIP:
 
 **AddExchLimitBid** = Batch(CreateEventTrigger(Event1, *condition*=bidPrice<=Exists(askPrice), *action*= SwapAssets(askAsset, bidAsset)) & CreateAccount(Account2, Permissions(Permissions.OwnedByEvent(Event1))) & Sub(Asset, Amount, Account1) & Add(Asset, Amount, Pool))
 
