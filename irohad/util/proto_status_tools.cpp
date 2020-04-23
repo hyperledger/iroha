@@ -61,8 +61,16 @@ namespace iroha {
   }  // namespace utility_service
 }  // namespace iroha
 
-IROHA_DEFINE_PROTO_ENUM_TO_STRING(
-    ::iroha::utility_service::proto::Status::StatusEnum);
-IROHA_DEFINE_IFACE_ENUM_TO_PROTO_STRING(
-    ::iroha::utility_service::Status,
-    ::iroha::utility_service::getProtoStatusBimap().left);
+namespace iroha {
+  namespace to_string {
+    std::string toString(const ::iroha::utility_service::Status &val) {
+      const auto &map = ::iroha::utility_service::getProtoStatusBimap().left;
+      auto it = map.find(val);
+      if (it == map.end()) {
+        assert(it != map.end());
+        return "<unknown>";
+      }
+      return ::iroha::to_string::toString(it->second);
+    }
+  }  // namespace to_string
+}  // namespace iroha

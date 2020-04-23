@@ -20,14 +20,14 @@ namespace iroha {
         Status status);
 
     std::optional<Status> makeStatus(const proto::Status &status);
-
   }  // namespace utility_service
+
+  namespace to_string {
+    std::string toString(const ::iroha::utility_service::Status &val);
+  }  // namespace to_string
 }  // namespace iroha
 
-IROHA_DEFINE_PROTO_ENUM_TO_STRING_FWD(
+IROHA_DEFINE_PROTO_ENUM_TO_STRING(
     ::iroha::utility_service::proto::Status::StatusEnum)
-IROHA_DEFINE_IFACE_ENUM_TO_PROTO_STRING_FWD(
-    ::iroha::utility_service::Status,
-    ::iroha::utility_service::getProtoStatusBimap().left)
 
 #endif /* UTIL_PROTO_STATUS_TOOLS_HPP */
