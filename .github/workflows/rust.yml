@@ -45,5 +45,14 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose --no-fail-fast 
+    - name: Measure lines of code tests coverage
+      uses: action-rs/tarpaulin@v0.1
+      with:
+        args: `-v -- --skip=peer::tests::connect_three_peers --skip=add_asset --skip=client_can_transfer_asset_to_another_account --skip=single_threaded_async`
+    - name: Archive code coverage results
+      uses: actions/upload-artifact@v1
+      with:
+        name: code-coverage-report
+        path: cobertura.xml
     - name: Run benchmarks
       run: cargo bench
