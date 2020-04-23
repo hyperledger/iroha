@@ -84,6 +84,11 @@ impl Transaction {
             signatures,
         } = self
         {
+            for signature in &signatures {
+                if signature.verify(&Vec::from(&request)).is_err() {
+                    return Err("Failed to verify signatures.".to_string());
+                }
+            }
             Ok(Transaction::Accepted {
                 request,
                 signatures,
