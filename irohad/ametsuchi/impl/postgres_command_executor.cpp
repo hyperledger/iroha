@@ -7,6 +7,7 @@
 
 #include <exception>
 #include <forward_list>
+#include <memory>
 
 #include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
@@ -1191,9 +1192,16 @@ namespace iroha {
                                                                 R"(
           WITH
             inserted AS (
-              INSERT INTO engine_response_records
-              (creator_id, tx_hash, cmd_index, engine_response)
-              VALUES (:creator, :tx_hash, :cmd_index, :engine_response)
+              INSERT INTO engine_calls
+              (
+                creator_id, tx_hash, cmd_index, engine_response,
+                callee, created_address
+              )
+              VALUES
+              (
+                :creator, :tx_hash, :cmd_index, :engine_response,
+                :callee, :created_address
+              )
               ON CONFLICT (creator_id, tx_hash, cmd_index)
               DO UPDATE SET engine_response = :engine_response
               RETURNING (1)
@@ -1392,7 +1400,8 @@ namespace iroha {
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor)
         : sql_(std::move(sql)),
           perm_converter_{std::move(perm_converter)},
-          specific_query_executor_{std::move(specific_query_executor)} {
+          specific_query_executor_{std::move(specific_query_executor)},
+          burrow_storage_(std::make_unique<PostgresBurrowStorage>(*sql_)) {
       initStatements();
     }
 

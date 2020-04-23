@@ -95,10 +95,10 @@ target_link_libraries(proto_specific_query_executor
     shared_model_stateless_validation
     )
 
-add_library(reader_writer
-    impl/reader_writer.cpp
+add_library(burrow_storage
+    impl/burrow_storage.cpp
     )
-target_link_libraries(reader_writer
+target_link_libraries(burrow_storage
     common
     )
 
@@ -134,8 +134,9 @@ if(USE_BURROW)
     target_link_libraries(vmCall INTERFACE
         proto_command_executor
         proto_specific_query_executor
-        reader_writer
+        burrow_storage
         )
+    target_sources(ametsuchi PRIVATE impl/postgres_burrow_storage.cpp)
     target_link_libraries(ametsuchi
         vmCall
         )

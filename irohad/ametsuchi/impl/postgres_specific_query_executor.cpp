@@ -1458,7 +1458,7 @@ namespace iroha {
             WITH has_perms AS (SELECT 1),
             engine_responses AS (
             SELECT cmd_index, engine_response
-            FROM engine_response_records
+            FROM engine_calls
             WHERE creator_id=:creator_account_id and tx_hash=:tx_hash)
             SELECT * FROM engine_responses
             RIGHT OUTER JOIN has_perms ON TRUE;
