@@ -38,9 +38,9 @@
 #include "interfaces/queries/get_account.hpp"
 #include "interfaces/queries/get_account_detail.hpp"
 #include "interfaces/queries/query.hpp"
+#include "module/irohad/ametsuchi/mock_burrow_storage.hpp"
 #include "module/irohad/ametsuchi/mock_command_executor.hpp"
 #include "module/irohad/ametsuchi/mock_query_executor_visitor.hpp"
-#include "module/irohad/ametsuchi/mock_reader_writer.hpp"
 
 template <typename T>
 class VariantTypeMatcher {

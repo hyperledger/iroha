@@ -3,7 +3,7 @@ package state
 // #cgo CFLAGS: -I ../../../../irohad
 // #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
 // #include <stdlib.h>
-// #include "ametsuchi/impl/reader_writer.h"
+// #include "ametsuchi/impl/burrow_storage.h"
 import "C"
 import (
 	"encoding/hex"
