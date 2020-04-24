@@ -2,6 +2,7 @@ use crate::{crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
+use ursa::keys::PrivateKey;
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
@@ -32,6 +33,28 @@ impl Block {
                 .as_millis(),
             ..Default::default()
         }
+    }
+
+    pub fn sign(
+        mut self,
+        public_key: &PublicKey,
+        private_key: &PrivateKey,
+    ) -> Result<Block, String> {
+        use std::iter::FromIterator;
+        let signature_payload: Vec<u8> = crypto::hash(Vec::from_iter(
+            self.timestamp
+                .to_be_bytes()
+                .iter()
+                .chain(self.previous_block_hash.unwrap_or_default().iter())
+                .copied(),
+        ))
+        .to_vec();
+        self.signatures.push(Signature::new(
+            *public_key,
+            &signature_payload,
+            private_key,
+        )?);
+        Ok(self)
     }
 
     pub fn hash(&self) -> Hash {

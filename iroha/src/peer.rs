@@ -302,12 +302,23 @@ impl Peer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{queue::Queue, sumeragi::Sumeragi};
+    use std::time::Duration;
+    use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
 
     fn start_peer(listen_address: &str, connect_to: Option<String>) -> Arc<Peer> {
         use async_std::task;
-        let queue = Arc::new(Mutex::new(crate::queue::Queue::default()));
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        let (public_key, private_key) = Ed25519Sha512
+            .keypair(Option::None)
+            .expect("Failed to generate key pair.");
+        let public_key = public_key[..]
+            .try_into()
+            .expect("Public key should be [u8;32]");
         let sumeragi = Arc::new(Mutex::new(
-            crate::sumeragi::Sumeragi::new(
+            Sumeragi::new(
+                public_key,
+                private_key,
                 &vec![PeerId {
                     address: "127.0.0.1:7878".to_string(),
                     public_key: [0u8; 32],
@@ -339,11 +350,11 @@ mod tests {
     #[async_std::test]
     async fn connect_three_peers() {
         let _peer0 = start_peer("127.0.0.1:7878", None);
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(50));
         let peer1 = start_peer("127.0.0.1:7879", Some("127.0.0.1:7878".to_string()));
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(50));
         let _peer2 = start_peer("127.0.0.1:7880", Some("127.0.0.1:7878".to_string()));
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(peer1.state.lock().await.peers.len(), 2);
     }
 }

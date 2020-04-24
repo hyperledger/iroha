@@ -6,8 +6,11 @@ use crate::{
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use std::cmp::Ordering;
+use ursa::keys::PrivateKey;
 
 pub struct Sumeragi {
+    public_key: PublicKey,
+    private_key: PrivateKey,
     sorted_peers: Vec<PeerId>,
     max_faults: usize,
     peer_id: PeerId,
@@ -35,16 +38,20 @@ pub enum Role {
 
 impl Sumeragi {
     pub fn new(
+        public_key: PublicKey,
+        private_key: PrivateKey,
         peers: &[PeerId],
         prev_block_hash: Option<Hash>,
         max_faults: usize,
     ) -> Result<Self, String> {
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
-            let mut peers = peers.to_vec();
-            Self::sort_peers(&mut peers, prev_block_hash);
+            let mut sorted_peers = peers.to_vec();
+            Self::sort_peers(&mut sorted_peers, prev_block_hash);
             Ok(Self {
-                sorted_peers: peers,
+                public_key,
+                private_key,
+                sorted_peers,
                 max_faults,
                 //TODO: generate peer's public key, save on shutdown and load on start
                 peer_id: PeerId {
@@ -130,13 +137,12 @@ impl Sumeragi {
         });
     }
 
-    pub fn sign_block(&self, block: &Block) -> Result<Block, String> {
+    pub fn sign_block(&self, block: Block) -> Result<Block, String> {
         self.validate_access(&[Role::Leader, Role::ProxyTail, Role::ValidatingPeer])?;
-        //TODO: let signature_payload = (previous_block_hash, transaction_merkle_root, timestamp);
-        Ok(block.clone())
+        Ok(block.sign(&self.public_key, &self.private_key)?)
     }
 
-    pub async fn on_block_created(&self, block: &Block) -> Result<(), String> {
+    pub async fn on_block_created(&self, block: Block) -> Result<Block, String> {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
         let _result = Peer::send_to_peers(
@@ -149,7 +155,7 @@ impl Sumeragi {
             self.proxy_tail().clone(),
         )
         .await;
-        Ok(())
+        Ok(block)
     }
 
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
@@ -157,8 +163,9 @@ impl Sumeragi {
         match message {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
+                    let block = self.sign_block(block)?;
                     let _result = Peer::send(
-                        peer::Message::SumeragiMessage(Message::Signed(self.sign_block(&block)?)),
+                        peer::Message::SumeragiMessage(Message::Signed(block)),
                         self.proxy_tail().clone(),
                     );
                     //TODO: send to set b so they can observe
@@ -185,7 +192,7 @@ impl Sumeragi {
                     };
                     if let Some(block) = self.pending_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
-                            let block = self.sign_block(&block)?;
+                            let block = self.sign_block(block)?;
                             //TODO: commit block to Kura
                             let _result = Peer::send_to_peers(
                                 peer::Message::SumeragiMessage(Message::Committed(block.clone())),
@@ -225,11 +232,19 @@ impl Sumeragi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryInto;
+    use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
 
     #[test]
     #[should_panic]
     fn not_enough_peers() {
-        let _sumeragi = Sumeragi::new(&Vec::new(), None, 3).unwrap();
+        let (public_key, private_key) = Ed25519Sha512
+            .keypair(Option::None)
+            .expect("Failed to generate key pair.");
+        let public_key = public_key[..]
+            .try_into()
+            .expect("Public key should be [u8;32]");
+        let _sumeragi = Sumeragi::new(public_key, private_key, &Vec::new(), None, 3).unwrap();
     }
 
     #[test]
