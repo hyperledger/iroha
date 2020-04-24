@@ -6,8 +6,8 @@ use std::{
     fmt::{self, Debug, Formatter},
 };
 
-const QUERY_REQUEST_HEADER: &str = "/queries";
-const COMMAND_REQUEST_HEADER: &str = "/commands";
+const QUERY_URI: &str = "/query";
+const INSTRUCTION_URI: &str = "/instruction";
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
@@ -52,7 +52,7 @@ impl Client {
         )?;
         let response = network
             .send_request(Request::new(
-                COMMAND_REQUEST_HEADER.to_string(),
+                INSTRUCTION_URI.to_string(),
                 Vec::from(&transaction),
             ))
             .await
@@ -73,10 +73,7 @@ impl Client {
     pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
         let network = Network::new(&self.torii_url);
         let response = network
-            .send_request(Request::new(
-                QUERY_REQUEST_HEADER.to_string(),
-                request.into(),
-            ))
+            .send_request(Request::new(QUERY_URI.to_string(), request.into()))
             .await
             .map_err(|e| format!("Failed to write a get request: {}", e))?;
         if response.starts_with(INTERNAL_ERROR) {

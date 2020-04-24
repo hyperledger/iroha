@@ -1,20 +1,21 @@
-use crate::prelude::*;
+use crate::{peer::Message, prelude::*, MessageSender};
 use futures::{executor::ThreadPool, lock::Mutex};
 use iroha_derive::log;
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
 
-const QUERY_REQUEST_HEADER: &str = "/queries";
-const COMMAND_REQUEST_HEADER: &str = "/commands";
+const QUERY_URI: &str = "/query";
+const INSTRUCTIONS_URI: &str = "/instruction";
+const BLOCKS_URI: &str = "/block";
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
-#[allow(dead_code)]
 pub struct Torii {
     url: String,
     pool_ref: ThreadPool,
     world_state_view: Arc<Mutex<WorldStateView>>,
     transaction_sender: Arc<Mutex<TransactionSender>>,
+    message_sender: Arc<Mutex<MessageSender>>,
 }
 
 impl Torii {
@@ -23,12 +24,14 @@ impl Torii {
         pool_ref: ThreadPool,
         world_state_view: Arc<Mutex<WorldStateView>>,
         transaction_sender: TransactionSender,
+        message_sender: MessageSender,
     ) -> Self {
         Torii {
             url: url.to_string(),
             world_state_view,
             pool_ref,
             transaction_sender: Arc::new(Mutex::new(transaction_sender)),
+            message_sender: Arc::new(Mutex::new(message_sender)),
         }
     }
 
@@ -36,10 +39,12 @@ impl Torii {
         let url = &self.url.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
         let transaction_sender = Arc::clone(&self.transaction_sender);
+        let message_sender = Arc::clone(&self.message_sender);
         let state = ToriiState {
             pool: self.pool_ref.clone(),
             world_state_view,
             transaction_sender,
+            message_sender,
         };
         Network::listen(Arc::new(Mutex::new(state)), url, handle_connection)
             .await
@@ -51,6 +56,7 @@ struct ToriiState {
     pool: ThreadPool,
     world_state_view: Arc<Mutex<WorldStateView>>,
     transaction_sender: Arc<Mutex<TransactionSender>>,
+    message_sender: Arc<Mutex<MessageSender>>,
 }
 
 async fn handle_connection(
@@ -70,7 +76,7 @@ async fn handle_connection(
 #[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        COMMAND_REQUEST_HEADER => match Transaction::try_from(request.payload().to_vec()) {
+        INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 state
                     .lock()
@@ -87,7 +93,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(INTERNAL_ERROR.to_vec())
             }
         },
-        QUERY_REQUEST_HEADER => match QueryRequest::try_from(request.payload().to_vec()) {
+        QUERY_URI => match QueryRequest::try_from(request.payload().to_vec()) {
             Ok(request) => match request
                 .query
                 .execute(&*state.lock().await.world_state_view.lock().await)
@@ -108,6 +114,23 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(INTERNAL_ERROR.to_vec())
             }
         },
+        BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
+            Ok(message) => {
+                state
+                    .lock()
+                    .await
+                    .message_sender
+                    .lock()
+                    .await
+                    .start_send(message)
+                    .map_err(|e| format!("{}", e))?;
+                Ok(OK.to_vec())
+            }
+            Err(e) => {
+                eprintln!("Failed to decode peer message: {}", e);
+                Ok(INTERNAL_ERROR.to_vec())
+            }
+        },
         non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
     }
 }
@@ -116,7 +139,9 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
 mod tests {
     use super::*;
     use crate::config::Configuration;
+    use async_std::task;
     use futures::channel::mpsc;
+    use std::time::Duration;
 
     const CONFIGURATION_PATH: &str = "config.json";
 
@@ -125,13 +150,18 @@ mod tests {
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
-        let (tx, _) = mpsc::unbounded();
-        let _torii = Torii::new(
+        let (tx_tx, _) = mpsc::unbounded();
+        let (ms_tx, _) = mpsc::unbounded();
+        let mut torii = Torii::new(
             &torii_url.clone(),
             ThreadPool::new().expect("Failed to build Thread Pool."),
             Arc::new(Mutex::new(WorldStateView::new())),
-            tx,
+            tx_tx,
+            ms_tx,
         );
-        //torii.start().await;
+        task::spawn(async move {
+            torii.start().await;
+        });
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
