@@ -118,8 +118,6 @@ Pull Requests
 
 -  Fill in `the required template <https://github.com/hyperledger/iroha/blob/master/.github/PULL_REQUEST_TEMPLATE.md>`__
 
--  End all files with a newline
-
 -  **Write tests** for new code. Test coverage for new code must be at
    least 70% and to check coverage use `cargo tarpaulin -v`
 
@@ -132,7 +130,7 @@ Pull Requests
 -  When you've finished work make sure that you've got all passing CI
    checks ? after that **squash and merge** your pull request
 
--  Follow the `C++ Style Guide <#c-style-guide>`__
+-  Follow the `Rust Style Guide <#rust-style-guide>`__
 
 -  Follow the `Git Style Guide <#git-style-guide>`__
 
@@ -176,6 +174,7 @@ Rust Style Guide
 - Use domain-first modules structure. For example `domain::isi::*`. Such a way 
 complex uses will be easier to incude in dependent modules.
 - Do not use whitespaces or empty lines inside function bodies.
+- Put public methods first in your impl blocks.
 
 Documentation Styleguide
 ~~~~~~~~~~~~~~~~~~~~~~~~

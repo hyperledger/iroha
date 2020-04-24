@@ -18,7 +18,7 @@ pub mod wsv;
 use crate::{
     config::Configuration,
     kura::Kura,
-    peer::{Peer, PeerId},
+    peer::{Message, Peer, PeerId},
     prelude::*,
     queue::Queue,
     sumeragi::Sumeragi,
@@ -34,9 +34,11 @@ use parity_scale_codec::{Decode, Encode};
 use std::{path::Path, sync::Arc, time::Instant};
 
 pub type BlockSender = UnboundedSender<Block>;
+pub type BlockReceiver = UnboundedReceiver<Block>;
 pub type TransactionSender = UnboundedSender<Transaction>;
 pub type TransactionReceiver = UnboundedReceiver<Transaction>;
-pub type BlockReceiver = UnboundedReceiver<Block>;
+pub type MessageSender = UnboundedSender<Message>;
+pub type MessageReceiver = UnboundedReceiver<Message>;
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
@@ -49,6 +51,7 @@ pub struct Iroha {
     last_round_time: Arc<Mutex<Instant>>,
     transactions_receiver: Arc<Mutex<TransactionReceiver>>,
     blocks_receiver: Arc<Mutex<BlockReceiver>>,
+    message_receiver: Arc<Mutex<MessageReceiver>>,
     world_state_view: Arc<Mutex<WorldStateView>>,
     pool: ThreadPool,
 }
@@ -57,6 +60,7 @@ impl Iroha {
     pub fn new(config: Configuration) -> Self {
         let (transactions_sender, transactions_receiver) = mpsc::unbounded();
         let (blocks_sender, blocks_receiver) = mpsc::unbounded();
+        let (message_sender, message_receiver) = mpsc::unbounded();
         let world_state_view = Arc::new(Mutex::new(WorldStateView::new()));
         let pool = ThreadPool::new().expect("Failed to create new Thread Pool.");
         let torii = Torii::new(
@@ -64,6 +68,7 @@ impl Iroha {
             pool.clone(),
             Arc::clone(&world_state_view),
             transactions_sender,
+            message_sender,
         );
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
@@ -90,7 +95,6 @@ impl Iroha {
         //TODO: Get peer params from config
         let peer = Peer::new(
             "127.0.0.1:7878".to_string(),
-            10,
             15,
             queue.clone(),
             sumeragi.clone(),
@@ -101,9 +105,10 @@ impl Iroha {
             peer: Arc::new(Mutex::new(peer)),
             sumeragi,
             kura: Arc::new(Mutex::new(kura)),
-            transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
             world_state_view,
+            transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
             blocks_receiver: Arc::new(Mutex::new(blocks_receiver)),
+            message_receiver: Arc::new(Mutex::new(message_receiver)),
             last_round_time: Arc::new(Mutex::new(Instant::now())),
             pool,
         }
@@ -157,6 +162,17 @@ impl Iroha {
         self.pool.spawn_ok(async move {
             while let Some(block) = blocks_receiver.lock().await.next().await {
                 world_state_view.lock().await.put(&block).await;
+            }
+        });
+        let peer = Arc::clone(&self.peer);
+        let message_receiver = Arc::clone(&self.message_receiver);
+        self.pool.spawn_ok(async move {
+            while let Some(message) = message_receiver.lock().await.next().await {
+                peer.lock()
+                    .await
+                    .handle_message(message)
+                    .await
+                    .expect("Failed to handle message.");
             }
         });
         let peer = Arc::clone(&self.peer);
