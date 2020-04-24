@@ -4,6 +4,7 @@ use crate::{
     prelude::*,
 };
 use iroha_derive::*;
+use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use std::cmp::Ordering;
 
@@ -149,11 +150,13 @@ impl Sumeragi {
             self.validating_peers(),
         )
         .await;
-        let _result = Peer::send(
-            peer::Message::SumeragiMessage(Message::Created(block.clone())),
-            self.proxy_tail().clone(),
-        )
-        .await;
+        let _result = Network::send_request_to(
+            self.proxy_tail().address.as_ref(),
+            Request::new(
+                "/blocks".to_string(),
+                peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
+            ),
+        );
         Ok(block)
     }
 
@@ -163,9 +166,12 @@ impl Sumeragi {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
                     let block = self.sign_block(block)?;
-                    let _result = Peer::send(
-                        peer::Message::SumeragiMessage(Message::Signed(block)),
-                        self.proxy_tail().clone(),
+                    let _result = Network::send_request_to(
+                        self.proxy_tail().address.as_ref(),
+                        Request::new(
+                            "/blocks".to_string(),
+                            peer::Message::SumeragiMessage(Message::Signed(block)).into(),
+                        ),
                     );
                     //TODO: send to set b so they can observe
                 }
@@ -198,11 +204,14 @@ impl Sumeragi {
                                 self.validating_peers(),
                             )
                             .await;
-                            let _result = Peer::send(
-                                peer::Message::SumeragiMessage(Message::Created(block.clone())),
-                                self.leader().clone(),
-                            )
-                            .await;
+                            let _result = Network::send_request_to(
+                                self.leader().address.as_ref(),
+                                Request::new(
+                                    "/blocks".to_string(),
+                                    peer::Message::SumeragiMessage(Message::Created(block.clone()))
+                                        .into(),
+                                ),
+                            );
                             //TODO: `self.next_round()`
                         }
                     }
