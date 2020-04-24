@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{Crypto, Hash},
+    crypto::{self, Hash},
     peer::{self, PeerId},
     prelude::*,
 };
@@ -114,10 +114,10 @@ impl Sumeragi {
             if let Some(block_hash) = block_hash {
                 let mut bytes_p1 = Vec::<u8>::from(p1);
                 bytes_p1.extend_from_slice(&block_hash);
-                let hash_p1 = Crypto::hash(bytes_p1);
+                let hash_p1 = crypto::hash(bytes_p1);
                 let mut bytes_p2 = Vec::<u8>::from(p2);
                 bytes_p2.extend_from_slice(&block_hash);
-                let hash_p2 = Crypto::hash(bytes_p2);
+                let hash_p2 = crypto::hash(bytes_p2);
                 let order = hash_p1.cmp(&hash_p2);
                 if order == Ordering::Equal {
                     p1.address.cmp(&p2.address)
@@ -132,7 +132,7 @@ impl Sumeragi {
 
     pub fn sign_block(&self, block: &Block) -> Result<Block, String> {
         self.validate_access(&[Role::Leader, Role::ProxyTail, Role::ValidatingPeer])?;
-        //TODO: implement sign logic
+        //TODO: let signature_payload = (previous_block_hash, transaction_merkle_root, timestamp);
         Ok(block.clone())
     }
 
