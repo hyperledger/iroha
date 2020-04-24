@@ -31,7 +31,8 @@ use futures::{
     prelude::*,
 };
 use parity_scale_codec::{Decode, Encode};
-use std::{path::Path, sync::Arc, time::Instant};
+use std::{convert::TryInto, path::Path, sync::Arc, time::Instant};
+use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
 
 pub type BlockSender = UnboundedSender<Block>;
 pub type TransactionSender = UnboundedSender<Transaction>;
@@ -65,12 +66,20 @@ impl Iroha {
             Arc::clone(&world_state_view),
             transactions_sender,
         );
+        let (public_key, private_key) = Ed25519Sha512
+            .keypair(Option::None)
+            .expect("Failed to generate key pair.");
+        let public_key = public_key[..]
+            .try_into()
+            .expect("Public key should be [u8;32]");
         //TODO: get peers from json and blockchain
         let sumeragi = Arc::new(Mutex::new(
             Sumeragi::new(
+                public_key,
+                private_key,
                 &[PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0u8; 32],
+                    public_key,
                 }],
                 None,
                 0,
