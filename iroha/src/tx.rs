@@ -2,10 +2,7 @@ use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
-use ursa::{
-    keys::PrivateKey,
-    signatures::{ed25519::Ed25519Sha512, Signer},
-};
+use ursa::keys::PrivateKey;
 
 /// This structure represents transaction in non-trusted form.
 ///
@@ -55,7 +52,7 @@ impl Transaction {
         account_id: Id,
         public_key: &PublicKey,
         private_key: &PrivateKey,
-    ) -> Transaction {
+    ) -> Result<Transaction, String> {
         let request = TransactionRequest {
             instructions,
             account_id,
@@ -65,17 +62,15 @@ impl Transaction {
                 .as_millis()
                 .to_string(),
         };
-        let bytes: Vec<u8> = Vec::from(&request);
-        let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
-            .sign(&bytes)
-            .expect("Failed to sign transaction.");
-        let mut signature = [0; 64];
-        signature.copy_from_slice(&transaction_signature);
-        let signature = Signature::new(*public_key, signature);
-        Transaction::Requested {
+        let signature_payload: Vec<u8> = Vec::from(&request);
+        Ok(Transaction::Requested {
             request,
-            signatures: vec![signature],
-        }
+            signatures: vec![Signature::new(
+                *public_key,
+                &signature_payload,
+                private_key,
+            )?],
+        })
     }
 
     pub fn accept(self) -> Result<Transaction, String> {

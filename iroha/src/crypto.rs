@@ -5,26 +5,22 @@ use ursa::{
         digest::{Input, VariableOutput},
         VarBlake2b,
     },
-    keys::PublicKey as UrsaPublicKey,
-    signatures::{ed25519::Ed25519Sha512, SignatureScheme},
+    keys::{PrivateKey, PublicKey as UrsaPublicKey},
+    signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
 };
 
 pub type Hash = [u8; 32];
 pub type PublicKey = [u8; 32];
 type Ed25519Signature = [u8; 64];
 
-pub struct Crypto;
-
-impl Crypto {
-    pub fn hash(bytes: Vec<u8>) -> Hash {
-        let vec_hash = VarBlake2b::new(32)
-            .expect("Failed to initialize variable size hash")
-            .chain(bytes)
-            .vec_result();
-        let mut hash = [0; 32];
-        hash.copy_from_slice(&vec_hash);
-        hash
-    }
+pub fn hash(bytes: Vec<u8>) -> Hash {
+    let vec_hash = VarBlake2b::new(32)
+        .expect("Failed to initialize variable size hash")
+        .chain(bytes)
+        .vec_result();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&vec_hash);
+    hash
 }
 
 #[derive(Clone, Encode, Decode)]
@@ -37,11 +33,20 @@ pub struct Signature {
 }
 
 impl Signature {
-    pub fn new(public_key: PublicKey, signature: Ed25519Signature) -> Signature {
-        Signature {
+    pub fn new(
+        public_key: PublicKey,
+        payload: &[u8],
+        private_key: &PrivateKey,
+    ) -> Result<Signature, String> {
+        let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
+            .sign(payload)
+            .map_err(|e| format!("Failed to sign payload: {}", e))?;
+        let mut signature = [0; 64];
+        signature.copy_from_slice(&transaction_signature);
+        Ok(Signature {
             public_key,
             signature,
-        }
+        })
     }
 
     pub fn verify(&self, message: &[u8]) -> Result<(), ()> {
@@ -84,7 +89,7 @@ mod tests {
             digest::{Input, VariableOutput},
             VarBlake2b,
         },
-        signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
+        signatures::{ed25519::Ed25519Sha512, SignatureScheme},
     };
 
     #[test]
@@ -92,17 +97,14 @@ mod tests {
         let (public_key, private_key) = Ed25519Sha512
             .keypair(Option::None)
             .expect("Failed to generate key pair.");
-        let signed_message = Signer::new(&Ed25519Sha512, &private_key)
-            .sign(b"Test message to sign.")
-            .expect("Failed to sign message.");
-        let mut signature: Ed25519Signature = [0; 64];
-        signature.copy_from_slice(&signed_message);
         let result = Signature::new(
             public_key[..]
                 .try_into()
                 .expect("Failed to transform public key."),
-            signature,
-        );
+            b"Test message to sign.",
+            &private_key,
+        )
+        .expect("Failed to create signature.");
         assert_eq!(result.public_key, public_key[..]);
     }
 

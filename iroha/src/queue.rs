@@ -31,13 +31,16 @@ mod tests {
             .keypair(Option::None)
             .expect("Failed to generate key pair.");
         let mut queue = Queue::default();
-        queue.push_pending_transaction(Transaction::new(
-            Vec::new(),
-            Id::new("account", "domain"),
-            public_key[..]
-                .try_into()
-                .expect("Failed to transform public key."),
-            &private_key,
-        ));
+        queue.push_pending_transaction(
+            Transaction::new(
+                Vec::new(),
+                Id::new("account", "domain"),
+                public_key[..]
+                    .try_into()
+                    .expect("Failed to transform public key."),
+                &private_key,
+            )
+            .expect("Failed to create Transaction."),
+        );
     }
 }
