@@ -43,7 +43,7 @@ impl Client {
             Id::new("account", "domain"),
             &self.public_key,
             &self.private_key,
-        );
+        )?;
         let response = network
             .send_request(Request::new(
                 COMMAND_REQUEST_HEADER.to_string(),

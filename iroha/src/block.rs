@@ -1,4 +1,4 @@
-use crate::{crypto::Crypto, prelude::*};
+use crate::{crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
@@ -35,7 +35,7 @@ impl Block {
     }
 
     pub fn hash(&self) -> Hash {
-        Crypto::hash(self.into())
+        crypto::hash(self.into())
     }
 }
 
