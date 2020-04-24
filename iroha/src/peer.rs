@@ -302,26 +302,21 @@ impl Peer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{queue::Queue, sumeragi::Sumeragi};
+    use crate::{crypto, queue::Queue, sumeragi::Sumeragi};
     use std::time::Duration;
-    use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
 
     fn start_peer(listen_address: &str, connect_to: Option<String>) -> Arc<Peer> {
         use async_std::task;
         let queue = Arc::new(Mutex::new(Queue::default()));
-        let (public_key, private_key) = Ed25519Sha512
-            .keypair(Option::None)
-            .expect("Failed to generate key pair.");
-        let public_key = public_key[..]
-            .try_into()
-            .expect("Public key should be [u8;32]");
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
         let sumeragi = Arc::new(Mutex::new(
             Sumeragi::new(
                 public_key,
                 private_key,
                 &vec![PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0u8; 32],
+                    public_key: public_key,
                 }],
                 None,
                 0,

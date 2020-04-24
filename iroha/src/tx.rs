@@ -2,7 +2,6 @@ use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
-use ursa::keys::PrivateKey;
 
 /// This structure represents transaction in non-trusted form.
 ///

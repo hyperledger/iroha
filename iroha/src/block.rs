@@ -2,7 +2,6 @@ use crate::{crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
-use ursa::keys::PrivateKey;
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
