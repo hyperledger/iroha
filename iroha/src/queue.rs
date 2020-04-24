@@ -22,22 +22,18 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryInto;
-    use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
+    use crate::crypto;
 
     #[test]
     fn push_pending_transaction() {
-        let (public_key, private_key) = Ed25519Sha512
-            .keypair(Option::None)
-            .expect("Failed to generate key pair.");
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
         let mut queue = Queue::default();
         queue.push_pending_transaction(
             Transaction::new(
                 Vec::new(),
                 Id::new("account", "domain"),
-                public_key[..]
-                    .try_into()
-                    .expect("Failed to transform public key."),
+                &public_key,
                 &private_key,
             )
             .expect("Failed to create Transaction."),

@@ -1,17 +1,33 @@
 use parity_scale_codec::{Decode, Encode};
-use std::fmt::{self, Debug, Formatter};
+use std::{
+    convert::TryInto,
+    fmt::{self, Debug, Formatter},
+};
 use ursa::{
     blake2::{
         digest::{Input, VariableOutput},
         VarBlake2b,
     },
-    keys::{PrivateKey, PublicKey as UrsaPublicKey},
+    keys::{PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey},
     signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
 };
 
 pub type Hash = [u8; 32];
 pub type PublicKey = [u8; 32];
+pub type PrivateKey = [u8; 64];
 type Ed25519Signature = [u8; 64];
+
+pub fn generate_key_pair() -> Result<(PublicKey, PrivateKey), String> {
+    let (public_key, ursa_private_key) = Ed25519Sha512
+        .keypair(Option::None)
+        .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
+    let public_key = public_key[..]
+        .try_into()
+        .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
+    let mut private_key = [0; 64];
+    private_key.copy_from_slice(ursa_private_key.as_ref());
+    Ok((public_key, private_key))
+}
 
 pub fn hash(bytes: Vec<u8>) -> Hash {
     let vec_hash = VarBlake2b::new(32)
@@ -38,6 +54,7 @@ impl Signature {
         payload: &[u8],
         private_key: &PrivateKey,
     ) -> Result<Signature, String> {
+        let private_key = UrsaPrivateKey(private_key.to_vec());
         let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
             .sign(payload)
             .map_err(|e| format!("Failed to sign payload: {}", e))?;
@@ -83,28 +100,17 @@ mod tests {
     use super::*;
 
     use hex_literal::hex;
-    use std::convert::TryInto;
-    use ursa::{
-        blake2::{
-            digest::{Input, VariableOutput},
-            VarBlake2b,
-        },
-        signatures::{ed25519::Ed25519Sha512, SignatureScheme},
+    use ursa::blake2::{
+        digest::{Input, VariableOutput},
+        VarBlake2b,
     };
 
     #[test]
     fn create_signature() {
-        let (public_key, private_key) = Ed25519Sha512
-            .keypair(Option::None)
-            .expect("Failed to generate key pair.");
-        let result = Signature::new(
-            public_key[..]
-                .try_into()
-                .expect("Failed to transform public key."),
-            b"Test message to sign.",
-            &private_key,
-        )
-        .expect("Failed to create signature.");
+        let (public_key, private_key) =
+            super::generate_key_pair().expect("Failed to generate key pair.");
+        let result = Signature::new(public_key, b"Test message to sign.", &private_key)
+            .expect("Failed to create signature.");
         assert_eq!(result.public_key, public_key[..]);
     }
 
