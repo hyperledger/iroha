@@ -6,7 +6,6 @@ use crate::{
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use std::cmp::Ordering;
-use ursa::keys::PrivateKey;
 
 pub struct Sumeragi {
     public_key: PublicKey,
@@ -232,18 +231,13 @@ impl Sumeragi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryInto;
-    use ursa::signatures::{ed25519::Ed25519Sha512, SignatureScheme};
+    use crate::crypto;
 
     #[test]
     #[should_panic]
     fn not_enough_peers() {
-        let (public_key, private_key) = Ed25519Sha512
-            .keypair(Option::None)
-            .expect("Failed to generate key pair.");
-        let public_key = public_key[..]
-            .try_into()
-            .expect("Public key should be [u8;32]");
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
         let _sumeragi = Sumeragi::new(public_key, private_key, &Vec::new(), None, 3).unwrap();
     }
 

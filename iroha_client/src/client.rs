@@ -1,10 +1,9 @@
-use iroha::prelude::*;
+use iroha::{crypto, prelude::*};
 use iroha_derive::log;
 use iroha_network::prelude::*;
-use std::convert::{TryFrom, TryInto};
-use ursa::{
-    keys::PrivateKey,
-    signatures::{ed25519::Ed25519Sha512, SignatureScheme},
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt::{self, Debug, Formatter},
 };
 
 const QUERY_REQUEST_HEADER: &str = "/queries";
@@ -12,19 +11,26 @@ const COMMAND_REQUEST_HEADER: &str = "/commands";
 const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
 const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
-#[derive(Debug)]
 pub struct Client {
     torii_url: String,
     public_key: PublicKey,
     private_key: PrivateKey,
 }
 
+impl Debug for Client {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("public_key", &self.public_key)
+            .field("torii_url", &self.torii_url)
+            .finish()
+    }
+}
+
 /// Representation of `Iroha` client.
 impl Client {
     pub fn new(config: Configuration) -> Self {
-        let (public_key, private_key) = Ed25519Sha512
-            .keypair(Option::None)
-            .expect("Failed to generate key pair.");
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
         Client {
             torii_url: config.torii_url,
             public_key: public_key[..]
