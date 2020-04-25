@@ -1370,9 +1370,7 @@ namespace iroha {
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter)
-        : sql_(std::move(sql)),
-          perm_converter_{std::move(perm_converter)},
-          burrow_storage_(std::make_unique<PostgresBurrowStorage>(*sql_)) {
+        : sql_(std::move(sql)), perm_converter_{std::move(perm_converter)} {
       initStatements();
     }
 
