@@ -42,6 +42,31 @@ func (buf *C.struct_Iroha_CharBuffer) free() {
   C.free(unsafe.Pointer(buf.data))
 }
 
+type Iroha_CharBufferArray_Wrapper struct {
+  charBuffers []C.struct_Iroha_CharBuffer
+	carray *C.struct_Iroha_CharBufferArray
+}
+
+func MakeIrohaCharBufferArray(data []binary.Word256) *Iroha_CharBufferArray_Wrapper {
+  array := make([]C.struct_Iroha_CharBuffer, len(data))
+  for idx, el := range data {
+    array[idx] = *MakeIrohaCharBuffer(hex.EncodeToString(el.Bytes()))
+  }
+  return &Iroha_CharBufferArray_Wrapper{
+    array,
+    &C.struct_Iroha_CharBufferArray{
+      data: &array[0],
+      size: C.ulonglong(len(data)),
+    },
+  }
+}
+
+func (arr *Iroha_CharBufferArray_Wrapper) free() {
+  for _, el := range arr.charBuffers {
+    C.free(unsafe.Pointer(el.data))
+  }
+}
+
 func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
 	caddress := MakeIrohaCharBuffer(address.String())
 	result := C.Iroha_GetAccount(st.Storage, *caddress)
@@ -147,6 +172,24 @@ func (st *IrohaState) SetStorage(address crypto.Address, key binary.Word256, val
 	caddress.free()
 	ckey.free()
 	cvalue.free()
+
+	if result.error != nil {
+		error := C.GoString(result.error)
+		C.free(unsafe.Pointer(result.error))
+		return errors.New(error)
+	}
+
+	return nil
+}
+
+func (st *IrohaState) StoreTxReceipt(address crypto.Address, hex_data []byte, topics []binary.Word256) error {
+	caddress := MakeIrohaCharBuffer(address.String())
+	cdata := MakeIrohaCharBuffer(hex.EncodeToString(hex_data))
+	ctopics := MakeIrohaCharBufferArray(topics)
+	result := C.Iroha_StoreTxReceipt(st.Storage, *caddress, *cdata, *ctopics.carray)
+	caddress.free()
+	cdata.free()
+	ctopics.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
