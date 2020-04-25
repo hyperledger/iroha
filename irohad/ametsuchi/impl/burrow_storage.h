@@ -20,6 +20,11 @@ struct Iroha_CharBuffer {
   unsigned long long size;
 };
 
+struct Iroha_CharBufferArray {
+  struct Iroha_CharBuffer *data;
+  unsigned long long size;
+};
+
 extern struct Iroha_Result Iroha_GetAccount(void *storage,
                                             struct Iroha_CharBuffer address);
 
@@ -38,6 +43,12 @@ extern struct Iroha_Result Iroha_SetStorage(void *storage,
                                             struct Iroha_CharBuffer address,
                                             struct Iroha_CharBuffer key,
                                             struct Iroha_CharBuffer value);
+
+extern struct Iroha_Result Iroha_StoreTxReceipt(
+    void *storage,
+    struct Iroha_CharBuffer address,
+    struct Iroha_CharBuffer data,
+    struct Iroha_CharBufferArray topics);
 
 #ifdef __cplusplus
 }  // extern "C"

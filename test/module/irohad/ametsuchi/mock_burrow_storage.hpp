@@ -36,6 +36,12 @@ namespace iroha {
                   setStorage,
                   (std::string_view, std::string_view, std::string_view),
                   (override));
+      MOCK_METHOD((expected::Result<void, std::string>),
+                  storeTxReceipt,
+                  (std::string_view address,
+                   std::string_view data,
+                   std::vector<std::string_view> topics),
+                  (override));
     };
 
   }  // namespace ametsuchi
