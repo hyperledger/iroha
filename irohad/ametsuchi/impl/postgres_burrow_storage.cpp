@@ -101,3 +101,10 @@ Result<void, std::string> PostgresBurrowStorage::setStorage(
     return makeError(e.what());
   }
 }
+
+Result<void, std::string> PostgresBurrowStorage::storeTxReceipt(
+    std::string_view address,
+    std::string_view data,
+    std::vector<std::string_view> topics) {
+  return Value<void>{};
+}

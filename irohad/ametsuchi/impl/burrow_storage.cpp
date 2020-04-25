@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <cstring>
 #include <string_view>
+#include <vector>
+
 #include "ametsuchi/burrow_storage.hpp"
 #include "common/result.hpp"
 
@@ -98,4 +100,16 @@ Iroha_Result Iroha_SetStorage(void *storage,
                       charBufferToStringView(address),
                       charBufferToStringView(key),
                       charBufferToStringView(value));
+}
+
+Iroha_Result Iroha_StoreTxReceipt(void *storage,
+                                  Iroha_CharBuffer address,
+                                  Iroha_CharBuffer data,
+                                  Iroha_CharBufferArray topics) {
+  std::vector<std::string_view> topics_vector;
+  return performQuery(storage,
+                      &BurrowStorage::storeTxReceipt,
+                      charBufferToStringView(address),
+                      charBufferToStringView(data),
+                      charBufferArrayToStringViewVector(topics));
 }
