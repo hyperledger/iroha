@@ -5,7 +5,9 @@
 
 #include "ametsuchi/impl/burrow_storage.h"
 
+#include <cstddef>
 #include <cstring>
+#include <string_view>
 #include "ametsuchi/burrow_storage.hpp"
 #include "common/result.hpp"
 
@@ -15,6 +17,20 @@ namespace {
     strncpy(cstr, string.c_str(), string.length());
     cstr[string.length()] = 0;
     return cstr;
+  }
+
+  inline std::string_view charBufferToStringView(Iroha_CharBuffer const &buf) {
+    return std::string_view{buf.data, buf.size};
+  }
+
+  inline std::vector<std::string_view> charBufferArrayToStringViewVector(
+      Iroha_CharBufferArray const &arr) {
+    std::vector<std::string_view> result;
+    Iroha_CharBuffer const *const end = arr.data + arr.size;
+    for (Iroha_CharBuffer *ptr = arr.data; ptr < end; ++ptr) {
+      result.emplace_back(charBufferToStringView(*ptr));
+    }
+    return result;
   }
 
   using namespace iroha::expected;
@@ -45,25 +61,41 @@ namespace {
 
 using namespace iroha::ametsuchi;
 
-Iroha_Result Iroha_GetAccount(void *storage, char *address) {
-  return performQuery(storage, &BurrowStorage::getAccount, address);
+Iroha_Result Iroha_GetAccount(void *storage, Iroha_CharBuffer address) {
+  return performQuery(
+      storage, &BurrowStorage::getAccount, charBufferToStringView(address));
 }
 
-Iroha_Result Iroha_UpdateAccount(void *storage, char *address, char *account) {
-  return performQuery(storage, &BurrowStorage::updateAccount, address, account);
+Iroha_Result Iroha_UpdateAccount(void *storage,
+                                 Iroha_CharBuffer address,
+                                 Iroha_CharBuffer account) {
+  return performQuery(storage,
+                      &BurrowStorage::updateAccount,
+                      charBufferToStringView(address),
+                      charBufferToStringView(account));
 }
 
-Iroha_Result Iroha_RemoveAccount(void *storage, char *address) {
-  return performQuery(storage, &BurrowStorage::removeAccount, address);
+Iroha_Result Iroha_RemoveAccount(void *storage, Iroha_CharBuffer address) {
+  return performQuery(
+      storage, &BurrowStorage::removeAccount, charBufferToStringView(address));
 }
 
-Iroha_Result Iroha_GetStorage(void *storage, char *address, char *key) {
-  return performQuery(storage, &BurrowStorage::getStorage, address, key);
+Iroha_Result Iroha_GetStorage(void *storage,
+                              Iroha_CharBuffer address,
+                              Iroha_CharBuffer key) {
+  return performQuery(storage,
+                      &BurrowStorage::getStorage,
+                      charBufferToStringView(address),
+                      charBufferToStringView(key));
 }
 
 Iroha_Result Iroha_SetStorage(void *storage,
-                              char *address,
-                              char *key,
-                              char *value) {
-  return performQuery(storage, &BurrowStorage::setStorage, address, key, value);
+                              Iroha_CharBuffer address,
+                              Iroha_CharBuffer key,
+                              Iroha_CharBuffer value) {
+  return performQuery(storage,
+                      &BurrowStorage::setStorage,
+                      charBufferToStringView(address),
+                      charBufferToStringView(key),
+                      charBufferToStringView(value));
 }

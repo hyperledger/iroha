@@ -15,22 +15,29 @@ struct Iroha_Result {
   char *error;
 };
 
-extern struct Iroha_Result Iroha_GetAccount(void *storage, char *address);
+struct Iroha_CharBuffer {
+  char *data;
+  unsigned long long size;
+};
+
+extern struct Iroha_Result Iroha_GetAccount(void *storage,
+                                            struct Iroha_CharBuffer address);
 
 extern struct Iroha_Result Iroha_UpdateAccount(void *storage,
-                                               char *address,
-                                               char *account);
+                                               struct Iroha_CharBuffer address,
+                                               struct Iroha_CharBuffer account);
 
-extern struct Iroha_Result Iroha_RemoveAccount(void *storage, char *address);
+extern struct Iroha_Result Iroha_RemoveAccount(void *storage,
+                                               struct Iroha_CharBuffer address);
 
 extern struct Iroha_Result Iroha_GetStorage(void *storage,
-                                            char *address,
-                                            char *key);
+                                            struct Iroha_CharBuffer address,
+                                            struct Iroha_CharBuffer key);
 
 extern struct Iroha_Result Iroha_SetStorage(void *storage,
-                                            char *address,
-                                            char *key,
-                                            char *value);
+                                            struct Iroha_CharBuffer address,
+                                            struct Iroha_CharBuffer key,
+                                            struct Iroha_CharBuffer value);
 
 #ifdef __cplusplus
 }  // extern "C"
