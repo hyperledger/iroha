@@ -14,7 +14,6 @@ import (
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/evm"
-	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/hyperledger/burrow/execution/native"
 	"github.com/hyperledger/burrow/permission"
 	"github.com/tmthrgd/go-hex"
@@ -83,6 +82,9 @@ func VmCall(input, caller, callee *C.char, commandExecutor, queryExecutor, stora
 
 	var gas uint64 = 1000000
 	var output acm.Bytecode
+	eventSink := &IrohaEventSink{
+    irohaState: worldState,
+  }
 
 	calleeAccount, err := worldState.GetAccount(evmCallee)
 	if err != nil {
@@ -102,7 +104,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor, queryExecutor, stora
 			Value:  0,
 			Gas:    &gas,
 		}
-		output, err = burrowEVM.Execute(worldState, blockchain.New(), exec.NewNoopEventSink(), params, goInput)
+		output, err = burrowEVM.Execute(worldState, blockchain.New(), eventSink, params, goInput)
 		if err != nil {
 			fmt.Printf("Error deploying smart contract at address %s, input %x: %s\n", evmCallee.String(), goInput, err.Error())
 			return nil, false
@@ -130,7 +132,7 @@ func VmCall(input, caller, callee *C.char, commandExecutor, queryExecutor, stora
 			Value:  0,
 			Gas:    &gas,
 		}
-		output, err = burrowEVM.Execute(worldState, blockchain.New(), exec.NewNoopEventSink(), params, calleeAccount.EVMCode)
+		output, err = burrowEVM.Execute(worldState, blockchain.New(), eventSink, params, calleeAccount.EVMCode)
 		if err != nil {
 			fmt.Printf("Error calling a smart contract at address %s with input %x: %s\n", evmCallee.String(), goInput, err.Error())
 			return nil, false
