@@ -8,6 +8,8 @@
 
 #include "ametsuchi/burrow_storage.hpp"
 
+#include "interfaces/common_objects/types.hpp"
+
 namespace soci {
   class session;
 }
@@ -15,7 +17,10 @@ namespace soci {
 namespace iroha::ametsuchi {
   class PostgresBurrowStorage : public BurrowStorage {
    public:
-    PostgresBurrowStorage(soci::session &sql);
+    PostgresBurrowStorage(
+        soci::session &sql,
+        std::string const &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index);
 
     expected::Result<std::optional<std::string>, std::string> getAccount(
         std::string_view address) override;
@@ -41,6 +46,9 @@ namespace iroha::ametsuchi {
 
    private:
     soci::session &sql_;
+    std::string const &tx_hash_;
+    shared_model::interface::types::CommandIndexType cmd_index_;
+    std::optional<size_t> call_id_cache_;
   };
 
 }  // namespace iroha::ametsuchi
