@@ -31,10 +31,21 @@ func NewIrohaState(storage unsafe.Pointer) *IrohaState {
 	}
 }
 
+func MakeIrohaCharBuffer(data string) *C.struct_Iroha_CharBuffer {
+  return &C.struct_Iroha_CharBuffer{
+    data: C.CString(data),
+    size: C.ulonglong(len(data)),
+  }
+}
+
+func (buf *C.struct_Iroha_CharBuffer) free() {
+  C.free(unsafe.Pointer(buf.data))
+}
+
 func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
-	caddress := C.CString(address.String())
-	result := C.Iroha_GetAccount(st.Storage, caddress)
-	C.free(unsafe.Pointer(caddress))
+	caddress := MakeIrohaCharBuffer(address.String())
+	result := C.Iroha_GetAccount(st.Storage, *caddress)
+	caddress.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
@@ -76,11 +87,11 @@ func (st *IrohaState) UpdateAccount(account *acm.Account) error {
 		return err
 	}
 
-	caddress := C.CString(account.GetAddress().String())
-	caccount := C.CString(hex.EncodeToString(marshalledData))
-	result := C.Iroha_UpdateAccount(st.Storage, caddress, caccount)
-	C.free(unsafe.Pointer(caddress))
-	C.free(unsafe.Pointer(caccount))
+	caddress := MakeIrohaCharBuffer(account.GetAddress().String())
+	caccount := MakeIrohaCharBuffer(hex.EncodeToString(marshalledData))
+	result := C.Iroha_UpdateAccount(st.Storage, *caddress, *caccount)
+	caddress.free()
+	caccount.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
@@ -92,9 +103,9 @@ func (st *IrohaState) UpdateAccount(account *acm.Account) error {
 }
 
 func (st *IrohaState) RemoveAccount(address crypto.Address) error {
-	caddress := C.CString(address.String())
-	result := C.Iroha_RemoveAccount(st.Storage, caddress)
-	C.free(unsafe.Pointer(caddress))
+	caddress := MakeIrohaCharBuffer(address.String())
+	result := C.Iroha_RemoveAccount(st.Storage, *caddress)
+	caddress.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
@@ -106,11 +117,11 @@ func (st *IrohaState) RemoveAccount(address crypto.Address) error {
 }
 
 func (st *IrohaState) GetStorage(address crypto.Address, key binary.Word256) ([]byte, error) {
-	caddress := C.CString(address.String())
-	ckey := C.CString(hex.EncodeToString(key.Bytes()))
-	result := C.Iroha_GetStorage(st.Storage, caddress, ckey)
-	C.free(unsafe.Pointer(caddress))
-	C.free(unsafe.Pointer(ckey))
+	caddress := MakeIrohaCharBuffer(address.String())
+	ckey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
+	result := C.Iroha_GetStorage(st.Storage, *caddress, *ckey)
+	caddress.free()
+	ckey.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
@@ -129,13 +140,13 @@ func (st *IrohaState) GetStorage(address crypto.Address, key binary.Word256) ([]
 }
 
 func (st *IrohaState) SetStorage(address crypto.Address, key binary.Word256, value []byte) error {
-	caddress := C.CString(address.String())
-	ckey := C.CString(hex.EncodeToString(key.Bytes()))
-	cvalue := C.CString(hex.EncodeToString(value))
-	result := C.Iroha_SetStorage(st.Storage, caddress, ckey, cvalue)
-	C.free(unsafe.Pointer(caddress))
-	C.free(unsafe.Pointer(ckey))
-	C.free(unsafe.Pointer(cvalue))
+	caddress := MakeIrohaCharBuffer(address.String())
+	ckey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
+	cvalue := MakeIrohaCharBuffer(hex.EncodeToString(value))
+	result := C.Iroha_SetStorage(st.Storage, *caddress, *ckey, *cvalue)
+	caddress.free()
+	ckey.free()
+	cvalue.free()
 
 	if result.error != nil {
 		error := C.GoString(result.error)
