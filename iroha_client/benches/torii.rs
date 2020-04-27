@@ -9,7 +9,7 @@ const CONFIGURATION_PATH: &str = "config.json";
 
 fn query_requests(criterion: &mut Criterion) {
     let (tx, rx) = std::sync::mpsc::channel();
-    thread::spawn(|| create_and_start_iroha(rx));
+    let iroha_thread = thread::spawn(|| create_and_start_iroha(rx));
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
     let domain_name = "domain2";
@@ -43,7 +43,9 @@ fn query_requests(criterion: &mut Criterion) {
         .expect("Failed to create account.");
     executor::block_on(iroha_client.submit(create_asset.into())).expect("Failed to create asset.");
     let request = assets::by_account_id(account_id);
-    thread::sleep(std::time::Duration::from_millis(50));
+    thread::sleep(std::time::Duration::from_millis(1500));
+    let mut success_count = 0;
+    let mut failures_count = 0;
     group.throughput(Throughput::Bytes(Vec::from(&request).len() as u64));
     group.bench_function("query", |b| {
         b.iter(
@@ -51,18 +53,27 @@ fn query_requests(criterion: &mut Criterion) {
                 Ok(query_result) => {
                     let QueryResult::GetAccountAssets(result) = query_result;
                     assert!(!result.assets.is_empty());
+                    success_count += 1;
                 }
-                Err(e) => eprintln!("Query failed: {}", e),
+                Err(e) => {
+                    eprintln!("Query failed: {}", e);
+                    failures_count += 1;
+                }
             },
         );
     });
-    group.finish();
+    println!(
+        "Success count: {}, Failures count: {}",
+        success_count, failures_count
+    );
     tx.send(0).expect("Failed to send command to stop Iroha.");
+    iroha_thread.join().expect("Failed to join Iroha thread.");
+    group.finish();
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
     let (tx, rx) = std::sync::mpsc::channel();
-    thread::spawn(|| create_and_start_iroha(rx));
+    let iroha_thread = thread::spawn(|| create_and_start_iroha(rx));
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("command-reqeuests");
     let create_role = CreateRole {
@@ -93,17 +104,28 @@ fn instruction_submits(criterion: &mut Criterion) {
         .expect("Failed to create domain.");
     executor::block_on(iroha_client.submit(create_account.into()))
         .expect("Failed to create account.");
-    thread::sleep(std::time::Duration::from_millis(50));
+    thread::sleep(std::time::Duration::from_millis(500));
     group.throughput(Throughput::Bytes(Vec::from(&create_asset).len() as u64));
+    let mut success_count = 0;
+    let mut failures_count = 0;
     group.bench_function("commands", |b| {
-        b.iter(|| {
-            if let Err(e) = executor::block_on(iroha_client.submit(create_asset.clone().into())) {
-                eprintln!("Failed to execute instruction: {}", e);
-            }
-        })
+        b.iter(
+            || match executor::block_on(iroha_client.submit(create_asset.clone().into())) {
+                Ok(_) => success_count += 1,
+                Err(e) => {
+                    eprintln!("Failed to execute instruction: {}", e);
+                    failures_count += 1;
+                }
+            },
+        )
     });
-    group.finish();
+    println!(
+        "Success count: {}, Failures count: {}",
+        success_count, failures_count
+    );
     tx.send(0).expect("Failed to send command to stop Iroha.");
+    iroha_thread.join().expect("Failed to join Iroha thread.");
+    group.finish();
 }
 
 fn create_and_start_iroha(rx: std::sync::mpsc::Receiver<u8>) {
