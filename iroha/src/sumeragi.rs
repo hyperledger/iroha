@@ -1,14 +1,10 @@
-use crate::{
-    crypto::{self, Hash},
-    peer::PeerId,
-    prelude::*,
-    torii::uri,
-};
+use crate::{block::Block, crypto::Hash, kura::Kura, peer::PeerId, prelude::*, torii::uri};
+use futures::lock::Mutex;
 use iroha_derive::*;
 use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use std::cmp::Ordering;
+use std::sync::Arc;
 
 pub struct Sumeragi {
     public_key: PublicKey,
@@ -18,6 +14,7 @@ pub struct Sumeragi {
     peer_id: PeerId,
     /// Block in discussion this round
     pending_block: Option<Block>,
+    kura: Arc<Mutex<Kura>>,
 }
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -44,9 +41,12 @@ impl Sumeragi {
         public_key: PublicKey,
         private_key: PrivateKey,
         peers: &[PeerId],
+        peer_id: PeerId,
         prev_block_hash: Option<Hash>,
         max_faults: usize,
+        kura: Arc<Mutex<Kura>>,
     ) -> Result<Self, String> {
+        //TODO: check that that trusted peers contains this peer
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
             let mut sorted_peers = peers.to_vec();
@@ -57,11 +57,9 @@ impl Sumeragi {
                 sorted_peers,
                 max_faults,
                 //TODO: generate peer's public key, save on shutdown and load on start
-                peer_id: PeerId {
-                    address: "127.0.0.1:7878".to_string(),
-                    public_key: [0u8; 32],
-                },
+                peer_id,
                 pending_block: None,
+                kura,
             })
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
@@ -132,7 +130,26 @@ impl Sumeragi {
         Ok(block.sign(&self.public_key, &self.private_key)?)
     }
 
-    pub async fn on_block_created(&self, block: Block) -> Result<Block, String> {
+    pub async fn validate_and_store(
+        &self,
+        transactions: Vec<Transaction>,
+        wsv: Arc<Mutex<WorldStateView>>,
+    ) -> Result<(), String> {
+        let transactions = self.sign_transactions(transactions).await?;
+        let block = Block::builder(transactions)
+            .validate_tx(&*wsv.lock().await)
+            .build();
+        let minimum_quorum_of_peers = 2;
+        if self.sorted_peers.len() < minimum_quorum_of_peers {
+            //If there is only one peer running skip consensus part
+            let _hash = self.kura.lock().await.store(block).await?;
+        } else {
+            self.on_block_created(block).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn on_block_created(&self, block: Block) -> Result<(), String> {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
         for peer in self.validating_peers() {
@@ -152,7 +169,7 @@ impl Sumeragi {
                 Message::Created(block.clone()).into(),
             ),
         );
-        Ok(block)
+        Ok(())
     }
 
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
@@ -213,16 +230,17 @@ impl Sumeragi {
                     }
                 }
             }
-            Message::Committed(_block) => {
-                //TODO: check if the block is the same as pending and commit it to Kura
-                //TODO: `self.next_round()`
+            Message::Committed(block) => {
+                //TODO: check if the block is the same as pending
+                let hash = self.kura.lock().await.store(block).await?;
+                self.next_round(hash);
             }
         }
         Ok(())
     }
 
     pub async fn sign_transactions(
-        &mut self,
+        &self,
         transactions: Vec<Transaction>,
     ) -> Result<Vec<Transaction>, String> {
         Ok(transactions
@@ -237,13 +255,30 @@ impl Sumeragi {
 mod tests {
     use super::*;
     use crate::crypto;
+    use futures::channel::mpsc;
 
     #[test]
     #[should_panic]
     fn not_enough_peers() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = mpsc::unbounded();
+        let kura = Arc::new(Mutex::new(Kura::new("strict".to_string(), dir.path(), tx)));
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
-        let _sumeragi = Sumeragi::new(public_key, private_key, &Vec::new(), None, 3).unwrap();
+        let this_peer = PeerId {
+            address: "127.0.0.1".to_string(),
+            public_key: [0u8; 32],
+        };
+        let _sumeragi = Sumeragi::new(
+            public_key,
+            private_key,
+            &[this_peer.clone()],
+            this_peer,
+            None,
+            3,
+            kura,
+        )
+        .unwrap();
     }
 
     #[test]
