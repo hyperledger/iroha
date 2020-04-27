@@ -1,3 +1,4 @@
+use crate::peer::PeerId;
 use std::{collections::HashMap, env, fs, path::Path};
 
 const TORII_URL: &str = "TORII_URL";
@@ -16,6 +17,7 @@ pub struct Configuration {
     /// Possible modes: `strict`, `fast`.
     pub mode: String,
     pub kura_block_store_path: String,
+    pub trusted_peers: Option<Vec<PeerId>>,
 }
 
 impl Configuration {
@@ -46,8 +48,13 @@ impl Configuration {
             kura_block_store_path: env::var(KURA_BLOCK_STORE_PATH)
                 .ok()
                 .or_else(|| config_map.remove(KURA_INIT_MODE)),
+            ..Default::default()
         }
         .build())
+    }
+
+    pub fn torii_url(&mut self, torii_url: &str) {
+        self.torii_url = torii_url.to_string();
     }
 
     pub fn kura_block_store_path(&mut self, path: &Path) {
@@ -56,13 +63,19 @@ impl Configuration {
             .expect("Failed to yield slice from path")
             .to_string();
     }
+
+    pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
+        self.trusted_peers = Option::Some(trusted_peers);
+    }
 }
 
+#[derive(Default)]
 struct ConfigurationBuilder {
     torii_url: Option<String>,
     block_build_step_ms: Option<String>,
     mode: Option<String>,
     kura_block_store_path: Option<String>,
+    trusted_peers: Option<Vec<PeerId>>,
 }
 
 impl ConfigurationBuilder {
@@ -82,6 +95,7 @@ impl ConfigurationBuilder {
             kura_block_store_path: self
                 .kura_block_store_path
                 .unwrap_or_else(|| DEFAULT_KURA_BLOCK_STORE_PATH.to_string()),
+            trusted_peers: self.trusted_peers,
         }
     }
 }

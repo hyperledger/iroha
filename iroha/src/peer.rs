@@ -8,19 +8,6 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 type PublicKey = [u8; 32];
 
-pub mod isi {
-    use super::*;
-    use iroha_derive::{IntoContract, Io};
-
-    /// The purpose of add peer command is to write into ledger the fact of peer addition into the
-    /// peer network. After a transaction with AddPeer has been committed, consensus and
-    /// synchronization components will start using it.
-    #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
-    pub struct AddPeer {
-        pub peer_id: PeerId,
-    }
-}
-
 #[derive(Io, Decode, Encode, Debug, Clone)]
 pub enum Message {
     PendingTx(TransactionRequest),
@@ -52,12 +39,17 @@ impl Peer {
     pub fn new(
         listen_address: String,
         tx_interval_sec: usize,
+        trusted_peers: &[PeerId],
         tx_queue: Arc<Mutex<crate::queue::Queue>>,
         sumeragi: Arc<Mutex<crate::sumeragi::Sumeragi>>,
     ) -> Peer {
         Peer {
             state: Arc::new(Mutex::new(PeerState {
-                peers: HashSet::new(),
+                peers: trusted_peers
+                    .iter()
+                    .filter(|peer_id| listen_address != peer_id.address)
+                    .cloned()
+                    .collect(),
                 listen_address,
                 tx_queue,
                 sumeragi,
@@ -171,6 +163,18 @@ impl Peer {
     }
 }
 
+pub mod isi {
+    use super::*;
+
+    /// The purpose of add peer command is to write into ledger the fact of peer addition into the
+    /// peer network. After a transaction with AddPeer has been committed, consensus and
+    /// synchronization components will start using it.
+    #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
+    pub struct AddPeer {
+        pub peer_id: PeerId,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,11 +200,120 @@ mod tests {
             )
             .expect("Failed to initialize Sumeragi."),
         ));
-        let peer = Arc::new(Peer::new("127.0.0.1:7878".to_string(), 15, queue, sumeragi));
+        let peer = Arc::new(Peer::new(
+            "127.0.0.1:7878".to_string(),
+            15,
+            &Vec::new(),
+            queue,
+            sumeragi,
+        ));
         let peer_move = peer.clone();
         task::spawn(async move {
             peer_move.start().await.expect("Failed to start peer.");
         });
         std::thread::sleep(Duration::from_millis(50));
+    }
+
+    #[async_std::test]
+    async fn connect_three_peers() {
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let (public_key1, private_key1) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let (public_key2, private_key2) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let peer_ids = vec![
+            PeerId {
+                address: "127.0.0.1:7878".to_string(),
+                public_key,
+            },
+            PeerId {
+                address: "127.0.0.1:7879".to_string(),
+                public_key: public_key1,
+            },
+            PeerId {
+                address: "127.0.0.1:7880".to_string(),
+                public_key: public_key2,
+            },
+        ];
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        let sumeragi = Arc::new(Mutex::new(
+            Sumeragi::new(
+                public_key,
+                private_key,
+                &vec![PeerId {
+                    address: "127.0.0.1:7878".to_string(),
+                    public_key: public_key,
+                }],
+                None,
+                0,
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
+        let lead_peer = Arc::new(Peer::new(
+            "127.0.0.1:7878".to_string(),
+            15,
+            &peer_ids,
+            queue,
+            sumeragi,
+        ));
+        let peer_move = lead_peer.clone();
+        task::spawn(async move {
+            peer_move.start().await.expect("Failed to start peer.");
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        let sumeragi = Arc::new(Mutex::new(
+            Sumeragi::new(
+                public_key1,
+                private_key1,
+                &vec![PeerId {
+                    address: "127.0.0.1:7879".to_string(),
+                    public_key: public_key1,
+                }],
+                None,
+                0,
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
+        let peer1 = Arc::new(Peer::new(
+            "127.0.0.1:7879".to_string(),
+            15,
+            &peer_ids,
+            queue,
+            sumeragi,
+        ));
+        let peer_move = peer1.clone();
+        task::spawn(async move {
+            peer_move.start().await.expect("Failed to start peer.");
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        let queue = Arc::new(Mutex::new(Queue::default()));
+        let sumeragi = Arc::new(Mutex::new(
+            Sumeragi::new(
+                public_key2,
+                private_key2,
+                &vec![PeerId {
+                    address: "127.0.0.1:7880".to_string(),
+                    public_key: public_key2,
+                }],
+                None,
+                0,
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
+        let peer2 = Arc::new(Peer::new(
+            "127.0.0.1:7880".to_string(),
+            15,
+            &peer_ids,
+            queue,
+            sumeragi,
+        ));
+        let peer_move = peer2.clone();
+        task::spawn(async move {
+            peer_move.start().await.expect("Failed to start peer.");
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(peer1.state.lock().await.peers.len(), 2);
     }
 }
