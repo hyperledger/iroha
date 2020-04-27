@@ -113,7 +113,7 @@ impl Iroha {
         }
     }
 
-    pub fn start(self) -> Result<(), String> {
+    pub fn start(&self) -> Result<(), String> {
         let kura = Arc::clone(&self.kura);
         executor::block_on(async move { kura.lock().await.init().await })?;
         let torii = Arc::clone(&self.torii);
