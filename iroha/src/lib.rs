@@ -30,6 +30,7 @@ use futures::{
     lock::Mutex,
     prelude::*,
 };
+use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use std::{path::Path, sync::Arc, time::Instant};
 
@@ -44,7 +45,6 @@ pub type MessageReceiver = UnboundedReceiver<Message>;
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
 pub struct Iroha {
     torii: Arc<Mutex<Torii>>,
-    peer: Arc<Mutex<Peer>>,
     queue: Arc<Mutex<Queue>>,
     sumeragi: Arc<Mutex<Sumeragi>>,
     kura: Arc<Mutex<Kura>>,
@@ -61,7 +61,10 @@ impl Iroha {
         let (transactions_sender, transactions_receiver) = mpsc::unbounded();
         let (blocks_sender, blocks_receiver) = mpsc::unbounded();
         let (message_sender, message_receiver) = mpsc::unbounded();
-        let world_state_view = Arc::new(Mutex::new(WorldStateView::new()));
+        let world_state_view = Arc::new(Mutex::new(WorldStateView::new(Peer::new(
+            config.torii_url.clone(),
+            &Vec::new(),
+        ))));
         let pool = ThreadPool::new().expect("Failed to create new Thread Pool.");
         let torii = Torii::new(
             &config.torii_url,
@@ -92,17 +95,9 @@ impl Iroha {
             blocks_sender,
         );
         let queue = Arc::new(Mutex::new(Queue::default()));
-        let peer = Peer::new(
-            config.torii_url,
-            15,
-            &Vec::new(),
-            queue.clone(),
-            sumeragi.clone(),
-        );
         Iroha {
             queue,
             torii: Arc::new(Mutex::new(torii)),
-            peer: Arc::new(Mutex::new(peer)),
             sumeragi,
             kura: Arc::new(Mutex::new(kura)),
             world_state_view,
@@ -133,13 +128,27 @@ impl Iroha {
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
         let world_state_view = Arc::clone(&self.world_state_view);
+        //TODO: decide what should be the minimum time to accumulate tx before creating a block
+        //TODO: create block only if the peer is a leader
+        //TODO: call sumeragi `on_block_created`
         self.pool.spawn_ok(async move {
             loop {
-                //TODO: decide what should be the minimum time to accumulate tx before creating a block
-                //TODO: create block only if the peer is a leader
-                //TODO: call sumeragi `on_block_created`
                 let transactions = queue.lock().await.pop_pending_transactions();
                 if !transactions.is_empty() {
+                    let mut send_futures = Vec::new();
+                    for peer_id in &world_state_view.lock().await.peer().peers {
+                        for transaction in &transactions {
+                            let peer_id = peer_id.clone();
+                            send_futures.push(async move {
+                                let _response = Network::send_request_to(
+                                    peer_id.address.as_ref(),
+                                    Request::new("/instruction".to_string(), transaction.into()),
+                                )
+                                .await;
+                            });
+                        }
+                    }
+                    let _results = futures::future::join_all(send_futures).await;
                     kura.lock()
                         .await
                         .store(
@@ -164,24 +173,16 @@ impl Iroha {
                 world_state_view.lock().await.put(&block).await;
             }
         });
-        let peer = Arc::clone(&self.peer);
         let message_receiver = Arc::clone(&self.message_receiver);
+        let sumeragi = Arc::clone(&self.sumeragi);
         self.pool.spawn_ok(async move {
             while let Some(message) = message_receiver.lock().await.next().await {
-                peer.lock()
-                    .await
-                    .handle_message(message)
-                    .await
-                    .expect("Failed to handle message.");
+                match message {
+                    Message::SumeragiMessage(message) => {
+                        let _result = sumeragi.lock().await.handle_message(message).await;
+                    }
+                }
             }
-        });
-        let peer = Arc::clone(&self.peer);
-        self.pool.spawn_ok(async move {
-            peer.lock()
-                .await
-                .start()
-                .await
-                .expect("Peer execution failed.")
         });
         Ok(())
     }

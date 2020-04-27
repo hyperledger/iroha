@@ -1,17 +1,19 @@
 use crate::prelude::*;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WorldStateView {
     domains: HashMap<String, Domain>,
     transactions: HashMap<Hash, Transaction>,
+    peer: Peer,
 }
 
 impl WorldStateView {
-    pub fn new() -> Self {
+    pub fn new(peer: Peer) -> Self {
         WorldStateView {
             domains: HashMap::new(),
             transactions: HashMap::new(),
+            peer,
         }
     }
 
@@ -33,6 +35,10 @@ impl WorldStateView {
                 eprintln!("Transaction {:?} not in a Valid state.", transaction);
             }
         }
+    }
+
+    pub fn peer(&mut self) -> &mut Peer {
+        &mut self.peer
     }
 
     pub fn add_domain(&mut self, domain: Domain) {

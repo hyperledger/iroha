@@ -153,9 +153,12 @@ mod tests {
         let (tx_tx, _) = mpsc::unbounded();
         let (ms_tx, _) = mpsc::unbounded();
         let mut torii = Torii::new(
-            &torii_url.clone(),
+            &torii_url,
             ThreadPool::new().expect("Failed to build Thread Pool."),
-            Arc::new(Mutex::new(WorldStateView::new())),
+            Arc::new(Mutex::new(WorldStateView::new(Peer::new(
+                torii_url.clone(),
+                &Vec::new(),
+            )))),
             tx_tx,
             ms_tx,
         );
