@@ -7,6 +7,7 @@ use crate::{
 use iroha_derive::*;
 use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
+use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::cmp::Ordering;
 
 pub struct Sumeragi {
@@ -118,25 +119,12 @@ impl Sumeragi {
         }
     }
 
-    fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
-        peers.sort_by(|p1, p2| {
-            if let Some(block_hash) = block_hash {
-                let mut bytes_p1 = Vec::<u8>::from(p1);
-                bytes_p1.extend_from_slice(&block_hash);
-                let hash_p1 = crypto::hash(bytes_p1);
-                let mut bytes_p2 = Vec::<u8>::from(p2);
-                bytes_p2.extend_from_slice(&block_hash);
-                let hash_p2 = crypto::hash(bytes_p2);
-                let order = hash_p1.cmp(&hash_p2);
-                if order == Ordering::Equal {
-                    p1.address.cmp(&p2.address)
-                } else {
-                    order
-                }
-            } else {
-                p1.address.cmp(&p2.address)
-            }
-        });
+    pub fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
+        peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
+        if let Some(block_hash) = block_hash {
+            let mut rng = StdRng::from_seed(block_hash);
+            peers.shuffle(&mut rng);
+        }
     }
 
     pub fn sign_block(&self, block: Block) -> Result<Block, String> {
@@ -278,5 +266,27 @@ mod tests {
         let mut peers2 = peers1.clone();
         Sumeragi::sort_peers(&mut peers2, Some([2u8; 32]));
         assert_ne!(peers1, peers2);
+    }
+
+    #[test]
+    fn same_order() {
+        let mut peers1 = vec![
+            PeerId {
+                address: "127.0.0.1:7878".to_string(),
+                public_key: [1u8; 32],
+            },
+            PeerId {
+                address: "127.0.0.1:7879".to_string(),
+                public_key: [2u8; 32],
+            },
+            PeerId {
+                address: "127.0.0.1:7880".to_string(),
+                public_key: [3u8; 32],
+            },
+        ];
+        Sumeragi::sort_peers(&mut peers1, Some([1u8; 32]));
+        let mut peers2 = peers1.clone();
+        Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
+        assert_eq!(peers1, peers2);
     }
 }

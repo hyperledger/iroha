@@ -13,7 +13,13 @@ async-std = { version = "1.5", features = ["attributes"] }
 futures = { version = "0.3.4", features = ["thread-pool"] }
 parity-scale-codec = { version = "1.3", features = ["derive"] }
 ursa = "0.3.2"
+rand = "0.7.3"
 
 [dev-dependencies]
 hex-literal = "0.2.1"
 tempfile = "3"
+criterion = "0.3"
+
+[[bench]]
+name = "sumeragi"
+harness = false
