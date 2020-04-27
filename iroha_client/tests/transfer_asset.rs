@@ -17,7 +17,7 @@ mod tests {
     async fn client_can_transfer_asset_to_another_account() {
         // Given
         thread::spawn(|| create_and_start_iroha());
-        thread::sleep(std::time::Duration::from_millis(200));
+        thread::sleep(std::time::Duration::from_millis(100));
         let create_role = CreateRole {
             role_name: "user".to_string(),
             permissions: Vec::new(),
@@ -94,7 +94,7 @@ mod tests {
             .submit(transfer_asset.into())
             .await
             .expect("Failed to submit command.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         //Then
         let request = client::assets::by_account_id(account2_id);
         let query_result = iroha_client
