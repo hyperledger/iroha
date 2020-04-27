@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	pb "vmCaller/iroha_protocol"
+	pb "iroha.protocol"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/burrow/crypto"
