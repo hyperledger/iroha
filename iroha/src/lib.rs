@@ -21,7 +21,7 @@ use crate::{
     peer::{Peer, PeerId},
     prelude::*,
     queue::Queue,
-    sumeragi::{Message, Sumeragi},
+    sumeragi::{Message, Role, Sumeragi},
     torii::{uri, Torii},
 };
 use futures::{
@@ -75,31 +75,35 @@ impl Iroha {
         );
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let kura = Arc::new(Mutex::new(Kura::new(
+            config.mode,
+            Path::new(&config.kura_block_store_path),
+            blocks_sender,
+        )));
         //TODO: get peers from json and blockchain
+        //The id of this peer
+        let iroha_peer_id = PeerId {
+            address: config.torii_url.to_string(),
+            public_key,
+        };
         let sumeragi = Arc::new(Mutex::new(
             Sumeragi::new(
                 public_key,
                 private_key,
-                &[PeerId {
-                    address: config.torii_url.to_string(),
-                    public_key,
-                }],
+                &[iroha_peer_id.clone()],
+                iroha_peer_id,
                 None,
                 0,
+                kura.clone(),
             )
             .expect("Failed to initialize Sumeragi."),
         ));
-        let kura = Kura::new(
-            config.mode,
-            Path::new(&config.kura_block_store_path),
-            blocks_sender,
-        );
         let queue = Arc::new(Mutex::new(Queue::default()));
         Iroha {
             queue,
             torii: Arc::new(Mutex::new(torii)),
             sumeragi,
-            kura: Arc::new(Mutex::new(kura)),
+            kura,
             world_state_view,
             transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
             blocks_receiver: Arc::new(Mutex::new(blocks_receiver)),
@@ -124,13 +128,10 @@ impl Iroha {
             }
         });
         let queue = Arc::clone(&self.queue);
-        let kura = Arc::clone(&self.kura);
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
         let world_state_view = Arc::clone(&self.world_state_view);
         //TODO: decide what should be the minimum time to accumulate tx before creating a block
-        //TODO: create block only if the peer is a leader
-        //TODO: call sumeragi `on_block_created`
         self.pool.spawn_ok(async move {
             loop {
                 let transactions = queue.lock().await.pop_pending_transactions();
@@ -149,19 +150,13 @@ impl Iroha {
                         }
                     }
                     let _results = futures::future::join_all(send_futures).await;
-                    kura.lock()
-                        .await
-                        .store(
-                            sumeragi
-                                .lock()
-                                .await
-                                .sign_transactions(transactions)
-                                .await
-                                .expect("Failed to sign transactions."),
-                            &*world_state_view.lock().await,
-                        )
-                        .await
-                        .expect("Failed to accept transactions into blockchain.");
+                    let sumeragi = sumeragi.lock().await;
+                    if let Role::Leader = sumeragi.role() {
+                        sumeragi
+                            .validate_and_store(transactions, world_state_view.clone())
+                            .await
+                            .expect("Failed to accept transactions into blockchain.");
+                    }
                     *last_round_time.lock().await = Instant::now();
                 }
             }

@@ -39,19 +39,7 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(
-        &mut self,
-        transactions: Vec<Transaction>,
-        world_state_view: &WorldStateView,
-    ) -> Result<Hash, String> {
-        let mut block = Block::builder(
-            transactions
-                .into_iter()
-                .map(|transaction| transaction.validate(world_state_view))
-                .filter_map(Result::ok)
-                .collect(),
-        )
-        .build();
+    pub async fn store(&mut self, mut block: Block) -> Result<Hash, String> {
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;
@@ -203,8 +191,9 @@ mod tests {
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
         kura.store(
-            Vec::new(),
-            &WorldStateView::new(Peer::new("".to_string(), &Vec::new())),
+            Block::builder(Vec::new())
+                .validate_tx(&WorldStateView::new(Peer::new("".to_string(), &Vec::new())))
+                .build(),
         )
         .await
         .expect("Failed to store block into Kura.");

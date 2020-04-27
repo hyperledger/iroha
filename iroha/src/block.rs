@@ -76,6 +76,16 @@ impl BlockBuilder {
         self
     }
 
+    pub fn validate_tx(mut self, world_state_view: &WorldStateView) -> Self {
+        self.transactions = self
+            .transactions
+            .into_iter()
+            .map(|transaction| transaction.validate(world_state_view))
+            .filter_map(Result::ok)
+            .collect();
+        self
+    }
+
     pub fn build(self) -> Block {
         Block {
             height: self.height.unwrap_or(0),
