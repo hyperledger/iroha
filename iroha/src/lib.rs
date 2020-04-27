@@ -18,10 +18,10 @@ pub mod wsv;
 use crate::{
     config::Configuration,
     kura::Kura,
-    peer::{Message, Peer, PeerId},
+    peer::{Peer, PeerId},
     prelude::*,
     queue::Queue,
-    sumeragi::Sumeragi,
+    sumeragi::{Message, Sumeragi},
     torii::{uri, Torii},
 };
 use futures::{
@@ -177,11 +177,7 @@ impl Iroha {
         let sumeragi = Arc::clone(&self.sumeragi);
         self.pool.spawn_ok(async move {
             while let Some(message) = message_receiver.lock().await.next().await {
-                match message {
-                    Message::SumeragiMessage(message) => {
-                        let _result = sumeragi.lock().await.handle_message(message).await;
-                    }
-                }
+                let _result = sumeragi.lock().await.handle_message(message).await;
             }
         });
         Ok(())

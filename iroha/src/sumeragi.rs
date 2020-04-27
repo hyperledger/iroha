@@ -1,6 +1,6 @@
 use crate::{
     crypto::{self, Hash},
-    peer::{self, PeerId},
+    peer::PeerId,
     prelude::*,
     torii::uri,
 };
@@ -152,7 +152,7 @@ impl Sumeragi {
                 &peer.address,
                 Request::new(
                     uri::BLOCKS_URI.to_string(),
-                    peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
+                    Message::Created(block.clone()).into(),
                 ),
             )
             .await;
@@ -161,7 +161,7 @@ impl Sumeragi {
             self.proxy_tail().address.as_ref(),
             Request::new(
                 uri::BLOCKS_URI.to_string(),
-                peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
+                Message::Created(block.clone()).into(),
             ),
         );
         Ok(block)
@@ -175,10 +175,7 @@ impl Sumeragi {
                     let block = self.sign_block(block)?;
                     let _result = Network::send_request_to(
                         self.proxy_tail().address.as_ref(),
-                        Request::new(
-                            uri::BLOCKS_URI.to_string(),
-                            peer::Message::SumeragiMessage(Message::Signed(block)).into(),
-                        ),
+                        Request::new(uri::BLOCKS_URI.to_string(), Message::Signed(block).into()),
                     );
                     //TODO: send to set b so they can observe
                 }
@@ -211,10 +208,7 @@ impl Sumeragi {
                                     &peer.address,
                                     Request::new(
                                         uri::BLOCKS_URI.to_string(),
-                                        peer::Message::SumeragiMessage(Message::Committed(
-                                            block.clone(),
-                                        ))
-                                        .into(),
+                                        Message::Committed(block.clone()).into(),
                                     ),
                                 )
                                 .await;
@@ -223,8 +217,7 @@ impl Sumeragi {
                                 self.leader().address.as_ref(),
                                 Request::new(
                                     uri::BLOCKS_URI.to_string(),
-                                    peer::Message::SumeragiMessage(Message::Created(block.clone()))
-                                        .into(),
+                                    Message::Created(block.clone()).into(),
                                 ),
                             );
                             //TODO: `self.next_round()`
