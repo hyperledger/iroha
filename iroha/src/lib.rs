@@ -92,10 +92,10 @@ impl Iroha {
             blocks_sender,
         );
         let queue = Arc::new(Mutex::new(Queue::default()));
-        //TODO: Get peer params from config
         let peer = Peer::new(
-            "127.0.0.1:7878".to_string(),
+            config.torii_url,
             15,
+            &Vec::new(),
             queue.clone(),
             sumeragi.clone(),
         );
