@@ -202,8 +202,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded();
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
-        kura.store(Vec::new(), &WorldStateView::new())
-            .await
-            .expect("Failed to store block into Kura.");
+        kura.store(
+            Vec::new(),
+            &WorldStateView::new(Peer::new("".to_string(), &Vec::new())),
+        )
+        .await
+        .expect("Failed to store block into Kura.");
     }
 }
