@@ -1,15 +1,10 @@
-use iroha::{crypto, prelude::*};
+use iroha::{crypto, prelude::*, torii::uri};
 use iroha_derive::log;
 use iroha_network::prelude::*;
 use std::{
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
 };
-
-const QUERY_URI: &str = "/query";
-const INSTRUCTION_URI: &str = "/instruction";
-const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
-const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
 
 pub struct Client {
     torii_url: String,
@@ -50,9 +45,9 @@ impl Client {
             &self.public_key,
             &self.private_key,
         )?;
-        let response = network
+        if let Response::InternalError = network
             .send_request(Request::new(
-                INSTRUCTION_URI.to_string(),
+                uri::INSTRUCTIONS_URI.to_string(),
                 Vec::from(&transaction),
             ))
             .await
@@ -61,8 +56,8 @@ impl Client {
                     "Error: {}, Failed to write a transaction request: {:?}",
                     e, &transaction
                 )
-            })?;
-        if response.starts_with(INTERNAL_ERROR) {
+            })?
+        {
             return Err("Server error.".to_string());
         }
         Ok(())
@@ -72,15 +67,16 @@ impl Client {
     #[log]
     pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
         let network = Network::new(&self.torii_url);
-        let response = network
-            .send_request(Request::new(QUERY_URI.to_string(), request.into()))
+        match network
+            .send_request(Request::new(uri::QUERY_URI.to_string(), request.into()))
             .await
-            .map_err(|e| format!("Failed to write a get request: {}", e))?;
-        if response.starts_with(INTERNAL_ERROR) {
-            return Err("Server error.".to_string());
+            .map_err(|e| format!("Failed to write a get request: {}", e))?
+        {
+            Response::Ok(payload) => Ok(
+                QueryResult::try_from(payload).expect("Failed to try Query Result from vector.")
+            ),
+            Response::InternalError => Err("Server error.".to_string()),
         }
-        Ok(QueryResult::try_from(response[OK.len()..].to_vec())
-            .expect("Failed to try Query Result from vector."))
     }
 }
 
