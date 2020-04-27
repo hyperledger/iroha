@@ -36,6 +36,7 @@ pub enum Role {
     ProxyTail,
 }
 
+#[allow(dead_code)]
 impl Sumeragi {
     pub fn new(
         public_key: PublicKey,
@@ -145,11 +146,16 @@ impl Sumeragi {
     pub async fn on_block_created(&self, block: Block) -> Result<Block, String> {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
-        let _result = Peer::send_to_peers(
-            peer::Message::SumeragiMessage(Message::Created(block.clone())),
-            self.validating_peers(),
-        )
-        .await;
+        for peer in self.validating_peers() {
+            let _result = Network::send_request_to(
+                &peer.address,
+                Request::new(
+                    "/block".to_string(),
+                    peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
+                ),
+            )
+            .await;
+        }
         let _result = Network::send_request_to(
             self.proxy_tail().address.as_ref(),
             Request::new(
@@ -199,11 +205,19 @@ impl Sumeragi {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = self.sign_block(block)?;
                             //TODO: commit block to Kura
-                            let _result = Peer::send_to_peers(
-                                peer::Message::SumeragiMessage(Message::Committed(block.clone())),
-                                self.validating_peers(),
-                            )
-                            .await;
+                            for peer in self.validating_peers() {
+                                let _result = Network::send_request_to(
+                                    &peer.address,
+                                    Request::new(
+                                        "/block".to_string(),
+                                        peer::Message::SumeragiMessage(Message::Committed(
+                                            block.clone(),
+                                        ))
+                                        .into(),
+                                    ),
+                                )
+                                .await;
+                            }
                             let _result = Network::send_request_to(
                                 self.leader().address.as_ref(),
                                 Request::new(
