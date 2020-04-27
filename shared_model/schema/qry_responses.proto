@@ -5,6 +5,9 @@
 
 syntax = "proto3";
 package iroha.protocol;
+
+option go_package = "iroha.generated/protocol";
+
 import "block.proto";
 import "transaction.proto";
 import "primitive.proto";

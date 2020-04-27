@@ -14,7 +14,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
-#include "ametsuchi/default_vm_call.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
@@ -46,6 +45,10 @@
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/permissions.hpp"
 #include "utils/string_builder.hpp"
+
+#if defined(USE_EVM)
+#include DEFAULT_VM_CALL_INCLUDE_IMPL
+#endif
 
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;

@@ -92,6 +92,49 @@ function(compile_proto_only_grpc_to_cpp PROTO)
       )
 endfunction()
 
+function(prepare_generated_schema_go_path)
+  if(NOT IS_DIRECTORY "${GO_GENERATED_SCHEMA_PATH}")
+    file(MAKE_DIRECTORY "${GO_GENERATED_SCHEMA_PATH}")
+  endif()
+  configure_file(
+    "${SCHEMA_PATH}/generated_go.mod.in"
+    "${GO_GENERATED_SCHEMA_PATH}/go.mod"
+    @ONLY
+    )
+endfunction()
+
+macro(get_go_env_path OUTPUT_VAR)
+  set(${OUTPUT_VAR} "$ENV{PATH}")
+  if(DEFINED ENV{GOBIN})
+    set(${OUTPUT_VAR} "${${OUTPUT_VAR}}:$ENV{GOBIN}")
+  endif()
+  if(DEFINED ENV{GOPATH})
+    set(${OUTPUT_VAR} "${${OUTPUT_VAR}}:$ENV{GOPATH}/bin")
+  endif()
+endmacro()
+
+function(compile_proto_to_go PROTO DEPENDER_TARGET)
+    prepare_generated_schema_go_path()
+    get_filename_component(PROTO_PATH "${PROTO}" DIRECTORY)
+    get_filename_component(GEN_PB_GO_NAME_WE "${PROTO}" NAME_WE)
+    set(GEN_PB_GO_PATH "${GO_GENERATED_SCHEMA_PATH}/${GEN_PB_GO_NAME_WE}.pb.go")
+    get_target_property(Protobuf_INCLUDE_DIR protobuf::libprotobuf
+      INTERFACE_INCLUDE_DIRECTORIES)
+    get_go_env_path(ENV_PATH)
+    add_custom_command(
+        OUTPUT "${GEN_PB_GO_PATH}"
+        COMMAND env "PATH=${ENV_PATH}" $<TARGET_FILE:protobuf::protoc>
+          -I${Protobuf_INCLUDE_DIR} -I${PROTO_PATH}
+          ${ARGN} --go_out=${GO_GENERATED_SCHEMA_PATH} ${PROTO}
+          --go_opt=module=iroha.generated/protocol
+        DEPENDS protobuf::protoc ${PROTO}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      )
+    set(INTERMEDIATE_TGT "SCHEMA_GO_DEPENDER_${GEN_PB_GO_NAME_WE}")
+    add_custom_target(${INTERMEDIATE_TGT} DEPENDS "${GEN_PB_GO_PATH}")
+    add_dependencies(${DEPENDER_TARGET} ${INTERMEDIATE_TGT})
+endfunction()
+
 function(compile_proto_to_grpc_cpp PROTO)
   compile_proto_to_cpp(${PROTO} "${ARGN}")
   compile_proto_only_grpc_to_cpp(${PROTO} "${ARGN}")

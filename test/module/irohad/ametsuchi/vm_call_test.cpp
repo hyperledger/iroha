@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ametsuchi/vmCall.h"
+#include DEFAULT_VM_CALL_INCLUDE_IMPL
 
 #include <unordered_map>
 

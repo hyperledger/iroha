@@ -6,6 +6,8 @@
 syntax = "proto3";
 package iroha.protocol;
 
+option go_package = "iroha.generated/protocol";
+
 import "transaction.proto";
 
 message Proposal {

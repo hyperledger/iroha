@@ -13,6 +13,8 @@ syntax = "proto3";
 
 package iroha.protocol;
 
+option go_package = "iroha.generated/protocol";
+
 /**
  * Represents any possible value for permission field,
  * then the account is capable of performing such action.
