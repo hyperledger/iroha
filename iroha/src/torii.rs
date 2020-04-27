@@ -4,12 +4,6 @@ use iroha_derive::log;
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
 
-const QUERY_URI: &str = "/query";
-const INSTRUCTIONS_URI: &str = "/instruction";
-const BLOCKS_URI: &str = "/block";
-const OK: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
-const INTERNAL_ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
-
 pub struct Torii {
     url: String,
     pool_ref: ThreadPool,
@@ -76,7 +70,7 @@ async fn handle_connection(
 #[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
+        uri::INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 state
                     .lock()
@@ -86,35 +80,33 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     .await
                     .start_send(transaction.accept().expect("Failed to accept transaction."))
                     .map_err(|e| format!("{}", e))?;
-                Ok(OK.to_vec())
+                Ok(Response::empty_ok())
             }
             Err(e) => {
                 eprintln!("Failed to decode transaction: {}", e);
-                Ok(INTERNAL_ERROR.to_vec())
+                Ok(Response::InternalError)
             }
         },
-        QUERY_URI => match QueryRequest::try_from(request.payload().to_vec()) {
+        uri::QUERY_URI => match QueryRequest::try_from(request.payload().to_vec()) {
             Ok(request) => match request
                 .query
                 .execute(&*state.lock().await.world_state_view.lock().await)
             {
                 Ok(result) => {
-                    let mut response = OK.to_vec();
                     let result = &result;
-                    response.append(&mut result.into());
-                    Ok(response)
+                    Ok(Response::Ok(result.into()))
                 }
                 Err(e) => {
                     eprintln!("{}", e);
-                    Ok(INTERNAL_ERROR.to_vec())
+                    Ok(Response::InternalError)
                 }
             },
             Err(e) => {
                 eprintln!("Failed to decode transaction: {}", e);
-                Ok(INTERNAL_ERROR.to_vec())
+                Ok(Response::InternalError)
             }
         },
-        BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
+        uri::BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
                     .lock()
@@ -124,15 +116,21 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     .await
                     .start_send(message)
                     .map_err(|e| format!("{}", e))?;
-                Ok(OK.to_vec())
+                Ok(Response::empty_ok())
             }
             Err(e) => {
                 eprintln!("Failed to decode peer message: {}", e);
-                Ok(INTERNAL_ERROR.to_vec())
+                Ok(Response::InternalError)
             }
         },
         non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
     }
+}
+
+pub mod uri {
+    pub const QUERY_URI: &str = "/query";
+    pub const INSTRUCTIONS_URI: &str = "/instruction";
+    pub const BLOCKS_URI: &str = "/block";
 }
 
 #[cfg(test)]

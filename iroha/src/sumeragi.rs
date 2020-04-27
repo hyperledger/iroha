@@ -2,6 +2,7 @@ use crate::{
     crypto::{self, Hash},
     peer::{self, PeerId},
     prelude::*,
+    torii::uri,
 };
 use iroha_derive::*;
 use iroha_network::{Network, Request};
@@ -150,7 +151,7 @@ impl Sumeragi {
             let _result = Network::send_request_to(
                 &peer.address,
                 Request::new(
-                    "/block".to_string(),
+                    uri::BLOCKS_URI.to_string(),
                     peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
                 ),
             )
@@ -159,7 +160,7 @@ impl Sumeragi {
         let _result = Network::send_request_to(
             self.proxy_tail().address.as_ref(),
             Request::new(
-                "/blocks".to_string(),
+                uri::BLOCKS_URI.to_string(),
                 peer::Message::SumeragiMessage(Message::Created(block.clone())).into(),
             ),
         );
@@ -175,7 +176,7 @@ impl Sumeragi {
                     let _result = Network::send_request_to(
                         self.proxy_tail().address.as_ref(),
                         Request::new(
-                            "/blocks".to_string(),
+                            uri::BLOCKS_URI.to_string(),
                             peer::Message::SumeragiMessage(Message::Signed(block)).into(),
                         ),
                     );
@@ -209,7 +210,7 @@ impl Sumeragi {
                                 let _result = Network::send_request_to(
                                     &peer.address,
                                     Request::new(
-                                        "/block".to_string(),
+                                        uri::BLOCKS_URI.to_string(),
                                         peer::Message::SumeragiMessage(Message::Committed(
                                             block.clone(),
                                         ))
@@ -221,7 +222,7 @@ impl Sumeragi {
                             let _result = Network::send_request_to(
                                 self.leader().address.as_ref(),
                                 Request::new(
-                                    "/blocks".to_string(),
+                                    uri::BLOCKS_URI.to_string(),
                                     peer::Message::SumeragiMessage(Message::Created(block.clone()))
                                         .into(),
                                 ),
