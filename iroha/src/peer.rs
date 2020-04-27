@@ -1,15 +1,9 @@
 use crate::prelude::*;
-use crate::sumeragi;
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use std::collections::HashSet;
 
 type PublicKey = [u8; 32];
-
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub enum Message {
-    SumeragiMessage(sumeragi::Message),
-}
 
 #[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io)]
 pub struct PeerId {

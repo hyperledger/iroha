@@ -1,4 +1,4 @@
-use crate::{peer::Message, prelude::*, MessageSender};
+use crate::{prelude::*, sumeragi::Message, MessageSender};
 use futures::{executor::ThreadPool, lock::Mutex};
 use iroha_derive::log;
 use iroha_network::prelude::*;
