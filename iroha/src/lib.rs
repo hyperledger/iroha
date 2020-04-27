@@ -10,7 +10,7 @@ mod merkle;
 pub mod peer;
 pub mod query;
 mod queue;
-mod sumeragi;
+pub mod sumeragi;
 pub mod torii;
 pub mod tx;
 pub mod wsv;
