@@ -22,7 +22,7 @@ use crate::{
     prelude::*,
     queue::Queue,
     sumeragi::Sumeragi,
-    torii::Torii,
+    torii::{uri, Torii},
 };
 use futures::{
     channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -81,7 +81,7 @@ impl Iroha {
                 public_key,
                 private_key,
                 &[PeerId {
-                    address: "127.0.0.1:7878".to_string(),
+                    address: config.torii_url.to_string(),
                     public_key,
                 }],
                 None,
@@ -142,7 +142,7 @@ impl Iroha {
                             send_futures.push(async move {
                                 let _response = Network::send_request_to(
                                     peer_id.address.as_ref(),
-                                    Request::new("/instruction".to_string(), transaction.into()),
+                                    Request::new(uri::BLOCKS_URI.to_string(), transaction.into()),
                                 )
                                 .await;
                             });

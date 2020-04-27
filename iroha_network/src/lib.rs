@@ -3,7 +3,8 @@ use async_std::{
     prelude::*,
 };
 use futures::lock::Mutex;
-use iroha_derive::log;
+use iroha_derive::{log, Io};
+use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::{TryFrom, TryInto},
     error::Error,
@@ -11,16 +12,11 @@ use std::{
     sync::Arc,
 };
 
-pub mod prelude {
-    //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
-
-    #[doc(inline)]
-    pub use crate::{AsyncStream, Network, Request, Response, State};
-}
-
-pub const BUFFER_SIZE: usize = 2048;
+const BUFFER_SIZE: usize = 2048;
 
 pub type State<T> = Arc<Mutex<T>>;
+pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
+impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 
 pub struct Network {
     server_url: String,
@@ -64,7 +60,7 @@ impl Network {
         stream.flush().await.map_err(|e| e.to_string())?;
         let mut buffer = vec![0u8; BUFFER_SIZE];
         let read_size = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
-        Ok(buffer[..read_size].to_vec())
+        Ok(Response::try_from(buffer[..read_size].to_vec())?)
     }
 
     /// Listens on the specified `server_url`.
@@ -117,7 +113,7 @@ impl Network {
         let request: Request = bytes
             .try_into()
             .map_err(|e: Box<dyn Error>| e.to_string())?;
-        let response = handler(state, request).await?;
+        let response: Vec<u8> = handler(state, request).await?.into();
         stream
             .write_all(&response)
             .await
@@ -126,9 +122,6 @@ impl Network {
         Ok(())
     }
 }
-
-pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
-impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
@@ -193,7 +186,24 @@ impl TryFrom<Vec<u8>> for Request {
     }
 }
 
-pub type Response = Vec<u8>;
+#[derive(Debug, PartialEq, Io, Encode, Decode)]
+pub enum Response {
+    Ok(Vec<u8>),
+    InternalError,
+}
+
+impl Response {
+    pub fn empty_ok() -> Self {
+        Response::Ok(Vec::new())
+    }
+}
+
+pub mod prelude {
+    //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
+
+    #[doc(inline)]
+    pub use crate::{AsyncStream, Network, Request, Response, State};
+}
 
 #[cfg(test)]
 mod tests {
@@ -233,7 +243,7 @@ mod tests {
             _state: State<S>,
             _request: Request,
         ) -> Result<Response, String> {
-            Ok("pong".as_bytes().to_vec())
+            Ok(Response::Ok("pong".as_bytes().to_vec()))
         };
 
         async fn handle_connection<S>(
@@ -247,12 +257,13 @@ mod tests {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        assert_eq!(
-            Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-                .await
-                .expect("Failed to send request."),
-            "pong".as_bytes()
-        )
+        match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
+            .await
+            .expect("Failed to send request to.")
+        {
+            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
+            _ => panic!("Response should be ok."),
+        }
     }
 
     #[async_std::test]
@@ -265,29 +276,26 @@ mod tests {
         ) -> Result<Response, String> {
             let mut data = state.lock().await;
             *data += 1;
-            Ok("pong".as_bytes().to_vec())
+            Ok(Response::Ok("pong".as_bytes().to_vec()))
         };
-
         async fn handle_connection(
             state: State<usize>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<(), String> {
             Network::handle_message_async(state, stream, handle_request).await
         };
-
         let counter_move = counter.clone();
         task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
-
         std::thread::sleep(std::time::Duration::from_millis(50));
-        assert_eq!(
-            Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
-                .await
-                .expect("Failed to send request."),
-            "pong".as_bytes()
-        );
-
+        match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
+            .await
+            .expect("Failed to send request to.")
+        {
+            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
+            _ => panic!("Response should be ok."),
+        }
         std::thread::sleep(std::time::Duration::from_millis(200));
         task::spawn(async move {
             let data = counter.lock().await;
