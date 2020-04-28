@@ -32,7 +32,7 @@ mod tests {
             amount: 0,
         };
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
         );
         iroha_client
             .submit(create_domain.into())
