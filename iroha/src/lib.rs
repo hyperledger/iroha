@@ -84,16 +84,20 @@ impl Iroha {
         //The id of this peer
         let iroha_peer_id = PeerId {
             address: config.torii_url.to_string(),
-            public_key,
+            public_key: [0u8; 32],
+        };
+        let peers = match config.trusted_peers {
+            Some(peers) => peers,
+            None => vec![iroha_peer_id.clone()],
         };
         let sumeragi = Arc::new(Mutex::new(
             Sumeragi::new(
                 public_key,
                 private_key,
-                &[iroha_peer_id.clone()],
+                &peers,
                 iroha_peer_id,
                 None,
-                0,
+                config.max_faulty_peers,
                 kura.clone(),
             )
             .expect("Failed to initialize Sumeragi."),
@@ -134,30 +138,37 @@ impl Iroha {
         //TODO: decide what should be the minimum time to accumulate tx before creating a block
         self.pool.spawn_ok(async move {
             loop {
-                let transactions = queue.lock().await.pop_pending_transactions();
-                if !transactions.is_empty() {
-                    let mut send_futures = Vec::new();
-                    for peer_id in &world_state_view.lock().await.peer().peers {
-                        for transaction in &transactions {
-                            let peer_id = peer_id.clone();
-                            send_futures.push(async move {
-                                let _response = Network::send_request_to(
-                                    peer_id.address.as_ref(),
-                                    Request::new(uri::BLOCKS_URI.to_string(), transaction.into()),
-                                )
-                                .await;
-                            });
+                //Don't pop transactions if there is already a block in discussion
+                if !sumeragi.lock().await.has_pending_block() {
+                    let transactions = queue.lock().await.pop_pending_transactions();
+                    if !transactions.is_empty() {
+                        let mut sumeragi = sumeragi.lock().await;
+                        if let Role::Leader = sumeragi.role() {
+                            sumeragi
+                                .validate_and_store(transactions, world_state_view.clone())
+                                .await
+                                .expect("Failed to accept transactions into blockchain.");
+                        } else {
+                            let mut send_futures = Vec::new();
+                            //TODO: send pending transactions to all peers and as leader check what tx have already been committed
+                            //Sends transactions to leader
+                            for transaction in &transactions {
+                                let peer_id = sumeragi.leader().clone();
+                                send_futures.push(async move {
+                                    let _response = Network::send_request_to(
+                                        peer_id.address.as_ref(),
+                                        Request::new(
+                                            uri::INSTRUCTIONS_URI.to_string(),
+                                            transaction.as_requested().into(),
+                                        ),
+                                    )
+                                    .await;
+                                });
+                            }
+                            let _results = futures::future::join_all(send_futures).await;
                         }
+                        *last_round_time.lock().await = Instant::now();
                     }
-                    let _results = futures::future::join_all(send_futures).await;
-                    let sumeragi = sumeragi.lock().await;
-                    if let Role::Leader = sumeragi.role() {
-                        sumeragi
-                            .validate_and_store(transactions, world_state_view.clone())
-                            .await
-                            .expect("Failed to accept transactions into blockchain.");
-                    }
-                    *last_round_time.lock().await = Instant::now();
                 }
             }
         });

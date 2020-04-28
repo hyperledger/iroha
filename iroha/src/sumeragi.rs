@@ -35,18 +35,20 @@ pub enum Role {
     ProxyTail,
 }
 
-#[allow(dead_code)]
 impl Sumeragi {
     pub fn new(
         public_key: PublicKey,
         private_key: PrivateKey,
         peers: &[PeerId],
         peer_id: PeerId,
+        //TODO: get previos block hash from kura
         prev_block_hash: Option<Hash>,
         max_faults: usize,
         kura: Arc<Mutex<Kura>>,
     ) -> Result<Self, String> {
-        //TODO: check that that trusted peers contains this peer
+        if !peers.contains(&peer_id) {
+            return Err("Peers list should contain this peer.".to_string());
+        }
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
             let mut sorted_peers = peers.to_vec();
@@ -64,6 +66,10 @@ impl Sumeragi {
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
         }
+    }
+
+    pub fn has_pending_block(&self) -> bool {
+        self.pending_block.is_some()
     }
 
     pub fn next_round(&mut self, prev_block_hash: Hash) {
@@ -91,7 +97,12 @@ impl Sumeragi {
     }
 
     pub fn validating_peers(&self) -> &[PeerId] {
-        &self.peers_set_a()[1..(self.peers_set_a().len() - 1)]
+        let a_set = self.peers_set_a();
+        if a_set.len() > 1 {
+            &a_set[1..(a_set.len() - 1)]
+        } else {
+            &[]
+        }
     }
 
     pub fn role(&self) -> Role {
@@ -131,7 +142,7 @@ impl Sumeragi {
     }
 
     pub async fn validate_and_store(
-        &self,
+        &mut self,
         transactions: Vec<Transaction>,
         wsv: Arc<Mutex<WorldStateView>>,
     ) -> Result<(), String> {
@@ -144,6 +155,7 @@ impl Sumeragi {
             //If there is only one peer running skip consensus part
             let _hash = self.kura.lock().await.store(block).await?;
         } else {
+            self.pending_block = Some(block.clone());
             self.on_block_created(block).await?;
         }
         Ok(())
@@ -168,7 +180,8 @@ impl Sumeragi {
                 uri::BLOCKS_URI.to_string(),
                 Message::Created(block.clone()).into(),
             ),
-        );
+        )
+        .await;
         Ok(())
     }
 
@@ -181,7 +194,8 @@ impl Sumeragi {
                     let _result = Network::send_request_to(
                         self.proxy_tail().address.as_ref(),
                         Request::new(uri::BLOCKS_URI.to_string(), Message::Signed(block).into()),
-                    );
+                    )
+                    .await;
                     //TODO: send to set b so they can observe
                 }
                 Role::ProxyTail => {
@@ -207,8 +221,18 @@ impl Sumeragi {
                     if let Some(block) = self.pending_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = self.sign_block(block)?;
-                            //TODO: commit block to Kura
+                            let hash = self.kura.lock().await.store(block.clone()).await?;
                             for peer in self.validating_peers() {
+                                let _result = Network::send_request_to(
+                                    &peer.address,
+                                    Request::new(
+                                        uri::BLOCKS_URI.to_string(),
+                                        Message::Committed(block.clone()).into(),
+                                    ),
+                                )
+                                .await;
+                            }
+                            for peer in self.peers_set_b() {
                                 let _result = Network::send_request_to(
                                     &peer.address,
                                     Request::new(
@@ -222,10 +246,11 @@ impl Sumeragi {
                                 self.leader().address.as_ref(),
                                 Request::new(
                                     uri::BLOCKS_URI.to_string(),
-                                    Message::Created(block.clone()).into(),
+                                    Message::Committed(block.clone()).into(),
                                 ),
-                            );
-                            //TODO: `self.next_round()`
+                            )
+                            .await;
+                            self.next_round(hash);
                         }
                     }
                 }

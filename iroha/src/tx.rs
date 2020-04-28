@@ -143,6 +143,30 @@ impl Transaction {
         hash.copy_from_slice(&vec_hash);
         hash
     }
+
+    pub fn as_requested(&self) -> Transaction {
+        match self.clone() {
+            Transaction::Requested {
+                request,
+                signatures,
+            }
+            | Transaction::Accepted {
+                request,
+                signatures,
+            }
+            | Transaction::Signed {
+                request,
+                signatures,
+            }
+            | Transaction::Valid {
+                request,
+                signatures,
+            } => Transaction::Requested {
+                request,
+                signatures,
+            },
+        }
+    }
 }
 
 impl From<&Transaction> for TransactionRequest {

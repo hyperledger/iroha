@@ -5,10 +5,12 @@ const TORII_URL: &str = "TORII_URL";
 const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
 const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
 const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
+const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 const DEFAULT_KURA_INIT_MODE: &str = "strict";
 const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
+const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
 
 /// Configuration parameters container.
 pub struct Configuration {
@@ -18,6 +20,7 @@ pub struct Configuration {
     pub mode: String,
     pub kura_block_store_path: String,
     pub trusted_peers: Option<Vec<PeerId>>,
+    pub max_faulty_peers: usize,
 }
 
 impl Configuration {
@@ -47,7 +50,10 @@ impl Configuration {
                 .or_else(|| config_map.remove(KURA_INIT_MODE)),
             kura_block_store_path: env::var(KURA_BLOCK_STORE_PATH)
                 .ok()
-                .or_else(|| config_map.remove(KURA_INIT_MODE)),
+                .or_else(|| config_map.remove(KURA_BLOCK_STORE_PATH)),
+            max_faulty_peers: env::var(MAX_FAULTY_PEERS)
+                .ok()
+                .or_else(|| config_map.remove(MAX_FAULTY_PEERS)),
             ..Default::default()
         }
         .build())
@@ -67,6 +73,10 @@ impl Configuration {
     pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
         self.trusted_peers = Option::Some(trusted_peers);
     }
+
+    pub fn max_faulty_peers(&mut self, max_faulty_peers: usize) {
+        self.max_faulty_peers = max_faulty_peers;
+    }
 }
 
 #[derive(Default)]
@@ -76,6 +86,7 @@ struct ConfigurationBuilder {
     mode: Option<String>,
     kura_block_store_path: Option<String>,
     trusted_peers: Option<Vec<PeerId>>,
+    max_faulty_peers: Option<String>,
 }
 
 impl ConfigurationBuilder {
@@ -96,6 +107,11 @@ impl ConfigurationBuilder {
                 .kura_block_store_path
                 .unwrap_or_else(|| DEFAULT_KURA_BLOCK_STORE_PATH.to_string()),
             trusted_peers: self.trusted_peers,
+            max_faulty_peers: self
+                .max_faulty_peers
+                .unwrap_or_else(|| DEFAULT_MAX_FAULTY_PEERS.to_string())
+                .parse()
+                .unwrap_or_else(|_| panic!("Failed to parse {}", MAX_FAULTY_PEERS)),
         }
     }
 }
