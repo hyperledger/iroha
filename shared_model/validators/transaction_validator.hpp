@@ -22,7 +22,6 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
-#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"

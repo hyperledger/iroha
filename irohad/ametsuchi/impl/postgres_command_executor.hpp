@@ -27,7 +27,6 @@ namespace shared_model {
     class CreateDomain;
     class CreateRole;
     class DetachRole;
-    class EngineCall;
     class GrantPermission;
     class PermissionToString;
     class RemovePeer;

@@ -16,7 +16,6 @@
 #include "backend/protobuf/commands/proto_create_domain.hpp"
 #include "backend/protobuf/commands/proto_create_role.hpp"
 #include "backend/protobuf/commands/proto_detach_role.hpp"
-#include "backend/protobuf/commands/proto_engine_call.hpp"
 #include "backend/protobuf/commands/proto_grant_permission.hpp"
 #include "backend/protobuf/commands/proto_remove_peer.hpp"
 #include "backend/protobuf/commands/proto_remove_signatory.hpp"
@@ -33,7 +32,6 @@ namespace {
       ::boost::variant<shared_model::proto::AddAssetQuantity,
                        shared_model::proto::AddPeer,
                        shared_model::proto::AddSignatory,
-                       shared_model::proto::EngineCall,
                        shared_model::proto::AppendRole,
                        shared_model::proto::CallEngine,
                        shared_model::proto::CompareAndSetAccountDetail,
