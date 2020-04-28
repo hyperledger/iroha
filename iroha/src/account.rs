@@ -53,7 +53,7 @@ pub mod isi {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             world_state_view
                 .domain(&self.domain_name)
-                .unwrap()
+                .ok_or(format!("Failed to get domain: {}", self.domain_name))?
                 .accounts
                 .insert(
                     self.account_id.clone(),
