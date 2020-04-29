@@ -1,0 +1,17 @@
+[package]
+name = "iroha_client_cli"
+version = "0.1.0"
+authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+iroha = { path = "../iroha" }
+iroha_client = { path = "../iroha_client" }
+clap = "2.33.0"
+futures = "0.3.4"
+
+[dev-dependencies]
+async-std = { version = "1.5", features = ["attributes"] }
+tempfile = "3"

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use iroha::{
-        account::isi::{CreateAccount, CreateRole},
+        account::isi::CreateAccount,
         asset::isi::{AddAssetQuantity, TransferAsset},
         domain::isi::CreateDomain,
         prelude::*,
@@ -20,13 +20,8 @@ mod tests {
         // Given
         thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(200));
-        let create_role = CreateRole {
-            role_name: "user".to_string(),
-            permissions: Vec::new(),
-        };
         let create_domain = CreateDomain {
             domain_name: "domain".to_string(),
-            default_role: "user".to_string(),
         };
         let account1_id = Id::new("account1", "domain");
         let account2_id = Id::new("account2", "domain");
@@ -56,11 +51,6 @@ mod tests {
         let mut iroha_client = Client::new(
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
         );
-        iroha_client
-            .submit(create_role.into())
-            .await
-            .expect("Failed to create role.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
         iroha_client
             .submit(create_domain.into())
             .await

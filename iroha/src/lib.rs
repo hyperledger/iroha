@@ -203,6 +203,16 @@ impl Id {
     }
 }
 
+impl From<&str> for Id {
+    fn from(string: &str) -> Id {
+        let vector: Vec<&str> = string.split('@').collect();
+        Id {
+            entity_name: String::from(vector[0]),
+            domain_name: String::from(vector[1]),
+        }
+    }
+}
+
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
 

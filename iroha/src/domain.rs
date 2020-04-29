@@ -29,7 +29,6 @@ pub mod isi {
     #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
     pub struct CreateDomain {
         pub domain_name: String,
-        pub default_role: String,
     }
 
     impl Instruction for CreateDomain {

@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
     use iroha::{
-        account::isi::{CreateAccount, CreateRole},
-        asset::isi::AddAssetQuantity,
-        domain::isi::CreateDomain,
-        peer::PeerId,
-        prelude::*,
+        account::isi::CreateAccount, asset::isi::AddAssetQuantity, domain::isi::CreateDomain,
+        peer::PeerId, prelude::*,
     };
     use iroha_client::client::{self, Client};
     use std::thread;
@@ -51,13 +48,8 @@ mod tests {
             loop {}
         });
         thread::sleep(std::time::Duration::from_millis(100));
-        let create_role = CreateRole {
-            role_name: "user".to_string(),
-            permissions: Vec::new(),
-        };
         let create_domain = CreateDomain {
             domain_name: "domain".to_string(),
-            default_role: "user".to_string(),
         };
         let account_id = Id::new("account", "domain");
         let create_account = CreateAccount {
@@ -75,11 +67,6 @@ mod tests {
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         configuration.torii_url(PEER_URL);
         let mut iroha_client = Client::new(configuration);
-        iroha_client
-            .submit(create_role.into())
-            .await
-            .expect("Failed to create role.");
-        std::thread::sleep(std::time::Duration::from_millis(50));
         iroha_client
             .submit(create_domain.into())
             .await
