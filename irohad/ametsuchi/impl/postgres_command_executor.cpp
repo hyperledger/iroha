@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
+#include <exception>
 #include <forward_list>
 
 #include <fmt/core.h>
@@ -38,6 +39,7 @@
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permission_to_string.hpp"
+#include "interfaces/permissions.hpp"
 #include "utils/string_builder.hpp"
 
 using shared_model::interface::permissions::Grantable;
@@ -1463,19 +1465,23 @@ namespace iroha {
         const shared_model::interface::CallEngine &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
-      {  // check permissions
-        int has_permission = 0;
-        using namespace shared_model::interface::permissions;
-        *sql_ << fmt::format(
-            "select count(1) from (({}) union ({})) t",
-            checkAccountRolePermission(Role::kCallEngine, ":creator"),
-            checkAccountGrantablePermission(
-                Grantable::kCallEngineOnMyBehalf, ":creator", ":caller")),
-            soci::use(creator_account_id, "creator"),
-            soci::use(command.caller(), "caller"), soci::into(has_permission);
-        if (has_permission == 0) {
-          return makeCommandError("CallEngine", 2, "Not enough permissions.");
+      try {
+        if (do_validation) {  // check permissions
+          int has_permission = 0;
+          using namespace shared_model::interface::permissions;
+          *sql_ << checkAccountHasRoleOrGrantablePerm(
+              Role::kCallEngine,
+              Grantable::kCallEngineOnMyBehalf,
+              ":creator",
+              ":caller"),
+              soci::use(creator_account_id, "creator"),
+              soci::use(command.caller(), "caller"), soci::into(has_permission);
+          if (has_permission == 0) {
+            return makeCommandError("CallEngine", 2, "Not enough permissions.");
+          }
         }
+      } catch (std::exception const &e) {
+        return makeCommandError("CallEngine", 1, e.what());
       }
       return {};
     }
