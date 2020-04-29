@@ -19,7 +19,6 @@ fn query_requests(criterion: &mut Criterion) {
     };
     let create_domain = CreateDomain {
         domain_name: domain_name.to_string(),
-        default_role: "user".to_string(),
     };
     let account_id = Id::new("account2", domain_name);
     let create_account = CreateAccount {
@@ -82,7 +81,6 @@ fn instruction_submits(criterion: &mut Criterion) {
     };
     let create_domain = CreateDomain {
         domain_name: "domain".to_string(),
-        default_role: "user".to_string(),
     };
     let account_id = Id::new("account", "domain");
     let create_account = CreateAccount {
