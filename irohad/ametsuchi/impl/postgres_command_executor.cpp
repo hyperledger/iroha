@@ -1196,16 +1196,19 @@ namespace iroha {
             inserted AS (
               INSERT INTO engine_calls
               (
-                creator_id, tx_hash, cmd_index, engine_response,
+                tx_hash, cmd_index, engine_response,
                 callee, created_address
               )
               VALUES
               (
-                :creator, :tx_hash, :cmd_index, :engine_response,
+                :tx_hash, :cmd_index, :engine_response,
                 :callee, :created_address
               )
-              ON CONFLICT (creator_id, tx_hash, cmd_index)
-              DO UPDATE SET engine_response = :engine_response
+              ON CONFLICT (tx_hash, cmd_index)
+              DO UPDATE SET
+                engine_response = excluded.engine_response,
+                callee = excluded.callee,
+                created_address = excluded.created_address
               RETURNING (1)
             )
           SELECT CASE
