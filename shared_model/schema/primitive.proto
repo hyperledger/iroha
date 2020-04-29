@@ -44,6 +44,7 @@ enum RolePermission {
   can_create_domain = 14;
   can_add_domain_asset_qty = 43;
   can_subtract_domain_asset_qty = 44;
+  can_call_engine = 48;
 
   // Query permissions
   can_read_assets = 15;
@@ -77,6 +78,7 @@ enum RolePermission {
   can_grant_can_remove_my_signatory = 39;
   can_grant_can_transfer_my_assets = 40;
   can_grant_can_set_my_account_detail = 41;
+  can_grant_can_call_engine_on_my_behalf = 49;
 
   // Root Permission
   root = 47;
@@ -88,6 +90,7 @@ enum GrantablePermission {
   can_set_my_quorum = 2;
   can_set_my_account_detail = 3;
   can_transfer_my_assets = 4;  // not implemented now
+  can_call_engine_on_my_behalf = 5;
 }
 
 message Signature {

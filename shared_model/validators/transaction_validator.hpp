@@ -85,8 +85,8 @@ namespace shared_model {
         ValidationErrorCreator error_creator;
         error_creator |= validator_.validateAccountId(call_engine.caller());
         if (call_engine.callee()) {
-          error_creator |=
-              validator_.validateEvmHexAddress(call_engine.callee().value());
+          error_creator |= validator_.validateEvmHexAddress(
+              call_engine.callee().value().get());
         }
         error_creator |= validator_.validateBytecode(
             interface::types::EvmCodeHexStringView{call_engine.input()});
