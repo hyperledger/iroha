@@ -6,5 +6,6 @@ const CONFIGURATION_PATH: &str = "config.json";
 async fn main() -> Result<(), String> {
     println!("Hyperledgerいろは2にようこそ！");
     Iroha::new(Configuration::from_path(CONFIGURATION_PATH)?).start()?;
+    //TODO: wait for Iroha
     Ok(())
 }
