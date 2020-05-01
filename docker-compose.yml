@@ -1,0 +1,10 @@
+version: "3.3"
+services:
+  iroha:
+    build:
+      context: ./
+      dockerfile: Dockerfile.debug
+    environment:
+      TORII_URL: 0.0.0.0:8080
+    ports:
+      - "1337:8080"
