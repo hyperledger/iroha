@@ -1,5 +1,11 @@
 use crate::peer::PeerId;
-use std::{collections::HashMap, env, fs, path::Path};
+use std::{
+    collections::HashMap,
+    env,
+    fmt::{self, Display, Formatter},
+    fs,
+    path::Path,
+};
 
 const TORII_URL: &str = "TORII_URL";
 const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
@@ -76,6 +82,16 @@ impl Configuration {
 
     pub fn max_faulty_peers(&mut self, max_faulty_peers: usize) {
         self.max_faulty_peers = max_faulty_peers;
+    }
+}
+
+impl Display for Configuration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "URL: {}, Block Build Step Time in milliseconds: {}, Mode: {}",
+            self.torii_url, self.block_build_step_ms, self.mode,
+        )
     }
 }
 
