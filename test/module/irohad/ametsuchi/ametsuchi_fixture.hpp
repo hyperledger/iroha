@@ -106,6 +106,7 @@ namespace iroha {
                query_response_factory_,
                std::make_unique<InMemoryBlockStorageFactory>(),
                block_storage_,
+               std::nullopt,
                getTestLoggerManager()->getChild("Storage"));
          }
          |

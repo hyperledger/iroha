@@ -56,6 +56,7 @@ namespace iroha {
             query_response_factory,
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         size_t pool_size,
+        std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
         logger::LoggerManagerTreePtr log_manager)
         : block_store_(std::move(block_store)),
           pool_wrapper_(std::move(pool_wrapper)),
@@ -66,6 +67,7 @@ namespace iroha {
           query_response_factory_(std::move(query_response_factory)),
           temporary_block_storage_factory_(
               std::move(temporary_block_storage_factory)),
+          vm_caller_ref_(std::move(vm_caller_ref)),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()),
           pool_size_(pool_size),
@@ -182,7 +184,8 @@ namespace iroha {
               pending_txs_storage_,
               query_response_factory_,
               perm_converter_,
-              log_manager_->getChild("SpecificQueryExecutor")->getLogger()));
+              log_manager_->getChild("SpecificQueryExecutor")->getLogger()),
+          vm_caller_ref_);
     }
 
     std::unique_ptr<MutableStorage> StorageImpl::createMutableStorage(
@@ -254,6 +257,7 @@ namespace iroha {
             query_response_factory,
         std::unique_ptr<BlockStorageFactory> temporary_block_storage_factory,
         std::shared_ptr<BlockStorage> persistent_block_storage,
+        std::optional<std::reference_wrapper<const VmCaller>> vm_caller_ref,
         logger::LoggerManagerTreePtr log_manager,
         size_t pool_size) {
       boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state;
@@ -286,6 +290,7 @@ namespace iroha {
                           std::move(query_response_factory),
                           std::move(temporary_block_storage_factory),
                           pool_size,
+                          std::move(vm_caller_ref),
                           std::move(log_manager))));
     }
 

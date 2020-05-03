@@ -71,7 +71,8 @@ namespace iroha {
                 perm_converter,
                 getTestLoggerManager()
                     ->getChild("SpecificQueryExecutor")
-                    ->getLogger()));
+                    ->getLogger()),
+            std::nullopt);
       }
 
       void TearDown() override {

@@ -1,5 +1,6 @@
 package main
 
+//typedef const char const_char;
 import "C"
 import (
 	"fmt"
@@ -31,7 +32,7 @@ var (
 )
 
 //export VmCall
-func VmCall(input, caller, callee *C.char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, bool) {
+func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, bool) {
 
 	// Update executors
 	api.IrohaCommandExecutor = commandExecutor
