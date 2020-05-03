@@ -18,6 +18,7 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/ametsuchi/mock_block_storage.hpp"
+#include "module/irohad/ametsuchi/mock_vm_caller.hpp"
 #include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"
@@ -34,7 +35,8 @@ namespace {
                                                   // - query executor
                                                   // - resetWsv
 
-  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager);
+  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager,
+                                                    VmCaller &);
 }  // namespace
 
 PostgresExecutorTestParam::PostgresExecutorTestParam() {
@@ -46,7 +48,8 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
   }
   db_manager_ = std::move(db_manager_result).assumeValue();
 
-  executor_itf_target_ = createPostgresExecutorItfTarget(*db_manager_);
+  executor_itf_target_ =
+      createPostgresExecutorItfTarget(*db_manager_, *vm_caller_);
 }
 
 PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
@@ -98,7 +101,8 @@ namespace {
     std::unique_ptr<BlockStorage> block_storage_;
   };
 
-  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager) {
+  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager,
+                                                    VmCaller &vm_caller) {
     ExecutorItfTarget target;
     auto postgres_query_executor =
         std::make_shared<PostgresSpecificQueryExecutorWrapper>(
@@ -114,8 +118,7 @@ namespace {
         db_manager.getSession(),
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
         postgres_query_executor,
-        std::nullopt  // TODO MockVmCaller
-    );
+        vm_caller);
     target.query_executor = std::move(postgres_query_executor);
     return target;
   }
