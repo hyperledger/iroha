@@ -18,6 +18,8 @@ namespace shared_model::interface {
    */
   class CallEngine {
    public:
+    using ModelType = CallEngine;
+
     virtual ~CallEngine();
 
     /**

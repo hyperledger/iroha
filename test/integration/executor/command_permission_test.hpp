@@ -120,12 +120,16 @@ namespace executor_testing {
         return permissions_param_.validation_enabled;
       }
 
+      bool isEnoughPermissions() const {
+        return permissions_param_.enough_permissions;
+      }
+
       /**
        * Check a response.
        * @return whether response is success or error.
        */
       bool checkResponse(const iroha::ametsuchi::CommandResult &response) {
-        if (permissions_param_.enough_permissions) {
+        if (isEnoughPermissions()) {
           if (auto e = iroha::expected::resultToOptionalError(response)) {
             ADD_FAILURE()
                 << "The command has failed despite having enough permissions: "
