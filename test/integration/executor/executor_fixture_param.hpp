@@ -10,9 +10,15 @@
 
 #include <gtest/gtest.h>
 
+namespace iroha::ametsuchi {
+  class MockVmCaller;
+}
+
 namespace executor_testing {
 
   struct ExecutorTestParam {
+    ExecutorTestParam();
+
     virtual ~ExecutorTestParam();
 
     /// Implementations must define this to clear WSV completely between tests.
@@ -25,6 +31,8 @@ namespace executor_testing {
 
     /// Implementations must define this to provide backend description.
     virtual std::string toString() const = 0;
+
+    std::unique_ptr<iroha::ametsuchi::MockVmCaller> vm_caller_;
   };
 
   std::string paramToString(
