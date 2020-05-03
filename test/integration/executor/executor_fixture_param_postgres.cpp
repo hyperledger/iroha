@@ -113,7 +113,9 @@ namespace {
     target.command_executor = std::make_shared<PostgresCommandExecutor>(
         db_manager.getSession(),
         std::make_shared<shared_model::proto::ProtoPermissionToString>(),
-        postgres_query_executor);
+        postgres_query_executor,
+        std::nullopt  // TODO MockVmCaller
+    );
     target.query_executor = std::move(postgres_query_executor);
     return target;
   }

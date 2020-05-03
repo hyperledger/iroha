@@ -37,7 +37,8 @@ namespace iroha {
                 perm_converter,
                 getTestLoggerManager()
                     ->getChild("SpecificQueryExecutor")
-                    ->getLogger()));
+                    ->getLogger()),
+            std::nullopt);
 
         setting_query = std::make_unique<PostgresSettingQuery>(
             std::make_unique<soci::session>(*soci::factory_postgresql(),

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include DEFAULT_VM_CALL_INCLUDE_IMPL
+#include BURROW_VM_CALL_HEADER
 
 #include <unordered_map>
 

@@ -17,8 +17,10 @@
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "ametsuchi/vm_caller.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
@@ -44,10 +46,6 @@
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/permissions.hpp"
 #include "utils/string_builder.hpp"
-
-#if defined(USE_EVM)
-#include DEFAULT_VM_CALL_INCLUDE_IMPL
-#endif
 
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
@@ -1402,10 +1400,12 @@ namespace iroha {
         std::unique_ptr<soci::session> sql,
         std::shared_ptr<shared_model::interface::PermissionToString>
             perm_converter,
-        std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor)
+        std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor,
+        std::optional<std::reference_wrapper<const VmCaller>> vm_caller)
         : sql_(std::move(sql)),
           perm_converter_{std::move(perm_converter)},
-          specific_query_executor_{std::move(specific_query_executor)} {
+          specific_query_executor_{std::move(specific_query_executor)},
+          vm_caller_{std::move(vm_caller)} {
       initStatements();
     }
 
@@ -1517,19 +1517,60 @@ namespace iroha {
         shared_model::interface::types::CommandIndexType cmd_index,
         bool do_validation) {
       try {
-        if (do_validation) {  // check permissions
-          int has_permission = 0;
-          using namespace shared_model::interface::permissions;
-          *sql_ << checkAccountHasRoleOrGrantablePerm(
-              Role::kCallEngine,
-              Grantable::kCallEngineOnMyBehalf,
-              ":creator",
-              ":caller"),
-              soci::use(creator_account_id, "creator"),
-              soci::use(command.caller(), "caller"), soci::into(has_permission);
-          if (has_permission == 0) {
-            return makeCommandError("CallEngine", 2, "Not enough permissions.");
+        if (vm_caller_) {
+          if (do_validation) {  // check permissions
+            int has_permission = 0;
+            using namespace shared_model::interface::permissions;
+            *sql_ << checkAccountHasRoleOrGrantablePerm(
+                Role::kCallEngine,
+                Grantable::kCallEngineOnMyBehalf,
+                ":creator",
+                ":caller"),
+                soci::use(creator_account_id, "creator"),
+                soci::use(command.caller(), "caller"),
+                soci::into(has_permission);
+            if (has_permission == 0) {
+              return makeCommandError(
+                  "CallEngine", 2, "Not enough permissions.");
+            }
           }
+
+          using namespace shared_model::interface::types;
+          return vm_caller_->get()
+              .call(
+                  *sql_,
+                  tx_hash,
+                  cmd_index,
+                  EvmCodeHexStringView{command.input()},
+                  command.caller(),
+                  command.callee()
+                      ? std::optional<EvmCalleeHexStringView>{command.callee()
+                                                                  ->get()}
+                      : std::optional<EvmCalleeHexStringView>{std::nullopt},
+                  *this,
+                  *specific_query_executor_)
+              .match(
+                  [&](const auto &value) -> CommandResult {
+                    StatementExecutor executor(
+                        store_engine_response_statements_,
+                        false,
+                        "StoreEngineResponse",
+                        perm_converter_);
+                    executor.use("tx_hash", tx_hash);
+                    executor.use("cmd_index", cmd_index);
+                    executor.use("engine_response", value.value);
+
+                    return executor.execute();
+                  },
+                  [](auto &&error) -> CommandResult {
+                    // TODO(IvanTyulyandin): need to set appropriate error
+                    // value, 5 used to pass compilation
+                    return makeCommandError(
+                        "CallEngine", 5, std::move(error.error));
+                  });
+
+        } else {
+          return makeCommandError("CallEngine", 1, "Engine is not configured.");
         }
       } catch (std::exception const &e) {
         return makeCommandError("CallEngine", 1, e.what());

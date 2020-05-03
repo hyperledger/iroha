@@ -6,6 +6,7 @@
 #ifndef IROHA_POSTGRES_COMMAND_EXECUTOR_HPP
 #define IROHA_POSTGRES_COMMAND_EXECUTOR_HPP
 
+#include <optional>
 #include "ametsuchi/command_executor.hpp"
 
 #include "ametsuchi/impl/soci_utils.hpp"
@@ -44,6 +45,7 @@ namespace iroha {
   namespace ametsuchi {
 
     class PostgresSpecificQueryExecutor;
+    class VmCaller;
 
     class PostgresCommandExecutor final : public CommandExecutor {
      public:
@@ -52,7 +54,8 @@ namespace iroha {
           std::shared_ptr<shared_model::interface::PermissionToString>
               perm_converter,
           std::shared_ptr<PostgresSpecificQueryExecutor>
-              specific_query_executor);
+              specific_query_executor,
+          std::optional<std::reference_wrapper<const VmCaller>> vm_caller);
 
       ~PostgresCommandExecutor();
 
@@ -242,6 +245,7 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
       std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor_;
+      std::optional<std::reference_wrapper<const VmCaller>> vm_caller_;
 
       std::unique_ptr<CommandStatements> add_asset_quantity_statements_;
       std::unique_ptr<CommandStatements> add_peer_statements_;

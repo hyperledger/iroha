@@ -58,18 +58,13 @@ add_custom_target(generate_burrow_vm_caller_lib_and_header
     "${VM_CALLER_HDR}"
 )
 
-add_library(burrow_vm_caller STATIC IMPORTED GLOBAL)
-add_dependencies(burrow_vm_caller generate_burrow_vm_caller_lib_and_header)
-set_property(TARGET burrow_vm_caller PROPERTY IMPORTED_LOCATION "${VM_CALLER_LIB}")
-target_link_libraries(burrow_vm_caller
+add_library(burrow_vm_caller_generated STATIC IMPORTED GLOBAL)
+add_dependencies(burrow_vm_caller_generated generate_burrow_vm_caller_lib_and_header)
+set_property(TARGET burrow_vm_caller_generated PROPERTY IMPORTED_LOCATION "${VM_CALLER_LIB}")
+target_include_directories(burrow_vm_caller_generated INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(burrow_vm_caller_generated
   INTERFACE
-    proto_command_executor
-    proto_specific_query_executor
-    burrow_storage
-  )
-target_include_directories(burrow_vm_caller INTERFACE "${CMAKE_CURRENT_BINARY_DIR}")
-target_compile_definitions(burrow_vm_caller
-  INTERFACE
+    USE_BURROW
     USE_EVM
-    DEFAULT_VM_CALL_INCLUDE_IMPL="${VM_CALLER_HDR}"
+    BURROW_VM_CALL_HEADER="${VM_CALLER_HDR}"
   )
