@@ -100,9 +100,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
         {"iroha.protocol.TransferAsset.amount", setString(amount)},
         {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
-        {"iroha.protocol.EngineCall.caller", setString(caller)},
         {"iroha.protocol.EngineCall.callee", setString(callee)},
-        {"iroha.protocol.EngineCall.code", setString(code)},
         {"iroha.protocol.EngineCall.input", setString(input)},
         {"iroha.protocol.AddPeer.peer",
          [&](auto refl, auto msg, auto field) {
@@ -245,15 +243,13 @@ class ValidatorsTest : public ::testing::Test {
     domain_id = "ru";
     detail_key = "key";
     writer = "account@domain";
-    caller = "smartContractFromAddress";
     callee = "smartContractWillAddressTo";
-    code = "606060405260a18060106000396000f360606040526000357c01000000000000000"
+    input = "606060405260a18060106000396000f360606040526000357c01000000000000000"
            "0000000000000000000000000000000000000000090048063d46300fd1460435780"
            "63ee919d5014606857603f565b6002565b34600257605260048050506082565b604"
            "0518082815260200191505060405180910390f35b34600257608060048080359060"
            "200190919050506093565b005b600060006000505490506090565b90565b8060006"
            "00050819055505b5056";
-    input = "";
     // size of public_key and hash are twice bigger `public_key_size` because it
     // is hex representation
     public_key = std::string(public_key_size * 2, '0');
@@ -291,9 +287,7 @@ class ValidatorsTest : public ::testing::Test {
   std::string public_key;
   std::string hash;
   std::string writer;
-  std::string caller;
   std::string callee;
-  std::string code;
   std::string input;
   iroha::protocol::Transaction::Payload::BatchMeta batch_meta;
   shared_model::interface::permissions::Role model_role_permission;
