@@ -9,7 +9,7 @@ add_library(shared_model_interfaces
     commands/impl/add_asset_quantity.cpp
     commands/impl/add_peer.cpp
     commands/impl/add_signatory.cpp
-    commands/impl/add_smart_contract.cpp
+    commands/impl/engine_call.cpp
     commands/impl/append_role.cpp
     commands/impl/command.cpp
     commands/impl/create_account.cpp

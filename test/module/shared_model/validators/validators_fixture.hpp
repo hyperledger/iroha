@@ -100,10 +100,10 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
         {"iroha.protocol.TransferAsset.amount", setString(amount)},
         {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
-        {"iroha.protocol.AddSmartContract.caller", setString(caller)},
-        {"iroha.protocol.AddSmartContract.callee", setString(callee)},
-        {"iroha.protocol.AddSmartContract.code", setString(code)},
-        {"iroha.protocol.AddSmartContract.input", setString(input)},
+        {"iroha.protocol.EngineCall.caller", setString(caller)},
+        {"iroha.protocol.EngineCall.callee", setString(callee)},
+        {"iroha.protocol.EngineCall.code", setString(code)},
+        {"iroha.protocol.EngineCall.input", setString(input)},
         {"iroha.protocol.AddPeer.peer",
          [&](auto refl, auto msg, auto field) {
            refl->MutableMessage(msg, field)->CopyFrom(peer);

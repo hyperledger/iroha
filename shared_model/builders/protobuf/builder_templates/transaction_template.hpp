@@ -204,7 +204,7 @@ namespace shared_model {
           const interface::types::SmartContractCodeType &code,
           const interface::types::SmartContractCodeType &input) const {
         return addCommand([&](auto proto_command) {
-          auto command = proto_command->mutable_add_smart_contract();
+          auto command = proto_command->mutable_engine_call();
           command->set_caller(caller);
           command->set_callee(callee);
           command->set_code(code);

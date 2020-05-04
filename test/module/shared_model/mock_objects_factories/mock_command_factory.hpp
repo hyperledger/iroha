@@ -51,14 +51,14 @@ namespace shared_model {
           const types::AccountIdType &account_id) const;
 
       /**
-       * Construct a mocked AddSmartContract
+       * Construct a mocked EngineCall
        * @param caller to be in that command
        * @param callee to be in that command
        * @param code to be in that command
        * @param input to be in that command
        * @return pointer to the created command
        */
-      FactoryResult<MockAddSmartContract> constructAddSmartContract(
+      FactoryResult<MockEngineCall> constructEngineCall(
         const types::AccountIdType &caller,
         const types::AccountIdType &callee,
         const types::SmartContractCodeType &code,
