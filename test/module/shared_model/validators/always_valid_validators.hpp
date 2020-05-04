@@ -28,6 +28,10 @@ namespace shared_model {
         return std::nullopt;
       }
       template <typename... Args>
+      std::optional<ValidationError> validateBytecode(Args...) const {
+        return std::nullopt;
+      }
+      template <typename... Args>
       std::optional<ValidationError> validatePeer(Args...) const {
         return std::nullopt;
       }

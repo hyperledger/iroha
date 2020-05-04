@@ -17,6 +17,7 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
+#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
@@ -1455,6 +1456,13 @@ namespace iroha {
       executor.use("role", role);
 
       return executor.execute();
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::AddSmartContract &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
+      return {};
     }
 
     CommandResult PostgresCommandExecutor::operator()(

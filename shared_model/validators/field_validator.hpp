@@ -55,6 +55,12 @@ namespace shared_model {
       std::optional<ValidationError> validateAssetId(
           const interface::types::AssetIdType &asset_id) const;
 
+      std::optional<ValidationError> validateCallee(
+          const interface::types::AccountIdType &callee) const;
+
+      std::optional<ValidationError> validateBytecode(
+          const interface::types::SmartContractCodeType &input) const;
+
       std::optional<ValidationError> validatePeer(
           const interface::Peer &peer) const;
 

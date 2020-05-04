@@ -110,6 +110,11 @@ namespace {
       "SignatureHex",
       fmt::format("[A-Fa-f0-9]{{1,{}}}",
                   shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
+  const RegexValidator kHexValidator{
+    "Hex", 
+    R"#(([0-9a-fA-F][0-9a-fA-F])*)#",
+    "Hex encoded string expected"
+  };
 }  // namespace
 
 namespace shared_model {
@@ -129,6 +134,25 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateAssetId(
         const interface::types::AssetIdType &asset_id) const {
       return kAssetIdValidator.validate(asset_id);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateCallee(
+        const interface::types::AccountIdType &callee) const {
+      // TODO(IvanTyulyandin): add callee validator
+      // this is mock for tests to be passed
+      // consider accountId validation method to call
+      if (callee.empty()) {
+        return ValidationError(
+          "EngineCall", {"Smart contract callee must be specified"});
+      }
+      return boost::none;
+    }
+
+    std::optional<ValidationError> FieldValidator::validateBytecode(
+        const interface::types::SmartContractCodeType &input) const {
+      // TODO(IvanTyulyandin): add code validator
+      // this is mock for tests to be passed
+      return kHexValidator.validate(input);
     }
 
     std::optional<ValidationError> FieldValidator::validatePeer(

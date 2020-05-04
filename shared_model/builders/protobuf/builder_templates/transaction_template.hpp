@@ -190,6 +190,28 @@ namespace shared_model {
         });
       }
 
+      auto addSmartContract(
+          const interface::types::AccountIdType &caller,
+          const interface::types::AccountIdType &callee,
+          const interface::types::SmartContractCodeType &code,
+          const interface::types::SmartContractCodeType &input) const {
+        return addSmartContractRaw(caller, callee, code, input);
+      }
+
+      auto addSmartContractRaw(
+          const interface::types::AccountIdType &caller,
+          const interface::types::AccountIdType &callee,
+          const interface::types::SmartContractCodeType &code,
+          const interface::types::SmartContractCodeType &input) const {
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_add_smart_contract();
+          command->set_caller(caller);
+          command->set_callee(callee);
+          command->set_code(code);
+          command->set_input(input);
+        });
+      }
+
       auto appendRole(const interface::types::AccountIdType &account_id,
                       const interface::types::RoleIdType &role_name) const {
         return addCommand([&](auto proto_command) {
