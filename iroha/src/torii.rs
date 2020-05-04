@@ -40,7 +40,7 @@ impl Torii {
             transaction_sender,
             message_sender,
         };
-        Network::listen(Arc::new(Mutex::new(state)), url, handle_connection)
+        TcpNetwork::listen(Arc::new(Mutex::new(state)), url, handle_connection)
             .await
             .expect("Failed to start listening Torii.");
     }
@@ -60,7 +60,7 @@ async fn handle_connection(
     //TODO: Why network can't spawn new task?
     let state22 = Arc::clone(&state);
     state.lock().await.pool.spawn_ok(async move {
-        Network::handle_message_async(state22, stream, handle_request)
+        TcpNetwork::handle_message_async(state22, stream, handle_request)
             .await
             .expect("Failed to handle message.")
     });

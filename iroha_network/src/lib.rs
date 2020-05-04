@@ -2,6 +2,7 @@ use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
 };
+use async_trait::async_trait;
 use futures::lock::Mutex;
 use iroha_derive::{log, Io};
 use parity_scale_codec::{Decode, Encode};
@@ -18,37 +19,75 @@ pub type State<T> = Arc<Mutex<T>>;
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 
-pub struct Network {
+#[async_trait]
+pub trait Network {
+    /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
+    async fn send_request(&self, request: Request) -> Result<Response, String>;
+
+    /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
+    async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String>;
+
+    /// Listens on the specified `server_url`.
+    /// When there is an incoming connection, it passes it's `AsyncStream` to `handler`.
+    /// # Arguments
+    ///
+    /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
+    /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
+    /// * `state` - the state that you want to capture
+    async fn listen<H, F, S>(
+        state: State<S>,
+        server_url: &str,
+        mut handler: H,
+    ) -> Result<(), String>
+    where
+        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F + Send,
+        F: Future<Output = Result<(), String>> + Send,
+        S: Send;
+
+    /// Helper function to call inside `listen_async` `handler` function to parse and send response.
+    /// The `handler` specified here will need to generate `Response` from `Request`.
+    /// See `listen_async` for the description of the `state`.
+    async fn handle_message_async<H, F, S>(
+        state: State<S>,
+        mut stream: Box<dyn AsyncStream>,
+        mut handler: H,
+    ) -> Result<(), String>
+    where
+        H: FnMut(State<S>, Request) -> F + Send,
+        F: Future<Output = Result<Response, String>> + Send,
+        S: Send;
+}
+
+pub struct TcpNetwork {
     server_url: String,
 }
 
-impl Network {
+impl TcpNetwork {
     /// Creates a new client that will send request to the server on `server_url`
     /// # Arguments
     ///
     /// * `server_url` - is of format ip:port
-    ///
-    /// # Examples
+    /// /// # Examples
     /// ```
-    /// use iroha_network::Network;
+    /// use iroha_network::TcpNetwork;
     ///
     /// //If server runs on port 7878 on localhost
-    /// let client = Network::new("127.0.0.1:7878");
+    /// let client = TcpNetwork::new("127.0.0.1:7878");
     /// ```
-    pub fn new(server_url: &str) -> Network {
-        Network {
+    pub fn new(server_url: &str) -> TcpNetwork {
+        TcpNetwork {
             server_url: server_url.to_string(),
         }
     }
+}
 
-    /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
-    pub async fn send_request(&self, request: Request) -> Result<Response, String> {
-        Network::send_request_to(&self.server_url, request).await
+#[async_trait]
+impl Network for TcpNetwork {
+    async fn send_request(&self, request: Request) -> Result<Response, String> {
+        TcpNetwork::send_request_to(&self.server_url, request).await
     }
 
-    /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
-    #[log]
-    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+    async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
         let mut stream = TcpStream::connect(server_url)
             .await
             .map_err(|e| e.to_string())?;
@@ -63,21 +102,15 @@ impl Network {
         Ok(Response::try_from(buffer[..read_size].to_vec())?)
     }
 
-    /// Listens on the specified `server_url`.
-    /// When there is an incoming connection, it passes it's `AsyncStream` to `handler`.
-    /// # Arguments
-    ///
-    /// * `server_url` - url of format ip:port (e.g. `127.0.0.1:7878`) on which this server will listen for incoming connections.
-    /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
-    /// * `state` - the state that you want to capture
-    pub async fn listen<H, F, S>(
+    async fn listen<H, F, S>(
         state: State<S>,
         server_url: &str,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
-        F: Future<Output = Result<(), String>>,
+        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F + Send,
+        F: Future<Output = Result<(), String>> + Send,
+        S: Send,
     {
         let listener = TcpListener::bind(server_url)
             .await
@@ -92,17 +125,15 @@ impl Network {
         Ok(())
     }
 
-    /// Helper function to call inside `listen_async` `handler` function to parse and send response.
-    /// The `handler` specified here will need to generate `Response` from `Request`.
-    /// See `listen_async` for the description of the `state`.
-    pub async fn handle_message_async<H, F, S>(
+    async fn handle_message_async<H, F, S>(
         state: State<S>,
         mut stream: Box<dyn AsyncStream>,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(State<S>, Request) -> F,
-        F: Future<Output = Result<Response, String>>,
+        H: FnMut(State<S>, Request) -> F + Send,
+        F: Future<Output = Result<Response, String>> + Send,
+        S: Send,
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream
@@ -202,7 +233,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Network, Request, Response, State};
+    pub use crate::{AsyncStream, Network, Request, Response, State, TcpNetwork};
 }
 
 #[cfg(test)]
@@ -246,20 +277,23 @@ mod tests {
             Ok(Response::Ok("pong".as_bytes().to_vec()))
         };
 
-        async fn handle_connection<S>(
+        async fn handle_connection<S: Send>(
             state: State<S>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<(), String> {
-            Network::handle_message_async(state, stream, handle_request).await
+            TcpNetwork::handle_message_async(state, stream, handle_request).await
         };
 
         task::spawn(async {
-            Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
+            TcpNetwork::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-            .await
-            .expect("Failed to send request to.")
+        match TcpNetwork::send_request_to(
+            "127.0.0.1:7878",
+            Request::new("/ping".to_string(), vec![]),
+        )
+        .await
+        .expect("Failed to send request to.")
         {
             Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
             _ => panic!("Response should be ok."),
@@ -282,16 +316,19 @@ mod tests {
             state: State<usize>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<(), String> {
-            Network::handle_message_async(state, stream, handle_request).await
+            TcpNetwork::handle_message_async(state, stream, handle_request).await
         };
         let counter_move = counter.clone();
         task::spawn(async move {
-            Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
+            TcpNetwork::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
-            .await
-            .expect("Failed to send request to.")
+        match TcpNetwork::send_request_to(
+            "127.0.0.1:7870",
+            Request::new("/ping".to_string(), vec![]),
+        )
+        .await
+        .expect("Failed to send request to.")
         {
             Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
             _ => panic!("Response should be ok."),

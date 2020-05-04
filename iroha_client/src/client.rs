@@ -38,7 +38,7 @@ impl Client {
     /// Contract API entry point. Submits contracts to `Iroha` peers.
     #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
-        let network = Network::new(&self.torii_url);
+        let network = TcpNetwork::new(&self.torii_url);
         let transaction = Transaction::new(
             vec![command],
             Id::new("account", "domain"),
@@ -66,7 +66,7 @@ impl Client {
     /// Query API entry point. Requests queries from `Iroha` peers.
     #[log]
     pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
-        let network = Network::new(&self.torii_url);
+        let network = TcpNetwork::new(&self.torii_url);
         match network
             .send_request(Request::new(uri::QUERY_URI.to_string(), request.into()))
             .await

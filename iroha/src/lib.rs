@@ -30,7 +30,7 @@ use futures::{
     lock::Mutex,
     prelude::*,
 };
-use iroha_network::{Network, Request};
+use iroha_network::{Network, Request, TcpNetwork};
 use parity_scale_codec::{Decode, Encode};
 use std::{path::Path, sync::Arc, time::Instant};
 
@@ -46,7 +46,7 @@ pub type MessageReceiver = UnboundedReceiver<Message>;
 pub struct Iroha {
     torii: Arc<Mutex<Torii>>,
     queue: Arc<Mutex<Queue>>,
-    sumeragi: Arc<Mutex<Sumeragi>>,
+    sumeragi: Arc<Mutex<Sumeragi<TcpNetwork, Kura>>>,
     kura: Arc<Mutex<Kura>>,
     last_round_time: Arc<Mutex<Instant>>,
     transactions_receiver: Arc<Mutex<TransactionReceiver>>,
@@ -96,9 +96,9 @@ impl Iroha {
                 private_key,
                 &peers,
                 iroha_peer_id,
-                None,
                 config.max_faulty_peers,
                 kura.clone(),
+                TcpNetwork::new("127.0.0.1:8080"),
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -155,7 +155,7 @@ impl Iroha {
                             for transaction in &transactions {
                                 let peer_id = sumeragi.leader().clone();
                                 send_futures.push(async move {
-                                    let _response = Network::send_request_to(
+                                    let _response = <TcpNetwork as Network>::send_request_to(
                                         peer_id.address.as_ref(),
                                         Request::new(
                                             uri::INSTRUCTIONS_URI.to_string(),

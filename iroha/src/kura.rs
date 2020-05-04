@@ -3,11 +3,19 @@ use async_std::{
     fs::{metadata, File},
     prelude::*,
 };
+use async_trait::async_trait;
 use std::{
     convert::TryFrom,
     fs,
     path::{Path, PathBuf},
 };
+
+#[async_trait]
+pub trait Storage {
+    /// Method stores a new valid block and propagate it to the World State View.
+    /// Returns hash of the block stored if succeed or error message if failed.
+    async fn store(&mut self, mut block: Block) -> Result<Hash, String>;
+}
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
@@ -37,9 +45,11 @@ impl Kura {
         self.blocks = blocks;
         Ok(())
     }
+}
 
-    /// Methods consumes new validated block and atomically stores and caches it.
-    pub async fn store(&mut self, mut block: Block) -> Result<Hash, String> {
+#[async_trait]
+impl Storage for Kura {
+    async fn store(&mut self, mut block: Block) -> Result<Hash, String> {
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;

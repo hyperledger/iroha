@@ -1,12 +1,12 @@
-use crate::{block::Block, crypto::Hash, kura::Kura, peer::PeerId, prelude::*, torii::uri};
+use crate::{block::Block, crypto::Hash, kura::Storage, peer::PeerId, prelude::*, torii::uri};
 use futures::lock::Mutex;
 use iroha_derive::*;
-use iroha_network::{Network, Request};
+use iroha_network::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::sync::Arc;
 
-pub struct Sumeragi {
+pub struct Sumeragi<N: Network, S: Storage> {
     public_key: PublicKey,
     private_key: PrivateKey,
     sorted_peers: Vec<PeerId>,
@@ -14,7 +14,8 @@ pub struct Sumeragi {
     peer_id: PeerId,
     /// Block in discussion this round
     pending_block: Option<Block>,
-    kura: Arc<Mutex<Kura>>,
+    storage: Arc<Mutex<S>>,
+    _network: N,
 }
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -35,16 +36,15 @@ pub enum Role {
     ProxyTail,
 }
 
-impl Sumeragi {
+impl<N: Network, S: Storage> Sumeragi<N, S> {
     pub fn new(
         public_key: PublicKey,
         private_key: PrivateKey,
         peers: &[PeerId],
         peer_id: PeerId,
-        //TODO: get previos block hash from kura
-        prev_block_hash: Option<Hash>,
         max_faults: usize,
-        kura: Arc<Mutex<Kura>>,
+        storage: Arc<Mutex<S>>,
+        network: N,
     ) -> Result<Self, String> {
         if !peers.contains(&peer_id) {
             return Err("Peers list should contain this peer.".to_string());
@@ -52,7 +52,8 @@ impl Sumeragi {
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
             let mut sorted_peers = peers.to_vec();
-            Self::sort_peers(&mut sorted_peers, prev_block_hash);
+            //TODO: get previous block hash from kura
+            Self::sort_peers(&mut sorted_peers, None);
             Ok(Self {
                 public_key,
                 private_key,
@@ -61,7 +62,8 @@ impl Sumeragi {
                 //TODO: generate peer's public key, save on shutdown and load on start
                 peer_id,
                 pending_block: None,
-                kura,
+                storage,
+                _network: network,
             })
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
@@ -153,7 +155,7 @@ impl Sumeragi {
         let minimum_quorum_of_peers = 2;
         if self.sorted_peers.len() < minimum_quorum_of_peers {
             //If there is only one peer running skip consensus part
-            let _hash = self.kura.lock().await.store(block).await?;
+            let _hash = self.storage.lock().await.store(block).await?;
         } else {
             self.pending_block = Some(block.clone());
             self.on_block_created(block).await?;
@@ -165,7 +167,7 @@ impl Sumeragi {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
         for peer in self.validating_peers() {
-            let _result = Network::send_request_to(
+            let _result = N::send_request_to(
                 &peer.address,
                 Request::new(
                     uri::BLOCKS_URI.to_string(),
@@ -174,7 +176,7 @@ impl Sumeragi {
             )
             .await;
         }
-        let _result = Network::send_request_to(
+        let _result = N::send_request_to(
             self.proxy_tail().address.as_ref(),
             Request::new(
                 uri::BLOCKS_URI.to_string(),
@@ -191,7 +193,7 @@ impl Sumeragi {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
                     let block = self.sign_block(block)?;
-                    let _result = Network::send_request_to(
+                    let _result = N::send_request_to(
                         self.proxy_tail().address.as_ref(),
                         Request::new(uri::BLOCKS_URI.to_string(), Message::Signed(block).into()),
                     )
@@ -221,9 +223,9 @@ impl Sumeragi {
                     if let Some(block) = self.pending_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = self.sign_block(block)?;
-                            let hash = self.kura.lock().await.store(block.clone()).await?;
+                            let hash = self.storage.lock().await.store(block.clone()).await?;
                             for peer in self.validating_peers() {
-                                let _result = Network::send_request_to(
+                                let _result = N::send_request_to(
                                     &peer.address,
                                     Request::new(
                                         uri::BLOCKS_URI.to_string(),
@@ -233,7 +235,7 @@ impl Sumeragi {
                                 .await;
                             }
                             for peer in self.peers_set_b() {
-                                let _result = Network::send_request_to(
+                                let _result = N::send_request_to(
                                     &peer.address,
                                     Request::new(
                                         uri::BLOCKS_URI.to_string(),
@@ -242,7 +244,7 @@ impl Sumeragi {
                                 )
                                 .await;
                             }
-                            let _result = Network::send_request_to(
+                            let _result = N::send_request_to(
                                 self.leader().address.as_ref(),
                                 Request::new(
                                     uri::BLOCKS_URI.to_string(),
@@ -257,7 +259,7 @@ impl Sumeragi {
             }
             Message::Committed(block) => {
                 //TODO: check if the block is the same as pending
-                let hash = self.kura.lock().await.store(block).await?;
+                let hash = self.storage.lock().await.store(block).await?;
                 self.next_round(hash);
             }
         }
@@ -279,7 +281,7 @@ impl Sumeragi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto;
+    use crate::{crypto, kura::Kura};
     use futures::channel::mpsc;
 
     #[test]
@@ -291,17 +293,17 @@ mod tests {
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
         let this_peer = PeerId {
-            address: "127.0.0.1".to_string(),
+            address: "127.0.0.1:8080".to_string(),
             public_key: [0u8; 32],
         };
-        let _sumeragi = Sumeragi::new(
+        let _sumeragi: Sumeragi<TcpNetwork, Kura> = Sumeragi::new(
             public_key,
             private_key,
             &[this_peer.clone()],
             this_peer,
-            None,
             3,
             kura,
+            TcpNetwork::new("127.0.0.1:8080"),
         )
         .unwrap();
     }
@@ -322,9 +324,9 @@ mod tests {
                 public_key: [3u8; 32],
             },
         ];
-        Sumeragi::sort_peers(&mut peers1, Some([1u8; 32]));
+        Sumeragi::<TcpNetwork, Kura>::sort_peers(&mut peers1, Some([1u8; 32]));
         let mut peers2 = peers1.clone();
-        Sumeragi::sort_peers(&mut peers2, Some([2u8; 32]));
+        Sumeragi::<TcpNetwork, Kura>::sort_peers(&mut peers2, Some([2u8; 32]));
         assert_ne!(peers1, peers2);
     }
 
@@ -344,9 +346,9 @@ mod tests {
                 public_key: [3u8; 32],
             },
         ];
-        Sumeragi::sort_peers(&mut peers1, Some([1u8; 32]));
+        Sumeragi::<TcpNetwork, Kura>::sort_peers(&mut peers1, Some([1u8; 32]));
         let mut peers2 = peers1.clone();
-        Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
+        Sumeragi::<TcpNetwork, Kura>::sort_peers(&mut peers2, Some([1u8; 32]));
         assert_eq!(peers1, peers2);
     }
 }
