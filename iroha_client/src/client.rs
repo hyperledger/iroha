@@ -23,11 +23,11 @@ impl Debug for Client {
 
 /// Representation of `Iroha` client.
 impl Client {
-    pub fn new(config: Configuration) -> Self {
+    pub fn new(config: &Configuration) -> Self {
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
         Client {
-            torii_url: config.torii_url,
+            torii_url: config.torii_url.clone(),
             public_key: public_key[..]
                 .try_into()
                 .expect("Public key should be [u8;32]"),
@@ -35,12 +35,40 @@ impl Client {
         }
     }
 
-    /// Contract API entry point. Submits contracts to `Iroha` peers.
+    /// Contract API entry point. Submits contract to `Iroha` peers.
     #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction = Transaction::new(
             vec![command],
+            Id::new("account", "domain"),
+            &self.public_key,
+            &self.private_key,
+        )?;
+        if let Response::InternalError = network
+            .send_request(Request::new(
+                uri::INSTRUCTIONS_URI.to_string(),
+                Vec::from(&transaction),
+            ))
+            .await
+            .map_err(|e| {
+                format!(
+                    "Error: {}, Failed to write a transaction request: {:?}",
+                    e, &transaction
+                )
+            })?
+        {
+            return Err("Server error.".to_string());
+        }
+        Ok(())
+    }
+
+    /// Contract API entry point. Submits contracts to `Iroha` peers.
+    #[log]
+    pub async fn submit_all(&mut self, commands: Vec<Contract>) -> Result<(), String> {
+        let network = Network::new(&self.torii_url);
+        let transaction = Transaction::new(
+            commands,
             Id::new("account", "domain"),
             &self.public_key,
             &self.private_key,
