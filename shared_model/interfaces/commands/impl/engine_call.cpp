@@ -1,11 +1,11 @@
-#include "interfaces/commands/add_smart_contract.hpp"
+#include "interfaces/commands/engine_call.hpp"
 
 namespace shared_model {
   namespace interface {
 
-    std::string AddSmartContract::toString() const {
+    std::string EngineCall::toString() const {
       return detail::PrettyStringBuilder()
-          .init("AddSmartContract")
+          .init("EngineCall")
           .append("caller", caller())
           .append("callee", callee())
           .append("code", code())
@@ -13,7 +13,7 @@ namespace shared_model {
           .finalize();
     }
 
-    bool AddSmartContract::operator==(const ModelType &rhs) const {
+    bool EngineCall::operator==(const ModelType &rhs) const {
       return caller() == rhs.caller()
           && callee() == rhs.callee()
           && code() == rhs.code()

@@ -17,7 +17,6 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
-#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
@@ -26,6 +25,7 @@
 #include "interfaces/commands/create_domain.hpp"
 #include "interfaces/commands/create_role.hpp"
 #include "interfaces/commands/detach_role.hpp"
+#include "interfaces/commands/engine_call.hpp"
 #include "interfaces/commands/grant_permission.hpp"
 #include "interfaces/commands/remove_peer.hpp"
 #include "interfaces/commands/remove_signatory.hpp"
@@ -1459,7 +1459,7 @@ namespace iroha {
     }
 
     CommandResult PostgresCommandExecutor::operator()(
-        const shared_model::interface::AddSmartContract &command,
+        const shared_model::interface::EngineCall &command,
         const shared_model::interface::types::AccountIdType &creator_account_id,
         bool do_validation) {
       return {};
