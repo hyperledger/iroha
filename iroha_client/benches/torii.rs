@@ -5,7 +5,7 @@ use iroha_client::client::{assets, Client};
 use std::thread;
 use tempfile::TempDir;
 
-const CONFIGURATION_PATH: &str = "config.json";
+const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
 fn query_requests(criterion: &mut Criterion) {
     let (tx, rx) = std::sync::mpsc::channel();
