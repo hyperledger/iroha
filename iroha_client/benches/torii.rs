@@ -33,7 +33,7 @@ fn query_requests(criterion: &mut Criterion) {
         amount: 100,
     };
     let mut iroha_client = Client::new(
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     executor::block_on(iroha_client.submit(create_role.into())).expect("Failed to create role.");
     executor::block_on(iroha_client.submit(create_domain.into()))
@@ -95,7 +95,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         amount: 100,
     };
     let mut iroha_client = Client::new(
-        Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     executor::block_on(iroha_client.submit(create_role.into())).expect("Failed to create role.");
     executor::block_on(iroha_client.submit(create_domain.into()))

@@ -24,6 +24,7 @@ use crate::{
     sumeragi::{Message, Role, Sumeragi},
     torii::{uri, Torii},
 };
+use async_std::task;
 use futures::{
     channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
     executor::{self, ThreadPool},
@@ -32,6 +33,7 @@ use futures::{
 };
 use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
+use std::time::Duration;
 use std::{path::Path, sync::Arc, time::Instant};
 
 pub type BlockSender = UnboundedSender<Block>;
@@ -152,23 +154,20 @@ impl Iroha {
                             //TODO: send pending transactions to all peers and as leader check what tx have already been committed
                             //Sends transactions to leader
                             for transaction in &transactions {
-                                let peer_id = sumeragi.leader().clone();
-                                send_futures.push(async move {
-                                    let _response = Network::send_request_to(
-                                        peer_id.address.as_ref(),
-                                        Request::new(
-                                            uri::INSTRUCTIONS_URI.to_string(),
-                                            transaction.as_requested().into(),
-                                        ),
-                                    )
-                                    .await;
-                                });
+                                send_futures.push(Network::send_request_to(
+                                    &sumeragi.leader().address,
+                                    Request::new(
+                                        uri::INSTRUCTIONS_URI.to_string(),
+                                        transaction.as_requested().into(),
+                                    ),
+                                ));
                             }
                             let _results = futures::future::join_all(send_futures).await;
                         }
                         *last_round_time.lock().await = Instant::now();
                     }
                 }
+                task::sleep(Duration::from_millis(200)).await;
             }
         });
         let blocks_receiver = Arc::clone(&self.blocks_receiver);

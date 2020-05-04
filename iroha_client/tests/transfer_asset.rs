@@ -52,39 +52,30 @@ mod tests {
             description: "description".to_string(),
             amount: transfer_amount,
         };
-        let mut iroha_client = Client::new(
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
-        );
+        let configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let mut iroha_client = Client::new(&configuration);
         iroha_client
-            .submit(create_domain.into())
+            .submit_all(vec![
+                create_domain.into(),
+                create_account1.into(),
+                create_account2.into(),
+                create_asset1.into(),
+                create_asset2.into(),
+            ])
             .await
             .expect("Failed to create domain.");
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        iroha_client
-            .submit(create_account1.into())
-            .await
-            .expect("Failed to create account1.");
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        iroha_client
-            .submit(create_account2.into())
-            .await
-            .expect("Failed to create accoun2.");
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        iroha_client
-            .submit(create_asset1.into())
-            .await
-            .expect("Failed to create asset.");
-        iroha_client
-            .submit(create_asset2.into())
-            .await
-            .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //When
         iroha_client
             .submit(transfer_asset.into())
             .await
             .expect("Failed to submit command.");
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //Then
         let request = client::assets::by_account_id(account2_id);
         let query_result = iroha_client

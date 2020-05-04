@@ -13,8 +13,6 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
-    //TODO: unignore where CI will be powerfull enough.
-    #[ignore]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account_x100() {
         // Given
@@ -39,7 +37,7 @@ mod tests {
         let create_asset = AddAssetQuantity {
             asset_id: asset_id.clone(),
             account_id: account1_id.clone(),
-            amount: 100,
+            amount: 500,
         };
         let transfer_asset = TransferAsset {
             source_account_id: account1_id.clone(),
@@ -48,38 +46,32 @@ mod tests {
             description: "description".to_string(),
             amount: 1,
         };
-        let mut iroha_client = Client::new(
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
-        );
+        let configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let mut iroha_client = Client::new(&configuration);
         iroha_client
-            .submit(create_domain.into())
+            .submit_all(vec![
+                create_domain.into(),
+                create_account1.into(),
+                create_account2.into(),
+                create_asset.into(),
+            ])
             .await
             .expect("Failed to create domain.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        iroha_client
-            .submit(create_account1.into())
-            .await
-            .expect("Failed to create account1.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        iroha_client
-            .submit(create_account2.into())
-            .await
-            .expect("Failed to create accoun2.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        iroha_client
-            .submit(create_asset.into())
-            .await
-            .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //When
-        for _ in 0..400 {
+        for _ in 0..100 {
             iroha_client
                 .submit(transfer_asset.clone().into())
                 .await
                 .expect("Failed to submit command.");
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        std::thread::sleep(std::time::Duration::from_millis(2000));
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //Then
         let request = client::assets::by_account_id(account2_id);
         iroha_client
