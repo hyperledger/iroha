@@ -8,6 +8,7 @@
 #include "backend/protobuf/commands/proto_add_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
+#include "backend/protobuf/commands/proto_add_smart_contract.hpp"
 #include "backend/protobuf/commands/proto_append_role.hpp"
 #include "backend/protobuf/commands/proto_compare_and_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_create_account.hpp"
@@ -32,6 +33,7 @@ namespace {
       ::boost::variant<shared_model::proto::AddAssetQuantity,
                        shared_model::proto::AddPeer,
                        shared_model::proto::AddSignatory,
+                       shared_model::proto::AddSmartContract,
                        shared_model::proto::AppendRole,
                        shared_model::proto::CreateAccount,
                        shared_model::proto::CreateAsset,

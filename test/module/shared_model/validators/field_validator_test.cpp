@@ -150,6 +150,27 @@ class FieldValidatorTest : public ValidatorsTest {
                                           &FieldValidatorTest::precision,
                                           precision_test_cases));
 
+    // TODO(Ivan Tyulyandin): add test cases for smart contract parameters
+    field_validators.insert(makeValidator("caller",
+                                          &FieldValidator::validateCaller,
+                                          &FieldValidatorTest::caller,
+                                          {}));
+
+    field_validators.insert(makeValidator("callee",
+                                          &FieldValidator::validateCallee,
+                                          &FieldValidatorTest::callee,
+                                          {}));
+
+    field_validators.insert(makeValidator("code",
+                                          &FieldValidator::validateCode,
+                                          &FieldValidatorTest::code,
+                                          {}));
+
+    field_validators.insert(makeValidator("input",
+                                          &FieldValidator::validateInput,
+                                          &FieldValidatorTest::input,
+                                          {}));
+
     // TODO: add validation to all fields
     for (const auto &field : {"value",
                               "signature",

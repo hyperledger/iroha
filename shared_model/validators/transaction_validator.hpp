@@ -13,6 +13,7 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
+#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
@@ -75,6 +76,16 @@ namespace shared_model {
             {},
             {validator_.validateAccountId(add_signatory.accountId()),
              validator_.validatePubkey(add_signatory.pubkey())});
+      }
+
+      std::optional<ValidationError> operator()(
+          const interface::EngineCall &engine_call) const {
+        return aggregateErrors(
+            "EngineCall",
+            {},
+            // TODO(IvanTyulyandin): these functions are mocks
+            {validator_.validateCallee(engine_call.callee()),
+             validator_.validateBytecode(engine_call.input())});
       }
 
       std::optional<ValidationError> operator()(

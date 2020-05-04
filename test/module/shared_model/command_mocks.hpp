@@ -12,6 +12,7 @@
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
+#include "interfaces/commands/add_smart_contract.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
@@ -55,6 +56,14 @@ namespace shared_model {
     struct MockAddSignatory : public shared_model::interface::AddSignatory {
       MOCK_CONST_METHOD0(pubkey, const std::string &());
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
+    };
+
+    struct MockAddSmartContract : public shared_model::interface::AddSmartContract {
+      MOCK_CONST_METHOD0(caller, const types::AccountIdType &());
+      MOCK_CONST_METHOD0(callee, const types::AccountIdType &());
+      MOCK_CONST_METHOD0(code, const types::SmartContractCodeType &());
+      MOCK_CONST_METHOD0(input, const types::SmartContractCodeType &());
+      MOCK_CONST_METHOD0(clone, MockAddSmartContract *());
     };
 
     struct MockAppendRole : public shared_model::interface::AppendRole {

@@ -72,6 +72,27 @@ namespace shared_model {
           });
     }
 
+    MockCommandFactory::FactoryResult<MockAddSmartContract>
+    MockCommandFactory::constructAddSmartContract(
+        const types::AccountIdType &caller,
+        const types::AccountIdType &callee,
+        const types::SmartContractCodeType &code,
+        const types::SmartContractCodeType &input) const {
+      return createFactoryResult<MockAddSmartContract>(
+          [&caller, &callee, &code, &input]
+          (FactoryResult<MockAddSmartContract> specific_cmd_mock) {
+            ON_CALL(*specific_cmd_mock, caller())
+                .WillByDefault(ReturnRefOfCopy(caller));
+            ON_CALL(*specific_cmd_mock, callee())
+                .WillByDefault(ReturnRefOfCopy(callee));
+            ON_CALL(*specific_cmd_mock, code())
+                .WillByDefault(ReturnRefOfCopy(code));
+            ON_CALL(*specific_cmd_mock, input())
+                .WillByDefault(ReturnRefOfCopy(input));
+            return specific_cmd_mock;
+          });
+    }
+
     MockCommandFactory::FactoryResult<MockAppendRole>
     MockCommandFactory::constructAppendRole(
         const types::AccountIdType &account_id,
