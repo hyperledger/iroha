@@ -73,8 +73,7 @@ impl Iroha {
             transactions_sender,
             message_sender,
         );
-        let (public_key, private_key) =
-            crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let (public_key, private_key) = config.key_pair();
         let kura = Arc::new(Mutex::new(Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
@@ -84,7 +83,7 @@ impl Iroha {
         //The id of this peer
         let iroha_peer_id = PeerId {
             address: config.torii_url.to_string(),
-            public_key: [0u8; 32],
+            public_key,
         };
         let peers = match config.trusted_peers {
             Some(peers) => peers,

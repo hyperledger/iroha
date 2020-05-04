@@ -8,10 +8,11 @@ mod tests {
     use std::thread;
     use tempfile::TempDir;
 
-    const CONFIGURATION_PATH: &str = "config.json";
+    const CONFIGURATION_PATH: &str = "tests/test_config.json";
     const N_PEERS: usize = 4;
     const MAX_FAULTS: usize = 1;
 
+    #[ignore]
     #[async_std::test]
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
@@ -48,17 +49,17 @@ mod tests {
             .submit(create_domain.into())
             .await
             .expect("Failed to create domain.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         iroha_client
             .submit(create_account.into())
             .await
             .expect("Failed to create account.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         iroha_client
             .submit(create_asset.into())
             .await
             .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         //When
         let add_amount = 200;
         let add_asset_quantity = AddAssetQuantity {
@@ -70,7 +71,7 @@ mod tests {
             .submit(add_asset_quantity.into())
             .await
             .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(2000));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         //Then
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
@@ -98,8 +99,11 @@ mod tests {
     fn create_and_start_iroha_peers(n_peers: usize) -> Vec<PeerId> {
         let peer_ids: Vec<PeerId> = (0..n_peers)
             .map(|i| PeerId {
-                address: format!("127.0.0.1:{}", 1337 + i),
-                public_key: [0u8; 32],
+                address: format!("127.0.0.1:{}", 1338 + i),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
             })
             .collect();
         for peer_id in peer_ids.clone() {
@@ -117,6 +121,7 @@ mod tests {
                 //Prevents temp_dir from clean up untill the end of the tests.
                 loop {}
             });
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
         peer_ids.clone()
     }

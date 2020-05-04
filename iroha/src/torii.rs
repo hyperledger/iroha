@@ -141,7 +141,7 @@ mod tests {
     use futures::channel::mpsc;
     use std::time::Duration;
 
-    const CONFIGURATION_PATH: &str = "config.json";
+    const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
     async fn create_and_start_torii() {

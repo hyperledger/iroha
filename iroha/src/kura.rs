@@ -3,6 +3,7 @@ use async_std::{
     fs::{metadata, File},
     prelude::*,
 };
+use iroha_derive::log;
 use std::{
     convert::TryFrom,
     fs,
@@ -11,6 +12,7 @@ use std::{
 
 /// High level data storage representation.
 /// Provides all necessary methods to read and write data, hides implementation details.
+#[derive(Debug)]
 pub struct Kura {
     _mode: String,
     blocks: Vec<Block>,
@@ -39,6 +41,7 @@ impl Kura {
     }
 
     /// Methods consumes new validated block and atomically stores and caches it.
+    #[log]
     pub async fn store(&mut self, mut block: Block) -> Result<Hash, String> {
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
@@ -65,6 +68,7 @@ impl Kura {
 }
 
 /// Representation of a consistent storage.
+#[derive(Debug)]
 struct BlockStore {
     path: PathBuf,
 }

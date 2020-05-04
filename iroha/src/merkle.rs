@@ -3,6 +3,7 @@ use crate::prelude::*;
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
 /// Our implementation uses binary hash tree.
+#[derive(Debug)]
 pub struct MerkleTree {
     root_node: Node,
 }

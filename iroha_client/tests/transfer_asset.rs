@@ -10,7 +10,7 @@ mod tests {
     use std::thread;
     use tempfile::TempDir;
 
-    const CONFIGURATION_PATH: &str = "config.json";
+    const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
     //TODO: use cucumber to write `gherkin` instead of code.
