@@ -190,15 +190,15 @@ impl Sumeragi {
     pub async fn on_block_created(&self, block: Block) -> Result<(), String> {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
+        let mut send_futures = Vec::new();
         for peer in self.validating_peers() {
-            let _result = Network::send_request_to(
+            send_futures.push(Network::send_request_to(
                 &peer.address,
                 Request::new(
                     uri::BLOCKS_URI.to_string(),
                     Message::Created(block.clone()).into(),
                 ),
-            )
-            .await;
+            ));
         }
         let _result = Network::send_request_to(
             self.proxy_tail().address.as_ref(),
@@ -249,34 +249,33 @@ impl Sumeragi {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = self.sign_block(block)?;
                             let hash = self.kura.lock().await.store(block.clone()).await?;
+                            let mut send_futures = Vec::new();
                             for peer in self.validating_peers() {
-                                let _result = Network::send_request_to(
+                                send_futures.push(Network::send_request_to(
                                     &peer.address,
                                     Request::new(
                                         uri::BLOCKS_URI.to_string(),
                                         Message::Committed(block.clone()).into(),
                                     ),
-                                )
-                                .await;
+                                ));
                             }
                             for peer in self.peers_set_b() {
-                                let _result = Network::send_request_to(
+                                send_futures.push(Network::send_request_to(
                                     &peer.address,
                                     Request::new(
                                         uri::BLOCKS_URI.to_string(),
                                         Message::Committed(block.clone()).into(),
                                     ),
-                                )
-                                .await;
+                                ));
                             }
-                            let _result = Network::send_request_to(
+                            send_futures.push(Network::send_request_to(
                                 self.leader().address.as_ref(),
                                 Request::new(
                                     uri::BLOCKS_URI.to_string(),
                                     Message::Committed(block.clone()).into(),
                                 ),
-                            )
-                            .await;
+                            ));
+                            let _results = futures::future::join_all(send_futures).await;
                             self.next_round(hash);
                         }
                     }

@@ -98,7 +98,7 @@ mod domain {
             domain_name: String::from(domain_name),
         };
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
         executor::block_on(iroha_client.submit(create_domain.into()))
             .expect("Failed to create domain.");
@@ -167,7 +167,7 @@ mod account {
             public_key: [63; 32],
         };
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
         executor::block_on(iroha_client.submit(create_account.into()))
             .expect("Failed to create account.");
@@ -287,7 +287,7 @@ mod asset {
             amount: amount.parse().expect("Asset amount should be a number."),
         };
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
         executor::block_on(iroha_client.submit(add_asset.into()))
             .expect("Failed to create account.");
@@ -295,7 +295,7 @@ mod asset {
 
     fn get_asset(_asset_id: &str, account_id: &str) {
         let mut iroha_client = Client::new(
-            Configuration::from_path("config.json").expect("Failed to load configuration."),
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
         let query_result = executor::block_on(
             iroha_client.request(&client::assets::by_account_id(Id::from(account_id))),

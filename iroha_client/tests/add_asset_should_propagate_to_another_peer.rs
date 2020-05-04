@@ -44,22 +44,18 @@ mod tests {
                 .address
                 .as_str(),
         );
-        let mut iroha_client = Client::new(configuration);
+        let mut iroha_client = Client::new(&configuration);
         iroha_client
-            .submit(create_domain.into())
+            .submit_all(vec![
+                create_domain.into(),
+                create_account.into(),
+                create_asset.into(),
+            ])
             .await
-            .expect("Failed to create domain.");
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        iroha_client
-            .submit(create_account.into())
-            .await
-            .expect("Failed to create account.");
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        iroha_client
-            .submit(create_asset.into())
-            .await
-            .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(500));
+            .expect("Failed to prepare state.");
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //When
         let add_amount = 200;
         let add_asset_quantity = AddAssetQuantity {
@@ -71,7 +67,9 @@ mod tests {
             .submit(add_asset_quantity.into())
             .await
             .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(std::time::Duration::from_millis(
+            &configuration.block_build_step_ms * 2,
+        ));
         //Then
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
@@ -82,7 +80,7 @@ mod tests {
                 .address
                 .as_str(),
         );
-        let mut iroha_client = Client::new(configuration);
+        let mut iroha_client = Client::new(&configuration);
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
