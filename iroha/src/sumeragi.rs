@@ -4,7 +4,10 @@ use iroha_derive::*;
 use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
-use std::sync::Arc;
+use std::{
+    fmt::{self, Debug, Formatter},
+    sync::Arc,
+};
 
 pub struct Sumeragi {
     public_key: PublicKey,
@@ -15,6 +18,18 @@ pub struct Sumeragi {
     /// Block in discussion this round
     pending_block: Option<Block>,
     kura: Arc<Mutex<Kura>>,
+}
+
+impl Debug for Sumeragi {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sumeragi")
+            .field("public_key", &self.public_key)
+            .field("sorted_peers", &self.sorted_peers)
+            .field("max_faults", &self.max_faults)
+            .field("peer_id", &self.peer_id)
+            .field("pending_block", &self.pending_block)
+            .finish()
+    }
 }
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -58,7 +73,6 @@ impl Sumeragi {
                 private_key,
                 sorted_peers,
                 max_faults,
-                //TODO: generate peer's public key, save on shutdown and load on start
                 peer_id,
                 pending_block: None,
                 kura,
@@ -72,30 +86,36 @@ impl Sumeragi {
         self.pending_block.is_some()
     }
 
+    #[log]
     pub fn next_round(&mut self, prev_block_hash: Hash) {
         Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
         self.pending_block = None;
     }
 
+    #[log]
     pub fn peers_set_a(&self) -> &[PeerId] {
         let n_a_peers = 2 * self.max_faults + 1;
         &self.sorted_peers[..n_a_peers]
     }
 
+    #[log]
     pub fn peers_set_b(&self) -> &[PeerId] {
         &self.sorted_peers[(2 * self.max_faults + 1)..]
     }
 
+    #[log]
     pub fn leader(&self) -> &PeerId {
         self.peers_set_a()
             .first()
             .expect("Failed to get first peer.")
     }
 
+    #[log]
     pub fn proxy_tail(&self) -> &PeerId {
         self.peers_set_a().last().expect("Failed to get last peer.")
     }
 
+    #[log]
     pub fn validating_peers(&self) -> &[PeerId] {
         let a_set = self.peers_set_a();
         if a_set.len() > 1 {
@@ -105,6 +125,7 @@ impl Sumeragi {
         }
     }
 
+    #[log]
     pub fn role(&self) -> Role {
         if *self.leader() == self.peer_id {
             Role::Leader
@@ -117,6 +138,7 @@ impl Sumeragi {
         }
     }
 
+    #[log]
     pub fn validate_access(&self, allowed_roles: &[Role]) -> Result<(), String> {
         if allowed_roles.contains(&self.role()) {
             Ok(())
@@ -128,6 +150,7 @@ impl Sumeragi {
         }
     }
 
+    #[log]
     pub fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
         peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
         if let Some(block_hash) = block_hash {
@@ -136,11 +159,13 @@ impl Sumeragi {
         }
     }
 
+    #[log]
     pub fn sign_block(&self, block: Block) -> Result<Block, String> {
         self.validate_access(&[Role::Leader, Role::ProxyTail, Role::ValidatingPeer])?;
         Ok(block.sign(&self.public_key, &self.private_key)?)
     }
 
+    #[log]
     pub async fn validate_and_store(
         &mut self,
         transactions: Vec<Transaction>,
@@ -161,6 +186,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     pub async fn on_block_created(&self, block: Block) -> Result<(), String> {
         self.validate_access(&[Role::Leader])?;
         let block = self.sign_block(block)?;
@@ -185,6 +211,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
         //TODO: check that the messages come from the right peers (check roles, keys)
         match message {
