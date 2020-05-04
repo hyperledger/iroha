@@ -26,10 +26,8 @@ message AddSignatory {
 }
 
 message EngineCall {
-    string caller = 1;
-    string callee = 2;
-    string code = 3;
-    string input = 4;
+    string callee = 1;
+    string input = 2;
 }
 
 message CreateAsset {

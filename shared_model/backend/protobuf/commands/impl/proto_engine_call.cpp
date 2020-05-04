@@ -17,16 +17,8 @@ namespace shared_model {
     EngineCall::EngineCall(EngineCall &&o) noexcept
         : EngineCall(std::move(o.proto_)) {}
 
-    const interface::types::AccountIdType &EngineCall::caller() const {
-      return engine_call_.caller();
-    }
-
     const interface::types::AccountIdType &EngineCall::callee() const {
       return engine_call_.callee();
-    }
-
-    const interface::types::SmartContractCodeType &EngineCall::code() const {
-      return engine_call_.code();
     }
 
     const interface::types::SmartContractCodeType &EngineCall::input() const {
