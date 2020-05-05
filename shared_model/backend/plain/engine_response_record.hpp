@@ -3,31 +3,39 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_SHARED_MODEL_PLAIN_ENGINE_RESPONSE_RECORD_HPP
-#define IROHA_SHARED_MODEL_PLAIN_ENGINE_RESPONSE_RECORD_HPP
+#ifndef IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP
+#define IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP
 
 #include "interfaces/query_responses/engine_response_record.hpp"
 
+#include "backend/plain/engine_log.hpp"
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace shared_model {
   namespace plain {
 
-    class EngineResponseRecord final : public interface::EngineResponseRecord {
+    class EngineReceipt final : public interface::EngineReceipt {
      public:
-      EngineResponseRecord(
-          interface::types::CommandIndexType cmd_index,
-          const interface::types::SmartContractCodeType &response);
+      EngineReceipt(
+          interface::types::AccountIdType const &caller,
+          interface::EngineReceipt::PayloadType payload_type,
+          interface::types::EvmAddressHexString const &payload
+          );
 
-      interface::types::CommandIndexType commandIndex() const override;
-
-      const interface::types::SmartContractCodeType &response() const override;
+      interface::types::AccountIdType getCaller() const override;
+      interface::EngineReceipt::PayloadType getPayloadType() const override;
+      interface::types::EvmAddressHexString const &getPayload() const override;
+      interface::EngineReceipt::EngineLogsCollectionType const &getEngineLogs() const override;
+      interface::EngineReceipt::EngineLogsCollectionType &getMutableLogs();
 
      private:
-      interface::types::CommandIndexType cmd_index_;
-      interface::types::SmartContractCodeType response_;
+      interface::types::AccountIdType const               caller_;
+      interface::EngineReceipt::PayloadType const         payload_type_;
+      interface::types::EvmAddressHexString const         payload_;
+      interface::EngineReceipt::EngineLogsCollectionType  engine_logs_;
     };
   }  // namespace plain
 }  // namespace shared_model
 
-#endif  // IROHA_SHARED_MODEL_PLAIN_ENGINE_RESPONSE_RECORD_HPP
+#endif  // IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP

@@ -144,9 +144,9 @@ namespace shared_model {
       MOCK_CONST_METHOD0(ordering, Ordering const &());
     };
 
-    struct MockGetEngineResponse : public SpecificMockQuery<GetEngineResponse> {
+    struct MockGetEngineReceipts : public SpecificMockQuery<GetEngineReceipts> {
       MOCK_CONST_METHOD0(txHash, const std::string &());
-      MOCK_CONST_METHOD0(clone, GetEngineResponse *());
+      MOCK_CONST_METHOD0(clone, GetEngineReceipts *());
     };
 
   }  // namespace interface

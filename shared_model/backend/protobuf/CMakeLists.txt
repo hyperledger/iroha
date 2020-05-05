@@ -81,6 +81,7 @@ if (IROHA_ROOT_PROJECT)
       transaction_responses/impl/proto_tx_response.cpp
       query_responses/impl/proto_engine_response_record.cpp
       query_responses/impl/proto_engine_response.cpp
+      query_responses/impl/proto_engine_log.cpp
       )
 endif ()
 

@@ -120,7 +120,7 @@ message QueryPayloadMeta {
   uint64 query_counter = 3;
 }
 
-message GetEngineResponse {
+message GetEngineReceipts {
   string tx_hash = 1;
 }
 
@@ -142,7 +142,7 @@ message Query {
       GetPendingTransactions get_pending_transactions = 13;
       GetBlock get_block = 14;
       GetPeers get_peers = 15;
-      GetEngineResponse get_engine_response = 16;
+      GetEngineReceipts get_engine_response = 16;
     }
   }
 

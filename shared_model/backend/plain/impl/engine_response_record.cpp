@@ -8,14 +8,32 @@
 using namespace shared_model::interface::types;
 using namespace shared_model::plain;
 
-EngineResponseRecord::EngineResponseRecord(
-    CommandIndexType cmd_index, const SmartContractCodeType &response)
-    : cmd_index_(cmd_index), response_(response) {}
+EngineReceipt::EngineReceipt(
+    shared_model::interface::types::AccountIdType const &caller,
+    shared_model::interface::EngineReceipt::PayloadType payload_type,
+    shared_model::interface::types::EvmAddressHexString const &payload
+    )
+    : caller_(caller)
+    , payload_type_(payload_type)
+    , payload_(payload)
+    { }
 
-CommandIndexType EngineResponseRecord::commandIndex() const {
-  return cmd_index_;
+shared_model::interface::types::AccountIdType  EngineReceipt::getCaller() const {
+    return caller_;
 }
 
-const SmartContractCodeType &EngineResponseRecord::response() const {
-  return response_;
+shared_model::interface::EngineReceipt::PayloadType  EngineReceipt::getPayloadType() const {
+    return payload_type_;
+}
+
+shared_model::interface::types::EvmAddressHexString const &EngineReceipt::getPayload() const {
+    return payload_;
+}
+
+shared_model::interface::EngineReceipt::EngineLogsCollectionType const &EngineReceipt::getEngineLogs() const {
+    return engine_logs_;
+}
+
+shared_model::interface::EngineReceipt::EngineLogsCollectionType &EngineReceipt::getMutableLogs() {
+    return engine_logs_;
 }

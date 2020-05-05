@@ -11,15 +11,15 @@
 namespace shared_model {
   namespace interface {
 
-    std::string EngineResponse::toString() const {
+    std::string EngineReceiptsResponse::toString() const {
       return detail::PrettyStringBuilder()
-          .init("EngineResponse")
-          .append(engineResponseRecords())
+          .init("EngineReceiptsResponse")
+          .append(engineReceipts())
           .finalize();
     }
 
-    bool EngineResponse::operator==(const ModelType &rhs) const {
-      return engineResponseRecords() == rhs.engineResponseRecords();
+    bool EngineReceiptsResponse::operator==(const ModelType &rhs) const {
+      return engineReceipts() == rhs.engineReceipts();
     }
 
   }  // namespace interface

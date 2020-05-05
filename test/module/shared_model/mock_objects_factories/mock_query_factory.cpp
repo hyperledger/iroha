@@ -172,10 +172,10 @@ MockQueryFactory::constructTxPaginationMeta(
       });
 }
 
-MockQueryFactory::FactoryResult<MockGetEngineResponse>
-MockQueryFactory::constructGetEngineResponse(const std::string &tx_hash) const {
-  return createFactoryResult<MockGetEngineResponse>(
-      [&tx_hash](MockGetEngineResponse &mock) {
+MockQueryFactory::FactoryResult<MockGetEngineReceipts>
+MockQueryFactory::constructGetEngineReceipts(const std::string &tx_hash) const {
+  return createFactoryResult<MockGetEngineReceipts>(
+      [&tx_hash](MockGetEngineReceipts &mock) {
         EXPECT_CALL(mock, txHash()).WillRepeatedly(ReturnRefOfCopy(tx_hash));
       });
 }

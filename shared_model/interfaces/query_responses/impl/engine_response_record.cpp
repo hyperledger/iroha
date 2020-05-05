@@ -5,16 +5,27 @@
 
 #include "interfaces/query_responses/engine_response_record.hpp"
 
+#include "cryptography/hash.hpp"
+
 using namespace shared_model::interface;
 
-bool EngineResponseRecord::operator==(const ModelType &rhs) const {
-  return commandIndex() == rhs.commandIndex() and response() == rhs.response();
+bool EngineReceipt::operator==(ModelType const &rhs) const {
+    if (&rhs == static_cast<ModelType const*>(this)) {
+        return true;
+    }
+
+    return getCaller() == rhs.getCaller() &&
+            getPayloadType() == rhs.getPayloadType() &&
+            getPayload() == rhs.getPayload() &&
+            getEngineLogs() == rhs.getEngineLogs();
 }
 
-std::string EngineResponseRecord::toString() const {
+std::string EngineReceipt::toString() const {
   return detail::PrettyStringBuilder()
-      .init("EngineResponseRecord")
-      .appendNamed("command_index", commandIndex())
-      .appendNamed("reponse", response())
+      .init("EngineReceipt")
+      .appendNamed("from", getCaller())
+      .appendNamed("payload_type", EngineReceipt::payloadTypeToStr(getPayloadType()))
+      .appendNamed("payload", getPayload())
+      .appendNamed("engine_logs", getEngineLogs())
       .finalize();
 }

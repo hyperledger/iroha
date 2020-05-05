@@ -116,8 +116,8 @@ message PeersResponse {
   repeated Peer peers = 1;
 }
 
-message EngineResponse {
-  repeated EngineResponseRecord engine_response_records = 1;
+message EngineReceiptsResponse {
+  repeated EngineReceipt engine_receipts = 1;
 }
 
 message QueryResponse {
@@ -135,7 +135,7 @@ message QueryResponse {
     PendingTransactionsPageResponse pending_transactions_page_response = 13;
     BlockResponse block_response = 12;
     PeersResponse peers_response = 14;
-    EngineResponse engine_response = 15;
+    EngineReceiptsResponse engine_response = 15;
   }
   string query_hash = 10;
 }

@@ -12,22 +12,22 @@
 
 namespace shared_model {
   namespace proto {
-    class GetEngineResponse final
-        : public TrivialProto<interface::GetEngineResponse,
+    class GetEngineReceipts final
+        : public TrivialProto<interface::GetEngineReceipts,
                               iroha::protocol::Query> {
      public:
       template <typename QueryType>
-      explicit GetEngineResponse(QueryType &&query);
+      explicit GetEngineReceipts(QueryType &&query);
 
-      GetEngineResponse(const GetEngineResponse &o);
+      GetEngineReceipts(const GetEngineReceipts &o);
 
-      GetEngineResponse(GetEngineResponse &&o) noexcept;
+      GetEngineReceipts(GetEngineReceipts &&o) noexcept;
 
       const std::string &txHash() const override;
 
      private:
       // ------------------------------| fields |-------------------------------
-      const iroha::protocol::GetEngineResponse &get_engine_response_;
+      const iroha::protocol::GetEngineReceipts &get_engine_response_;
     };
 
   }  // namespace proto

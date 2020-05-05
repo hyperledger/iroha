@@ -11,24 +11,24 @@ namespace shared_model {
   namespace proto {
 
     template <typename QueryType>
-    GetEngineResponse::GetEngineResponse(QueryType &&query)
+    GetEngineReceipts::GetEngineReceipts(QueryType &&query)
         : TrivialProto(std::forward<QueryType>(query)),
           get_engine_response_{proto_->payload().get_engine_response()} {}
 
-    template GetEngineResponse::GetEngineResponse(
-        GetEngineResponse::TransportType &);
-    template GetEngineResponse::GetEngineResponse(
-        const GetEngineResponse::TransportType &);
-    template GetEngineResponse::GetEngineResponse(
-        GetEngineResponse::TransportType &&);
+    template GetEngineReceipts::GetEngineReceipts(
+        GetEngineReceipts::TransportType &);
+    template GetEngineReceipts::GetEngineReceipts(
+        const GetEngineReceipts::TransportType &);
+    template GetEngineReceipts::GetEngineReceipts(
+        GetEngineReceipts::TransportType &&);
 
-    GetEngineResponse::GetEngineResponse(const GetEngineResponse &o)
-        : GetEngineResponse(o.proto_) {}
+    GetEngineReceipts::GetEngineReceipts(const GetEngineReceipts &o)
+        : GetEngineReceipts(o.proto_) {}
 
-    GetEngineResponse::GetEngineResponse(GetEngineResponse &&o) noexcept
-        : GetEngineResponse(std::move(o.proto_)) {}
+    GetEngineReceipts::GetEngineReceipts(GetEngineReceipts &&o) noexcept
+        : GetEngineReceipts(std::move(o.proto_)) {}
 
-    const std::string &GetEngineResponse::txHash() const {
+    const std::string &GetEngineReceipts::txHash() const {
       return get_engine_response_.tx_hash();
     }
 

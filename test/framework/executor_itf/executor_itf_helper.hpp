@@ -71,7 +71,7 @@ namespace iroha {
               shared_model::interface::PendingTransactionsPageResponse>,
           boost::mpl::pair<shared_model::interface::GetBlock,
                            shared_model::interface::BlockResponse>,
-          boost::mpl::pair<shared_model::interface::GetEngineResponse,
+          boost::mpl::pair<shared_model::interface::GetEngineReceipts,
                            shared_model::interface::EngineResponse>>
           SpecificQueryResponses;
 

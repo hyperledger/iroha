@@ -38,7 +38,7 @@ namespace {
                      shared_model::proto::GetPendingTransactions,
                      shared_model::proto::GetBlock,
                      shared_model::proto::GetPeers,
-                     shared_model::proto::GetEngineResponse>;
+                     shared_model::proto::GetEngineReceipts>;
 }  // namespace
 
 #ifdef IROHA_BIND_TYPE
