@@ -15,7 +15,7 @@ mod tests {
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         // Given
         thread::spawn(|| create_and_start_iroha());
-        thread::sleep(std::time::Duration::from_millis(200));
+        thread::sleep(std::time::Duration::from_millis(300));
         let create_domain = CreateDomain {
             domain_name: "domain".to_string(),
         };
@@ -43,7 +43,7 @@ mod tests {
             .await
             .expect("Failed to prepare state.");
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.block_build_step_ms * 3,
         ));
         //When
         let add_amount = 200;
@@ -57,7 +57,7 @@ mod tests {
             .await
             .expect("Failed to create asset.");
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.block_build_step_ms * 3,
         ));
         //Then
         let request = client::assets::by_account_id(account_id);

@@ -56,6 +56,7 @@ pub struct Iroha {
     message_receiver: Arc<Mutex<MessageReceiver>>,
     world_state_view: Arc<Mutex<WorldStateView>>,
     pool: ThreadPool,
+    network: Arc<Mutex<Network>>,
 }
 
 impl Iroha {
@@ -68,12 +69,14 @@ impl Iroha {
             &Vec::new(),
         ))));
         let pool = ThreadPool::new().expect("Failed to create new Thread Pool.");
+        let network = Arc::new(Mutex::new(Network::new("127.0.0.1:8080")));
         let torii = Torii::new(
             &config.torii_url,
             pool.clone(),
             Arc::clone(&world_state_view),
             transactions_sender,
             message_sender,
+            network.clone(),
         );
         let (public_key, private_key) = config.key_pair();
         let kura = Arc::new(Mutex::new(Kura::new(
@@ -91,23 +94,21 @@ impl Iroha {
             Some(peers) => peers,
             None => vec![iroha_peer_id.clone()],
         };
-        let sumeragi = Arc::new(Mutex::new(
-            Sumeragi::new(
-                public_key,
-                private_key,
-                &peers,
-                iroha_peer_id,
-                None,
-                config.max_faulty_peers,
-                kura.clone(),
-            )
-            .expect("Failed to initialize Sumeragi."),
-        ));
+        let mut sumeragi = Sumeragi::new(
+            private_key,
+            &peers,
+            iroha_peer_id,
+            config.max_faulty_peers,
+            kura.clone(),
+            world_state_view.clone(),
+            network.clone(),
+        );
+        sumeragi.init().expect("Failed to initialize Sumeragi.");
         let queue = Arc::new(Mutex::new(Queue::default()));
         Iroha {
             queue,
             torii: Arc::new(Mutex::new(torii)),
-            sumeragi,
+            sumeragi: Arc::new(Mutex::new(sumeragi)),
             kura,
             world_state_view,
             transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
@@ -115,6 +116,7 @@ impl Iroha {
             message_receiver: Arc::new(Mutex::new(message_receiver)),
             last_round_time: Arc::new(Mutex::new(Instant::now())),
             pool,
+            network,
         }
     }
 
@@ -137,9 +139,10 @@ impl Iroha {
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
-        let world_state_view = Arc::clone(&self.world_state_view);
+        let network = Arc::clone(&self.network);
         //TODO: decide what should be the minimum time to accumulate tx before creating a block
         self.pool.spawn_ok(async move {
+            //TODO: move this loop inside Sumeragi
             loop {
                 //Don't pop transactions if there is already a block in discussion
                 if !sumeragi.lock().await.has_pending_block() {
@@ -148,15 +151,16 @@ impl Iroha {
                         let mut sumeragi = sumeragi.lock().await;
                         if let Role::Leader = sumeragi.role() {
                             sumeragi
-                                .validate_and_store(transactions, world_state_view.clone())
+                                .validate_and_store(transactions)
                                 .await
                                 .expect("Failed to accept transactions into blockchain.");
                         } else {
+                            let network = network.lock().await;
                             let mut send_futures = Vec::new();
                             //TODO: send pending transactions to all peers and as leader check what tx have already been committed
                             //Sends transactions to leader
                             for transaction in &transactions {
-                                send_futures.push(Network::send_request_to(
+                                send_futures.push(network.send_request_to(
                                     &sumeragi.leader().address,
                                     Request::new(
                                         uri::INSTRUCTIONS_URI.to_string(),

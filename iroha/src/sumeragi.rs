@@ -18,6 +18,8 @@ pub struct Sumeragi {
     /// Block in discussion this round
     pending_block: Option<Block>,
     kura: Arc<Mutex<Kura>>,
+    wsv: Arc<Mutex<WorldStateView>>,
+    network: Arc<Mutex<Network>>,
 }
 
 impl Debug for Sumeragi {
@@ -52,34 +54,43 @@ pub enum Role {
 
 impl Sumeragi {
     pub fn new(
-        public_key: PublicKey,
         private_key: PrivateKey,
         peers: &[PeerId],
         peer_id: PeerId,
-        //TODO: get previos block hash from kura
-        prev_block_hash: Option<Hash>,
         max_faults: usize,
         kura: Arc<Mutex<Kura>>,
-    ) -> Result<Self, String> {
-        if !peers.contains(&peer_id) {
+        wsv: Arc<Mutex<WorldStateView>>,
+        network: Arc<Mutex<Network>>,
+    ) -> Self {
+        Self {
+            public_key: peer_id.public_key,
+            private_key,
+            sorted_peers: peers.to_vec(),
+            max_faults,
+            peer_id,
+            pending_block: None,
+            kura,
+            wsv,
+            network,
+        }
+    }
+
+    pub fn init(&mut self) -> Result<(), String> {
+        if !self.sorted_peers.contains(&self.peer_id) {
             return Err("Peers list should contain this peer.".to_string());
         }
-        let min_peers = 3 * max_faults + 1;
-        if peers.len() >= min_peers {
-            let mut sorted_peers = peers.to_vec();
-            Self::sort_peers(&mut sorted_peers, prev_block_hash);
-            Ok(Self {
-                public_key,
-                private_key,
-                sorted_peers,
-                max_faults,
-                peer_id,
-                pending_block: None,
-                kura,
-            })
+        let min_peers = 3 * self.max_faults + 1;
+        if self.sorted_peers.len() >= min_peers {
+            //TODO: get previous block hash from kura
+            Self::sort_peers(&mut self.sorted_peers, None);
+            Ok(())
         } else {
-            Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
+            Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * self.max_faults + 1, self.sorted_peers.len()))
         }
+    }
+
+    pub fn peer_id(&self) -> &PeerId {
+        &self.peer_id
     }
 
     pub fn has_pending_block(&self) -> bool {
@@ -169,16 +180,12 @@ impl Sumeragi {
     pub async fn validate_and_store(
         &mut self,
         transactions: Vec<Transaction>,
-        wsv: Arc<Mutex<WorldStateView>>,
     ) -> Result<(), String> {
-        let transactions = self.sign_transactions(transactions).await?;
-        let block = Block::builder(transactions)
-            .validate_tx(&*wsv.lock().await)
-            .build();
+        let block = self.build_block(transactions).await?;
         let minimum_quorum_of_peers = 2;
         if self.sorted_peers.len() < minimum_quorum_of_peers {
             //If there is only one peer running skip consensus part
-            let _hash = self.kura.lock().await.store(block).await?;
+            let _hash = self.store(block).await?;
         } else {
             self.pending_block = Some(block.clone());
             self.on_block_created(block).await?;
@@ -192,22 +199,10 @@ impl Sumeragi {
         let block = self.sign_block(block)?;
         let mut send_futures = Vec::new();
         for peer in self.validating_peers() {
-            send_futures.push(Network::send_request_to(
-                &peer.address,
-                Request::new(
-                    uri::BLOCKS_URI.to_string(),
-                    Message::Created(block.clone()).into(),
-                ),
-            ));
+            send_futures.push(self.send_message_to(Message::Created(block.clone()), peer));
         }
-        let _result = Network::send_request_to(
-            self.proxy_tail().address.as_ref(),
-            Request::new(
-                uri::BLOCKS_URI.to_string(),
-                Message::Created(block.clone()).into(),
-            ),
-        )
-        .await;
+        send_futures.push(self.send_message_to(Message::Created(block.clone()), self.proxy_tail()));
+        let _results = futures::future::join_all(send_futures).await;
         Ok(())
     }
 
@@ -218,11 +213,9 @@ impl Sumeragi {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
                     let block = self.sign_block(block)?;
-                    let _result = Network::send_request_to(
-                        self.proxy_tail().address.as_ref(),
-                        Request::new(uri::BLOCKS_URI.to_string(), Message::Signed(block).into()),
-                    )
-                    .await;
+                    let _result = self
+                        .send_message_to(Message::Signed(block), self.proxy_tail())
+                        .await;
                     //TODO: send to set b so they can observe
                 }
                 Role::ProxyTail => {
@@ -248,33 +241,24 @@ impl Sumeragi {
                     if let Some(block) = self.pending_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = self.sign_block(block)?;
-                            let hash = self.kura.lock().await.store(block.clone()).await?;
+                            let hash = self.store(block.clone()).await?;
                             let mut send_futures = Vec::new();
                             for peer in self.validating_peers() {
-                                send_futures.push(Network::send_request_to(
-                                    &peer.address,
-                                    Request::new(
-                                        uri::BLOCKS_URI.to_string(),
-                                        Message::Committed(block.clone()).into(),
-                                    ),
-                                ));
+                                send_futures.push(
+                                    self.send_message_to(Message::Committed(block.clone()), peer),
+                                );
                             }
                             for peer in self.peers_set_b() {
-                                send_futures.push(Network::send_request_to(
-                                    &peer.address,
-                                    Request::new(
-                                        uri::BLOCKS_URI.to_string(),
-                                        Message::Committed(block.clone()).into(),
-                                    ),
-                                ));
+                                send_futures.push(
+                                    self.send_message_to(Message::Committed(block.clone()), peer),
+                                );
                             }
-                            send_futures.push(Network::send_request_to(
-                                self.leader().address.as_ref(),
-                                Request::new(
-                                    uri::BLOCKS_URI.to_string(),
-                                    Message::Committed(block.clone()).into(),
+                            send_futures.push(
+                                self.send_message_to(
+                                    Message::Committed(block.clone()),
+                                    self.leader(),
                                 ),
-                            ));
+                            );
                             let _results = futures::future::join_all(send_futures).await;
                             self.next_round(hash);
                         }
@@ -283,7 +267,7 @@ impl Sumeragi {
             }
             Message::Committed(block) => {
                 //TODO: check if the block is the same as pending
-                let hash = self.kura.lock().await.store(block).await?;
+                let hash = self.store(block).await?;
                 self.next_round(hash);
             }
         }
@@ -299,6 +283,30 @@ impl Sumeragi {
             .map(|tx| tx.sign(Vec::new()))
             .filter_map(Result::ok)
             .collect())
+    }
+
+    async fn build_block(&self, transactions: Vec<Transaction>) -> Result<Block, String> {
+        let transactions = self.sign_transactions(transactions).await?;
+        Ok(Block::builder(transactions)
+            .validate_tx(&*self.wsv.lock().await)
+            .build())
+    }
+
+    async fn store(&self, block: Block) -> Result<Hash, String> {
+        self.kura.lock().await.store(block).await
+    }
+
+    async fn send_message_to(&self, message: Message, peer: &PeerId) -> Result<(), String> {
+        let _response = self
+            .network
+            .lock()
+            .await
+            .send_request_to(
+                &peer.address,
+                Request::new(uri::BLOCKS_URI.to_string(), message.into()),
+            )
+            .await?;
+        Ok(())
     }
 }
 
@@ -316,20 +324,26 @@ mod tests {
         let kura = Arc::new(Mutex::new(Kura::new("strict".to_string(), dir.path(), tx)));
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
+        let listen_address = "127.0.0.1".to_string();
         let this_peer = PeerId {
-            address: "127.0.0.1".to_string(),
-            public_key: [0u8; 32],
-        };
-        let _sumeragi = Sumeragi::new(
+            address: listen_address.clone(),
             public_key,
+        };
+        let wsv = Arc::new(Mutex::new(WorldStateView::new(Peer::new(
+            listen_address,
+            &[],
+        ))));
+        let network = Arc::new(Mutex::new(Network::new("127.0.0.1:8080")));
+        let mut sumeragi = Sumeragi::new(
             private_key,
             &[this_peer.clone()],
             this_peer,
-            None,
             3,
             kura,
-        )
-        .unwrap();
+            wsv,
+            network,
+        );
+        sumeragi.init().unwrap();
     }
 
     #[test]
