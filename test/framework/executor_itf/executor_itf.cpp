@@ -91,7 +91,7 @@ iroha::integration_framework::ExecutorItf::SpecificQueryResult<
     shared_model::interface::EngineResponse>
 ExecutorItf::getLastEngineResultResponse() {
   assert(last_executed_cmd_meta_);
-  auto query = getMockQueryFactory()->constructGetEngineResponse(
+  auto query = getMockQueryFactory()->constructGetEngineReceipts(
       last_executed_cmd_meta_->tx_hash);
   return executeQuery(
       *query, last_executed_cmd_meta_->creator_account_id, boost::none);

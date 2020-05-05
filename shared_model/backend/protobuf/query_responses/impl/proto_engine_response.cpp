@@ -8,15 +8,15 @@
 namespace shared_model {
   namespace proto {
 
-    EngineResponse::EngineResponse(
+    EngineReceiptsResponse::EngineReceiptsResponse(
         iroha::protocol::QueryResponse &query_response)
         : engine_response_{query_response.engine_response()},
           engine_response_records_{
-              engine_response_.engine_response_records().begin(),
-              engine_response_.engine_response_records().end()} {}
+              engine_response_.engine_receipts().begin(),
+              engine_response_.engine_receipts().end()} {}
 
-    interface::types::EngineResponseRecordCollectionType
-    EngineResponse::engineResponseRecords() const {
+    interface::types::EngineReceiptCollectionType
+    EngineReceiptsResponse::engineReceipts() const {
       return engine_response_records_;
     }
 

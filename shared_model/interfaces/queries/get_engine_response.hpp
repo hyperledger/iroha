@@ -14,7 +14,7 @@ namespace shared_model {
     /**
      * Get EVM return value after execution of EngineCall command
      */
-    class GetEngineResponse : public ModelPrimitive<GetEngineResponse> {
+    class GetEngineReceipts : public ModelPrimitive<GetEngineReceipts> {
      public:
       /**
        * @return hash of transaction that is going to be queried

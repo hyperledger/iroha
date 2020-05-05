@@ -238,8 +238,8 @@ namespace shared_model {
        * within a transaction
        * @return response message for a transaction
        */
-      virtual std::unique_ptr<QueryResponse> createEngineResponse(
-          const std::vector<std::unique_ptr<EngineResponseRecord>>
+      virtual std::unique_ptr<QueryResponse> createEngineReceiptsResponse(
+          const std::vector<std::unique_ptr<EngineReceipt>>
               &engine_response_records,
           const crypto::Hash &query_hash) const = 0;
 

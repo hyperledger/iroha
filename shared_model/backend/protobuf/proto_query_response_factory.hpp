@@ -92,8 +92,8 @@ namespace shared_model {
           interface::types::PeerList peers,
           const crypto::Hash &query_hash) const override;
 
-      std::unique_ptr<interface::QueryResponse> createEngineResponse(
-          const std::vector<std::unique_ptr<interface::EngineResponseRecord>>
+      std::unique_ptr<interface::QueryResponse> createEngineReceiptsResponse(
+          const std::vector<std::unique_ptr<interface::EngineReceipt>>
               &engine_response_records,
           const crypto::Hash &query_hash) const override;
 

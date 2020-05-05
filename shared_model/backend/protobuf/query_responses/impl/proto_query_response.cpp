@@ -37,7 +37,7 @@ namespace {
                      shared_model::proto::PendingTransactionsPageResponse,
                      shared_model::proto::GetBlockResponse,
                      shared_model::proto::PeersResponse,
-                     shared_model::proto::EngineResponse>;
+                     shared_model::proto::EngineReceiptsResponse>;
 }  // namespace
 
 #ifdef IROHA_BIND_TYPE

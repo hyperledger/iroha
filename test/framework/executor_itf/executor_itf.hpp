@@ -214,7 +214,7 @@ namespace iroha {
       }
 
       /**
-       * Execute GetEngineResponse with the metadata referring to the last
+       * Execute GetEngineReceipts with the metadata referring to the last
        * command executed with executeCommand method.
        * @return Result of query execution.
        */

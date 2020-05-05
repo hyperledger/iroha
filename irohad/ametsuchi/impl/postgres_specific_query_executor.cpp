@@ -13,6 +13,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
+#include <tuple>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -22,6 +23,7 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -1451,10 +1453,10 @@ namespace iroha {
     }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
-        const shared_model::interface::GetEngineResponse &q,
+        const shared_model::interface::GetEngineReceipts &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      auto cmd = R"(
+      auto cmd = fmt::format(R"(
             WITH has_perms AS (SELECT 1),
             engine_responses AS (
             SELECT cmd_index, engine_response
@@ -1462,11 +1464,25 @@ namespace iroha {
             WHERE creator_id=:creator_account_id and tx_hash=:tx_hash)
             SELECT * FROM engine_responses
             RIGHT OUTER JOIN has_perms ON TRUE;
-            )";
+            )"/*,
+             hasQueryPermission(creator_id,
+                    q.accountId(),
+                    Role::kGetMyEngineReceipts,
+                    Role::kGetAllEngineReceipts,
+                    Role::kGetDomainEngineReceipts)*/);
 
       using QueryTuple =
-          QueryType<shared_model::interface::types::CommandIndexType,
-                    shared_model::interface::types::SmartContractCodeType>;
+          QueryType<
+              shared_model::interface::types::CommandIndexType,
+              shared_model::interface::types::AccountIdType,
+              uint32_t,
+              shared_model::interface::types::EvmAddressHexString,
+              uint32_t,
+              shared_model::interface::types::EvmAddressHexString,
+              shared_model::interface::types::EvmDataHexString,
+              shared_model::interface::types::EvmTopicsHexString
+            >;
+
       using PermissionTuple = boost::tuple<int>;
 
       return executeQuery<QueryTuple, PermissionTuple>(
@@ -1478,24 +1494,79 @@ namespace iroha {
           query_hash,
           [&](auto range, auto &) {
             auto range_without_nulls = resultWithoutNulls(std::move(range));
-            std::vector<
-                std::unique_ptr<shared_model::interface::EngineResponseRecord>>
-                records;
+
+            using RecordsCollection = std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>>;
+            using RecordPtr = std::unique_ptr<shared_model::plain::EngineReceipt>;
+            using EngineLogPtr = std::unique_ptr<shared_model::plain::EngineLog>;
+
+            RecordsCollection records;
+            RecordPtr record;
+            EngineLogPtr log;
+            uint32_t l_ix;
+            uint32_t cmd_ix;
+
+            auto store_record = [](RecordsCollection &records, RecordPtr &&rec, EngineLogPtr &&el) {
+              assert(!!rec);
+              assert(!!el);
+              rec->getMutableLogs().emplace_back(std::move(el));
+              records.emplace_back(std::move(rec));
+            };
+
             for (const auto &row : range_without_nulls) {
               iroha::ametsuchi::apply(
-                  row, [&records](auto &cmd_index, auto &engine_response) {
-                    records.push_back(
-                        std::make_unique<
-                            shared_model::plain::EngineResponseRecord>(
-                            cmd_index, engine_response));
+                  row, [&q, &cmd_ix, &store_record, &record, &log, &records, &l_ix](
+                                  auto &cmd_index,
+                                  auto &account_id_type,
+                                  auto &payload_type,
+                                  auto &payload,
+                                  auto &logs_ix,
+                                  auto &log_address,
+                                  auto &log_data,
+                                  auto &log_topic
+                                  ) {
+
+                    {
+                      if (!record) {
+                        record = std::make_unique<shared_model::plain::EngineReceipt>(
+                                    account_id_type,
+                                    shared_model::interface::EngineReceipt::PayloadType(payload_type),
+                                    payload
+                                 );
+                        cmd_ix = cmd_index;
+                      } else if (cmd_index != cmd_ix) {
+                        store_record(records, std::move(record), std::move(log));
+                        record = std::make_unique<shared_model::plain::EngineReceipt>(
+                                    account_id_type,
+                                    shared_model::interface::EngineReceipt::PayloadType(payload_type),
+                                    payload
+                                 );
+                        cmd_ix = cmd_index;
+                      }
+                    }
+
+                    if (!log) {
+                      log = std::make_unique<shared_model::plain::EngineLog>(log_address, log_data);
+                      l_ix = logs_ix;
+                    }
+                    if (logs_ix != l_ix) {
+                      record->getMutableLogs().emplace_back(std::move(log));
+                      log = std::make_unique<shared_model::plain::EngineLog>(log_address, log_data);
+                      l_ix = logs_ix;
+                    }
+                    log->addTopic(log_topic);
                   });
             }
-            return query_response_factory_->createEngineResponse(records,
-                                                                 query_hash);
+            if (!!record) {
+              store_record(records, std::move(record), std::move(log));
+            }
+
+            return query_response_factory_->createEngineReceiptsResponse(records, query_hash);
           },
           // Permission missing error is not going to happen in case of that
           // query for now
-          notEnoughPermissionsResponse(perm_converter_, Role::kGetBlocks));
+          notEnoughPermissionsResponse(perm_converter_, Role::kGetMyEngineReceipts,
+                    Role::kGetAllEngineReceipts,
+                    Role::kGetDomainEngineReceipts));
     }
 
     template <typename ReturnValueType>

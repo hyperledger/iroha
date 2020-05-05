@@ -10,14 +10,14 @@
 namespace shared_model {
   namespace interface {
 
-    std::string GetEngineResponse::toString() const {
+    std::string GetEngineReceipts::toString() const {
       return detail::PrettyStringBuilder()
-          .init("GetEngineResponse")
+          .init("GetEngineReceipts")
           .appendNamed("tx_hash", txHash())
           .finalize();
     }
 
-    bool GetEngineResponse::operator==(const ModelType &rhs) const {
+    bool GetEngineReceipts::operator==(const ModelType &rhs) const {
       return txHash() == rhs.txHash();
     }
 

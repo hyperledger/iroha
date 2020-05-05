@@ -74,7 +74,7 @@ namespace shared_model {
           types::TransactionsNumberType page_size,
           std::optional<types::HashType> first_tx_hash) const;
 
-      FactoryResult<MockGetEngineResponse> constructGetEngineResponse(
+      FactoryResult<MockGetEngineReceipts> constructGetEngineReceipts(
           const std::string &tx_hash) const;
 
      private:

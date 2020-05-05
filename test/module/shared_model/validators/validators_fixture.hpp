@@ -149,7 +149,7 @@ class ValidatorsTest : public ::testing::Test {
                ->CopyFrom(account_detail_pagination_meta);
          }},
         {"iroha.protocol.GetBlock.height", setUInt64(height)},
-        {"iroha.protocol.GetEngineResponse.tx_hash", setString(hash)}};
+        {"iroha.protocol.GetEngineReceipts.tx_hash", setString(hash)}};
   }
 
   /**

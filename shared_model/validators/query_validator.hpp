@@ -187,7 +187,7 @@ namespace shared_model {
       }
 
       std::optional<ValidationError> operator()(
-          const interface::GetEngineResponse &qry) const {
+          const interface::GetEngineReceipts &qry) const {
         return validator_.validateHash(
             crypto::Hash::fromHexString(qry.txHash()));
       }

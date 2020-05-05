@@ -14,17 +14,17 @@
 
 namespace shared_model {
   namespace proto {
-    class EngineResponse final : public interface::EngineResponse {
+    class EngineReceiptsResponse final : public interface::EngineReceiptsResponse {
      public:
-      explicit EngineResponse(iroha::protocol::QueryResponse &query_response);
+      explicit EngineReceiptsResponse(iroha::protocol::QueryResponse &query_response);
 
-      interface::types::EngineResponseRecordCollectionType
-      engineResponseRecords() const override;
+      interface::types::EngineReceiptCollectionType
+      engineReceipts() const override;
 
      private:
-      const iroha::protocol::EngineResponse &engine_response_;
+      const iroha::protocol::EngineReceiptsResponse &engine_response_;
 
-      const std::vector<proto::EngineResponseRecord> engine_response_records_;
+      const std::vector<proto::EngineReceipt> engine_response_records_;
     };
   }  // namespace proto
 }  // namespace shared_model
