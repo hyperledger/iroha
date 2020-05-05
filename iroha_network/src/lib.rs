@@ -18,6 +18,7 @@ pub type State<T> = Arc<Mutex<T>>;
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
 
+#[derive(Debug)]
 pub struct Network {
     server_url: String,
 }
@@ -43,12 +44,16 @@ impl Network {
 
     /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
     pub async fn send_request(&self, request: Request) -> Result<Response, String> {
-        Network::send_request_to(&self.server_url, request).await
+        self.send_request_to(&self.server_url, request).await
     }
 
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
     #[log]
-    pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
+    pub async fn send_request_to(
+        &self,
+        server_url: &str,
+        request: Request,
+    ) -> Result<Response, String> {
         let mut stream = TcpStream::connect(server_url)
             .await
             .map_err(|e| e.to_string())?;
@@ -71,12 +76,13 @@ impl Network {
     /// * `handler` - callback function which is called when there is an incoming connection, it get's the stream for this connection
     /// * `state` - the state that you want to capture
     pub async fn listen<H, F, S>(
+        &self,
         state: State<S>,
         server_url: &str,
         mut handler: H,
     ) -> Result<(), String>
     where
-        H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
+        H: FnMut(State<S>, Arc<Mutex<dyn AsyncStream>>) -> F,
         F: Future<Output = Result<(), String>>,
     {
         let listener = TcpListener::bind(server_url)
@@ -85,7 +91,7 @@ impl Network {
         while let Some(stream) = listener.incoming().next().await {
             handler(
                 Arc::clone(&state),
-                Box::new(stream.map_err(|e| e.to_string())?),
+                Arc::new(Mutex::new(stream.map_err(|e| e.to_string())?)),
             )
             .await?;
         }
@@ -97,7 +103,7 @@ impl Network {
     /// See `listen_async` for the description of the `state`.
     pub async fn handle_message_async<H, F, S>(
         state: State<S>,
-        mut stream: Box<dyn AsyncStream>,
+        stream: Arc<Mutex<dyn AsyncStream>>,
         mut handler: H,
     ) -> Result<(), String>
     where
@@ -106,6 +112,8 @@ impl Network {
     {
         let mut buffer = [0u8; BUFFER_SIZE];
         let read_size = stream
+            .lock()
+            .await
             .read(&mut buffer)
             .await
             .expect("Request read failed.");
@@ -115,11 +123,177 @@ impl Network {
             .map_err(|e: Box<dyn Error>| e.to_string())?;
         let response: Vec<u8> = handler(state, request).await?.into();
         stream
+            .lock()
+            .await
             .write_all(&response)
             .await
             .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
+        stream
+            .lock()
+            .await
+            .flush()
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(())
+    }
+}
+
+#[cfg(feature = "mock")]
+pub mod mock {
+    use super::{AsyncStream, Request, Response, State};
+    use futures::{
+        io::{AsyncRead, AsyncWrite},
+        lock::Mutex,
+        AsyncReadExt, AsyncWriteExt,
+    };
+    use std::{
+        collections::HashMap,
+        convert::TryFrom,
+        future::Future,
+        pin::Pin,
+        sync::Arc,
+        task::{Context, Poll},
+    };
+
+    #[derive(Default)]
+    struct RequestStream {
+        bytes: Vec<u8>,
+    }
+
+    impl Unpin for RequestStream {}
+
+    impl AsyncRead for RequestStream {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<async_std::io::Result<usize>> {
+            let bytes = &mut self.get_mut().bytes;
+            let length = if buf.len() > bytes.len() {
+                bytes.len()
+            } else {
+                buf.len()
+            };
+            for (i, byte) in bytes.drain(..length).enumerate() {
+                buf[i] = byte;
+            }
+            Poll::Ready(Ok(length))
+        }
+    }
+
+    impl AsyncWrite for RequestStream {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<async_std::io::Result<usize>> {
+            let bytes = &mut self.get_mut().bytes;
+            for byte in buf.to_vec() {
+                bytes.push(byte);
+            }
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<async_std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<async_std::io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    pub struct Network<H, F, S>
+    where
+        H: FnMut(State<S>, Arc<Mutex<dyn AsyncStream>>) -> F,
+        F: Future<Output = Result<(), String>>,
+    {
+        server_url: String,
+        peers: Mutex<HashMap<String, (Arc<Mutex<H>>, State<S>)>>,
+    }
+
+    impl<H, F, S> Network<H, F, S>
+    where
+        H: FnMut(State<S>, Arc<Mutex<dyn AsyncStream>>) -> F,
+        F: Future<Output = Result<(), String>>,
+    {
+        pub fn new(server_url: &str) -> Network<H, F, S> {
+            Network {
+                server_url: server_url.to_string(),
+                peers: Mutex::new(HashMap::new()),
+            }
+        }
+
+        pub async fn send_request(&self, request: Request) -> Result<Response, String> {
+            self.send_request_to(&self.server_url, request).await
+        }
+
+        pub async fn send_request_to(
+            &self,
+            server_url: &str,
+            request: Request,
+        ) -> Result<Response, String> {
+            let stream = Arc::new(Mutex::new(RequestStream::default()));
+            let payload: Vec<u8> = request.into();
+            stream
+                .lock()
+                .await
+                .write_all(&payload)
+                .await
+                .map_err(|e| e.to_string())?;
+            let peers = &self.peers.lock().await;
+            let (handler, state) = peers.get(server_url).ok_or("Failed to find this peer.")?;
+            let handler = &mut *handler.lock().await;
+            let _result = handler(state.clone(), stream.clone()).await;
+            let mut buffer = vec![0u8; super::BUFFER_SIZE];
+            let read_size = stream
+                .lock()
+                .await
+                .read(&mut buffer)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(Response::try_from(buffer[..read_size].to_vec())?)
+        }
+
+        pub async fn listen(
+            &self,
+            state: State<S>,
+            server_url: &str,
+            handler: H,
+        ) -> Result<(), String> {
+            self.peers.lock().await.insert(
+                server_url.to_string(),
+                (Arc::new(Mutex::new(handler)), state),
+            );
+            loop {}
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[async_std::test]
+        async fn request_stream_reads_what_was_written() {
+            let mut stream = RequestStream::default();
+            let write_data = [1, 2, 3];
+            stream
+                .write_all(&write_data)
+                .await
+                .expect("Failed to write bytes");
+            let mut buffer = [0u8; 32];
+            let length = stream
+                .read(&mut buffer)
+                .await
+                .expect("Failed to read bytes.");
+            assert_eq!(write_data, buffer[..length]);
+        }
     }
 }
 
@@ -202,7 +376,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Network, Request, Response, State};
+    pub use crate::{AsyncStream, Request, Response, State};
 }
 
 #[cfg(test)]
@@ -239,6 +413,9 @@ mod tests {
 
     #[async_std::test]
     async fn single_threaded_async() {
+        #[cfg(feature = "mock")]
+        use super::mock::*;
+
         async fn handle_request<S>(
             _state: State<S>,
             _request: Request,
@@ -248,16 +425,22 @@ mod tests {
 
         async fn handle_connection<S>(
             state: State<S>,
-            stream: Box<dyn AsyncStream>,
+            stream: Arc<Mutex<dyn AsyncStream>>,
         ) -> Result<(), String> {
-            Network::handle_message_async(state, stream, handle_request).await
+            super::Network::handle_message_async(state, stream, handle_request).await
         };
 
-        task::spawn(async {
-            Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
+        let network = Arc::new(Network::new("127.0.0.1:8080"));
+        let network_move = network.clone();
+
+        task::spawn(async move {
+            network_move
+                .listen(get_empty_state(), "127.0.0.1:7878", handle_connection)
+                .await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
+        match network
+            .send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
             .await
             .expect("Failed to send request to.")
         {
@@ -280,16 +463,21 @@ mod tests {
         };
         async fn handle_connection(
             state: State<usize>,
-            stream: Box<dyn AsyncStream>,
+            stream: Arc<Mutex<dyn AsyncStream>>,
         ) -> Result<(), String> {
             Network::handle_message_async(state, stream, handle_request).await
         };
         let counter_move = counter.clone();
+        let network = Arc::new(Network::new("127.0.0.1:8080"));
+        let network_move = network.clone();
         task::spawn(async move {
-            Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
+            network_move
+                .listen(counter_move, "127.0.0.1:7870", handle_connection)
+                .await
         });
         std::thread::sleep(std::time::Duration::from_millis(50));
-        match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
+        match network
+            .send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
             .await
             .expect("Failed to send request to.")
         {

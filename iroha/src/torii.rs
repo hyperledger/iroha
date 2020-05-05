@@ -2,6 +2,7 @@ use crate::{prelude::*, sumeragi::Message, MessageSender};
 use futures::{executor::ThreadPool, lock::Mutex};
 use iroha_derive::log;
 use iroha_network::prelude::*;
+use iroha_network::Network;
 use std::{convert::TryFrom, sync::Arc};
 
 pub struct Torii {
@@ -10,6 +11,7 @@ pub struct Torii {
     world_state_view: Arc<Mutex<WorldStateView>>,
     transaction_sender: Arc<Mutex<TransactionSender>>,
     message_sender: Arc<Mutex<MessageSender>>,
+    network: Arc<Mutex<Network>>,
 }
 
 impl Torii {
@@ -19,6 +21,7 @@ impl Torii {
         world_state_view: Arc<Mutex<WorldStateView>>,
         transaction_sender: TransactionSender,
         message_sender: MessageSender,
+        network: Arc<Mutex<Network>>,
     ) -> Self {
         Torii {
             url: url.to_string(),
@@ -26,6 +29,7 @@ impl Torii {
             pool_ref,
             transaction_sender: Arc::new(Mutex::new(transaction_sender)),
             message_sender: Arc::new(Mutex::new(message_sender)),
+            network,
         }
     }
 
@@ -40,7 +44,11 @@ impl Torii {
             transaction_sender,
             message_sender,
         };
-        Network::listen(Arc::new(Mutex::new(state)), url, handle_connection).await?;
+        self.network
+            .lock()
+            .await
+            .listen(Arc::new(Mutex::new(state)), url, handle_connection)
+            .await?;
         Ok(())
     }
 }
@@ -54,7 +62,7 @@ struct ToriiState {
 
 async fn handle_connection(
     state: State<ToriiState>,
-    stream: Box<dyn AsyncStream>,
+    stream: Arc<Mutex<dyn AsyncStream>>,
 ) -> Result<(), String> {
     let state_arc = Arc::clone(&state);
     state.lock().await.pool.spawn_ok(async {
@@ -157,6 +165,7 @@ mod tests {
             )))),
             tx_tx,
             ms_tx,
+            Arc::new(Mutex::new(Network::new("127.0.0.1:8080"))),
         );
         task::spawn(async move {
             if let Err(e) = torii.start().await {
