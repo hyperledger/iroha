@@ -1,6 +1,6 @@
 use iroha::{crypto, prelude::*, torii::uri};
 use iroha_derive::log;
-use iroha_network::prelude::*;
+use iroha_network::{prelude::*, Network};
 use std::{
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
