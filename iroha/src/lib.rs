@@ -123,7 +123,9 @@ impl Iroha {
         executor::block_on(async move { kura.lock().await.init().await })?;
         let torii = Arc::clone(&self.torii);
         self.pool.spawn_ok(async move {
-            torii.lock().await.start().await;
+            if let Err(e) = torii.lock().await.start().await {
+                eprintln!("Failed to start Torii: {}", e);
+            }
         });
         let transactions_receiver = Arc::clone(&self.transactions_receiver);
         let queue = Arc::clone(&self.queue);

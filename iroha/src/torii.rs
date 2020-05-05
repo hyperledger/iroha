@@ -29,7 +29,7 @@ impl Torii {
         }
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<(), String> {
         let url = &self.url.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
         let transaction_sender = Arc::clone(&self.transaction_sender);
@@ -40,9 +40,8 @@ impl Torii {
             transaction_sender,
             message_sender,
         };
-        Network::listen(Arc::new(Mutex::new(state)), url, handle_connection)
-            .await
-            .expect("Failed to start listening Torii.");
+        Network::listen(Arc::new(Mutex::new(state)), url, handle_connection).await?;
+        Ok(())
     }
 }
 
@@ -57,12 +56,11 @@ async fn handle_connection(
     state: State<ToriiState>,
     stream: Box<dyn AsyncStream>,
 ) -> Result<(), String> {
-    //TODO: Why network can't spawn new task?
-    let state22 = Arc::clone(&state);
-    state.lock().await.pool.spawn_ok(async move {
-        Network::handle_message_async(state22, stream, handle_request)
-            .await
-            .expect("Failed to handle message.")
+    let state_arc = Arc::clone(&state);
+    state.lock().await.pool.spawn_ok(async {
+        if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
+            eprintln!("Failed to handle message: {}", e);
+        }
     });
     Ok(())
 }
@@ -78,7 +76,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     .transaction_sender
                     .lock()
                     .await
-                    .start_send(transaction.accept().expect("Failed to accept transaction."))
+                    .start_send(transaction.accept()?)
                     .map_err(|e| format!("{}", e))?;
                 Ok(Response::empty_ok())
             }
@@ -161,7 +159,9 @@ mod tests {
             ms_tx,
         );
         task::spawn(async move {
-            torii.start().await;
+            if let Err(e) = torii.start().await {
+                eprintln!("Failed to start Torii: {}", e);
+            }
         });
         std::thread::sleep(Duration::from_millis(50));
     }
