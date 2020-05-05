@@ -88,7 +88,8 @@ namespace {
       const shared_model::interface::types::AccountIdType &target_account,
       Role indiv_permission_id,
       Role all_permission_id,
-      Role domain_permission_id) {
+      Role domain_permission_id,
+      std::optional<shared_model::interface::types::AccountIdType> target_req = std::nullopt) {
     const auto bits = shared_model::interface::RolePermissionSet::size();
     const auto perm_str =
         shared_model::interface::RolePermissionSet({indiv_permission_id})
@@ -105,6 +106,8 @@ namespace {
     return fmt::format(
         R"(
     WITH
+        target AS ({7}),
+        target_domain AS (split_part(target, '@', 2)),
         has_root_perm AS ({0}),
         has_indiv_perm AS (
           SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
@@ -125,9 +128,9 @@ namespace {
               WHERE ar.account_id = '{2}'
         )
     SELECT (SELECT * from has_root_perm)
-        OR ('{2}' = '{6}' AND (SELECT * FROM has_indiv_perm))
+        OR ('{2}' = target AND (SELECT * FROM has_indiv_perm))
         OR (SELECT * FROM has_all_perm)
-        OR ('{7}' = '{8}' AND (SELECT * FROM has_domain_perm)) AS perm
+        OR ('{6}' = target_domain AND (SELECT * FROM has_domain_perm)) AS perm
     )",
         getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted),
         bits,
@@ -135,9 +138,9 @@ namespace {
         perm_str,
         all_perm_str,
         domain_perm_str,
-        target_account,
         iroha::ametsuchi::getDomainFromName(creator),
-        iroha::ametsuchi::getDomainFromName(target_account));
+        (!target_req ? fmt::format("SELECT '{}'", target_account) : *target_req)
+    );
   }
 
   /// Query result is a tuple of optionals, since there could be no entry
@@ -1457,19 +1460,26 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
       auto cmd = fmt::format(R"(
-            WITH has_perms AS (SELECT 1),
+            WITH has_perms AS ({}),
             engine_responses AS (
             SELECT cmd_index, engine_response
             FROM engine_calls
             WHERE creator_id=:creator_account_id and tx_hash=:tx_hash)
             SELECT * FROM engine_responses
             RIGHT OUTER JOIN has_perms ON TRUE;
-            )"/*,
+            )",
              hasQueryPermission(creator_id,
-                    q.accountId(),
+                    creator_id,
                     Role::kGetMyEngineReceipts,
                     Role::kGetAllEngineReceipts,
-                    Role::kGetDomainEngineReceipts)*/);
+                    Role::kGetDomainEngineReceipts,
+                    "select creator_id "
+                      "from position_by_hash "
+                      "inner join tx_position_by_creator "
+                      "on hash=:tx_hash and "
+                      "position_by_hash.height = tx_position_by_creator.height and "
+                      "position_by_hash.index = tx_position_by_creator.index;")
+                    );
 
       using QueryTuple =
           QueryType<
