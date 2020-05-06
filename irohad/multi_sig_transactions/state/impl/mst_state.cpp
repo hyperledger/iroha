@@ -41,12 +41,6 @@ namespace {
 }  // namespace
 
 namespace iroha {
-
-  bool BatchHashEquality::operator()(const DataType &left_tx,
-                                     const DataType &right_tx) const {
-    return left_tx->reducedHash() == right_tx->reducedHash();
-  }
-
   DefaultCompleter::DefaultCompleter(std::chrono::minutes expiration_time)
       : expiration_time_(expiration_time) {}
 
@@ -112,7 +106,7 @@ namespace iroha {
 
   std::unordered_set<DataType,
                      iroha::model::PointerBatchHasher,
-                     BatchHashEquality>
+                     shared_model::interface::BatchHashEquality>
   MstState::getBatches() const {
     const auto batches_range = batches_.right | boost::adaptors::map_keys;
     return {batches_range.begin(), batches_range.end()};
