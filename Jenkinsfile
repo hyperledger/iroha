@@ -158,6 +158,7 @@ node ('master') {
   parallelism = 0
   useBTF = false
   use_libursa = false
+  use_burrow = false
   forceDockerDevelopBuild = false
 
   if (scmVars.GIT_LOCAL_BRANCH in ["master"] || env.TAG_NAME )
@@ -302,25 +303,30 @@ node ('master') {
   if(!x64linux_compiler_list.isEmpty()){
     x64LinuxBuildSteps = [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, build_shared_libs, specialBranch, coverage,
-      testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, forceDockerDevelopBuild, environmentList)}]
+      testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, use_burrow,
+      forceDockerDevelopBuild, environmentList)}]
     //If "master" also run Release build
     if(specialBranch && build_type == 'Debug'){
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, 'Release', build_shared_libs, specialBranch, false,
-      false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, false, environmentList)}]
+      false, testList, false, false, false, false, true, false, false, false, false, false, use_libursa, use_burrow, false, environmentList)}]
     }
     if (build_scenario == 'Before merge to trunk') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
       // Build with shared libraries
       x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, true, false, false,
-      false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, false, environmentList)}]
+      false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, use_burrow, false, environmentList)}]
       if (!use_libursa) {
         // Force build with libursa
         x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
-        testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, true, false, environmentList)}]
+        testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, true, use_burrow, false, environmentList)}]
       }
+      // toggle burrow
+      x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
+      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
+      testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, use_libursa, !use_burrow, false, environmentList)}]
     }
     x64LinuxPostSteps = new Builder.PostSteps(
       always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],

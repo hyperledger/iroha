@@ -42,7 +42,8 @@ def testSteps(String buildDir, List environment, String testList) {
 
 def buildSteps(int parallelism, List compilerVersions, String build_type, boolean build_shared_libs, boolean specialBranch, boolean coverage,
       boolean testing, String testList, boolean cppcheck, boolean sonar, boolean codestyle, boolean docs, boolean packagebuild, boolean sanitize,
-      boolean fuzzing, boolean benchmarking, boolean coredumps, boolean useBTF, boolean use_libursa, boolean forceDockerDevelopBuild, List environment) {
+      boolean fuzzing, boolean benchmarking, boolean coredumps, boolean useBTF, boolean use_libursa, boolean use_burrow,
+      boolean forceDockerDevelopBuild, List environment) {
   withEnv(environment) {
     def build, vars, utils, dockerUtils, doxygen
     stage('Prepare Linux environment') {
@@ -116,6 +117,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
             -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
             -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
             -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
+            -DUSE_BURROW=${cmakeBooleanOption[use_burrow]} \
             -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ${cmakeOptions}")
           build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
         }
