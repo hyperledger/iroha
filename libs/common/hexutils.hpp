@@ -87,6 +87,20 @@ namespace iroha {
         hexstringToBytestringResult(str));
   }
 
+  /**
+   * Convert uint64_t number to a printable hex string
+   * @param val - unsinged integer value
+   * @return - converted hex string
+   */
+  inline std::string uint64ToHexstring(const uint64_t val) {
+    std::stringstream ss;
+    ss << std::hex << val;
+    auto res = ss.str();
+    if (res.size() & 0x1)
+      res.insert(0, "0");
+    return res;
+  }
+
 }  // namespace iroha
 
 #endif  // IROHA_HEXUTILS_HPP

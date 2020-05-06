@@ -5,6 +5,7 @@
 
 #include BURROW_VM_CALL_HEADER
 
+#include <cstring>
 #include <unordered_map>
 
 #include <gtest/gtest.h>
@@ -154,8 +155,12 @@ contract C {
 
   char *inputCallGetter = const_cast<char *>("d46300fd");
 
-  char *caller = const_cast<char *>("caller"),
-       *callee = const_cast<char *>("Callee");
+  char *caller = const_cast<char *>("caller@test"),
+       *callee = const_cast<char *>("43868609839F19615B27126B0CE578C723B417DA");
+
+  char *nonce = const_cast<char *>(
+      "F83F8C992E37F2E18CB5CE50995F6855E3A7E289A6282313F0C4E2EECBFC199F"
+      "03");
 
   // Emulate accounts' storages for the smart contract engine
   std::unordered_map<AccountName, TestAccount, AccountName::Hash> accounts;
@@ -236,28 +241,32 @@ contract C {
 
   auto res = VmCall(deploySCdata,
                     caller,
-                    callee,
+                    nullptr,
+                    nonce,
                     &command_executor,
                     &specific_query_executor,
                     &reader_writer);
-  std::cout << "Vm output: " << res.r0 << std::endl;
-  ASSERT_TRUE(res.r1);
+  ASSERT_EQ(res.r1, nullptr);
+  ASSERT_EQ(std::memcmp(res.r0, callee, 40), 0);
+  std::cout << "Deployed contract: " << res.r0 << std::endl;
 
   res = VmCall(inputCallSetter,
                caller,
                callee,
+               nullptr,
                &command_executor,
                &specific_query_executor,
                &reader_writer);
-  std::cout << "Vm output: " << res.r0 << std::endl;
-  ASSERT_TRUE(res.r1);
+  ASSERT_EQ(res.r1, nullptr);
+  ASSERT_EQ(res.r0, nullptr);
 
   res = VmCall(inputCallGetter,
                caller,
                callee,
+               nullptr,
                &command_executor,
                &specific_query_executor,
                &reader_writer);
-  std::cout << "Vm output: " << res.r0 << std::endl;
-  ASSERT_TRUE(res.r1);
+  ASSERT_EQ(res.r1, nullptr);
+  ASSERT_EQ(res.r0, nullptr);
 }

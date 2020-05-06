@@ -6,7 +6,6 @@ package api
 // #include "ametsuchi/impl/proto_specific_query_executor.h"
 import "C"
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -21,51 +20,10 @@ import (
 var (
 	IrohaCommandExecutor unsafe.Pointer
 	IrohaQueryExecutor   unsafe.Pointer
+	Caller               string
 )
 
-/*
-	Following functions are wrappers for Iroha API commands and queries with use of
-	CommandExecutor or QueryExecutor accordingly, and protobuf messages from iroha_protocol.
-*/
-
 // -----------------------Iroha commands---------------------------------------
-
-// Creates a "mirror" account in Iroha for an EVM account (someEvmAddress[:32] + @evm)
-func CreateIrohaEvmAccount(addr crypto.Address) (err error) {
-	accountName := irohaCompliantName(addr)
-
-	command := &pb.Command{Command: &pb.Command_CreateAccount{
-		CreateAccount: &pb.CreateAccount{AccountName: accountName, DomainId: "evm", PublicKey: fmt.Sprintf("%064s", addr.String())}}}
-	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-
-	if commandResult.error_code != 0 {
-		return fmt.Errorf("[api.CreateIrohaEvmAccount] error creating Iroha account at address %s", addr.String())
-	}
-
-	return nil
-}
-
-// Sets key-value pair in storage of the mirrored Iroha account
-func SetIrohaAccountDetail(addr crypto.Address, key string, value string) (err error) {
-	irohaCompliantAddress := IrohaAccountID(addr)
-	// Send SetAccountDetail to Iroha
-	command := &pb.Command{Command: &pb.Command_SetAccountDetail{&pb.SetAccountDetail{
-		AccountId: irohaCompliantAddress, Key: key, Value: value}}}
-	commandResult, err := makeProtobufCmdAndExecute(IrohaCommandExecutor, command)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("[setIrohaAccountDetail] set Iroha account detail '%s' for address %s\n%s\n", key, irohaCompliantAddress, commandResult)
-	if commandResult.error_code != 0 {
-		return fmt.Errorf("[api.SetIrohaAccountDetail] error setting account detail '%s' for %s, value being set is %s",
-			key, irohaCompliantAddress, value)
-	}
-
-	return nil
-}
 
 /*
 	Transfer assets between accounts
@@ -93,94 +51,12 @@ func TransferIrohaAsset(src, dst, asset, amount string) error {
 
 // -----------------------Iroha queries---------------------------------------
 
-// Queries Iroha about the coupled account.
-func GetIrohaAccount(addr crypto.Address) (exist bool, err error) {
-	irohaCompliantAddress := IrohaAccountID(addr)
-	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: "evm@evm",
-			QueryCounter:     1},
-		Query: &pb.Query_Payload_GetAccount{
-			GetAccount: &pb.GetAccount{AccountId: irohaCompliantAddress}}}}
-	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	if err != nil {
-		return false, err
-	}
-	switch response := queryResponse.Response.(type) {
-	case *pb.QueryResponse_ErrorResponse:
-		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
-			// No errors, but requested account does not exist
-			fmt.Printf("[api.GetIrohaAccount] QueryResponse_ErrorResponse: account %s not found\n", irohaCompliantAddress)
-			return false, nil
-		}
-		return false, fmt.Errorf("[api.GetIrohaAccount] QueryResponse_ErrorResponse: %d, %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
-	case *pb.QueryResponse_AccountResponse:
-		fmt.Printf("[api.GetIrohaAccount] QueryResponse_AccountResponse: %s", queryResponse.String())
-		return true, nil
-	default:
-		return false, fmt.Errorf("[api.GetIrohaAccount] wrong queryResponse")
-	}
-}
-
-// Queries Iroha about the mirrored account detail. Returns account detail
-func GetIrohaAccountDetail(addr crypto.Address, key string) (detail string, err error) {
-	irohaCompliantAddress := IrohaAccountID(addr)
-	query := &pb.Query{Payload: &pb.Query_Payload{
-		Meta: &pb.QueryPayloadMeta{
-			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: "evm@evm",
-			QueryCounter:     1},
-		Query: &pb.Query_Payload_GetAccountDetail{
-			&pb.GetAccountDetail{
-				OptAccountId: &pb.GetAccountDetail_AccountId{AccountId: irohaCompliantAddress},
-				OptKey:       &pb.GetAccountDetail_Key{Key: key}}}}}
-	queryResponse, err := makeProtobufQueryAndExecute(IrohaQueryExecutor, query)
-	if err != nil {
-		return "", err
-	}
-	switch response := queryResponse.Response.(type) {
-	case *pb.QueryResponse_ErrorResponse:
-		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT_DETAIL {
-			// No errors, but requested account detail does not exist
-			fmt.Printf("[api.GetIrohaAccountDetail] QueryResponse_ErrorResponse: no account detail '%s' for account %s\n", key, irohaCompliantAddress)
-			return "", nil
-		}
-		return "", fmt.Errorf("[getIrohaAccountDetail] QueryResponse_ErrorResponse: %d, %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
-	case *pb.QueryResponse_AccountDetailResponse:
-		fmt.Printf("[api.GetIrohaAccountDetail] QueryResponse_AccountDetailResponse: %s\n", queryResponse.String())
-		accDetailResponse := queryResponse.GetAccountDetailResponse()
-		accDetail := accDetailResponse.Detail
-		var detailResponse interface{}
-		err = json.Unmarshal([]byte(accDetail), &detailResponse)
-		if err != nil {
-			fmt.Println("[api.GetIrohaAccountDetail] Failed to unmarshal detail response")
-			return "", err
-		}
-
-		switch response := detailResponse.(type) {
-		case map[string]interface{}:
-			value, exist := response["evm@evm"]
-			if !exist {
-				return "", nil
-			}
-			return value.(map[string]interface{})[key].(string), nil
-
-		default:
-			return "", fmt.Errorf("[api.GetIrohaAccountDetail] unexpected response type")
-		}
-
-	default:
-		return "", fmt.Errorf("[api.GetIrohaAccountDetail] wrong queryResponse")
-	}
-}
-
 // Queries asset balance of an account
 func GetIrohaAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
-			CreatorAccountId: "evm@evm",
+			CreatorAccountId: Caller,
 			QueryCounter:     1},
 		Query: &pb.Query_Payload_GetAccountAssets{
 			GetAccountAssets: &pb.GetAccountAssets{AccountId: accountID}}}}
@@ -192,16 +68,18 @@ func GetIrohaAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 	case *pb.QueryResponse_ErrorResponse:
 		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
 			// No errors, but requested account does not exist
-			fmt.Printf("[api.GetIrohaAccountAssets] QueryResponse_ErrorResponse: account %s not found\n", accountID)
 			return []*pb.AccountAsset{}, nil
 		}
-		return []*pb.AccountAsset{}, fmt.Errorf("[api.GetIrohaAccountAssets] QueryResponse_ErrorResponse: %d, %v", response.ErrorResponse.ErrorCode, response.ErrorResponse.Message)
+		return []*pb.AccountAsset{}, fmt.Errorf(
+			"ErrorResponse in GetIrohaAccountAssets: %d, %v",
+			response.ErrorResponse.ErrorCode,
+			response.ErrorResponse.Message,
+		)
 	case *pb.QueryResponse_AccountAssetsResponse:
-		fmt.Printf("[api.GetIrohaAccountAssets] QueryResponse_AccountAssetsResponse: %s\n", queryResponse.String())
 		accountAssetsResponse := queryResponse.GetAccountAssetsResponse()
 		return accountAssetsResponse.AccountAssets, nil
 	default:
-		return []*pb.AccountAsset{}, fmt.Errorf("[api.GetIrohaAccountAssets] wrong queryResponse")
+		return []*pb.AccountAsset{}, fmt.Errorf("Wrong response type in GetIrohaAccountAssets")
 	}
 }
 
@@ -217,7 +95,7 @@ func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) 
 		return &C.struct_Iroha_CommandError{error_code: 100}, err
 	}
 	cOut := C.CBytes(out)
-	commandResult := C.Iroha_ProtoCommandExecutorExecute(cmdExecutor, cOut, C.int(len(out)), C.CString("evm@evm"))
+	commandResult := C.Iroha_ProtoCommandExecutorExecute(cmdExecutor, cOut, C.int(len(out)), C.CString(Caller))
 	return &commandResult, nil
 }
 

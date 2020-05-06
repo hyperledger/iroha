@@ -4,7 +4,6 @@ package main
 import "C"
 import (
 	"fmt"
-	"strconv"
 	"unsafe"
 
 	"vmCaller/api"
@@ -13,6 +12,7 @@ import (
 	"vmCaller/state"
 
 	"github.com/hyperledger/burrow/acm"
+	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/native"
@@ -32,11 +32,12 @@ var (
 )
 
 //export VmCall
-func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, bool) {
+func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryExecutor, storage unsafe.Pointer) (*C.char, *C.char) {
 
-	// Update executors
+	// Update executors and Caller
 	api.IrohaCommandExecutor = commandExecutor
 	api.IrohaQueryExecutor = queryExecutor
+	api.Caller = C.GoString(caller)
 
 	// Iroha world state
 	worldState := state.NewIrohaState(storage)
@@ -46,29 +47,19 @@ func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor,
 		Balance:     999999,
 		Permissions: permission.DefaultAccountPermissions,
 	})
+	_, err := worldState.GetAccount(acm.GlobalPermissionsAddress)
 
-	// Convert strings into EVM addresses
+	// Convert the caller Iroha Account ID to an EVM addresses
 	evmCaller := native.AddressFromName(C.GoString(caller))
-	evmCallee := native.AddressFromName(C.GoString(callee))
-
-	goInput := hex.MustDecodeString(C.GoString(input))
-
-	fmt.Printf("[VmCall] caller: %s, callee: %s, len(input): %d\n", C.GoString(caller), C.GoString(callee), len(goInput))
-
-	if contract.IsNative(evmCallee.String()) {
-		fmt.Printf("The callee address %s is reserved for a native contract and cannot be called directly", evmCallee)
-		return nil, false
-	}
-
 	callerAccount, err := worldState.GetAccount(evmCaller)
 	if err != nil {
-		fmt.Printf("Error getting caller's account at address %s: %s", evmCaller.String(), err.Error())
-		return nil, false
+		return makeError(fmt.Sprintf("Error getting account at address %s: %s",
+			evmCaller.String(), err.Error()))
 	}
 	if callerAccount == nil {
 		if err := native.CreateAccount(worldState, evmCaller); err != nil {
-			fmt.Printf("Error creating caller's account at address %s: %s", evmCaller.String(), err.Error())
-			return nil, false
+			return makeError(fmt.Sprintf("Error creating account at address %s: %s",
+				evmCaller.String(), err.Error()))
 		}
 		if err := native.UpdateAccount(worldState,
 			evmCaller,
@@ -76,27 +67,34 @@ func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor,
 				return acc.Permissions.Base.Set(defaultPermissions, true)
 			},
 		); err != nil {
-			fmt.Println(err, "Error while setting permissions for account at caller addr: ", evmCaller.String())
-			return nil, false
+			return makeError(fmt.Sprintf("Error setting permissions at address %s: %s",
+				evmCaller.String(), err.Error()))
 		}
 	}
 
+	// goInput is either a contract bytecode or an ABI-encoded function - a hex string
+	goInput := hex.MustDecodeString(C.GoString(input))
+
 	var gas uint64 = 1000000
 	var output acm.Bytecode
-	eventSink := &IrohaEventSink{
-    irohaState: worldState,
-  }
+	eventSink := NewIrohaEventSink(worldState)
 
-	calleeAccount, err := worldState.GetAccount(evmCallee)
-	if err != nil {
-		fmt.Printf("Error getting callee's account at address %s: %s\n", evmCallee.String(), err.Error())
-		return nil, false
-	}
-	if calleeAccount == nil {
-		// Callee account doesn't exist therefore a new account with bytecode must be created
+	if callee == nil {
+		// A new contract is being deployed
+		evmCallee := addressFromNonce(C.GoString(nonce))
+
+		// Check if this address is, indeed, new and available
+		calleeAccount, err := worldState.GetAccount(evmCallee)
+		if err != nil {
+			return makeError(err.Error())
+		}
+		if calleeAccount != nil {
+			return makeError(fmt.Sprintf("Account already exists at address %s", evmCallee.String()))
+		}
+
 		if err := native.CreateAccount(worldState, evmCallee); err != nil {
-			fmt.Printf("Error creating callee's account at address %s: %s\n", evmCallee.String(), err.Error())
-			return nil, false
+			return makeError(fmt.Sprintf("Error creating account at address %s: %s",
+				evmCallee.String(), err.Error()))
 		}
 		params := engine.CallParams{
 			Caller: evmCaller,
@@ -107,13 +105,13 @@ func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor,
 		}
 		output, err = burrowEVM.Execute(worldState, blockchain.New(), eventSink, params, goInput)
 		if err != nil {
-			fmt.Printf("Error deploying smart contract at address %s, input %x: %s\n", evmCallee.String(), goInput, err.Error())
-			return nil, false
+			return makeError(fmt.Sprintf("Error deploying smart contract at address %s: %s",
+				evmCallee.String(), err.Error()))
 		}
 
 		if err := native.InitCode(worldState, evmCallee, output); err != nil {
-			fmt.Printf("Error initializing contract code for the callee account at address %s: %s\n", evmCallee.String(), err.Error())
-			return nil, false
+			return makeError(fmt.Sprintf("Error initializing contract code at address %s: %s",
+				evmCallee.String(), err.Error()))
 		}
 		if err := native.UpdateAccount(worldState,
 			evmCallee,
@@ -121,43 +119,55 @@ func VmCall(input, caller, callee *C.const_char, commandExecutor, queryExecutor,
 				return acc.Permissions.Base.Set(defaultPermissions, true)
 			},
 		); err != nil {
-			fmt.Printf("Error setting permissions for the callee's account at address %s: %s\n", evmCallee.String(), err.Error())
-			return nil, false
+			return makeError(fmt.Sprintf("Error setting permissions at address %s: %s",
+				evmCallee.String(), err.Error()))
 		}
-	} else {
-		// Callee's account already exists, therefore treating the input as a contract method ABI + params
-		params := engine.CallParams{
-			Caller: evmCaller,
-			Callee: evmCallee,
-			Input:  goInput,
-			Value:  0,
-			Gas:    &gas,
-		}
-		output, err = burrowEVM.Execute(worldState, blockchain.New(), eventSink, params, calleeAccount.EVMCode)
-		if err != nil {
-			fmt.Printf("Error calling a smart contract at address %s with input %x: %s\n", evmCallee.String(), goInput, err.Error())
-			return nil, false
-		}
+
+		return C.CString(evmCallee.String()), nil
 	}
 
-	// Transform output data to a string value.
-	// It is a problem to convert []byte, which contains 0 byte inside, to C string.
-	// Conversion to C.CString will cut all data after the 0 byte.
-	res := ""
-	for _, dataAsInt := range output {
-
-		// change base to hex
-		tmp := strconv.FormatInt(int64(dataAsInt), 16)
-
-		// save bytecode structure, where hex value f should be 0f, and so on
-		if len(tmp) < 2 {
-			// len 1 at least after conversion from variable output
-			tmp = "0" + tmp
-		}
-		res += tmp
+	// callee is a hex-encoded EVM address
+	evmCallee, err := crypto.AddressFromHexString(C.GoString(callee))
+	if err != nil {
+		return makeError("Invalid callee address")
 	}
 
-	return C.CString(res), true
+	if contract.IsNative(evmCallee.String()) {
+		return makeError(
+			fmt.Sprintf("The callee address %s is reserved for a native contract and cannot be called directly",
+				evmCallee.String()))
+	}
+
+	calleeAccount, err := worldState.GetAccount(evmCallee)
+	if err != nil {
+		return makeError(fmt.Sprintf("Error getting account at address %s: %s",
+			evmCallee.String(), err.Error()))
+	}
+
+	params := engine.CallParams{
+		Caller: evmCaller,
+		Callee: evmCallee,
+		Input:  goInput,
+		Value:  0,
+		Gas:    &gas,
+	}
+	output, err = burrowEVM.Execute(worldState, blockchain.New(), eventSink, params, calleeAccount.EVMCode)
+	if err != nil {
+		return makeError(fmt.Sprintf("Error calling a smart contract at address %s: %s",
+			evmCallee.String(), goInput, err.Error()))
+	}
+
+	return nil, nil
+}
+
+func makeError(msg string) (*C.char, *C.char) {
+	return nil, C.CString(msg)
+}
+
+func addressFromNonce(nonce string) (address crypto.Address) {
+	hash := crypto.Keccak256(hex.MustDecodeString(nonce))
+	copy(address[:], hash[len(hash)-crypto.AddressLength:])
+	return
 }
 
 func main() {}

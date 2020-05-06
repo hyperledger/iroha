@@ -54,3 +54,13 @@ TEST(StringConverterTest, ConvertHexToBinaryAndBack) {
   ASSERT_EQ(ss.str(),
             bytestringToHexstring(hexstringToBytestring(ss.str()).value()));
 }
+
+/**
+ * @given unsigned integer number
+ * @when converting it to a hex string
+ * @then converted string match expected result
+ */
+TEST(StringConverterTest, ConvertUint64ToHex) {
+  uint64_t val = 0x4234324309085;
+  ASSERT_EQ(uint64ToHexstring(val), "04234324309085");
+}

@@ -8,7 +8,6 @@ import "C"
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"unsafe"
 
 	"github.com/hyperledger/burrow/acm"
@@ -32,39 +31,39 @@ func NewIrohaState(storage unsafe.Pointer) *IrohaState {
 }
 
 func MakeIrohaCharBuffer(data string) *C.struct_Iroha_CharBuffer {
-  return &C.struct_Iroha_CharBuffer{
-    data: C.CString(data),
-    size: C.ulonglong(len(data)),
-  }
+	return &C.struct_Iroha_CharBuffer{
+		data: C.CString(data),
+		size: C.ulonglong(len(data)),
+	}
 }
 
 func (buf *C.struct_Iroha_CharBuffer) free() {
-  C.free(unsafe.Pointer(buf.data))
+	C.free(unsafe.Pointer(buf.data))
 }
 
 type Iroha_CharBufferArray_Wrapper struct {
-  charBuffers []C.struct_Iroha_CharBuffer
-	carray *C.struct_Iroha_CharBufferArray
+	charBuffers []C.struct_Iroha_CharBuffer
+	carray      *C.struct_Iroha_CharBufferArray
 }
 
 func MakeIrohaCharBufferArray(data []binary.Word256) *Iroha_CharBufferArray_Wrapper {
-  array := make([]C.struct_Iroha_CharBuffer, len(data))
-  for idx, el := range data {
-    array[idx] = *MakeIrohaCharBuffer(hex.EncodeToString(el.Bytes()))
-  }
-  return &Iroha_CharBufferArray_Wrapper{
-    array,
-    &C.struct_Iroha_CharBufferArray{
-      data: &array[0],
-      size: C.ulonglong(len(data)),
-    },
-  }
+	array := make([]C.struct_Iroha_CharBuffer, len(data))
+	for idx, el := range data {
+		array[idx] = *MakeIrohaCharBuffer(hex.EncodeToString(el.Bytes()))
+	}
+	return &Iroha_CharBufferArray_Wrapper{
+		array,
+		&C.struct_Iroha_CharBufferArray{
+			data: &array[0],
+			size: C.ulonglong(len(data)),
+		},
+	}
 }
 
 func (arr *Iroha_CharBufferArray_Wrapper) free() {
-  for _, el := range arr.charBuffers {
-    C.free(unsafe.Pointer(el.data))
-  }
+	for _, el := range arr.charBuffers {
+		C.free(unsafe.Pointer(el.data))
+	}
 }
 
 func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
@@ -78,6 +77,10 @@ func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
 		return nil, errors.New(error)
 	}
 
+	if result.result == nil {
+		return nil, nil
+	}
+
 	accountBytes, err := hex.DecodeString(C.GoString(result.result))
 	C.free(unsafe.Pointer(result.result))
 	if err != nil {
@@ -87,18 +90,25 @@ func (st *IrohaState) GetAccount(address crypto.Address) (*acm.Account, error) {
 	account := &acm.Account{}
 	err = account.Unmarshal(accountBytes)
 
+	// Unmarshalling of account data replaces account.EVMCode == nil with an empty slice []byte{}
+	// Hence this workaround to revert that and make native.InitCode work
+	if account.EVMCode != nil && len(account.EVMCode) == 0 {
+		account.EVMCode = nil
+	}
+	if account.WASMCode != nil && len(account.WASMCode) == 0 {
+		account.WASMCode = nil
+	}
+
 	return account, err
 }
 
 // mock
 func (st *IrohaState) GetMetadata(metahash acmstate.MetadataHash) (string, error) {
-	fmt.Printf("[GetMetadata] metahash: %s\n", metahash.String())
 	return "", nil
 }
 
 // mock
 func (st *IrohaState) SetMetadata(metahash acmstate.MetadataHash, metadata string) error {
-	fmt.Printf("[SetMetadata] metahash: %s, metadata: %s\n", metahash.String(), metadata)
 	return nil
 }
 
