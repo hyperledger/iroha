@@ -11,6 +11,7 @@
 #include "ametsuchi/command_executor.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/query_executor.hpp"
+#include "common/hexutils.hpp"
 #include "common/result.hpp"
 
 using namespace iroha::ametsuchi;
@@ -30,16 +31,23 @@ iroha::expected::Result<std::string, std::string> BurrowVmCaller::call(
       : static_cast<const char *>(nullptr);
   const char *input_raw =
       const_cast<char *>(static_cast<std::string_view const &>(input).data());
+  std::string nonce = tx_hash;
+  const char *nonce_raw =
+      const_cast<char *>(nonce.append(uint64ToHexstring(cmd_index)).c_str());
   auto burrow_storage =
       std::make_unique<PostgresBurrowStorage>(sql, tx_hash, cmd_index);
   auto res = VmCall(input_raw,
                     caller.c_str(),
                     callee_raw,
+                    nonce_raw,
                     &command_executor,
                     &query_executor,
                     burrow_storage.get());
-  if (res.r1 == 0) {
+  if (res.r1 != nullptr) {
     return iroha::expected::makeError(fmt::format("Engine error: {}.", res.r1));
+  }
+  if (res.r0 != nullptr) {
+    return iroha::expected::makeValue(res.r0);
   }
   return iroha::expected::makeValue("");
 }

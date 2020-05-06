@@ -1,27 +1,28 @@
 package main
 
-import "C"
 import (
-	"fmt"
-
 	"vmCaller/state"
 
 	"github.com/hyperledger/burrow/execution/errors"
 	"github.com/hyperledger/burrow/execution/exec"
 )
 
-var _ exec.EventSink = &IrohaEventSink{}
+var _ exec.EventSink = &IrohaEventSink{nil}
 
-type IrohaEventSink struct{
-  irohaState *state.IrohaState
+type IrohaEventSink struct {
+	irohaState *state.IrohaState
+}
+
+func NewIrohaEventSink(state *state.IrohaState) *IrohaEventSink {
+	return &IrohaEventSink{
+		irohaState: state,
+	}
 }
 
 func (ies *IrohaEventSink) Call(call *exec.CallEvent, exception *errors.Exception) error {
-	fmt.Println("Call")
 	return nil
 }
 
 func (ies *IrohaEventSink) Log(log *exec.LogEvent) error {
-	fmt.Println("Log")
 	return ies.irohaState.StoreTxReceipt(log.Address, log.Data, log.Topics)
 }
