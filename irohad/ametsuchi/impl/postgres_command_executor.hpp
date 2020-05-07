@@ -44,7 +44,6 @@ namespace shared_model {
 namespace iroha {
   namespace ametsuchi {
 
-    class BurrowStorage;
     class PostgresSpecificQueryExecutor;
 
     class PostgresCommandExecutor final : public CommandExecutor {
@@ -244,7 +243,6 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
       std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor_;
-      std::unique_ptr<BurrowStorage> burrow_storage_;
 
       std::unique_ptr<CommandStatements> add_asset_quantity_statements_;
       std::unique_ptr<CommandStatements> add_peer_statements_;
