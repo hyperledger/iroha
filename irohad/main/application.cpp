@@ -322,7 +322,7 @@ Irohad::RunResult Irohad::initStorage(
               return rxcpp::observable<>::iterate(
                          block->transactions()
                          | boost::adaptors::transformed(
-                             [](auto const &tx) { return tx.hash(); }))
+                               [](auto const &tx) { return tx.hash(); }))
                   .concat(rxcpp::observable<>::iterate(
                       block->rejected_transactions_hashes()));
             })

@@ -40,6 +40,11 @@ namespace shared_model {
 
       std::string toString() const override;
     };
+
+    class HashTypeHasher {
+     public:
+      size_t operator()(Hash const &hashVal) const;
+    };
   }  // namespace crypto
 }  // namespace shared_model
 

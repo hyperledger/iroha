@@ -11,10 +11,12 @@
 
 #include <boost/bimap.hpp>
 #include <boost/bimap/multiset_of.hpp>
+#include <boost/bimap/unordered_multiset_of.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
 #include <boost/optional/optional.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/any_range.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/hash.hpp"
@@ -169,6 +171,14 @@ namespace iroha {
     using BatchesForwardCollectionType = boost::
         any_range<BatchPtr, boost::forward_traversal_tag, const BatchPtr &>;
 
+    using BatchesToHashBimap = boost::bimap<
+        boost::bimaps::unordered_set_of<
+            shared_model::interface::types::HashType,
+            shared_model::crypto::HashTypeHasher>,
+        boost::bimaps::unordered_multiset_of<DataType,
+                                             iroha::model::PointerBatchHasher,
+                                             BatchHashEquality>>;
+
     using BatchesBimap = boost::bimap<
         boost::bimaps::multiset_of<
             shared_model::interface::types::TimestampType>,
@@ -209,6 +219,7 @@ namespace iroha {
     CompleterType completer_;
 
     BatchesBimap batches_;
+    BatchesToHashBimap batches_to_hash_;
 
     logger::LoggerPtr log_;
   };

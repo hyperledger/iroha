@@ -5,8 +5,8 @@
 
 #include "pending_txs_storage/impl/pending_txs_storage_impl.hpp"
 
-#include "interfaces/transaction.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
+#include "interfaces/transaction.hpp"
 #include "multi_sig_transactions/state/mst_state.hpp"
 
 namespace iroha {
@@ -156,7 +156,8 @@ namespace iroha {
               std::prev(account_batches.batches.end());
           account_batches.index.emplace(first_tx_hash, inserted_batch_iterator);
           for (auto &tx : batch->transactions()) {
-            account_batches.trxsToBatches.insert(AccountBatches::BatchesBimap::value_type(tx->hash(), batch));
+            account_batches.trxsToBatches.insert(
+                AccountBatches::BatchesBimap::value_type(tx->hash(), batch));
           }
         } else {
           // updating batch
@@ -167,19 +168,21 @@ namespace iroha {
     });
   }
 
-  bool PendingTransactionStorageImpl::isReplay(shared_model::interface::TransactionBatch const &batch) {
+  bool PendingTransactionStorageImpl::isReplay(
+      shared_model::interface::TransactionBatch const &batch) {
     auto cache_ptr = presence_cache_.lock();
-    assert(!!cache_ptr);
+    if (!cache_ptr) {
+      return false;
+    }
 
     auto cache_presence = cache_ptr->check(batch);
     if (!cache_presence) {
       return false;
     }
 
-    return std::any_of(
-        cache_presence->begin(),
-        cache_presence->end(),
-        &ametsuchi::isAlreadyProcessed);
+    return std::any_of(cache_presence->begin(),
+                       cache_presence->end(),
+                       &ametsuchi::isAlreadyProcessed);
   }
 
   void PendingTransactionStorageImpl::insertPresenceCache(
@@ -201,10 +204,10 @@ namespace iroha {
         if (index_iterator != account_batches.index.end()) {
           auto &batch_iterator = index_iterator->second;
           BOOST_ASSERT(batch_iterator != account_batches.batches.end());
+          account_batches.trxsToBatches.right.erase(*batch_iterator);
           account_batches.batches.erase(batch_iterator);
           account_batches.index.erase(index_iterator);
           account_batches.all_transactions_quantity -= batch_size;
-          account_batches.trxsToBatches.right.erase(*batch_iterator);
         }
         if (0 == account_batches.all_transactions_quantity) {
           storage_.erase(account_batches_iterator);

@@ -6,6 +6,8 @@
 #include "cryptography/hash.hpp"
 
 #include <boost/functional/hash.hpp>
+#include <functional>
+#include <string>
 
 #include "common/byteutils.hpp"
 namespace shared_model {
@@ -36,6 +38,13 @@ namespace shared_model {
       hash_combine(seed, hash_value(h.blob()));
 
       return seed;
+    }
+
+    size_t HashTypeHasher::operator()(Hash const &hashVal) const {
+      auto const &blob = hashVal.blob();
+      assert(!blob.empty());
+      return std::hash<std::string_view>{}(
+          std::string_view((char const *)&blob[0], blob.size()));
     }
   }  // namespace crypto
 }  // namespace shared_model
