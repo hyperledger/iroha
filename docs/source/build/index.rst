@@ -265,17 +265,19 @@ Also as long as this page can be deprecated (or just not complete) you can brows
 Main Parameters
 """""""""""""""
 
-+--------------+-----------------+---------+------------------------------------------------------------------------+
-| Parameter    | Possible values | Default | Description                                                            |
-+==============+=================+=========+========================================================================+
-| TESTING      |      ON/OFF     | ON      | Enables or disables build of the tests                                 |
-+--------------+                 +---------+------------------------------------------------------------------------+
-| BENCHMARKING |                 | OFF     | Enables or disables build of the Google Benchmarks library             |
-+--------------+                 +---------+------------------------------------------------------------------------+
-| COVERAGE     |                 | OFF     | Enables or disables lcov setting for code coverage generation          |
-+--------------+                 +---------+------------------------------------------------------------------------+
-| USE_LIBURSA  |                 | OFF     | Enables usage of the HL Ursa cryptography instead of the standard one  |
-+--------------+-----------------+---------+------------------------------------------------------------------------+
++----------------------------------+-----------------+---------+------------------------------------------------------------------------+
+| Parameter                        | Possible values | Default | Description                                                            |
++==================================+=================+=========+========================================================================+
+| TESTING                          |      ON/OFF     | ON      | Enables or disables build of the tests                                 |
++----------------------------------+                 +---------+------------------------------------------------------------------------+
+| BENCHMARKING                     |                 | OFF     | Enables or disables build of the Google Benchmarks library             |
++----------------------------------+                 +---------+------------------------------------------------------------------------+
+| COVERAGE                         |                 | OFF     | Enables or disables lcov setting for code coverage generation          |
++----------------------------------+                 +---------+------------------------------------------------------------------------+
+| USE_LIBURSA                      |                 | OFF     | Enables usage of the HL Ursa cryptography instead of the standard one  |
++----------------------------------+                 +---------+------------------------------------------------------------------------+
+| USE_BURROW                       |                 | OFF     | Enables the HL Burrow EVM integration                                  |
++----------------------------------+-----------------+---------+------------------------------------------------------------------------+
 
 .. note:: If you would like to use HL Ursa cryptography for your build, please install `Rust <https://www.rust-lang.org/tools/install>`_ in addition to other dependencies. Learn more about HL Ursa integration `here <../integrations/index.html#hyperledger-ursa>`_.
 

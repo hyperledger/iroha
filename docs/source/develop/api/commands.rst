@@ -200,6 +200,53 @@ Possible Stateful Validation Errors
     "3", "No such account", "Cannot find account to append role to", "Make sure account id is correct"
     "4", "No such role", "Cannot find role with such name", "Make sure role id is correct"
 
+Call engine
+-----------
+
+Purpose
+^^^^^^^
+
+The purpose of call engine command is to deploy a new contract to the Iroha EVM or to call a method of an already existing smart contract.
+An execution of a smart contract can potentially modify the state of the ledger provided the transaction that contains this command is accepted to a block and the block is committed.
+
+Schema
+^^^^^^
+
+.. code-block:: proto
+
+    message CallEngine {
+        string caller = 1;  // hex string
+        oneof opt_callee {
+            string callee = 2;  // hex string
+        }
+        string input = 3;   // hex string
+    }
+
+Structure
+^^^^^^^^^
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+
+    "Caller", "Iroha account ID of an account on whose behalf the command is run", "<account_name>@<domain_id>", "test@mydomain"
+    "Callee", "the EVM address of a deployed smart contract", "20-bytes string in hex representation", "7C370993FD90AF204FD582004E2E54E6A94F2651"
+    "Input", "Bytecode of a smart contract for a newly deployed contracts or ABI-encoded string of the contract method selector followed by the `set of its arguments <https://solidity.readthedocs.io/en/v0.6.5/abi-spec.html>`_", "Hex string", "40c10f19000000000000000000000000969453762b0c739dd285b31635efa00e24c2562800000000000000000000000000000000000000000000000000000000000004d2"
+
+Validation
+^^^^^^^^^^
+
+1. Caller is a valid Iroha account ID
+2. The transaction creator has a role with either CanCallEngine permission
+
+Possible Stateful Validation Errors
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. csv-table::
+    :header: "Code", "Error Name", "Description", "How to solve"
+
+    "5", "CallEngine error", "Code execution in EVM failed; the reason can be both in the contract code itself or be rooted in nested Iroha commands call", "Investigation of the error root cause is required in order to diagnose the issue"
+    "?", "No such permissions", "Command’s creator does not have a permission to call EVM engine", "Grant the necessary permission"
+
 Create account
 --------------
 
