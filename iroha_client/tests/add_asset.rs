@@ -1,11 +1,12 @@
 #[cfg(test)]
 mod tests {
+    use async_std::task;
     use iroha::{
         account::isi::CreateAccount, asset::isi::AddAssetQuantity, domain::isi::CreateDomain,
         prelude::*,
     };
     use iroha_client::client::{self, Client};
-    use std::thread;
+    use std::{thread, time::Duration};
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -42,9 +43,10 @@ mod tests {
             ])
             .await
             .expect("Failed to prepare state.");
-        std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 3,
-        ));
+        task::sleep(Duration::from_millis(
+            &configuration.block_build_step_ms * 20,
+        ))
+        .await;
         //When
         let add_amount = 200;
         let add_asset_quantity = AddAssetQuantity {
@@ -56,9 +58,10 @@ mod tests {
             .submit(add_asset_quantity.into())
             .await
             .expect("Failed to create asset.");
-        std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 3,
-        ));
+        task::sleep(Duration::from_millis(
+            &configuration.block_build_step_ms * 20,
+        ))
+        .await;
         //Then
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client

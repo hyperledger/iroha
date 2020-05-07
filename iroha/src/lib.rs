@@ -24,62 +24,54 @@ use crate::{
     sumeragi::{Message, Role, Sumeragi},
     torii::{uri, Torii},
 };
-use async_std::task;
-use futures::{
-    channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
-    executor::{self, ThreadPool},
-    lock::Mutex,
+use async_std::{
     prelude::*,
+    sync::{self, Receiver, RwLock, Sender},
+    task,
 };
 use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use std::time::Duration;
 use std::{path::Path, sync::Arc, time::Instant};
 
-pub type BlockSender = UnboundedSender<Block>;
-pub type BlockReceiver = UnboundedReceiver<Block>;
-pub type TransactionSender = UnboundedSender<Transaction>;
-pub type TransactionReceiver = UnboundedReceiver<Transaction>;
-pub type MessageSender = UnboundedSender<Message>;
-pub type MessageReceiver = UnboundedReceiver<Message>;
+pub type BlockSender = Sender<Block>;
+pub type BlockReceiver = Receiver<Block>;
+pub type TransactionSender = Sender<Transaction>;
+pub type TransactionReceiver = Receiver<Transaction>;
+pub type MessageSender = Sender<Message>;
+pub type MessageReceiver = Receiver<Message>;
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
 pub struct Iroha {
-    torii: Arc<Mutex<Torii>>,
-    queue: Arc<Mutex<Queue>>,
-    sumeragi: Arc<Mutex<Sumeragi>>,
-    kura: Arc<Mutex<Kura>>,
-    last_round_time: Arc<Mutex<Instant>>,
-    transactions_receiver: Arc<Mutex<TransactionReceiver>>,
-    blocks_receiver: Arc<Mutex<BlockReceiver>>,
-    message_receiver: Arc<Mutex<MessageReceiver>>,
-    world_state_view: Arc<Mutex<WorldStateView>>,
-    pool: ThreadPool,
-    network: Arc<Mutex<Network>>,
+    torii: Arc<RwLock<Torii>>,
+    queue: Arc<RwLock<Queue>>,
+    sumeragi: Arc<RwLock<Sumeragi>>,
+    kura: Arc<RwLock<Kura>>,
+    last_round_time: Arc<RwLock<Instant>>,
+    transactions_receiver: Arc<RwLock<TransactionReceiver>>,
+    blocks_receiver: Arc<RwLock<BlockReceiver>>,
+    message_receiver: Arc<RwLock<MessageReceiver>>,
+    world_state_view: Arc<RwLock<WorldStateView>>,
 }
 
 impl Iroha {
     pub fn new(config: Configuration) -> Self {
-        let (transactions_sender, transactions_receiver) = mpsc::unbounded();
-        let (blocks_sender, blocks_receiver) = mpsc::unbounded();
-        let (message_sender, message_receiver) = mpsc::unbounded();
-        let world_state_view = Arc::new(Mutex::new(WorldStateView::new(Peer::new(
+        let (transactions_sender, transactions_receiver) = sync::channel(100);
+        let (blocks_sender, blocks_receiver) = sync::channel(100);
+        let (message_sender, message_receiver) = sync::channel(100);
+        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
             config.torii_url.clone(),
             &Vec::new(),
         ))));
-        let pool = ThreadPool::new().expect("Failed to create new Thread Pool.");
-        let network = Arc::new(Mutex::new(Network::new("127.0.0.1:8080")));
         let torii = Torii::new(
             &config.torii_url,
-            pool.clone(),
             Arc::clone(&world_state_view),
             transactions_sender,
             message_sender,
-            network.clone(),
         );
         let (public_key, private_key) = config.key_pair();
-        let kura = Arc::new(Mutex::new(Kura::new(
+        let kura = Arc::new(RwLock::new(Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
             blocks_sender,
@@ -94,73 +86,68 @@ impl Iroha {
             Some(peers) => peers,
             None => vec![iroha_peer_id.clone()],
         };
-        let mut sumeragi = Sumeragi::new(
-            private_key,
-            &peers,
-            iroha_peer_id,
-            config.max_faulty_peers,
-            kura.clone(),
-            world_state_view.clone(),
-            network.clone(),
-        );
-        sumeragi.init().expect("Failed to initialize Sumeragi.");
-        let queue = Arc::new(Mutex::new(Queue::default()));
+        let sumeragi = Arc::new(RwLock::new(
+            Sumeragi::new(
+                private_key,
+                &peers,
+                iroha_peer_id,
+                config.max_faulty_peers,
+                kura.clone(),
+            )
+            .expect("Failed to initialize Sumeragi."),
+        ));
+        let queue = Arc::new(RwLock::new(Queue::default()));
         Iroha {
             queue,
-            torii: Arc::new(Mutex::new(torii)),
-            sumeragi: Arc::new(Mutex::new(sumeragi)),
+            torii: Arc::new(RwLock::new(torii)),
+            sumeragi,
             kura,
             world_state_view,
-            transactions_receiver: Arc::new(Mutex::new(transactions_receiver)),
-            blocks_receiver: Arc::new(Mutex::new(blocks_receiver)),
-            message_receiver: Arc::new(Mutex::new(message_receiver)),
-            last_round_time: Arc::new(Mutex::new(Instant::now())),
-            pool,
-            network,
+            transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
+            blocks_receiver: Arc::new(RwLock::new(blocks_receiver)),
+            message_receiver: Arc::new(RwLock::new(message_receiver)),
+            last_round_time: Arc::new(RwLock::new(Instant::now())),
         }
     }
 
     pub fn start(&self) -> Result<(), String> {
         let kura = Arc::clone(&self.kura);
-        executor::block_on(async move { kura.lock().await.init().await })?;
+        task::block_on(async move { kura.write().await.init().await })?;
         let torii = Arc::clone(&self.torii);
-        self.pool.spawn_ok(async move {
-            if let Err(e) = torii.lock().await.start().await {
+        task::spawn(async move {
+            if let Err(e) = torii.write().await.start().await {
                 eprintln!("Failed to start Torii: {}", e);
             }
         });
         let transactions_receiver = Arc::clone(&self.transactions_receiver);
         let queue = Arc::clone(&self.queue);
-        self.pool.spawn_ok(async move {
-            while let Some(transaction) = transactions_receiver.lock().await.next().await {
-                queue.lock().await.push_pending_transaction(transaction);
+        task::spawn(async move {
+            while let Some(transaction) = transactions_receiver.write().await.next().await {
+                queue.write().await.push_pending_transaction(transaction);
             }
         });
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
         let last_round_time = Arc::clone(&self.last_round_time);
-        let network = Arc::clone(&self.network);
+        let world_state_view = Arc::clone(&self.world_state_view);
         //TODO: decide what should be the minimum time to accumulate tx before creating a block
-        self.pool.spawn_ok(async move {
-            //TODO: move this loop inside Sumeragi
+        task::spawn(async move {
             loop {
-                //Don't pop transactions if there is already a block in discussion
-                if !sumeragi.lock().await.has_pending_block() {
-                    let transactions = queue.lock().await.pop_pending_transactions();
+                let mut sumeragi = sumeragi.write().await;
+                if !sumeragi.has_pending_block() {
+                    let transactions = queue.write().await.pop_pending_transactions();
                     if !transactions.is_empty() {
-                        let mut sumeragi = sumeragi.lock().await;
                         if let Role::Leader = sumeragi.role() {
                             sumeragi
-                                .validate_and_store(transactions)
+                                .validate_and_store(transactions, Arc::clone(&world_state_view))
                                 .await
                                 .expect("Failed to accept transactions into blockchain.");
                         } else {
-                            let network = network.lock().await;
-                            let mut send_futures = Vec::new();
                             //TODO: send pending transactions to all peers and as leader check what tx have already been committed
                             //Sends transactions to leader
+                            let mut send_futures = Vec::new();
                             for transaction in &transactions {
-                                send_futures.push(network.send_request_to(
+                                send_futures.push(Network::send_request_to(
                                     &sumeragi.leader().address,
                                     Request::new(
                                         uri::INSTRUCTIONS_URI.to_string(),
@@ -170,24 +157,24 @@ impl Iroha {
                             }
                             let _results = futures::future::join_all(send_futures).await;
                         }
-                        *last_round_time.lock().await = Instant::now();
+                        *last_round_time.write().await = Instant::now();
                     }
                 }
-                task::sleep(Duration::from_millis(200)).await;
+                task::sleep(Duration::from_millis(20)).await;
             }
         });
         let blocks_receiver = Arc::clone(&self.blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
-        self.pool.spawn_ok(async move {
-            while let Some(block) = blocks_receiver.lock().await.next().await {
-                world_state_view.lock().await.put(&block).await;
+        task::spawn(async move {
+            while let Some(block) = blocks_receiver.write().await.next().await {
+                world_state_view.write().await.put(&block).await;
             }
         });
         let message_receiver = Arc::clone(&self.message_receiver);
         let sumeragi = Arc::clone(&self.sumeragi);
-        self.pool.spawn_ok(async move {
-            while let Some(message) = message_receiver.lock().await.next().await {
-                let _result = sumeragi.lock().await.handle_message(message).await;
+        task::spawn(async move {
+            while let Some(message) = message_receiver.write().await.next().await {
+                let _result = sumeragi.write().await.handle_message(message).await;
             }
         });
         Ok(())

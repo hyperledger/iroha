@@ -51,9 +51,7 @@ impl Kura {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
-                self.world_state_view_tx
-                    .start_send(block.clone())
-                    .map_err(|e| format!("Failed to update world state view: {}", e))?;
+                self.world_state_view_tx.send(block.clone()).await;
                 self.blocks.push(block);
                 Ok(hash)
             }
@@ -135,13 +133,13 @@ impl BlockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::channel::mpsc;
+    use async_std::sync;
     use tempfile::TempDir;
 
     #[async_std::test]
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
-        let (tx, _rx) = mpsc::unbounded();
+        let (tx, _rx) = sync::channel(100);
         assert!(Kura::new("strict".to_string(), temp_dir.path(), tx)
             .init()
             .await
@@ -191,7 +189,7 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = mpsc::unbounded();
+        let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
         kura.store(

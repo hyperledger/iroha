@@ -1,35 +1,27 @@
 use crate::{prelude::*, sumeragi::Message, MessageSender};
-use futures::{executor::ThreadPool, lock::Mutex};
-use iroha_derive::log;
+use async_std::{sync::RwLock, task};
 use iroha_network::prelude::*;
-use iroha_network::Network;
 use std::{convert::TryFrom, sync::Arc};
 
 pub struct Torii {
     url: String,
-    pool_ref: ThreadPool,
-    world_state_view: Arc<Mutex<WorldStateView>>,
-    transaction_sender: Arc<Mutex<TransactionSender>>,
-    message_sender: Arc<Mutex<MessageSender>>,
-    network: Arc<Mutex<Network>>,
+    world_state_view: Arc<RwLock<WorldStateView>>,
+    transaction_sender: Arc<RwLock<TransactionSender>>,
+    message_sender: Arc<RwLock<MessageSender>>,
 }
 
 impl Torii {
     pub fn new(
         url: &str,
-        pool_ref: ThreadPool,
-        world_state_view: Arc<Mutex<WorldStateView>>,
+        world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
         message_sender: MessageSender,
-        network: Arc<Mutex<Network>>,
     ) -> Self {
         Torii {
             url: url.to_string(),
             world_state_view,
-            pool_ref,
-            transaction_sender: Arc::new(Mutex::new(transaction_sender)),
-            message_sender: Arc::new(Mutex::new(message_sender)),
-            network,
+            transaction_sender: Arc::new(RwLock::new(transaction_sender)),
+            message_sender: Arc::new(RwLock::new(message_sender)),
         }
     }
 
@@ -39,33 +31,27 @@ impl Torii {
         let transaction_sender = Arc::clone(&self.transaction_sender);
         let message_sender = Arc::clone(&self.message_sender);
         let state = ToriiState {
-            pool: self.pool_ref.clone(),
             world_state_view,
             transaction_sender,
             message_sender,
         };
-        self.network
-            .lock()
-            .await
-            .listen(Arc::new(Mutex::new(state)), url, handle_connection)
-            .await?;
+        Network::listen(Arc::new(RwLock::new(state)), url, handle_connection).await?;
         Ok(())
     }
 }
 
 struct ToriiState {
-    pool: ThreadPool,
-    world_state_view: Arc<Mutex<WorldStateView>>,
-    transaction_sender: Arc<Mutex<TransactionSender>>,
-    message_sender: Arc<Mutex<MessageSender>>,
+    world_state_view: Arc<RwLock<WorldStateView>>,
+    transaction_sender: Arc<RwLock<TransactionSender>>,
+    message_sender: Arc<RwLock<MessageSender>>,
 }
 
 async fn handle_connection(
     state: State<ToriiState>,
-    stream: Arc<Mutex<dyn AsyncStream>>,
+    stream: Box<dyn AsyncStream>,
 ) -> Result<(), String> {
     let state_arc = Arc::clone(&state);
-    state.lock().await.pool.spawn_ok(async {
+    task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
             eprintln!("Failed to handle message: {}", e);
         }
@@ -73,19 +59,18 @@ async fn handle_connection(
     Ok(())
 }
 
-#[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
         uri::INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 state
-                    .lock()
+                    .write()
                     .await
                     .transaction_sender
-                    .lock()
+                    .write()
                     .await
-                    .start_send(transaction.accept()?)
-                    .map_err(|e| format!("{}", e))?;
+                    .send(transaction.accept()?)
+                    .await;
                 Ok(Response::empty_ok())
             }
             Err(e) => {
@@ -96,7 +81,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
         uri::QUERY_URI => match QueryRequest::try_from(request.payload().to_vec()) {
             Ok(request) => match request
                 .query
-                .execute(&*state.lock().await.world_state_view.lock().await)
+                .execute(&*state.read().await.world_state_view.read().await)
             {
                 Ok(result) => {
                     let result = &result;
@@ -115,13 +100,13 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
         uri::BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
-                    .lock()
+                    .write()
                     .await
                     .message_sender
-                    .lock()
+                    .write()
                     .await
-                    .start_send(message)
-                    .map_err(|e| format!("{}", e))?;
+                    .send(message)
+                    .await;
                 Ok(Response::empty_ok())
             }
             Err(e) => {
@@ -143,8 +128,7 @@ pub mod uri {
 mod tests {
     use super::*;
     use crate::config::Configuration;
-    use async_std::task;
-    use futures::channel::mpsc;
+    use async_std::{sync, task};
     use std::time::Duration;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -154,18 +138,16 @@ mod tests {
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
-        let (tx_tx, _) = mpsc::unbounded();
-        let (ms_tx, _) = mpsc::unbounded();
+        let (tx_tx, _) = sync::channel(100);
+        let (ms_tx, _) = sync::channel(100);
         let mut torii = Torii::new(
             &torii_url,
-            ThreadPool::new().expect("Failed to build Thread Pool."),
-            Arc::new(Mutex::new(WorldStateView::new(Peer::new(
+            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 torii_url.clone(),
                 &Vec::new(),
             )))),
             tx_tx,
             ms_tx,
-            Arc::new(Mutex::new(Network::new("127.0.0.1:8080"))),
         );
         task::spawn(async move {
             if let Err(e) = torii.start().await {
