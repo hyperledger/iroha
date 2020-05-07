@@ -53,9 +53,9 @@ void PendingTransactionStorageInit::setSubscriptions(
         auto prepared_transactions =
             event.proposal.get()->transactions()
             | boost::adaptors::transformed(
-                [](const auto &tx) -> PreparedTransactionDescriptor {
-                  return std::make_pair(tx.creatorAccountId(), tx.hash());
-                });
+                  [](const auto &tx) -> PreparedTransactionDescriptor {
+                    return std::make_pair(tx.creatorAccountId(), tx.hash());
+                  });
         return rxcpp::observable<>::iterate(prepared_transactions);
       })
       .subscribe(pending_storage_lifetime, prepared_txs.get_subscriber());

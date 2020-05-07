@@ -95,10 +95,9 @@ grpc::Status MstTransportGrpc::SendState(
       log_->warn("Check tx presence database error. Batch: {}", *batch);
       continue;
     }
-    auto is_replay = std::any_of(
-        cache_presence->begin(),
-        cache_presence->end(),
-        &iroha::ametsuchi::isAlreadyProcessed);
+    auto is_replay = std::any_of(cache_presence->begin(),
+                                 cache_presence->end(),
+                                 &iroha::ametsuchi::isAlreadyProcessed);
 
     if (not is_replay) {
       new_state += std::move(batch);

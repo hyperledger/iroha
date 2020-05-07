@@ -19,8 +19,13 @@ class StorageTest : public testing::Test {
  public:
   void SetUp() override {
     completer_ = std::make_shared<TestCompleter>();
-    storage = std::make_shared<MstStorageStateImpl>(
-        completer_, getTestLogger("MstState"), getTestLogger("MstStorage"));
+    finalized_txs_ =
+        rxcpp::observable<>::empty<shared_model::interface::types::HashType>();
+    storage =
+        std::make_shared<MstStorageStateImpl>(completer_,
+                                              finalized_txs_,
+                                              getTestLogger("MstState"),
+                                              getTestLogger("MstStorage"));
     fillOwnState();
   }
 
@@ -38,6 +43,7 @@ class StorageTest : public testing::Test {
   const shared_model::interface::types::TimestampType creation_time =
       iroha::time::now();
   std::shared_ptr<TestCompleter> completer_;
+  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
 };
 
 TEST_F(StorageTest, StorageWhenApplyOtherState) {

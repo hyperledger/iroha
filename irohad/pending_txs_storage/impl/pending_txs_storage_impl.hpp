@@ -6,15 +6,16 @@
 #ifndef IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 #define IROHA_PENDING_TXS_STORAGE_IMPL_HPP
 
+#include <boost/bimap.hpp>
+#include <boost/bimap/unordered_multiset_of.hpp>
+#include <boost/bimap/unordered_set_of.hpp>
 #include <list>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
-#include <boost/bimap.hpp>
-#include <boost/bimap/unordered_set_of.hpp>
-#include <boost/bimap/unordered_multiset_of.hpp>
 
 #include <rxcpp/rx-lite.hpp>
+#include "cryptography/hash.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "pending_txs_storage/pending_txs_storage.hpp"
 
@@ -57,7 +58,7 @@ namespace iroha {
             &first_tx_hash) const override;
 
     void insertPresenceCache(
-      std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
+        std::shared_ptr<ametsuchi::TxPresenceCache> &cache) override;
 
    private:
     void updatedBatchesHandler(const SharedState &updated_batches);
@@ -106,21 +107,16 @@ namespace iroha {
      * stored batches. Used for query response and memory management.
      */
     struct AccountBatches {
-      class HashTypeHasher {
-      public:
-        size_t operator()(const HashType &hashVal) const {
-            return std::hash<std::string>{}(hashVal.hex());
-        }
-      };
-
       using BatchPtr = std::shared_ptr<TransactionBatch>;
       using BatchesBimap = boost::bimap<
-                                        boost::bimaps::unordered_set_of<HashType, HashTypeHasher>,
-                                        boost::bimaps::unordered_multiset_of<BatchPtr>
-                                        >;
+          boost::bimaps::unordered_set_of<HashType,
+                                          shared_model::crypto::HashTypeHasher>,
+          boost::bimaps::unordered_multiset_of<BatchPtr> >;
 
       std::list<BatchPtr> batches;
-      std::unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher> index;
+      std::
+          unordered_map<HashType, decltype(batches)::iterator, HashType::Hasher>
+              index;
       BatchesBimap trxsToBatches;
 
       uint64_t all_transactions_quantity{0};
