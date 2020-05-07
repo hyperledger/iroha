@@ -8,8 +8,7 @@ use tempfile::TempDir;
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
 fn query_requests(criterion: &mut Criterion) {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let iroha_thread = thread::spawn(|| create_and_start_iroha(rx));
+    thread::spawn(|| create_and_start_iroha());
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
     let domain_name = "domain2";
@@ -65,14 +64,11 @@ fn query_requests(criterion: &mut Criterion) {
         "Success count: {}, Failures count: {}",
         success_count, failures_count
     );
-    tx.send(0).expect("Failed to send command to stop Iroha.");
-    iroha_thread.join().expect("Failed to join Iroha thread.");
     group.finish();
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let iroha_thread = thread::spawn(|| create_and_start_iroha(rx));
+    thread::spawn(|| create_and_start_iroha());
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("command-reqeuests");
     let create_role = CreateRole {
@@ -121,12 +117,10 @@ fn instruction_submits(criterion: &mut Criterion) {
         "Success count: {}, Failures count: {}",
         success_count, failures_count
     );
-    tx.send(0).expect("Failed to send command to stop Iroha.");
-    iroha_thread.join().expect("Failed to join Iroha thread.");
     group.finish();
 }
 
-fn create_and_start_iroha(rx: std::sync::mpsc::Receiver<u8>) {
+fn create_and_start_iroha() {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
@@ -134,7 +128,7 @@ fn create_and_start_iroha(rx: std::sync::mpsc::Receiver<u8>) {
     let iroha = Iroha::new(configuration);
     iroha.start().expect("Failed to start Iroha.");
     //Prevents temp_dir from clean up untill the end of the tests.
-    rx.recv().expect("Failed to receive command to stop Iroha.");
+    loop {}
 }
 
 criterion_group!(instructions, instruction_submits);
