@@ -1400,8 +1400,7 @@ namespace iroha {
         std::shared_ptr<PostgresSpecificQueryExecutor> specific_query_executor)
         : sql_(std::move(sql)),
           perm_converter_{std::move(perm_converter)},
-          specific_query_executor_{std::move(specific_query_executor)},
-          burrow_storage_(std::make_unique<PostgresBurrowStorage>(*sql_)) {
+          specific_query_executor_{std::move(specific_query_executor)} {
       initStatements();
     }
 
