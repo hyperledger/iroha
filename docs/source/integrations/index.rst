@@ -31,4 +31,11 @@ Hyperledger Burrow
 
 `Hyperledger Burrow <https://wiki.hyperledger.org/display/burrow>`_ provides a modular blockchain client with a permissioned smart contract interpreter partially developed to the specification of the Ethereum Virtual Machine (EVM).
 
-We will soon prepare instructions on how to use Burrow integrated into Iroha.
+So, with HL Burrow you can use Solidity smart-contracts on Iroha.
+Click below to learn more.
+
+.. toctree::
+    :maxdepth: 2
+
+    burrow.rst
+    burrow_example.rst
