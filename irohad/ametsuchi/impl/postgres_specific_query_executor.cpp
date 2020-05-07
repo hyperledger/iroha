@@ -83,13 +83,12 @@ namespace {
    * It verifies individual, domain, and global permissions, and returns true if
    * any of listed permissions is present
    */
-  auto hasQueryPermission(
-      const shared_model::interface::types::AccountIdType &creator,
-      const shared_model::interface::types::AccountIdType &target_account,
+  auto hasQueryPermissionInternal(
+      shared_model::interface::types::AccountIdType const &creator,
+      std::string const &target_account_req,
       Role indiv_permission_id,
       Role all_permission_id,
-      Role domain_permission_id,
-      std::optional<shared_model::interface::types::AccountIdType> target_req = std::nullopt) {
+      Role domain_permission_id) {
     const auto bits = shared_model::interface::RolePermissionSet::size();
     const auto perm_str =
         shared_model::interface::RolePermissionSet({indiv_permission_id})
@@ -107,7 +106,7 @@ namespace {
         R"(
     WITH
         target AS ({7}),
-        target_domain AS (split_part(target, '@', 2)),
+        target_domain AS (select split_part(target.t, '@', 2) as td from target),
         has_root_perm AS ({0}),
         has_indiv_perm AS (
           SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
@@ -128,9 +127,9 @@ namespace {
               WHERE ar.account_id = '{2}'
         )
     SELECT (SELECT * from has_root_perm)
-        OR ('{2}' = target AND (SELECT * FROM has_indiv_perm))
+        OR ('{2}' = (select t from target) AND (SELECT * FROM has_indiv_perm))
         OR (SELECT * FROM has_all_perm)
-        OR ('{6}' = target_domain AND (SELECT * FROM has_domain_perm)) AS perm
+        OR ('{6}' = (select td from target_domain) AND (SELECT * FROM has_domain_perm)) AS perm
     )",
         getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted),
         bits,
@@ -139,8 +138,34 @@ namespace {
         all_perm_str,
         domain_perm_str,
         iroha::ametsuchi::getDomainFromName(creator),
-        (!target_req ? fmt::format("SELECT '{}'", target_account) : *target_req)
+        target_account_req
     );
+  }
+
+  auto hasQueryPermissionTarget(
+      shared_model::interface::types::AccountIdType const &creator,
+      shared_model::interface::types::AccountIdType const &target_account,
+      Role indiv_permission_id,
+      Role all_permission_id,
+      Role domain_permission_id) {
+    return hasQueryPermissionInternal(creator,
+      fmt::format("select '{}'::text as t", target_account),
+      indiv_permission_id,
+      all_permission_id,
+      domain_permission_id);
+  }
+
+  auto hasQueryPermissionTargetRequest(
+      const shared_model::interface::types::AccountIdType &creator,
+      const std::string &request,
+      Role indiv_permission_id,
+      Role all_permission_id,
+      Role domain_permission_id) {
+    return hasQueryPermissionInternal(creator,
+      request,
+      indiv_permission_id,
+      all_permission_id,
+      domain_permission_id);
   }
 
   /// Query result is a tuple of optionals, since there could be no entry
@@ -458,7 +483,7 @@ namespace iroha {
 
       auto query = fmt::format(
           base,
-          hasQueryPermission(creator_id, q.accountId(), perms...),
+          hasQueryPermissionTarget(creator_id, q.accountId(), perms...),
           (ordering_str_.empty() ? "" : ordering_str_.c_str()),
           related_txs,
           (first_hash
@@ -564,7 +589,7 @@ namespace iroha {
       SELECT account_id, domain_id, quorum, data, roles, perm
       FROM t RIGHT OUTER JOIN has_perms AS p ON TRUE
       )",
-                             hasQueryPermission(creator_id,
+                             hasQueryPermissionTarget(creator_id,
                                                 q.accountId(),
                                                 Role::kGetMyAccount,
                                                 Role::kGetAllAccounts,
@@ -662,7 +687,7 @@ namespace iroha {
       SELECT public_key, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
       )",
-                             hasQueryPermission(creator_id,
+                             hasQueryPermissionTarget(creator_id,
                                                 q.accountId(),
                                                 Role::kGetMySignatories,
                                                 Role::kGetAllSignatories,
@@ -929,7 +954,7 @@ namespace iroha {
               page_data
               right join has_perms on true
       )",
-                             hasQueryPermission(creator_id,
+                             hasQueryPermissionTarget(creator_id,
                                                 q.accountId(),
                                                 Role::kGetMyAccAst,
                                                 Role::kGetAllAccAst,
@@ -1092,7 +1117,7 @@ namespace iroha {
       select detail.*, perm from detail
       right join has_perms on true
       )",
-                             hasQueryPermission(creator_id,
+                             hasQueryPermissionTarget(creator_id,
                                                 q.accountId(),
                                                 Role::kGetMyAccDetail,
                                                 Role::kGetAllAccDetail,
@@ -1459,33 +1484,49 @@ namespace iroha {
         const shared_model::interface::GetEngineReceipts &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      auto cmd = fmt::format(R"(
-            WITH has_perms AS ({}),
-            engine_responses AS (
-            SELECT cmd_index, engine_response
-            FROM engine_calls
-            WHERE creator_id=:creator_account_id and tx_hash=:tx_hash)
-            SELECT * FROM engine_responses
-            RIGHT OUTER JOIN has_perms ON TRUE;
-            )",
-             hasQueryPermission(creator_id,
-                    creator_id,
-                    Role::kGetMyEngineReceipts,
-                    Role::kGetAllEngineReceipts,
-                    Role::kGetDomainEngineReceipts,
-                    "select creator_id "
+
+      char const *target_request = "select creator_id  as t"
                       "from position_by_hash "
                       "inner join tx_position_by_creator "
                       "on hash=:tx_hash and "
                       "position_by_hash.height = tx_position_by_creator.height and "
-                      "position_by_hash.index = tx_position_by_creator.index;")
-                    );
+                      "position_by_hash.index = tx_position_by_creator.index";
+
+      auto cmd = fmt::format(R"(
+            with  has_perms AS ({}),
+                  creator as (select creator_id, hash
+                              from position_by_hash
+                              inner join tx_position_by_creator
+                              on hash =:tx_hash and
+                              position_by_hash.height = tx_position_by_creator.height and
+                              position_by_hash.index = tx_position_by_creator.index)
+            select
+                    engine_calls.cmd_index,
+                    creator.creator_id,
+                    engine_calls.callee,
+                    engine_calls.created_address,
+                    burrow_tx_logs.log_idx,
+                    burrow_tx_logs.address,
+                    burrow_tx_logs.data,
+                    burrow_tx_logs_topics.topic
+            from engine_calls
+            inner join creator on engine_calls.tx_hash = creator.hash
+            inner join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
+            inner join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
+            RIGHT OUTER JOIN has_perms ON TRUE;
+            )",
+             hasQueryPermissionTargetRequest(creator_id,
+                    target_request,
+                    Role::kGetMyEngineReceipts,
+                    Role::kGetAllEngineReceipts,
+                    Role::kGetDomainEngineReceipts
+                    ));
 
       using QueryTuple =
           QueryType<
               shared_model::interface::types::CommandIndexType,
               shared_model::interface::types::AccountIdType,
-              uint32_t,
+              shared_model::interface::types::EvmAddressHexString,
               shared_model::interface::types::EvmAddressHexString,
               uint32_t,
               shared_model::interface::types::EvmAddressHexString,
@@ -1498,7 +1539,6 @@ namespace iroha {
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
             return (sql_.prepare << cmd,
-                    soci::use(creator_id, "creator_account_id"),
                     soci::use(q.txHash(), "tx_hash"));
           },
           query_hash,
@@ -1527,28 +1567,42 @@ namespace iroha {
                   row, [&q, &cmd_ix, &store_record, &record, &log, &records, &l_ix](
                                   auto &cmd_index,
                                   auto &account_id_type,
-                                  auto &payload_type,
-                                  auto &payload,
+                                  auto &payload_callee,
+                                  auto &payload_cantract_address,
                                   auto &logs_ix,
                                   auto &log_address,
                                   auto &log_data,
                                   auto &log_topic
                                   ) {
+                    auto payloadToPayloadType = [](
+                        std::optional<shared_model::interface::types::EvmAddressHexString> const &callee,
+                        std::optional<shared_model::interface::types::EvmAddressHexString> const &contract_address,
+                        shared_model::interface::types::EvmAddressHexString const *&target)
+                    {
+                      assert(!callee != !contract_address);
+                      if (!!callee) {
+                          target = &(*callee);
+                          return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallee;
+                      }
+                      target = &(*contract_address);
+                      return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress;
+                    };
 
                     {
+                      shared_model::interface::types::EvmAddressHexString const *target;
                       if (!record) {
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
                                     account_id_type,
-                                    shared_model::interface::EngineReceipt::PayloadType(payload_type),
-                                    payload
+                                    payloadToPayloadType(payload_callee, payload_cantract_address, target),
+                                    *target
                                  );
                         cmd_ix = cmd_index;
                       } else if (cmd_index != cmd_ix) {
                         store_record(records, std::move(record), std::move(log));
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
                                     account_id_type,
-                                    shared_model::interface::EngineReceipt::PayloadType(payload_type),
-                                    payload
+                                    payloadToPayloadType(payload_callee, payload_cantract_address, target),
+                                    *target
                                  );
                         cmd_ix = cmd_index;
                       }

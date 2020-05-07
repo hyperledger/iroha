@@ -142,7 +142,7 @@ message Query {
       GetPendingTransactions get_pending_transactions = 13;
       GetBlock get_block = 14;
       GetPeers get_peers = 15;
-      GetEngineReceipts get_engine_response = 16;
+      GetEngineReceipts get_engine_receipts = 16;
     }
   }
 
