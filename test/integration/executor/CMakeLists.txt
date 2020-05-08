@@ -17,6 +17,7 @@ target_link_libraries(executor_fixture_param_postgres
     executor_fixture_param
     GTest::gmock
     postgres_burrow_storage
+    postgres_indexer
     shared_model_proto_backend
     test_db_manager
     test_logger

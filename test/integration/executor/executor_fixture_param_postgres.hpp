@@ -43,12 +43,17 @@ namespace executor_testing {
         shared_model::interface::types::CommandIndexType cmd_index)
         const override;
 
+    std::shared_ptr<iroha::ametsuchi::BlockIndex> getBlockIndexer()
+        const override;
+
     std::string toString() const override;
 
    private:
     std::unique_ptr<iroha::integration_framework::TestDbManager> db_manager_;
     iroha::integration_framework::ExecutorItfTarget executor_itf_target_;
     std::unique_ptr<soci::session> burrow_storage_session_;
+    std::unique_ptr<soci::session> block_indexer_session_;
+    std::shared_ptr<iroha::ametsuchi::BlockIndex> block_indexer_;
   };
 }  // namespace executor_testing
 

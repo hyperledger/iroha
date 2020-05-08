@@ -106,13 +106,28 @@ add_library(ametsuchi
     impl/postgres_setting_query.cpp
     impl/executor_common.cpp
     impl/postgres_command_executor.cpp
-    impl/postgres_indexer.cpp
-    impl/postgres_block_index.cpp
     impl/wsv_restorer_impl.cpp
     impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
+    )
+
+add_library(postgres_indexer
+    impl/postgres_indexer.cpp
+    impl/postgres_block_index.cpp
+    )
+target_link_libraries(postgres_indexer
+    common
+    logger
+    shared_model_interfaces
+    shared_model_cryptography
+    SOCI::postgresql
+    SOCI::core
+    )
+
+target_compile_definitions(postgres_indexer
+    PRIVATE SOCI_USE_BOOST HAVE_BOOST
     )
 
 add_library(postgres_burrow_storage
@@ -140,6 +155,7 @@ target_link_libraries(ametsuchi
     pg_connection_init
     flat_file_storage
     k_times_reconnection_strategy
+    postgres_indexer
     postgres_storage
     logger
     logger_manager
