@@ -1,9 +1,8 @@
-pub mod mock;
-
 use async_std::{
-    net::{TcpListener, TcpStream},
+    io::{Read, Write},
     prelude::*,
-    sync::RwLock,
+    sync::{self, Arc, RwLock, Sender},
+    task,
 };
 use iroha_derive::{log, Io};
 use parity_scale_codec::{Decode, Encode};
@@ -11,14 +10,76 @@ use std::{
     convert::{TryFrom, TryInto},
     error::Error,
     future::Future,
-    sync::Arc,
+    pin::Pin,
+    task::{Context, Poll},
 };
 
 const BUFFER_SIZE: usize = 2048;
+static mut ENDPOINTS: Vec<(String, Sender<RequestStream>)> = Vec::new();
+
+fn find_sender(server_url: &str) -> Sender<RequestStream> {
+    unsafe {
+        for tuple in ENDPOINTS.iter() {
+            if tuple.0 == server_url {
+                return tuple.1.clone();
+            }
+        }
+    }
+    panic!("Can't find ENDPOINT: {}", server_url);
+}
 
 pub type State<T> = Arc<RwLock<T>>;
-pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
-impl<T> AsyncStream for T where T: async_std::io::Read + async_std::io::Write + Send + Unpin {}
+pub trait AsyncStream: Read + Write + Send + Unpin {}
+impl<T> AsyncStream for T where T: Read + Write + Send + Unpin {}
+
+struct RequestStream {
+    bytes: Vec<u8>,
+    tx: Sender<Vec<u8>>,
+}
+
+impl Unpin for RequestStream {}
+
+impl Read for RequestStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<async_std::io::Result<usize>> {
+        let bytes = &mut self.get_mut().bytes;
+        let length = if buf.len() > bytes.len() {
+            bytes.len()
+        } else {
+            buf.len()
+        };
+        for (i, byte) in bytes.drain(..length).enumerate() {
+            buf[i] = byte;
+        }
+        Poll::Ready(Ok(length))
+    }
+}
+
+impl Write for RequestStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<async_std::io::Result<usize>> {
+        let bytes = &mut self.get_mut().bytes;
+        for byte in buf.to_vec() {
+            bytes.push(byte);
+        }
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
+        task::block_on(self.tx.send(self.bytes.clone()));
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<async_std::io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
 
 #[derive(Debug)]
 pub struct Network {
@@ -26,44 +87,31 @@ pub struct Network {
 }
 
 impl Network {
-    /// Creates a new client that will send request to the server on `server_url`
-    /// # Arguments
-    ///
-    /// * `server_url` - is of format ip:port
-    ///
-    /// # Examples
-    /// ```
-    /// use iroha_network::Network;
-    ///
-    /// //If server runs on port 7878 on localhost
-    /// let client = Network::new("127.0.0.1:7878");
-    /// ```
     pub fn new(server_url: &str) -> Network {
         Network {
             server_url: server_url.to_string(),
         }
     }
 
-    /// Establishes connection to server on `self.server_url`, sends `request` closes connection and returns `Response`.
     pub async fn send_request(&self, request: Request) -> Result<Response, String> {
         Network::send_request_to(&self.server_url, request).await
     }
 
-    /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
     #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
-        let mut stream = TcpStream::connect(server_url)
-            .await
-            .map_err(|e| e.to_string())?;
+        let (tx, rx) = sync::channel(100);
+        let mut stream = RequestStream {
+            bytes: Vec::new(),
+            tx,
+        };
         let payload: Vec<u8> = request.into();
         stream
             .write_all(&payload)
             .await
             .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
-        let mut buffer = vec![0u8; BUFFER_SIZE];
-        let read_size = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
-        Ok(Response::try_from(buffer[..read_size].to_vec())?)
+        find_sender(server_url).send(stream).await;
+        //TODO: return actual response
+        Ok(Response::try_from(rx.recv().await.unwrap())?)
     }
 
     /// Listens on the specified `server_url`.
@@ -82,15 +130,13 @@ impl Network {
         H: FnMut(State<S>, Box<dyn AsyncStream>) -> F,
         F: Future<Output = Result<(), String>>,
     {
-        let listener = TcpListener::bind(server_url)
-            .await
-            .map_err(|e| e.to_string())?;
-        while let Some(stream) = listener.incoming().next().await {
-            handler(
-                Arc::clone(&state),
-                Box::new(stream.map_err(|e| e.to_string())?),
-            )
-            .await?;
+        let (tx, rx) = sync::channel(100);
+        unsafe {
+            ENDPOINTS.push((server_url.to_string(), tx));
+            eprintln!("EEEEEEEEEE: {:?}", ENDPOINTS);
+        }
+        while let Some(stream) = rx.recv().await {
+            handler(Arc::clone(&state), Box::new(stream)).await?;
         }
         Ok(())
     }
@@ -259,7 +305,7 @@ mod tests {
         task::spawn(async move {
             Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        task::sleep(std::time::Duration::from_millis(150)).await;
         match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
             .await
             .expect("Failed to send request to.")
@@ -291,7 +337,7 @@ mod tests {
         task::spawn(async move {
             Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        task::sleep(std::time::Duration::from_millis(150)).await;
         match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
             .await
             .expect("Failed to send request to.")
@@ -299,11 +345,11 @@ mod tests {
             Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
             _ => panic!("Response should be ok."),
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        task::sleep(std::time::Duration::from_millis(200)).await;
         task::spawn(async move {
             let data = counter.write().await;
             assert_eq!(*data, 1)
         });
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        task::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
