@@ -12,6 +12,7 @@
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha::ametsuchi {
+  class BlockIndex;
   class BurrowStorage;
   class MockVmCaller;
 }  // namespace iroha::ametsuchi
@@ -35,6 +36,10 @@ namespace executor_testing {
     virtual std::unique_ptr<iroha::ametsuchi::BurrowStorage> makeBurrowStorage(
         std::string const &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index) const = 0;
+
+    /// Get block indexer for this backend.
+    virtual std::shared_ptr<iroha::ametsuchi::BlockIndex> getBlockIndexer()
+        const = 0;
 
     /// Implementations must define this to provide backend description.
     virtual std::string toString() const = 0;
