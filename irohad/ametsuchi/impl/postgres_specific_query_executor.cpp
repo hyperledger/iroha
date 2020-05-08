@@ -1485,7 +1485,7 @@ namespace iroha {
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
 
-      char const *target_request = "select creator_id  as t"
+      char const *target_request = "select creator_id  as t "
                       "from position_by_hash "
                       "inner join tx_position_by_creator "
                       "on hash=:tx_hash and "
@@ -1508,7 +1508,8 @@ namespace iroha {
                     burrow_tx_logs.log_idx,
                     burrow_tx_logs.address,
                     burrow_tx_logs.data,
-                    burrow_tx_logs_topics.topic
+                    burrow_tx_logs_topics.topic,
+                    has_perms.perm
             from engine_calls
             inner join creator on engine_calls.tx_hash = creator.hash
             inner join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id

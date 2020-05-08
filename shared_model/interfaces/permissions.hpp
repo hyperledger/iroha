@@ -38,9 +38,6 @@ namespace shared_model {
         kGetMySignatories,
         kGetAllSignatories,
         kGetDomainSignatories,
-        kGetMyEngineReceipts,
-        kGetDomainEngineReceipts,
-        kGetAllEngineReceipts,
         kGetMyAccAst,
         kGetAllAccAst,
         kGetDomainAccAst,
@@ -68,6 +65,9 @@ namespace shared_model {
         kRoot,
         kCallEngine,
         kGrantCallEngineOnMyBehalf,
+        kGetMyEngineReceipts,
+        kGetDomainEngineReceipts,
+        kGetAllEngineReceipts,
 
         COUNT
       };
