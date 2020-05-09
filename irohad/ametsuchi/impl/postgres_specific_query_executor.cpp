@@ -1544,8 +1544,6 @@ namespace iroha {
           },
           query_hash,
           [&](auto range, auto &) {
-            auto range_without_nulls = resultWithoutNulls(std::move(range));
-
             using RecordsCollection = std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>>;
             using RecordPtr = std::unique_ptr<shared_model::plain::EngineReceipt>;
             using EngineLogPtr = std::unique_ptr<shared_model::plain::EngineLog>;
@@ -1554,7 +1552,6 @@ namespace iroha {
             RecordPtr record;
             EngineLogPtr log;
             uint32_t l_ix;
-            uint32_t cmd_ix;
 
             auto store_record = [](RecordsCollection &records, RecordPtr &&rec, EngineLogPtr &&el) {
               assert(!!rec);
@@ -1563,9 +1560,9 @@ namespace iroha {
               records.emplace_back(std::move(rec));
             };
 
-            for (const auto &row : range_without_nulls) {
+            for (const auto &row : range) {
               iroha::ametsuchi::apply(
-                  row, [&q, &cmd_ix, &store_record, &record, &log, &records, &l_ix](
+                  row, [&q, &store_record, &record, &log, &records, &l_ix](
                                   auto &cmd_index,
                                   auto &account_id_type,
                                   auto &payload_callee,
@@ -1575,6 +1572,14 @@ namespace iroha {
                                   auto &log_data,
                                   auto &log_topic
                                   ) {
+                    if (!cmd_index ||
+                        !account_id_type ||
+                        !logs_ix ||
+                        !log_address ||
+                        !log_data ||
+                        !log_topic)
+                        return;
+
                     auto payloadToPayloadType = [](
                         std::optional<shared_model::interface::types::EvmAddressHexString> const &callee,
                         std::optional<shared_model::interface::types::EvmAddressHexString> const &contract_address,
@@ -1591,34 +1596,35 @@ namespace iroha {
 
                     {
                       shared_model::interface::types::EvmAddressHexString const *target;
+                      auto const pt = payloadToPayloadType(payload_callee, payload_cantract_address, target);
                       if (!record) {
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
-                                    account_id_type,
-                                    payloadToPayloadType(payload_callee, payload_cantract_address, target),
+                                    *cmd_index,
+                                    *account_id_type,
+                                    pt,
                                     *target
                                  );
-                        cmd_ix = cmd_index;
-                      } else if (cmd_index != cmd_ix) {
+                      } else if (*cmd_index != record->getCommandIndex()) {
                         store_record(records, std::move(record), std::move(log));
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
-                                    account_id_type,
-                                    payloadToPayloadType(payload_callee, payload_cantract_address, target),
+                                    *cmd_index,
+                                    *account_id_type,
+                                    pt,
                                     *target
                                  );
-                        cmd_ix = cmd_index;
                       }
                     }
 
                     if (!log) {
-                      log = std::make_unique<shared_model::plain::EngineLog>(log_address, log_data);
-                      l_ix = logs_ix;
+                      log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
+                      l_ix = *logs_ix;
                     }
-                    if (logs_ix != l_ix) {
+                    if (*logs_ix != l_ix) {
                       record->getMutableLogs().emplace_back(std::move(log));
-                      log = std::make_unique<shared_model::plain::EngineLog>(log_address, log_data);
-                      l_ix = logs_ix;
+                      log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
+                      l_ix = *logs_ix;
                     }
-                    log->addTopic(log_topic);
+                    log->addTopic(*log_topic);
                   });
             }
             if (!!record) {

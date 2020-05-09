@@ -123,12 +123,13 @@ message EngineLog {
 }
 
 message EngineReceipt {
-  string caller = 6;
+  int32 command_index = 1;
+  string caller = 2;
   oneof opt_to_contract_address {
-    string callee = 7;
-    string contract_address = 8;
+    string callee = 3;
+    string contract_address = 4;
   }
-  repeated EngineLog logs = 9;
+  repeated EngineLog logs = 5;
 }
 
 

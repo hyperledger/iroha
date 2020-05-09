@@ -9,11 +9,13 @@ using namespace shared_model::interface::types;
 using namespace shared_model::plain;
 
 EngineReceipt::EngineReceipt(
+    shared_model::interface::types::CommandIndexType cmd_index,
     shared_model::interface::types::AccountIdType const &caller,
     shared_model::interface::EngineReceipt::PayloadType payload_type,
     shared_model::interface::types::EvmAddressHexString const &payload
     )
-    : caller_(caller)
+    : cmd_index_(cmd_index)
+    , caller_(caller)
     , payload_type_(payload_type)
     , payload_(payload)
     { }
@@ -24,6 +26,10 @@ shared_model::interface::types::AccountIdType  EngineReceipt::getCaller() const 
 
 shared_model::interface::EngineReceipt::PayloadType  EngineReceipt::getPayloadType() const {
     return payload_type_;
+}
+
+int32_t EngineReceipt::getCommandIndex() const {
+    return cmd_index_;
 }
 
 shared_model::interface::types::EvmAddressHexString const &EngineReceipt::getPayload() const {

@@ -18,11 +18,13 @@ namespace shared_model {
     class EngineReceipt final : public interface::EngineReceipt {
      public:
       EngineReceipt(
+          interface::types::CommandIndexType cmd_index,
           interface::types::AccountIdType const &caller,
           interface::EngineReceipt::PayloadType payload_type,
           interface::types::EvmAddressHexString const &payload
           );
 
+      int32_t getCommandIndex() const override;
       interface::types::AccountIdType getCaller() const override;
       interface::EngineReceipt::PayloadType getPayloadType() const override;
       interface::types::EvmAddressHexString const &getPayload() const override;
@@ -30,6 +32,7 @@ namespace shared_model {
       interface::EngineReceipt::EngineLogsCollectionType &getMutableLogs();
 
      private:
+      interface::types::CommandIndexType const            cmd_index_;
       interface::types::AccountIdType const               caller_;
       interface::EngineReceipt::PayloadType const         payload_type_;
       interface::types::EvmAddressHexString const         payload_;

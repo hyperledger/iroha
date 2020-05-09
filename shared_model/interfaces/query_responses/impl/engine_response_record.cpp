@@ -14,7 +14,8 @@ bool EngineReceipt::operator==(ModelType const &rhs) const {
         return true;
     }
 
-    return getCaller() == rhs.getCaller() &&
+    return getCommandIndex() == rhs.getCommandIndex() &&
+            getCaller() == rhs.getCaller() &&
             getPayloadType() == rhs.getPayloadType() &&
             getPayload() == rhs.getPayload() &&
             getEngineLogs() == rhs.getEngineLogs();
@@ -23,6 +24,7 @@ bool EngineReceipt::operator==(ModelType const &rhs) const {
 std::string EngineReceipt::toString() const {
   return detail::PrettyStringBuilder()
       .init("EngineReceipt")
+      .appendNamed("command_index", getCommandIndex())
       .appendNamed("from", getCaller())
       .appendNamed("payload_type", EngineReceipt::payloadTypeToStr(getPayloadType()))
       .appendNamed("payload", getPayload())

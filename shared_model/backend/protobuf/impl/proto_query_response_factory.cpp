@@ -395,6 +395,7 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
             }
           }
 
+          proto_receipt->set_command_index(receipt->getCommandIndex());
           proto_receipt->set_caller(receipt->getCaller());
           switch (receipt->getPayloadType()) {
             case interface::EngineReceipt::PayloadType::kPayloadTypeCallee: {
