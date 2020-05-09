@@ -32,8 +32,8 @@ namespace logger {
 
   LoggerManagerTreePtr LoggerManagerTree::registerChild(
       std::string tag,
-      boost::optional<LogLevel> log_level,
-      boost::optional<LogPatterns> patterns) {
+      std::optional<LogLevel> log_level,
+      std::optional<LogPatterns> patterns) {
     LoggerConfig child_config{
         log_level.value_or(config_->log_level),
         patterns ? std::move(patterns)->inherit(config_->patterns)

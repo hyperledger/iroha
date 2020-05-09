@@ -10,10 +10,10 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
-#include <boost/optional.hpp>
 #include "logger/logger_spdlog.hpp"
 
 namespace logger {
@@ -38,8 +38,8 @@ namespace logger {
      * @param patterns - override the patterns
      */
     LoggerManagerTreePtr registerChild(std::string tag,
-                                       boost::optional<LogLevel> log_level,
-                                       boost::optional<LogPatterns> patterns);
+                                       std::optional<LogLevel> log_level,
+                                       std::optional<LogPatterns> patterns);
 
     /// Get this node's logger. Thread safe.
     LoggerPtr getLogger();
