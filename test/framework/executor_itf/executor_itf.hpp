@@ -213,14 +213,6 @@ namespace iroha {
             executeQuery(specific_query, std::forward<Types>(args)...));
       }
 
-      /**
-       * Execute GetEngineReceipts with the metadata referring to the last
-       * command executed with executeCommand method.
-       * @return Result of query execution.
-       */
-      SpecificQueryResult<shared_model::interface::EngineResponse>
-      getLastEngineResultResponse();
-
       // -------------- mock command and query factories getters ---------------
 
       /// Get mock command factory.

@@ -289,13 +289,4 @@ struct MockBlockJsonConverter
           const shared_model::interface::types::JsonType &json));
 };
 
-struct MockEngineResponseRecord
-    : public shared_model::interface::EngineResponseRecord {
-  MOCK_CONST_METHOD0(commandIndex,
-                     shared_model::interface::types::CommandIndexType());
-  MOCK_CONST_METHOD0(
-      response,
-      const shared_model::interface::types::SmartContractCodeType &());
-};
-
 #endif  // IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP

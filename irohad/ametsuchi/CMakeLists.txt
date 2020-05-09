@@ -115,25 +115,19 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     )
 
+add_library(postgres_burrow_storage
+    impl/burrow_storage.cpp
+    impl/postgres_burrow_storage.cpp
+    )
+target_link_libraries(postgres_burrow_storage common)
+
 add_library(default_vm_call INTERFACE)
 if(USE_BURROW)
-    add_library(postgres_burrow_storage
-        impl/burrow_storage.cpp
-        impl/postgres_burrow_storage.cpp
-        )
-    target_link_libraries(postgres_burrow_storage common)
-
-    add_library(burrow_storage
-        impl/burrow_storage.cpp
-        impl/postgres_burrow_storage.cpp
-        )
-    target_link_libraries(burrow_storage common)
-
     add_library(burrow_vm_caller impl/burrow_vm_caller.cpp)
     target_link_libraries(burrow_vm_caller
         burrow_vm_caller_generated
         fmt::fmt
-        burrow_storage
+        postgres_burrow_storage
         proto_command_executor
         proto_specific_query_executor
         )

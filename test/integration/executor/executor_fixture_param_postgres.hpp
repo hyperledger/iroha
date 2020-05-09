@@ -8,6 +8,10 @@
 
 #include "integration/executor/executor_fixture_param.hpp"
 
+namespace soci {
+  class session;
+}
+
 namespace iroha {
   namespace integration_framework {
     class TestDbManager;
@@ -34,11 +38,17 @@ namespace executor_testing {
     iroha::integration_framework::ExecutorItfTarget getExecutorItfParam()
         const override;
 
+    std::unique_ptr<iroha::ametsuchi::BurrowStorage> makeBurrowStorage(
+        std::string const &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index)
+        const override;
+
     std::string toString() const override;
 
    private:
     std::unique_ptr<iroha::integration_framework::TestDbManager> db_manager_;
     iroha::integration_framework::ExecutorItfTarget executor_itf_target_;
+    std::unique_ptr<soci::session> burrow_storage_session_;
   };
 }  // namespace executor_testing
 

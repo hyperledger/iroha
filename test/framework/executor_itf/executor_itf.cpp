@@ -87,16 +87,6 @@ iroha::ametsuchi::QueryExecutorResult ExecutorItf::executeQuery(
   return query_executor_->execute(query);
 }
 
-iroha::integration_framework::ExecutorItf::SpecificQueryResult<
-    shared_model::interface::EngineResponse>
-ExecutorItf::getLastEngineResultResponse() {
-  assert(last_executed_cmd_meta_);
-  auto query = getMockQueryFactory()->constructGetEngineReceipts(
-      last_executed_cmd_meta_->tx_hash);
-  return executeQuery(
-      *query, last_executed_cmd_meta_->creator_account_id, boost::none);
-}
-
 const std::unique_ptr<shared_model::interface::MockCommandFactory>
     &ExecutorItf::getMockCommandFactory() const {
   return mock_command_factory_;
