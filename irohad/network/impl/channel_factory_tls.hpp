@@ -20,9 +20,9 @@ namespace iroha {
      public:
       ChannelFactoryTls(
           std::shared_ptr<const GrpcChannelParams> params,
-          boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
+          std::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
               peer_cert_provider,
-          boost::optional<std::shared_ptr<const TlsCredentials>> my_creds);
+          std::optional<std::shared_ptr<const TlsCredentials>> my_creds);
 
      protected:
       iroha::expected::Result<std::shared_ptr<grpc::ChannelCredentials>,
@@ -31,9 +31,9 @@ namespace iroha {
           const shared_model::interface::Peer &peer) const override;
 
      private:
-      boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
+      std::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
           peer_cert_provider_;
-      boost::optional<std::shared_ptr<const TlsCredentials>> my_creds_;
+      std::optional<std::shared_ptr<const TlsCredentials>> my_creds_;
     };
 
   }  // namespace network

@@ -15,12 +15,12 @@ namespace iroha {
     PeerQueryWsv::PeerQueryWsv(std::shared_ptr<WsvQuery> wsv)
         : wsv_(std::move(wsv)) {}
 
-    boost::optional<std::vector<PeerQuery::wPeer>>
+    std::optional<std::vector<PeerQuery::wPeer>>
     PeerQueryWsv::getLedgerPeers() {
       return wsv_->getPeers();
     }
 
-    boost::optional<PeerQuery::wPeer> PeerQueryWsv::getLedgerPeerByPublicKey(
+    std::optional<PeerQuery::wPeer> PeerQueryWsv::getLedgerPeerByPublicKey(
         shared_model::interface::types::PublicKeyHexStringView public_key)
         const {
       return wsv_->getPeerByPublicKey(public_key);

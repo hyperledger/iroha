@@ -7,9 +7,9 @@
 #define IROHA_PEER_QUERY_HPP
 
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -36,13 +36,13 @@ namespace iroha {
        * Fetch peers stored in ledger
        * @return list of peers in insertion to ledger order
        */
-      virtual boost::optional<std::vector<wPeer>> getLedgerPeers() = 0;
+      virtual std::optional<std::vector<wPeer>> getLedgerPeers() = 0;
 
       /**
        * Fetch peer with given public key from ledger
        * @return the peer if found, none otherwise
        */
-      virtual boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
+      virtual std::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
           shared_model::interface::types::PublicKeyHexStringView public_key)
           const = 0;
 

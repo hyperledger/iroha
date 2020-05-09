@@ -7,8 +7,8 @@
 #define IROHA_POSTGRES_BLOCK_STORAGE_HPP
 
 #include "ametsuchi/block_storage.hpp"
-
 #include "ametsuchi/impl/pool_wrapper.hpp"
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/protobuf/block.hpp"
 #include "backend/protobuf/proto_block_factory.hpp"
@@ -36,7 +36,7 @@ namespace iroha {
       bool insert(
           std::shared_ptr<const shared_model::interface::Block> block) override;
 
-      boost::optional<std::unique_ptr<shared_model::interface::Block>> fetch(
+      std::optional<std::unique_ptr<shared_model::interface::Block>> fetch(
           shared_model::interface::types::HeightType height) const override;
 
       size_t size() const override;
@@ -58,7 +58,7 @@ namespace iroha {
                            boost::optional<HeightRange> height_range,
                            logger::LoggerPtr log);
 
-      static iroha::expected::Result<boost::optional<HeightRange>, std::string>
+      static iroha::expected::Result<std::optional<HeightRange>, std::string>
       queryBlockHeightsRange(soci::session &sql, const std::string &table_name);
 
       void dropTable();

@@ -44,7 +44,7 @@ namespace iroha {
         return findStorage(proposal_storages_, round);
       }
 
-      boost::optional<std::vector<YacProposalStorage>::iterator>
+      std::optional<std::vector<YacProposalStorage>::iterator>
       YacVoteStorage::findProposalStorage(const VoteMessage &msg,
                                           PeersNumberType peers_in_round) {
         const auto &round = msg.hash.vote_round;
@@ -60,7 +60,7 @@ namespace iroha {
               supermajority_checker_,
               log_manager_->getChild("ProposalStorage"));
         } else {
-          return boost::none;
+          return std::nullopt;
         }
       }
 
@@ -85,17 +85,17 @@ namespace iroha {
             supermajority_checker_(std::move(supermajority_checker)),
             log_manager_(std::move(log_manager)) {}
 
-      boost::optional<Answer> YacVoteStorage::store(
+      std::optional<Answer> YacVoteStorage::store(
           std::vector<VoteMessage> state, PeersNumberType peers_in_round) {
         if (state.empty()) {
-          return boost::none;
+          return std::nullopt;
         }
         return findProposalStorage(state.at(0), peers_in_round) |
             [this, &state](auto &&storage) {
               const auto &round = storage->getStorageKey();
               return storage->insert(state) |
                          [this, &round](
-                             auto &&insert_outcome) -> boost::optional<Answer> {
+                             auto &&insert_outcome) -> std::optional<Answer> {
                 last_round_ = std::max(last_round_.value_or(round), round);
                 this->strategy_->finalize(round, insert_outcome) |
                     [this](auto &&remove) {
@@ -135,17 +135,17 @@ namespace iroha {
         }
       }
 
-      boost::optional<Round> YacVoteStorage::getLastFinalizedRound() const {
+      std::optional<Round> YacVoteStorage::getLastFinalizedRound() const {
         return last_round_;
       }
 
-      boost::optional<Answer> YacVoteStorage::getState(
+      std::optional<Answer> YacVoteStorage::getState(
           const Round &round) const {
         auto proposal_storage = getProposalStorage(round);
         if (proposal_storage != proposal_storages_.end()) {
           return proposal_storage->getState();
         } else {
-          return boost::none;
+          return std::nullopt;
         }
       }
 

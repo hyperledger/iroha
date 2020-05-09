@@ -6,20 +6,18 @@
 #ifndef IROHA_YAC_HPP
 #define IROHA_YAC_HPP
 
-#include "consensus/yac/transport/yac_network_interface.hpp"  // for YacNetworkNotifications
-#include "consensus/yac/yac_gate.hpp"                         // for HashGate
-
 #include <memory>
 #include <mutex>
-
-#include <boost/optional.hpp>
+#include <optional>
+#include <rxcpp/operators/rx-observe_on.hpp>
 #include <rxcpp/rx-lite.hpp>
+
 #include "consensus/yac/cluster_order.hpp"     //  for ClusterOrdering
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/yac_vote_storage.hpp"  // for VoteStorage
+#include "consensus/yac/transport/yac_network_interface.hpp"  // for YacNetworkNotifications
+#include "consensus/yac/yac_gate.hpp"                         // for HashGate
 #include "logger/logger_fwd.hpp"
-
-#include <rxcpp/operators/rx-observe_on.hpp>
 
 namespace iroha {
   namespace consensus {
@@ -59,8 +57,8 @@ namespace iroha {
 
         void vote(YacHash hash,
                   ClusterOrdering order,
-                  boost::optional<ClusterOrdering> alternative_order =
-                      boost::none) override;
+                  std::optional<ClusterOrdering> alternative_order =
+                      std::nullopt) override;
 
         rxcpp::observable<Answer> onOutcome() override;
 
@@ -90,10 +88,10 @@ namespace iroha {
         /**
          * Find corresponding peer in the ledger from vote message
          * @param vote message containing peer information
-         * @return peer if it is present in the ledger, boost::none otherwise
+         * @return peer if it is present in the ledger, std::nullopt otherwise
          */
-        boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-        findPeer(const VoteMessage &vote);
+        std::optional<std::shared_ptr<shared_model::interface::Peer>> findPeer(
+            const VoteMessage &vote);
 
         /// Remove votes from unknown peers from given vector.
         void removeUnknownPeersVotes(std::vector<VoteMessage> &votes,
@@ -120,7 +118,7 @@ namespace iroha {
 
         // ------|One round|------
         ClusterOrdering cluster_order_;
-        boost::optional<ClusterOrdering> alternative_order_;
+        std::optional<ClusterOrdering> alternative_order_;
         Round round_;
 
         // ------|Fields|------

@@ -6,7 +6,7 @@
 #ifndef IROHA_QUERY_EXECUTOR_FACTORY_HPP
 #define IROHA_QUERY_EXECUTOR_FACTORY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "ametsuchi/query_executor.hpp"
 #include "common/result_fwd.hpp"

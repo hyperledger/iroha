@@ -19,7 +19,7 @@ class PeerTlsCertificatesProviderWsv::Impl {
   Impl(std::shared_ptr<iroha::ametsuchi::PeerQuery> peer_query)
       : peer_query_(std::move(peer_query)) {}
 
-  boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+  std::optional<std::shared_ptr<shared_model::interface::Peer>>
   getPeerFromWsv(
       shared_model::interface::types::PublicKeyHexStringView public_key) const {
     std::lock_guard<std::mutex> lock(mutex_);

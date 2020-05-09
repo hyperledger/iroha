@@ -41,7 +41,7 @@ namespace iroha {
       }
       std::string keys = *std::begin(keys_range);
       // not using bool since it is not supported by SOCI
-      boost::optional<uint8_t> signatories_valid;
+      std::optional<uint8_t> signatories_valid;
 
       auto qry = R"(
         SELECT count(public_key) = 1

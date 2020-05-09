@@ -6,9 +6,8 @@
 #ifndef IROHA_CLEANUP_STRATEGY_HPP
 #define IROHA_CLEANUP_STRATEGY_HPP
 
+#include <optional>
 #include <vector>
-
-#include <boost/optional.hpp>
 
 #include "consensus/round.hpp"
 #include "consensus/yac/storage/storage_result.hpp"
@@ -29,8 +28,8 @@ namespace iroha {
          * @param answer - outcome of round
          * @return a collection of rounds for removing from the state
          */
-        virtual boost::optional<RoundsType> finalize(Round round,
-                                                     Answer answer) = 0;
+        virtual std::optional<RoundsType> finalize(Round round,
+                                                   Answer answer) = 0;
 
         /**
          * The method checks whether we should add a new round

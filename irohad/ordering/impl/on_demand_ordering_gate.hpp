@@ -74,9 +74,9 @@ namespace iroha {
       /**
        * Handle an incoming proposal from ordering service
        */
-      boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+      std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
       processProposalRequest(
-          boost::optional<
+          std::optional<
               std::shared_ptr<const OnDemandOrderingService::ProposalType>>
               proposal) const;
 

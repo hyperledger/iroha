@@ -28,12 +28,12 @@ bool KickOutProposalCreationStrategy::shouldCreateRound(RoundType round) {
                                              peers_in_round_);
 }
 
-boost::optional<ProposalCreationStrategy::RoundType>
+std::optional<ProposalCreationStrategy::RoundType>
 KickOutProposalCreationStrategy::onProposalRequest(RoundType requested_round) {
   {
     std::lock_guard<std::mutex> guard(mutex_);
     requested_count_[requested_round]++;
   }
 
-  return boost::none;
+  return std::nullopt;
 }

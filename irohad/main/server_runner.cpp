@@ -19,7 +19,7 @@ namespace {
   const auto kPortBindError = "Cannot bind server to address %s";
 
   std::shared_ptr<grpc::ServerCredentials> createCredentials(
-      const boost::optional<std::shared_ptr<const TlsCredentials>>
+      const std::optional<std::shared_ptr<const TlsCredentials>>
           &my_tls_creds) {
     if (not my_tls_creds) {
       return grpc::InsecureServerCredentials();
@@ -40,7 +40,7 @@ ServerRunner::ServerRunner(
     const std::string &address,
     logger::LoggerPtr log,
     bool reuse,
-    const boost::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds)
+    const std::optional<std::shared_ptr<const TlsCredentials>> &my_tls_creds)
     : log_(std::move(log)),
       server_address_(address),
       credentials_(createCredentials(my_tls_creds)),

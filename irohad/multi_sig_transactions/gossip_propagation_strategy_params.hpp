@@ -7,8 +7,7 @@
 #define IROHA_GOSSIP_PROPAGATION_STRATEGY_PARAMS_HPP
 
 #include <chrono>
-
-#include <boost/optional.hpp>
+#include <optional>
 
 // TODO: IR-1317 @l4l (02/05/18) magics should be replaced with options via
 // cli parameters

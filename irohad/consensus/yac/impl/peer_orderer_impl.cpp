@@ -20,7 +20,7 @@ namespace iroha {
           std::shared_ptr<ametsuchi::PeerQueryFactory> peer_query_factory)
           : peer_query_factory_(peer_query_factory) {}
 
-      boost::optional<ClusterOrdering> PeerOrdererImpl::getOrdering(
+      std::optional<ClusterOrdering> PeerOrdererImpl::getOrdering(
           const YacHash &hash,
           std::vector<std::shared_ptr<shared_model::interface::Peer>> const
               &peers) {

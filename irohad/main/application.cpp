@@ -102,7 +102,7 @@ static constexpr iroha::consensus::yac::ConsistencyModel
  * Configuring iroha daemon
  */
 Irohad::Irohad(
-    const boost::optional<std::string> &block_store_dir,
+    const std::optional<std::string> &block_store_dir,
     std::unique_ptr<ametsuchi::PostgresOptions> pg_opt,
     const std::string &listen_ip,
     size_t torii_port,
@@ -114,15 +114,15 @@ Irohad::Irohad(
     const shared_model::crypto::Keypair &keypair,
     std::chrono::milliseconds max_rounds_delay,
     size_t stale_stream_max_rounds,
-    boost::optional<shared_model::interface::types::PeerList>
+    std::optional<shared_model::interface::types::PeerList>
         opt_alternative_peers,
     logger::LoggerManagerTreePtr logger_manager,
     StartupWsvDataPolicy startup_wsv_data_policy,
     std::shared_ptr<const GrpcChannelParams> grpc_channel_params,
-    const boost::optional<GossipPropagationStrategyParams>
+    const std::optional<GossipPropagationStrategyParams>
         &opt_mst_gossip_params,
-    const boost::optional<iroha::torii::TlsParams> &torii_tls_params,
-    boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
+    const std::optional<iroha::torii::TlsParams> &torii_tls_params,
+    std::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config)
     : block_store_dir_(block_store_dir),
       listen_ip_(listen_ip),
       torii_port_(torii_port),
@@ -233,7 +233,7 @@ Irohad::RunResult Irohad::initSettings() {
     return expected::makeError("Unable to create Settings");
   }
 
-  return settingsQuery.get()->get() | [this](auto &&settings) -> RunResult {
+  return settingsQuery.value()->get() | [this](auto &&settings) -> RunResult {
     this->settings_ = std::move(settings);
 
     log_->info("[Init] => settings");
@@ -333,7 +333,7 @@ Irohad::RunResult Irohad::initTlsCredentials() {
   const auto &p2p_path = inter_peer_tls_config_ |
       [](const auto &p2p_config) { return p2p_config.my_tls_creds_path; };
   const auto &torii_path = torii_tls_params_ | [](const auto &torii_config) {
-    return boost::make_optional(torii_config.key_path);
+    return std::make_optional(torii_config.key_path);
   };
 
   auto load_tls_creds = [this](const auto &opt_path,
@@ -369,7 +369,7 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
   }
 
   using OptionalPeerCertProvider =
-      boost::optional<std::unique_ptr<const PeerTlsCertificatesProvider>>;
+      std::optional<std::unique_ptr<const PeerTlsCertificatesProvider>>;
   using PeerCertProviderResult = Result<OptionalPeerCertProvider, std::string>;
 
   return iroha::visit_in_place(
@@ -392,7 +392,7 @@ Irohad::RunResult Irohad::initPeerCertProvider() {
                  return makeError(std::string{"Failed to get peer query."});
                }
                log_->debug("Prepared WSV peer certificate provider.");
-               return boost::make_optional(
+               return std::make_optional(
                    std::make_unique<PeerTlsCertificatesProviderWsv>(
                        std::move(opt_peer_query).value()));
              },

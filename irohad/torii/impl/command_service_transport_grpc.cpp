@@ -146,7 +146,7 @@ namespace iroha {
               // on further combine_latest
               .start_with(ConsensusGateEvent{});
 
-      boost::optional<iroha::protocol::TxStatus> last_tx_status;
+      std::optional<iroha::protocol::TxStatus> last_tx_status;
       auto rounds_counter{0};
       makeCombineLatestUntilFirstCompleted(
           status_bus,

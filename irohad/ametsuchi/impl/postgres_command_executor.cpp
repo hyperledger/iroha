@@ -8,12 +8,15 @@
 #include <exception>
 #include <forward_list>
 #include <memory>
+#include <optional>
 
 #include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
+
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/postgres_block_storage.hpp"
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
@@ -127,8 +130,8 @@ namespace {
    * @param command_name of the failed command
    * @return real error code
    */
-  boost::optional<iroha::ametsuchi::CommandError::ErrorCodeType>
-  getRealErrorCode(size_t fake_error_code, const std::string &command_name) {
+  std::optional<iroha::ametsuchi::CommandError::ErrorCodeType> getRealErrorCode(
+      size_t fake_error_code, const std::string &command_name) {
     auto fake_to_real_code = kCmdNameToErrorCode.find(command_name);
     if (fake_to_real_code == kCmdNameToErrorCode.end()) {
       return {};
@@ -450,16 +453,9 @@ namespace iroha {
       }
 
       void addArgumentToString(const std::string &argument_name,
-                               const boost::optional<std::string> &value) {
-        if (value) {
-          addArgumentToString(argument_name, *value);
-        }
-      }
-
-      void addArgumentToString(const std::string &argument_name,
                                const std::optional<std::string> &value) {
         if (value) {
-          addArgumentToString(argument_name, *value);
+          addArgumentToString(argument_name, value.value());
         }
       }
 

@@ -7,10 +7,10 @@
 #define IROHA_YAC_VOTE_STORAGE_HPP
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "consensus/yac/consistency_model.hpp"
 #include "consensus/yac/outcome_messages.hpp"  // because messages passed by value
 #include "consensus/yac/storage/cleanup_strategy.hpp"
@@ -80,7 +80,7 @@ namespace iroha {
          * This parameter used on creation of proposal storage
          * @return - iter for required proposal storage
          */
-        boost::optional<std::vector<YacProposalStorage>::iterator>
+        std::optional<std::vector<YacProposalStorage>::iterator>
         findProposalStorage(const VoteMessage &msg,
                             PeersNumberType peers_in_round);
 
@@ -107,10 +107,10 @@ namespace iroha {
          * @param state - current message with votes
          * @param peers_in_round - number of peers participated in round
          * @return structure with result of inserting.
-         * boost::none if msg not valid.
+         * std::nullopt if msg not valid.
          */
-        boost::optional<Answer> store(std::vector<VoteMessage> state,
-                                      PeersNumberType peers_in_round);
+        std::optional<Answer> store(std::vector<VoteMessage> state,
+                                    PeersNumberType peers_in_round);
 
         /**
          * Provide status about closing round of proposal/block
@@ -141,14 +141,14 @@ namespace iroha {
          * Get last by order finalized round
          * @return round if it exists
          */
-        boost::optional<Round> getLastFinalizedRound() const;
+        std::optional<Round> getLastFinalizedRound() const;
 
         /**
          * Get the state attached of a past round
          * @param round - required round
          * @return state if round exists and finalized
          */
-        boost::optional<Answer> getState(const Round &round) const;
+        std::optional<Answer> getState(const Round &round) const;
 
        private:
         // --------| fields |--------
@@ -176,7 +176,7 @@ namespace iroha {
         std::shared_ptr<CleanupStrategy> strategy_;
 
         /// last finalized round
-        boost::optional<Round> last_round_;
+        std::optional<Round> last_round_;
 
         std::shared_ptr<SupermajorityChecker> supermajority_checker_;
 

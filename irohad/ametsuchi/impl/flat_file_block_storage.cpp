@@ -34,26 +34,26 @@ bool FlatFileBlockStorage::insert(
       });
 }
 
-boost::optional<std::unique_ptr<shared_model::interface::Block>>
+std::optional<std::unique_ptr<shared_model::interface::Block>>
 FlatFileBlockStorage::fetch(
     shared_model::interface::types::HeightType height) const {
   auto storage_block = flat_file_storage_->get(height);
   if (not storage_block) {
-    return boost::none;
+    return std::nullopt;
   }
 
   return json_converter_->deserialize(bytesToString(*storage_block))
       .match(
           [&](auto &&block) {
-            return boost::make_optional<
+            return std::make_optional<
                 std::unique_ptr<shared_model::interface::Block>>(
                 std::move(block.value));
           },
           [&](const auto &error)
-              -> boost::optional<
+              -> std::optional<
                   std::unique_ptr<shared_model::interface::Block>> {
             log_->warn("Error while block deserialization: {}", error.error);
-            return boost::none;
+            return std::nullopt;
           });
 }
 

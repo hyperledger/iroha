@@ -13,7 +13,6 @@
 #include <boost/bimap/multiset_of.hpp>
 #include <boost/bimap/unordered_multiset_of.hpp>
 #include <boost/bimap/unordered_set_of.hpp>
-#include <boost/optional/optional.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/any_range.hpp>
 #include "cryptography/hash.hpp"
@@ -214,8 +213,9 @@ namespace iroha {
      * @param current_time - current time
      * @param extracted - optional storage for extracted batches.
      */
-    void extractExpiredImpl(const TimeType &current_time,
-                            boost::optional<MstState &> extracted);
+    void extractExpiredImpl(
+        const TimeType &current_time,
+        std::optional<std::reference_wrapper<MstState>> extracted);
 
     // -----------------------------| fields |------------------------------
 

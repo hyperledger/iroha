@@ -29,13 +29,13 @@ namespace iroha {
        * Fetch peers stored in ledger
        * @return list of peers in insertion to ledger order
        */
-      boost::optional<std::vector<wPeer>> getLedgerPeers() override;
+      std::optional<std::vector<wPeer>> getLedgerPeers() override;
 
       /**
        * Fetch peer with given public key from ledger
        * @return the peer if found, none otherwise
        */
-      boost::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
+      std::optional<PeerQuery::wPeer> getLedgerPeerByPublicKey(
           shared_model::interface::types::PublicKeyHexStringView public_key)
           const override;
 

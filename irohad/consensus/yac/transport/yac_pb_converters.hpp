@@ -91,7 +91,7 @@ namespace iroha {
           return pb_vote;
         }
 
-        static boost::optional<VoteMessage> deserializeVote(
+        static std::optional<VoteMessage> deserializeVote(
             const proto::Vote &pb_vote, logger::LoggerPtr log) {
           // TODO IR-428 igor-egorov refactor PbConverters - do the class
           // instantiable
@@ -117,15 +117,15 @@ namespace iroha {
                 .createSignature(PublicKeyHexStringView{pubkey_hex},
                                  SignedHexStringView{signature_hex})
                 .match(
-                    [&](auto &&sig) -> boost::optional<std::unique_ptr<
+                    [&](auto &&sig) -> std::optional<std::unique_ptr<
                                         shared_model::interface::Signature>> {
                       return std::move(sig).value;
                     },
                     [&](const auto &reason)
-                        -> boost::optional<std::unique_ptr<
+                        -> std::optional<std::unique_ptr<
                             shared_model::interface::Signature>> {
                       log->error(msg, reason.error);
-                      return boost::none;
+                      return std::nullopt;
                     });
           };
 
@@ -136,7 +136,7 @@ namespace iroha {
                                 "Cannot build vote hash block signature: {}")) {
               vote.hash.block_signature = *std::move(block_signature);
             } else {
-              return boost::none;
+              return std::nullopt;
             }
           }
 
@@ -146,7 +146,7 @@ namespace iroha {
                               "Cannot build vote signature: {}")) {
             vote.signature = *std::move(vote_signature);
           } else {
-            return boost::none;
+            return std::nullopt;
           }
 
           return vote;

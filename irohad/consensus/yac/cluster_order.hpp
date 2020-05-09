@@ -6,10 +6,11 @@
 #ifndef IROHA_CLUSTER_ORDER_HPP
 #define IROHA_CLUSTER_ORDER_HPP
 
+#include <boost/assert.hpp>
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "consensus/yac/yac_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -28,7 +29,7 @@ namespace iroha {
          * @param peer_positions vector of indexes of peer positions
          * @return ClusterOrdering if vectors are not empty, null otherwise
          */
-        static boost::optional<ClusterOrdering> create(
+        static std::optional<ClusterOrdering> create(
             std::vector<std::shared_ptr<shared_model::interface::Peer>> const
                 &order,
             std::vector<size_t> const &peer_positions);
@@ -38,7 +39,7 @@ namespace iroha {
          * @param order vector of peers
          * @return ClusterOrdering if vectors are not empty, null otherwise
          */
-        static boost::optional<ClusterOrdering> create(
+        static std::optional<ClusterOrdering> create(
             std::vector<std::shared_ptr<shared_model::interface::Peer>> const
                 &order);
 

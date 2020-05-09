@@ -37,7 +37,7 @@ namespace iroha {
                             [](const auto &s) { return s.publicKey(); });
       auto keys = boost::algorithm::join(keys_range, "'), ('");
       // not using bool since it is not supported by SOCI
-      boost::optional<uint8_t> signatories_valid;
+      std::optional<uint8_t> signatories_valid;
 
       boost::format query(R"(SELECT sum(count) = :signatures_count
                           AND sum(quorum) <= :signatures_count

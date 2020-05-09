@@ -16,13 +16,13 @@ namespace {
   bool getValueFromDb(soci::session &sql,
                       const shared_model::interface::types::SettingKeyType &key,
                       T &destination) {
-    boost::optional<shared_model::interface::types::SettingValueType> value;
+    std::optional<shared_model::interface::types::SettingValueType> value;
 
     sql << "SELECT setting_value FROM setting WHERE setting_key = :key",
         soci::into(value), soci::use(key, "key");
 
     if (value) {
-      destination = boost::lexical_cast<T>(value.get());
+      destination = boost::lexical_cast<T>(value.value());
       return true;
     }
     return false;

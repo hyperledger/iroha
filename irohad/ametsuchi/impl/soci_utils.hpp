@@ -7,11 +7,13 @@
 #define IROHA_POSTGRES_WSV_COMMON_HPP
 
 #include <soci/soci.h>
-#include <boost/optional.hpp>
+
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/iterator_range.hpp>
 #include <boost/tuple/tuple.hpp>
+#include <optional>
+
 #include "common/bind.hpp"
 
 namespace iroha {
@@ -93,7 +95,7 @@ namespace iroha {
             std::forward<T>(t)
                 .template get<Is
                               + length_v<std::decay_t<
-                                    T>> - length_v<std::decay_t<R>>>()...);
+                                  T>> - length_v<std::decay_t<R>>>()...);
       });
     }
 
@@ -104,7 +106,7 @@ namespace iroha {
         return boost::make_tuple(*std::forward<decltype(vals)>(vals)...);
       };
 
-      using ReturnType = decltype(boost::make_optional(
+      using ReturnType = decltype(std::make_optional(
           iroha::ametsuchi::apply(std::forward<T>(t), transform)));
 
       return iroha::ametsuchi::apply(
@@ -116,14 +118,14 @@ namespace iroha {
                                       std::end(temp),
                                       [](auto b) { return b; });
                  })
-          ? boost::make_optional(
-                iroha::ametsuchi::apply(std::forward<T>(t), transform))
+          ? std::make_optional(
+              iroha::ametsuchi::apply(std::forward<T>(t), transform))
           : ReturnType{};
     }
 
     template <typename C, typename T, typename F>
     auto mapValues(T &t, F &&f) {
-      return t | [&](auto &st) -> boost::optional<C> {
+      return t | [&](auto &st) -> std::optional<C> {
         return boost::copy_range<C>(
             st | boost::adaptors::transformed([&](auto &t) {
               return iroha::ametsuchi::apply(t, std::forward<F>(f));
@@ -132,7 +134,7 @@ namespace iroha {
     }
 
     template <typename C, typename T, typename F>
-    boost::optional<C> flatMapValues(T &t, F &&f) {
+    std::optional<C> flatMapValues(T &t, F &&f) {
       if (t) {
         C map_result;
         for (auto &inp_el : *t) {
@@ -143,7 +145,7 @@ namespace iroha {
         }
         return map_result;
       }
-      return boost::none;
+      return std::nullopt;
     }
 
     template <typename R, typename T, typename F>
@@ -152,7 +154,7 @@ namespace iroha {
         auto range = boost::make_iterator_range(st);
 
         if (range.empty()) {
-          return boost::none;
+          return std::nullopt;
         }
 
         return iroha::ametsuchi::apply(range.front(), std::forward<F>(f));

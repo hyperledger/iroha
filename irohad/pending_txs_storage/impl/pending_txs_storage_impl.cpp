@@ -260,8 +260,8 @@ namespace iroha {
 
   void PendingTransactionStorageImpl::removeBatch(
       const PreparedTransactionDescriptor &prepared_transaction) {
-    boost::optional<std::set<AccountIdType>> creators = boost::none;
-    boost::optional<uint64_t> batch_size = boost::none;
+    std::optional<std::set<AccountIdType>> creators = std::nullopt;
+    std::optional<uint64_t> batch_size = std::nullopt;
     auto &creator_id = prepared_transaction.first;
     auto &first_transaction_hash = prepared_transaction.second;
     {

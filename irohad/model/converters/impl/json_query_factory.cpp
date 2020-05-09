@@ -74,7 +74,7 @@ namespace iroha {
             | des.String(&Query::creator_account_id, "creator_account_id")
             | des.Uint64(&Query::query_counter, "query_counter")
             | des.Object(&Query::signature, "signature") |
-            [](auto query) { return boost::make_optional(std::move(query)); };
+            [](auto query) { return std::make_optional(std::move(query)); };
       }
 
       optional_ptr<Query> JsonQueryFactory::deserializeGetAccount(

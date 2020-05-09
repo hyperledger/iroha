@@ -15,13 +15,13 @@
 
 namespace {
   template <typename T>
-  boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+  std::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
   getPeersFromSociRowSet(T &&rowset) {
     return iroha::ametsuchi::flatMapValues<
         std::vector<std::shared_ptr<shared_model::interface::Peer>>>(
         std::forward<T>(rowset),
         [&](auto &public_key, auto &address, auto &tls_certificate) {
-          return boost::make_optional(
+          return std::make_optional(
               std::make_shared<shared_model::plain::Peer>(
                   address, std::move(public_key), tls_certificate));
         });
@@ -44,16 +44,16 @@ namespace iroha {
         : psql_(std::move(sql)), sql_(*psql_), log_(std::move(log)) {}
 
     template <typename T, typename F>
-    auto PostgresWsvQuery::execute(F &&f) -> boost::optional<soci::rowset<T>> {
+    auto PostgresWsvQuery::execute(F &&f) -> std::optional<soci::rowset<T>> {
       try {
         return soci::rowset<T>{std::forward<F>(f)()};
       } catch (const std::exception &e) {
         log_->error("Failed to execute query: {}", e.what());
-        return boost::none;
+        return std::nullopt;
       }
     }
 
-    boost::optional<std::vector<std::string>> PostgresWsvQuery::getSignatories(
+    std::optional<std::vector<std::string>> PostgresWsvQuery::getSignatories(
         const AccountIdType &account_id) {
       using T = boost::tuple<std::string>;
       auto result = execute<T>([&] {
@@ -67,7 +67,7 @@ namespace iroha {
           result, [&](auto &public_key) { return public_key; });
     }
 
-    boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
+    std::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>
     PostgresWsvQuery::getPeers() {
       using T = boost::
           tuple<std::string, AddressType, std::optional<TLSCertificateType>>;
@@ -79,7 +79,7 @@ namespace iroha {
       return getPeersFromSociRowSet(result);
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+    std::optional<std::shared_ptr<shared_model::interface::Peer>>
     PostgresWsvQuery::getPeerByPublicKey(
         shared_model::interface::types::PublicKeyHexStringView public_key) {
       using T = boost::
@@ -94,13 +94,13 @@ namespace iroha {
       });
 
       return getPeersFromSociRowSet(result) | [](auto &&peers)
-                 -> boost::optional<
+                 -> std::optional<
                      std::shared_ptr<shared_model::interface::Peer>> {
         if (!peers.empty()) {
           assert(peers.size() == 1);
-          return boost::make_optional(std::move(peers.front()));
+          return std::make_optional(std::move(peers.front()));
         }
-        return boost::none;
+        return std::nullopt;
       };
     }
 

@@ -25,16 +25,16 @@ namespace iroha {
             });
       }
 
-      boost::optional<Round> getKey(const std::vector<VoteMessage> &votes) {
+      std::optional<Round> getKey(const std::vector<VoteMessage> &votes) {
         if (not sameKeys(votes)) {
-          return boost::none;
+          return std::nullopt;
         }
         return votes[0].hash.vote_round;
       }
 
-      boost::optional<YacHash> getHash(const std::vector<VoteMessage> &votes) {
+      std::optional<YacHash> getHash(const std::vector<VoteMessage> &votes) {
         if (not sameKeys(votes)) {
-          return boost::none;
+          return std::nullopt;
         }
 
         return votes.at(0).hash;

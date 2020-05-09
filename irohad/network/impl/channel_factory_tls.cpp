@@ -15,9 +15,9 @@ using namespace iroha::network;
 
 ChannelFactoryTls::ChannelFactoryTls(
     std::shared_ptr<const GrpcChannelParams> params,
-    boost::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
+    std::optional<std::shared_ptr<const PeerTlsCertificatesProvider>>
         peer_cert_provider,
-    boost::optional<std::shared_ptr<const TlsCredentials>> my_creds)
+    std::optional<std::shared_ptr<const TlsCredentials>> my_creds)
     : ChannelFactory(std::move(params)),
       peer_cert_provider_(std::move(peer_cert_provider)),
       my_creds_(std::move(my_creds)) {}

@@ -26,7 +26,7 @@
 namespace iroha {
   namespace ametsuchi {
     MutableStorageImpl::MutableStorageImpl(
-        boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
+        std::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         std::shared_ptr<PostgresCommandExecutor> command_executor,
         std::unique_ptr<BlockStorage> block_storage,
         logger::LoggerManagerTreePtr log_manager)
@@ -137,7 +137,7 @@ namespace iroha {
       }
     }
 
-    boost::optional<std::shared_ptr<const iroha::LedgerState>>
+    std::optional<std::shared_ptr<const iroha::LedgerState>>
     MutableStorageImpl::getLedgerState() const {
       return ledger_state_;
     }

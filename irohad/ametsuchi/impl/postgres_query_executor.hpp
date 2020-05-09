@@ -6,9 +6,10 @@
 #ifndef IROHA_POSTGRES_QUERY_EXECUTOR_HPP
 #define IROHA_POSTGRES_QUERY_EXECUTOR_HPP
 
-#include "ametsuchi/query_executor.hpp"
-
 #include <soci/soci.h>
+
+#include "ametsuchi/impl/soci_std_optional.hpp"
+#include "ametsuchi/query_executor.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace shared_model {

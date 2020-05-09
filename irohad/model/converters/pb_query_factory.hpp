@@ -32,9 +32,9 @@ namespace iroha {
         /**
          * Convert model query to proto query
          * @param query - model query to serialize
-         * @return boost::noneif no query type is found
+         * @return std::nulloptif no query type is found
          */
-        boost::optional<protocol::Query> serialize(
+        std::optional<protocol::Query> serialize(
             std::shared_ptr<const model::Query> query) const;
 
         explicit PbQueryFactory(logger::LoggerPtr log);

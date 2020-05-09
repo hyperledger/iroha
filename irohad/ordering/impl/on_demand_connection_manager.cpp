@@ -74,7 +74,7 @@ void OnDemandConnectionManager::onBatches(CollectionType batches) {
   propagate(kCommitCommitConsumer);
 }
 
-boost::optional<std::shared_ptr<const OnDemandConnectionManager::ProposalType>>
+std::optional<std::shared_ptr<const OnDemandConnectionManager::ProposalType>>
 OnDemandConnectionManager::onRequestProposal(consensus::Round round) {
   std::shared_lock<std::shared_timed_mutex> lock(mutex_);
   if (stop_requested_.load(std::memory_order_relaxed)) {

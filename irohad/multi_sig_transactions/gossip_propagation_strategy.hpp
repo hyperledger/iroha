@@ -6,7 +6,7 @@
 #ifndef IROHA_GOSSIP_PROPAGATION_STRATEGY_HPP
 #define IROHA_GOSSIP_PROPAGATION_STRATEGY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include <chrono>
 #include <mutex>
 
@@ -28,7 +28,7 @@ namespace iroha {
   class GossipPropagationStrategy : public PropagationStrategy {
    public:
     using PeerProviderFactory = std::shared_ptr<ametsuchi::PeerQueryFactory>;
-    using OptPeer = boost::optional<PropagationData::value_type>;
+    using OptPeer = std::optional<PropagationData::value_type>;
     /**
      * Initialize strategy with
      * @param peer_factory is a provider of peer list

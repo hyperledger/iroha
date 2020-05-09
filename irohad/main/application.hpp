@@ -119,7 +119,7 @@ class Irohad {
    * @param inter_peer_tls_config - set up TLS in peer-to-peer communication
    * TODO mboldyrev 03.11.2018 IR-1844 Refactor the constructor.
    */
-  Irohad(const boost::optional<std::string> &block_store_dir,
+  Irohad(const std::optional<std::string> &block_store_dir,
          std::unique_ptr<iroha::ametsuchi::PostgresOptions> pg_opt,
          const std::string &listen_ip,
          size_t torii_port,
@@ -131,18 +131,18 @@ class Irohad {
          const shared_model::crypto::Keypair &keypair,
          std::chrono::milliseconds max_rounds_delay,
          size_t stale_stream_max_rounds,
-         boost::optional<shared_model::interface::types::PeerList>
+         std::optional<shared_model::interface::types::PeerList>
              opt_alternative_peers,
          logger::LoggerManagerTreePtr logger_manager,
          iroha::StartupWsvDataPolicy startup_wsv_data_policy,
          std::shared_ptr<const iroha::network::GrpcChannelParams>
              grpc_channel_params,
-         const boost::optional<iroha::GossipPropagationStrategyParams>
-             &opt_mst_gossip_params = boost::none,
-         const boost::optional<iroha::torii::TlsParams> &torii_tls_params =
-             boost::none,
-         boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
-             boost::none);
+         const std::optional<iroha::GossipPropagationStrategyParams>
+             &opt_mst_gossip_params = std::nullopt,
+         const std::optional<iroha::torii::TlsParams> &torii_tls_params =
+             std::nullopt,
+         std::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config =
+             std::nullopt);
 
   /**
    * Initialization of whole objects in system
@@ -234,10 +234,10 @@ class Irohad {
   virtual RunResult initWsvRestorer();
 
   // constructor dependencies
-  const boost::optional<std::string> block_store_dir_;
+  const std::optional<std::string> block_store_dir_;
   const std::string listen_ip_;
   size_t torii_port_;
-  boost::optional<iroha::torii::TlsParams> torii_tls_params_;
+  std::optional<iroha::torii::TlsParams> torii_tls_params_;
   size_t internal_port_;
   size_t max_proposal_size_;
   std::chrono::milliseconds proposal_delay_;
@@ -246,18 +246,18 @@ class Irohad {
   std::chrono::minutes mst_expiration_time_;
   std::chrono::milliseconds max_rounds_delay_;
   size_t stale_stream_max_rounds_;
-  const boost::optional<shared_model::interface::types::PeerList>
+  const std::optional<shared_model::interface::types::PeerList>
       opt_alternative_peers_;
   std::shared_ptr<const iroha::network::GrpcChannelParams> grpc_channel_params_;
-  boost::optional<iroha::GossipPropagationStrategyParams>
+  std::optional<iroha::GossipPropagationStrategyParams>
       opt_mst_gossip_params_;
-  boost::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
+  std::optional<IrohadConfig::InterPeerTls> inter_peer_tls_config_;
 
-  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
+  std::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
       my_inter_peer_tls_creds_;
-  boost::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
+  std::optional<std::shared_ptr<const iroha::network::TlsCredentials>>
       torii_tls_creds_;
-  boost::optional<
+  std::optional<
       std::shared_ptr<const iroha::network::PeerTlsCertificatesProvider>>
       peer_tls_certificates_provider_;
 
@@ -393,8 +393,8 @@ class Irohad {
   rxcpp::composite_subscription consensus_gate_events_subscription;
 
   std::unique_ptr<iroha::network::ServerRunner> torii_server;
-  boost::optional<std::unique_ptr<iroha::network::ServerRunner>>
-      torii_tls_server = boost::none;
+  std::optional<std::unique_ptr<iroha::network::ServerRunner>>
+      torii_tls_server = std::nullopt;
   std::unique_ptr<iroha::network::ServerRunner> internal_server;
 
   logger::LoggerManagerTreePtr log_manager_;  ///< application root log manager

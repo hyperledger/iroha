@@ -9,7 +9,7 @@
 #include "simulator/block_creator.hpp"
 #include "simulator/verified_proposal_creator.hpp"
 
-#include <boost/optional.hpp>
+#include <optional>
 #include <rxcpp/rx-lite.hpp>
 #include "ametsuchi/temporary_factory.hpp"
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
@@ -50,7 +50,7 @@ namespace iroha {
       rxcpp::observable<VerifiedProposalCreatorEvent> onVerifiedProposal()
           override;
 
-      boost::optional<std::shared_ptr<shared_model::interface::Block>>
+      std::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
           const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
               &verified_proposal_and_errors,

@@ -9,8 +9,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 
-#include <boost/optional.hpp>
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace iroha {
@@ -30,9 +30,9 @@ namespace iroha {
 
       /**
        * Get block with given height
-       * @return block if exists, boost::none otherwise
+       * @return block if exists, std::nullopt otherwise
        */
-      virtual boost::optional<std::unique_ptr<shared_model::interface::Block>>
+      virtual std::optional<std::unique_ptr<shared_model::interface::Block>>
       fetch(shared_model::interface::types::HeightType height) const = 0;
 
       /**

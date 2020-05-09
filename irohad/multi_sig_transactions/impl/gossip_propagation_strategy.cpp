@@ -56,7 +56,7 @@ namespace iroha {
   bool GossipPropagationStrategy::initQueue() {
     return peer_factory->createPeerQuery() | [](const auto &query) {
       return query->getLedgerPeers();
-    } | [](auto &&data) -> boost::optional<PropagationData> {
+    } | [](auto &&data) -> std::optional<PropagationData> {
       if (data.size() == 0) {
         return {};
       }

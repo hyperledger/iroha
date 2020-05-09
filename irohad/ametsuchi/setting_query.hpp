@@ -6,7 +6,8 @@
 #ifndef IROHA_SETTING_QUERY_HPP
 #define IROHA_SETTING_QUERY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "common/result.hpp"
 #include "validators/settings.hpp"
 

@@ -87,7 +87,7 @@ namespace iroha {
           Round initial_round,
           std::shared_ptr<iroha::ametsuchi::PeerQueryFactory>
               peer_query_factory,
-          boost::optional<shared_model::interface::types::PeerList>
+          std::optional<shared_model::interface::types::PeerList>
               alternative_peers,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<network::BlockLoader> block_loader,

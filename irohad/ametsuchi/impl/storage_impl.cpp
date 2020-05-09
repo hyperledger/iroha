@@ -45,7 +45,7 @@ namespace iroha {
     const char *kTmpWsv = "TemporaryWsv";
 
     StorageImpl::StorageImpl(
-        boost::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
+        std::optional<std::shared_ptr<const iroha::LedgerState>> ledger_state,
         const ametsuchi::PostgresOptions &postgres_options,
         std::shared_ptr<BlockStorage> block_store,
         std::shared_ptr<PoolWrapper> pool_wrapper,
@@ -100,23 +100,23 @@ namespace iroha {
                                   *temporary_block_storage_factory_);
     }
 
-    boost::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
+    std::optional<std::shared_ptr<PeerQuery>> StorageImpl::createPeerQuery()
         const {
       auto wsv = getWsvQuery();
       if (not wsv) {
-        return boost::none;
+        return std::nullopt;
       }
-      return boost::make_optional<std::shared_ptr<PeerQuery>>(
+      return std::make_optional<std::shared_ptr<PeerQuery>>(
           std::make_shared<PeerQueryWsv>(wsv));
     }
 
-    boost::optional<std::shared_ptr<BlockQuery>> StorageImpl::createBlockQuery()
+    std::optional<std::shared_ptr<BlockQuery>> StorageImpl::createBlockQuery()
         const {
       auto block_query = getBlockQuery();
       if (not block_query) {
-        return boost::none;
+        return std::nullopt;
       }
-      return boost::make_optional(block_query);
+      return std::make_optional(block_query);
     }
 
     iroha::expected::Result<std::unique_ptr<QueryExecutor>, std::string>
@@ -393,19 +393,19 @@ namespace iroha {
           log_manager_->getChild("PostgresBlockQuery")->getLogger());
     }
 
-    boost::optional<std::unique_ptr<SettingQuery>>
+    std::optional<std::unique_ptr<SettingQuery>>
     StorageImpl::createSettingQuery() const {
       std::shared_lock<std::shared_timed_mutex> lock(drop_mutex_);
       if (not connection_) {
         log_->info(
             "getSettingQuery: connection to database is not initialised");
-        return boost::none;
+        return std::nullopt;
       }
       std::unique_ptr<SettingQuery> setting_query_ptr =
           std::make_unique<PostgresSettingQuery>(
               std::make_unique<soci::session>(*connection_),
               log_manager_->getChild("PostgresSettingQuery")->getLogger());
-      return boost::make_optional(std::move(setting_query_ptr));
+      return std::make_optional(std::move(setting_query_ptr));
     }
 
     rxcpp::observable<std::shared_ptr<const shared_model::interface::Block>>

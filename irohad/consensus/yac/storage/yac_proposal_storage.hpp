@@ -7,9 +7,9 @@
 #define IROHA_YAC_PROPOSAL_STORAGE_HPP
 
 #include <memory>
+#include <optional>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "consensus/yac/storage/storage_result.hpp"
 #include "consensus/yac/storage/yac_block_storage.hpp"
 #include "consensus/yac/storage/yac_common.hpp"
@@ -53,10 +53,10 @@ namespace iroha {
          * Try to insert vote to storage
          * @param vote - object for insertion
          * @return result, that contains actual state of storage.
-         * boost::none if not inserted, possible reasons - duplication,
+         * std::nullopt if not inserted, possible reasons - duplication,
          * wrong proposal/block round.
          */
-        boost::optional<Answer> insert(VoteMessage vote);
+        std::optional<Answer> insert(VoteMessage vote);
 
         /**
          * Insert bundle of messages into storage
@@ -64,7 +64,7 @@ namespace iroha {
          * @return result, that contains actual state of storage,
          * after insertion of all votes.
          */
-        boost::optional<Answer> insert(std::vector<VoteMessage> messages);
+        std::optional<Answer> insert(std::vector<VoteMessage> messages);
 
         /**
          * Provides key for storage
@@ -74,7 +74,7 @@ namespace iroha {
         /**
          * @return current state of storage
          */
-        boost::optional<Answer> getState() const;
+        std::optional<Answer> getState() const;
 
        private:
         // --------| private api |--------
@@ -105,14 +105,14 @@ namespace iroha {
          * number of not voted peers + most frequent vote count < supermajority
          * @return answer with proof
          */
-        boost::optional<Answer> findRejectProof();
+        std::optional<Answer> findRejectProof();
 
         // --------| fields |--------
 
         /**
          * Current state of storage
          */
-        boost::optional<Answer> current_state_;
+        std::optional<Answer> current_state_;
 
         /**
          * Vector of block storages based on this proposal

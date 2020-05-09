@@ -1119,9 +1119,9 @@ namespace iroha {
 
       const auto writer = q.writer();
       const auto key = q.key();
-      boost::optional<std::string> first_record_writer;
-      boost::optional<std::string> first_record_key;
-      boost::optional<size_t> page_size;
+      std::optional<std::string> first_record_writer;
+      std::optional<std::string> first_record_key;
+      std::optional<size_t> page_size;
       // TODO 2019.05.29 mboldyrev IR-516 remove when pagination is made
       // mandatory
       q.paginationMeta() | [&](const auto &pagination_meta) {

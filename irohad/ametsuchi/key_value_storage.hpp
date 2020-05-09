@@ -6,7 +6,7 @@
 #ifndef IROHA_KV_STORAGE_HPP
 #define IROHA_KV_STORAGE_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,7 +37,7 @@ namespace iroha {
        * @param id - reference key
        * @return - blob, if exists
        */
-      virtual boost::optional<Bytes> get(Identifier id) const = 0;
+      virtual std::optional<Bytes> get(Identifier id) const = 0;
 
       /**
        * @return folder of storage

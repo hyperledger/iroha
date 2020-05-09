@@ -39,7 +39,7 @@ namespace iroha {
          */
         template <typename T>
         auto operator()(T &&x) const {
-          return boost::optional<V>(std::forward<T>(x));
+          return std::optional<V>(std::forward<T>(x));
         }
       };
 
@@ -60,13 +60,13 @@ namespace iroha {
        * @return deserialized field on success, nullopt otherwise
        */
       template <typename T, typename D>
-      boost::optional<T> deserializeField(const D &document,
+      std::optional<T> deserializeField(const D &document,
                                           const std::string &field) {
         if (document.HasMember(field.c_str())
             and document[field.c_str()].template Is<T>()) {
           return document[field.c_str()].template Get<T>();
         }
-        return boost::none;
+        return std::nullopt;
       }
 
       /**
@@ -223,7 +223,7 @@ namespace iroha {
         template <typename T>
         auto operator()(T &&x) const {
           auto des = makeFieldDeserializer(std::forward<T>(x));
-          return boost::make_optional(Signature())
+          return std::make_optional(Signature())
               | des.String(&Signature::pubkey, "pubkey")
               | des.String(&Signature::signature, "signature");
         }
@@ -237,13 +237,13 @@ namespace iroha {
             return init | [&x](auto signatures) {
               return Convert<Signature>()(x) | [&signatures](auto signature) {
                 signatures.push_back(signature);
-                return boost::make_optional(std::move(signatures));
+                return std::make_optional(std::move(signatures));
               };
             };
           };
           return std::accumulate(x.begin(),
                                  x.end(),
-                                 boost::make_optional(Block::SignaturesType()),
+                                 std::make_optional(Block::SignaturesType()),
                                  acc_signatures);
         }
       };
@@ -254,28 +254,28 @@ namespace iroha {
         auto operator()(T &&x) const {
           auto acc_hashes = [](auto init, auto &x) {
             return init | [&x](auto tx_hashes)
-                       -> boost::optional<
+                       -> std::optional<
                            GetTransactions::TxHashCollectionType> {
               // If invalid type included, returns nullopt
               if (not x.IsString()) {
-                return boost::none;
+                return std::nullopt;
               }
               auto tx_hash_opt =
                   Convert<GetTransactions::TxHashType>()(x.GetString());
               if (not tx_hash_opt) {
                 // If the the hash is wrong, just skip.
-                return boost::make_optional(std::move(tx_hashes));
+                return std::make_optional(std::move(tx_hashes));
               }
               return tx_hash_opt | [&tx_hashes](auto tx_hash) {
                 tx_hashes.push_back(tx_hash);
-                return boost::make_optional(std::move(tx_hashes));
+                return std::make_optional(std::move(tx_hashes));
               };
             };
           };
           return std::accumulate(
               x.begin(),
               x.end(),
-              boost::make_optional(GetTransactions::TxHashCollectionType()),
+              std::make_optional(GetTransactions::TxHashCollectionType()),
               acc_hashes);
         }
       };
@@ -295,7 +295,7 @@ namespace iroha {
        * @param string - string for parsing
        * @return JSON document on success, nullopt otherwise
        */
-      boost::optional<rapidjson::Document> stringToJson(
+      std::optional<rapidjson::Document> stringToJson(
           const std::string &string);
 
       /**

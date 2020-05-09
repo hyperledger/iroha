@@ -22,16 +22,16 @@ using TxPosition = iroha::ametsuchi::Indexer::TxPosition;
 
 namespace {
   // Return transfer asset if command contains it
-  boost::optional<const shared_model::interface::TransferAsset &>
+  std::optional<std::reference_wrapper<const shared_model::interface::TransferAsset>>
   getTransferAsset(const shared_model::interface::Command &cmd) noexcept {
     using ReturnType =
-        boost::optional<const shared_model::interface::TransferAsset &>;
+        std::optional<std::reference_wrapper<const shared_model::interface::TransferAsset>>;
     return iroha::visit_in_place(
         cmd.get(),
         [](const shared_model::interface::TransferAsset &c) {
           return ReturnType(c);
         },
-        [](const auto &) -> ReturnType { return boost::none; });
+        [](const auto &) -> ReturnType { return std::nullopt; });
   }
 }  // namespace
 
@@ -51,11 +51,11 @@ void PostgresBlockIndex::makeAccountAssetIndex(
                  [](const auto &opt_tx) { return static_cast<bool>(opt_tx); })
            | boost::adaptors::transformed(
                  [](const auto &opt_tx) -> const auto & { return *opt_tx; })) {
-    const auto &src_id = transfer.srcAccountId();
-    const auto &dest_id = transfer.destAccountId();
+    const auto &src_id = transfer.get().srcAccountId();
+    const auto &dest_id = transfer.get().destAccountId();
 
     const auto ids = {src_id, dest_id};
-    const auto asset_id = transfer.assetId();
+    const auto asset_id = transfer.get().assetId();
     // flat map accounts to unindexed keys
     for (const auto &id : ids) {
       indexer_->txPositions(id, hash, asset_id, ts, position);

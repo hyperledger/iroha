@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include <boost/optional.hpp>
+#include <optional>
 #include "consensus/yac/outcome_messages.hpp"
 #include "consensus/yac/storage/storage_result.hpp"
 #include "consensus/yac/supermajority_checker.hpp"
@@ -42,17 +42,17 @@ namespace iroha {
          * Try to insert vote to storage
          * @param msg - vote for insertion
          * @return actual state of storage,
-         * boost::none when storage doesn't have supermajority
+         * std::nullopt when storage doesn't have supermajority
          */
-        boost::optional<Answer> insert(VoteMessage msg);
+        std::optional<Answer> insert(VoteMessage msg);
 
         /**
          * Insert vector of votes to current storage
          * @param votes - bunch of votes for insertion
          * @return state of storage after insertion last vote,
-         * boost::none when storage doesn't have supermajority
+         * std::nullopt when storage doesn't have supermajority
          */
-        boost::optional<Answer> insert(std::vector<VoteMessage> votes);
+        std::optional<Answer> insert(std::vector<VoteMessage> votes);
 
         /**
          * @return votes attached to storage
@@ -67,7 +67,7 @@ namespace iroha {
         /**
          * @return current block store state
          */
-        boost::optional<Answer> getState();
+        std::optional<Answer> getState();
 
         /**
          * Verify that passed vote contains in storage

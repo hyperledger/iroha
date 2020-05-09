@@ -33,8 +33,8 @@ namespace iroha {
           const std::string &address,
           logger::LoggerPtr log,
           bool reuse = true,
-          const boost::optional<std::shared_ptr<const TlsCredentials>>
-              &my_tls_creds = boost::none);
+          const std::optional<std::shared_ptr<const TlsCredentials>>
+              &my_tls_creds = std::nullopt);
 
       ~ServerRunner();
 

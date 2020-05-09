@@ -33,7 +33,7 @@ struct IrohadConfig {
     struct None {};
     using PeerCertProvider = boost::variant<RootCert, FromWsv, None>;
 
-    boost::optional<std::string> my_tls_creds_path;
+    std::optional<std::string> my_tls_creds_path;
     PeerCertProvider peer_certificates;
   };
 
@@ -44,25 +44,25 @@ struct IrohadConfig {
 
   // TODO: block_store_path is now optional, change docs IR-576
   // luckychess 29.06.2019
-  boost::optional<std::string> block_store_path;
+  std::optional<std::string> block_store_path;
   uint16_t torii_port;
-  boost::optional<iroha::torii::TlsParams> torii_tls_params;
-  boost::optional<InterPeerTls> inter_peer_tls;
+  std::optional<iroha::torii::TlsParams> torii_tls_params;
+  std::optional<InterPeerTls> inter_peer_tls;
   uint16_t internal_port;
-  boost::optional<std::string>
+  std::optional<std::string>
       pg_opt;  // TODO 2019.06.26 mboldyrev IR-556 remove
-  boost::optional<DbConfig>
+  std::optional<DbConfig>
       database_config;  // TODO 2019.06.26 mboldyrev IR-556 make required
   uint32_t max_proposal_size;
   uint32_t proposal_delay;
   uint32_t vote_delay;
   bool mst_support;
-  boost::optional<uint32_t> mst_expiration_time;
-  boost::optional<uint32_t> max_round_delay_ms;
-  boost::optional<uint32_t> stale_stream_max_rounds;
-  boost::optional<logger::LoggerManagerTreePtr> logger_manager;
-  boost::optional<shared_model::interface::types::PeerList> initial_peers;
-  boost::optional<UtilityService> utility_service;
+  std::optional<uint32_t> mst_expiration_time;
+  std::optional<uint32_t> max_round_delay_ms;
+  std::optional<uint32_t> stale_stream_max_rounds;
+  std::optional<logger::LoggerManagerTreePtr> logger_manager;
+  std::optional<shared_model::interface::types::PeerList> initial_peers;
+  std::optional<UtilityService> utility_service;
 };
 
 /**

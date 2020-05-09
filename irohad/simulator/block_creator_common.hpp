@@ -7,8 +7,8 @@
 #define IROHA_BLOCK_CREATOR_COMMON_HPP
 
 #include <memory>
+#include <optional>
 
-#include <boost/optional.hpp>
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 
@@ -32,7 +32,7 @@ namespace iroha {
      * a verified proposal
      */
     struct BlockCreatorEvent {
-      boost::optional<RoundData> round_data;
+      std::optional<RoundData> round_data;
       consensus::Round round;
       std::shared_ptr<const LedgerState> ledger_state;
     };

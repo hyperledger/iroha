@@ -5,14 +5,14 @@
 
 #include "ordering/impl/on_demand_ordering_service_impl.hpp"
 
-#include <unordered_set>
-
-#include <boost/optional.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/indirected.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/size.hpp>
+#include <optional>
+#include <unordered_set>
+
 #include "ametsuchi/tx_presence_cache.hpp"
 #include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "common/visitor.hpp"
@@ -70,10 +70,9 @@ void OnDemandOrderingServiceImpl::onBatches(CollectionType batches) {
   log_->info("onBatches => collection size = {}", batches.size());
 }
 
-boost::optional<
-    std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
+std::optional<std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
 OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
-  boost::optional<
+  std::optional<
       std::shared_ptr<const OnDemandOrderingServiceImpl::ProposalType>>
       result;
   {
@@ -106,9 +105,10 @@ OnDemandOrderingServiceImpl::onRequestProposal(consensus::Round round) {
  * @return transactions
  */
 static std::vector<std::shared_ptr<shared_model::interface::Transaction>>
-getTransactions(size_t requested_tx_amount,
-                detail::BatchSetType &batch_collection,
-                boost::optional<size_t &> discarded_txs_amount) {
+getTransactions(
+    size_t requested_tx_amount,
+    detail::BatchSetType &batch_collection,
+    std::optional<std::reference_wrapper<size_t>> discarded_txs_amount) {
   std::vector<std::shared_ptr<shared_model::interface::Transaction>> collection;
 
   auto it = batch_collection.begin();
@@ -122,7 +122,7 @@ getTransactions(size_t requested_tx_amount,
   }
 
   if (discarded_txs_amount) {
-    *discarded_txs_amount = 0;
+    discarded_txs_amount->get() = 0;
     for (; it != batch_collection.end(); ++it) {
       *discarded_txs_amount += boost::size((*it)->transactions());
     }

@@ -6,7 +6,8 @@
 #ifndef IROHA_ORDERING_SERVICE_PROPOSAL_CREATION_STRATEGY_HPP
 #define IROHA_ORDERING_SERVICE_PROPOSAL_CREATION_STRATEGY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "consensus/round.hpp"
 
 namespace iroha {
@@ -40,7 +41,7 @@ namespace iroha {
        * @param requested_round - in which round proposal is requested
        * @return round where proposal is required to be created immediately
        */
-      virtual boost::optional<RoundType> onProposalRequest(
+      virtual std::optional<RoundType> onProposalRequest(
           RoundType requested_round) = 0;
 
       virtual ~ProposalCreationStrategy() = default;

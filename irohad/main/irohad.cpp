@@ -228,7 +228,7 @@ int main(int argc, char *argv[]) {
   // Reading public and private key files
   iroha::KeysManagerImpl keysManager(
       FLAGS_keypair_name, log_manager->getChild("KeysManager")->getLogger());
-  auto keypair = keysManager.loadKeys(boost::none);
+  auto keypair = keysManager.loadKeys(std::nullopt);
   // Check if both keys are read properly
   if (auto e = iroha::expected::resultToOptionalError(keypair)) {
     // Abort execution if not
@@ -279,10 +279,10 @@ int main(int argc, char *argv[]) {
       FLAGS_reuse_state ? iroha::StartupWsvDataPolicy::kReuse
                         : iroha::StartupWsvDataPolicy::kDrop,
       ::iroha::network::getDefaultChannelParams(),
-      boost::make_optional(config.mst_support,
+      std::make_optional(config.mst_support,
                            iroha::GossipPropagationStrategyParams{}),
       config.torii_tls_params,
-      boost::none);
+      std::nullopt);
 
   // Check if iroha daemon storage was successfully initialized
   if (not irohad->storage) {

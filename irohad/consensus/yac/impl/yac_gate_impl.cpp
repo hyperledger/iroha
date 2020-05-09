@@ -38,7 +38,7 @@ namespace iroha {
       YacGateImpl::YacGateImpl(
           std::shared_ptr<HashGate> hash_gate,
           std::shared_ptr<YacPeerOrderer> orderer,
-          boost::optional<ClusterOrdering> alternative_order,
+          std::optional<ClusterOrdering> alternative_order,
           std::shared_ptr<YacHashProvider> hash_provider,
           std::shared_ptr<simulator::BlockCreator> block_creator,
           std::shared_ptr<consensus::ConsensusResultCache>
@@ -111,7 +111,7 @@ namespace iroha {
                == current_ledger_state_->top_block_info.height + 1);
 
         if (not event.round_data) {
-          current_block_ = boost::none;
+          current_block_ = std::nullopt;
           // previous block is committed to block storage, it is safe to clear
           // the cache
           // TODO 2019-03-15 andrei: IR-405 Subscribe BlockLoaderService to
@@ -188,13 +188,13 @@ namespace iroha {
         if (hash.vote_hashes.proposal_hash.empty()) {
           // if consensus agreed on nothing for commit
           log_->info("Consensus skipped round, voted for nothing");
-          current_block_ = boost::none;
+          current_block_ = std::nullopt;
           return rxcpp::observable<>::just<GateObject>(AgreementOnNone(
               hash.vote_round, current_ledger_state_, std::move(public_keys)));
         }
 
         log_->info("Voted for another block, waiting for sync");
-        current_block_ = boost::none;
+        current_block_ = std::nullopt;
         auto model_hash = hash_provider_->toModelHash(hash);
         return rxcpp::observable<>::just<GateObject>(
             VoteOther(hash.vote_round,

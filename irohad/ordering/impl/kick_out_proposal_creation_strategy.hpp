@@ -32,7 +32,7 @@ namespace iroha {
 
       bool shouldCreateRound(RoundType round) override;
 
-      boost::optional<RoundType> onProposalRequest(
+      std::optional<RoundType> onProposalRequest(
           RoundType requested_round) override;
 
      private:

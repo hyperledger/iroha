@@ -6,7 +6,7 @@
 #ifndef IROHA_SETTING_QUERY_FACTORY_HPP
 #define IROHA_SETTING_QUERY_FACTORY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "ametsuchi/setting_query.hpp"
 
@@ -18,7 +18,7 @@ namespace iroha {
        * Creates a setting query
        * @return Created setting query
        */
-      virtual boost::optional<std::unique_ptr<SettingQuery>>
+      virtual std::optional<std::unique_ptr<SettingQuery>>
       createSettingQuery() const = 0;
 
       virtual ~SettingQueryFactory() = default;

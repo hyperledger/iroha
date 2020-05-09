@@ -77,7 +77,7 @@ namespace iroha {
 
       void Yac::vote(YacHash hash,
                      ClusterOrdering order,
-                     boost::optional<ClusterOrdering> alternative_order) {
+                     std::optional<ClusterOrdering> alternative_order) {
         log_->info("Order for voting: [{}]",
                    boost::algorithm::join(
                        order.getPeers()
@@ -211,15 +211,15 @@ namespace iroha {
         return alternative_order_ ? *alternative_order_ : cluster_order_;
       }
 
-      boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+      std::optional<std::shared_ptr<shared_model::interface::Peer>>
       Yac::findPeer(const VoteMessage &vote) {
         auto peers = cluster_order_.getPeers();
         auto it =
             std::find_if(peers.begin(), peers.end(), [&](const auto &peer) {
               return peer->pubkey() == vote.signature->publicKey();
             });
-        return it != peers.end() ? boost::make_optional(std::move(*it))
-                                 : boost::none;
+        return it != peers.end() ? std::make_optional(std::move(*it))
+                                 : std::nullopt;
       }
 
       // ------|Apply data|------

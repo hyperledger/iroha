@@ -44,7 +44,7 @@ namespace iroha {
                                                event.ledger_state});
             } else {
               notifier_.get_subscriber().on_next(VerifiedProposalCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
+                  std::nullopt, event.round, event.ledger_state});
             }
           });
 
@@ -63,7 +63,7 @@ namespace iroha {
               }
             } else {
               block_notifier_.get_subscriber().on_next(BlockCreatorEvent{
-                  boost::none, event.round, event.ledger_state});
+                  std::nullopt, event.round, event.ledger_state});
             }
           });
     }
@@ -95,7 +95,7 @@ namespace iroha {
       return validated_proposal_and_errors;
     }
 
-    boost::optional<std::shared_ptr<shared_model::interface::Block>>
+    std::optional<std::shared_ptr<shared_model::interface::Block>>
     Simulator::processVerifiedProposal(
         const std::shared_ptr<iroha::validation::VerifiedProposalAndErrors>
             &verified_proposal_and_errors,

@@ -24,7 +24,7 @@ namespace iroha {
       /**
        * Creates a block from given proposal and top block info
        */
-      virtual boost::optional<std::shared_ptr<shared_model::interface::Block>>
+      virtual std::optional<std::shared_ptr<shared_model::interface::Block>>
       processVerifiedProposal(
           const std::shared_ptr<validation::VerifiedProposalAndErrors>
               &verified_proposal_and_errors,

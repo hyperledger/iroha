@@ -20,15 +20,15 @@ namespace iroha {
       PostgresWsvQuery(std::unique_ptr<soci::session> sql,
                        logger::LoggerPtr log);
 
-      boost::optional<std::vector<std::string>> getSignatories(
+      std::optional<std::vector<std::string>> getSignatories(
           const shared_model::interface::types::AccountIdType &account_id)
           override;
 
-      boost::optional<
+      std::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() override;
 
-      boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+      std::optional<std::shared_ptr<shared_model::interface::Peer>>
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
                              public_key) override;
 
@@ -41,7 +41,7 @@ namespace iroha {
        * message, and returns an optional rowset<T>
        */
       template <typename T, typename F>
-      auto execute(F &&f) -> boost::optional<soci::rowset<T>>;
+      auto execute(F &&f) -> std::optional<soci::rowset<T>>;
 
       // TODO andrei 24.09.2018: IR-1718 Consistent soci::session fields in
       // storage classes

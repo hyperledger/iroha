@@ -47,14 +47,14 @@ namespace iroha {
           PeersNumberType peers_in_round,
           std::shared_ptr<SupermajorityChecker> supermajority_checker,
           logger::LoggerManagerTreePtr log_manager)
-          : current_state_(boost::none),
+          : current_state_(std::nullopt),
             storage_key_(store_round),
             peers_in_round_(peers_in_round),
             supermajority_checker_(supermajority_checker),
             log_manager_(std::move(log_manager)),
             log_(log_manager_->getLogger()) {}
 
-      boost::optional<Answer> YacProposalStorage::insert(VoteMessage msg) {
+      std::optional<Answer> YacProposalStorage::insert(VoteMessage msg) {
         if (shouldInsert(msg)) {
           // insert to block store
 
@@ -83,7 +83,7 @@ namespace iroha {
         return getState();
       }
 
-      boost::optional<Answer> YacProposalStorage::insert(
+      std::optional<Answer> YacProposalStorage::insert(
           std::vector<VoteMessage> messages) {
         std::for_each(messages.begin(), messages.end(), [this](auto vote) {
           this->insert(std::move(vote));
@@ -95,7 +95,7 @@ namespace iroha {
         return storage_key_;
       }
 
-      boost::optional<Answer> YacProposalStorage::getState() const {
+      std::optional<Answer> YacProposalStorage::getState() const {
         return current_state_;
       }
 
@@ -121,7 +121,7 @@ namespace iroha {
                            });
       }
 
-      boost::optional<Answer> YacProposalStorage::findRejectProof() {
+      std::optional<Answer> YacProposalStorage::findRejectProof() {
         auto is_reject = not supermajority_checker_->canHaveSupermajority(
             block_storages_
                 | boost::adaptors::transformed([](const auto &storage) {
@@ -143,7 +143,7 @@ namespace iroha {
           return Answer(RejectMessage(std::move(result)));
         }
 
-        return boost::none;
+        return std::nullopt;
       }
 
     }  // namespace yac

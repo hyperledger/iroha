@@ -120,7 +120,7 @@ namespace iroha {
   }
 
   void MstState::eraseExpired(const TimeType &current_time) {
-    extractExpiredImpl(current_time, boost::none);
+    extractExpiredImpl(current_time, std::nullopt);
   }
 
   void MstState::eraseByTransactionHash(
@@ -221,11 +221,11 @@ namespace iroha {
   }
 
   void MstState::extractExpiredImpl(const TimeType &current_time,
-                                    boost::optional<MstState &> extracted) {
+                                    std::optional<std::reference_wrapper<MstState>> extracted) {
     for (auto it = batches_.left.begin(); it != batches_.left.end()
          and completer_->isExpired(it->second, current_time);) {
       if (extracted) {
-        *extracted += it->second;
+        extracted->get() += it->second;
       }
       batches_to_hash_.right.erase(it->second);
       it = batches_.left.erase(it);

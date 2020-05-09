@@ -10,9 +10,9 @@
 using namespace iroha::consensus;
 using namespace iroha::consensus::yac;
 
-boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
+std::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
     RoundType consensus_round, Answer answer) {
-  using OptRefRoundType = boost::optional<RoundType> &;
+  using OptRefRoundType = std::optional<RoundType> &;
   auto &target_round = iroha::visit_in_place(
       answer,
       [this](const iroha::consensus::yac::CommitMessage &) -> OptRefRoundType {
@@ -20,7 +20,7 @@ boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
         // required anymore for the consensus
         if (last_commit_round_ and last_reject_round_
             and *last_commit_round_ < *last_reject_round_) {
-          last_reject_round_ = boost::none;
+          last_reject_round_ = std::nullopt;
         }
         return last_commit_round_;
       },
@@ -32,7 +32,7 @@ boost::optional<CleanupStrategy::RoundsType> BufferedCleanupStrategy::finalize(
 
   auto removed_rounds = truncateCreatedRounds();
   if (removed_rounds.empty()) {
-    return boost::none;
+    return std::nullopt;
   } else {
     return removed_rounds;
   }
@@ -49,11 +49,11 @@ CleanupStrategy::RoundsType BufferedCleanupStrategy::truncateCreatedRounds() {
   return removed;
 }
 
-boost::optional<BufferedCleanupStrategy::RoundType>
+std::optional<BufferedCleanupStrategy::RoundType>
 BufferedCleanupStrategy::minimalRound() const {
   // both values unavailable
   if (not last_reject_round_ and not last_commit_round_) {
-    return boost::none;
+    return std::nullopt;
   }
 
   // both values present

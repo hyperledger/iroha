@@ -6,12 +6,11 @@
 #ifndef IROHA_BUFFERED_CLEANUP_STRATEGY_HPP
 #define IROHA_BUFFERED_CLEANUP_STRATEGY_HPP
 
-#include "consensus/yac/storage/cleanup_strategy.hpp"
-
-#include <boost/optional.hpp>
+#include <optional>
 #include <queue>
 
 #include "consensus/yac/outcome_messages.hpp"
+#include "consensus/yac/storage/cleanup_strategy.hpp"
 
 namespace iroha {
   namespace consensus {
@@ -27,7 +26,7 @@ namespace iroha {
          * @param answer - the output of the round
          * @return rounds to be removed, if any.
          */
-        boost::optional<CleanupStrategy::RoundsType> finalize(
+        std::optional<CleanupStrategy::RoundsType> finalize(
             RoundType consensus_round, Answer answer) override;
 
         bool shouldCreateRound(const RoundType &round) override;
@@ -44,7 +43,7 @@ namespace iroha {
          * @return the lowest round from last committed and last rejected
          * rounds, if the operation can't be applied - returns none
          */
-        boost::optional<RoundType> minimalRound() const;
+        std::optional<RoundType> minimalRound() const;
 
         /**
          * The method creates round into created_rounds_ collection
@@ -66,9 +65,9 @@ namespace iroha {
             created_rounds_;
 
         /// maximal reject round, could empty if commit happened
-        boost::optional<RoundType> last_reject_round_;
+        std::optional<RoundType> last_reject_round_;
         /// maximal commit round
-        boost::optional<RoundType> last_commit_round_;
+        std::optional<RoundType> last_commit_round_;
       };
     }  // namespace yac
   }    // namespace consensus

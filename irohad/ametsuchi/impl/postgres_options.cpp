@@ -18,13 +18,13 @@ using namespace iroha::ametsuchi;
 namespace {
   const std::string kPreparedBlockPrefix{"prepared_block_"};
 
-  boost::optional<std::string> extractOptionalField(
+  std::optional<std::string> extractOptionalField(
       const std::string &connection_string, const std::string &field_name) {
     const std::regex field_regex(
         (boost::format(R"(\b%1%=([^ ]+)\b)") % field_name).str());
     std::smatch m;
     if (not std::regex_search(connection_string, m, field_regex)) {
-      return boost::none;
+      return std::nullopt;
     }
     return std::string{m[1]};
   }

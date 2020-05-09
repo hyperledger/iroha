@@ -55,7 +55,7 @@ class JsonDeserializerImpl {
    */
   template <typename TDest>
   TDest deserialize(const rapidjson::Value &src,
-                    boost::optional<std::string> path = boost::none) {
+                    std::optional<std::string> path = std::nullopt) {
     TDest dest;
     getVal(path.value_or(""), dest, src);
     return dest;
@@ -220,11 +220,11 @@ class JsonDeserializerImpl {
   /// A variant of tryGetValByKey for optional destination
   template <typename TDest, typename TKey>
   bool tryGetValByKey(const std::string &path,
-                      boost::optional<TDest> &dest,
+                      std::optional<TDest> &dest,
                       const rapidjson::Value::ConstObject &obj,
                       const TKey &key) {
     dest = getOptValByKey<TDest>(path, obj, key);
-    return true;  // value loaded any way, either from file or boost::none
+    return true;  // value loaded any way, either from file or std::nullopt
   }
 
   /**
@@ -233,15 +233,15 @@ class JsonDeserializerImpl {
    *    place.
    * @param obj - the source JSON object
    * @param key - the key for the requested value
-   * @return the value if present in the JSON object, otherwise boost::none.
+   * @return the value if present in the JSON object, otherwise std::nullopt.
    */
   template <typename TDest, typename TKey>
-  boost::optional<TDest> getOptValByKey(
+  std::optional<TDest> getOptValByKey(
       const std::string &path,
       const rapidjson::Value::ConstObject &obj,
       const TKey &key) {
     TDest val;
-    return boost::make_optional(tryGetValByKey(path, val, obj, key), val);
+    return tryGetValByKey(path, val, obj, key) ? std::make_optional(val) : std::nullopt;
   }
 
   /**
@@ -368,7 +368,7 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   getValByKey(path, address, obj, config_members::Address);
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
-  boost::optional<std::string> tls_certificate_path =
+  std::optional<std::string> tls_certificate_path =
       getOptValByKey<std::string>(
           path, obj, config_members::TlsCertificatePath);
 

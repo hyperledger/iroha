@@ -113,19 +113,19 @@ void OnDemandOrderingGate::stop() {
   }
 }
 
-boost::optional<std::shared_ptr<const shared_model::interface::Proposal>>
+std::optional<std::shared_ptr<const shared_model::interface::Proposal>>
 OnDemandOrderingGate::processProposalRequest(
-    boost::optional<
+    std::optional<
         std::shared_ptr<const OnDemandOrderingService::ProposalType>> proposal)
     const {
   if (not proposal) {
-    return boost::none;
+    return std::nullopt;
   }
   auto proposal_without_replays =
       removeReplaysAndDuplicates(*std::move(proposal));
   // no need to check empty proposal
   if (boost::empty(proposal_without_replays->transactions())) {
-    return boost::none;
+    return std::nullopt;
   }
   return proposal_without_replays;
 }

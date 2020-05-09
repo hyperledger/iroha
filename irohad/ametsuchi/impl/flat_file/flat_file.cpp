@@ -29,15 +29,15 @@ std::string FlatFile::id_to_name(Identifier id) {
   return os.str();
 }
 
-boost::optional<Identifier> FlatFile::name_to_id(const std::string &name) {
+std::optional<Identifier> FlatFile::name_to_id(const std::string &name) {
   if (name.size() != FlatFile::DIGIT_CAPACITY) {
-    return boost::none;
+    return std::nullopt;
   }
   try {
     Identifier id = std::stoul(name);
-    return boost::make_optional(id);
+    return std::make_optional(id);
   } catch (const std::exception &e) {
-    return boost::none;
+    return std::nullopt;
   }
 }
 
@@ -92,13 +92,12 @@ bool FlatFile::add(Identifier id, const Bytes &block) {
   available_blocks_.insert(id);
   return true;
 }
-
-boost::optional<FlatFile::Bytes> FlatFile::get(Identifier id) const {
+std::optional<FlatFile::Bytes> FlatFile::get(Identifier id) const {
   const auto filename =
       boost::filesystem::path{dump_dir_} / FlatFile::id_to_name(id);
   if (not boost::filesystem::exists(filename)) {
     log_->info("get({}) file not found", id);
-    return boost::none;
+    return std::nullopt;
   }
   return iroha::expected::resultToOptionalValue(
       iroha::readBinaryFile(filename.string()));

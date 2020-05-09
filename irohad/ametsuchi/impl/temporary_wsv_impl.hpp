@@ -7,7 +7,7 @@
 #define IROHA_TEMPORARY_WSV_IMPL_HPP
 
 #include "ametsuchi/temporary_wsv.hpp"
-
+#include "ametsuchi/impl/soci_std_optional.hpp"
 #include <soci/soci.h>
 #include "ametsuchi/command_executor.hpp"
 #include "logger/logger_fwd.hpp"

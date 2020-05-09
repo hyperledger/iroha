@@ -7,10 +7,10 @@
 #define IROHA_ON_DEMAND_OS_TRANSPORT_HPP
 
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "common/result_fwd.hpp"
 #include "consensus/round.hpp"
 
@@ -59,7 +59,7 @@ namespace iroha {
          * Calculated as block_height + 1
          * @return proposal for requested round
          */
-        virtual boost::optional<std::shared_ptr<const ProposalType>>
+        virtual std::optional<std::shared_ptr<const ProposalType>>
         onRequestProposal(consensus::Round round) = 0;
 
         virtual ~OdOsNotification() = default;

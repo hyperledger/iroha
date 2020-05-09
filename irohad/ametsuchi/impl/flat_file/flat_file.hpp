@@ -51,9 +51,9 @@ namespace iroha {
       /**
        * Converts aligned string (see above) to number.
        * @param name - name to convert
-       * @return id or boost::none
+       * @return id or std::nullopt
        */
-      static boost::optional<Identifier> name_to_id(const std::string &name);
+      static std::optional<Identifier> name_to_id(const std::string &name);
 
       /**
        * Create storage in paths
@@ -66,7 +66,7 @@ namespace iroha {
 
       bool add(Identifier id, const Bytes &blob) override;
 
-      boost::optional<Bytes> get(Identifier id) const override;
+      std::optional<Bytes> get(Identifier id) const override;
 
       std::string directory() const override;
 

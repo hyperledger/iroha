@@ -6,9 +6,9 @@
 #ifndef IROHA_WSV_QUERY_HPP
 #define IROHA_WSV_QUERY_HPP
 
+#include <optional>
 #include <vector>
 
-#include <boost/optional.hpp>
 #include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
@@ -29,14 +29,14 @@ namespace iroha {
        * @param account_id
        * @return
        */
-      virtual boost::optional<std::vector<std::string>> getSignatories(
+      virtual std::optional<std::vector<std::string>> getSignatories(
           const shared_model::interface::types::AccountIdType &account_id) = 0;
 
       /**
        * Fetch peers stored in ledger
        * @return list of peers in insertion to ledger order
        */
-      virtual boost::optional<
+      virtual std::optional<
           std::vector<std::shared_ptr<shared_model::interface::Peer>>>
       getPeers() = 0;
 
@@ -44,7 +44,7 @@ namespace iroha {
        * Fetch peer with given public key from ledger
        * @return the peer if found, none otherwise
        */
-      virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
+      virtual std::optional<std::shared_ptr<shared_model::interface::Peer>>
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
                              public_key) = 0;
 

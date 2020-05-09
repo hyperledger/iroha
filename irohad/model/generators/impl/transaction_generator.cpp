@@ -36,9 +36,9 @@ namespace iroha {
         for (size_t i = 0; i < peers_address.size(); ++i) {
           KeysManagerImpl manager("node" + std::to_string(i),
                                   keys_manager_logger);
-          manager.createKeys(boost::none);
+          manager.createKeys(std::nullopt);
           auto keypair = *std::unique_ptr<iroha::keypair_t>(
-              makeOldModel(manager.loadKeys(boost::none).assumeValue()));
+              makeOldModel(manager.loadKeys(std::nullopt).assumeValue()));
           tx.commands.push_back(command_generator.generateAddPeer(
               Peer(peers_address[i], keypair.pubkey)));
         }
@@ -58,15 +58,15 @@ namespace iroha {
             command_generator.generateCreateAsset("coin", "test", precision));
         // Create accounts
         KeysManagerImpl manager("admin@test", keys_manager_logger);
-        manager.createKeys(boost::none);
+        manager.createKeys(std::nullopt);
         auto keypair = *std::unique_ptr<iroha::keypair_t>(
-            makeOldModel(manager.loadKeys(boost::none).assumeValue()));
+            makeOldModel(manager.loadKeys(std::nullopt).assumeValue()));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "admin", "test", keypair.pubkey));
         manager = KeysManagerImpl("test@test", std::move(keys_manager_logger));
-        manager.createKeys(boost::none);
+        manager.createKeys(std::nullopt);
         keypair = *std::unique_ptr<iroha::keypair_t>(
-            makeOldModel(manager.loadKeys(boost::none).assumeValue()));
+            makeOldModel(manager.loadKeys(std::nullopt).assumeValue()));
         tx.commands.push_back(command_generator.generateCreateAccount(
             "test", "test", keypair.pubkey));
 

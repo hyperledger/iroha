@@ -95,11 +95,11 @@ bool PostgresBlockStorage::insert(
   }
 }
 
-boost::optional<std::unique_ptr<shared_model::interface::Block>>
+std::optional<std::unique_ptr<shared_model::interface::Block>>
 PostgresBlockStorage::fetch(
     shared_model::interface::types::HeightType height) const {
   soci::session sql(*pool_wrapper_->connection_pool_);
-  using QueryTuple = boost::tuple<boost::optional<std::string>>;
+  using QueryTuple = boost::tuple<std::optional<std::string>>;
   QueryTuple row;
   try {
     sql << "SELECT block_data FROM " << table_name_
@@ -107,7 +107,7 @@ PostgresBlockStorage::fetch(
         soci::use(height), soci::into(row);
   } catch (const std::exception &e) {
     log_->error("Failed to execute query: {}", e.what());
-    return boost::none;
+    return std::nullopt;
   }
   return rebind(viewQuery<QueryTuple>(row)) | [&, this](auto row) {
     return iroha::ametsuchi::apply(row, [&, this](auto &block_data) {
@@ -121,17 +121,17 @@ PostgresBlockStorage::fetch(
             return block_factory_->createBlock(std::move(block))
                 .match(
                     [&](auto &&v) {
-                      return boost::make_optional(
+                      return std::make_optional(
                           std::unique_ptr<shared_model::interface::Block>(
                               std::move(v.value)));
                     },
                     [&](const auto &e)
-                        -> boost::optional<
+                        -> std::optional<
                             std::unique_ptr<shared_model::interface::Block>> {
                       log_->error("Could not build block at height {}: {}",
                                   height,
                                   e.error);
-                      return boost::none;
+                      return std::nullopt;
                     });
           };
     });
@@ -141,7 +141,7 @@ PostgresBlockStorage::fetch(
 size_t PostgresBlockStorage::size() const {
   return (block_height_range_ |
           [](auto range) {
-            return boost::make_optional(range.max - range.min + 1);
+            return std::make_optional(range.max - range.min + 1);
           })
       .value_or(0);
 }
@@ -168,12 +168,12 @@ void PostgresBlockStorage::forEach(
   };
 }
 
-iroha::expected::Result<boost::optional<PostgresBlockStorage::HeightRange>,
+iroha::expected::Result<std::optional<PostgresBlockStorage::HeightRange>,
                         std::string>
 PostgresBlockStorage::queryBlockHeightsRange(soci::session &sql,
                                              const std::string &table_name) {
   using QueryTuple =
-      boost::tuple<boost::optional<size_t>, boost::optional<size_t>>;
+      boost::tuple<std::optional<size_t>, std::optional<size_t>>;
   QueryTuple row;
   try {
     sql << "SELECT MIN(height), MAX(height) FROM " << table_name,
@@ -184,7 +184,7 @@ PostgresBlockStorage::queryBlockHeightsRange(soci::session &sql,
   return rebind(viewQuery<QueryTuple>(row)) | [](auto row) {
     return iroha::ametsuchi::apply(row, [](size_t min, size_t max) {
       assert(max >= min);
-      return boost::make_optional(HeightRange{min, max});
+      return std::make_optional(HeightRange{min, max});
     });
   };
 }

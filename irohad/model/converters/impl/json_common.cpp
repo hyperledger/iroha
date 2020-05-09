@@ -23,11 +23,11 @@ namespace iroha {
         return document;
       }
 
-      boost::optional<Document> stringToJson(const std::string &string) {
+      std::optional<Document> stringToJson(const std::string &string) {
         Document document;
         document.Parse(string);
         if (document.HasParseError()) {
-          return boost::none;
+          return std::nullopt;
         }
         return document;
       }

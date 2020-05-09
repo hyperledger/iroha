@@ -32,16 +32,16 @@ namespace iroha {
       template <>
       struct Convert<Peer> {
         template <typename T>
-        boost::optional<Peer> operator()(T &&x) const {
+        std::optional<Peer> operator()(T &&x) const {
           auto des = makeFieldDeserializer(std::forward<T>(x));
           auto address = des.String("address");
           auto pubkey = des.String("peer_key");
 
           if (not address or not pubkey) {
-            return boost::none;
+            return std::nullopt;
           }
 
-          return boost::make_optional(Peer(
+          return std::make_optional(Peer(
               address.value(),
               iroha::hexstringToArray<iroha::pubkey_t::size()>(pubkey.value())
                   .value()));
@@ -441,14 +441,14 @@ namespace iroha {
           std::set<std::string> perms;
           for (auto &v : document["permissions"].GetArray()) {
             if (not v.IsString()) {
-              return boost::none;
+              return std::nullopt;
             }
             perms.insert(v.GetString());
           }
           auto role_name = document["role_name"].GetString();
           return make_optional_ptr<CreateRole>(role_name, perms) | toCommand;
         }
-        return boost::none;
+        return std::nullopt;
       }
 
       rapidjson::Document JsonCommandFactory::serializeGrantPermission(

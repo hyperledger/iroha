@@ -33,8 +33,8 @@ namespace iroha {
          */
         virtual void vote(YacHash hash,
                           ClusterOrdering order,
-                          boost::optional<ClusterOrdering> alternative_order =
-                              boost::none) = 0;
+                          std::optional<ClusterOrdering> alternative_order =
+                              std::nullopt) = 0;
 
         /**
          * Observable with consensus outcomes - commits and rejects - in network

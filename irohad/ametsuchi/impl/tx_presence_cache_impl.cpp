@@ -15,7 +15,7 @@ namespace iroha {
     TxPresenceCacheImpl::TxPresenceCacheImpl(std::shared_ptr<Storage> storage)
         : storage_(std::move(storage)) {}
 
-    boost::optional<TxCacheStatusType> TxPresenceCacheImpl::check(
+    std::optional<TxCacheStatusType> TxPresenceCacheImpl::check(
         const shared_model::crypto::Hash &hash) const {
       auto res = memory_cache_.findItem(hash);
       if (res) {
@@ -24,7 +24,7 @@ namespace iroha {
       return checkInStorage(hash);
     }
 
-    boost::optional<TxPresenceCache::BatchStatusCollectionType>
+    std::optional<TxPresenceCache::BatchStatusCollectionType>
     TxPresenceCacheImpl::check(
         const shared_model::interface::TransactionBatch &batch) const {
       TxPresenceCache::BatchStatusCollectionType batch_statuses;
@@ -32,17 +32,17 @@ namespace iroha {
         if (auto status = check(tx->hash())) {
           batch_statuses.emplace_back(*status);
         } else {
-          return boost::none;
+          return std::nullopt;
         }
       }
       return batch_statuses;
     }
 
-    boost::optional<TxCacheStatusType> TxPresenceCacheImpl::checkInStorage(
+    std::optional<TxCacheStatusType> TxPresenceCacheImpl::checkInStorage(
         const shared_model::crypto::Hash &hash) const {
       auto block_query = storage_->getBlockQuery();
       if (not block_query) {
-        return boost::none;
+        return std::nullopt;
       }
       return block_query->checkTxPresence(hash) |
           [this, &hash](const auto &status) {

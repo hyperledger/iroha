@@ -48,7 +48,7 @@ void OnDemandOsClientGrpc::onBatches(CollectionType batches) {
   });
 }
 
-boost::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
+std::optional<std::shared_ptr<const OdOsNotification::ProposalType>>
 OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   grpc::ClientContext context;
   context.set_deadline(time_provider_() + proposal_request_timeout_);
@@ -59,21 +59,21 @@ OnDemandOsClientGrpc::onRequestProposal(consensus::Round round) {
   auto status = stub_->RequestProposal(&context, request, &response);
   if (not status.ok()) {
     log_->warn("RPC failed: {}", status.error_message());
-    return boost::none;
+    return std::nullopt;
   }
   if (not response.has_proposal()) {
-    return boost::none;
+    return std::nullopt;
   }
   return proposal_factory_->build(response.proposal())
       .match(
           [&](auto &&v) {
-            return boost::make_optional(
+            return std::make_optional(
                 std::shared_ptr<const OdOsNotification::ProposalType>(
                     std::move(v).value));
           },
           [this](const auto &error) {
             log_->info("{}", error.error.error);  // error
-            return boost::optional<
+            return std::optional<
                 std::shared_ptr<const OdOsNotification::ProposalType>>();
           });
 }

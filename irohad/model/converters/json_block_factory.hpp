@@ -19,7 +19,7 @@ namespace iroha {
         explicit JsonBlockFactory(logger::LoggerPtr log);
         rapidjson::Document serialize(const Block &block);
 
-        boost::optional<Block> deserialize(const rapidjson::Document &document);
+        std::optional<Block> deserialize(const rapidjson::Document &document);
 
        private:
         JsonTransactionFactory factory_;

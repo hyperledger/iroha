@@ -6,10 +6,12 @@
 #ifndef IROHA_POSTGRES_SETTING_QUERY_HPP
 #define IROHA_POSTGRES_SETTING_QUERY_HPP
 
-#include "ametsuchi/setting_query.hpp"
-
 #include <soci/soci.h>
-#include <boost/optional.hpp>
+
+#include <optional>
+
+#include "ametsuchi/impl/soci_std_optional.hpp"
+#include "ametsuchi/setting_query.hpp"
 #include "logger/logger_fwd.hpp"
 
 namespace iroha {

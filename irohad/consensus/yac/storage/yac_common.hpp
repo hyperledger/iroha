@@ -6,9 +6,8 @@
 #ifndef IROHA_YAC_COMMON_HPP
 #define IROHA_YAC_COMMON_HPP
 
+#include <optional>
 #include <vector>
-
-#include <boost/optional.hpp>
 
 #include "consensus/round.hpp"
 
@@ -34,17 +33,17 @@ namespace iroha {
        * Provide key common for whole collection
        * @param votes - collection with votes
        * @return vote round, if collection shared the same round,
-       * otherwise boost::none
+       * otherwise std::nullopt
        */
-      boost::optional<Round> getKey(const std::vector<VoteMessage> &votes);
+      std::optional<Round> getKey(const std::vector<VoteMessage> &votes);
 
       /**
        * Get common hash from collection
        * @param votes - collection with votes
        * @return hash, if collection elements have same hash,
-       * otherwise boost::none
+       * otherwise std::nullopt
        */
-      boost::optional<YacHash> getHash(const std::vector<VoteMessage> &votes);
+      std::optional<YacHash> getHash(const std::vector<VoteMessage> &votes);
 
     }  // namespace yac
   }    // namespace consensus

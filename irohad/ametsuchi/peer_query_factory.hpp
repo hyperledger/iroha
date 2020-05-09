@@ -6,7 +6,7 @@
 #ifndef IROHA_PEER_QUERY_FACTORY_HPP
 #define IROHA_PEER_QUERY_FACTORY_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "ametsuchi/peer_query.hpp"
 
@@ -18,7 +18,7 @@ namespace iroha {
        * Creates a peer query from the current state.
        * @return Created peer query
        */
-      virtual boost::optional<std::shared_ptr<PeerQuery>> createPeerQuery()
+      virtual std::optional<std::shared_ptr<PeerQuery>> createPeerQuery()
           const = 0;
 
       virtual ~PeerQueryFactory() = default;

@@ -35,12 +35,12 @@ namespace {
     }
 
     /**
-     * Returns boost::none - it is not required to fetch individual blocks
+     * Returns std::nullopt - it is not required to fetch individual blocks
      * during WSV reindexing
      */
-    boost::optional<std::unique_ptr<shared_model::interface::Block>> fetch(
+    std::optional<std::unique_ptr<shared_model::interface::Block>> fetch(
         HeightType height) const override {
-      return boost::none;
+      return std::nullopt;
     }
 
     size_t size() const override {

@@ -6,7 +6,8 @@
 #ifndef IROHA_VERIFIED_PROPOSAL_CREATOR_COMMON_HPP
 #define IROHA_VERIFIED_PROPOSAL_CREATOR_COMMON_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
+
 #include "ametsuchi/ledger_state.hpp"
 #include "consensus/round.hpp"
 #include "validation/stateful_validator_common.hpp"
@@ -19,7 +20,7 @@ namespace iroha {
      * and processes a proposal
      */
     struct VerifiedProposalCreatorEvent {
-      boost::optional<std::shared_ptr<validation::VerifiedProposalAndErrors>>
+      std::optional<std::shared_ptr<validation::VerifiedProposalAndErrors>>
           verified_proposal_result;
       consensus::Round round;
       std::shared_ptr<const LedgerState> ledger_state;

@@ -6,7 +6,7 @@
 #ifndef IROHA_YAC_PEER_ORDERER_HPP
 #define IROHA_YAC_PEER_ORDERER_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 #include "consensus/yac/cluster_order.hpp"
 
@@ -27,7 +27,7 @@ namespace iroha {
          * @param peers - an ordered list of peers
          * @return shuffled cluster order
          */
-        virtual boost::optional<ClusterOrdering> getOrdering(
+        virtual std::optional<ClusterOrdering> getOrdering(
             const YacHash &hash,
             std::vector<std::shared_ptr<shared_model::interface::Peer>> const
                 &peers) = 0;
