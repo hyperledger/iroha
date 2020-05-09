@@ -37,6 +37,10 @@ shared_model::interface::EngineReceipt::PayloadType EngineReceipt::getPayloadTyp
         return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeUnk;
 }
 
+int32_t EngineReceipt::getCommandIndex() const {
+    return proto_.command_index();
+}
+
 shared_model::interface::types::EvmAddressHexString const &EngineReceipt::getPayload() const {
     if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kCallee) {
         return proto_.callee();

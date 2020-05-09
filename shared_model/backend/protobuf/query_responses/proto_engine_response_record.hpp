@@ -23,6 +23,7 @@ namespace shared_model {
 
       explicit EngineReceipt(const EngineReceipt &o);
 
+      int32_t getCommandIndex() const override;
       shared_model::interface::types::AccountIdType getCaller() const override;
       shared_model::interface::EngineReceipt::PayloadType getPayloadType() const override;
       shared_model::interface::types::EvmAddressHexString const &getPayload() const override;

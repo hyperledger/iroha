@@ -35,6 +35,9 @@ namespace shared_model {
       using EngineLogsPtr = std::unique_ptr<interface::EngineLog>;
       using EngineLogsCollectionType = std::vector<EngineLogsPtr>;
 
+      /// Get command index
+      virtual int32_t getCommandIndex() const = 0;
+
       /// Get sender account id
       virtual types::AccountIdType getCaller() const = 0;
 
