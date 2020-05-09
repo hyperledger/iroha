@@ -6,6 +6,7 @@
 #include "integration/executor/executor_fixture_param_postgres.hpp"
 
 #include <soci/soci.h>
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
@@ -30,7 +31,8 @@ using namespace iroha::expected;
 using namespace iroha::integration_framework;
 
 namespace {
-  constexpr size_t kDataBaseSessionPoolSize = 3;  // sessions for:
+  constexpr size_t kDataBaseSessionPoolSize = 4;  // sessions for:
+                                                  // - burrow storage
                                                   // - command executor
                                                   // - query executor
                                                   // - resetWsv
@@ -50,6 +52,7 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
 
   executor_itf_target_ =
       createPostgresExecutorItfTarget(*db_manager_, *vm_caller_);
+  burrow_storage_session_ = db_manager_->getSession();
 }
 
 PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
@@ -62,6 +65,14 @@ void PostgresExecutorTestParam::clearBackendState() {
 
 ExecutorItfTarget PostgresExecutorTestParam::getExecutorItfParam() const {
   return executor_itf_target_;
+}
+
+std::unique_ptr<iroha::ametsuchi::BurrowStorage>
+PostgresExecutorTestParam::makeBurrowStorage(
+    std::string const &tx_hash,
+    shared_model::interface::types::CommandIndexType cmd_index) const {
+  return std::make_unique<PostgresBurrowStorage>(
+      *burrow_storage_session_, tx_hash, cmd_index);
 }
 
 std::string PostgresExecutorTestParam::toString() const {

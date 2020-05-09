@@ -72,7 +72,7 @@ namespace iroha {
           boost::mpl::pair<shared_model::interface::GetBlock,
                            shared_model::interface::BlockResponse>,
           boost::mpl::pair<shared_model::interface::GetEngineReceipts,
-                           shared_model::interface::EngineResponse>>
+                           shared_model::interface::EngineReceiptsResponse>>
           SpecificQueryResponses;
 
       /// true for specific commands

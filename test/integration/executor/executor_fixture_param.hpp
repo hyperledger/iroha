@@ -9,10 +9,12 @@
 #include "framework/executor_itf/executor_itf_param.hpp"
 
 #include <gtest/gtest.h>
+#include "interfaces/common_objects/types.hpp"
 
 namespace iroha::ametsuchi {
+  class BurrowStorage;
   class MockVmCaller;
-}
+}  // namespace iroha::ametsuchi
 
 namespace executor_testing {
 
@@ -28,6 +30,11 @@ namespace executor_testing {
     /// ExecutorItf.
     virtual iroha::integration_framework::ExecutorItfTarget
     getExecutorItfParam() const = 0;
+
+    /// Make a BurrowStorage for this backend.
+    virtual std::unique_ptr<iroha::ametsuchi::BurrowStorage> makeBurrowStorage(
+        std::string const &tx_hash,
+        shared_model::interface::types::CommandIndexType cmd_index) const = 0;
 
     /// Implementations must define this to provide backend description.
     virtual std::string toString() const = 0;
