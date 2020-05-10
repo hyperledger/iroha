@@ -5,6 +5,8 @@
 
 #include "interfaces/query_responses/engine_response_record.hpp"
 
+#include <iostream>
+
 #include "cryptography/hash.hpp"
 
 using namespace shared_model::interface;
@@ -30,8 +32,25 @@ std::string EngineReceipt::toString() const {
       .appendNamed("from", getCaller())
       .appendNamed("payload_type", EngineReceipt::payloadTypeToStr(getPayloadType()))
       .appendNamed("contract_address", !!getContractAddress() ? *getContractAddress() : std::string("no contract address"))
-      .appendNamed("response_data.callee", !!getResponseData() ? getResponseData()->callee : std::string("no callee"))
-      .appendNamed("response_data.data", !!getResponseData() && !!getResponseData()->response_data ? *getResponseData()->response_data : std::string("no response data"))
+      .appendNamed("response_data", !!getResponseData() ? getResponseData()->toString() : std::string("no callee"))
       .appendNamed("engine_logs", getEngineLogs())
       .finalize();
+}
+
+std::ostream &shared_model::interface::operator<<(std::ostream &os,
+                                                  EngineReceipt const &r) {
+  return os << r.toString();
+}
+
+std::string EngineReceipt::CallResult::toString() const {
+  return detail::PrettyStringBuilder()
+      .init("EngineContractCallResult")
+      .appendNamed("callee", callee)
+      .appendNamed("response_data", response_data)
+      .finalize();
+}
+
+std::ostream &shared_model::interface::operator<<(
+    std::ostream &os, EngineReceipt::CallResult const &r) {
+  return os << r.toString();
 }

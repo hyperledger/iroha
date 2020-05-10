@@ -8,6 +8,8 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
+#include <iosfwd>
+
 #include "interfaces/common_objects/range_types.hpp"
 
 namespace shared_model {
@@ -26,6 +28,8 @@ namespace shared_model {
 
       bool operator==(const ModelType &rhs) const override;
     };
+
+    std::ostream &operator<<(std::ostream &os, EngineReceiptsResponse const &);
   }  // namespace interface
 }  // namespace shared_model
 #endif  // IROHA_SHARED_MODEL_ENGINE_RESPONSE_HPP

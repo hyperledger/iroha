@@ -5,6 +5,8 @@
 
 #include "interfaces/query_responses/engine_response.hpp"
 
+#include <iostream>
+
 #include "interfaces/query_responses/engine_response_record.hpp"
 #include "utils/string_builder.hpp"
 
@@ -20,6 +22,11 @@ namespace shared_model {
 
     bool EngineReceiptsResponse::operator==(const ModelType &rhs) const {
       return engineReceipts() == rhs.engineReceipts();
+    }
+
+    std::ostream &operator<<(std::ostream &os,
+                             EngineReceiptsResponse const &r) {
+      return os << r.toString();
     }
 
   }  // namespace interface
