@@ -6,7 +6,7 @@
 #ifndef IROHA_COMMON_OBJ_UTILS_HPP
 #define IROHA_COMMON_OBJ_UTILS_HPP
 
-#include <boost/optional.hpp>
+#include <optional>
 
 namespace iroha {
 
@@ -20,12 +20,12 @@ namespace iroha {
    */
   template <typename C>
   auto makeOptionalGet(C map) {
-    return [&map](auto key) -> boost::optional<typename C::mapped_type> {
+    return [&map](auto key) -> std::optional<typename C::mapped_type> {
       auto it = map.find(key);
       if (it != std::end(map)) {
         return it->second;
       }
-      return boost::none;
+      return std::nullopt;
     };
   }
 
@@ -63,7 +63,7 @@ namespace iroha {
   auto assignObjectField(B object, V B::*member) {
     return [=](auto value) mutable {
       object.*member = value;
-      return boost::make_optional(object);
+      return std::make_optional(object);
     };
   }
 
@@ -80,7 +80,7 @@ namespace iroha {
   auto assignObjectField(P<B> object, V B::*member) {
     return [=](auto value) mutable {
       (*object).*member = value;
-      return boost::make_optional(object);
+      return std::make_optional(object);
     };
   }
 }  // namespace iroha
