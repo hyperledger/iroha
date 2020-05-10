@@ -18,9 +18,19 @@ EngineReceipt::EngineReceipt(
     : cmd_index_(cmd_index)
     , caller_(caller)
     , payload_type_(payload_type)
-    , payload_(payload)
+    // TODO: remove copy
+    , callee_(payload_type == shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallResult
+                    ? std::optional<interface::types::EvmDataHexString>(payload)
+                    : std::nullopt)
+    , contract_address_(payload_type == shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress
+                    ? std::optional<interface::types::EvmDataHexString>(payload)
+                    : std::nullopt)
     , e_response_(e_response)
-    { }
+    , call_result_( payload_type == shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallResult
+                    ? std::optional<shared_model::interface::EngineReceipt::CallResult>({*callee_, e_response_})
+                    : std::nullopt)
+    {
+    }
 
 shared_model::interface::types::AccountIdType  EngineReceipt::getCaller() const {
     return caller_;
@@ -34,8 +44,12 @@ int32_t EngineReceipt::getCommandIndex() const {
     return cmd_index_;
 }
 
-shared_model::interface::types::EvmAddressHexString const &EngineReceipt::getPayload() const {
-    return payload_;
+std::optional<shared_model::interface::EngineReceipt::CallResult> const &EngineReceipt::getResponseData() const {
+    return call_result_;
+}
+
+std::optional<shared_model::interface::types::EvmAddressHexString> const &EngineReceipt::getContractAddress() const {
+    return contract_address_;
 }
 
 shared_model::interface::EngineReceipt::EngineLogsCollectionType const &EngineReceipt::getEngineLogs() const {
@@ -44,8 +58,4 @@ shared_model::interface::EngineReceipt::EngineLogsCollectionType const &EngineRe
 
 shared_model::interface::EngineReceipt::EngineLogsCollectionType &EngineReceipt::getMutableLogs() {
     return engine_logs_;
-}
-
-std::optional<shared_model::interface::types::EvmDataHexString> const &EngineReceipt::getResponseData() const {
-    return e_response_;
 }

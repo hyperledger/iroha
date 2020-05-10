@@ -400,12 +400,18 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
           switch (receipt->getPayloadType()) {
             case interface::EngineReceipt::PayloadType::kPayloadTypeCallResult: {
               auto *ptr_call_result = proto_receipt->mutable_call_result();
-              ptr_call_result->set_callee(receipt->getPayload());
-              if (!!receipt->getResponseData())
-                ptr_call_result->set_result_data(*receipt->getResponseData());
+              if (!!receipt->getResponseData()) {
+                ptr_call_result->set_callee(receipt->getResponseData()->callee);
+                if (!!receipt->getResponseData()->response_data)
+                    ptr_call_result->set_result_data(*receipt->getResponseData()->response_data);
+              } else
+                assert(!"Response data is not present.");
             } break;
             case interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress: {
-              proto_receipt->set_contract_address(receipt->getPayload());
+                if (!!receipt->getContractAddress())
+                    proto_receipt->set_contract_address(*receipt->getContractAddress());
+                else
+                    assert(!"Contract address is not present");
             } break;
             default: {
               assert(!"Unexpected payload type!");
