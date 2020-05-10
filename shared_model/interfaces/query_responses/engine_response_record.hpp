@@ -6,6 +6,8 @@
 #ifndef IROHA_SHARED_MODEL_INTERFACE_ENGINE_RECEIPT_HPP
 #define IROHA_SHARED_MODEL_INTERFACE_ENGINE_RECEIPT_HPP
 
+#include <iosfwd>
+
 #include <boost/optional.hpp>
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
@@ -32,6 +34,8 @@ namespace shared_model {
           return c.callee == callee &&
             c.response_data == response_data;
         }
+
+        std::string toString() const;
       };
 
       static char const *payloadTypeToStr(PayloadType pt) {
@@ -67,6 +71,11 @@ namespace shared_model {
 
       bool operator==(const ModelType &rhs) const override;
     };
+
+    std::ostream &operator<<(std::ostream &os, EngineReceipt const &);
+
+    std::ostream &operator<<(std::ostream &os,
+                             EngineReceipt::CallResult const &);
 
   }  // namespace interface
 }  // namespace shared_model
