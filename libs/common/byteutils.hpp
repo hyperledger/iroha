@@ -7,10 +7,9 @@
 #define IROHA_BYTEUTILS_H
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <vector>
-
-#include <boost/optional.hpp>
 
 #include "common/bind.hpp"
 #include "common/blob.hpp"
@@ -42,9 +41,9 @@ namespace iroha {
    * @return blob, if conversion was successful, otherwise nullopt
    */
   template <size_t size>
-  boost::optional<blob_t<size>> stringToBlob(const std::string &string) {
+  std::optional<blob_t<size>> stringToBlob(const std::string &string) {
     if (size != string.size()) {
-      return boost::none;
+      return std::nullopt;
     }
     blob_t<size> array;
     std::copy(string.begin(), string.end(), array.begin());
@@ -58,7 +57,7 @@ namespace iroha {
    * @return array of given size if size matches, nullopt otherwise
    */
   template <size_t size>
-  boost::optional<blob_t<size>> hexstringToArray(const std::string &string) {
+  std::optional<blob_t<size>> hexstringToArray(const std::string &string) {
     return hexstringToBytestring(string) | stringToBlob<size>;
   }
 

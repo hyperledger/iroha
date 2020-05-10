@@ -85,7 +85,7 @@ namespace shared_model::proto {
     const QueryResponseVariantType ivariant_{variant_};
 
     const crypto::Hash hash_{
-        iroha::hexstringToBytestring(proto_.query_hash()).get()};
+        iroha::hexstringToBytestring(proto_.query_hash()).value()};
   };
 
   QueryResponse::QueryResponse(TransportType &&ref) {

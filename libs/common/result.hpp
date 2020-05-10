@@ -9,9 +9,9 @@
 #include "common/result_fwd.hpp"
 
 #include <ciso646>
+#include <optional>
 #include <type_traits>
 
-#include <boost/optional.hpp>
 #include <boost/variant.hpp>
 
 #include "common/visitor.hpp"
@@ -486,7 +486,7 @@ namespace iroha {
     }
 
     /**
-     * Converters from Result to boost::optional. Can be used when only certain
+     * Converters from Result to optional. Can be used when only certain
      * part of result is honored (generally a Value), to smoothly convert it to
      * optional representation.
      */
@@ -494,7 +494,7 @@ namespace iroha {
     /// @return optional with value if present, otherwise none
     template <typename ResultType,
               typename = std::enable_if_t<isResult<ResultType>>>
-    boost::optional<InnerValueOf<ResultType>> resultToOptionalValue(
+    std::optional<InnerValueOf<ResultType>> resultToOptionalValue(
         ResultType &&res) noexcept {
       if (hasValue(res)) {
         return boost::get<ValueOf<ResultType>>(std::forward<ResultType>(res))
@@ -506,7 +506,7 @@ namespace iroha {
     /// @return optional with error if present, otherwise none
     template <typename ResultType,
               typename = std::enable_if_t<isResult<ResultType>>>
-    boost::optional<InnerErrorOf<ResultType>> resultToOptionalError(
+    std::optional<InnerErrorOf<ResultType>> resultToOptionalError(
         ResultType &&res) noexcept {
       if (hasError(res)) {
         return boost::get<ErrorOf<ResultType>>(std::forward<ResultType>(res))

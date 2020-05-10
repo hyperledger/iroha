@@ -9,7 +9,7 @@
 #include <string>
 
 #include <boost/algorithm/hex.hpp>
-#include <boost/optional.hpp>
+#include <optional>
 #include "common/result.hpp"
 #include "interfaces/common_objects/byte_range.hpp"
 
@@ -81,7 +81,7 @@ namespace iroha {
     return iroha::expected::makeValue(std::move(result));
   }
 
-  [[deprecated]] inline boost::optional<std::string> hexstringToBytestring(
+  [[deprecated]] inline std::optional<std::string> hexstringToBytestring(
       const std::string &str) {
     return iroha::expected::resultToOptionalValue(
         hexstringToBytestringResult(str));
