@@ -398,8 +398,11 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
           proto_receipt->set_command_index(receipt->getCommandIndex());
           proto_receipt->set_caller(receipt->getCaller());
           switch (receipt->getPayloadType()) {
-            case interface::EngineReceipt::PayloadType::kPayloadTypeCallee: {
-              proto_receipt->set_callee(receipt->getPayload());
+            case interface::EngineReceipt::PayloadType::kPayloadTypeCallResult: {
+              auto *ptr_call_result = proto_receipt->mutable_call_result();
+              ptr_call_result->set_callee(receipt->getPayload());
+              if (!!receipt->getResponseData())
+                ptr_call_result->set_result_data(*receipt->getResponseData());
             } break;
             case interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress: {
               proto_receipt->set_contract_address(receipt->getPayload());

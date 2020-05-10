@@ -78,7 +78,7 @@ getSpecificResponseChecker() {
           Matcher<EngineReceipt const &>(AllOf(
               Property(&EngineReceipt::getCaller, kUserId),
               Property(&EngineReceipt::getPayloadType,
-                       EngineReceipt::PayloadType::kPayloadTypeCallee),
+                       EngineReceipt::PayloadType::kPayloadTypeCallResult),
               Property(&EngineReceipt::getPayload, kCall2Result),
               Property(
                   &EngineReceipt::getEngineLogs,

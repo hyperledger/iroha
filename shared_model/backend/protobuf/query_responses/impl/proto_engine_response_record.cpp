@@ -14,6 +14,9 @@ using namespace shared_model::proto;
 
 EngineReceipt::EngineReceipt(const TransportType &proto)
     : proto_(proto)
+    , response_data_((proto.has_call_result() && !proto.call_result().result_data().empty()) ?
+            std::optional<shared_model::interface::types::EvmDataHexString>(proto.call_result().result_data()) :
+            std::nullopt)
     {
         engine_logs_.reserve(proto_.logs().size());
         for (auto const &log : proto_.logs()) {
@@ -29,8 +32,8 @@ shared_model::interface::types::AccountIdType EngineReceipt::getCaller() const {
 }
 
 shared_model::interface::EngineReceipt::PayloadType EngineReceipt::getPayloadType() const {
-    if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kCallee)
-        return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallee;
+    if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kCallResult)
+        return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallResult;
     else if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kContractAddress)
         return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress;
     else
@@ -42,8 +45,8 @@ int32_t EngineReceipt::getCommandIndex() const {
 }
 
 shared_model::interface::types::EvmAddressHexString const &EngineReceipt::getPayload() const {
-    if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kCallee) {
-        return proto_.callee();
+    if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kCallResult) {
+        return proto_.call_result().callee();
     } else if (proto_.opt_to_contract_address_case() == iroha::protocol::EngineReceipt::kContractAddress) {
         return proto_.contract_address();
     } else {
@@ -57,8 +60,6 @@ shared_model::interface::EngineReceipt::EngineLogsCollectionType const &EngineRe
     return engine_logs_;
 }
 
-
-/*const shared_model::interface::types::SmartContractCodeType &
-EngineReceipt::response() const {
-  return proto_.response();
-}*/
+std::optional<shared_model::interface::types::EvmDataHexString> const &EngineReceipt::getResponseData() const {
+    return response_data_;
+}

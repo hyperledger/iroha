@@ -28,10 +28,12 @@ namespace shared_model {
       shared_model::interface::EngineReceipt::PayloadType getPayloadType() const override;
       shared_model::interface::types::EvmAddressHexString const &getPayload() const override;
       shared_model::interface::EngineReceipt::EngineLogsCollectionType const &getEngineLogs() const override;
+      std::optional<shared_model::interface::types::EvmDataHexString> const &getResponseData() const override;
 
      private:
       const TransportType &proto_;
       shared_model::interface::EngineReceipt::EngineLogsCollectionType engine_logs_;
+      std::optional<shared_model::interface::types::EvmDataHexString> const response_data_;
     };
   }  // namespace proto
 }  // namespace shared_model
