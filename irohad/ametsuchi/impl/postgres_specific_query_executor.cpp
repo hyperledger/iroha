@@ -85,7 +85,6 @@ namespace {
    */
   auto hasQueryPermissionInternal(
       shared_model::interface::types::AccountIdType const &creator,
-      std::string const &target_account_req,
       Role indiv_permission_id,
       Role all_permission_id,
       Role domain_permission_id) {
@@ -104,8 +103,6 @@ namespace {
 
     return fmt::format(
         R"(
-    WITH
-        target AS ({7}),
         target_domain AS (select split_part(target.t, '@', 2) as td from target),
         has_root_perm AS ({0}),
         has_indiv_perm AS (
@@ -125,11 +122,13 @@ namespace {
           & '{5}') = '{5}' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
               WHERE ar.account_id = '{2}'
+        ),
+        has_perms as (
+          SELECT (SELECT * from has_root_perm)
+              OR ('{2}' = (select t from target) AND (SELECT * FROM has_indiv_perm))
+              OR (SELECT * FROM has_all_perm)
+              OR ('{6}' = (select td from target_domain) AND (SELECT * FROM has_domain_perm)) AS perm
         )
-    SELECT (SELECT * from has_root_perm)
-        OR ('{2}' = (select t from target) AND (SELECT * FROM has_indiv_perm))
-        OR (SELECT * FROM has_all_perm)
-        OR ('{6}' = (select td from target_domain) AND (SELECT * FROM has_domain_perm)) AS perm
     )",
         getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted),
         bits,
@@ -137,9 +136,7 @@ namespace {
         perm_str,
         all_perm_str,
         domain_perm_str,
-        iroha::ametsuchi::getDomainFromName(creator),
-        target_account_req
-    );
+        iroha::ametsuchi::getDomainFromName(creator));
   }
 
   auto hasQueryPermissionTarget(
@@ -148,24 +145,12 @@ namespace {
       Role indiv_permission_id,
       Role all_permission_id,
       Role domain_permission_id) {
-    return hasQueryPermissionInternal(creator,
-      fmt::format("select '{}'::text as t", target_account),
-      indiv_permission_id,
-      all_permission_id,
-      domain_permission_id);
-  }
-
-  auto hasQueryPermissionTargetRequest(
-      const shared_model::interface::types::AccountIdType &creator,
-      const std::string &request,
-      Role indiv_permission_id,
-      Role all_permission_id,
-      Role domain_permission_id) {
-    return hasQueryPermissionInternal(creator,
-      request,
-      indiv_permission_id,
-      all_permission_id,
-      domain_permission_id);
+    return fmt::format("target AS (select '{}'::text as t), {}",
+                       target_account,
+                       hasQueryPermissionInternal(creator,
+                                                  indiv_permission_id,
+                                                  all_permission_id,
+                                                  domain_permission_id));
   }
 
   /// Query result is a tuple of optionals, since there could be no entry
@@ -456,7 +441,7 @@ namespace iroha {
       auto query_size = pagination_info.pageSize() + 1u;
 
       char const *base = R"(WITH
-               has_perms AS ({0}),
+               {0},
                my_txs AS (
                  SELECT DISTINCT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
                  FROM tx_positions
@@ -578,7 +563,7 @@ namespace iroha {
                     std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
+      auto cmd = fmt::format(R"(WITH {},
       t AS (
           SELECT a.account_id, a.domain_id, a.quorum, a.data, ARRAY_AGG(ar.role_id) AS roles
           FROM account AS a, account_has_roles AS ar
@@ -679,7 +664,7 @@ namespace iroha {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
+      auto cmd = fmt::format(R"(WITH {},
       t AS (
           SELECT public_key FROM account_has_signatory
           WHERE account_id = :account_id
@@ -918,7 +903,7 @@ namespace iroha {
 
       // get the assets
       auto cmd = fmt::format(R"(
-      with has_perms as ({}),
+      with {},
       all_data as (
           select row_number() over () rn, *
           from (
@@ -955,10 +940,10 @@ namespace iroha {
               right join has_perms on true
       )",
                              hasQueryPermissionTarget(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccAst,
-                                                Role::kGetAllAccAst,
-                                                Role::kGetDomainAccAst));
+                                                      q.accountId(),
+                                                      Role::kGetMyAccAst,
+                                                      Role::kGetAllAccAst,
+                                                      Role::kGetDomainAccAst));
 
       // These must stay alive while soci query is being done.
       const auto pagination_meta{q.paginationMeta()};
@@ -1042,8 +1027,9 @@ namespace iroha {
                     uint32_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(
-      with has_perms as ({}),
+      auto cmd =
+          fmt::format(R"(
+      with {},
       detail AS (
           with filtered_plain_data as (
               select row_number() over () rn, *
@@ -1117,11 +1103,11 @@ namespace iroha {
       select detail.*, perm from detail
       right join has_perms on true
       )",
-                             hasQueryPermissionTarget(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccDetail,
-                                                Role::kGetAllAccDetail,
-                                                Role::kGetDomainAccDetail));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMyAccDetail,
+                                               Role::kGetAllAccDetail,
+                                               Role::kGetDomainAccDetail));
 
       const auto writer = q.writer();
       const auto key = q.key();
@@ -1484,25 +1470,18 @@ namespace iroha {
         const shared_model::interface::GetEngineReceipts &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-
-      char const *target_request = "select creator_id  as t "
-                      "from position_by_hash "
-                      "inner join tx_position_by_creator "
-                      "on hash=:tx_hash and "
-                      "position_by_hash.height = tx_position_by_creator.height and "
-                      "position_by_hash.index = tx_position_by_creator.index";
-
-      auto cmd = fmt::format(R"(
-            with  has_perms AS ({}),
-                  creator as (select creator_id, hash
-                              from position_by_hash
-                              inner join tx_position_by_creator
-                              on hash =:tx_hash and
-                              position_by_hash.height = tx_position_by_creator.height and
-                              position_by_hash.index = tx_position_by_creator.index)
+      auto cmd = fmt::format(
+          R"(
+            with  
+              target as (
+                select distinct creator_id as t
+                from tx_positions
+                where hash=:tx_hash
+              ),
+              {}
             select
                     engine_calls.cmd_index,
-                    creator.creator_id,
+                    target.t caller,
                     engine_calls.callee,
                     engine_calls.created_address,
                     engine_calls.engine_response,
@@ -1512,17 +1491,15 @@ namespace iroha {
                     burrow_tx_logs_topics.topic,
                     has_perms.perm
             from engine_calls
-            inner join creator on engine_calls.tx_hash = creator.hash
             inner join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
-            inner join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
-            RIGHT OUTER JOIN has_perms ON TRUE;
+            left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
+            cross join target
+            RIGHT OUTER JOIN has_perms ON TRUE
             )",
-             hasQueryPermissionTargetRequest(creator_id,
-                    target_request,
-                    Role::kGetMyEngineReceipts,
-                    Role::kGetAllEngineReceipts,
-                    Role::kGetDomainEngineReceipts
-                    ));
+          hasQueryPermissionInternal(creator_id,
+                                     Role::kGetMyEngineReceipts,
+                                     Role::kGetAllEngineReceipts,
+                                     Role::kGetDomainEngineReceipts));
 
       using QueryTuple =
           QueryType<
@@ -1566,7 +1543,7 @@ namespace iroha {
               iroha::ametsuchi::apply(
                   row, [&q, &store_record, &record, &log, &records, &l_ix](
                                   auto &cmd_index,
-                                  auto &account_id_type,
+                                  auto &caller,
                                   auto &payload_callee,
                                   auto &payload_cantract_address,
                                   auto &engine_response,
@@ -1576,11 +1553,10 @@ namespace iroha {
                                   auto &log_topic
                                   ) {
                     if (!cmd_index ||
-                        !account_id_type ||
+                        !caller ||
                         !logs_ix ||
                         !log_address ||
-                        !log_data ||
-                        !log_topic)
+                        !log_data)
                         return;
 
                     auto payloadToPayloadType = [](
@@ -1603,7 +1579,7 @@ namespace iroha {
                       if (!record) {
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
                                     *cmd_index,
-                                    *account_id_type,
+                                    *caller,
                                     pt,
                                     *target,
                                     engine_response
@@ -1612,7 +1588,7 @@ namespace iroha {
                         store_record(records, std::move(record), std::move(log));
                         record = std::make_unique<shared_model::plain::EngineReceipt>(
                                     *cmd_index,
-                                    *account_id_type,
+                                    *caller,
                                     pt,
                                     *target,
                                     engine_response
@@ -1629,7 +1605,9 @@ namespace iroha {
                       log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
                       l_ix = *logs_ix;
                     }
-                    log->addTopic(*log_topic);
+                    if (log_topic) {
+                      log->addTopic(*log_topic);
+                    }
                   });
             }
             if (!!record) {
