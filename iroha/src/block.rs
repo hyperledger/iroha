@@ -56,6 +56,15 @@ impl Block {
         Ok(self)
     }
 
+    pub fn validate_tx(&mut self, world_state_view: &WorldStateView) {
+        self.transactions = self
+            .transactions
+            .iter()
+            .map(|transaction| transaction.clone().validate(world_state_view))
+            .filter_map(Result::ok)
+            .collect();
+    }
+
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
@@ -73,16 +82,6 @@ pub struct BlockBuilder {
 impl BlockBuilder {
     pub fn height(mut self, height: u64) -> Self {
         self.height = Option::Some(height);
-        self
-    }
-
-    pub fn validate_tx(mut self, world_state_view: &WorldStateView) -> Self {
-        self.transactions = self
-            .transactions
-            .into_iter()
-            .map(|transaction| transaction.validate(world_state_view))
-            .filter_map(Result::ok)
-            .collect();
         self
     }
 

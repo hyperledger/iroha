@@ -192,12 +192,8 @@ mod tests {
         let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
-        kura.store(
-            Block::builder(Vec::new())
-                .validate_tx(&WorldStateView::new(Peer::new("".to_string(), &Vec::new())))
-                .build(),
-        )
-        .await
-        .expect("Failed to store block into Kura.");
+        kura.store(Block::builder(Vec::new()).build())
+            .await
+            .expect("Failed to store block into Kura.");
     }
 }
