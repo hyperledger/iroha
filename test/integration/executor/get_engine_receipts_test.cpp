@@ -47,18 +47,16 @@ static const EvmDataHexString kTopic1_2{"fate"};
 static const EvmAddressHexString kAddress2{"302A Sadovaya Street"};
 static const EvmDataHexString kData2{"Primus is being repared."};
 
-static const EvmDataHexString kCallee1{"thereisnospoon"};
-static const std::optional<EvmDataHexString> kRd{"IDDQD"};
-static const shared_model::interface::EngineReceipt::CallResult kCallResult{kCallee1, kRd};
-
-static const EvmAddressHexString kAddress3{"Satan's ball"};
+static const EvmAddressHexString kAddress3{"satan's ball"};
 static const EvmDataHexString kData3{"Manuscripts don't burn."};
 static const EvmDataHexString kTopic3_1{"not wasted"};
 static const EvmDataHexString kTopic3_2{"deal"};
 static const EvmDataHexString kTopic3_3{"fate"};
-static const EvmDataHexString kTopic3_4{"Walpurgisnacht"};
+static const EvmDataHexString kTopic3_4{"walpurgisnacht"};
 
-static const std::string kCall2Result{"Falernus wine"};
+static const std::string kCall2ResultData{"Falernus wine"};
+static const shared_model::interface::EngineReceipt::CallResult kCall2Result{
+    kAddress1, kCall2ResultData};
 
 const testing::Matcher<shared_model::interface::EngineReceiptsResponse const &>
 getSpecificResponseChecker() {
@@ -72,8 +70,9 @@ getSpecificResponseChecker() {
               Property(&EngineReceipt::getPayloadType,
                        EngineReceipt::PayloadType::kPayloadTypeContractAddress),
               Property(&EngineReceipt::getContractAddress, kAddress1),
+              Property(&EngineReceipt::getResponseData, std::nullopt),
               Property(&EngineReceipt::getEngineLogs,
-                       ElementsAre(Pointee(
+                       UnorderedElementsAre(Pointee(
                            AllOf(Property(&EngineLog::getAddress, kAddress1),
                                  Property(&EngineLog::getData, kData1),
                                  Property(&EngineLog::getTopics,
@@ -83,10 +82,11 @@ getSpecificResponseChecker() {
               Property(&EngineReceipt::getCaller, kUserId),
               Property(&EngineReceipt::getPayloadType,
                        EngineReceipt::PayloadType::kPayloadTypeCallResult),
-              Property(&EngineReceipt::getResponseData, kCallResult),
+              Property(&EngineReceipt::getContractAddress, std::nullopt),
+              Property(&EngineReceipt::getResponseData, kCall2Result),
               Property(
                   &EngineReceipt::getEngineLogs,
-                  ElementsAre(
+                  UnorderedElementsAre(
                       Pointee(
                           AllOf(Property(&EngineLog::getAddress, kAddress2),
                                 Property(&EngineLog::getData, kData2),
@@ -164,8 +164,8 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
                            _,
                            _))
               .After(vm_call_expectation)
-              .WillOnce(
-                  ::testing::Return(iroha::expected::makeValue(kCall2Result)));
+              .WillOnce(::testing::Return(
+                  iroha::expected::makeValue(kCall2ResultData)));
     }
 
     if (auto e = resultToOptionalError(getItf().executeTransaction(tx))) {
