@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use async_std::task;
     use iroha::{
         account::isi::CreateAccount,
         asset::isi::{AddAssetQuantity, TransferAsset},
@@ -86,7 +87,7 @@ mod tests {
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         configuration.kura_block_store_path(temp_dir.path());
         let iroha = Iroha::new(configuration);
-        iroha.start().expect("Failed to start Iroha.");
+        task::block_on(iroha.start()).expect("Failed to start Iroha.");
         //Prevents temp_dir from clean up untill the end of the tests.
         loop {}
     }

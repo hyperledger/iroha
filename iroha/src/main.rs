@@ -8,7 +8,7 @@ async fn main() -> Result<(), String> {
     println!("Hyperledgerいろは2にようこそ！");
     let configuration = Configuration::from_path(CONFIGURATION_PATH)?;
     println!("Configuration: {}", configuration);
-    Iroha::new(configuration).start()?;
+    Iroha::new(configuration).start().await?;
     loop {
         thread::sleep(Duration::from_secs(10));
     }

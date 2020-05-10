@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use async_std::task;
     use iroha::{
         account::isi::CreateAccount, asset::isi::AddAssetQuantity, domain::isi::CreateDomain,
         peer::PeerId, prelude::*,
@@ -115,7 +116,7 @@ mod tests {
                 configuration.trusted_peers(peer_ids.clone());
                 configuration.max_faulty_peers(MAX_FAULTS);
                 let iroha = Iroha::new(configuration);
-                iroha.start().expect("Failed to start Iroha.");
+                task::block_on(iroha.start()).expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 loop {}
             });
