@@ -17,7 +17,9 @@ bool EngineReceipt::operator==(ModelType const &rhs) const {
     return getCommandIndex() == rhs.getCommandIndex() &&
             getCaller() == rhs.getCaller() &&
             getPayloadType() == rhs.getPayloadType() &&
-            getPayload() == rhs.getPayload() &&
+            getResponseData()->callee == rhs.getResponseData()->callee &&
+            getResponseData()->response_data == rhs.getResponseData()->response_data &&
+            getContractAddress() == rhs.getContractAddress() &&
             getEngineLogs() == rhs.getEngineLogs();
 }
 
@@ -27,7 +29,9 @@ std::string EngineReceipt::toString() const {
       .appendNamed("command_index", getCommandIndex())
       .appendNamed("from", getCaller())
       .appendNamed("payload_type", EngineReceipt::payloadTypeToStr(getPayloadType()))
-      .appendNamed("payload", getPayload())
+      .appendNamed("contract_address", !!getContractAddress() ? *getContractAddress() : std::string("no contract address"))
+      .appendNamed("response_data.callee", !!getResponseData() ? getResponseData()->callee : std::string("no callee"))
+      .appendNamed("response_data.data", !!getResponseData() && !!getResponseData()->response_data ? *getResponseData()->response_data : std::string("no response data"))
       .appendNamed("engine_logs", getEngineLogs())
       .finalize();
 }
