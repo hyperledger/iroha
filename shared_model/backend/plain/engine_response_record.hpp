@@ -21,7 +21,8 @@ namespace shared_model {
           interface::types::CommandIndexType cmd_index,
           interface::types::AccountIdType const &caller,
           interface::EngineReceipt::PayloadType payload_type,
-          interface::types::EvmAddressHexString const &payload
+          interface::types::EvmAddressHexString const &payload,
+          std::optional<interface::types::EvmDataHexString> const &e_response
           );
 
       int32_t getCommandIndex() const override;
@@ -30,13 +31,15 @@ namespace shared_model {
       interface::types::EvmAddressHexString const &getPayload() const override;
       interface::EngineReceipt::EngineLogsCollectionType const &getEngineLogs() const override;
       interface::EngineReceipt::EngineLogsCollectionType &getMutableLogs();
+      std::optional<interface::types::EvmDataHexString> const &getResponseData() const override;
 
      private:
-      interface::types::CommandIndexType const            cmd_index_;
-      interface::types::AccountIdType const               caller_;
-      interface::EngineReceipt::PayloadType const         payload_type_;
-      interface::types::EvmAddressHexString const         payload_;
-      interface::EngineReceipt::EngineLogsCollectionType  engine_logs_;
+      interface::types::CommandIndexType const                cmd_index_;
+      interface::types::AccountIdType const                   caller_;
+      interface::EngineReceipt::PayloadType const             payload_type_;
+      interface::types::EvmAddressHexString const             payload_;
+      interface::EngineReceipt::EngineLogsCollectionType      engine_logs_;
+      std::optional<interface::types::EvmDataHexString> const e_response_;
     };
   }  // namespace plain
 }  // namespace shared_model

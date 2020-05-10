@@ -20,13 +20,13 @@ namespace shared_model {
 
       enum struct PayloadType {
         kPayloadTypeUnk,
-        kPayloadTypeCallee,
+        kPayloadTypeCallResult,
         kPayloadTypeContractAddress
       };
 
       static char const *payloadTypeToStr(PayloadType pt) {
         switch(pt) {
-          case PayloadType::kPayloadTypeCallee: return "Callee";
+          case PayloadType::kPayloadTypeCallResult: return "Call result";
           case PayloadType::kPayloadTypeContractAddress: return "Contract address";
           default: return "Unknown";
         }
@@ -37,6 +37,9 @@ namespace shared_model {
 
       /// Get command index
       virtual int32_t getCommandIndex() const = 0;
+
+      /// [optional] Get engine response data(output). Enable if getPayloadType() == kPayloadTypeCallResult.
+      virtual std::optional<types::EvmDataHexString> const &getResponseData() const = 0;
 
       /// Get sender account id
       virtual types::AccountIdType getCaller() const = 0;

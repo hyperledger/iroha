@@ -122,11 +122,16 @@ message EngineLog {
   repeated string topics = 3; // hex string
 }
 
+message CallResult {
+  string callee = 1;
+  string result_data = 2;
+}
+
 message EngineReceipt {
   int32 command_index = 1;
   string caller = 2;
   oneof opt_to_contract_address {
-    string callee = 3;
+    CallResult call_result = 3;
     string contract_address = 4;
   }
   repeated EngineLog logs = 5;

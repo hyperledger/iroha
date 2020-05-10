@@ -94,7 +94,7 @@ namespace shared_model {
       /// Type of a TLS certificate
       using TLSCertificateType = std::string;
       /// Type of command index within a transaction
-      using CommandIndexType = uint64_t;
+      using CommandIndexType = int32_t;
       /// Transaction index type
       using TxIndexType = int32_t;
 
