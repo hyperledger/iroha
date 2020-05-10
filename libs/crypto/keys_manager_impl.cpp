@@ -78,7 +78,7 @@ namespace iroha {
       : KeysManagerImpl(account_id, "", std::move(log)) {}
 
   iroha::expected::Result<Keypair, std::string> KeysManagerImpl::loadKeys(
-      const boost::optional<std::string> &pass_phrase) {
+      const std::optional<std::string> &pass_phrase) {
     auto load_from_file = [this](const auto &extension) {
       return iroha::readTextFile(
           (path_to_keypair_ / (account_id_ + extension)).string());
@@ -106,7 +106,7 @@ namespace iroha {
   }
 
   bool KeysManagerImpl::createKeys(
-      const boost::optional<std::string> &pass_phrase) {
+      const std::optional<std::string> &pass_phrase) {
     Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
 
     auto pub = keypair.publicKey();

@@ -9,7 +9,7 @@
 #include "crypto/keys_manager.hpp"
 
 #include <boost/filesystem.hpp>
-#include <boost/optional.hpp>
+#include <optional>
 #include "cryptography/keypair.hpp"
 #include "logger/logger_fwd.hpp"
 
@@ -35,10 +35,10 @@ namespace iroha {
      */
     KeysManagerImpl(const std::string account_id, logger::LoggerPtr log);
 
-    bool createKeys(const boost::optional<std::string> &pass_phrase) override;
+    bool createKeys(const std::optional<std::string> &pass_phrase) override;
 
     iroha::expected::Result<shared_model::crypto::Keypair, std::string>
-    loadKeys(const boost::optional<std::string> &pass_phrase) override;
+    loadKeys(const std::optional<std::string> &pass_phrase) override;
 
     static const std::string kPublicKeyExtension;
     static const std::string kPrivateKeyExtension;

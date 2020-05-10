@@ -6,9 +6,9 @@
 #ifndef IROHA_KEYS_MANAGER_HPP
 #define IROHA_KEYS_MANAGER_HPP
 
+#include<optional>
 #include <string>
 
-#include <boost/optional.hpp>
 #include "common/result_fwd.hpp"
 #include "cryptography/keypair.hpp"
 
@@ -27,7 +27,7 @@ namespace iroha {
      * @return false if keys creation failed
      */
     virtual bool createKeys(
-        const boost::optional<std::string> &pass_phrase) = 0;
+        const std::optional<std::string> &pass_phrase) = 0;
 
     /**
      * Load keys associated with the manager, then validate loaded keypair by
@@ -37,7 +37,7 @@ namespace iroha {
      *         failure. Otherwise - the keypair will be returned
      */
     virtual iroha::expected::Result<shared_model::crypto::Keypair, std::string>
-    loadKeys(const boost::optional<std::string> &pass_phrase) = 0;
+    loadKeys(const std::optional<std::string> &pass_phrase) = 0;
   };
 
 }  // namespace iroha
