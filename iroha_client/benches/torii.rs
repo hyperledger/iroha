@@ -1,3 +1,4 @@
+use async_std::task;
 use criterion::*;
 use futures::executor;
 use iroha::{config::Configuration, isi::prelude::*, prelude::*};
@@ -126,7 +127,7 @@ fn create_and_start_iroha() {
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     configuration.kura_block_store_path(temp_dir.path());
     let iroha = Iroha::new(configuration);
-    iroha.start().expect("Failed to start Iroha.");
+    task::block_on(iroha.start()).expect("Failed to start Iroha.");
     //Prevents temp_dir from clean up untill the end of the tests.
     loop {}
 }

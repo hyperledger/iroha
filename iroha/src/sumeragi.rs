@@ -9,6 +9,10 @@ use std::{
     sync::Arc,
 };
 
+trait Consensus {
+    fn round(&mut self, transactions: Vec<Transaction>) -> Option<Block>;
+}
+
 #[derive(Io, Decode, Encode, Debug, Clone)]
 pub enum Message {
     /// Is sent by leader to all validating peers, when a new block is created.
@@ -17,6 +21,17 @@ pub enum Message {
     Signed(Block),
     /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
     Committed(Block),
+}
+
+impl Message {
+    async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+        let _response = Network::send_request_to(
+            &peer.address,
+            Request::new(uri::BLOCKS_URI.to_string(), self.into()),
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -68,45 +83,74 @@ impl Sumeragi {
         }
     }
 
-    pub fn peer_id(&self) -> &PeerId {
-        &self.peer_id
+    /// the leader of each round just uses the transactions they have at hand to create a block
+    pub async fn round(&mut self, transactions: Vec<Transaction>) -> Result<Option<Block>, String> {
+        if let Role::Leader = self.role() {
+            let block = Block::builder(
+                transactions
+                    .into_iter()
+                    .map(|tx| tx.sign(Vec::new()))
+                    .filter_map(Result::ok)
+                    .collect(),
+            )
+            .build()
+            .sign(&self.public_key, &self.private_key)?;
+            let minimum_quorum_of_peers = 2;
+            if self.sorted_peers.len() < minimum_quorum_of_peers {
+                Ok(Some(block))
+            } else {
+                self.pending_block = Some(block.clone());
+                let mut send_futures = Vec::new();
+                for peer in self.validating_peers() {
+                    send_futures.push(Message::Created(block.clone()).send_to(peer));
+                }
+                send_futures.push(Message::Created(block.clone()).send_to(self.proxy_tail()));
+                futures::future::join_all(send_futures).await;
+                Ok(None)
+            }
+        } else {
+            //TODO: send pending transactions to all peers and as leader check what tx have already been committed
+            //Sends transactions to leader
+            let mut send_futures = Vec::new();
+            for transaction in &transactions {
+                send_futures.push(Network::send_request_to(
+                    &self.leader().address,
+                    Request::new(
+                        uri::INSTRUCTIONS_URI.to_string(),
+                        transaction.as_requested().into(),
+                    ),
+                ));
+            }
+            let _results = futures::future::join_all(send_futures).await;
+            Ok(None)
+        }
     }
 
-    pub fn has_pending_block(&self) -> bool {
-        self.pending_block.is_some()
-    }
-
-    #[log]
-    pub fn next_round(&mut self, prev_block_hash: Hash) {
+    fn next_round(&mut self, prev_block_hash: Hash) {
         Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
         self.pending_block = None;
     }
 
-    #[log]
-    pub fn peers_set_a(&self) -> &[PeerId] {
+    fn peers_set_a(&self) -> &[PeerId] {
         let n_a_peers = 2 * self.max_faults + 1;
         &self.sorted_peers[..n_a_peers]
     }
 
-    #[log]
-    pub fn peers_set_b(&self) -> &[PeerId] {
+    fn peers_set_b(&self) -> &[PeerId] {
         &self.sorted_peers[(2 * self.max_faults + 1)..]
     }
 
-    #[log]
-    pub fn leader(&self) -> &PeerId {
+    fn leader(&self) -> &PeerId {
         self.peers_set_a()
             .first()
             .expect("Failed to get first peer.")
     }
 
-    #[log]
-    pub fn proxy_tail(&self) -> &PeerId {
+    fn proxy_tail(&self) -> &PeerId {
         self.peers_set_a().last().expect("Failed to get last peer.")
     }
 
-    #[log]
-    pub fn validating_peers(&self) -> &[PeerId] {
+    fn validating_peers(&self) -> &[PeerId] {
         let a_set = self.peers_set_a();
         if a_set.len() > 1 {
             &a_set[1..(a_set.len() - 1)]
@@ -115,8 +159,7 @@ impl Sumeragi {
         }
     }
 
-    #[log]
-    pub fn role(&self) -> Role {
+    fn role(&self) -> Role {
         if *self.leader() == self.peer_id {
             Role::Leader
         } else if *self.proxy_tail() == self.peer_id {
@@ -128,19 +171,6 @@ impl Sumeragi {
         }
     }
 
-    #[log]
-    pub fn validate_access(&self, allowed_roles: &[Role]) -> Result<(), String> {
-        if allowed_roles.contains(&self.role()) {
-            Ok(())
-        } else {
-            Err(format!(
-                "Peer needs to be one of {:?} for this operation.",
-                allowed_roles
-            ))
-        }
-    }
-
-    #[log]
     pub fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
         peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
         if let Some(block_hash) = block_hash {
@@ -150,54 +180,13 @@ impl Sumeragi {
     }
 
     #[log]
-    pub fn sign_block(&self, block: Block) -> Result<Block, String> {
-        self.validate_access(&[Role::Leader, Role::ProxyTail, Role::ValidatingPeer])?;
-        Ok(block.sign(&self.public_key, &self.private_key)?)
-    }
-
-    #[log]
-    pub async fn validate_and_store(
-        &mut self,
-        transactions: Vec<Transaction>,
-        wsv: Arc<RwLock<WorldStateView>>,
-    ) -> Result<(), String> {
-        let transactions = self.sign_transactions(transactions).await?;
-        let block = Block::builder(transactions)
-            .validate_tx(&*wsv.read().await)
-            .build();
-        let minimum_quorum_of_peers = 2;
-        if self.sorted_peers.len() < minimum_quorum_of_peers {
-            //If there is only one peer running skip consensus part
-            let _hash = self.kura.write().await.store(block).await?;
-        } else {
-            self.pending_block = Some(block.clone());
-            self.on_block_created(block).await?;
-        }
-        Ok(())
-    }
-
-    #[log]
-    pub async fn on_block_created(&self, block: Block) -> Result<(), String> {
-        self.validate_access(&[Role::Leader])?;
-        let block = self.sign_block(block)?;
-        let mut send_futures = Vec::new();
-        for peer in self.validating_peers() {
-            send_futures.push(self.send_message_to(Message::Created(block.clone()), peer));
-        }
-        send_futures.push(self.send_message_to(Message::Created(block.clone()), self.proxy_tail()));
-        let _results = futures::future::join_all(send_futures).await;
-        Ok(())
-    }
-
-    #[log]
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
         //TODO: check that the messages come from the right peers (check roles, keys)
         match message {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
-                    let block = self.sign_block(block)?;
-                    let _result = self
-                        .send_message_to(Message::Signed(block), self.proxy_tail())
+                    let _result = Message::Signed(block.sign(&self.public_key, &self.private_key)?)
+                        .send_to(self.proxy_tail())
                         .await;
                     //TODO: send to set b so they can observe
                 }
@@ -223,25 +212,17 @@ impl Sumeragi {
                     };
                     if let Some(block) = self.pending_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
-                            let block = self.sign_block(block)?;
+                            let block = block.sign(&self.public_key, &self.private_key)?;
                             let hash = self.kura.write().await.store(block.clone()).await?;
                             let mut send_futures = Vec::new();
                             for peer in self.validating_peers() {
-                                send_futures.push(
-                                    self.send_message_to(Message::Committed(block.clone()), peer),
-                                );
+                                send_futures.push(Message::Committed(block.clone()).send_to(peer));
                             }
                             for peer in self.peers_set_b() {
-                                send_futures.push(
-                                    self.send_message_to(Message::Committed(block.clone()), peer),
-                                );
+                                send_futures.push(Message::Committed(block.clone()).send_to(peer));
                             }
-                            send_futures.push(
-                                self.send_message_to(
-                                    Message::Committed(block.clone()),
-                                    self.leader(),
-                                ),
-                            );
+                            send_futures
+                                .push(Message::Committed(block.clone()).send_to(self.leader()));
                             let _results = futures::future::join_all(send_futures).await;
                             self.next_round(hash);
                         }
@@ -254,26 +235,6 @@ impl Sumeragi {
                 self.next_round(hash);
             }
         }
-        Ok(())
-    }
-
-    pub async fn sign_transactions(
-        &self,
-        transactions: Vec<Transaction>,
-    ) -> Result<Vec<Transaction>, String> {
-        Ok(transactions
-            .into_iter()
-            .map(|tx| tx.sign(Vec::new()))
-            .filter_map(Result::ok)
-            .collect())
-    }
-
-    async fn send_message_to(&self, message: Message, peer: &PeerId) -> Result<(), String> {
-        let _response = Network::send_request_to(
-            &peer.address,
-            Request::new(uri::BLOCKS_URI.to_string(), message.into()),
-        )
-        .await?;
         Ok(())
     }
 }

@@ -21,18 +21,17 @@ use crate::{
     peer::{Peer, PeerId},
     prelude::*,
     queue::Queue,
-    sumeragi::{Message, Role, Sumeragi},
-    torii::{uri, Torii},
+    sumeragi::{Message, Sumeragi},
+    torii::Torii,
 };
 use async_std::{
     prelude::*,
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use iroha_network::{Network, Request};
 use parity_scale_codec::{Decode, Encode};
 use std::time::Duration;
-use std::{path::Path, sync::Arc, time::Instant};
+use std::{path::Path, sync::Arc};
 
 pub type BlockSender = Sender<Block>;
 pub type BlockReceiver = Receiver<Block>;
@@ -48,7 +47,6 @@ pub struct Iroha {
     queue: Arc<RwLock<Queue>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
     kura: Arc<RwLock<Kura>>,
-    last_round_time: Arc<RwLock<Instant>>,
     transactions_receiver: Arc<RwLock<TransactionReceiver>>,
     blocks_receiver: Arc<RwLock<BlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
@@ -106,13 +104,12 @@ impl Iroha {
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             blocks_receiver: Arc::new(RwLock::new(blocks_receiver)),
             message_receiver: Arc::new(RwLock::new(message_receiver)),
-            last_round_time: Arc::new(RwLock::new(Instant::now())),
         }
     }
 
-    pub fn start(&self) -> Result<(), String> {
+    pub async fn start(&self) -> Result<(), String> {
         let kura = Arc::clone(&self.kura);
-        task::block_on(async move { kura.write().await.init().await })?;
+        kura.write().await.init().await?;
         let torii = Arc::clone(&self.torii);
         task::spawn(async move {
             if let Err(e) = torii.write().await.start().await {
@@ -128,37 +125,23 @@ impl Iroha {
         });
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
-        let last_round_time = Arc::clone(&self.last_round_time);
         let world_state_view = Arc::clone(&self.world_state_view);
-        //TODO: decide what should be the minimum time to accumulate tx before creating a block
         task::spawn(async move {
             loop {
-                let mut sumeragi = sumeragi.write().await;
-                if !sumeragi.has_pending_block() {
-                    let transactions = queue.write().await.pop_pending_transactions();
-                    if !transactions.is_empty() {
-                        if let Role::Leader = sumeragi.role() {
-                            sumeragi
-                                .validate_and_store(transactions, Arc::clone(&world_state_view))
-                                .await
-                                .expect("Failed to accept transactions into blockchain.");
-                        } else {
-                            //TODO: send pending transactions to all peers and as leader check what tx have already been committed
-                            //Sends transactions to leader
-                            let mut send_futures = Vec::new();
-                            for transaction in &transactions {
-                                send_futures.push(Network::send_request_to(
-                                    &sumeragi.leader().address,
-                                    Request::new(
-                                        uri::INSTRUCTIONS_URI.to_string(),
-                                        transaction.as_requested().into(),
-                                    ),
-                                ));
-                            }
-                            let _results = futures::future::join_all(send_futures).await;
-                        }
-                        *last_round_time.write().await = Instant::now();
-                    }
+                if let Some(mut block) = sumeragi
+                    .write()
+                    .await
+                    .round(queue.write().await.pop_pending_transactions())
+                    .await
+                    .expect("Round failed.")
+                {
+                    block.validate_tx(&*world_state_view.write().await);
+                    let _hash = kura
+                        .write()
+                        .await
+                        .store(block)
+                        .await
+                        .expect("Failed to write block.");
                 }
                 task::sleep(Duration::from_millis(20)).await;
             }
