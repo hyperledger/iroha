@@ -1,20 +1,103 @@
 use crate::{crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
-use std::time::SystemTime;
+use std::{iter::FromIterator, time::SystemTime};
 
 /// Transaction data is permanently recorded in files called blocks. Blocks are organized into
 /// a linear sequence over time (also known as the block chain).
-//TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
-//signatures placed outside of the payload - should we store them?
+/// Blocks lifecycle starts from "Pending" state which is represented by `PendingBlock` struct.
 #[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct Block {
-    /// a number of blocks in the chain up to the block.
-    pub height: u64,
+pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<Transaction>,
+}
+
+impl PendingBlock {
+    pub fn new(transactions: Vec<Transaction>) -> PendingBlock {
+        PendingBlock {
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time.")
+                .as_millis(),
+            transactions,
+        }
+    }
+
+    pub fn chain(self, height: u64, previous_block_hash: Hash) -> ChainedBlock {
+        ChainedBlock {
+            timestamp: self.timestamp,
+            transactions: self.transactions,
+            height,
+            previous_block_hash: Some(previous_block_hash),
+        }
+    }
+
+    pub fn chain_first(self) -> ChainedBlock {
+        ChainedBlock {
+            timestamp: self.timestamp,
+            transactions: self.transactions,
+            height: 0,
+            previous_block_hash: None,
+        }
+    }
+}
+
+/// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct ChainedBlock {
+    /// Unix time (in milliseconds) of block forming by a peer.
+    pub timestamp: u128,
+    /// array of transactions, which successfully passed validation and consensus step.
+    pub transactions: Vec<Transaction>,
+    /// a number of blocks in the chain up to the block.
+    pub height: u64,
+    /// Hash of a previous block in the chain.
+    /// Is an array of zeros for the first block.
+    pub previous_block_hash: Option<Hash>,
+}
+
+impl ChainedBlock {
+    pub fn sign(
+        self,
+        public_key: &PublicKey,
+        private_key: &PrivateKey,
+    ) -> Result<SignedBlock, String> {
+        let signature_payload: Vec<u8> = crypto::hash(Vec::from_iter(
+            self.timestamp
+                .to_be_bytes()
+                .iter()
+                .chain(self.previous_block_hash.unwrap_or_default().iter())
+                .copied(),
+        ))
+        .to_vec();
+        Ok(SignedBlock {
+            timestamp: self.timestamp,
+            transactions: self.transactions,
+            height: self.height,
+            previous_block_hash: self.previous_block_hash,
+            signatures: vec![Signature::new(
+                *public_key,
+                &signature_payload,
+                private_key,
+            )?],
+        })
+    }
+}
+
+/// When a `ChainedBlock` is created by a peer or received for a vote it can be signed by the peer
+/// changing it's type to a `SignedBlock`. Block can be signed several times by different peers.
+//TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
+//signatures placed outside of the payload - should we store them?
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct SignedBlock {
+    /// Unix time (in milliseconds) of block forming by a peer.
+    pub timestamp: u128,
+    /// array of transactions, which successfully passed validation and consensus step.
+    pub transactions: Vec<Transaction>,
+    /// a number of blocks in the chain up to the block.
+    pub height: u64,
     /// Hash of a previous block in the chain.
     /// Is an array of zeros for the first block.
     pub previous_block_hash: Option<Hash>,
@@ -22,24 +105,12 @@ pub struct Block {
     pub signatures: Vec<Signature>,
 }
 
-impl Block {
-    pub fn builder(transactions: Vec<Transaction>) -> BlockBuilder {
-        BlockBuilder {
-            transactions,
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.")
-                .as_millis(),
-            ..Default::default()
-        }
-    }
-
+impl SignedBlock {
     pub fn sign(
         mut self,
         public_key: &PublicKey,
         private_key: &PrivateKey,
-    ) -> Result<Block, String> {
-        use std::iter::FromIterator;
+    ) -> Result<SignedBlock, String> {
         let signature_payload: Vec<u8> = crypto::hash(Vec::from_iter(
             self.timestamp
                 .to_be_bytes()
@@ -53,64 +124,50 @@ impl Block {
             &signature_payload,
             private_key,
         )?);
-        Ok(self)
-    }
-
-    pub fn validate_tx(&mut self, world_state_view: &WorldStateView) {
-        let mut world_state_view = world_state_view.clone();
-        self.transactions = self
-            .transactions
-            .iter()
-            .map(|transaction| transaction.clone().validate(&mut world_state_view))
-            .filter_map(Result::ok)
-            .collect();
-    }
-
-    pub fn hash(&self) -> Hash {
-        crypto::hash(self.into())
-    }
-}
-
-#[derive(Default)]
-pub struct BlockBuilder {
-    pub height: Option<u64>,
-    pub timestamp: u128,
-    pub transactions: Vec<Transaction>,
-    pub previous_block_hash: Option<Hash>,
-    pub rejected_transactions_hashes: Vec<Hash>,
-}
-
-impl BlockBuilder {
-    pub fn height(mut self, height: u64) -> Self {
-        self.height = Option::Some(height);
-        self
-    }
-
-    pub fn build(self) -> Block {
-        Block {
-            height: self.height.unwrap_or(0),
+        Ok(SignedBlock {
             timestamp: self.timestamp,
             transactions: self.transactions,
+            height: self.height,
             previous_block_hash: self.previous_block_hash,
-            signatures: vec![],
-        }
+            signatures: self.signatures,
+        })
+    }
+
+    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidBlock, String> {
+        let mut world_state_view = world_state_view.clone();
+        Ok(ValidBlock {
+            timestamp: self.timestamp,
+            height: self.height,
+            previous_block_hash: self.previous_block_hash,
+            signatures: self.signatures,
+            transactions: self
+                .transactions
+                .into_iter()
+                .map(|transaction| transaction.validate(&mut world_state_view))
+                .filter_map(Result::ok)
+                .collect(),
+        })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// After full validation `SignedBlock` can transform into `ValidBlock`.
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct ValidBlock {
+    /// Unix time (in milliseconds) of block forming by a peer.
+    pub timestamp: u128,
+    /// array of transactions, which successfully passed validation and consensus step.
+    pub transactions: Vec<Transaction>,
+    /// a number of blocks in the chain up to the block.
+    pub height: u64,
+    /// Hash of a previous block in the chain.
+    /// Is an array of zeros for the first block.
+    pub previous_block_hash: Option<Hash>,
+    /// Signatures of peers which approved this block
+    pub signatures: Vec<Signature>,
+}
 
-    #[test]
-    fn block_hash() {
-        let block = Block {
-            height: 0,
-            timestamp: 1,
-            transactions: Vec::new(),
-            previous_block_hash: None,
-            signatures: vec![],
-        };
-
-        assert_ne!(block.hash(), [0; 32]);
+impl ValidBlock {
+    pub fn hash(&self) -> Hash {
+        crypto::hash(self.into())
     }
 }

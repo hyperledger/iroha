@@ -17,9 +17,9 @@ impl WorldStateView {
         }
     }
 
-    /// Put `Block` of information with changes in form of **Iroha Special Instructions**
+    /// Put `ValidBlock` of information with changes in form of **Iroha Special Instructions**
     /// into the world.
-    pub async fn put(&mut self, block: &Block) {
+    pub async fn put(&mut self, block: &ValidBlock) {
         for transaction in &block.transactions {
             if let Transaction::Valid {
                 request: TransactionRequest { instructions, .. },

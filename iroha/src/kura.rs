@@ -15,18 +15,18 @@ use std::{
 #[derive(Debug)]
 pub struct Kura {
     _mode: String,
-    blocks: Vec<Block>,
+    blocks: Vec<ValidBlock>,
     block_store: BlockStore,
-    world_state_view_tx: BlockSender,
+    block_sender: BlockSender,
     merkle_tree: MerkleTree,
 }
 
 impl Kura {
-    pub fn new(_mode: String, block_store_path: &Path, world_state_view_tx: BlockSender) -> Self {
+    pub fn new(_mode: String, block_store_path: &Path, block_sender: BlockSender) -> Self {
         Kura {
             _mode,
             block_store: BlockStore::new(block_store_path),
-            world_state_view_tx,
+            block_sender,
             merkle_tree: MerkleTree::new(),
             blocks: Vec::new(),
         }
@@ -34,7 +34,7 @@ impl Kura {
 
     pub async fn init(&mut self) -> Result<(), String> {
         let blocks = self.block_store.read_all().await;
-        let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
+        let blocks_refs = blocks.iter().collect::<Vec<&ValidBlock>>();
         self.merkle_tree.build(&blocks_refs);
         self.blocks = blocks;
         Ok(())
@@ -42,7 +42,7 @@ impl Kura {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[log]
-    pub async fn store(&mut self, mut block: Block) -> Result<Hash, String> {
+    pub async fn store(&mut self, mut block: ValidBlock) -> Result<Hash, String> {
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
             block.height = last_block_index as u64 + 1;
@@ -51,13 +51,13 @@ impl Kura {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
-                self.world_state_view_tx.send(block.clone()).await;
+                self.block_sender.send(block.clone()).await;
                 self.blocks.push(block);
                 Ok(hash)
             }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
-                let blocks_refs = blocks.iter().collect::<Vec<&Block>>();
+                let blocks_refs = blocks.iter().collect::<Vec<&ValidBlock>>();
                 self.merkle_tree.build(&blocks_refs);
                 Err(error)
             }
@@ -89,7 +89,7 @@ impl BlockStore {
         self.path.join(BlockStore::get_block_filename(block_height))
     }
 
-    async fn write(&self, block: &Block) -> Result<Hash, String> {
+    async fn write(&self, block: &ValidBlock) -> Result<Hash, String> {
         //filename is its height
         let path = self.get_block_path(block.height);
         match File::create(path).await {
@@ -105,7 +105,7 @@ impl BlockStore {
         }
     }
 
-    async fn read(&self, height: u64) -> Result<Block, String> {
+    async fn read(&self, height: u64) -> Result<ValidBlock, String> {
         let path = self.get_block_path(height);
         let mut file = File::open(&path).await.map_err(|_| "No file found.")?;
         let metadata = metadata(&path)
@@ -115,11 +115,11 @@ impl BlockStore {
         file.read(&mut buffer)
             .await
             .map_err(|_| "Buffer overflow.")?;
-        Ok(Block::try_from(buffer).expect("Failed to read block from store."))
+        Ok(ValidBlock::try_from(buffer).expect("Failed to read block from store."))
     }
 
     /// Returns a sorted vector of blocks starting from 0 height to the top block.
-    async fn read_all(&self) -> Vec<Block> {
+    async fn read_all(&self) -> Vec<ValidBlock> {
         let mut height = 0;
         let mut blocks = Vec::new();
         while let Ok(block) = self.read(height).await {
@@ -149,14 +149,30 @@ mod tests {
     #[async_std::test]
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
-        let block = Block::builder(Vec::new()).build();
+        let block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
         assert!(BlockStore::new(dir.path()).write(&block).await.is_ok());
     }
 
     #[async_std::test]
     async fn read_block_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
-        let block = Block::builder(Vec::new()).build();
+        let block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
         let block_store = BlockStore::new(dir.path());
         block_store
             .write(&block)
@@ -170,11 +186,29 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let block_store = BlockStore::new(dir.path());
         let n = 10;
-        for i in 0..n {
-            block_store
-                .write(&Block::builder(Vec::new()).height(i).build())
+        let mut block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
+        for height in 0..n {
+            let hash = block_store
+                .write(&block)
                 .await
                 .expect("Failed to write block to file.");
+            block = PendingBlock::new(Vec::new())
+                .chain(height + 1, hash)
+                .sign(&[0; 32], &[0; 64])
+                .expect("Failed to sign blocks.")
+                .validate(&WorldStateView::new(Peer::new(
+                    "127.0.0.1:8080".to_string(),
+                    &Vec::new(),
+                )))
+                .expect("Failed to validate block.");
         }
         let blocks = block_store.read_all().await;
         assert_eq!(blocks.len(), n as usize)
@@ -188,11 +222,20 @@ mod tests {
     ///chunks of 100 blocks each are stored in files in the block store.
     #[async_std::test]
     async fn store_block() {
+        let block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
-        kura.store(Block::builder(Vec::new()).build())
+        kura.store(block)
             .await
             .expect("Failed to store block into Kura.");
     }
