@@ -61,7 +61,7 @@ async fn handle_connection(
 
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
-        uri::INSTRUCTIONS_URI => match Transaction::try_from(request.payload().to_vec()) {
+        uri::INSTRUCTIONS_URI => match RequestedTransaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
                 state
                     .write()

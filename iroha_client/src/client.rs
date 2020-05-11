@@ -39,12 +39,11 @@ impl Client {
     #[log]
     pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction = Transaction::new(
-            vec![command],
-            Id::new("account", "domain"),
-            &self.public_key,
-            &self.private_key,
-        )?;
+        let transaction: RequestedTransaction =
+            RequestedTransaction::new(vec![command], Id::new("account", "domain"))
+                .accept()?
+                .sign(&self.public_key, &self.private_key)?
+                .into();
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),
@@ -67,12 +66,11 @@ impl Client {
     #[log]
     pub async fn submit_all(&mut self, commands: Vec<Contract>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction = Transaction::new(
-            commands,
-            Id::new("account", "domain"),
-            &self.public_key,
-            &self.private_key,
-        )?;
+        let transaction: RequestedTransaction =
+            RequestedTransaction::new(commands, Id::new("account", "domain"))
+                .accept()?
+                .sign(&self.public_key, &self.private_key)?
+                .into();
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),

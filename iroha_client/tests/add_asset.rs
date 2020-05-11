@@ -21,10 +21,13 @@ mod tests {
             domain_name: "domain".to_string(),
         };
         let account_id = Id::new("account", "domain");
+        let configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let (public_key, _) = configuration.key_pair();
         let create_account = CreateAccount {
             account_id: account_id.clone(),
             domain_name: "domain".to_string(),
-            public_key: [63; 32],
+            public_key,
         };
         let asset_id = Id::new("xor", "domain");
         let create_asset = AddAssetQuantity {
@@ -32,8 +35,6 @@ mod tests {
             account_id: account_id.clone(),
             amount: 0,
         };
-        let configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let mut iroha_client = Client::new(&configuration);
         iroha_client
             .submit_all(vec![

@@ -35,8 +35,8 @@ use std::{path::Path, sync::Arc};
 
 pub type BlockSender = Sender<ValidBlock>;
 pub type BlockReceiver = Receiver<ValidBlock>;
-pub type TransactionSender = Sender<Transaction>;
-pub type TransactionReceiver = Receiver<Transaction>;
+pub type TransactionSender = Sender<AcceptedTransaction>;
+pub type TransactionReceiver = Receiver<AcceptedTransaction>;
 pub type MessageSender = Sender<Message>;
 pub type MessageReceiver = Receiver<Message>;
 
@@ -219,7 +219,7 @@ pub mod prelude {
         isi::{Contract, Instruction},
         peer::Peer,
         query::{Query, QueryRequest, QueryResult},
-        tx::{Transaction, TransactionRequest},
+        tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
         BlockReceiver, BlockSender, Id, Iroha, TransactionReceiver, TransactionSender,
     };
