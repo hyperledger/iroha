@@ -57,10 +57,11 @@ impl Block {
     }
 
     pub fn validate_tx(&mut self, world_state_view: &WorldStateView) {
+        let mut world_state_view = world_state_view.clone();
         self.transactions = self
             .transactions
             .iter()
-            .map(|transaction| transaction.clone().validate(world_state_view))
+            .map(|transaction| transaction.clone().validate(&mut world_state_view))
             .filter_map(Result::ok)
             .collect();
     }

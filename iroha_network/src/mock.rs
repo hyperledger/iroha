@@ -133,7 +133,6 @@ impl Network {
         let (tx, rx) = sync::channel(100);
         unsafe {
             ENDPOINTS.push((server_url.to_string(), tx));
-            eprintln!("EEEEEEEEEE: {:?}", ENDPOINTS);
         }
         while let Some(stream) = rx.recv().await {
             handler(Arc::clone(&state), Box::new(stream)).await?;

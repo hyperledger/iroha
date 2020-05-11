@@ -51,6 +51,7 @@ pub struct Iroha {
     blocks_receiver: Arc<RwLock<BlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
+    block_build_step_ms: u64,
 }
 
 impl Iroha {
@@ -104,6 +105,7 @@ impl Iroha {
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             blocks_receiver: Arc::new(RwLock::new(blocks_receiver)),
             message_receiver: Arc::new(RwLock::new(message_receiver)),
+            block_build_step_ms: config.block_build_step_ms,
         }
     }
 
@@ -126,6 +128,7 @@ impl Iroha {
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
         let world_state_view = Arc::clone(&self.world_state_view);
+        let block_build_step_ms = self.block_build_step_ms;
         task::spawn(async move {
             loop {
                 if let Some(mut block) = sumeragi
@@ -143,7 +146,7 @@ impl Iroha {
                         .await
                         .expect("Failed to write block.");
                 }
-                task::sleep(Duration::from_millis(20)).await;
+                task::sleep(Duration::from_millis(block_build_step_ms)).await;
             }
         });
         let blocks_receiver = Arc::clone(&self.blocks_receiver);
