@@ -110,15 +110,14 @@ impl Transaction {
         }
     }
 
-    pub fn validate(self, world_state_view: &WorldStateView) -> Result<Transaction, String> {
+    pub fn validate(self, world_state_view: &mut WorldStateView) -> Result<Transaction, String> {
         if let Transaction::Signed {
             request,
             signatures,
         } = self
         {
-            let mut world_state_view = world_state_view.clone();
             for instruction in &request.instructions {
-                instruction.invoke(&mut world_state_view)?;
+                instruction.invoke(world_state_view)?;
             }
             Ok(Transaction::Valid {
                 request,
