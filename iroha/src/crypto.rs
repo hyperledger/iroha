@@ -66,14 +66,14 @@ impl Signature {
         })
     }
 
-    pub fn verify(&self, message: &[u8]) -> Result<(), ()> {
+    pub fn verify(&self, message: &[u8]) -> Result<(), String> {
         Ed25519Sha512::new()
             .verify(
                 message,
                 &self.signature,
                 &UrsaPublicKey(self.public_key.to_vec()),
             )
-            .map_err(|_| ())
+            .map_err(|e| e.to_string())
             .map(|_| ())
     }
 }

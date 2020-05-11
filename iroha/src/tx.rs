@@ -5,127 +5,113 @@ use std::time::SystemTime;
 
 /// This structure represents transaction in non-trusted form.
 ///
-/// `Iroha` and its' clients use this structure to send via network.
-/// Direct usage in business logic is strongly prohibited.
-/// Wrap this structure in `Transaction::Requested` and
-/// go through `Transaction` lifecycle.
+/// `Iroha` and its' clients use `RequestedTransaction` to send transactions via network.
+/// Direct usage in business logic is strongly prohibited. Before any interactions
+/// `accept`.
 #[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct TransactionRequest {
+pub struct RequestedTransaction {
+    payload: Payload,
+    signatures: Vec<Signature>,
+}
+
+#[derive(Clone, Debug, Io, Encode, Decode)]
+struct Payload {
     /// Account ID of transaction creator (username@domain).
     account_id: Id,
     /// An ordered set of instructions.
-    pub instructions: Vec<Contract>,
+    instructions: Vec<Contract>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: String,
+}
+
+impl RequestedTransaction {
+    pub fn new(instructions: Vec<Contract>, account_id: Id) -> RequestedTransaction {
+        RequestedTransaction {
+            payload: Payload {
+                instructions,
+                account_id,
+                creation_time: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+            },
+            signatures: Vec::new(),
+        }
+    }
+
+    pub fn accept(self) -> Result<AcceptedTransaction, String> {
+        for signature in &self.signatures {
+            if let Err(e) = signature.verify(&Vec::from(&self.payload)) {
+                return Err(format!("Failed to verify signatures: {}", e));
+            }
+        }
+        Ok(AcceptedTransaction {
+            payload: self.payload,
+            signatures: self.signatures,
+        })
+    }
 }
 
 /// An ordered set of instructions, which is applied to the ledger atomically.
 ///
 /// Transactions received by `Iroha` from external resources (clients, peers, etc.)
 /// go through several steps before will be added to the blockchain and stored.
-/// Starting in form of `Requested` transaction it changes state based on interactions
+/// Starting in form of `RequestedTransaction` transaction it changes state based on interactions
 /// with `Iroha` subsystems.
 #[derive(Clone, Debug, Io, Encode, Decode)]
-pub enum Transaction {
-    Requested {
-        request: TransactionRequest,
-        signatures: Vec<Signature>,
-    },
-    Accepted {
-        request: TransactionRequest,
-        signatures: Vec<Signature>,
-    },
-    Signed {
-        request: TransactionRequest,
-        signatures: Vec<Signature>,
-    },
-    Valid {
-        request: TransactionRequest,
-        signatures: Vec<Signature>,
-    },
+pub struct AcceptedTransaction {
+    payload: Payload,
+    signatures: Vec<Signature>,
 }
 
-impl Transaction {
-    pub fn new(
-        instructions: Vec<Contract>,
-        account_id: Id,
+impl AcceptedTransaction {
+    pub fn sign(
+        self,
         public_key: &PublicKey,
         private_key: &PrivateKey,
-    ) -> Result<Transaction, String> {
-        let request = TransactionRequest {
-            instructions,
-            account_id,
-            creation_time: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time.")
-                .as_millis()
-                .to_string(),
-        };
-        let signature_payload: Vec<u8> = Vec::from(&request);
-        Ok(Transaction::Requested {
-            request,
-            signatures: vec![Signature::new(
-                *public_key,
-                &signature_payload,
-                private_key,
-            )?],
+    ) -> Result<SignedTransaction, String> {
+        let mut signatures = self.signatures.clone();
+        signatures.push(Signature::new(
+            *public_key,
+            &Vec::from(&self.payload),
+            private_key,
+        )?);
+        Ok(SignedTransaction {
+            payload: self.payload,
+            signatures,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct SignedTransaction {
+    payload: Payload,
+    signatures: Vec<Signature>,
+}
+
+impl SignedTransaction {
+    pub fn sign(self, signatures: Vec<Signature>) -> Result<SignedTransaction, String> {
+        Ok(SignedTransaction {
+            payload: self.payload,
+            signatures: vec![self.signatures, signatures]
+                .into_iter()
+                .flatten()
+                .collect(),
         })
     }
 
-    pub fn accept(self) -> Result<Transaction, String> {
-        if let Transaction::Requested {
-            request,
-            signatures,
-        } = self
-        {
-            for signature in &signatures {
-                if signature.verify(&Vec::from(&request)).is_err() {
-                    return Err("Failed to verify signatures.".to_string());
-                }
-            }
-            Ok(Transaction::Accepted {
-                request,
-                signatures,
-            })
-        } else {
-            Err("Transaction should be in Requested state to be accepted.".to_string())
+    pub fn validate(
+        self,
+        world_state_view: &mut WorldStateView,
+    ) -> Result<ValidTransaction, String> {
+        for instruction in &self.payload.instructions {
+            instruction.invoke(world_state_view)?;
         }
-    }
-
-    pub fn sign(self, new_signatures: Vec<Signature>) -> Result<Transaction, String> {
-        if let Transaction::Accepted {
-            request,
-            signatures,
-        } = self
-        {
-            Ok(Transaction::Signed {
-                request,
-                signatures: vec![signatures, new_signatures]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-            })
-        } else {
-            Err("Transaction should be in Accepted state to be signed.".to_string())
-        }
-    }
-
-    pub fn validate(self, world_state_view: &mut WorldStateView) -> Result<Transaction, String> {
-        if let Transaction::Signed {
-            request,
-            signatures,
-        } = self
-        {
-            for instruction in &request.instructions {
-                instruction.invoke(world_state_view)?;
-            }
-            Ok(Transaction::Valid {
-                request,
-                signatures,
-            })
-        } else {
-            Err("Transaction should be in Signed state to be validated.".to_string())
-        }
+        Ok(ValidTransaction {
+            payload: self.payload,
+            signatures: self.signatures,
+        })
     }
 
     pub fn hash(&self) -> Hash {
@@ -142,39 +128,57 @@ impl Transaction {
         hash.copy_from_slice(&vec_hash);
         hash
     }
+}
 
-    pub fn as_requested(&self) -> Transaction {
-        match self.clone() {
-            Transaction::Requested {
-                request,
-                signatures,
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct ValidTransaction {
+    payload: Payload,
+    signatures: Vec<Signature>,
+}
+
+impl ValidTransaction {
+    pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        for instruction in &self.payload.instructions {
+            if let Err(e) = instruction.invoke(world_state_view) {
+                eprintln!("Failed to invoke instruction on WSV: {}", e);
             }
-            | Transaction::Accepted {
-                request,
-                signatures,
-            }
-            | Transaction::Signed {
-                request,
-                signatures,
-            }
-            | Transaction::Valid {
-                request,
-                signatures,
-            } => Transaction::Requested {
-                request,
-                signatures,
-            },
+        }
+        Ok(())
+    }
+}
+
+impl From<&AcceptedTransaction> for RequestedTransaction {
+    fn from(transaction: &AcceptedTransaction) -> RequestedTransaction {
+        let transaction = transaction.clone();
+        RequestedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
         }
     }
 }
 
-impl From<&Transaction> for TransactionRequest {
-    fn from(transaction: &Transaction) -> TransactionRequest {
-        match transaction {
-            Transaction::Requested { request, .. }
-            | Transaction::Accepted { request, .. }
-            | Transaction::Signed { request, .. }
-            | Transaction::Valid { request, .. } => request.clone(),
+impl From<&SignedTransaction> for RequestedTransaction {
+    fn from(transaction: &SignedTransaction) -> RequestedTransaction {
+        let transaction = transaction.clone();
+        RequestedTransaction::from(transaction)
+    }
+}
+
+impl From<SignedTransaction> for RequestedTransaction {
+    fn from(transaction: SignedTransaction) -> RequestedTransaction {
+        RequestedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
+        }
+    }
+}
+
+impl From<&ValidTransaction> for RequestedTransaction {
+    fn from(transaction: &ValidTransaction) -> RequestedTransaction {
+        let transaction = transaction.clone();
+        RequestedTransaction {
+            payload: transaction.payload,
+            signatures: transaction.signatures,
         }
     }
 }

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
     domains: HashMap<String, Domain>,
-    transactions: HashMap<Hash, Transaction>,
+    transactions: HashMap<Hash, ValidTransaction>,
     peer: Peer,
 }
 
@@ -21,18 +21,8 @@ impl WorldStateView {
     /// into the world.
     pub async fn put(&mut self, block: &ValidBlock) {
         for transaction in &block.transactions {
-            if let Transaction::Valid {
-                request: TransactionRequest { instructions, .. },
-                ..
-            } = transaction
-            {
-                for instruction in instructions {
-                    if let Err(e) = instruction.invoke(self) {
-                        eprintln!("Failed to apply instruction to WSV: {}", e);
-                    }
-                }
-            } else {
-                eprintln!("Transaction {:?} not in a Valid state.", transaction);
+            if let Err(e) = &transaction.proceed(self) {
+                eprintln!("Failed to procced transaction on WSV: {}", e);
             }
         }
     }
