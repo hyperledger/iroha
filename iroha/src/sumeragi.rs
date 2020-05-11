@@ -17,7 +17,7 @@ use std::{
 };
 
 trait Consensus {
-    fn round(&mut self, transactions: Vec<Transaction>) -> Option<PendingBlock>;
+    fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Option<PendingBlock>;
 }
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -96,19 +96,13 @@ impl Sumeragi {
     /// the leader of each round just uses the transactions they have at hand to create a block
     pub async fn round(
         &mut self,
-        transactions: Vec<Transaction>,
+        transactions: Vec<AcceptedTransaction>,
     ) -> Result<Option<SignedBlock>, String> {
         if let Role::Leader = self.role() {
-            let block = PendingBlock::new(
-                transactions
-                    .into_iter()
-                    .map(|tx| tx.sign(Vec::new()))
-                    .filter_map(Result::ok)
-                    .collect(),
-            )
-            //TODO: actually chain block?
-            .chain_first()
-            .sign(&self.public_key, &self.private_key)?;
+            let block = PendingBlock::new(transactions)
+                //TODO: actually chain block?
+                .chain_first()
+                .sign(&self.public_key, &self.private_key)?;
             let minimum_quorum_of_peers = 2;
             if self.sorted_peers.len() < minimum_quorum_of_peers {
                 Ok(Some(block))
@@ -131,7 +125,7 @@ impl Sumeragi {
                     &self.leader().address,
                     Request::new(
                         uri::INSTRUCTIONS_URI.to_string(),
-                        transaction.as_requested().into(),
+                        RequestedTransaction::from(transaction).into(),
                     ),
                 ));
             }

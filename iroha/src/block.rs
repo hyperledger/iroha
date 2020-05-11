@@ -11,11 +11,11 @@ pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<AcceptedTransaction>,
 }
 
 impl PendingBlock {
-    pub fn new(transactions: Vec<Transaction>) -> PendingBlock {
+    pub fn new(transactions: Vec<AcceptedTransaction>) -> PendingBlock {
         PendingBlock {
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -50,7 +50,7 @@ pub struct ChainedBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<AcceptedTransaction>,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
@@ -72,9 +72,13 @@ impl ChainedBlock {
                 .copied(),
         ))
         .to_vec();
+        let mut transactions = Vec::new();
+        for transaction in self.transactions {
+            transactions.push(transaction.sign(public_key, private_key)?);
+        }
         Ok(SignedBlock {
             timestamp: self.timestamp,
-            transactions: self.transactions,
+            transactions,
             height: self.height,
             previous_block_hash: self.previous_block_hash,
             signatures: vec![Signature::new(
@@ -95,7 +99,7 @@ pub struct SignedBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<SignedTransaction>,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
@@ -156,7 +160,7 @@ pub struct ValidBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<ValidTransaction>,
     /// a number of blocks in the chain up to the block.
     pub height: u64,
     /// Hash of a previous block in the chain.
