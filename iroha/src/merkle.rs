@@ -15,10 +15,10 @@ impl MerkleTree {
         }
     }
 
-    /// Builds a Merkle Tree from sorted array of `Blocks`.
+    /// Builds a Merkle Tree from sorted array of `ValidBlocks`.
     //TODO: should we check or sort blocks here?
-    pub fn build(&mut self, blocks: &[&Block]) {
-        //hm, can we write map(Block::hash) in Rust?
+    pub fn build(&mut self, blocks: &[&ValidBlock]) {
+        //hm, can we write map(ValidBlock::hash) in Rust?
         let mut nodes: std::collections::VecDeque<Node> = blocks
             .iter()
             .map(|block| Node::Leaf { hash: block.hash() })
@@ -168,12 +168,16 @@ mod tests {
 
     #[test]
     fn four_blocks_should_built_seven_nodes() {
-        let blocks = [
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-        ];
+        let block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
+        let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);
         assert_eq!(7, merkle_tree.into_iter().count());
@@ -181,12 +185,16 @@ mod tests {
 
     #[test]
     fn three_blocks_should_built_seven_nodes() {
-        let blocks = [
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-            &Block::builder(Vec::new()).build(),
-        ];
+        let block = PendingBlock::new(Vec::new())
+            .chain_first()
+            .sign(&[0; 32], &[0; 64])
+            .expect("Failed to sign blocks.")
+            .validate(&WorldStateView::new(Peer::new(
+                "127.0.0.1:8080".to_string(),
+                &Vec::new(),
+            )))
+            .expect("Failed to validate block.");
+        let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);
         assert_eq!(7, merkle_tree.into_iter().count());
