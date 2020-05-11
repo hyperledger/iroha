@@ -33,8 +33,8 @@ use parity_scale_codec::{Decode, Encode};
 use std::time::Duration;
 use std::{path::Path, sync::Arc};
 
-pub type BlockSender = Sender<Block>;
-pub type BlockReceiver = Receiver<Block>;
+pub type BlockSender = Sender<ValidBlock>;
+pub type BlockReceiver = Receiver<ValidBlock>;
 pub type TransactionSender = Sender<Transaction>;
 pub type TransactionReceiver = Receiver<Transaction>;
 pub type MessageSender = Sender<Message>;
@@ -92,6 +92,7 @@ impl Iroha {
                 iroha_peer_id,
                 config.max_faulty_peers,
                 kura.clone(),
+                world_state_view.clone(),
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -131,18 +132,21 @@ impl Iroha {
         let block_build_step_ms = self.block_build_step_ms;
         task::spawn(async move {
             loop {
-                if let Some(mut block) = sumeragi
+                if let Some(block) = sumeragi
                     .write()
                     .await
                     .round(queue.write().await.pop_pending_transactions())
                     .await
                     .expect("Round failed.")
                 {
-                    block.validate_tx(&*world_state_view.write().await);
                     let _hash = kura
                         .write()
                         .await
-                        .store(block)
+                        .store(
+                            block
+                                .validate(&*world_state_view.write().await)
+                                .expect("Failed to validate block."),
+                        )
                         .await
                         .expect("Failed to write block.");
                 }
@@ -208,7 +212,7 @@ pub mod prelude {
     pub use crate::{
         account::Account,
         asset::Asset,
-        block::Block,
+        block::{PendingBlock, ValidBlock},
         config::Configuration,
         crypto::{Hash, PrivateKey, PublicKey, Signature},
         domain::Domain,

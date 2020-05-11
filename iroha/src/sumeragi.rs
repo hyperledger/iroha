@@ -1,4 +1,11 @@
-use crate::{block::Block, crypto::Hash, kura::Kura, peer::PeerId, prelude::*, torii::uri};
+use crate::{
+    block::{PendingBlock, SignedBlock},
+    crypto::Hash,
+    kura::Kura,
+    peer::PeerId,
+    prelude::*,
+    torii::uri,
+};
 use async_std::sync::RwLock;
 use iroha_derive::*;
 use iroha_network::{Network, Request};
@@ -10,17 +17,17 @@ use std::{
 };
 
 trait Consensus {
-    fn round(&mut self, transactions: Vec<Transaction>) -> Option<Block>;
+    fn round(&mut self, transactions: Vec<Transaction>) -> Option<PendingBlock>;
 }
 
 #[derive(Io, Decode, Encode, Debug, Clone)]
 pub enum Message {
     /// Is sent by leader to all validating peers, when a new block is created.
-    Created(Block),
+    Created(SignedBlock),
     /// Is sent by validating peers to proxy tail and observing peers when they have signed this block.
-    Signed(Block),
+    Signed(SignedBlock),
     /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
-    Committed(Block),
+    Committed(SignedBlock),
 }
 
 impl Message {
@@ -48,9 +55,10 @@ pub struct Sumeragi {
     sorted_peers: Vec<PeerId>,
     max_faults: usize,
     peer_id: PeerId,
-    /// Block in discussion this round
-    pending_block: Option<Block>,
+    /// PendingBlock in discussion this round
+    voting_block: Option<SignedBlock>,
     kura: Arc<RwLock<Kura>>,
+    world_state_view: Arc<RwLock<WorldStateView>>,
 }
 
 impl Sumeragi {
@@ -60,6 +68,7 @@ impl Sumeragi {
         peer_id: PeerId,
         max_faults: usize,
         kura: Arc<RwLock<Kura>>,
+        world_state_view: Arc<RwLock<WorldStateView>>,
     ) -> Result<Self, String> {
         if !peers.contains(&peer_id) {
             return Err("Peers list should contain this peer.".to_string());
@@ -75,8 +84,9 @@ impl Sumeragi {
                 sorted_peers,
                 max_faults,
                 peer_id,
-                pending_block: None,
+                voting_block: None,
                 kura,
+                world_state_view,
             })
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
@@ -84,22 +94,26 @@ impl Sumeragi {
     }
 
     /// the leader of each round just uses the transactions they have at hand to create a block
-    pub async fn round(&mut self, transactions: Vec<Transaction>) -> Result<Option<Block>, String> {
+    pub async fn round(
+        &mut self,
+        transactions: Vec<Transaction>,
+    ) -> Result<Option<SignedBlock>, String> {
         if let Role::Leader = self.role() {
-            let block = Block::builder(
+            let block = PendingBlock::new(
                 transactions
                     .into_iter()
                     .map(|tx| tx.sign(Vec::new()))
                     .filter_map(Result::ok)
                     .collect(),
             )
-            .build()
+            //TODO: actually chain block?
+            .chain_first()
             .sign(&self.public_key, &self.private_key)?;
             let minimum_quorum_of_peers = 2;
             if self.sorted_peers.len() < minimum_quorum_of_peers {
                 Ok(Some(block))
             } else {
-                self.pending_block = Some(block.clone());
+                self.voting_block = Some(block.clone());
                 let mut send_futures = Vec::new();
                 for peer in self.validating_peers() {
                     send_futures.push(Message::Created(block.clone()).send_to(peer));
@@ -128,7 +142,7 @@ impl Sumeragi {
 
     fn next_round(&mut self, prev_block_hash: Hash) {
         Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
-        self.pending_block = None;
+        self.voting_block = None;
     }
 
     fn peers_set_a(&self) -> &[PeerId] {
@@ -191,29 +205,38 @@ impl Sumeragi {
                     //TODO: send to set b so they can observe
                 }
                 Role::ProxyTail => {
-                    if self.pending_block.is_none() {
-                        self.pending_block = Some(block)
+                    if self.voting_block.is_none() {
+                        self.voting_block = Some(block)
                     }
                 }
                 _ => (),
             },
             Message::Signed(block) => {
                 if let Role::ProxyTail = self.role() {
-                    match self.pending_block.as_mut() {
-                        Some(pending_block) => {
+                    match self.voting_block.as_mut() {
+                        Some(voting_block) => {
                             // TODO: verify signatures
                             for signature in block.signatures {
-                                if !pending_block.signatures.contains(&signature) {
-                                    pending_block.signatures.push(signature)
+                                if !voting_block.signatures.contains(&signature) {
+                                    voting_block.signatures.push(signature)
                                 }
                             }
                         }
-                        None => self.pending_block = Some(block),
+                        None => self.voting_block = Some(block),
                     };
-                    if let Some(block) = self.pending_block.clone() {
+                    if let Some(block) = self.voting_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = block.sign(&self.public_key, &self.private_key)?;
-                            let hash = self.kura.write().await.store(block.clone()).await?;
+                            let hash = self
+                                .kura
+                                .write()
+                                .await
+                                .store(
+                                    block
+                                        .clone()
+                                        .validate(&*self.world_state_view.read().await)?,
+                                )
+                                .await?;
                             let mut send_futures = Vec::new();
                             for peer in self.validating_peers() {
                                 send_futures.push(Message::Committed(block.clone()).send_to(peer));
@@ -231,7 +254,12 @@ impl Sumeragi {
             }
             Message::Committed(block) => {
                 //TODO: check if the block is the same as pending
-                let hash = self.kura.write().await.store(block).await?;
+                let hash = self
+                    .kura
+                    .write()
+                    .await
+                    .store(block.validate(&*self.world_state_view.read().await)?)
+                    .await?;
                 self.next_round(hash);
             }
         }
@@ -246,7 +274,7 @@ impl Debug for Sumeragi {
             .field("sorted_peers", &self.sorted_peers)
             .field("max_faults", &self.max_faults)
             .field("peer_id", &self.peer_id)
-            .field("pending_block", &self.pending_block)
+            .field("voting_block", &self.voting_block)
             .finish()
     }
 }
@@ -270,8 +298,18 @@ mod tests {
             address: listen_address.clone(),
             public_key,
         };
-        Sumeragi::new(private_key, &[this_peer.clone()], this_peer, 3, kura)
-            .expect("Failed to create Sumeragi.");
+        Sumeragi::new(
+            private_key,
+            &[this_peer.clone()],
+            this_peer.clone(),
+            3,
+            kura,
+            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+                listen_address.clone(),
+                &vec![this_peer],
+            )))),
+        )
+        .expect("Failed to create Sumeragi.");
     }
 
     #[test]
