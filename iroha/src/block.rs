@@ -42,6 +42,10 @@ impl PendingBlock {
             previous_block_hash: None,
         }
     }
+
+    pub fn hash(&self) -> Hash {
+        crypto::hash(self.into())
+    }
 }
 
 /// When `PendingBlock` chained with a blockchain it becomes `ChainedBlock`
@@ -87,6 +91,10 @@ impl ChainedBlock {
                 private_key,
             )?],
         })
+    }
+
+    pub fn hash(&self) -> Hash {
+        crypto::hash(self.into())
     }
 }
 
@@ -151,6 +159,10 @@ impl SignedBlock {
                 .filter_map(Result::ok)
                 .collect(),
         })
+    }
+
+    pub fn hash(&self) -> Hash {
+        crypto::hash(self.into())
     }
 }
 

@@ -26,3 +26,7 @@ criterion = "0.3"
 [[bench]]
 name = "sumeragi"
 harness = false
+
+[[bench]]
+name = "validation"
+harness = false
