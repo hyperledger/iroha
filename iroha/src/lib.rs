@@ -29,7 +29,6 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use parity_scale_codec::{Decode, Encode};
 use std::time::Duration;
 use std::{path::Path, sync::Arc};
 
@@ -171,38 +170,8 @@ impl Iroha {
     }
 }
 
-/// Identification of an Iroha's entites. Consists of Entity's name and Domain's name.
-///
-/// # Example
-///
-/// ```
-/// use iroha::Id;
-///
-/// let id = Id::new("gold", "mine");
-/// ```
-#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, std::hash::Hash, Encode, Decode)]
-pub struct Id {
-    pub entity_name: String,
-    pub domain_name: String,
-}
-
-impl Id {
-    pub fn new(entity_name: &str, domain_name: &str) -> Self {
-        Id {
-            entity_name: entity_name.to_string(),
-            domain_name: domain_name.to_string(),
-        }
-    }
-}
-
-impl From<&str> for Id {
-    fn from(string: &str) -> Id {
-        let vector: Vec<&str> = string.split('@').collect();
-        Id {
-            entity_name: String::from(vector[0]),
-            domain_name: String::from(vector[1]),
-        }
-    }
+pub trait Identifiable {
+    type Id;
 }
 
 pub mod prelude {
@@ -210,17 +179,17 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{
-        account::Account,
-        asset::Asset,
+        account::{Account, Id as AccountId},
+        asset::{Asset, Id as AssetId},
         block::{PendingBlock, ValidBlock},
         config::Configuration,
         crypto::{Hash, PrivateKey, PublicKey, Signature},
         domain::Domain,
-        isi::{Contract, Instruction},
+        isi::Instruction,
         peer::Peer,
         query::{Query, QueryRequest, QueryResult},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
-        BlockReceiver, BlockSender, Id, Iroha, TransactionReceiver, TransactionSender,
+        BlockReceiver, BlockSender, Identifiable, Iroha, TransactionReceiver, TransactionSender,
     };
 }

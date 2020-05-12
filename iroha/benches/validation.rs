@@ -1,29 +1,30 @@
 use criterion::*;
-use iroha::{crypto, isi::prelude::*, prelude::*};
+use iroha::{crypto, isi, prelude::*};
 
 fn accept_transaction(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
+    let domain_name = "domain";
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
     };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, [0; 32]),
+        destination_id: String::from(domain_name),
     };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
     };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"));
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    );
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("accept", |b| {
@@ -39,30 +40,31 @@ fn accept_transaction(criterion: &mut Criterion) {
 }
 
 fn sign_transaction(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
+    let domain_name = "domain";
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
     };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, [0; 32]),
+        destination_id: String::from(domain_name),
     };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
     };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"))
-        .accept()
-        .expect("Failed to accept transaction.");
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    )
+    .accept()
+    .expect("Failed to accept transaction.");
     let (public_key, private_key) =
         crypto::generate_key_pair().expect("Failed to generate key pair.");
     let mut success_count = 0;
@@ -82,34 +84,35 @@ fn sign_transaction(criterion: &mut Criterion) {
 }
 
 fn validate_transaction(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
-    };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
-    };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
-    };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
+    let domain_name = "domain";
     let (public_key, private_key) =
         crypto::generate_key_pair().expect("Failed to generate key pair.");
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"))
-        .accept()
-        .expect("Failed to accept transaction.")
-        .sign(&public_key, &private_key)
-        .expect("Failed to sign transaction.");
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
+    };
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, public_key),
+        destination_id: String::from(domain_name),
+    };
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
+    };
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    )
+    .accept()
+    .expect("Failed to accept transaction.")
+    .sign(&public_key, &private_key)
+    .expect("Failed to sign transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
     let mut world_state_view = WorldStateView::new(Peer::new("127.0.0.1".to_string(), &Vec::new()));
@@ -128,30 +131,33 @@ fn validate_transaction(criterion: &mut Criterion) {
 }
 
 fn chain_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
+    let domain_name = "domain";
+    let (public_key, _private_key) =
+        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
     };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, public_key),
+        destination_id: String::from(domain_name),
     };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
     };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"))
-        .accept()
-        .expect("Failed to accept transaction.");
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    )
+    .accept()
+    .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction]);
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
@@ -166,33 +172,34 @@ fn chain_blocks(criterion: &mut Criterion) {
 }
 
 fn sign_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
-    };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
-    };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
-    };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"))
-        .accept()
-        .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction]).chain_first();
+    let domain_name = "domain";
     let (public_key, private_key) =
         crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
+    };
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, public_key),
+        destination_id: String::from(domain_name),
+    };
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
+    };
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    )
+    .accept()
+    .expect("Failed to accept transaction.");
+    let block = PendingBlock::new(vec![transaction]).chain_first();
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign_block", |b| {
@@ -208,32 +215,33 @@ fn sign_blocks(criterion: &mut Criterion) {
 }
 
 fn validate_blocks(criterion: &mut Criterion) {
-    let domain_name = "domain2";
-    let create_domain = CreateDomain {
-        domain_name: domain_name.to_string(),
-    };
-    let account_id = Id::new("account2", domain_name);
-    let create_account = CreateAccount {
-        account_id: account_id.clone(),
-        domain_name: domain_name.to_string(),
-        public_key: [63; 32],
-    };
-    let asset_id = Id::new("xor", domain_name);
-    let create_asset = AddAssetQuantity {
-        asset_id: asset_id.clone(),
-        account_id: account_id.clone(),
-        amount: 100,
-    };
-    let commands: Vec<Contract> = vec![
-        create_domain.into(),
-        create_account.into(),
-        create_asset.into(),
-    ];
-    let transaction = RequestedTransaction::new(commands, Id::new("account", "domain"))
-        .accept()
-        .expect("Failed to accept transaction.");
+    let domain_name = "domain";
     let (public_key, private_key) =
         crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let create_domain = isi::Add {
+        object: Domain::new(domain_name.to_string()),
+        destination_id: iroha::peer::PeerId::current(),
+    };
+    let account_name = "account";
+    let create_account = isi::Register {
+        object: Account::new(account_name, domain_name, public_key),
+        destination_id: String::from(domain_name),
+    };
+    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let create_asset = isi::Register {
+        object: Asset::new(asset_id.clone()).with_quantity(0),
+        destination_id: domain_name.to_string(),
+    };
+    let transaction = RequestedTransaction::new(
+        vec![
+            create_domain.into(),
+            create_account.into(),
+            create_asset.into(),
+        ],
+        AccountId::new("account", "domain"),
+    )
+    .accept()
+    .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
         .sign(&public_key, &private_key)

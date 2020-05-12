@@ -6,99 +6,101 @@ use parity_scale_codec::{Decode, Encode};
 pub struct Asset {
     /// identifier of asset, formatted as asset_name#domain_id
     pub id: Id,
-    pub amount: u128,
+    pub quantity: u128,
 }
 
 impl Asset {
     pub fn new(id: Id) -> Self {
-        Asset { id, amount: 0 }
+        Asset { id, quantity: 0 }
     }
 
-    pub fn with_amount(mut self, amount: u128) -> Self {
-        self.amount = amount;
+    pub fn with_quantity(mut self, quantity: u128) -> Self {
+        self.quantity = quantity;
         self
     }
 }
 
-pub mod isi {
-    use super::*;
-    use crate::isi::Contract;
-    use iroha_derive::{IntoContract, Io};
-    use parity_scale_codec::{Decode, Encode};
+/// Identification of an Asset. Consists of Asset's name, Domain's name and Account's name.
+///
+/// # Example
+///
+/// ```
+/// use iroha::asset::Id;
+///
+/// let id = Id::new("xor", "user", "company");
+/// ```
+#[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, std::hash::Hash, Encode, Decode)]
+pub struct Id {
+    pub name: String,
+    pub container: String,
+    pub account: String,
+}
 
-    /// The purpose of add asset quantity command is to increase the quantity of an asset on account of
-    /// transaction creator. Use case scenario is to increase the number of a mutable asset in the
-    /// system, which can act as a claim on a commodity (e.g. money, gold, etc.).
-    #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
-    pub struct AddAssetQuantity {
-        pub asset_id: Id,
-        pub account_id: Id,
-        pub amount: u128,
+impl Id {
+    pub fn new(name: &str, container: &str, account: &str) -> Self {
+        Id {
+            name: name.to_string(),
+            container: container.to_string(),
+            account: account.to_string(),
+        }
     }
 
-    impl Instruction for AddAssetQuantity {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            let assets = &mut world_state_view
-                .account(&self.account_id)
-                .ok_or("Account not found.")?
-                .assets;
-            if let Some(asset) = assets.get_mut(&self.asset_id) {
-                asset.amount += self.amount;
-            } else {
-                assets.insert(self.asset_id.clone(), Asset::new(self.asset_id.clone()));
-                assets
-                    .get_mut(&self.asset_id)
-                    .ok_or("Failed to get asset.")?
-                    .amount += self.amount;
+    pub fn account_id(&self) -> <Account as Identifiable>::Id {
+        <Account as Identifiable>::Id::new(&self.account, &self.container)
+    }
+}
+
+impl From<&str> for Id {
+    fn from(string: &str) -> Id {
+        let vector: Vec<&str> = string.split('@').collect();
+        Id {
+            name: String::from(vector[0]),
+            container: String::from(vector[1]),
+            account: String::from(vector[2]),
+        }
+    }
+}
+
+impl Identifiable for Asset {
+    type Id = Id;
+}
+
+pub mod isi {
+    use super::*;
+    use crate::isi::Mint;
+    use iroha_derive::*;
+
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub enum AssetInstruction {
+        MintAsset(u128, <Asset as Identifiable>::Id),
+    }
+
+    impl AssetInstruction {
+        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            match self {
+                AssetInstruction::MintAsset(quantity, asset_id) => {
+                    Mint::new(*quantity, asset_id.clone()).execute(world_state_view)
+                }
             }
+        }
+    }
+
+    impl Mint<Asset, u128> {
+        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            world_state_view
+                .asset(&self.destination_id)
+                .ok_or("Failed to find asset.")?
+                .quantity += self.object;
             Ok(())
         }
     }
 
-    /// The purpose of сreate asset command is to create a new type of asset, unique in a domain.
-    /// An asset is a countable representation of a commodity.
-    #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
-    pub struct CreateAsset {
-        pub asset_name: String,
-        pub domain_id: String,
-        pub decimals: u8,
-    }
-
-    /// The purpose of transfer asset command is to share assets within the account in peer
-    /// network: in the way that source account transfers assets to the target account.
-    #[derive(Clone, Debug, PartialEq, Io, IntoContract, Encode, Decode)]
-    pub struct TransferAsset {
-        pub source_account_id: Id,
-        pub destination_account_id: Id,
-        pub asset_id: Id,
-        pub description: String,
-        pub amount: u128,
-    }
-
-    impl Instruction for TransferAsset {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            let asset = world_state_view
-                .account(&self.source_account_id)
-                .ok_or("Source account not found")?
-                .assets
-                .get_mut(&self.asset_id)
-                .ok_or("Asset not found")?;
-            asset.amount -= self.amount;
-            let destination_account = world_state_view
-                .account(&self.destination_account_id)
-                .ok_or("Destionation account not found")?;
-            match destination_account.assets.get_mut(&self.asset_id.clone()) {
-                Some(asset) => {
-                    asset.amount += self.amount;
-                }
-                None => {
-                    destination_account.assets.insert(
-                        self.destination_account_id.clone(),
-                        Asset::new(self.asset_id.clone()).with_amount(self.amount),
-                    );
-                }
-            }
-            Ok(())
+    impl From<Mint<Asset, u128>> for Instruction {
+        fn from(instruction: Mint<Asset, u128>) -> Self {
+            Instruction::Asset(AssetInstruction::MintAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
         }
     }
 }
@@ -114,7 +116,7 @@ pub mod query {
     /// GetAccountAssets query can be used.
     #[derive(Debug, Io, IntoQuery, Encode, Decode)]
     pub struct GetAccountAssets {
-        account_id: Id,
+        account_id: <Account as Identifiable>::Id,
     }
 
     #[derive(Debug, Encode, Decode)]
@@ -123,11 +125,11 @@ pub mod query {
     }
 
     impl GetAccountAssets {
-        pub fn new(account_id: Id) -> GetAccountAssets {
+        pub fn new(account_id: <Account as Identifiable>::Id) -> GetAccountAssets {
             GetAccountAssets { account_id }
         }
 
-        pub fn build_request(account_id: Id) -> QueryRequest {
+        pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
             let query = GetAccountAssets { account_id };
             QueryRequest {
                 timestamp: SystemTime::now()
