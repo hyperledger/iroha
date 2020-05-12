@@ -1,10 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{
-        account::isi::CreateAccount, asset::isi::AddAssetQuantity, domain::isi::CreateDomain,
-        prelude::*,
-    };
+    use iroha::{isi, prelude::*};
     use iroha_client::client::{self, Client};
     use std::{thread, time::Duration};
     use tempfile::TempDir;
@@ -17,23 +14,24 @@ mod tests {
         // Given
         thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(300));
-        let create_domain = CreateDomain {
-            domain_name: "domain".to_string(),
+        let domain_name = "domain";
+        let create_domain = isi::Add {
+            object: Domain::new(domain_name.to_string()),
+            destination_id: iroha::peer::PeerId::current(),
         };
-        let account_id = Id::new("account", "domain");
+        let account_name = "account";
+        let account_id = AccountId::new(account_name, domain_name);
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let (public_key, _) = configuration.key_pair();
-        let create_account = CreateAccount {
-            account_id: account_id.clone(),
-            domain_name: "domain".to_string(),
-            public_key,
+        let create_account = isi::Register {
+            object: Account::new(account_name, domain_name, public_key),
+            destination_id: String::from(domain_name),
         };
-        let asset_id = Id::new("xor", "domain");
-        let create_asset = AddAssetQuantity {
-            asset_id: asset_id.clone(),
-            account_id: account_id.clone(),
-            amount: 0,
+        let asset_id = AssetId::new("xor", domain_name, account_name);
+        let create_asset = isi::Register {
+            object: Asset::new(asset_id.clone()).with_quantity(0),
+            destination_id: domain_name.to_string(),
         };
         let mut iroha_client = Client::new(&configuration);
         iroha_client
@@ -49,14 +47,13 @@ mod tests {
         ))
         .await;
         //When
-        let add_amount = 200;
-        let add_asset_quantity = AddAssetQuantity {
-            asset_id: asset_id.clone(),
-            account_id: account_id.clone(),
-            amount: add_amount,
+        let quantity: u128 = 200;
+        let mint_asset = isi::Mint {
+            object: quantity,
+            destination_id: asset_id.clone(),
         };
         iroha_client
-            .submit(add_asset_quantity.into())
+            .submit(mint_asset.into())
             .await
             .expect("Failed to create asset.");
         task::sleep(Duration::from_millis(
@@ -72,8 +69,8 @@ mod tests {
         let QueryResult::GetAccountAssets(result) = query_result;
         assert!(!result.assets.is_empty());
         assert_eq!(
-            add_amount,
-            result.assets.first().expect("Asset should exist.").amount,
+            quantity,
+            result.assets.first().expect("Asset should exist.").quantity,
         );
     }
 

@@ -37,10 +37,10 @@ impl Client {
 
     /// Contract API entry point. Submits contract to `Iroha` peers.
     #[log]
-    pub async fn submit(&mut self, command: Contract) -> Result<(), String> {
+    pub async fn submit(&mut self, command: Instruction) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(vec![command], Id::new("account", "domain"))
+            RequestedTransaction::new(vec![command], iroha::account::Id::new("account", "domain"))
                 .accept()?
                 .sign(&self.public_key, &self.private_key)?
                 .into();
@@ -63,11 +63,10 @@ impl Client {
     }
 
     /// Contract API entry point. Submits contracts to `Iroha` peers.
-    #[log]
-    pub async fn submit_all(&mut self, commands: Vec<Contract>) -> Result<(), String> {
+    pub async fn submit_all(&mut self, commands: Vec<Instruction>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(commands, Id::new("account", "domain"))
+            RequestedTransaction::new(commands, iroha::account::Id::new("account", "domain"))
                 .accept()?
                 .sign(&self.public_key, &self.private_key)?
                 .into();
@@ -110,7 +109,7 @@ pub mod assets {
     use super::*;
     use iroha::asset::query::GetAccountAssets;
 
-    pub fn by_account_id(account_id: Id) -> QueryRequest {
+    pub fn by_account_id(account_id: <Account as Identifiable>::Id) -> QueryRequest {
         GetAccountAssets::build_request(account_id)
     }
 }

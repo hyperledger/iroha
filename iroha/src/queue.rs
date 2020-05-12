@@ -23,9 +23,12 @@ mod tests {
     fn push_pending_transaction() {
         let mut queue = Queue::default();
         queue.push_pending_transaction(
-            RequestedTransaction::new(Vec::new(), Id::new("account", "domain"))
-                .accept()
-                .expect("Failed to create Transaction."),
+            RequestedTransaction::new(
+                Vec::new(),
+                <Account as Identifiable>::Id::new("account", "domain"),
+            )
+            .accept()
+            .expect("Failed to create Transaction."),
         );
     }
 }

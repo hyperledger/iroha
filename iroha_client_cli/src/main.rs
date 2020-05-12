@@ -67,7 +67,7 @@ mod domain {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{domain::isi::CreateDomain, prelude::*};
+    use iroha::{isi, prelude::*};
     use iroha_client::client::Client;
 
     const DOMAIN: &str = "domain";
@@ -94,12 +94,13 @@ mod domain {
     }
 
     fn create_domain(domain_name: &str) {
-        let create_domain = CreateDomain {
-            domain_name: String::from(domain_name),
-        };
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
+        let create_domain = isi::Add {
+            object: Domain::new(domain_name.to_string()),
+            destination_id: iroha::peer::PeerId::current(),
+        };
         executor::block_on(iroha_client.submit(create_domain.into()))
             .expect("Failed to create domain.");
     }
@@ -109,7 +110,7 @@ mod account {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{account::isi::CreateAccount, prelude::*};
+    use iroha::{isi, prelude::*};
     use iroha_client::client::Client;
 
     const ACCOUNT: &str = "account";
@@ -161,10 +162,9 @@ mod account {
     }
 
     fn create_account(account_name: &str, domain_name: &str, _public_key: &str) {
-        let create_account = CreateAccount {
-            account_id: Id::new(account_name, domain_name),
-            domain_name: String::from(domain_name),
-            public_key: [63; 32],
+        let create_account = isi::Register {
+            object: Account::new(account_name, domain_name, [0; 32]),
+            destination_id: String::from(domain_name),
         };
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
@@ -178,7 +178,7 @@ mod asset {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{asset::isi::AddAssetQuantity, prelude::*};
+    use iroha::{isi, prelude::*};
     use iroha_client::client::{self, Client};
 
     const ASSET: &str = "asset";
@@ -280,11 +280,11 @@ mod asset {
         }
     }
 
-    fn add_asset(asset_id: &str, account_id: &str, amount: &str) {
-        let add_asset = AddAssetQuantity {
-            asset_id: Id::from(asset_id),
-            account_id: Id::from(account_id),
-            amount: amount.parse().expect("Asset amount should be a number."),
+    fn add_asset(asset_id: &str, _account_id: &str, quantity: &str) {
+        let add_asset = isi::Register {
+            object: Asset::new(asset_id.into())
+                .with_quantity(quantity.parse().expect("Failed to parse Asset quantity.")),
+            destination_id: <Asset as Identifiable>::Id::from(asset_id).container,
         };
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
@@ -297,9 +297,9 @@ mod asset {
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
-        let query_result = executor::block_on(
-            iroha_client.request(&client::assets::by_account_id(Id::from(account_id))),
-        )
+        let query_result = executor::block_on(iroha_client.request(
+            &client::assets::by_account_id(<Account as Identifiable>::Id::from(account_id)),
+        ))
         .expect("Failed to get asset.");
         let QueryResult::GetAccountAssets(result) = query_result;
         println!("Get Asset result: {:?}", result);
