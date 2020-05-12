@@ -13,8 +13,8 @@
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/transport/yac_network_interface.hpp"
 #include "consensus/yac/yac_crypto_provider.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/default_hash_provider.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "cryptography/keypair.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/behaviour.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
@@ -91,11 +91,10 @@ namespace integration_framework {
           listen_ip_(listen_ip),
           internal_port_(internal_port),
           keypair_(std::make_unique<Keypair>(
-              key.value_or(DefaultCryptoAlgorithmType::generateKeypair()))),
-          this_peer_(
-              createPeer(common_objects_factory,
-                         getAddress(),
-                         PublicKeyHexStringView{keypair_->publicKey().hex()})),
+              key.value_or(CryptoProviderEd25519Sha3::generateKeypair()))),
+          this_peer_(createPeer(common_objects_factory,
+                                getAddress(),
+                                PublicKeyHexStringView{keypair_->publicKey()})),
           real_peer_(std::move(real_peer)),
           async_call_(std::make_shared<AsyncCall>(
               log_manager_->getChild("AsyncNetworkClient")->getLogger())),
@@ -107,7 +106,7 @@ namespace integration_framework {
               tx_presence_cache,
               std::make_shared<iroha::DefaultCompleter>(
                   std::chrono::minutes(0)),
-              keypair_->publicKey(),
+              PublicKeyHexStringView{keypair_->publicKey()},
               mst_log_manager_->getChild("State")->getLogger(),
               mst_log_manager_->getChild("Transport")->getLogger())),
           yac_transport_(std::make_shared<YacTransport>(
@@ -123,7 +122,8 @@ namespace integration_framework {
           og_network_notifier_(std::make_shared<OgNetworkNotifier>()),
           yac_crypto_(
               std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
-                  *keypair_)) {
+                  *keypair_,
+                  consensus_log_manager_->getChild("Crypto")->getLogger())) {
       mst_transport_->subscribe(mst_network_notifier_);
       yac_transport_->subscribe(yac_network_notifier_);
     }
@@ -282,13 +282,11 @@ namespace integration_framework {
 
     std::shared_ptr<shared_model::interface::Signature> FakePeer::makeSignature(
         const shared_model::crypto::Blob &hash) const {
-      auto bare_signature =
-          shared_model::crypto::DefaultCryptoAlgorithmType::sign(hash,
-                                                                 *keypair_);
+      auto bare_signature = CryptoProviderEd25519Sha3::sign(hash, *keypair_);
       std::shared_ptr<shared_model::interface::Signature> signature_with_pubkey;
       common_objects_factory_
-          ->createSignature(PublicKeyHexStringView{keypair_->publicKey().hex()},
-                            SignedHexStringView{bare_signature.hex()})
+          ->createSignature(PublicKeyHexStringView{keypair_->publicKey()},
+                            SignedHexStringView{bare_signature})
           .match(
               [&signature_with_pubkey](auto &&sig) {
                 signature_with_pubkey = std::move(sig.value);

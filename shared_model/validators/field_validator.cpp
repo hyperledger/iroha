@@ -24,6 +24,7 @@
 #include "interfaces/queries/asset_pagination_meta.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "interfaces/queries/tx_pagination_meta.hpp"
+#include "multihash/multihash.hpp"
 #include "validators/field_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
 
@@ -103,14 +104,12 @@ namespace {
   const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
   const RegexValidator kPublicKeyHexValidator{
       "PublicKeyHex",
-      fmt::format(
-          "[A-Fa-f0-9]{{{}}}",
-          shared_model::validation::FieldValidator::public_key_size * 2)};
+      fmt::format("[A-Fa-f0-9]{{1,{}}}",
+                  shared_model::crypto::CryptoVerifier::kMaxPublicKeySize * 2)};
   const RegexValidator kSignatureHexValidator{
       "SignatureHex",
-      fmt::format(
-          "[A-Fa-f0-9]{{{}}}",
-          shared_model::validation::FieldValidator::signature_size * 2)};
+      fmt::format("[A-Fa-f0-9]{{1,{}}}",
+                  shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
 }  // namespace
 
 namespace shared_model {
@@ -314,14 +313,15 @@ namespace shared_model {
         auto sig_format_error = validateSignatureForm(signature.value());
         sig_error_creator |= sig_format_error;
 
-        if (not sig_format_error
-            and not shared_model::crypto::CryptoVerifier<>::verify(
-                    crypto::Signed(crypto::Blob::fromHexString(
-                        signature.value().signedData())),
-                    source,
-                    crypto::PublicKey(crypto::Blob::fromHexString(
-                        signature.value().publicKey())))) {
-          sig_error_creator.addReason("Crypto verification failed.");
+        if (not sig_format_error) {
+          using namespace shared_model::interface::types;
+          if (auto e = resultToOptionalError(
+                  shared_model::crypto::CryptoVerifier::verify(
+                      SignedHexStringView{signature.value().signedData()},
+                      source,
+                      PublicKeyHexStringView{signature.value().publicKey()}))) {
+            sig_error_creator.addReason(e.value());
+          }
         }
         error_creator |= std::move(sig_error_creator)
                              .getValidationErrorWithGeneratedName([&] {

@@ -14,7 +14,6 @@
 #include "backend/protobuf/proto_transport_factory.hpp"
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "backend/protobuf/transaction.hpp"
-#include "cryptography/public_key.hpp"
 #include "endpoint.pb.h"
 #include "endpoint_mock.grpc.pb.h"
 #include "framework/test_logger.hpp"

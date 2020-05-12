@@ -13,7 +13,11 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "framework/test_logger.hpp"
 #include "integration/acceptance/fake_peer_fixture.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
+
+using namespace std::literals;
+using namespace shared_model::interface::types;
 
 namespace iroha {
   namespace ametsuchi {
@@ -75,10 +79,10 @@ namespace iroha {
       shared_model::plain::Account account("account", "domain", 1, "{}");
       command->insertAccount(account);
 
-      auto pub_key1 = shared_model::crypto::PublicKey("some-public-key");
+      PublicKeyHexStringView pub_key1{"some-public-key"sv};
       command->insertSignatory(pub_key1);
       command->insertAccountSignatory("account", pub_key1);
-      auto pub_key2 = shared_model::crypto::PublicKey("another-public-key");
+      PublicKeyHexStringView pub_key2{"another-public-key"sv};
       command->insertSignatory(pub_key2);
       command->insertAccountSignatory("account", pub_key2);
 

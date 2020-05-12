@@ -9,7 +9,6 @@
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
 #include "common/byteutils.hpp"
 #include "consensus/yac/outcome_messages.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "interfaces/common_objects/signature.hpp"
 #include "logger/logger.hpp"
 #include "validators/field_validator.hpp"

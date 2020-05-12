@@ -12,9 +12,9 @@
 #include <gtest/gtest.h>
 #include <boost/asio.hpp>
 #include "common/byteutils.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/keypair.hpp"
 #include "cryptography/seed.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace boost::process;
 

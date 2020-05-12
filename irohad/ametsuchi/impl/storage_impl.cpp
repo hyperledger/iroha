@@ -30,7 +30,6 @@
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
 #include "common/result.hpp"
-#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"

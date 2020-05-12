@@ -138,7 +138,7 @@ namespace shared_model {
        * @return signatories response
        */
       virtual std::unique_ptr<QueryResponse> createSignatoriesResponse(
-          std::vector<types::PubkeyType> signatories,
+          std::vector<std::string> signatories,
           const crypto::Hash &query_hash) const = 0;
 
       /**

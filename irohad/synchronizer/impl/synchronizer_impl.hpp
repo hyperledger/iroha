@@ -43,10 +43,6 @@ namespace iroha {
       rxcpp::observable<SynchronizationEvent> on_commit_chain() override;
 
      private:
-      using PublicKeysRange =
-          boost::any_range<shared_model::interface::types::PubkeyType,
-                           boost::forward_traversal_tag,
-                           const shared_model::interface::types::PubkeyType &>;
       /**
        * Iterate through the peers which signed the commit message, load and
        * apply the missing blocks
@@ -55,6 +51,7 @@ namespace iroha {
        * @param public_keys - public keys of peers from which to ask the blocks
        * @return Result of committing the downloaded blocks.
        */
+      template <typename PublicKeysRange>
       ametsuchi::CommitResult downloadAndCommitMissingBlocks(
           const shared_model::interface::types::HeightType start_height,
           const shared_model::interface::types::HeightType target_height,

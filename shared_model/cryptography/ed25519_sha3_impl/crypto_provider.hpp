@@ -8,7 +8,7 @@
 
 #include "cryptography/keypair.hpp"
 #include "cryptography/seed.hpp"
-#include "cryptography/signed.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -21,20 +21,21 @@ namespace shared_model {
        * Signs the message.
        * @param blob - blob to sign
        * @param keypair - keypair
-       * @return Signed object with signed data
+       * @return hex signature data string
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair);
+      static std::string sign(const Blob &blob, const Keypair &keypair);
 
       /**
        * Verifies signature.
-       * @param signedData - data to verify
+       * @param signature - data to verify
        * @param orig - original message
-       * @param publicKey - public key
+       * @param public_key - public key
        * @return true if verify was OK or false otherwise
        */
-      static bool verify(const Signed &signedData,
-                         const Blob &orig,
-                         const PublicKey &publicKey);
+      static bool verify(
+          shared_model::interface::types::SignatureByteRangeView signature,
+          const Blob &orig,
+          shared_model::interface::types::PublicKeyByteRangeView public_key);
       /**
        * Generates new seed
        * @return Seed generated

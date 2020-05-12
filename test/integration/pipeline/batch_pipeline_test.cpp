@@ -14,6 +14,7 @@
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/multi_sig_transactions/mst_test_helpers.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace shared_model;
 using namespace common_constants;
@@ -26,6 +27,8 @@ using ::testing::Truly;
 using ::testing::Values;
 using ::testing::WithParamInterface;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 class BatchPipelineTest
     : public AcceptanceFixture,
       public WithParamInterface<interface::types::BatchType> {
@@ -35,8 +38,9 @@ class BatchPipelineTest
    * @return transaction to create first user
    */
   auto createFirstUser() {
-    return AcceptanceFixture::createUser(kFirstUser,
-                                         kFirstUserKeypair.publicKey())
+    return AcceptanceFixture::createUser(
+               kFirstUser,
+               PublicKeyHexStringView{kFirstUserKeypair.publicKey()})
         .build()
         .signAndAddSignature(kAdminKeypair)
         .finish();
@@ -48,7 +52,9 @@ class BatchPipelineTest
   auto raiseFirstUserQuorum() {
     return AcceptanceFixture::complete(
         AcceptanceFixture::baseTx(kFirstUserId)
-            .addSignatory(kFirstUserId, kFirstUserSecondKeypair.publicKey())
+            .addSignatory(
+                kFirstUserId,
+                PublicKeyHexStringView{kFirstUserSecondKeypair.publicKey()})
             .setAccountQuorum(kFirstUserId, 2),
         kFirstUserKeypair);
   }
@@ -57,8 +63,9 @@ class BatchPipelineTest
    * @return transaction to create second user
    */
   auto createSecondUser() {
-    return AcceptanceFixture::createUser(kSecondUser,
-                                         kSecondUserKeypair.publicKey())
+    return AcceptanceFixture::createUser(
+               kSecondUser,
+               PublicKeyHexStringView{kSecondUserKeypair.publicKey()})
         .build()
         .signAndAddSignature(kAdminKeypair)
         .finish();
@@ -156,9 +163,8 @@ class BatchPipelineTest
         crypto::DefaultCryptoAlgorithmType::sign(tx->payload(), keypair);
     auto clone_tx = clone(tx.get());
     clone_tx->addSignature(
-        shared_model::interface::types::SignedHexStringView{signed_blob.hex()},
-        shared_model::interface::types::PublicKeyHexStringView{
-            keypair.publicKey().hex()});
+        shared_model::interface::types::SignedHexStringView{signed_blob},
+        PublicKeyHexStringView{keypair.publicKey()});
     return std::shared_ptr<interface::Transaction>(std::move(clone_tx));
   }
 

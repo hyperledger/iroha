@@ -5,8 +5,6 @@
 
 #include "interfaces/commands/remove_peer.hpp"
 
-#include "cryptography/public_key.hpp"
-
 namespace shared_model {
   namespace interface {
 

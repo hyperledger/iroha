@@ -15,6 +15,7 @@
 
 using namespace benchmark::utils;
 using namespace common_constants;
+using shared_model::interface::types::PublicKeyHexStringView;
 
 /**
  * This benchmark executes get account query in order to measure query execution
@@ -25,7 +26,7 @@ static void BM_QueryAccount(benchmark::State &state) {
   itf.setInitialState(kAdminKeypair);
   itf.sendTx(createUserWithPerms(
                  kUser,
-                 kUserKeypair.publicKey(),
+                 PublicKeyHexStringView{kUserKeypair.publicKey()},
                  kRole,
                  {shared_model::interface::permissions::Role::kGetAllAccounts})
                  .build()

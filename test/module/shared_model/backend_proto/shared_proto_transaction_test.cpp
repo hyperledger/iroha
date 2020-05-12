@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <gtest/gtest.h>
 #include "backend/protobuf/transaction.hpp"
+
+#include <gtest/gtest.h>
 #include "builders/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 // common data for tests
 auto created_time = iroha::time::now();
@@ -61,13 +62,13 @@ TEST(ProtoTransaction, Builder) {
 
   auto keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
+  auto signature_hex = shared_model::crypto::CryptoSigner<>::sign(
       shared_model::crypto::Blob(proto_tx.payload().SerializeAsString()),
       keypair);
 
   auto sig = proto_tx.add_signatures();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(keypair.publicKey());
+  sig->set_signature(signature_hex);
 
   auto tx = shared_model::proto::TransactionBuilder()
                 .creatorAccountId(creator_account_id)

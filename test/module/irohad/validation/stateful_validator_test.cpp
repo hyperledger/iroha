@@ -8,7 +8,6 @@
 #include <gtest/gtest.h>
 #include "backend/protobuf/proto_proposal_factory.hpp"
 #include "common/result.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
 #include "interfaces/iroha_internal/batch_meta.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -17,6 +16,7 @@
 #include "module/irohad/common/validators_config.hpp"
 #include "module/shared_model/builders/protobuf/test_proposal_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 #include "validation/utils.hpp"
 

@@ -7,7 +7,6 @@
 
 #include <gtest/gtest.h>
 #include "backend/plain/peer.hpp"
-#include "cryptography/public_key.hpp"
 #include "module/irohad/ametsuchi/mock_wsv_query.hpp"
 
 class PeerQueryWSVTest : public ::testing::Test {

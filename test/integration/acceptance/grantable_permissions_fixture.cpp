@@ -10,13 +10,16 @@
 using namespace shared_model::interface::permissions;
 using namespace common_constants;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 shared_model::proto::Transaction
 GrantablePermissionsFixture::makeAccountWithPerms(
     const shared_model::interface::types::AccountNameType &user,
     const shared_model::crypto::Keypair &key,
     const shared_model::interface::RolePermissionSet &perms,
     const shared_model::interface::types::RoleIdType &role) {
-  return createUserWithPerms(user, key.publicKey(), role, perms)
+  return createUserWithPerms(
+             user, PublicKeyHexStringView{key.publicKey()}, role, perms)
       .build()
       .signAndAddSignature(kAdminKeypair)
       .finish();
@@ -74,7 +77,8 @@ GrantablePermissionsFixture::permitteeAddSignatory(
   const auto permittee_account_id = permittee_account_name + "@" + kDomain;
   const auto account_id = account_name + "@" + kDomain;
   return baseTx(permittee_account_id)
-      .addSignatory(account_id, permittee_key.publicKey())
+      .addSignatory(account_id,
+                    PublicKeyHexStringView{permittee_key.publicKey()})
       .build()
       .signAndAddSignature(permittee_key)
       .finish();
@@ -89,7 +93,8 @@ GrantablePermissionsFixture::permitteeRemoveSignatory(
   const auto permittee_account_id = permittee_account_name + "@" + kDomain;
   const auto account_id = account_name + "@" + kDomain;
   return baseTx(permittee_account_id)
-      .removeSignatory(account_id, permittee_key.publicKey())
+      .removeSignatory(account_id,
+                       PublicKeyHexStringView{permittee_key.publicKey()})
       .build()
       .signAndAddSignature(permittee_key)
       .finish();

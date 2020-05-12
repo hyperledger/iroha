@@ -26,6 +26,7 @@ using iroha::ametsuchi::QueryExecutorResult;
 using shared_model::interface::AccountDetailResponse;
 using shared_model::interface::permissions::Grantable;
 using shared_model::interface::permissions::Role;
+using shared_model::interface::types::PublicKeyHexStringView;
 using shared_model::plain::AccountDetailRecordId;
 
 struct GetAccountDetailTest : public ExecutorTestBase {
@@ -54,11 +55,11 @@ struct GetAccountDetailTest : public ExecutorTestBase {
                   const size_t num_keys_per_account) {
     SCOPED_TRACE("addDetails");
     for (size_t acc = 0; acc < num_accounts; ++acc) {
-      IROHA_ASSERT_RESULT_VALUE(
-          getItf().createUserWithPerms(makeAccountName(acc),
-                                       kDomain,
-                                       kSameDomainUserKeypair.publicKey(),
-                                       {}));
+      IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
+          makeAccountName(acc),
+          kDomain,
+          PublicKeyHexStringView{kSameDomainUserKeypair.publicKey()},
+          {}));
       IROHA_ASSERT_RESULT_VALUE(getItf().executeCommandAsAccount(
           *getItf().getMockCommandFactory()->constructGrantPermission(
               makeAccountId(acc), Grantable::kSetMyAccountDetail),
@@ -111,7 +112,10 @@ struct GetAccountDetailTest : public ExecutorTestBase {
     SCOPED_TRACE("prepareState");
     getItf().createDomain(kSecondDomain);
     IROHA_ASSERT_RESULT_VALUE(getItf().createUserWithPerms(
-        kUser, kDomain, kUserKeypair.publicKey(), {Role::kSetMyAccountDetail}));
+        kUser,
+        kDomain,
+        PublicKeyHexStringView{kUserKeypair.publicKey()},
+        {Role::kSetMyAccountDetail}));
     addDetails(num_accounts, num_keys_per_account);
   }
 

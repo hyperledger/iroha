@@ -5,14 +5,16 @@
 
 #include "crypto/keys_manager.hpp"
 
+#include <string_view>
+
 #include <gtest/gtest.h>
 #include <boost/filesystem.hpp>
 #include <fstream>
 #include <string>
 #include "crypto/keys_manager_impl.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace iroha;
 using namespace boost::filesystem;
@@ -21,13 +23,13 @@ using namespace shared_model::crypto;
 
 class KeyManager : public ::testing::Test {
  public:
-  bool create_file(const path &ph, const std::string &contents) {
+  bool create_file(const path &ph, std::string_view contents) {
     std::ofstream f(ph.c_str());
     if (not f) {
       return false;
     }
     if (not contents.empty()) {
-      f.write(contents.c_str(), contents.size());
+      f.write(contents.data(), contents.size());
     }
     return f.good();
   }
@@ -48,7 +50,7 @@ class KeyManager : public ::testing::Test {
   const path pri_key_path = filepath + KeysManagerImpl::kPrivateKeyExtension;
 
   Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
-  const std::string pubkey = keypair.publicKey().hex();
+  std::string pubkey = keypair.publicKey();
   const std::string prikey = keypair.privateKey().hex();
 
   const logger::LoggerPtr kKeysManagerLogger = getTestLogger("KeysManager");

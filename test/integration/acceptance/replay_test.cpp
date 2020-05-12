@@ -13,18 +13,22 @@ using namespace shared_model;
 using namespace common_constants;
 using namespace shared_model::interface::permissions;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 class ReplayFixture : public AcceptanceFixture {
  public:
   ReplayFixture() : itf(1), kReceiverRole("receiver") {}
 
   void SetUp() override {
-    auto create_user_tx =
-        complete(baseTx(kAdminId)
-                     .createAccount(kUser, kDomain, kUserKeypair.publicKey())
-                     .createRole(kReceiverRole, {Role::kReceive})
-                     .appendRole(kUserId, kReceiverRole)
-                     .addAssetQuantity(kAssetId, "10000.0"),
-                 kAdminKeypair);
+    auto create_user_tx = complete(
+        baseTx(kAdminId)
+            .createAccount(kUser,
+                           kDomain,
+                           PublicKeyHexStringView{kUserKeypair.publicKey()})
+            .createRole(kReceiverRole, {Role::kReceive})
+            .appendRole(kUserId, kReceiverRole)
+            .addAssetQuantity(kAssetId, "10000.0"),
+        kAdminKeypair);
     itf.setInitialState(kAdminKeypair)
         .sendTxAwait(create_user_tx, CHECK_TXS_QUANTITY(1));
   }
