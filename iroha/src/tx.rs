@@ -16,16 +16,19 @@ pub struct RequestedTransaction {
 
 #[derive(Clone, Debug, Io, Encode, Decode)]
 struct Payload {
-    /// Account ID of transaction creator (username@domain).
-    account_id: Id,
+    /// Account ID of transaction creator.
+    account_id: <Account as Identifiable>::Id,
     /// An ordered set of instructions.
-    instructions: Vec<Contract>,
+    instructions: Vec<Instruction>,
     /// Time of creation (unix time, in milliseconds).
     creation_time: String,
 }
 
 impl RequestedTransaction {
-    pub fn new(instructions: Vec<Contract>, account_id: Id) -> RequestedTransaction {
+    pub fn new(
+        instructions: Vec<Instruction>,
+        account_id: <Account as Identifiable>::Id,
+    ) -> RequestedTransaction {
         RequestedTransaction {
             payload: Payload {
                 instructions,
@@ -106,7 +109,7 @@ impl SignedTransaction {
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
         for instruction in &self.payload.instructions {
-            instruction.invoke(world_state_view)?;
+            instruction.execute(world_state_view)?;
         }
         Ok(ValidTransaction {
             payload: self.payload,
@@ -139,7 +142,7 @@ pub struct ValidTransaction {
 impl ValidTransaction {
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         for instruction in &self.payload.instructions {
-            if let Err(e) = instruction.invoke(world_state_view) {
+            if let Err(e) = instruction.execute(world_state_view) {
                 eprintln!("Failed to invoke instruction on WSV: {}", e);
             }
         }

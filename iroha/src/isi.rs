@@ -1,94 +1,109 @@
-use crate::{account, asset, domain, peer, prelude::*, wsv::WorldStateView};
+use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
 pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `Iroha`.
-    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, peer::isi::*};
+    pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, peer::isi::*};
 }
 
-/// Iroha provides a library of smart contracts called **I**roha **S**pecial **I**nstructions (ISI).
-/// To execute logic on the ledger, these smart contracts can be invoked via either transactions
-/// or registered event listeners.
-/// This trait represents API which every ISI should be aligned with.
-pub trait Instruction {
-    /// To execute the instruction this method implementation supplied with a mutable reference
-    /// to `WorldStateView`. It's responsibility of the instruction to keep `WSV` in a consistent
-    /// state and return `Err` in case of errors.
-    fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String>;
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub enum Instruction {
+    Peer(crate::peer::isi::PeerInstruction),
+    Domain(crate::domain::isi::DomainInstruction),
+    Asset(crate::asset::isi::AssetInstruction),
+    Account(crate::account::isi::AccountInstruction),
+    Compose(Box<Instruction>, Box<Instruction>),
 }
 
-///
-#[derive(Clone, Debug, PartialEq, Io, Encode, Decode)]
-pub enum Contract {
-    AddSignatory(account::isi::AddSignatory),
-    AppendRole(account::isi::AppendRole),
-    CreateAccount(account::isi::CreateAccount),
-    CreateRole(account::isi::CreateRole),
-    AddAssetQuantity(asset::isi::AddAssetQuantity),
-    TransferAsset(asset::isi::TransferAsset),
-    CreateAsset(asset::isi::CreateAsset),
-    CreateDomain(domain::isi::CreateDomain),
-    AddPeer(peer::isi::AddPeer),
-}
-
-impl Contract {
-    pub fn invoke(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-        use Contract::*;
+impl Instruction {
+    pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         match self {
-            AddAssetQuantity(instruction) => instruction.execute(world_state_view),
-            CreateAccount(instruction) => instruction.execute(world_state_view),
-            CreateDomain(instruction) => instruction.execute(world_state_view),
-            TransferAsset(instruction) => instruction.execute(world_state_view),
-            _ => Err("Instruction is not supported yet.".to_string()),
+            Instruction::Peer(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Domain(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Asset(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Account(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Compose(left, right) => {
+                left.execute(world_state_view)?;
+                right.execute(world_state_view)?;
+                Ok(())
+            }
         }
     }
 }
 
-pub enum Relation {
-    /// Belongs to account with defined identification.
-    /// For example we can fill a map of accounts to assets by this relation.
-    OwnedBy(Id),
-    GoingTo(Id),
+pub struct Add<D, O>
+where
+    D: Identifiable,
+{
+    pub object: O,
+    pub destination_id: D::Id,
 }
 
-/// This trait should be implemented for commands with `account_id` field.
-/// Marking your command with `impl` of this trait you provide an ability
-/// to retrieve information about relation to an account.
-pub trait Property {
-    fn relations(&self) -> Vec<Relation>;
-}
-
-impl Property for Contract {
-    //TODO: implement
-    fn relations(&self) -> Vec<Relation> {
-        use Relation::*;
-        match self {
-            Contract::TransferAsset(instruction) => {
-                let instruction = instruction.clone();
-                vec![
-                    GoingTo(instruction.destination_account_id),
-                    OwnedBy(instruction.source_account_id),
-                ]
-            }
-            _ => Vec::new(),
+impl<D, O> Add<D, O>
+where
+    D: Identifiable,
+{
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Add {
+            object,
+            destination_id,
         }
     }
 }
 
-pub trait Assetibility {
-    fn assets(&self) -> Vec<Id>;
+pub struct Register<D, O>
+where
+    D: Identifiable,
+{
+    pub object: O,
+    pub destination_id: D::Id,
 }
 
-impl Assetibility for Contract {
-    //TODO: implement
-    fn assets(&self) -> Vec<Id> {
-        match self {
-            Contract::TransferAsset(instruction) => {
-                let instruction = instruction.clone();
-                vec![instruction.asset_id]
-            }
-            _ => Vec::new(),
+impl<D, O> Register<D, O>
+where
+    D: Identifiable,
+{
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Register {
+            object,
+            destination_id,
+        }
+    }
+}
+
+pub struct Mint<D, O>
+where
+    D: Identifiable,
+{
+    pub object: O,
+    pub destination_id: D::Id,
+}
+
+impl<D, O> Mint<D, O>
+where
+    D: Identifiable,
+{
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Mint {
+            object,
+            destination_id,
+        }
+    }
+}
+
+pub struct Transfer<Src: Identifiable, Obj, Dst: Identifiable> {
+    pub source_id: Src::Id,
+    pub object: Obj,
+    pub destination_id: Dst::Id,
+}
+
+impl<Src: Identifiable, Obj, Dst: Identifiable> Transfer<Src, Obj, Dst> {
+    pub fn new(source_id: Src::Id, object: Obj, destination_id: Dst::Id) -> Self {
+        Transfer {
+            source_id,
+            object,
+            destination_id,
         }
     }
 }

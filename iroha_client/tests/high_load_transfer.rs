@@ -1,12 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{
-        account::isi::CreateAccount,
-        asset::isi::{AddAssetQuantity, TransferAsset},
-        domain::isi::CreateDomain,
-        prelude::*,
-    };
+    use iroha::{isi, prelude::*};
     use iroha_client::client::{self, Client};
     use std::thread;
     use tempfile::TempDir;
@@ -19,36 +14,36 @@ mod tests {
         // Given
         thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(200));
-        let create_domain = CreateDomain {
-            domain_name: "domain".to_string(),
-        };
-        let account1_id = Id::new("account1", "domain");
-        let account2_id = Id::new("account2", "domain");
-        let create_account1 = CreateAccount {
-            account_id: account1_id.clone(),
-            domain_name: "domain".to_string(),
-            public_key: [63; 32],
-        };
-        let create_account2 = CreateAccount {
-            account_id: account2_id.clone(),
-            domain_name: "domain".to_string(),
-            public_key: [63; 32],
-        };
-        let asset_id = Id::new("xor", "domain");
-        let create_asset = AddAssetQuantity {
-            asset_id: asset_id.clone(),
-            account_id: account1_id.clone(),
-            amount: 500,
-        };
-        let transfer_asset = TransferAsset {
-            source_account_id: account1_id.clone(),
-            destination_account_id: account2_id.clone(),
-            asset_id: asset_id.clone(),
-            description: "description".to_string(),
-            amount: 1,
-        };
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        let domain_name = "domain";
+        let create_domain = isi::Add {
+            object: Domain::new(domain_name.to_string()),
+            destination_id: iroha::peer::PeerId::current(),
+        };
+        let account1_name = "account1";
+        let account2_name = "account2";
+        let account1_id = AccountId::new(account1_name, domain_name);
+        let account2_id = AccountId::new(account2_name, domain_name);
+        let (public_key, _) = configuration.key_pair();
+        let create_account1 = isi::Register {
+            object: Account::new(account1_name, domain_name, public_key),
+            destination_id: String::from(domain_name),
+        };
+        let create_account2 = isi::Register {
+            object: Account::new(account2_name, domain_name, public_key),
+            destination_id: String::from(domain_name),
+        };
+        let asset_id = AssetId::new("xor", domain_name, account1_name);
+        let quantity: u128 = 200;
+        let create_asset = isi::Register {
+            object: Asset::new(asset_id.clone()).with_quantity(200),
+            destination_id: domain_name.to_string(),
+        };
+        let mint_asset = isi::Mint {
+            object: quantity,
+            destination_id: asset_id.clone(),
+        };
         let mut iroha_client = Client::new(&configuration);
         iroha_client
             .submit_all(vec![
@@ -56,6 +51,7 @@ mod tests {
                 create_account1.into(),
                 create_account2.into(),
                 create_asset.into(),
+                mint_asset.into(),
             ])
             .await
             .expect("Failed to create domain.");
@@ -64,8 +60,13 @@ mod tests {
         ));
         //When
         for _ in 0..100 {
+            let transfer_asset = isi::Transfer {
+                source_id: account1_id.clone(),
+                destination_id: account2_id.clone(),
+                object: Asset::new(asset_id.clone()).with_quantity(1),
+            };
             iroha_client
-                .submit(transfer_asset.clone().into())
+                .submit(transfer_asset.into())
                 .await
                 .expect("Failed to submit command.");
             std::thread::sleep(std::time::Duration::from_millis(100));
