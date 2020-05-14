@@ -17,6 +17,7 @@
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
 #include "interfaces/permissions.hpp"
+#include "module/irohad/ametsuchi/mock_vm_caller.hpp"
 
 using namespace std::literals;
 using namespace common_constants;
@@ -60,11 +61,36 @@ class CallEngineTest : public ExecutorTestBase {
   }
 };
 
+using CallEngineBasicTest = BasicExecutorTest<CallEngineTest>;
+
+/**
+ * @given a user with all related permissions
+ * @when execute CallEngine command from that user for nonexistent asset
+ * @then the command fails
+ * @and the asset is not added to the user
+ */
+TEST_P(CallEngineBasicTest, EngineError) {
+  EXPECT_CALL(*getBackendParam()->vm_caller_,
+              call(_, _, _, kCode, kAdminId, Optional(kCallee), _, _))
+      .WillOnce(::testing::Return(iroha::expected::makeError("success")));
+  checkCommandError(callEngine(kAdminId, kAdminId, kCallee, kCode), 5);
+}
+
+INSTANTIATE_TEST_SUITE_P(Base,
+                         CallEngineBasicTest,
+                         executor_testing::getExecutorTestParams(),
+                         executor_testing::paramToString);
+
 using CallEnginePermissionTest =
     command_permission_test::CommandPermissionTest<CallEngineTest>;
 
 TEST_P(CallEnginePermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
+
+  EXPECT_CALL(*getBackendParam()->vm_caller_,
+              call(_, _, _, kCode, kUserId, Optional(kCallee), _, _))
+      .Times(isEnoughPermissions() ? 1 : 0)
+      .WillRepeatedly(::testing::Return(iroha::expected::makeValue("success")));
 
   checkResponse(
       callEngine(getActor(), kUserId, kCallee, kCode, getValidationEnabled()));
