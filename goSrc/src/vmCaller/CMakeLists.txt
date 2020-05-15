@@ -49,7 +49,6 @@ add_custom_command(
       -buildmode=c-archive
       -o "${VM_CALLER_LIB}"
       "${CMAKE_CURRENT_SOURCE_DIR}/main.go"
-      "${CMAKE_CURRENT_SOURCE_DIR}/iroha_event_sink.go"
   )
 
 add_custom_target(generate_burrow_vm_caller_lib_and_header
