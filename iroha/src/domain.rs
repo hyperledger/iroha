@@ -61,12 +61,18 @@ pub mod isi {
     impl Register<Domain, Account> {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             let account = self.object.clone();
-            world_state_view
+            let domain = world_state_view
                 .domain(&self.destination_id)
-                .ok_or("Failed to find domain.")?
-                .accounts
-                .insert(account.id.clone(), account);
-            Ok(())
+                .ok_or("Failed to find domain.")?;
+            if domain.accounts.contains_key(&account.id) {
+                Err(format!(
+                    "Domain already contains an account with an Id: {:?}",
+                    &account.id
+                ))
+            } else {
+                domain.accounts.insert(account.id.clone(), account);
+                Ok(())
+            }
         }
     }
 
