@@ -248,7 +248,7 @@ contract C {
                     &reader_writer);
   ASSERT_EQ(res.r1, nullptr);
   ASSERT_EQ(std::memcmp(res.r0, callee, 40), 0);
-  std::cout << "Deployed contract: " << res.r0 << std::endl;
+  std::cout << std::endl << "Deployed contract: " << res.r0 << std::endl << std::endl;
 
   res = VmCall(inputCallSetter,
                caller,
@@ -258,8 +258,7 @@ contract C {
                &specific_query_executor,
                &reader_writer);
   ASSERT_EQ(res.r1, nullptr);
-  ASSERT_EQ(res.r0, nullptr);
-
+  
   res = VmCall(inputCallGetter,
                caller,
                callee,
@@ -268,5 +267,4 @@ contract C {
                &specific_query_executor,
                &reader_writer);
   ASSERT_EQ(res.r1, nullptr);
-  ASSERT_EQ(res.r0, nullptr);
 }

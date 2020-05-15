@@ -1,4 +1,4 @@
-package api
+package iroha
 
 // #cgo CFLAGS: -I ../../../../irohad
 // #cgo LDFLAGS: -Wl,-unresolved-symbols=ignore-all
@@ -7,14 +7,12 @@ package api
 import "C"
 import (
 	"fmt"
-	"strings"
 	"time"
 	"unsafe"
 
 	pb "iroha.protocol"
 
 	"github.com/golang/protobuf/proto"
-	"github.com/hyperledger/burrow/crypto"
 )
 
 var (
@@ -28,7 +26,7 @@ var (
 /*
 	Transfer assets between accounts
 */
-func TransferIrohaAsset(src, dst, asset, amount string) error {
+func TransferAsset(src, dst, asset, amount string) error {
 	command := &pb.Command{Command: &pb.Command_TransferAsset{
 		TransferAsset: &pb.TransferAsset{
 			SrcAccountId:  src,
@@ -52,7 +50,7 @@ func TransferIrohaAsset(src, dst, asset, amount string) error {
 // -----------------------Iroha queries---------------------------------------
 
 // Queries asset balance of an account
-func GetIrohaAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
+func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 	query := &pb.Query{Payload: &pb.Query_Payload{
 		Meta: &pb.QueryPayloadMeta{
 			CreatedTime:      uint64(time.Now().UnixNano() / int64(time.Millisecond)),
@@ -87,10 +85,9 @@ func GetIrohaAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 
 // Execute Iroha command
 func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
-	fmt.Println(proto.MarshalTextString(command))
+	// fmt.Println(proto.MarshalTextString(command))
 	out, err := proto.Marshal(command)
 	if err != nil {
-		fmt.Println(err)
 		// magic constant, if not 0 => fail happened
 		return &C.struct_Iroha_CommandError{error_code: 100}, err
 	}
@@ -101,7 +98,7 @@ func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) 
 
 // Perform Iroha query
 func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) (res *pb.QueryResponse, err error) {
-	fmt.Println(proto.MarshalTextString(query))
+	// fmt.Println(proto.MarshalTextString(query))
 	out, err := proto.Marshal(query)
 	if err != nil {
 		fmt.Println(err)
@@ -125,17 +122,4 @@ func (res *C.struct_Iroha_CommandError) String() string {
 	} else {
 		return fmt.Sprintf("Iroha_CommandError: code %d", res.error_code)
 	}
-}
-
-// Helper functions to convert 40 byte long EVM hex-encoded addresses to Iroha compliant account names (32 bytes max)
-func irohaCompliantName(addr crypto.Address) string {
-	s := strings.ToLower(addr.String())
-	if len(s) > 32 {
-		s = s[:32]
-	}
-	return s
-}
-
-func IrohaAccountID(addr crypto.Address) string {
-	return irohaCompliantName(addr) + "@evm"
 }
