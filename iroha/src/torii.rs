@@ -1,4 +1,4 @@
-use crate::{prelude::*, sumeragi::Message, MessageSender};
+use crate::{prelude::*, sumeragi::Message as SumeragiMessage, SumeragiMessageSender};
 use async_std::{sync::RwLock, task};
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
@@ -7,7 +7,7 @@ pub struct Torii {
     url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
-    message_sender: Arc<RwLock<MessageSender>>,
+    message_sender: Arc<RwLock<SumeragiMessageSender>>,
 }
 
 impl Torii {
@@ -15,7 +15,7 @@ impl Torii {
         url: &str,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
-        message_sender: MessageSender,
+        message_sender: SumeragiMessageSender,
     ) -> Self {
         Torii {
             url: url.to_string(),
@@ -38,12 +38,21 @@ impl Torii {
         Network::listen(Arc::new(RwLock::new(state)), url, handle_connection).await?;
         Ok(())
     }
+
+    pub async fn send(message: Message) -> Result<Response, String> {
+        Network::send_request_to(&message.server_url, message.request).await
+    }
+}
+
+pub struct Message {
+    pub server_url: String,
+    pub request: Request,
 }
 
 struct ToriiState {
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
-    message_sender: Arc<RwLock<MessageSender>>,
+    message_sender: Arc<RwLock<SumeragiMessageSender>>,
 }
 
 async fn handle_connection(
@@ -97,7 +106,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        uri::BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
+        uri::BLOCKS_URI => match SumeragiMessage::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
                     .write()

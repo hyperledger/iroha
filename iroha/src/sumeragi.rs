@@ -4,11 +4,12 @@ use crate::{
     kura::Kura,
     peer::PeerId,
     prelude::*,
-    torii::uri,
+    torii::{uri, Message as ToriiMessage},
+    ToriiMessageSender,
 };
 use async_std::sync::RwLock;
 use iroha_derive::*;
-use iroha_network::{Network, Request};
+use iroha_network::Request;
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -31,13 +32,11 @@ pub enum Message {
 }
 
 impl Message {
-    async fn send_to(self, peer: &PeerId) -> Result<(), String> {
-        let _response = Network::send_request_to(
-            &peer.address,
-            Request::new(uri::BLOCKS_URI.to_string(), self.into()),
-        )
-        .await?;
-        Ok(())
+    fn as_torii_message(&self, peer: &PeerId) -> ToriiMessage {
+        ToriiMessage {
+            server_url: peer.address.clone(),
+            request: Request::new(uri::BLOCKS_URI.to_string(), self.into()),
+        }
     }
 }
 
@@ -59,6 +58,7 @@ pub struct Sumeragi {
     voting_block: Option<SignedBlock>,
     kura: Arc<RwLock<Kura>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
+    messages_to_torii_sender: Arc<RwLock<ToriiMessageSender>>,
 }
 
 impl Sumeragi {
@@ -69,6 +69,7 @@ impl Sumeragi {
         max_faults: usize,
         kura: Arc<RwLock<Kura>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
+        messages_to_torii_sender: Arc<RwLock<ToriiMessageSender>>,
     ) -> Result<Self, String> {
         if !peers.contains(&peer_id) {
             return Err("Peers list should contain this peer.".to_string());
@@ -87,6 +88,7 @@ impl Sumeragi {
                 voting_block: None,
                 kura,
                 world_state_view,
+                messages_to_torii_sender,
             })
         } else {
             Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
@@ -108,28 +110,32 @@ impl Sumeragi {
                 Ok(Some(block))
             } else {
                 self.voting_block = Some(block.clone());
-                let mut send_futures = Vec::new();
+                let torii_sender = self.messages_to_torii_sender.write().await;
                 for peer in self.validating_peers() {
-                    send_futures.push(Message::Created(block.clone()).send_to(peer));
+                    torii_sender
+                        .send(Message::Created(block.clone()).as_torii_message(peer))
+                        .await;
                 }
-                send_futures.push(Message::Created(block.clone()).send_to(self.proxy_tail()));
-                futures::future::join_all(send_futures).await;
+                torii_sender
+                    .send(Message::Created(block.clone()).as_torii_message(self.proxy_tail()))
+                    .await;
                 Ok(None)
             }
         } else {
             //TODO: send pending transactions to all peers and as leader check what tx have already been committed
             //Sends transactions to leader
-            let mut send_futures = Vec::new();
+            let torii_sender = self.messages_to_torii_sender.write().await;
             for transaction in &transactions {
-                send_futures.push(Network::send_request_to(
-                    &self.leader().address,
-                    Request::new(
-                        uri::INSTRUCTIONS_URI.to_string(),
-                        RequestedTransaction::from(transaction).into(),
-                    ),
-                ));
+                torii_sender
+                    .send(ToriiMessage {
+                        server_url: self.leader().address.clone(),
+                        request: Request::new(
+                            uri::INSTRUCTIONS_URI.to_string(),
+                            RequestedTransaction::from(transaction).into(),
+                        ),
+                    })
+                    .await;
             }
-            let _results = futures::future::join_all(send_futures).await;
             Ok(None)
         }
     }
@@ -193,8 +199,13 @@ impl Sumeragi {
         match message {
             Message::Created(block) => match self.role() {
                 Role::ValidatingPeer => {
-                    let _result = Message::Signed(block.sign(&self.public_key, &self.private_key)?)
-                        .send_to(self.proxy_tail())
+                    self.messages_to_torii_sender
+                        .write()
+                        .await
+                        .send(
+                            Message::Signed(block.sign(&self.public_key, &self.private_key)?)
+                                .as_torii_message(self.proxy_tail()),
+                        )
                         .await;
                     //TODO: send to set b so they can observe
                 }
@@ -231,16 +242,31 @@ impl Sumeragi {
                                         .validate(&*self.world_state_view.read().await)?,
                                 )
                                 .await?;
-                            let mut send_futures = Vec::new();
-                            for peer in self.validating_peers() {
-                                send_futures.push(Message::Committed(block.clone()).send_to(peer));
+                            {
+                                let torii_sender = self.messages_to_torii_sender.write().await;
+                                for peer in self.validating_peers() {
+                                    torii_sender
+                                        .send(
+                                            Message::Committed(block.clone())
+                                                .as_torii_message(peer),
+                                        )
+                                        .await;
+                                }
+                                for peer in self.peers_set_b() {
+                                    torii_sender
+                                        .send(
+                                            Message::Committed(block.clone())
+                                                .as_torii_message(peer),
+                                        )
+                                        .await;
+                                }
+                                torii_sender
+                                    .send(
+                                        Message::Committed(block.clone())
+                                            .as_torii_message(self.leader()),
+                                    )
+                                    .await;
                             }
-                            for peer in self.peers_set_b() {
-                                send_futures.push(Message::Committed(block.clone()).send_to(peer));
-                            }
-                            send_futures
-                                .push(Message::Committed(block.clone()).send_to(self.leader()));
-                            let _results = futures::future::join_all(send_futures).await;
                             self.next_round(hash);
                         }
                     }
@@ -284,6 +310,7 @@ mod tests {
     fn not_enough_peers() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
+        let (torii_sender, _torii_receiver) = sync::channel(100);
         let kura = Arc::new(RwLock::new(Kura::new("strict".to_string(), dir.path(), tx)));
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
@@ -302,6 +329,7 @@ mod tests {
                 listen_address.clone(),
                 &vec![this_peer],
             )))),
+            Arc::new(RwLock::new(torii_sender)),
         )
         .expect("Failed to create Sumeragi.");
     }
