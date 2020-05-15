@@ -7,6 +7,8 @@
 
 using namespace common_constants;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 QueryPermissionTestBase::QueryPermissionTestBase(
     const interface::RolePermissionSet &permission_to_query_myself,
     const interface::RolePermissionSet &permission_to_query_my_domain,
@@ -27,11 +29,14 @@ IntegrationTestFramework &QueryPermissionTestBase::prepareState(
               fixture.baseTx(kAdminId)
                   .createRole(kSecondUser, spectator_permissions)
                   .createDomain(kSecondDomain, kSecondUser)
-                  .createAccount(
-                      kSecondUser, kDomain, kSameDomainUserKeypair.publicKey())
+                  .createAccount(kSecondUser,
+                                 kDomain,
+                                 PublicKeyHexStringView{
+                                     kSameDomainUserKeypair.publicKey()})
                   .createAccount(kSecondUser,
                                  kSecondDomain,
-                                 kSecondDomainUserKeypair.publicKey())
+                                 PublicKeyHexStringView{
+                                     kSecondDomainUserKeypair.publicKey()})
                   // Assign the close spectator the spectator role. Remote
                   // spectator gets this role by default (from domain)
                   .appendRole(kSameDomainUserId, kSecondUser)

@@ -14,12 +14,16 @@
 #include "builders/protobuf/transaction.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/integration_framework/fake_peer/behaviour/honest.hpp"
 #include "framework/integration_framework/fake_peer/block_storage.hpp"
 #include "framework/integration_framework/iroha_instance.hpp"
 #include "framework/integration_framework/test_irohad.hpp"
 #include "framework/test_logger.hpp"
+#include "interfaces/common_objects/peer.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "ordering/impl/on_demand_common.cpp"
 
 using namespace common_constants;
@@ -47,9 +51,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   const auto prepared_height = itf.getBlockQuery()->getTopBlockHeight();
 
   const std::string new_peer_address = "127.0.0.1:1234";
-  const auto new_peer_pubkey =
-      shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-          .publicKey();
+  const auto new_peer_hex_pubkey = "b055"_hex_pubkey;
 
   // capture itf synchronization events
   auto itf_sync_events_observable = itf_->getPcsOnCommitObservable().replay();
@@ -58,7 +60,7 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
   // ------------------------ WHEN -------------------------
   // send addPeer command
   itf.sendTxAwait(
-      complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_pubkey),
+      complete(baseTx(kAdminId).addPeer(new_peer_address, new_peer_hex_pubkey),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
@@ -73,11 +75,11 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
       .as_blocking()
       .subscribe(
           [&, itf_peer = itf_->getThisPeer()](const auto &sync_event) {
-            EXPECT_THAT(
-                sync_event.ledger_state->ledger_peers,
-                ::testing::UnorderedElementsAre(
-                    makePeerPointeeMatcher(itf_peer),
-                    makePeerPointeeMatcher(new_peer_address, new_peer_pubkey)));
+            EXPECT_THAT(sync_event.ledger_state->ledger_peers,
+                        ::testing::UnorderedElementsAre(
+                            makePeerPointeeMatcher(itf_peer),
+                            makePeerPointeeMatcher(new_peer_address,
+                                                   new_peer_hex_pubkey)));
           },
           [](std::exception_ptr ep) {
             try {
@@ -97,10 +99,11 @@ TEST_F(FakePeerFixture, FakePeerIsAdded) {
 
   // check the two peers are there
   ASSERT_TRUE(opt_peers);
-  EXPECT_THAT(*opt_peers,
-              ::testing::UnorderedElementsAre(
-                  makePeerPointeeMatcher(itf.getThisPeer()),
-                  makePeerPointeeMatcher(new_peer_address, new_peer_pubkey)));
+  EXPECT_THAT(
+      *opt_peers,
+      ::testing::UnorderedElementsAre(
+          makePeerPointeeMatcher(itf.getThisPeer()),
+          makePeerPointeeMatcher(new_peer_address, new_peer_hex_pubkey)));
 }
 
 /**
@@ -126,8 +129,9 @@ TEST_F(FakePeerFixture, MstStatePropagtesToNewPeer) {
       kAdminKeypair));
 
   itf.sendTxAwait(
-      complete(baseTx(kAdminId).addPeer(new_peer->getAddress(),
-                                        new_peer->getKeypair().publicKey()),
+      complete(baseTx(kAdminId).addPeer(
+                   new_peer->getAddress(),
+                   PublicKeyHexStringView{new_peer->getKeypair().publicKey()}),
                kAdminKeypair),
       checkBlockHasNTxs<1>);
 
@@ -169,12 +173,15 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
       proto::TransactionBuilder()
           .creatorAccountId(kAdminId)
           .createdTime(iroha::time::now())
-          .addPeer(initial_peer->getAddress(),
-                   initial_peer->getKeypair().publicKey())
+          .addPeer(
+              initial_peer->getAddress(),
+              PublicKeyHexStringView{initial_peer->getKeypair().publicKey()})
           .createRole(kAdminRole, all_perms)
           .createRole(kDefaultRole, {})
           .createDomain(kDomain, kDefaultRole)
-          .createAccount(kAdminName, kDomain, kAdminKeypair.publicKey())
+          .createAccount(kAdminName,
+                         kDomain,
+                         PublicKeyHexStringView{kAdminKeypair.publicKey()})
           .detachRole(kAdminId, kDefaultRole)
           .appendRole(kAdminId, kAdminRole)
           .createAsset(kAssetName, kDomain, 1)

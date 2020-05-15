@@ -9,7 +9,6 @@
 #include <gmock/gmock.h>
 #include <boost/variant.hpp>
 #include <optional>
-#include "cryptography/public_key.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"

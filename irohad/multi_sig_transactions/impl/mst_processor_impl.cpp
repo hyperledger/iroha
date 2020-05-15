@@ -8,6 +8,8 @@
 #include "logger/logger.hpp"
 #include "multi_sig_transactions/mst_processor_impl.hpp"
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 namespace iroha {
 
   FairMstProcessor::FairMstProcessor(
@@ -26,6 +28,7 @@ namespace iroha {
         log_(std::move(log)) {}
 
   FairMstProcessor::~FairMstProcessor() {
+    send_state_subscriber_.unsubscribe();
     propagation_subscriber_.unsubscribe();
   }
 
@@ -85,9 +88,8 @@ namespace iroha {
 
   // -------------------| MstTransportNotification override |-------------------
 
-  void FairMstProcessor::onNewState(
-      shared_model::interface::types::PublicKeyHexStringView from,
-      MstState &&new_state) {
+  void FairMstProcessor::onNewState(PublicKeyHexStringView from,
+                                    MstState &&new_state) {
     log_->info("Applying new state");
     auto current_time = time_provider_->getCurrentTime();
 
@@ -116,12 +118,20 @@ namespace iroha {
     auto size = data.size();
     for (auto const &dst_peer : data) {
       auto diff = storage_->getDiffState(
-          shared_model::interface::types::PublicKeyHexStringView{
-              dst_peer->pubkey()},
-          current_time);
+          PublicKeyHexStringView{dst_peer->pubkey()}, current_time);
       if (not diff.isEmpty()) {
         log_->info("Propagate new data[{}]", size);
-        transport_->sendState(*dst_peer, diff);
+        transport_->sendState(*dst_peer, diff)
+            .subscribe(send_state_subscriber_,
+                       [storage = std::weak_ptr<MstStorage>(storage_),
+                        dst_peer,
+                        diff = std::move(diff)](auto is_ok) {
+                         auto s = storage.lock();
+                         if (is_ok and s) {
+                           s->apply(PublicKeyHexStringView{dst_peer->pubkey()},
+                                    diff);
+                         }
+                       });
       }
     }
   }

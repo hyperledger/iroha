@@ -12,7 +12,6 @@
 #include <memory>
 
 #include <rxcpp/rx-lite.hpp>
-#include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"
@@ -111,6 +110,8 @@ namespace iroha {
     /// use for tracking the propagation subscription
 
     rxcpp::composite_subscription propagation_subscriber_;
+
+    rxcpp::composite_subscription send_state_subscriber_;
 
     logger::LoggerPtr log_;
   };

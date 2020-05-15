@@ -1,6 +1,14 @@
 # Copyright Soramitsu Co., Ltd. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+add_library(mock_yac_crypto_provider INTERFACE
+    #mock_yac_crypto_provider.hpp
+    )
+target_link_libraries(mock_yac_crypto_provider
+  INTERFACE
+    shared_model_plain_backend
+    )
+
 # Testing of transaction processor
 addtest(cluster_order_test cluster_order_test.cpp)
 target_link_libraries(cluster_order_test
@@ -9,24 +17,28 @@ target_link_libraries(cluster_order_test
 
 addtest(yac_cold_case_test yac_simple_cold_case_test.cpp)
 target_link_libraries(yac_cold_case_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )
 
 addtest(yac_sunny_day_test yac_sunny_day_test.cpp)
 target_link_libraries(yac_sunny_day_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )
 
 addtest(yac_rainy_day_test yac_rainy_day_test.cpp)
 target_link_libraries(yac_rainy_day_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )
 
 addtest(yac_unknown_peer_test yac_unknown_peer_test.cpp)
 target_link_libraries(yac_unknown_peer_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )
@@ -50,6 +62,7 @@ target_link_libraries(yac_timer_test
 
 addtest(yac_network_test network_test.cpp)
 target_link_libraries(yac_network_test
+    mock_yac_crypto_provider
     yac
     yac_transport
     test_logger
@@ -62,6 +75,7 @@ target_link_libraries(yac_peer_orderer_test
 
 addtest(yac_gate_test yac_gate_test.cpp)
 target_link_libraries(yac_gate_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )
@@ -79,6 +93,7 @@ target_link_libraries(yac_common_test
 
 addtest(yac_crypto_provider_test yac_crypto_provider_test.cpp)
 target_link_libraries(yac_crypto_provider_test
+    test_logger
     yac
     yac_transport
     )
@@ -97,6 +112,7 @@ target_link_libraries(buffered_cleanup_strategy_test
 
 addtest(yac_synchronization_test yac_synchronization_test.cpp)
 target_link_libraries(yac_synchronization_test
+    mock_yac_crypto_provider
     yac
     test_logger
     )

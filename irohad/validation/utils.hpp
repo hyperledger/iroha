@@ -12,7 +12,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/any_range.hpp>
 
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/types.hpp"
 
 namespace iroha {

@@ -8,7 +8,6 @@
 
 #include "cryptography/blob.hpp"
 #include "cryptography/keypair.hpp"
-#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -21,9 +20,9 @@ namespace shared_model {
        * Signs provided blob.
        * @param blob - to sign
        * @param keypair - keypair with public and private keys
-       * @return Signed object with signed data
+       * @return hex signature data string
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair);
+      static std::string sign(const Blob &blob, const Keypair &keypair);
     };
   }  // namespace crypto
 }  // namespace shared_model

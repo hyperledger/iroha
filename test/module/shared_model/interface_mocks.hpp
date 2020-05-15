@@ -7,8 +7,6 @@
 #define IROHA_SHARED_MODEL_INTERFACE_MOCKS_HPP
 
 #include <gmock/gmock.h>
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/peer.hpp"
@@ -190,26 +188,18 @@ struct MockPeer : public shared_model::interface::Peer {
 };
 
 inline auto makePeer(
-    const std::string &address,
-    const std::string &pub_key,
+    std::string_view address,
+    shared_model::interface::types::PublicKeyHexStringView pub_key,
     const std::optional<shared_model::interface::types::TLSCertificateType>
         &tls_certificate = std::nullopt) {
   auto peer = std::make_unique<MockPeer>();
   EXPECT_CALL(*peer, address())
-      .WillRepeatedly(testing::ReturnRefOfCopy(address));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{address}));
   EXPECT_CALL(*peer, pubkey())
-      .WillRepeatedly(testing::ReturnRefOfCopy(pub_key));
+      .WillRepeatedly(testing::ReturnRefOfCopy(std::string{pub_key}));
   EXPECT_CALL(*peer, tlsCertificate())
       .WillRepeatedly(testing::ReturnRefOfCopy(tls_certificate));
   return peer;
-}
-
-inline auto makePeer(
-    const std::string &address,
-    const shared_model::crypto::PublicKey &pub_key,
-    const std::optional<shared_model::interface::types::TLSCertificateType>
-        &tls_certificate = std::nullopt) {
-  return makePeer(address, pub_key.hex(), tls_certificate);
 }
 
 struct MockUnsafeProposalFactory

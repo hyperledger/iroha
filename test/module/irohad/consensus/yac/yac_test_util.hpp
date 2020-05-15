@@ -38,24 +38,21 @@ namespace iroha {
       inline VoteMessage createVote(YacHash hash, const std::string &pub_key) {
         VoteMessage vote;
 
-        std::string padded_pub_key = framework::padPubKeyString(pub_key);
+        std::string padded_pub_key =
+            iroha::bytestringToHexstring(framework::padPubKeyString(pub_key));
         auto block_signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*block_signature, publicKey())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                iroha::bytestringToHexstring(padded_pub_key)));
+            .WillRepeatedly(::testing::ReturnRefOfCopy(padded_pub_key));
         EXPECT_CALL(*block_signature, signedData())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                iroha::bytestringToHexstring(padded_pub_key)));
+            .WillRepeatedly(::testing::ReturnRefOfCopy(padded_pub_key));
         hash.block_signature = block_signature;
         vote.hash = std::move(hash);
 
         auto signature = std::make_shared<MockSignature>();
         EXPECT_CALL(*signature, publicKey())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                iroha::bytestringToHexstring(padded_pub_key)));
+            .WillRepeatedly(::testing::ReturnRefOfCopy(padded_pub_key));
         EXPECT_CALL(*signature, signedData())
-            .WillRepeatedly(::testing::ReturnRefOfCopy(
-                iroha::bytestringToHexstring(padded_pub_key)));
+            .WillRepeatedly(::testing::ReturnRefOfCopy(padded_pub_key));
 
         vote.signature = signature;
         return vote;

@@ -8,10 +8,13 @@
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "module/shared_model/builders/protobuf/block.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 class SetAccountDetail : public AcceptanceFixture {
  public:
@@ -34,7 +37,10 @@ class SetAccountDetail : public AcceptanceFixture {
                           interface::permissions::Role::kAddPeer}) {
     static const std::string kRole2 = "roletwo";
     return AcceptanceFixture::createUserWithPerms(
-               kUser2, kUser2Keypair.publicKey(), kRole2, perms)
+               kUser2,
+               PublicKeyHexStringView{kUser2Keypair.publicKey()},
+               kRole2,
+               perms)
         .build()
         .signAndAddSignature(kAdminKeypair)
         .finish();

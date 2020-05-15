@@ -5,8 +5,8 @@
 
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "builders/protobuf/queries.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 #include <gtest/gtest.h>
 
@@ -64,8 +64,8 @@ TEST(ProtoQueryBuilder, Builder) {
       keypair);
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(keypair.publicKey());
+  sig->set_signature(signedProto);
 
   auto query = shared_model::proto::QueryBuilder()
                    .createdTime(created_time)
@@ -100,8 +100,8 @@ TEST(ProtoQueryBuilder, BlocksQueryBuilder) {
       keypair);
 
   auto sig = proto_query.mutable_signature();
-  sig->set_public_key(keypair.publicKey().hex());
-  sig->set_signature(signedProto.hex());
+  sig->set_public_key(keypair.publicKey());
+  sig->set_signature(signedProto);
 
   auto query = shared_model::proto::BlocksQueryBuilder()
                    .createdTime(created_time)

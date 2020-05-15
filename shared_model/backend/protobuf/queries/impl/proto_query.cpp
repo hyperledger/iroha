@@ -20,8 +20,6 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "utils/variant_deserializer.hpp"
 
 namespace {

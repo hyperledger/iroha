@@ -24,7 +24,9 @@
 #include "common/files.hpp"
 #include "consensus/yac/consistency_model.hpp"
 #include "cryptography/crypto_provider/crypto_model_signer.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "generator/generator.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
 #include "logger/logger.hpp"
@@ -77,6 +79,8 @@ using namespace iroha::torii;
 using namespace iroha::consensus::yac;
 
 using namespace std::chrono_literals;
+
+using shared_model::interface::types::PublicKeyHexStringView;
 
 /// Consensus consistency model type.
 static constexpr iroha::consensus::yac::ConsistencyModel
@@ -329,8 +333,7 @@ Irohad::RunResult Irohad::restoreWsv() {
 Irohad::RunResult Irohad::validateKeypair() {
   auto peers = storage->createPeerQuery() | [this](auto &&peer_query) {
     return peer_query->getLedgerPeerByPublicKey(
-        shared_model::interface::types::PublicKeyHexStringView{
-            keypair.publicKey().hex()});
+        PublicKeyHexStringView{keypair.publicKey()});
   };
   if (not peers) {
     log_->warn("There is no peer in the ledger with my public key!");
@@ -572,8 +575,8 @@ Irohad::RunResult Irohad::initOrderingGate() {
   decltype(top_height) block_hashes =
       top_height > kNumBlocks ? kNumBlocks : top_height;
 
-  auto hash_stub = shared_model::interface::types::HashType{std::string(
-      shared_model::crypto::DefaultCryptoAlgorithmType::kHashLength, '0')};
+  auto hash_stub = shared_model::interface::types::HashType{
+      std::string(shared_model::crypto::DefaultHashProvider::kHashLength, '0')};
   std::vector<shared_model::interface::types::HashType> hashes{
       kNumBlocks - block_hashes, hash_stub};
 
@@ -822,7 +825,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
         transaction_batch_factory_,
         persistent_cache,
         mst_completer,
-        keypair.publicKey(),
+        PublicKeyHexStringView{keypair.publicKey()},
         std::move(mst_state_logger),
         mst_logger_manager->getChild("Transport")->getLogger());
     mst_propagation = std::make_shared<GossipPropagationStrategy>(

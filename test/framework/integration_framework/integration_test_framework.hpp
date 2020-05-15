@@ -13,6 +13,7 @@
 #include <rxcpp/rx-observable-fwd.hpp>
 #include "consensus/gate_object.hpp"
 #include "cryptography/keypair.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
 #include "logger/logger_manager_fwd.hpp"
 #include "synchronizer/synchronizer_common.hpp"
@@ -341,7 +342,7 @@ namespace integration_framework {
      * @return this
      */
     IntegrationTestFramework &sendMstState(
-        const shared_model::crypto::PublicKey &src_key,
+        shared_model::interface::types::PublicKeyHexStringView src_key,
         const iroha::MstState &mst_state);
 
     /**

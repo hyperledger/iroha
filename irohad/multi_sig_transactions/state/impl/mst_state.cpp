@@ -11,7 +11,9 @@
 
 #include <boost/algorithm/cxx11/all_of.hpp>
 #include <boost/algorithm/minmax_element.hpp>
+#include <boost/range/adaptor/indirected.hpp>
 #include <boost/range/adaptor/transformed.hpp>
+#include <boost/range/algorithm/equal.hpp>
 #include <boost/range/algorithm/find.hpp>
 #include <boost/range/combine.hpp>
 #include "common/set.hpp"
@@ -93,7 +95,11 @@ namespace iroha {
     std::vector<DataType> difference;
     difference.reserve(boost::size(batches_));
     for (const auto &batch : my_batches) {
-      if (rhs.batches_.right.find(batch) == rhs.batches_.right.end()) {
+      auto it = rhs.batches_.right.find(batch);
+      if (it == rhs.batches_.right.end()
+          or not boost::range::equal(
+                 batch->transactions() | boost::adaptors::indirected,
+                 it->first->transactions() | boost::adaptors::indirected)) {
         difference.push_back(batch);
       }
     }

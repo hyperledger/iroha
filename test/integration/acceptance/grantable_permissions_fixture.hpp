@@ -16,6 +16,7 @@
 #include "interfaces/query_responses/account_detail_response.hpp"
 #include "interfaces/query_responses/account_response.hpp"
 #include "interfaces/query_responses/signatories_response.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 class GrantablePermissionsFixture : public AcceptanceFixture {
  public:

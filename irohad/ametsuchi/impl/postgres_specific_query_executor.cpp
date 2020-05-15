@@ -19,7 +19,6 @@
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -598,13 +597,9 @@ namespace iroha {
                   QueryErrorType::kNoSignatories, q.accountId(), 0, query_hash);
             }
 
-            auto pubkeys = boost::copy_range<
-                std::vector<shared_model::interface::types::PubkeyType>>(
+            auto pubkeys = boost::copy_range<std::vector<std::string>>(
                 range_without_nulls | boost::adaptors::transformed([](auto t) {
-                  return iroha::ametsuchi::apply(t, [&](auto &public_key) {
-                    return shared_model::interface::types::PubkeyType{
-                        shared_model::crypto::Blob::fromHexString(public_key)};
-                  });
+                  return boost::get<0>(t);
                 }));
 
             return query_response_factory_->createSignatoriesResponse(

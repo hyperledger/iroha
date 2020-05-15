@@ -10,6 +10,7 @@
 
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "backend/protobuf/proto_transport_factory.hpp"
+#include "framework/crypto_literals.hpp"
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "interfaces/iroha_internal/transaction_batch_factory_impl.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -65,17 +66,16 @@ namespace fuzzing {
       auto cache =
           std::make_shared<iroha::ametsuchi::TxPresenceCacheImpl>(storage);
       completer_ = std::make_shared<iroha::TestCompleter>();
-      mst_transport_grpc_ = std::make_shared<MstTransportGrpc>(
-          async_call_,
-          std::move(tx_factory),
-          std::move(parser),
-          std::move(batch_factory),
-          std::move(cache),
-          completer_,
-          shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair()
-              .publicKey(),
-          logger::getDummyLoggerPtr(),
-          logger::getDummyLoggerPtr());
+      mst_transport_grpc_ =
+          std::make_shared<MstTransportGrpc>(async_call_,
+                                             std::move(tx_factory),
+                                             std::move(parser),
+                                             std::move(batch_factory),
+                                             std::move(cache),
+                                             completer_,
+                                             "my key"_hex_pubkey,
+                                             logger::getDummyLoggerPtr(),
+                                             logger::getDummyLoggerPtr());
     }
   };
 }  // namespace fuzzing

@@ -11,13 +11,16 @@ using namespace integration_framework;
 using namespace shared_model;
 using namespace common_constants;
 
+using shared_model::interface::types::PublicKeyHexStringView;
+
 class QuorumFixture : public AcceptanceFixture {
  public:
   QuorumFixture() : itf(1) {}
 
   void SetUp() override {
     auto add_public_key_tx = complete(
-        baseTx(kAdminId).addSignatory(kAdminId, kUserKeypair.publicKey()),
+        baseTx(kAdminId).addSignatory(
+            kAdminId, PublicKeyHexStringView{kUserKeypair.publicKey()}),
         kAdminKeypair);
     itf.setInitialState(kAdminKeypair)
         .sendTxAwait(add_public_key_tx, CHECK_TXS_QUANTITY(1));

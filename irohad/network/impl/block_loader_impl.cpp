@@ -38,7 +38,7 @@ BlockLoaderImpl::BlockLoaderImpl(
 
 rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
-    const PublicKey &peer_pubkey) {
+    types::PublicKeyHexStringView peer_pubkey) {
   return rxcpp::observable<>::create<std::shared_ptr<Block>>(
       [this, height, &peer_pubkey](auto subscriber) {
         auto peer = this->findPeer(peer_pubkey);
@@ -78,7 +78,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
 }
 
 boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
-    const PublicKey &peer_pubkey, types::HeightType block_height) {
+    types::PublicKeyHexStringView peer_pubkey, types::HeightType block_height) {
   auto peer = findPeer(peer_pubkey);
   if (not peer) {
     log_->error("{}", kPeerNotFound);
@@ -111,7 +111,7 @@ boost::optional<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlock(
 }
 
 boost::optional<std::shared_ptr<shared_model::interface::Peer>>
-BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
+BlockLoaderImpl::findPeer(types::PublicKeyHexStringView pubkey) {
   auto peers = peer_query_factory_->createPeerQuery() |
       [](const auto &query) { return query->getLedgerPeers(); };
   if (not peers) {
@@ -119,12 +119,10 @@ BlockLoaderImpl::findPeer(const shared_model::crypto::PublicKey &pubkey) {
     return boost::none;
   }
 
-  auto &target_pubkey_hex = pubkey.hex();
-  auto it = std::find_if(peers.value().begin(),
-                         peers.value().end(),
-                         [&target_pubkey_hex](const auto &peer) {
-                           return peer->pubkey() == target_pubkey_hex;
-                         });
+  auto it = std::find_if(
+      peers.value().begin(), peers.value().end(), [&pubkey](const auto &peer) {
+        return peer->pubkey() == pubkey;
+      });
   if (it == peers.value().end()) {
     log_->error("{}", kPeerFindFail);
     return boost::none;

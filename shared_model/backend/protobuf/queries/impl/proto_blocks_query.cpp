@@ -6,8 +6,6 @@
 #include "backend/protobuf/queries/proto_blocks_query.hpp"
 
 #include "backend/protobuf/util.hpp"
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace proto {

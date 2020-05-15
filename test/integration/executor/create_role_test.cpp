@@ -65,8 +65,10 @@ using CreateRoleBasicTest = BasicExecutorTest<CreateRoleTest>;
  * @then the command succeeds and the role is created
  */
 TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
-  getItf().createUserWithPerms(
-      kUser, kDomain, kUserKeypair.publicKey(), {Role::kCreateRole});
+  getItf().createUserWithPerms(kUser,
+                               kDomain,
+                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               {Role::kCreateRole});
   IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {}));
   checkRole(kAnotherRole, {});
 }
@@ -79,7 +81,7 @@ TEST_P(CreateRoleBasicTest, ValidEmptyPerms) {
 TEST_P(CreateRoleBasicTest, NameExists) {
   getItf().createUserWithPerms(kUser,
                                kDomain,
-                               kUserKeypair.publicKey(),
+                               PublicKeyHexStringView{kUserKeypair.publicKey()},
                                {Role::kCreateRole, Role::kCreateAsset});
   IROHA_ASSERT_RESULT_VALUE(createRole(kUserId, {Role::kCreateRole}));
   ASSERT_NO_FATAL_FAILURE(checkRole(kAnotherRole, {Role::kCreateRole}));

@@ -10,7 +10,6 @@
 
 #include <boost/functional/hash.hpp>
 #include "cryptography/blob.hpp"
-#include "cryptography/public_key.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 

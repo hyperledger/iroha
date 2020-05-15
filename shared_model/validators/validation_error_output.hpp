@@ -8,7 +8,8 @@
 
 #include "validators/validation_error.hpp"
 
-#include <iostream>
+#include <iosfwd>
+#include <optional>
 
 namespace shared_model {
   namespace validation {
@@ -18,5 +19,9 @@ namespace shared_model {
 
   }  // namespace validation
 }  // namespace shared_model
+
+std::ostream &operator<<(
+    std::ostream &out,
+    const std::optional<shared_model::validation::ValidationError> &error);
 
 #endif

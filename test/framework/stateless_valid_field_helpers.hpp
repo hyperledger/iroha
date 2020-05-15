@@ -6,7 +6,7 @@
 #ifndef IROHA_TEST_STATELESS_VALID_FIELD_HELPERS_HPP
 #define IROHA_TEST_STATELESS_VALID_FIELD_HELPERS_HPP
 
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 namespace framework {
 

@@ -8,7 +8,6 @@
 #include <gtest/gtest.h>
 #include "backend/protobuf/proto_tx_status_factory.hpp"
 #include "cryptography/hash.hpp"
-#include "cryptography/public_key.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_mocks.hpp"

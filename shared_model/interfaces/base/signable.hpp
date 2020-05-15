@@ -20,11 +20,6 @@
 
 namespace shared_model {
 
-  namespace crypto {
-    class Signed;
-    class PublicKey;
-  }  // namespace crypto
-
   namespace interface {
 
     /**
@@ -72,7 +67,8 @@ namespace shared_model {
             // is_permutation consumes ~O(N^2)
             and std::is_permutation(signatures().begin(),
                                     signatures().end(),
-                                    rhs.signatures().begin());
+                                    rhs.signatures().begin(),
+                                    rhs.signatures().end());
       }
 
       /**

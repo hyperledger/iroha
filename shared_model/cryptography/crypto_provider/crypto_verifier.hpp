@@ -6,21 +6,18 @@
 #ifndef IROHA_CRYPTO_VERIFIER_HPP
 #define IROHA_CRYPTO_VERIFIER_HPP
 
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "common/result_fwd.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 
 namespace shared_model {
   namespace crypto {
-
-    class Signed;
     class Blob;
-    class PublicKey;
 
     /**
      * CryptoVerifier - adapter for generalization verification of cryptographic
      * signatures
      * @tparam Algorithm - cryptographic algorithm for verification
      */
-    template <typename Algorithm = DefaultCryptoAlgorithmType>
     class CryptoVerifier {
      public:
       /**
@@ -28,16 +25,19 @@ namespace shared_model {
        * @param signedData - cryptographic signature
        * @param source - data that was signed
        * @param pubKey - public key of signatory
-       * @return true if signature correct
+       * @return a result of void if signature is correct or error message
+       * otherwise or if verification could not be completed
        */
-      static bool verify(const Signed &signedData,
-                         const Blob &source,
-                         const PublicKey &pubKey) {
-        return Algorithm::verify(signedData, source, pubKey);
-      }
+      static iroha::expected::Result<void, const char *> verify(
+          shared_model::interface::types::SignedHexStringView signature,
+          const Blob &source,
+          shared_model::interface::types::PublicKeyHexStringView public_key);
 
       /// close constructor for forbidding instantiation
       CryptoVerifier() = delete;
+
+      enum { kMaxPublicKeySize = 68 };
+      enum { kMaxSignatureSize = 68 };
     };
   }  // namespace crypto
 }  // namespace shared_model
