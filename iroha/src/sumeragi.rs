@@ -98,6 +98,9 @@ impl Sumeragi {
         &mut self,
         transactions: Vec<AcceptedTransaction>,
     ) -> Result<Option<SignedBlock>, String> {
+        if transactions.is_empty() {
+            return Ok(None);
+        }
         if let Role::Leader = self.role() {
             let block = PendingBlock::new(transactions)
                 //TODO: actually chain block?
