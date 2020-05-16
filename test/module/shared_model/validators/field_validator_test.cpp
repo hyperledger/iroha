@@ -150,8 +150,6 @@ class FieldValidatorTest : public ValidatorsTest {
                                           &FieldValidatorTest::precision,
                                           precision_test_cases));
 
-    // TODO(Ivan Tyulyandin): add test cases for smart contract parameters
-
     field_validators.insert(makeValidator("input",
                                           &FieldValidator::validateBytecode,
                                           &FieldValidatorTest::input,

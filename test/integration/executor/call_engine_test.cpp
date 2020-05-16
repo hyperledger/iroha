@@ -16,7 +16,6 @@
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/command_permission_test.hpp"
 #include "integration/executor/executor_fixture_param_provider.hpp"
-#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/permissions.hpp"
 
 using namespace std::literals;
@@ -31,7 +30,7 @@ using ::testing::_;
 using ::testing::Optional;
 
 static const EvmCalleeHexStringView kCallee{"callee"sv};
-static const EvmCodeHexString kCode{"mint(many)"};
+static const EvmCodeHexStringView kCode{"mint(many)"sv};
 
 class CallEngineTest : public ExecutorTestBase {
  public:
@@ -39,7 +38,7 @@ class CallEngineTest : public ExecutorTestBase {
       const AccountIdType &issuer,
       const AccountIdType &caller,
       std::optional<EvmCalleeHexStringView> callee,
-      const EvmCodeHexString &input,
+      EvmCodeHexStringView input,
       bool validation_enabled = true) {
     iroha::protocol::Command proto_command;
     {
@@ -51,7 +50,8 @@ class CallEngineTest : public ExecutorTestBase {
         std::string_view callee_sv{callee.value()};
         command->set_callee(callee_sv.data(), callee_sv.size());
       }
-      command->set_input(input);
+      const auto input_sv = static_cast<std::string_view const &>(input);
+      command->set_input(input_sv.data(), input_sv.size());
     }
     return getItf().executeCommandAsAccount(
         shared_model::proto::CallEngine{proto_command},

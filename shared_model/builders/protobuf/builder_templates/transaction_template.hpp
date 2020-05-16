@@ -16,7 +16,6 @@
 
 #include "backend/protobuf/permissions.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
-#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/engine_type.hpp"
 #include "interfaces/permissions.hpp"
@@ -194,17 +193,20 @@ namespace shared_model {
 
       auto callEngine(
           const interface::types::AccountIdType &caller,
-          std::optional<interface::types::EvmCalleeHexString> callee,
-          const interface::types::EvmCodeHexString &input) const {
+          std::optional<interface::types::EvmCalleeHexStringView> callee,
+          interface::types::EvmCodeHexStringView input) const {
         return addCommand([&](auto proto_command) {
           auto command = proto_command->mutable_call_engine();
           command->set_type(iroha::protocol::CallEngine::EngineType::
                                 CallEngine_EngineType_kSolidity);
           command->set_caller(caller);
           if (callee) {
-            command->set_callee(callee.value());
+            const auto callee_sv =
+                static_cast<std::string_view const &>(callee.value());
+            command->set_callee(callee_sv.data(), callee_sv.size());
           }
-          command->set_input(input);
+          const auto input_sv = static_cast<std::string_view const &>(input);
+          command->set_input(input_sv.data(), input_sv.size());
         });
       }
 

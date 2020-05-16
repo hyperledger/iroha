@@ -11,7 +11,6 @@
 #include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/base/signable.hpp"
-#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "interfaces/queries/query_payload_meta.hpp"
 #include "validators/validation_error.hpp"
