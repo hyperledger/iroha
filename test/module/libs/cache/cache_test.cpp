@@ -14,6 +14,31 @@ using namespace iroha::protocol;
 const int typicalInsertAmount = 5;
 
 /**
+ * @given ring buffer of ints of size 3
+ * @when insert 6 items [1, 6], then RB will contain exactly 3 items [4,6]
+ */
+TEST(CacheTest, RingBufferInsertion) {
+  using RB = iroha::containers::RingBuffer<int, 3>;
+  using Handle = RB::Handle;
+  RB rb;
+  Handle h[3];
+
+  for (int ix = 1; ix <= 6; ++ix) {
+    rb.push(
+        [&](Handle h_, auto const &) {
+          h[0] = h[1];
+          h[1] = h[2];
+          h[2] = h_;
+        },
+        [](Handle, auto const &) {},
+        ix);
+  }
+  ASSERT_EQ(rb.getItem(h[0]), 4);
+  ASSERT_EQ(rb.getItem(h[1]), 5);
+  ASSERT_EQ(rb.getItem(h[2]), 6);
+}
+
+/**
  * @given initialized cache
  * @when insert N ToriiResponse objects into it
  * @then amount of items in cache equals N

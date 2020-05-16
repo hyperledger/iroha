@@ -22,6 +22,8 @@ namespace iroha {
 
      private:
       static_assert(Count > 0, "Unexpected count value. It must be above 0.");
+      static_assert(Count <= (std::numeric_limits<size_t>::max() >> 1),
+                    "To prevent overflow");
 
       enum { kTypeSize = sizeof(Type) };
 
@@ -45,12 +47,16 @@ namespace iroha {
       Handle begin_;
       Handle end_;
 
+      inline size_t internalSizeFromPosition(Handle h) const {
+        return (((h + kVirtualLimit) - end_) % kVirtualLimit);
+      }
+
       inline bool handleInBound(Handle h) const {
         /**
          * this code is only for debug purpose
          **/
-        auto sz_handle = ((h - end_) % kVirtualLimit);
-        auto sz_begin = ((begin_ - end_) % kVirtualLimit);
+        auto const sz_handle = internalSizeFromPosition(h);
+        auto const sz_begin = internalSizeFromPosition(begin_);
         return (sz_handle < sz_begin);
       }
 
@@ -63,8 +69,9 @@ namespace iroha {
       }
 
       inline size_t internalSize() const {
-        assert(((begin_ - end_) % kVirtualLimit) <= kActualLimit);
-        return ((begin_ - end_) % kVirtualLimit);
+        auto const normalized_size = internalSizeFromPosition(begin_);
+        assert(normalized_size <= kActualLimit);
+        return normalized_size;
       }
 
       inline bool internalEmpty() const {
