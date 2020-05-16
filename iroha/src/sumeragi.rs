@@ -302,12 +302,59 @@ impl Debug for Sumeragi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto;
+    use crate::{crypto, ToriiMessageReceiver};
     use async_std::{
         prelude::*,
         sync::{self, RwLock},
     };
-    use std::convert::TryFrom;
+    use std::{collections::HashMap, convert::TryFrom, time::Duration};
+
+    #[derive(Default)]
+    struct Router {
+        receivers: Vec<Arc<RwLock<ToriiMessageReceiver>>>,
+        routes: Arc<RwLock<HashMap<String, Sumeragi>>>,
+    }
+
+    impl Router {
+        pub async fn send_tx(&self, tx: RequestedTransaction, address: String) {
+            let _result = self
+                .routes
+                .write()
+                .await
+                .get_mut(&address)
+                .expect("Failed to get sumeragi instance.")
+                .round(vec![tx.accept().expect("Failed to accept tx")])
+                .await;
+        }
+
+        pub fn add_receiver(&mut self, receiver: ToriiMessageReceiver) {
+            self.receivers.push(Arc::new(RwLock::new(receiver)));
+        }
+
+        pub async fn add_peer(&self, address: String, sumeragi: Sumeragi) {
+            self.routes.write().await.insert(address, sumeragi);
+        }
+
+        pub async fn start(&self) {
+            for receiver in self.receivers.clone() {
+                let routes = self.routes.clone();
+                async_std::task::spawn(async move {
+                    while let Some(message) = receiver.write().await.recv().await {
+                        let _result = routes
+                            .write()
+                            .await
+                            .get_mut(&message.server_url)
+                            .expect("Failed to get sumeragi instance.")
+                            .handle_message(
+                                Message::try_from(message.request.payload().to_vec())
+                                    .expect("Failed to parse message"),
+                            )
+                            .await;
+                    }
+                });
+            }
+        }
+    }
 
     #[test]
     #[should_panic]
@@ -380,6 +427,61 @@ mod tests {
         let mut peers2 = peers1.clone();
         Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
         assert_eq!(peers1, peers2);
+    }
+
+    #[async_std::test]
+    async fn all_peers_commit_block() {
+        let n_peers = 10;
+        let max_faults = 1;
+        let mut dirs = Vec::new();
+        let mut keys = Vec::new();
+        let mut ids = Vec::new();
+        for i in 0..n_peers {
+            let (public_key, private_key) =
+                crypto::generate_key_pair().expect("Failed to generate key pair.");
+            keys.push((public_key, private_key));
+            let peer_id = PeerId {
+                address: format!("127.0.0.1:{}", 7878 + i),
+                public_key,
+            };
+            ids.push(peer_id);
+        }
+        let mut router = Router::default();
+        let mut kuras = Vec::new();
+        for i in 0..n_peers {
+            let dir = tempfile::tempdir().unwrap();
+            let (tx, _rx) = sync::channel(100);
+            let (torii_sender, torii_receiver) = sync::channel(100);
+            let kura = Arc::new(RwLock::new(Kura::new("strict".to_string(), dir.path(), tx)));
+            kuras.push(kura.clone());
+            let sumeragi = Sumeragi::new(
+                keys[i].1,
+                &ids,
+                ids[i].clone(),
+                max_faults,
+                kura,
+                Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+                    "127.0.0.1:7878".to_string(),
+                    &ids,
+                )))),
+                Arc::new(RwLock::new(torii_sender)),
+            )
+            .expect("Failed to create Sumeragi.");
+            router.add_receiver(torii_receiver);
+            router.add_peer(ids[i].address.clone(), sumeragi).await;
+            dirs.push(dir);
+        }
+        router.start().await;
+        router
+            .send_tx(
+                RequestedTransaction::new(vec![], Id::new("entity", "domain")),
+                "127.0.0.1:7878".to_string(),
+            )
+            .await;
+        async_std::task::sleep(Duration::from_millis(1000)).await;
+        for kura in kuras {
+            assert_eq!(kura.write().await.blocks().len(), 1);
+        }
     }
 
     #[async_std::test]

@@ -63,6 +63,10 @@ impl Kura {
             }
         }
     }
+
+    pub fn blocks(&self) -> &[ValidBlock] {
+        &self.blocks
+    }
 }
 
 /// Representation of a consistent storage.
