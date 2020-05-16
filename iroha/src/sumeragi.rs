@@ -303,7 +303,11 @@ impl Debug for Sumeragi {
 mod tests {
     use super::*;
     use crate::crypto;
-    use async_std::sync;
+    use async_std::{
+        prelude::*,
+        sync::{self, RwLock},
+    };
+    use std::convert::TryFrom;
 
     #[test]
     #[should_panic]
@@ -376,5 +380,71 @@ mod tests {
         let mut peers2 = peers1.clone();
         Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
         assert_eq!(peers1, peers2);
+    }
+
+    #[async_std::test]
+    async fn created_message_is_sent_by_leader() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = sync::channel(100);
+        let (torii_sender, mut torii_receiver) = sync::channel(100);
+        let kura = Arc::new(RwLock::new(Kura::new("strict".to_string(), dir.path(), tx)));
+        let (public_key, private_key) =
+            crypto::generate_key_pair().expect("Failed to generate key pair.");
+        //First peer by alphanumeric value of address is a leader when the block hash is None
+        let peers = vec![
+            PeerId {
+                address: "127.0.0.1:7878".to_string(),
+                public_key,
+            },
+            PeerId {
+                address: "127.0.0.1:7879".to_string(),
+                public_key: [2u8; 32],
+            },
+            PeerId {
+                address: "127.0.0.1:7880".to_string(),
+                public_key: [3u8; 32],
+            },
+            PeerId {
+                address: "127.0.0.1:7881".to_string(),
+                public_key: [4u8; 32],
+            },
+        ];
+        let mut sumeragi = Sumeragi::new(
+            private_key,
+            &peers,
+            peers.first().unwrap().clone(),
+            1,
+            kura,
+            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+                "127.0.0.1:7878".to_string(),
+                &peers,
+            )))),
+            Arc::new(RwLock::new(torii_sender)),
+        )
+        .expect("Failed to create Sumeragi.");
+        let task = async_std::task::spawn(async move {
+            let mut message_counter = 0;
+            while let Some(message) = torii_receiver.next().await {
+                assert!(peers
+                    .iter()
+                    .find(|peer| peer.address == message.server_url)
+                    .is_some());
+                message_counter += 1;
+                let message = Message::try_from(message.request.payload().to_vec())
+                    .expect("Failed to parse message.");
+                if let Message::Created(SignedBlock { transactions, .. }) = message {
+                    assert_eq!(transactions.len(), 1)
+                } else {
+                    panic!("Message is not CreatedMessage.")
+                }
+            }
+            assert_eq!(message_counter, 2);
+        });
+        let tx = RequestedTransaction::new(vec![], Id::new("entity", "domain"))
+            .accept()
+            .expect("Failed to accept tx.");
+        let _result = sumeragi.round(vec![tx]).await;
+        drop(sumeragi);
+        task.await;
     }
 }
