@@ -31,7 +31,6 @@
 #include "interfaces/commands/set_setting_value.hpp"
 #include "interfaces/commands/subtract_asset_quantity.hpp"
 #include "interfaces/commands/transfer_asset.hpp"
-#include "interfaces/common_objects/string_types.hpp"
 #include "interfaces/transaction.hpp"
 #include "validators/abstract_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
