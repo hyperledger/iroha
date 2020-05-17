@@ -47,7 +47,8 @@ pub struct Iroha {
     sumeragi: Arc<RwLock<Sumeragi>>,
     kura: Arc<RwLock<Kura>>,
     transactions_receiver: Arc<RwLock<TransactionReceiver>>,
-    blocks_receiver: Arc<RwLock<BlockReceiver>>,
+    wsv_blocks_receiver: Arc<RwLock<BlockReceiver>>,
+    kura_blocks_receiver: Arc<RwLock<BlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_build_step_ms: u64,
@@ -56,7 +57,8 @@ pub struct Iroha {
 impl Iroha {
     pub fn new(config: Configuration) -> Self {
         let (transactions_sender, transactions_receiver) = sync::channel(100);
-        let (blocks_sender, blocks_receiver) = sync::channel(100);
+        let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
+        let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
         let (message_sender, message_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
             config.torii_url.clone(),
@@ -72,7 +74,7 @@ impl Iroha {
         let kura = Arc::new(RwLock::new(Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
-            blocks_sender,
+            wsv_blocks_sender,
         )));
         //TODO: get peers from json and blockchain
         //The id of this peer
@@ -90,7 +92,7 @@ impl Iroha {
                 &peers,
                 iroha_peer_id,
                 config.max_faulty_peers,
-                kura.clone(),
+                Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
             )
             .expect("Failed to initialize Sumeragi."),
@@ -103,9 +105,10 @@ impl Iroha {
             kura,
             world_state_view,
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
-            blocks_receiver: Arc::new(RwLock::new(blocks_receiver)),
+            wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
             message_receiver: Arc::new(RwLock::new(message_receiver)),
             block_build_step_ms: config.block_build_step_ms,
+            kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
         }
     }
 
@@ -127,35 +130,22 @@ impl Iroha {
         });
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
-        let world_state_view = Arc::clone(&self.world_state_view);
         let block_build_step_ms = self.block_build_step_ms;
         task::spawn(async move {
             loop {
-                if let Some(block) = sumeragi
+                sumeragi
                     .write()
                     .await
                     .round(queue.write().await.pop_pending_transactions())
                     .await
-                    .expect("Round failed.")
-                {
-                    let _hash = kura
-                        .write()
-                        .await
-                        .store(
-                            block
-                                .validate(&*world_state_view.write().await)
-                                .expect("Failed to validate block."),
-                        )
-                        .await
-                        .expect("Failed to write block.");
-                }
+                    .expect("Round failed.");
                 task::sleep(Duration::from_millis(block_build_step_ms)).await;
             }
         });
-        let blocks_receiver = Arc::clone(&self.blocks_receiver);
+        let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
         task::spawn(async move {
-            while let Some(block) = blocks_receiver.write().await.next().await {
+            while let Some(block) = wsv_blocks_receiver.write().await.next().await {
                 world_state_view.write().await.put(&block).await;
             }
         });
@@ -164,6 +154,18 @@ impl Iroha {
         task::spawn(async move {
             while let Some(message) = message_receiver.write().await.next().await {
                 let _result = sumeragi.write().await.handle_message(message).await;
+            }
+        });
+        let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);
+        let kura = Arc::clone(&self.kura);
+        task::spawn(async move {
+            while let Some(block) = kura_blocks_receiver.write().await.next().await {
+                let _hash = kura
+                    .write()
+                    .await
+                    .store(block)
+                    .await
+                    .expect("Failed to write block.");
             }
         });
         Ok(())
