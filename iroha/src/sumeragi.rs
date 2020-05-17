@@ -1,7 +1,6 @@
 use crate::{
     block::{PendingBlock, SignedBlock},
     crypto::Hash,
-    kura::Kura,
     peer::PeerId,
     prelude::*,
     torii::uri,
@@ -57,7 +56,7 @@ pub struct Sumeragi {
     peer_id: PeerId,
     /// PendingBlock in discussion this round
     voting_block: Option<SignedBlock>,
-    kura: Arc<RwLock<Kura>>,
+    blocks_sender: Arc<RwLock<BlockSender>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
 }
 
@@ -67,7 +66,7 @@ impl Sumeragi {
         peers: &[PeerId],
         peer_id: PeerId,
         max_faults: usize,
-        kura: Arc<RwLock<Kura>>,
+        blocks_sender: Arc<RwLock<BlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
     ) -> Result<Self, String> {
         if !peers.contains(&peer_id) {
@@ -85,7 +84,7 @@ impl Sumeragi {
                 max_faults,
                 peer_id,
                 voting_block: None,
-                kura,
+                blocks_sender,
                 world_state_view,
             })
         } else {
@@ -94,12 +93,9 @@ impl Sumeragi {
     }
 
     /// the leader of each round just uses the transactions they have at hand to create a block
-    pub async fn round(
-        &mut self,
-        transactions: Vec<AcceptedTransaction>,
-    ) -> Result<Option<SignedBlock>, String> {
+    pub async fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Result<(), String> {
         if transactions.is_empty() {
-            return Ok(None);
+            return Ok(());
         }
         if let Role::Leader = self.role() {
             let block = PendingBlock::new(transactions)
@@ -108,7 +104,9 @@ impl Sumeragi {
                 .sign(&self.public_key, &self.private_key)?;
             let minimum_quorum_of_peers = 2;
             if self.sorted_peers.len() < minimum_quorum_of_peers {
-                Ok(Some(block))
+                let block = block.validate(&*self.world_state_view.read().await)?;
+                self.blocks_sender.write().await.send(block).await;
+                Ok(())
             } else {
                 self.voting_block = Some(block.clone());
                 let mut send_futures = Vec::new();
@@ -117,7 +115,7 @@ impl Sumeragi {
                 }
                 send_futures.push(Message::Created(block.clone()).send_to(self.proxy_tail()));
                 futures::future::join_all(send_futures).await;
-                Ok(None)
+                Ok(())
             }
         } else {
             //TODO: send pending transactions to all peers and as leader check what tx have already been committed
@@ -133,7 +131,7 @@ impl Sumeragi {
                 ));
             }
             let _results = futures::future::join_all(send_futures).await;
-            Ok(None)
+            Ok(())
         }
     }
 
@@ -224,16 +222,6 @@ impl Sumeragi {
                     if let Some(block) = self.voting_block.clone() {
                         if block.signatures.len() >= 2 * self.max_faults {
                             let block = block.sign(&self.public_key, &self.private_key)?;
-                            let hash = self
-                                .kura
-                                .write()
-                                .await
-                                .store(
-                                    block
-                                        .clone()
-                                        .validate(&*self.world_state_view.read().await)?,
-                                )
-                                .await?;
                             let mut send_futures = Vec::new();
                             for peer in self.validating_peers() {
                                 send_futures.push(Message::Committed(block.clone()).send_to(peer));
@@ -244,6 +232,9 @@ impl Sumeragi {
                             send_futures
                                 .push(Message::Committed(block.clone()).send_to(self.leader()));
                             let _results = futures::future::join_all(send_futures).await;
+                            let block = block.validate(&*self.world_state_view.read().await)?;
+                            let hash = block.hash();
+                            self.blocks_sender.write().await.send(block).await;
                             self.next_round(hash);
                         }
                     }
@@ -251,12 +242,9 @@ impl Sumeragi {
             }
             Message::Committed(block) => {
                 //TODO: check if the block is the same as pending
-                let hash = self
-                    .kura
-                    .write()
-                    .await
-                    .store(block.validate(&*self.world_state_view.read().await)?)
-                    .await?;
+                let block = block.validate(&*self.world_state_view.read().await)?;
+                let hash = block.hash();
+                self.blocks_sender.write().await.send(block).await;
                 self.next_round(hash);
             }
         }
@@ -285,9 +273,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn not_enough_peers() {
-        let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = sync::channel(100);
-        let kura = Arc::new(RwLock::new(Kura::new("strict".to_string(), dir.path(), tx)));
+        let (blocks_sender, _blocks_reciever) = sync::channel(100);
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
         let listen_address = "127.0.0.1".to_string();
@@ -300,7 +286,7 @@ mod tests {
             &[this_peer.clone()],
             this_peer.clone(),
             3,
-            kura,
+            Arc::new(RwLock::new(blocks_sender)),
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 listen_address.clone(),
                 &vec![this_peer],
