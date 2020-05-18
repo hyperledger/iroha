@@ -12,19 +12,19 @@ import (
 	"github.com/hyperledger/burrow/binary"
 )
 
-func MakeIrohaCharBuffer(data string) *C.struct_Iroha_CharBuffer {
-	return &C.struct_Iroha_CharBuffer{
+func MakeIrohaCharBuffer(data string) *C.Iroha_CharBuffer {
+	return &C.Iroha_CharBuffer{
 		data: C.CString(data),
 		size: C.ulonglong(len(data)),
 	}
 }
 
-func (buf *C.struct_Iroha_CharBuffer) free() {
+func (buf *C.Iroha_CharBuffer) free() {
 	C.free(unsafe.Pointer(buf.data))
 	buf.data = nil // not really needed but may save some hair on head
 }
 
-func (buf *C.struct_Iroha_CharBuffer) toStringAndRelease() *string {
+func (buf *C.Iroha_CharBuffer) toStringAndRelease() *string {
 	if buf.data == nil {
 		return nil
 	}
@@ -34,18 +34,18 @@ func (buf *C.struct_Iroha_CharBuffer) toStringAndRelease() *string {
 }
 
 type Iroha_CharBufferArray_Wrapper struct {
-	charBuffers []C.struct_Iroha_CharBuffer
-	cArray      C.struct_Iroha_CharBufferArray
+	charBuffers []C.Iroha_CharBuffer
+	cArray      *C.Iroha_CharBufferArray
 }
 
 func MakeIrohaCharBufferArray(data []binary.Word256) *Iroha_CharBufferArray_Wrapper {
-	array := make([]C.struct_Iroha_CharBuffer, len(data))
+	array := make([]C.Iroha_CharBuffer, len(data))
 	for idx, el := range data {
 		array[idx] = *MakeIrohaCharBuffer(hex.EncodeToString(el.Bytes()))
 	}
 	return &Iroha_CharBufferArray_Wrapper{
 		array,
-		&C.struct_Iroha_CharBufferArray{
+		&C.Iroha_CharBufferArray{
 			data: &array[0],
 			size: C.ulonglong(len(data)),
 		},
