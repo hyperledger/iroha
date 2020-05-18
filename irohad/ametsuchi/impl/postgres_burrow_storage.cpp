@@ -5,7 +5,6 @@
 
 #include "ametsuchi/impl/postgres_burrow_storage.hpp"
 
-#include <sys/types.h>
 #include <optional>
 
 #include <soci/soci.h>
