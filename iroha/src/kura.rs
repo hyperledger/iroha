@@ -17,12 +17,12 @@ pub struct Kura {
     _mode: String,
     blocks: Vec<ValidBlock>,
     block_store: BlockStore,
-    block_sender: BlockSender,
+    block_sender: CommittedBlockSender,
     merkle_tree: MerkleTree,
 }
 
 impl Kura {
-    pub fn new(_mode: String, block_store_path: &Path, block_sender: BlockSender) -> Self {
+    pub fn new(_mode: String, block_store_path: &Path, block_sender: CommittedBlockSender) -> Self {
         Kura {
             _mode,
             block_store: BlockStore::new(block_store_path),
@@ -51,7 +51,7 @@ impl Kura {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
-                self.block_sender.send(block.clone()).await;
+                self.block_sender.send(block.clone().commit()).await;
                 self.blocks.push(block);
                 Ok(hash)
             }

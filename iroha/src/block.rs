@@ -186,4 +186,56 @@ impl ValidBlock {
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
+
+    pub fn commit(self) -> CommittedBlock {
+        CommittedBlock {
+            timestamp: self.timestamp,
+            transactions: self.transactions,
+            height: self.height,
+            previous_block_hash: self.previous_block_hash,
+            signatures: self.signatures,
+        }
+    }
+}
+
+/// When Kura receives `ValidBlock`, the block is stored and
+/// then sent to later stage of the pipeline as `CommitedBlock`.
+#[derive(Clone, Debug, Io, Encode, Decode)]
+pub struct CommittedBlock {
+    /// Unix time (in milliseconds) of block forming by a peer.
+    pub timestamp: u128,
+    /// array of transactions, which successfully passed validation and consensus step.
+    pub transactions: Vec<ValidTransaction>,
+    /// a number of blocks in the chain up to the block.
+    pub height: u64,
+    /// Hash of a previous block in the chain.
+    /// Is an array of zeros for the first block.
+    pub previous_block_hash: Option<Hash>,
+    /// Signatures of peers which approved this block
+    pub signatures: Vec<Signature>,
+}
+
+impl CommittedBlock {
+    /// `CommitedBlock` should have the same hash as `ValidBlock`.
+    pub fn hash(&self) -> Hash {
+        crypto::hash(self.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::block::ValidBlock;
+
+    #[test]
+    pub fn committed_and_valid_block_hashes_are_equal() {
+        let valid_block = ValidBlock {
+            timestamp: 0,
+            transactions: vec![],
+            height: 0,
+            previous_block_hash: None,
+            signatures: vec![],
+        };
+        let commited_block = valid_block.clone().commit();
+        assert_eq!(valid_block.hash(), commited_block.hash())
+    }
 }

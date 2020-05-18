@@ -32,8 +32,10 @@ use async_std::{
 use std::time::Duration;
 use std::{path::Path, sync::Arc};
 
-pub type BlockSender = Sender<ValidBlock>;
-pub type BlockReceiver = Receiver<ValidBlock>;
+pub type ValidBlockSender = Sender<ValidBlock>;
+pub type ValidBlockReceiver = Receiver<ValidBlock>;
+pub type CommittedBlockSender = Sender<CommittedBlock>;
+pub type CommittedBlockReceiver = Receiver<CommittedBlock>;
 pub type TransactionSender = Sender<AcceptedTransaction>;
 pub type TransactionReceiver = Receiver<AcceptedTransaction>;
 pub type MessageSender = Sender<Message>;
@@ -47,8 +49,8 @@ pub struct Iroha {
     sumeragi: Arc<RwLock<Sumeragi>>,
     kura: Arc<RwLock<Kura>>,
     transactions_receiver: Arc<RwLock<TransactionReceiver>>,
-    wsv_blocks_receiver: Arc<RwLock<BlockReceiver>>,
-    kura_blocks_receiver: Arc<RwLock<BlockReceiver>>,
+    wsv_blocks_receiver: Arc<RwLock<CommittedBlockReceiver>>,
+    kura_blocks_receiver: Arc<RwLock<ValidBlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
     block_build_step_ms: u64,
@@ -183,7 +185,7 @@ pub mod prelude {
     pub use crate::{
         account::{Account, Id as AccountId},
         asset::{Asset, Id as AssetId},
-        block::{PendingBlock, ValidBlock},
+        block::{CommittedBlock, PendingBlock, ValidBlock},
         config::Configuration,
         crypto::{Hash, PrivateKey, PublicKey, Signature},
         domain::Domain,
@@ -192,6 +194,7 @@ pub mod prelude {
         query::{Query, QueryRequest, QueryResult},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
-        BlockReceiver, BlockSender, Identifiable, Iroha, TransactionReceiver, TransactionSender,
+        CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,
+        TransactionSender, ValidBlockReceiver, ValidBlockSender,
     };
 }
