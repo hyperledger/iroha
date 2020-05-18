@@ -25,7 +25,7 @@ func NewIrohaStorage(storage unsafe.Pointer) *IrohaStorage {
 	}
 }
 
-func handleIrohaCallResult(result C.struct_Iroha_Result) (*string, error) {
+func handleIrohaCallResult(result C.Iroha_Result) (*string, error) {
 	switch result.which {
 	case C.Iroha_Result_Type_Value:
 		return result.data.toStringAndRelease(), nil
