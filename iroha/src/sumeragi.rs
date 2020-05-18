@@ -267,8 +267,9 @@ impl Debug for Sumeragi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto;
-    use async_std::sync;
+    use crate::{account, crypto, torii::Torii};
+    use async_std::{prelude::*, sync, task};
+    use std::time::Duration;
 
     #[test]
     #[should_panic]
@@ -337,5 +338,80 @@ mod tests {
         let mut peers2 = peers1.clone();
         Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
         assert_eq!(peers1, peers2);
+    }
+
+    #[cfg(feature = "network-mock")]
+    #[async_std::test]
+    async fn all_peers_commit_block() {
+        let n_peers = 10;
+        let max_faults = 1;
+        let mut keys = Vec::new();
+        let mut ids = Vec::new();
+        let mut block_counters = Vec::new();
+        for i in 0..n_peers {
+            let (public_key, private_key) =
+                crypto::generate_key_pair().expect("Failed to generate key pair.");
+            keys.push((public_key, private_key));
+            let peer_id = PeerId {
+                address: format!("127.0.0.1:{}", 7878 + i),
+                public_key,
+            };
+            ids.push(peer_id);
+            block_counters.push(Arc::new(RwLock::new(0)));
+        }
+        let mut peers = Vec::new();
+        for i in 0..n_peers {
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (message_sender, mut message_receiver) = sync::channel(100);
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+                "127.0.0.1:7878".to_string(),
+                &ids,
+            ))));
+            let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
+            let sumeragi = Arc::new(RwLock::new(
+                Sumeragi::new(
+                    keys[i].1,
+                    &ids,
+                    ids[i].clone(),
+                    max_faults,
+                    Arc::new(RwLock::new(block_sender)),
+                    wsv,
+                )
+                .expect("Failed to create Sumeragi."),
+            ));
+            peers.push(sumeragi.clone());
+            task::spawn(async move {
+                while let Some(message) = message_receiver.next().await {
+                    let _result = sumeragi.write().await.handle_message(message).await;
+                }
+            });
+            let block_counter = block_counters[i].clone();
+            task::spawn(async move {
+                while let Some(_block) = block_receiver.next().await {
+                    *block_counter.write().await += 1;
+                }
+            });
+        }
+        peers
+            .first()
+            .expect("Failed to get first peer.")
+            .write()
+            .await
+            .round(vec![RequestedTransaction::new(
+                vec![],
+                account::Id::new("entity", "domain"),
+            )
+            .accept()
+            .expect("Failed to accpet tx.")])
+            .await
+            .expect("Round failed.");
+        async_std::task::sleep(Duration::from_millis(1000)).await;
+        for block_counter in block_counters {
+            assert_eq!(*block_counter.write().await, 1);
+        }
     }
 }

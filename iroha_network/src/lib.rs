@@ -1,3 +1,4 @@
+#[cfg(feature = "mock")]
 pub mod mock;
 
 use async_std::{
@@ -128,8 +129,8 @@ impl Network {
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
-    uri_path: String,
-    payload: Vec<u8>,
+    pub uri_path: String,
+    pub payload: Vec<u8>,
 }
 
 impl Request {
@@ -210,9 +211,12 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "mock")]
+    use super::mock::*;
+    #[cfg(not(feature = "mock"))]
     use super::*;
-    use async_std::task;
-    use std::convert::TryFrom;
+    use async_std::{sync::RwLock, task};
+    use std::{convert::TryFrom, sync::Arc};
 
     fn get_empty_state() -> State<()> {
         Arc::new(RwLock::new(()))
@@ -253,7 +257,7 @@ mod tests {
             state: State<S>,
             stream: Box<dyn AsyncStream>,
         ) -> Result<(), String> {
-            super::Network::handle_message_async(state, stream, handle_request).await
+            Network::handle_message_async(state, stream, handle_request).await
         };
 
         task::spawn(async move {
