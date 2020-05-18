@@ -10,11 +10,6 @@
 extern "C" {
 #endif
 
-struct Iroha_Result {
-  char *result;
-  char *error;
-};
-
 struct Iroha_CharBuffer {
   char *data;
   unsigned long long size;
@@ -23,6 +18,16 @@ struct Iroha_CharBuffer {
 struct Iroha_CharBufferArray {
   struct Iroha_CharBuffer *data;
   unsigned long long size;
+};
+
+enum Iroha_Result_Type {
+  Iroha_Result_Type_Value,
+  Iroha_Result_Type_Error
+};
+
+struct Iroha_Result {
+  Iroha_CharBuffer data;
+  Iroha_Result_Type which;
 };
 
 extern struct Iroha_Result Iroha_GetAccount(void *storage,
