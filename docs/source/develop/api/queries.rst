@@ -53,18 +53,12 @@ Response Schema
     }
     message EngineReceipt {
         int32 command_index = 1;
-        string tx_hash = 2;         // hex string
-        int32 tx_index = 3;
-        string block_hash = 4;          // hex string
-        uint64 block_height = 5;
-        string from = 6;                // sender account id
-        oneof opt_to {
-            string to = 7;          // hex receiver EVM address
+        string caller = 2;
+        oneof opt_to_contract_address {
+            CallResult call_result = 3;
+            string contract_address = 4;
         }
-        oneof opt_contract_address {
-            string contract_address = 8;        // hex string
-        }
-        repeated EngineLog logs = 9;
+        repeated EngineLog logs = 5;
     }
     message EngineLog {
         string address = 1;     // hex string
