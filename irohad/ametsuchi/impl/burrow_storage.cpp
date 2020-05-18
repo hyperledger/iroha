@@ -7,18 +7,34 @@
 
 #include <cstddef>
 #include <cstring>
+#include <optional>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "ametsuchi/burrow_storage.hpp"
 #include "common/result.hpp"
 
 namespace {
-  char *clone(const std::string &string) {
-    char *cstr = new char[string.length() + 1];
-    strncpy(cstr, string.c_str(), string.length());
-    cstr[string.length()] = 0;
-    return cstr;
+  inline void clearCharBuffer(Iroha_CharBuffer &buf) {
+    buf.data = nullptr;
+    buf.size = 0;
+  }
+
+  inline void toCharBuffer(Iroha_CharBuffer &buf, const std::string &string) {
+    buf.data = new char[string.length() + 1];
+    strncpy(buf.data, string.c_str(), string.length());
+    buf.data[string.length()] = 0;
+    buf.size = string.length();
+  }
+
+  inline void toCharBuffer(Iroha_CharBuffer &buf,
+                           std::optional<std::string> const &opt_string) {
+    if (opt_string) {
+      toCharBuffer(buf, opt_string.value());
+    } else {
+      clearCharBuffer(buf);
+    }
   }
 
   inline std::string_view charBufferToStringView(Iroha_CharBuffer const &buf) {
@@ -39,16 +55,26 @@ namespace {
 
   struct ResultVisitor {
     Iroha_Result operator()(Value<void>) const {
+      Iroha_Result result;
+      result.which = Iroha_Result_Type_Value;
+      clearCharBuffer(result.data);
       return {};
     }
 
-    Iroha_Result operator()(
-        const Value<std::optional<std::string>> &value) const {
-      return {value.value ? clone(*value.value) : nullptr, nullptr};
+    template <typename T, typename = std::enable_if_t<not std::is_void_v<T>>>
+    Iroha_Result operator()(Value<T> const &value) const {
+      Iroha_Result result;
+      result.which = Iroha_Result_Type_Value;
+      toCharBuffer(result.data, value.value);
+      return result;
     }
 
-    Iroha_Result operator()(const Error<std::string> &error) const {
-      return {nullptr, clone(error.error)};
+    template <typename T, typename = std::enable_if_t<not std::is_void_v<T>>>
+    Iroha_Result operator()(Error<T> const &error) const {
+      Iroha_Result result;
+      result.which = Iroha_Result_Type_Error;
+      toCharBuffer(result.data, error.error);
+      return result;
     }
   };
 
