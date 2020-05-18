@@ -10,50 +10,48 @@
 extern "C" {
 #endif
 
-struct Iroha_CharBuffer {
+typedef struct {
   char *data;
   unsigned long long size;
-};
+} Iroha_CharBuffer;
 
-struct Iroha_CharBufferArray {
-  struct Iroha_CharBuffer *data;
+typedef struct {
+  Iroha_CharBuffer *data;
   unsigned long long size;
-};
+} Iroha_CharBufferArray;
 
-enum Iroha_Result_Type {
+typedef enum {
   Iroha_Result_Type_Value,
   Iroha_Result_Type_Error
-};
+} Iroha_Result_Type;
 
-struct Iroha_Result {
+typedef struct {
   Iroha_CharBuffer data;
   Iroha_Result_Type which;
-};
+} Iroha_Result;
 
-extern struct Iroha_Result Iroha_GetAccount(void *storage,
-                                            struct Iroha_CharBuffer address);
+extern Iroha_Result Iroha_GetAccount(void *storage, Iroha_CharBuffer address);
 
-extern struct Iroha_Result Iroha_UpdateAccount(void *storage,
-                                               struct Iroha_CharBuffer address,
-                                               struct Iroha_CharBuffer account);
+extern Iroha_Result Iroha_UpdateAccount(void *storage,
+                                        Iroha_CharBuffer address,
+                                        Iroha_CharBuffer account);
 
-extern struct Iroha_Result Iroha_RemoveAccount(void *storage,
-                                               struct Iroha_CharBuffer address);
+extern Iroha_Result Iroha_RemoveAccount(void *storage,
+                                        Iroha_CharBuffer address);
 
-extern struct Iroha_Result Iroha_GetStorage(void *storage,
-                                            struct Iroha_CharBuffer address,
-                                            struct Iroha_CharBuffer key);
+extern Iroha_Result Iroha_GetStorage(void *storage,
+                                     Iroha_CharBuffer address,
+                                     Iroha_CharBuffer key);
 
-extern struct Iroha_Result Iroha_SetStorage(void *storage,
-                                            struct Iroha_CharBuffer address,
-                                            struct Iroha_CharBuffer key,
-                                            struct Iroha_CharBuffer value);
+extern Iroha_Result Iroha_SetStorage(void *storage,
+                                     Iroha_CharBuffer address,
+                                     Iroha_CharBuffer key,
+                                     Iroha_CharBuffer value);
 
-extern struct Iroha_Result Iroha_StoreTxReceipt(
-    void *storage,
-    struct Iroha_CharBuffer address,
-    struct Iroha_CharBuffer data,
-    struct Iroha_CharBufferArray topics);
+extern Iroha_Result Iroha_StoreTxReceipt(void *storage,
+                                         Iroha_CharBuffer address,
+                                         Iroha_CharBuffer data,
+                                         Iroha_CharBufferArray topics);
 
 #ifdef __cplusplus
 }  // extern "C"
