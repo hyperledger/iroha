@@ -5,8 +5,6 @@
 
 #include "interfaces/commands/add_signatory.hpp"
 
-#include "cryptography/public_key.hpp"
-
 namespace shared_model {
   namespace interface {
 

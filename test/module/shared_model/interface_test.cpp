@@ -8,6 +8,7 @@
 
 #include "builders/protobuf/transaction.hpp"
 #include "framework/test_logger.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 class TransactionFixture : public ::testing::Test {
  public:

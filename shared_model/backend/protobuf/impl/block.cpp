@@ -10,8 +10,6 @@
 #include "backend/protobuf/transaction.hpp"
 #include "backend/protobuf/util.hpp"
 #include "common/byteutils.hpp"
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace proto {

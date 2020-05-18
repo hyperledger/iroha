@@ -5,7 +5,7 @@
 
 #include "framework/common_constants.hpp"
 
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 
 using namespace shared_model::crypto;
 
@@ -38,12 +38,12 @@ namespace common_constants {
   const std::string kSecondDomainAssetId = kAssetName + "#" + kSecondDomain;
 
   // keypairs
-  const Keypair kAdminKeypair = DefaultCryptoAlgorithmType::generateKeypair();
-  const Keypair kUserKeypair = DefaultCryptoAlgorithmType::generateKeypair();
+  const Keypair kAdminKeypair = CryptoProviderEd25519Sha3::generateKeypair();
+  const Keypair kUserKeypair = CryptoProviderEd25519Sha3::generateKeypair();
   const Keypair kSameDomainUserKeypair =
-      DefaultCryptoAlgorithmType::generateKeypair();
+      CryptoProviderEd25519Sha3::generateKeypair();
   const Keypair kSecondDomainUserKeypair =
-      DefaultCryptoAlgorithmType::generateKeypair();
+      CryptoProviderEd25519Sha3::generateKeypair();
 
   // misc
   const shared_model::interface::Amount kAmountPrec1Max{

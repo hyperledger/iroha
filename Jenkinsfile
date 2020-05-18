@@ -159,9 +159,8 @@ node ('master') {
   useBTF = false
   use_libursa = false
   forceDockerDevelopBuild = false
-  checkTag = sh(script: "git describe --tags --exact-match ${scmVars.GIT_COMMIT}", returnStatus: true)
 
-  if (scmVars.GIT_LOCAL_BRANCH in ["master"] || checkTag == 0 )
+  if (scmVars.GIT_LOCAL_BRANCH in ["master"] || env.TAG_NAME )
     specialBranch =  true
   else
     specialBranch = false
@@ -174,8 +173,8 @@ node ('master') {
 
   if (scmVars.GIT_LOCAL_BRANCH == "master")
     pushDockerTag = 'master'
-  else if (checkTag == 0 )
-    pushDockerTag = sh(script: "git describe --tags --exact-match ${scmVars.GIT_COMMIT}", returnStdout: true).trim().replaceAll('-','_')
+  else if (env.TAG_NAME)
+    pushDockerTag = env.TAG_NAME
   else
     pushDockerTag = 'not-supposed-to-be-pushed'
 
@@ -280,7 +279,7 @@ node ('master') {
        x64linux_compiler_list=${x64linux_compiler_list}, mac_compiler_list=${mac_compiler_list}, win_compiler_list = ${win_compiler_list}"
        sanitize=${sanitize}, cppcheck=${cppcheck}, fuzzing=${fuzzing}, benchmarking=${benchmarking}, coredumps=${coredumps}, sonar=${sonar},
        codestyle=${codestyle},coverage=${coverage}, coverage_mac=${coverage_mac} doxygen=${doxygen}"
-       forceDockerDevelopBuild=${forceDockerDevelopBuild}, checkTag=${checkTag}
+       forceDockerDevelopBuild=${forceDockerDevelopBuild}, env.TAG_NAME=${env.TAG_NAME}
     """
   print scmVars
   print environmentList

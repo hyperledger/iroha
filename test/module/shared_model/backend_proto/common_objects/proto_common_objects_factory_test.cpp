@@ -6,10 +6,12 @@
 #include <gtest/gtest.h>
 
 #include "backend/protobuf/common_objects/proto_common_objects_factory.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "common/hexutils.hpp"
+#include "framework/crypto_literals.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/stateless_valid_field_helpers.hpp"
 #include "module/irohad/common/validators_config.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "validators/field_validator.hpp"
 
 using namespace shared_model;
@@ -28,8 +30,7 @@ class ProtoFixture : public ::testing::Test {
 class PeerTest : public ProtoFixture {
  public:
   std::string valid_address = "127.0.0.1:8080";
-  std::string valid_pubkey =
-      crypto::DefaultCryptoAlgorithmType::generateKeypair().publicKey().hex();
+  interface::types::PublicKeyHexStringView valid_hex_pubkey{"600D"_hex_pubkey};
   std::string invalid_address = "127.0.0.1";
 
   void testValidPeerCreation(const std::string &address,
@@ -52,7 +53,7 @@ class PeerTest : public ProtoFixture {
  * @then peer is successfully initialized
  */
 TEST_F(PeerTest, ValidPeerInitializationWithTlsCert) {
-  testValidPeerCreation(valid_address, valid_pubkey, std::string(""));
+  testValidPeerCreation(valid_address, valid_hex_pubkey, std::string(""));
 }
 
 /**
@@ -61,7 +62,7 @@ TEST_F(PeerTest, ValidPeerInitializationWithTlsCert) {
  * @then peer is successfully initialized
  */
 TEST_F(PeerTest, ValidPeerInitializationWithoutTlsCert) {
-  testValidPeerCreation(valid_address, valid_pubkey, std::nullopt);
+  testValidPeerCreation(valid_address, valid_hex_pubkey, std::nullopt);
 }
 
 /**
@@ -70,8 +71,9 @@ TEST_F(PeerTest, ValidPeerInitializationWithoutTlsCert) {
  * @then peer is not initialized correctly
  */
 TEST_F(PeerTest, InvalidPeerInitialization) {
-  auto peer = factory.createPeer(
-      invalid_address, PublicKeyHexStringView{valid_pubkey}, std::string(""));
+  auto peer = factory.createPeer(invalid_address,
+                                 PublicKeyHexStringView{valid_hex_pubkey},
+                                 std::string(""));
 
   peer.match([](const auto &v) { FAIL() << "Expected error case"; },
              [](const auto &e) { SUCCEED(); });
@@ -233,43 +235,4 @@ TEST_F(DomainTest, InvalidDomainInitialization) {
 
   domain.match([](const auto &v) { FAIL() << "Expected error case"; },
                [](const auto &e) { SUCCEED(); });
-}
-
-class SignatureTest : public ProtoFixture {
- public:
-  std::string valid_pubkey =
-      crypto::PublicKey{framework::padPubKeyString("valid_pubkey")}.hex();
-  std::string valid_data =
-      crypto::Signed{framework::padSignatureString("valid_signature")}.hex();
-  std::string invalid_pubkey{"0a0b"};
-};
-
-/**
- * @given valid data for signature
- * @when signature is created via factory
- * @then signature is successfully initialized
- */
-TEST_F(SignatureTest, ValidSignatureInitialization) {
-  auto signature = factory.createSignature(PublicKeyHexStringView{valid_pubkey},
-                                           SignedHexStringView{valid_data});
-
-  signature.match(
-      [&](const auto &v) {
-        ASSERT_EQ(v.value->publicKey(), valid_pubkey);
-        ASSERT_EQ(v.value->signedData(), valid_data);
-      },
-      [](const auto &e) { FAIL() << e.error; });
-}
-
-/**
- * @given invalid data for signature
- * @when signature is created via factory
- * @then signature is not initialized correctly
- */
-TEST_F(SignatureTest, InvalidSignatureInitialization) {
-  auto signature = factory.createSignature(
-      PublicKeyHexStringView{invalid_pubkey}, SignedHexStringView{valid_data});
-
-  signature.match([](const auto &v) { FAIL() << "Expected error case"; },
-                  [](const auto &e) { SUCCEED(); });
 }

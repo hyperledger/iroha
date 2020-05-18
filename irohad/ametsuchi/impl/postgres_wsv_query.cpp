@@ -10,7 +10,6 @@
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/result.hpp"
-#include "cryptography/public_key.hpp"
 #include "logger/logger.hpp"
 
 namespace {
@@ -33,7 +32,6 @@ namespace iroha {
 
     using shared_model::interface::types::AccountIdType;
     using shared_model::interface::types::AddressType;
-    using shared_model::interface::types::PubkeyType;
     using shared_model::interface::types::TLSCertificateType;
 
     PostgresWsvQuery::PostgresWsvQuery(soci::session &sql,
@@ -54,7 +52,7 @@ namespace iroha {
       }
     }
 
-    boost::optional<std::vector<PubkeyType>> PostgresWsvQuery::getSignatories(
+    boost::optional<std::vector<std::string>> PostgresWsvQuery::getSignatories(
         const AccountIdType &account_id) {
       using T = boost::tuple<std::string>;
       auto result = execute<T>([&] {
@@ -64,10 +62,8 @@ namespace iroha {
                 soci::use(account_id));
       });
 
-      return mapValues<std::vector<PubkeyType>>(result, [&](auto &public_key) {
-        return shared_model::crypto::PublicKey{
-            shared_model::crypto::Blob::fromHexString(public_key)};
-      });
+      return mapValues<std::vector<std::string>>(
+          result, [&](auto &public_key) { return public_key; });
     }
 
     boost::optional<std::vector<std::shared_ptr<shared_model::interface::Peer>>>

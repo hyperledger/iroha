@@ -12,7 +12,6 @@
 #include <memory>
 
 #include <rxcpp/rx-lite.hpp>
-#include "cryptography/public_key.hpp"
 #include "logger/logger_fwd.hpp"
 #include "multi_sig_transactions/mst_propagation_strategy.hpp"
 #include "multi_sig_transactions/mst_time_provider.hpp"

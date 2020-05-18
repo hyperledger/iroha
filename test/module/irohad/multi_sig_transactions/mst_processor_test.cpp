@@ -9,6 +9,7 @@
 #include "datetime/time.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger.hpp"
 #include "module/irohad/multi_sig_transactions/mock_mst_transport.hpp"
 #include "module/irohad/multi_sig_transactions/mst_mocks.hpp"
@@ -19,11 +20,16 @@
 
 auto log_ = getTestLogger("MstProcessorTest");
 
+using namespace std::literals;
 using namespace iroha;
 using namespace framework::test_subscriber;
 
+using shared_model::interface::types::PublicKeyHexStringView;
 using testing::_;
 using testing::Return;
+
+static const PublicKeyHexStringView kPublicKey1{"first public key"sv};
+static const PublicKeyHexStringView kPublicKey2{"second public key"sv};
 
 class MstProcessorTest : public testing::Test {
  public:
@@ -47,9 +53,8 @@ class MstProcessorTest : public testing::Test {
   const shared_model::interface::types::CounterType time_before = time_now - 1;
   const shared_model::interface::types::CounterType time_after = time_now + 1;
 
-  shared_model::crypto::PublicKey another_peer_key{"another_pubkey"};
   shared_model::interface::types::PublicKeyHexStringView another_peer_key_hex{
-      another_peer_key.hex()};
+      "another_pubkey"sv};
 
  protected:
   void SetUp() override {
@@ -291,8 +296,7 @@ TEST_F(MstProcessorTest, onNewPropagationUsecase) {
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{
-      makePeer("one", shared_model::interface::types::PubkeyType("sign_one")),
-      makePeer("two", shared_model::interface::types::PubkeyType("sign_two"))};
+      makePeer("one", kPublicKey1), makePeer("two", kPublicKey2)};
   propagation_subject.get_subscriber().on_next(peers);
 }
 
@@ -364,8 +368,7 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   EXPECT_CALL(*transport, sendState(_, _)).Times(0);
 
   // ---------------------------------| given |---------------------------------
-  shared_model::interface::types::PubkeyType public_key{"sign_one"};
-  auto another_peer = makePeer("another", public_key);
+  auto another_peer = makePeer("another", kPublicKey1);
 
   auto another_peer_state = MstState::empty(
       getTestLogger("MstState"),
@@ -373,7 +376,7 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   another_peer_state += makeTestBatch(txBuilder(1));
 
   storage->apply(
-      shared_model::interface::types::PublicKeyHexStringView{public_key.hex()},
+      shared_model::interface::types::PublicKeyHexStringView{kPublicKey1},
       another_peer_state);
   ASSERT_TRUE(storage
                   ->getDiffState(

@@ -8,7 +8,7 @@
 
 #include <regex>
 
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/default_hash_provider.hpp"
 #include "datetime/time.hpp"
 #include "interfaces/base/signable.hpp"
 #include "interfaces/permissions.hpp"
@@ -202,20 +202,15 @@ namespace shared_model {
       static constexpr auto kDefaultFutureGap =
           std::chrono::minutes(5) / std::chrono::milliseconds(1);
 
-      // size of key
-      static constexpr size_t public_key_size =
-          crypto::DefaultCryptoAlgorithmType::kPublicKeyLength;
-      static constexpr size_t signature_size =
-          crypto::DefaultCryptoAlgorithmType::kSignatureLength;
       static constexpr size_t hash_size =
-          crypto::DefaultCryptoAlgorithmType::kHashLength;
+          crypto::DefaultHashProvider::kHashLength;
       /// limit for the set account detail size in bytes
       static constexpr size_t value_size = 4 * 1024 * 1024;
       size_t max_description_size;
     };
 
     std::optional<ValidationError> validatePubkey(
-        const interface::types::PubkeyType &pubkey);
+        shared_model::interface::types::PublicKeyHexStringView pubkey);
 
     std::optional<ValidationError> validatePubkey(std::string_view pubkey);
 

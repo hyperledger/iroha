@@ -16,7 +16,6 @@
 #include <boost/range/adaptor/map.hpp>
 #include "common/files.hpp"
 #include "common/result.hpp"
-#include "cryptography/public_key.hpp"
 #include "main/iroha_conf_literals.hpp"
 #include "torii/tls_params.hpp"
 

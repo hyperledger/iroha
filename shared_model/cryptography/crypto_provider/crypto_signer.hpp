@@ -7,9 +7,8 @@
 #define IROHA_CRYPTO_SIGNER_HPP
 
 #include "cryptography/blob.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "cryptography/keypair.hpp"
-#include "cryptography/signed.hpp"
 
 namespace shared_model {
   namespace crypto {
@@ -18,16 +17,16 @@ namespace shared_model {
      * cryptographic algorithms
      * @tparam Algorithm - cryptographic algorithm for singing
      */
-    template <typename Algorithm = DefaultCryptoAlgorithmType>
+    template <typename Algorithm = CryptoProviderEd25519Sha3>
     class CryptoSigner {
      public:
       /**
        * Generate signature for target data
        * @param blob - data for signing
        * @param keypair - (public, private) keys for signing
-       * @return signature's blob
+       * @return hex signature
        */
-      static Signed sign(const Blob &blob, const Keypair &keypair) {
+      static std::string sign(const Blob &blob, const Keypair &keypair) {
         return Algorithm::sign(blob, keypair);
       }
 

@@ -26,9 +26,7 @@ namespace iroha {
        * @param account_id
        * @return
        */
-      virtual boost::optional<
-          std::vector<shared_model::interface::types::PubkeyType>>
-      getSignatories(
+      virtual boost::optional<std::vector<std::string>> getSignatories(
           const shared_model::interface::types::AccountIdType &account_id) = 0;
 
       /**

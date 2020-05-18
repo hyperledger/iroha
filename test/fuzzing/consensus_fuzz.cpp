@@ -13,7 +13,6 @@
 #include "consensus/yac/storage/buffered_cleanup_strategy.hpp"
 #include "consensus/yac/transport/impl/network_impl.hpp"
 #include "consensus/yac/yac.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/test_logger.hpp"
 #include "fuzzing/grpc_servercontext_dtor_segv_workaround.hpp"
 #include "logger/dummy_logger.hpp"
@@ -22,6 +21,7 @@
 #include "module/irohad/consensus/yac/mock_yac_network.hpp"
 #include "module/irohad/consensus/yac/mock_yac_timer.hpp"
 #include "module/irohad/consensus/yac/yac_test_util.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "validators/field_validator.hpp"
 
 #include "yac_mock.grpc.pb.h"
@@ -62,7 +62,8 @@ namespace fuzzing {
           async_call_, client_creator_, logger::getDummyLoggerPtr());
 
       crypto_provider_ =
-          std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(keypair_);
+          std::make_shared<iroha::consensus::yac::CryptoProviderImpl>(
+              keypair_, logger::getDummyLoggerPtr());
 
       std::vector<std::shared_ptr<shared_model::interface::Peer>>
           default_peers = [] {

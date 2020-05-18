@@ -7,8 +7,6 @@
 
 #include <optional>
 
-#include "cryptography/public_key.hpp"
-
 namespace shared_model {
   namespace interface {
     std::string Peer::toString() const {

@@ -5,10 +5,10 @@
 
 #include <gtest/gtest.h>
 #include "backend/protobuf/transaction.hpp"
-#include "cryptography/crypto_provider/crypto_defaults.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
+#include "module/shared_model/cryptography/crypto_defaults.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;

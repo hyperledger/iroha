@@ -15,8 +15,6 @@
 #include "consensus/yac/storage/yac_proposal_storage.hpp"
 #include "consensus/yac/timer.hpp"
 #include "consensus/yac/yac_crypto_provider.hpp"
-#include "cryptography/public_key.hpp"
-#include "cryptography/signed.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "logger/logger.hpp"
 
@@ -193,11 +191,7 @@ namespace iroha {
 
         const auto &current_leader = cluster_order.currentLeader();
 
-        log_->info("Vote for round {}, hash ({}, {}) to peer {}",
-                   vote.hash.vote_round,
-                   vote.hash.vote_hashes.proposal_hash,
-                   vote.hash.vote_hashes.block_hash,
-                   current_leader);
+        log_->info("Vote {} to peer {}", vote, current_leader);
 
         network_->sendState(current_leader, {vote});
         cluster_order.switchToNext();
