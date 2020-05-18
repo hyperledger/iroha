@@ -107,6 +107,9 @@ func VmCall(input, caller, callee, nonce *C.const_char, commandExecutor, queryEx
 	if err != nil {
 		return makeError(err.Error())
 	}
+	if output == nil {
+		return nil, nil
+	}
 	return C.CString(hex.EncodeToString(output)), nil
 }
 
