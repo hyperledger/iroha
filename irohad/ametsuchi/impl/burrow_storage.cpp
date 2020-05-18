@@ -106,7 +106,6 @@ Iroha_Result Iroha_StoreTxReceipt(void *storage,
                                   Iroha_CharBuffer address,
                                   Iroha_CharBuffer data,
                                   Iroha_CharBufferArray topics) {
-  std::vector<std::string_view> topics_vector;
   return performQuery(storage,
                       &BurrowStorage::storeTxReceipt,
                       charBufferToStringView(address),
