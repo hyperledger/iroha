@@ -21,11 +21,21 @@ func MakeIrohaCharBuffer(data string) *C.struct_Iroha_CharBuffer {
 
 func (buf *C.struct_Iroha_CharBuffer) free() {
 	C.free(unsafe.Pointer(buf.data))
+	buf.data = nil // not really needed but may save some hair on head
+}
+
+func (buf *C.struct_Iroha_CharBuffer) toStringAndRelease() *string {
+	if buf.data == nil {
+		return nil
+	}
+	result := C.GoStringN(buf.data, C.int(buf.size))
+	buf.free()
+	return &result
 }
 
 type Iroha_CharBufferArray_Wrapper struct {
 	charBuffers []C.struct_Iroha_CharBuffer
-	cArray      *C.struct_Iroha_CharBufferArray
+	cArray      C.struct_Iroha_CharBufferArray
 }
 
 func MakeIrohaCharBufferArray(data []binary.Word256) *Iroha_CharBufferArray_Wrapper {
