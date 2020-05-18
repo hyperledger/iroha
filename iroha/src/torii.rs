@@ -1,5 +1,8 @@
 use crate::{prelude::*, sumeragi::Message, MessageSender};
 use async_std::{sync::RwLock, task};
+#[cfg(feature = "mock")]
+use iroha_network::mock::prelude::*;
+#[cfg(not(feature = "mock"))]
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
 
