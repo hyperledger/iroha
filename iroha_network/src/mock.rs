@@ -173,8 +173,8 @@ impl Network {
 
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Request {
-    uri_path: String,
-    payload: Vec<u8>,
+    pub uri_path: String,
+    pub payload: Vec<u8>,
 }
 
 impl Request {
@@ -251,104 +251,4 @@ pub mod prelude {
 
     #[doc(inline)]
     pub use crate::{AsyncStream, Network, Request, Response, State};
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use async_std::task;
-    use std::convert::TryFrom;
-
-    fn get_empty_state() -> State<()> {
-        Arc::new(RwLock::new(()))
-    }
-
-    #[test]
-    fn request_correctly_built() {
-        let request = Request {
-            uri_path: "/commands".to_string(),
-            payload: b"some_command".to_vec(),
-        };
-        let bytes: Vec<u8> = request.into();
-        assert_eq!(b"/commands\r\nsome_command".to_vec(), bytes)
-    }
-
-    #[test]
-    fn request_correctly_parsed() {
-        let request = Request {
-            uri_path: "/commands".to_string(),
-            payload: b"some_command".to_vec(),
-        };
-        assert_eq!(
-            Request::try_from(b"/commands\r\nsome_command".to_vec()).unwrap(),
-            request
-        )
-    }
-
-    #[async_std::test]
-    async fn single_threaded_async() {
-        async fn handle_request<S>(
-            _state: State<S>,
-            _request: Request,
-        ) -> Result<Response, String> {
-            Ok(Response::Ok("pong".as_bytes().to_vec()))
-        };
-
-        async fn handle_connection<S>(
-            state: State<S>,
-            stream: Box<dyn AsyncStream>,
-        ) -> Result<(), String> {
-            super::Network::handle_message_async(state, stream, handle_request).await
-        };
-
-        task::spawn(async move {
-            Network::listen(get_empty_state(), "127.0.0.1:7878", handle_connection).await
-        });
-        task::sleep(std::time::Duration::from_millis(150)).await;
-        match Network::send_request_to("127.0.0.1:7878", Request::new("/ping".to_string(), vec![]))
-            .await
-            .expect("Failed to send request to.")
-        {
-            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
-            _ => panic!("Response should be ok."),
-        }
-    }
-
-    #[async_std::test]
-    async fn single_threaded_async_stateful() {
-        let counter: State<usize> = Arc::new(RwLock::new(0));
-
-        async fn handle_request(
-            state: State<usize>,
-            _request: Request,
-        ) -> Result<Response, String> {
-            let mut data = state.write().await;
-            *data += 1;
-            Ok(Response::Ok("pong".as_bytes().to_vec()))
-        };
-        async fn handle_connection(
-            state: State<usize>,
-            stream: Box<dyn AsyncStream>,
-        ) -> Result<(), String> {
-            Network::handle_message_async(state, stream, handle_request).await
-        };
-        let counter_move = counter.clone();
-        task::spawn(async move {
-            Network::listen(counter_move, "127.0.0.1:7870", handle_connection).await
-        });
-        task::sleep(std::time::Duration::from_millis(150)).await;
-        match Network::send_request_to("127.0.0.1:7870", Request::new("/ping".to_string(), vec![]))
-            .await
-            .expect("Failed to send request to.")
-        {
-            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
-            _ => panic!("Response should be ok."),
-        }
-        task::sleep(std::time::Duration::from_millis(200)).await;
-        task::spawn(async move {
-            let data = counter.write().await;
-            assert_eq!(*data, 1)
-        });
-        task::sleep(std::time::Duration::from_millis(50)).await;
-    }
 }

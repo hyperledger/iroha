@@ -45,8 +45,10 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose --no-fail-fast
-    - name: Run mock tests
+    - name: Run network mock tests
       run: (cd ./iroha_network && cargo test --features mock)
+    - name: Run iroha tests with network mock
+      run: (cd ./iroha && cargo test --features network-mock)
     - name: Measure lines of code tests coverage
       uses: actions-rs/tarpaulin@v0.1
       with:
