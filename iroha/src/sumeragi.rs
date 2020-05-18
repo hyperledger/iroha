@@ -56,7 +56,7 @@ pub struct Sumeragi {
     peer_id: PeerId,
     /// PendingBlock in discussion this round
     voting_block: Option<SignedBlock>,
-    blocks_sender: Arc<RwLock<BlockSender>>,
+    blocks_sender: Arc<RwLock<ValidBlockSender>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
 }
 
@@ -66,7 +66,7 @@ impl Sumeragi {
         peers: &[PeerId],
         peer_id: PeerId,
         max_faults: usize,
-        blocks_sender: Arc<RwLock<BlockSender>>,
+        blocks_sender: Arc<RwLock<ValidBlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
     ) -> Result<Self, String> {
         if !peers.contains(&peer_id) {
