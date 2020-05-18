@@ -25,23 +25,33 @@ func NewIrohaStorage(storage unsafe.Pointer) *IrohaStorage {
 	}
 }
 
+func handleIrohaCallResult(result C.struct_Iroha_Result) (*string, error) {
+	switch result.which {
+	case C.Iroha_Result_Type_Value:
+		return result.data.toStringAndRelease(), nil
+	case C.Iroha_Result_Type_Error:
+		err_str := result.data.toStringAndRelease()
+		if err_str != nil {
+			return nil, errors.Errorf(errors.Codes.ExecutionReverted, *err_str)
+		}
+	}
+	return nil, errors.Errorf(errors.Codes.ExecutionReverted, "unknown error")
+}
+
 func (st *IrohaStorage) GetAccount(address crypto.Address) (*acm.Account, error) {
 	cAddress := MakeIrohaCharBuffer(address.String())
-	result := C.Iroha_GetAccount(st.storage, *cAddress)
+	accountBytesHex, err := handleIrohaCallResult(C.Iroha_GetAccount(st.storage, *cAddress))
 	cAddress.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return nil, err
 	}
 
-	if result.result == nil {
+	if accountBytesHex == nil {
 		return nil, nil
 	}
 
-	accountBytes, err := hex.DecodeString(C.GoString(result.result))
-	C.free(unsafe.Pointer(result.result))
+	accountBytes, err := hex.DecodeString(*accountBytesHex)
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +85,11 @@ func (st *IrohaStorage) UpdateAccount(account *acm.Account) error {
 
 	cAddress := MakeIrohaCharBuffer(account.GetAddress().String())
 	cAccount := MakeIrohaCharBuffer(hex.EncodeToString(marshalledData))
-	result := C.Iroha_UpdateAccount(st.storage, *cAddress, *cAccount)
+	_, err = handleIrohaCallResult(C.Iroha_UpdateAccount(st.storage, *cAddress, *cAccount))
 	cAddress.free()
 	cAccount.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return err
 	}
 
@@ -90,12 +98,10 @@ func (st *IrohaStorage) UpdateAccount(account *acm.Account) error {
 
 func (st *IrohaStorage) RemoveAccount(address crypto.Address) error {
 	cAddress := MakeIrohaCharBuffer(address.String())
-	result := C.Iroha_RemoveAccount(st.storage, *cAddress)
+	_, err := handleIrohaCallResult(C.Iroha_RemoveAccount(st.storage, *cAddress))
 	cAddress.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return err
 	}
 
@@ -105,38 +111,31 @@ func (st *IrohaStorage) RemoveAccount(address crypto.Address) error {
 func (st *IrohaStorage) GetStorage(address crypto.Address, key binary.Word256) ([]byte, error) {
 	cAddress := MakeIrohaCharBuffer(address.String())
 	cKey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
-	result := C.Iroha_GetStorage(st.storage, *cAddress, *cKey)
+	valueHex, err := handleIrohaCallResult(C.Iroha_GetStorage(st.storage, *cAddress, *cKey))
 	cAddress.free()
 	cKey.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return nil, err
 	}
 
-	if result.result == nil {
+	if valueHex == nil {
 		return nil, nil
 	}
 
-	valueHex := C.GoString(result.result)
-	C.free(unsafe.Pointer(result.result))
-
-	return hex.DecodeString(valueHex)
+	return hex.DecodeString(*valueHex)
 }
 
 func (st *IrohaStorage) SetStorage(address crypto.Address, key binary.Word256, value []byte) error {
 	cAddress := MakeIrohaCharBuffer(address.String())
 	cKey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
 	cValue := MakeIrohaCharBuffer(hex.EncodeToString(value))
-	result := C.Iroha_SetStorage(st.storage, *cAddress, *cKey, *cValue)
+	_, err := handleIrohaCallResult(C.Iroha_SetStorage(st.storage, *cAddress, *cKey, *cValue))
 	cAddress.free()
 	cKey.free()
 	cValue.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return err
 	}
 
@@ -147,14 +146,12 @@ func (st *IrohaStorage) StoreTxReceipt(address crypto.Address, hex_data []byte, 
 	cAddress := MakeIrohaCharBuffer(address.String())
 	cData := MakeIrohaCharBuffer(hex.EncodeToString(hex_data))
 	cTopics := MakeIrohaCharBufferArray(topics)
-	result := C.Iroha_StoreTxReceipt(st.storage, *cAddress, *cData, *cTopics.cArray)
+	_, err := handleIrohaCallResult(C.Iroha_StoreLog(st.storage, *cAddress, *cData, *cTopics.cArray))
 	cAddress.free()
 	cData.free()
 	cTopics.free()
 
-	if result.error != nil {
-		err := errors.Errorf(errors.Codes.ExecutionReverted, C.GoString(result.error))
-		C.free(unsafe.Pointer(result.error))
+	if err != nil {
 		return err
 	}
 
