@@ -1,3 +1,6 @@
+//! This module contains incoming requests handling logic of Iroha.
+//! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
+
 use crate::{prelude::*, sumeragi::Message, MessageSender};
 use async_std::{sync::RwLock, task};
 #[cfg(feature = "mock")]
@@ -6,6 +9,7 @@ use iroha_network::mock::prelude::*;
 use iroha_network::prelude::*;
 use std::{convert::TryFrom, sync::Arc};
 
+/// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
     url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
@@ -14,6 +18,7 @@ pub struct Torii {
 }
 
 impl Torii {
+    /// Default `Torii` constructor.
     pub fn new(
         url: &str,
         world_state_view: Arc<RwLock<WorldStateView>>,
@@ -28,6 +33,7 @@ impl Torii {
         }
     }
 
+    /// To handle incoming requests `Torii` should be started first.
     pub async fn start(&mut self) -> Result<(), String> {
         let url = &self.url.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
@@ -121,9 +127,13 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
     }
 }
 
+/// URI that `Torii` uses to route incoming requests.
 pub mod uri {
+    /// Query URI is used to handle incoming Query requests.
     pub const QUERY_URI: &str = "/query";
+    /// Instructions URI is used to handle incoming ISI requests.
     pub const INSTRUCTIONS_URI: &str = "/instruction";
+    /// Block URI is used to handle incoming Block requests.
     pub const BLOCKS_URI: &str = "/block";
 }
 
