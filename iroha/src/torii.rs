@@ -150,13 +150,13 @@ mod tests {
     async fn create_and_start_torii() {
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let torii_url = config.torii_url.to_string();
+        let torii_url = config.peer_id.address.to_string();
         let (tx_tx, _) = sync::channel(100);
         let (ms_tx, _) = sync::channel(100);
         let mut torii = Torii::new(
             &torii_url,
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                torii_url.clone(),
+                config.peer_id.clone(),
                 &Vec::new(),
             )))),
             tx_tx,

@@ -14,15 +14,15 @@ mod tests {
         // Given
         thread::spawn(|| create_and_start_iroha());
         thread::sleep(std::time::Duration::from_millis(300));
+        let configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: iroha::peer::PeerId::current(),
+            destination_id: configuration.peer_id.clone(),
         };
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
-        let configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let (public_key, _) = configuration.key_pair();
         let create_account = isi::Register {
             object: Account::new(account_name, domain_name, public_key),

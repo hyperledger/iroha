@@ -1,6 +1,6 @@
 //! This module contains `Peer` structure and related implementations and traits implementations.
 
-use crate::prelude::*;
+use crate::{isi::prelude::*, prelude::*};
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
@@ -16,21 +16,10 @@ pub struct PeerId {
     pub public_key: PublicKey,
 }
 
-impl PeerId {
-    /// The way to mark current peer.
-    /// # Deprecated
-    /// Should not be used.
-    pub fn current() -> PeerId {
-        PeerId {
-            address: "Self".to_string(),
-            public_key: [0; 32],
-        }
-    }
-}
-
 /// Peer represents currently running Iroha instance.
 #[derive(Debug, Clone)]
 pub struct Peer {
+    id: PeerId,
     /// All discovered Peers' Ids.
     pub peers: HashSet<PeerId>,
     /// Address to listen to.
@@ -41,15 +30,24 @@ pub struct Peer {
 
 impl Peer {
     /// Default `Peer` constructor.
-    pub fn new(listen_address: String, trusted_peers: &[PeerId]) -> Peer {
+    pub fn new(id: PeerId, trusted_peers: &[PeerId]) -> Peer {
         Peer {
+            id: id.clone(),
             peers: trusted_peers
                 .iter()
-                .filter(|peer_id| listen_address != peer_id.address)
+                .filter(|peer_id| id.address != peer_id.address)
                 .cloned()
                 .collect(),
-            listen_address,
+            listen_address: id.address,
             domains: HashMap::new(),
+        }
+    }
+
+    /// Constructor of `Add<Peer, Domain>` Iroha Special Instruction.
+    pub fn add_domain(&self, object: Domain) -> Add<Peer, Domain> {
+        Add {
+            object,
+            destination_id: self.id.clone(),
         }
     }
 }
@@ -63,7 +61,6 @@ impl Identifiable for Peer {
 /// and the `From/Into` implementations to convert `PeerInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use crate::isi::Add;
     use std::ops::{AddAssign, Sub};
 
     /// Enumeration of all legal Peer related Instructions.

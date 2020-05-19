@@ -29,8 +29,8 @@ const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
 
 /// Configuration parameters container.
 pub struct Configuration {
-    /// URL where `Torii` will listen for an incoming requests.
-    pub torii_url: String,
+    /// Current instance `PeerId`.
+    pub peer_id: PeerId,
     /// Time interval in milliseconds to wait before an attempt to create a new block.
     /// A new block can be build earlier if the pending transactions queue will be filled.
     pub block_build_step_ms: u64,
@@ -39,7 +39,7 @@ pub struct Configuration {
     /// Path to the existing block store folder or path to create new folder.
     pub kura_block_store_path: String,
     /// Optional list of predefined trusted peers.
-    pub trusted_peers: Option<Vec<PeerId>>,
+    pub trusted_peers: Vec<PeerId>,
     /// Maximum amount of peers to fail and do not compromise the consensus.
     pub max_faulty_peers: usize,
     public_key: PublicKey,
@@ -111,9 +111,9 @@ impl Configuration {
         .build()?)
     }
 
-    /// Set `torii_url` configuration parameter - will overwrite the existing one.
-    pub fn torii_url(&mut self, torii_url: &str) {
-        self.torii_url = torii_url.to_string();
+    /// Set `peer_id` configuration parameter - will overwrite the existing one.
+    pub fn peer_id(&mut self, peer_id: PeerId) {
+        self.peer_id = peer_id;
     }
 
     /// Set `kura_block_store_path` configuration parameter - will overwrite the existing one.
@@ -129,7 +129,7 @@ impl Configuration {
 
     /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
     pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
-        self.trusted_peers = Option::Some(trusted_peers);
+        self.trusted_peers = trusted_peers;
     }
 
     /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
@@ -147,8 +147,8 @@ impl Display for Configuration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "URL: {}, Block Build Step Time in milliseconds: {}, Mode: {:?}",
-            self.torii_url, self.block_build_step_ms, self.mode,
+            "PeerId: {:?}, Block Build Step Time in milliseconds: {}, Mode: {:?}",
+            self.peer_id, self.block_build_step_ms, self.mode,
         )
     }
 }
@@ -158,18 +158,23 @@ struct ConfigurationBuilder {
     block_build_step_ms: Option<String>,
     mode: Option<Mode>,
     kura_block_store_path: Option<String>,
-    trusted_peers: Option<Vec<PeerId>>,
+    trusted_peers: Vec<PeerId>,
     max_faulty_peers: Option<String>,
     public_key: PublicKey,
     private_key: PrivateKey,
 }
 
 impl ConfigurationBuilder {
-    fn build(self) -> Result<Configuration, String> {
-        Ok(Configuration {
-            torii_url: self
+    fn build(mut self) -> Result<Configuration, String> {
+        let peer_id = PeerId {
+            address: self
                 .torii_url
                 .unwrap_or_else(|| DEFAULT_TORII_URL.to_string()),
+            public_key: self.public_key,
+        };
+        self.trusted_peers.push(peer_id.clone());
+        Ok(Configuration {
+            peer_id,
             block_build_step_ms: self
                 .block_build_step_ms
                 .unwrap_or_else(|| DEFAULT_BLOCK_TIME_MS.to_string())
@@ -192,11 +197,9 @@ impl ConfigurationBuilder {
 }
 
 /// Parses string formatted as "[address1, address2, ...]" into `Vec<PeerId>`.
-fn parse_trusted_peers(
-    trusted_peers_string: Option<String>,
-) -> Result<Option<Vec<PeerId>>, String> {
+fn parse_trusted_peers(trusted_peers_string: Option<String>) -> Result<Vec<PeerId>, String> {
     match trusted_peers_string {
-        None => Ok(None),
+        None => Ok(Vec::new()),
         Some(trusted_peers_string) => {
             let vector: Vec<PeerId> = trusted_peers_string
                 .trim_start_matches('[')
@@ -235,7 +238,7 @@ fn parse_trusted_peers(
                     }
                 })
                 .collect();
-            Ok(Some(vector))
+            Ok(vector)
         }
     }
 }
@@ -294,7 +297,7 @@ mod tests {
     fn parse_example_json() -> Result<(), String> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
-        let expected_trusted_peers = Some(vec![
+        let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
                 public_key: [
@@ -316,8 +319,15 @@ mod tests {
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
                 ],
             },
-        ]);
-        assert_eq!("127.0.0.1:1338", configuration.torii_url);
+            PeerId {
+                address: "127.0.0.1:1338".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+        ];
+        assert_eq!("127.0.0.1:1338", configuration.peer_id.address);
         assert_eq!(100, configuration.block_build_step_ms);
         assert_eq!(expected_trusted_peers, configuration.trusted_peers);
         Ok(())
@@ -354,7 +364,7 @@ mod tests {
     #[test]
     fn parse_trusted_peers_success() {
         let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}, {"address":"localhost:1338", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}, {"address": "195.162.0.1:23", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}]"#;
-        let expected_trusted_peers = Some(vec![
+        let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
                 public_key: [
@@ -376,7 +386,7 @@ mod tests {
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
                 ],
             },
-        ]);
+        ];
         let result = parse_trusted_peers(Some(trusted_peers_string.to_string()));
         assert!(result.is_ok());
         let result = result.unwrap();

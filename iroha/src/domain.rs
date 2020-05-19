@@ -1,5 +1,5 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
-use crate::prelude::*;
+use crate::{isi::prelude::*, prelude::*};
 use std::collections::HashMap;
 
 type Name = String;
@@ -24,6 +24,22 @@ impl Domain {
             name,
             accounts: HashMap::new(),
             assets: HashMap::new(),
+        }
+    }
+
+    /// Constructor of `Register<Domain, Account>` Iroha Special Instruction.
+    pub fn register_account(&self, object: Account) -> Register<Domain, Account> {
+        Register {
+            object,
+            destination_id: self.name.clone(),
+        }
+    }
+
+    /// Constructor of `Register<Domain, Asset>` Iroha Special Instruction.
+    pub fn register_asset(&self, object: Asset) -> Register<Domain, Asset> {
+        Register {
+            object,
+            destination_id: self.name.clone(),
         }
     }
 }

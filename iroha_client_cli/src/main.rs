@@ -94,12 +94,12 @@ mod domain {
     }
 
     fn create_domain(domain_name: &str) {
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+        let configuration =
+            &Configuration::from_path("config.json").expect("Failed to load configuration.");
+        let mut iroha_client = Client::new(configuration);
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: iroha::peer::PeerId::current(),
+            destination_id: configuration.peer_id.clone(),
         };
         executor::block_on(iroha_client.submit(create_domain.into()))
             .expect("Failed to create domain.");
