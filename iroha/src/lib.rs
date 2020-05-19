@@ -1,3 +1,7 @@
+//! Iroha - A simple, enterprise-grade decentralized ledger.
+
+#![warn(missing_docs)]
+#![warn(private_doc_tests)]
 pub mod account;
 pub mod asset;
 pub mod block;
@@ -32,13 +36,22 @@ use async_std::{
 use std::time::Duration;
 use std::{path::Path, sync::Arc};
 
+/// Type of `Sender<ValidBlock>` which should be used for channels of `ValidBlock` messages.
 pub type ValidBlockSender = Sender<ValidBlock>;
+/// Type of `Receiver<ValidBlock>` which should be used for channels of `ValidBlock` messages.
 pub type ValidBlockReceiver = Receiver<ValidBlock>;
+/// Type of `Sender<CommittedBlock>` which should be used for channels of `CommittedBlock` messages.
 pub type CommittedBlockSender = Sender<CommittedBlock>;
+/// Type of `Receiver<CommittedBlock>` which should be used for channels of `CommittedBlock` messages.
 pub type CommittedBlockReceiver = Receiver<CommittedBlock>;
+/// Type of `Sender<AcceptedTransaction>` which should be used for channels of `AcceptedTransaction` messages.
 pub type TransactionSender = Sender<AcceptedTransaction>;
+/// Type of `Receiver<AcceptedTransaction>` which should be used for channels of
+/// `AcceptedTransaction` messages.
 pub type TransactionReceiver = Receiver<AcceptedTransaction>;
+/// Type of `Sender<Message>` which should be used for channels of `Message` messages.
 pub type MessageSender = Sender<Message>;
+/// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
 pub type MessageReceiver = Receiver<Message>;
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
@@ -57,6 +70,7 @@ pub struct Iroha {
 }
 
 impl Iroha {
+    /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
     pub fn new(config: Configuration) -> Self {
         let (transactions_sender, transactions_receiver) = sync::channel(100);
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
@@ -114,6 +128,8 @@ impl Iroha {
         }
     }
 
+    /// To make `Iroha` peer work it should be started first. After that moment it will listen for
+    /// incoming requests and messages.
     pub async fn start(&self) -> Result<(), String> {
         let kura = Arc::clone(&self.kura);
         kura.write().await.init().await?;
@@ -174,7 +190,9 @@ impl Iroha {
     }
 }
 
+/// This trait marks entity that implement it as identifiable with an `Id` type to find them by.
 pub trait Identifiable {
+    /// Defines the type of entity's identification.
     type Id;
 }
 

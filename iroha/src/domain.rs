@@ -1,16 +1,24 @@
+//! This module contains `Domain` structure and related implementations and trait implementations.
 use crate::prelude::*;
 use std::collections::HashMap;
 
 type Name = String;
 
+/// Named group of `Account` and `Asset` entities.
 #[derive(Debug, Clone)]
 pub struct Domain {
+    /// Domain name, for example company name.
     pub name: Name,
+    /// Accounts of the domain.
     pub accounts: HashMap<<Account as Identifiable>::Id, Account>,
+    /// Assets of the domain.
     pub assets: HashMap<<Asset as Identifiable>::Id, Asset>,
 }
 
 impl Domain {
+    /// Creates new detached `Domain`.
+    ///
+    /// Should be used for creation of a new `Domain` or while making queries.
     pub fn new(name: Name) -> Self {
         Domain {
             name,
@@ -24,19 +32,27 @@ impl Identifiable for Domain {
     type Id = Name;
 }
 
+/// Iroha Special Instructions module provides `DomainInstruction` enum with all legal types of
+/// Domain related instructions as variants, implementations of generic Iroha Special Instructions
+/// and the `From/Into` implementations to convert `DomainInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
     use crate::isi::Register;
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
 
+    /// Enumeration of all legal Domain related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum DomainInstruction {
+        /// Variant of the generic `Register` instruction for `Account` --> `Domain`.
         RegisterAccount(Name, Account),
+        /// Variant of the generic `Register` instruction for `Asset` --> `Domain`.
         RegisterAsset(Name, Asset),
     }
 
     impl DomainInstruction {
+        /// Executes `DomainInstruction` on the given `WorldStateView`.
+        /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
         pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             match self {
                 DomainInstruction::RegisterAccount(domain_name, account) => {

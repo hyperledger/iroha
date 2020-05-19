@@ -1,3 +1,4 @@
+//! This module contains `Configuration` structure and related implementation.
 use crate::{
     crypto::{PrivateKey, PublicKey},
     peer::PeerId,
@@ -26,12 +27,18 @@ const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
 
 /// Configuration parameters container.
 pub struct Configuration {
+    /// URL where `Torii` will listen for an incoming requests.
     pub torii_url: String,
+    /// Time interval in milliseconds to wait before an attempt to create a new block.
+    /// A new block can be build earlier if the pending transactions queue will be filled.
     pub block_build_step_ms: u64,
     /// Possible modes: `strict`, `fast`.
     pub mode: String,
+    /// Path to the existing block store folder or path to create new folder.
     pub kura_block_store_path: String,
+    /// Optional list of predefined trusted peers.
     pub trusted_peers: Option<Vec<PeerId>>,
+    /// Maximum amount of peers to fail and do not compromise the consensus.
     pub max_faulty_peers: usize,
     public_key: PublicKey,
     private_key: PrivateKey,
@@ -97,10 +104,15 @@ impl Configuration {
         .build()?)
     }
 
+    /// Set `torii_url` configuration parameter - will overwrite the existing one.
     pub fn torii_url(&mut self, torii_url: &str) {
         self.torii_url = torii_url.to_string();
     }
 
+    /// Set `kura_block_store_path` configuration parameter - will overwrite the existing one.
+    ///
+    /// # Panic
+    /// If path is not valid this method will panic.
     pub fn kura_block_store_path(&mut self, path: &Path) {
         self.kura_block_store_path = path
             .to_str()
@@ -108,14 +120,17 @@ impl Configuration {
             .to_string();
     }
 
+    /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
     pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
         self.trusted_peers = Option::Some(trusted_peers);
     }
 
+    /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
     pub fn max_faulty_peers(&mut self, max_faulty_peers: usize) {
         self.max_faulty_peers = max_faulty_peers;
     }
 
+    /// Set `public_key` and `private_key` configuration parameters - will overwrite the existing one.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
         (self.public_key, self.private_key)
     }

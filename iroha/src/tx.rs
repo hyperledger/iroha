@@ -1,3 +1,7 @@
+//! This module contains Transaction related functionality of the Iroha.
+//!
+//! `RequestedTransaction` is the start of the Transaction lifecycle.
+
 use crate::prelude::*;
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -25,6 +29,7 @@ struct Payload {
 }
 
 impl RequestedTransaction {
+    /// Default `RequestedTransaction` constructor.
     pub fn new(
         instructions: Vec<Instruction>,
         account_id: <Account as Identifiable>::Id,
@@ -43,6 +48,10 @@ impl RequestedTransaction {
         }
     }
 
+    /// Transaction acceptance will check that transaction signatures are valid and move state one
+    /// step forward.
+    ///
+    /// Returns `Ok(AcceptedTransaction)` if succeeded and `Err(String)` if failed.
     pub fn accept(self) -> Result<AcceptedTransaction, String> {
         for signature in &self.signatures {
             if let Err(e) = signature.verify(&Vec::from(&self.payload)) {
@@ -69,6 +78,9 @@ pub struct AcceptedTransaction {
 }
 
 impl AcceptedTransaction {
+    /// Sign transaction with the provided key pair.
+    ///
+    /// Returns `Ok(SignedTransaction)` if succeeded and `Err(String)` if failed.
     pub fn sign(
         self,
         public_key: &PublicKey,
@@ -87,6 +99,7 @@ impl AcceptedTransaction {
     }
 }
 
+/// `SignedTransaction` represents transaction with signatures accumulated from Peer/Peers.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct SignedTransaction {
     payload: Payload,
@@ -94,6 +107,7 @@ pub struct SignedTransaction {
 }
 
 impl SignedTransaction {
+    /// Add additional Signatures.
     pub fn sign(self, signatures: Vec<Signature>) -> Result<SignedTransaction, String> {
         Ok(SignedTransaction {
             payload: self.payload,
@@ -104,6 +118,10 @@ impl SignedTransaction {
         })
     }
 
+    /// Move transaction lifecycle forward by checking an ability to apply instructions to the
+    /// `WorldStateView`.
+    ///
+    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
     pub fn validate(
         self,
         world_state_view: &mut WorldStateView,
@@ -117,6 +135,7 @@ impl SignedTransaction {
         })
     }
 
+    /// Calculate transaction `Hash`.
     pub fn hash(&self) -> Hash {
         use ursa::blake2::{
             digest::{Input, VariableOutput},
@@ -133,6 +152,7 @@ impl SignedTransaction {
     }
 }
 
+/// `ValidTransaction` represents trustfull Transaction state.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidTransaction {
     payload: Payload,
@@ -140,6 +160,7 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
+    /// Apply instructions to the `WorldStateView`.
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         for instruction in &self.payload.instructions {
             if let Err(e) = instruction.execute(world_state_view) {

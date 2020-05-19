@@ -58,3 +58,10 @@ jobs:
         path: cobertura.xml
     - name: Run benchmarks
       run: cargo bench
+    - name: Documentation build
+      run: cargo doc --no-deps -v
+    - name: Archive documentation 
+      uses: actions/upload-artifact@v1
+      with:
+        name: cargo-doc
+        path: target/doc
