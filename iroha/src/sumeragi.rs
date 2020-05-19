@@ -303,7 +303,7 @@ mod tests {
             3,
             Arc::new(RwLock::new(blocks_sender)),
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                listen_address.clone(),
+                this_peer.clone(),
                 &vec![this_peer],
             )))),
         )
@@ -379,7 +379,10 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (message_sender, mut message_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                "127.0.0.1:7878".to_string(),
+                PeerId {
+                    address: "127.0.0.1:7878".to_string(),
+                    public_key: [0; 32],
+                },
                 &ids,
             ))));
             let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);

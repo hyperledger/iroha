@@ -148,6 +148,7 @@ impl BlockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::peer::PeerId;
     use async_std::sync;
     use tempfile::TempDir;
 
@@ -169,7 +170,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");
@@ -184,7 +188,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");
@@ -206,7 +213,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");
@@ -220,7 +230,10 @@ mod tests {
                 .sign(&[0; 32], &[0; 64])
                 .expect("Failed to sign blocks.")
                 .validate(&WorldStateView::new(Peer::new(
-                    "127.0.0.1:8080".to_string(),
+                    PeerId {
+                        address: "127.0.0.1:8080".to_string(),
+                        public_key: [0; 32],
+                    },
                     &Vec::new(),
                 )))
                 .expect("Failed to validate block.");
@@ -242,7 +255,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");

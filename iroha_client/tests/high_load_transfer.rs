@@ -19,7 +19,7 @@ mod tests {
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: iroha::peer::PeerId::current(),
+            destination_id: configuration.peer_id.clone(),
         };
         let account1_name = "account1";
         let account2_name = "account2";

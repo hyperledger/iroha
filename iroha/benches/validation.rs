@@ -1,11 +1,14 @@
 use criterion::*;
-use iroha::{crypto, isi, prelude::*};
+use iroha::{crypto, isi, peer::PeerId, prelude::*};
 
 fn accept_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -43,7 +46,10 @@ fn sign_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -89,7 +95,10 @@ fn validate_transaction(criterion: &mut Criterion) {
         crypto::generate_key_pair().expect("Failed to generate key pair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -115,7 +124,13 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to sign transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
-    let mut world_state_view = WorldStateView::new(Peer::new("127.0.0.1".to_string(), &Vec::new()));
+    let mut world_state_view = WorldStateView::new(Peer::new(
+        PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
+        &Vec::new(),
+    ));
     criterion.bench_function("validate", |b| {
         b.iter(
             || match transaction.clone().validate(&mut world_state_view) {
@@ -136,7 +151,10 @@ fn chain_blocks(criterion: &mut Criterion) {
         crypto::generate_key_pair().expect("Failed to generate key pair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -177,7 +195,10 @@ fn sign_blocks(criterion: &mut Criterion) {
         crypto::generate_key_pair().expect("Failed to generate key pair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -220,7 +241,10 @@ fn validate_blocks(criterion: &mut Criterion) {
         crypto::generate_key_pair().expect("Failed to generate key pair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: iroha::peer::PeerId::current(),
+        destination_id: PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
     };
     let account_name = "account";
     let create_account = isi::Register {
@@ -246,7 +270,13 @@ fn validate_blocks(criterion: &mut Criterion) {
         .chain_first()
         .sign(&public_key, &private_key)
         .expect("Failed to sign a block.");
-    let mut world_state_view = WorldStateView::new(Peer::new("127.0.0.1".to_string(), &Vec::new()));
+    let mut world_state_view = WorldStateView::new(Peer::new(
+        PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: [0; 32],
+        },
+        &Vec::new(),
+    ));
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("validate_block", |b| {

@@ -16,22 +16,16 @@ mod tests {
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount_on_another_peer(
     ) {
         // Given
+        let mut configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let peers = create_and_start_iroha_peers(N_PEERS);
         thread::sleep(std::time::Duration::from_millis(1000));
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: iroha::peer::PeerId::current(),
+            destination_id: configuration.peer_id.clone(),
         };
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.torii_url(
-            peers
-                .first()
-                .expect("Failed to get first peer.")
-                .address
-                .as_str(),
-        );
+        configuration.peer_id(peers.first().expect("Failed to get first peer.").clone());
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
         let (public_key, _) = configuration.key_pair();
@@ -72,13 +66,7 @@ mod tests {
         //Then
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.torii_url(
-            peers
-                .last()
-                .expect("Failed to get last peer.")
-                .address
-                .as_str(),
-        );
+        configuration.peer_id(peers.last().expect("Failed to get last peer.").clone());
         let mut iroha_client = Client::new(&configuration);
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client
@@ -110,7 +98,7 @@ mod tests {
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration.");
                 configuration.kura_block_store_path(temp_dir.path());
-                configuration.torii_url(&peer_id.address);
+                configuration.peer_id(peer_id.clone());
                 configuration.trusted_peers(peer_ids.clone());
                 configuration.max_faulty_peers(MAX_FAULTS);
                 let iroha = Iroha::new(configuration);

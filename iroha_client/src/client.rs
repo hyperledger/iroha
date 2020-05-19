@@ -27,7 +27,7 @@ impl Client {
         let (public_key, private_key) =
             crypto::generate_key_pair().expect("Failed to generate key pair.");
         Client {
-            torii_url: config.torii_url.clone(),
+            torii_url: config.peer_id.address.clone(),
             public_key: public_key[..]
                 .try_into()
                 .expect("Public key should be [u8;32]"),
