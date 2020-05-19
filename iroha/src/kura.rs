@@ -17,7 +17,7 @@ use std::{
 /// Provides all necessary methods to read and write data, hides implementation details.
 #[derive(Debug)]
 pub struct Kura {
-    _mode: String,
+    mode: Mode,
     blocks: Vec<ValidBlock>,
     block_store: BlockStore,
     block_sender: CommittedBlockSender,
@@ -27,9 +27,9 @@ pub struct Kura {
 impl Kura {
     /// Default `Kura` constructor.
     /// Kura will not be ready to work with before `init` method invocation.
-    pub fn new(_mode: String, block_store_path: &Path, block_sender: CommittedBlockSender) -> Self {
+    pub fn new(mode: Mode, block_store_path: &Path, block_sender: CommittedBlockSender) -> Self {
         Kura {
-            _mode,
+            mode,
             block_store: BlockStore::new(block_store_path),
             block_sender,
             merkle_tree: MerkleTree::new(),
@@ -69,6 +69,15 @@ impl Kura {
             }
         }
     }
+}
+
+/// Kura work mode.
+#[derive(Debug)]
+pub enum Mode {
+    /// Strict validation of all blocks.
+    Strict,
+    /// Fast initialization with basic checks.
+    Fast,
 }
 
 /// Representation of a consistent storage.
@@ -146,7 +155,7 @@ mod tests {
     async fn strict_init_kura() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let (tx, _rx) = sync::channel(100);
-        assert!(Kura::new("strict".to_string(), temp_dir.path(), tx)
+        assert!(Kura::new(Mode::Strict, temp_dir.path(), tx)
             .init()
             .await
             .is_ok());
@@ -239,7 +248,7 @@ mod tests {
             .expect("Failed to validate block.");
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
-        let mut kura = Kura::new("strict".to_string(), dir.path(), tx);
+        let mut kura = Kura::new(Mode::Strict, dir.path(), tx);
         kura.init().await.expect("Failed to init Kura.");
         kura.store(block)
             .await

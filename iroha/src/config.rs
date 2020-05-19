@@ -1,6 +1,7 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
     crypto::{PrivateKey, PublicKey},
+    kura::Mode,
     peer::PeerId,
 };
 use std::{
@@ -16,12 +17,13 @@ const TORII_URL: &str = "TORII_URL";
 const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
 const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
 const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
+const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
 const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
-const DEFAULT_KURA_INIT_MODE: &str = "strict";
+const DEFAULT_KURA_INIT_MODE: Mode = Mode::Strict;
 const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
 
@@ -33,7 +35,7 @@ pub struct Configuration {
     /// A new block can be build earlier if the pending transactions queue will be filled.
     pub block_build_step_ms: u64,
     /// Possible modes: `strict`, `fast`.
-    pub mode: String,
+    pub mode: Mode,
     /// Path to the existing block store folder or path to create new folder.
     pub kura_block_store_path: String,
     /// Optional list of predefined trusted peers.
@@ -80,10 +82,16 @@ impl Configuration {
                 .or_else(|| config_map.remove(BLOCK_TIME_MS)),
             mode: env::var(KURA_INIT_MODE)
                 .ok()
-                .or_else(|| config_map.remove(KURA_INIT_MODE)),
+                .or_else(|| config_map.remove(KURA_INIT_MODE))
+                .map(Mode::from),
             kura_block_store_path: env::var(KURA_BLOCK_STORE_PATH)
                 .ok()
                 .or_else(|| config_map.remove(KURA_BLOCK_STORE_PATH)),
+            trusted_peers: parse_trusted_peers(
+                env::var(TRUSTED_PEERS)
+                    .ok()
+                    .or_else(|| config_map.remove(TRUSTED_PEERS)),
+            )?,
             max_faulty_peers: env::var(MAX_FAULTY_PEERS)
                 .ok()
                 .or_else(|| config_map.remove(MAX_FAULTY_PEERS)),
@@ -99,7 +107,6 @@ impl Configuration {
                     .or_else(|| config_map.remove(IROHA_PRIVATE_KEY))
                     .ok_or("IROHA_PRIVATE_KEY should be set.")?,
             )?,
-            trusted_peers: Option::None,
         }
         .build()?)
     }
@@ -140,7 +147,7 @@ impl Display for Configuration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "URL: {}, Block Build Step Time in milliseconds: {}, Mode: {}",
+            "URL: {}, Block Build Step Time in milliseconds: {}, Mode: {:?}",
             self.torii_url, self.block_build_step_ms, self.mode,
         )
     }
@@ -149,7 +156,7 @@ impl Display for Configuration {
 struct ConfigurationBuilder {
     torii_url: Option<String>,
     block_build_step_ms: Option<String>,
-    mode: Option<String>,
+    mode: Option<Mode>,
     kura_block_store_path: Option<String>,
     trusted_peers: Option<Vec<PeerId>>,
     max_faulty_peers: Option<String>,
@@ -168,9 +175,7 @@ impl ConfigurationBuilder {
                 .unwrap_or_else(|| DEFAULT_BLOCK_TIME_MS.to_string())
                 .parse()
                 .expect("Block build step should be a number."),
-            mode: self
-                .mode
-                .unwrap_or_else(|| DEFAULT_KURA_INIT_MODE.to_string()),
+            mode: self.mode.unwrap_or_else(|| DEFAULT_KURA_INIT_MODE),
             kura_block_store_path: self
                 .kura_block_store_path
                 .unwrap_or_else(|| DEFAULT_KURA_BLOCK_STORE_PATH.to_string()),
@@ -183,6 +188,55 @@ impl ConfigurationBuilder {
             public_key: self.public_key,
             private_key: self.private_key,
         })
+    }
+}
+
+/// Parses string formatted as "[address1, address2, ...]" into `Vec<PeerId>`.
+fn parse_trusted_peers(
+    trusted_peers_string: Option<String>,
+) -> Result<Option<Vec<PeerId>>, String> {
+    match trusted_peers_string {
+        None => Ok(None),
+        Some(trusted_peers_string) => {
+            let vector: Vec<PeerId> = trusted_peers_string
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .split("}, {")
+                .map(|peer_id| {
+                    dbg!(&peer_id);
+                    let key_start = peer_id
+                        .find('[')
+                        .expect("Failed to find start of the public key.");
+                    let key_end = peer_id
+                        .find(']')
+                        .expect("Failed to find end of the public key.");
+                    let address = peer_id
+                        .trim()
+                        .trim_start_matches('{')
+                        .trim()
+                        .trim_start_matches("\"address\":")
+                        .trim()
+                        .trim_start_matches('"')
+                        .trim()
+                        .split('"')
+                        .next()
+                        .expect("Failed to parse address.")
+                        .trim()
+                        .to_string();
+                    let public_key = parse_public_key(
+                        peer_id
+                            .get(key_start..key_end)
+                            .expect("Failed to get public key range."),
+                    )
+                    .expect("Failed to parse public key.");
+                    PeerId {
+                        address,
+                        public_key,
+                    }
+                })
+                .collect();
+            Ok(Some(vector))
+        }
     }
 }
 
@@ -212,6 +266,25 @@ fn parse_private_key(private_key_string: &str) -> Result<PrivateKey, String> {
     Ok(private_key)
 }
 
+impl From<String> for Mode {
+    fn from(string_mode: String) -> Self {
+        Mode::from(string_mode.as_str())
+    }
+}
+
+impl From<&str> for Mode {
+    fn from(string_mode: &str) -> Self {
+        match string_mode {
+            "strict" => Mode::Strict,
+            "fast" => Mode::Fast,
+            other => {
+                eprintln!("Defined unexpected Kura Mode: {}", other);
+                Mode::Strict
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,8 +294,32 @@ mod tests {
     fn parse_example_json() -> Result<(), String> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
+        let expected_trusted_peers = Some(vec![
+            PeerId {
+                address: "127.0.0.1:1337".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+            PeerId {
+                address: "localhost:1338".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+            PeerId {
+                address: "195.162.0.1:23".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+        ]);
         assert_eq!("127.0.0.1:1338", configuration.torii_url);
         assert_eq!(100, configuration.block_build_step_ms);
+        assert_eq!(expected_trusted_peers, configuration.trusted_peers);
         Ok(())
     }
 
@@ -252,5 +349,37 @@ mod tests {
         let result = result.unwrap();
         assert_eq!(expected_private_key[..32], result[..32]);
         assert_eq!(expected_private_key[32..], result[32..]);
+    }
+
+    #[test]
+    fn parse_trusted_peers_success() {
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}, {"address":"localhost:1338", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}, {"address": "195.162.0.1:23", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}]"#;
+        let expected_trusted_peers = Some(vec![
+            PeerId {
+                address: "127.0.0.1:1337".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+            PeerId {
+                address: "localhost:1338".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+            PeerId {
+                address: "195.162.0.1:23".to_string(),
+                public_key: [
+                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
+                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
+                ],
+            },
+        ]);
+        let result = parse_trusted_peers(Some(trusted_peers_string.to_string()));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(expected_trusted_peers, result);
     }
 }
