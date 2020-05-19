@@ -1,3 +1,5 @@
+//! This module contains structures and implementations related to the cryptographic parts of the
+//! Iroha.
 use parity_scale_codec::{Decode, Encode};
 use std::{
     convert::TryInto,
@@ -12,11 +14,16 @@ use ursa::{
     signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
 };
 
+/// Represents hash of Iroha entities like `Block` or `Transaction.
 pub type Hash = [u8; 32];
+/// Public Key used in signatures.
 pub type PublicKey = [u8; 32];
+/// Private Key used in signatures.
 pub type PrivateKey = [u8; 64];
 type Ed25519Signature = [u8; 64];
 
+/// Generates a pair of Public and Private key.
+/// Returns `Err(String)` with error message if failed.
 pub fn generate_key_pair() -> Result<(PublicKey, PrivateKey), String> {
     let (public_key, ursa_private_key) = Ed25519Sha512
         .keypair(Option::None)
@@ -29,6 +36,7 @@ pub fn generate_key_pair() -> Result<(PublicKey, PrivateKey), String> {
     Ok((public_key, private_key))
 }
 
+/// Calculates hash of the given bytes.
 pub fn hash(bytes: Vec<u8>) -> Hash {
     let vec_hash = VarBlake2b::new(32)
         .expect("Failed to initialize variable size hash")
@@ -39,6 +47,7 @@ pub fn hash(bytes: Vec<u8>) -> Hash {
     hash
 }
 
+/// Represents signature of the data (`Block` or `Transaction` for example).
 #[derive(Clone, Encode, Decode)]
 pub struct Signature {
     /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
@@ -49,6 +58,7 @@ pub struct Signature {
 }
 
 impl Signature {
+    /// Creates new `Signature` by signing payload via `private_key`.
     pub fn new(
         public_key: PublicKey,
         payload: &[u8],
@@ -66,6 +76,7 @@ impl Signature {
         })
     }
 
+    /// Verify `message` using signed data and `public_key`.
     pub fn verify(&self, message: &[u8]) -> Result<(), String> {
         Ed25519Sha512::new()
             .verify(

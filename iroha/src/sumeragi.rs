@@ -1,3 +1,7 @@
+//! This module contains consensus related logic of the Iroha.
+//!
+//! `Consensus` trait is now implemented only by `Sumeragi` for now.
+
 use crate::{
     block::{PendingBlock, SignedBlock},
     crypto::Hash,
@@ -19,6 +23,7 @@ trait Consensus {
     fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Option<PendingBlock>;
 }
 
+/// Message's variants that are used by peers to communicate in the process of consensus.
 #[derive(Io, Decode, Encode, Debug, Clone)]
 pub enum Message {
     /// Is sent by leader to all validating peers, when a new block is created.
@@ -40,14 +45,20 @@ impl Message {
     }
 }
 
+/// Possible Peer's roles in consensus.
 #[derive(Eq, PartialEq, Debug)]
 pub enum Role {
+    /// Leader.
     Leader,
+    /// Validating Peer.
     ValidatingPeer,
+    /// Observing Peer.
     ObservingPeer,
+    /// Proxy Tail.
     ProxyTail,
 }
 
+/// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
     public_key: PublicKey,
     private_key: PrivateKey,
@@ -61,6 +72,7 @@ pub struct Sumeragi {
 }
 
 impl Sumeragi {
+    /// Default `Sumeragi` constructor.
     pub fn new(
         private_key: PrivateKey,
         peers: &[PeerId],
@@ -135,51 +147,7 @@ impl Sumeragi {
         }
     }
 
-    fn next_round(&mut self, prev_block_hash: Hash) {
-        Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
-        self.voting_block = None;
-    }
-
-    fn peers_set_a(&self) -> &[PeerId] {
-        let n_a_peers = 2 * self.max_faults + 1;
-        &self.sorted_peers[..n_a_peers]
-    }
-
-    fn peers_set_b(&self) -> &[PeerId] {
-        &self.sorted_peers[(2 * self.max_faults + 1)..]
-    }
-
-    fn leader(&self) -> &PeerId {
-        self.peers_set_a()
-            .first()
-            .expect("Failed to get first peer.")
-    }
-
-    fn proxy_tail(&self) -> &PeerId {
-        self.peers_set_a().last().expect("Failed to get last peer.")
-    }
-
-    fn validating_peers(&self) -> &[PeerId] {
-        let a_set = self.peers_set_a();
-        if a_set.len() > 1 {
-            &a_set[1..(a_set.len() - 1)]
-        } else {
-            &[]
-        }
-    }
-
-    fn role(&self) -> Role {
-        if *self.leader() == self.peer_id {
-            Role::Leader
-        } else if *self.proxy_tail() == self.peer_id {
-            Role::ProxyTail
-        } else if self.validating_peers().contains(&self.peer_id) {
-            Role::ValidatingPeer
-        } else {
-            Role::ObservingPeer
-        }
-    }
-
+    /// This method is used to sort list of peers.
     pub fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
         peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
         if let Some(block_hash) = block_hash {
@@ -188,6 +156,7 @@ impl Sumeragi {
         }
     }
 
+    /// This method is used to handle messages from other peers.
     #[log]
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
         //TODO: check that the messages come from the right peers (check roles, keys)
@@ -249,6 +218,51 @@ impl Sumeragi {
             }
         }
         Ok(())
+    }
+
+    fn next_round(&mut self, prev_block_hash: Hash) {
+        Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
+        self.voting_block = None;
+    }
+
+    fn peers_set_a(&self) -> &[PeerId] {
+        let n_a_peers = 2 * self.max_faults + 1;
+        &self.sorted_peers[..n_a_peers]
+    }
+
+    fn peers_set_b(&self) -> &[PeerId] {
+        &self.sorted_peers[(2 * self.max_faults + 1)..]
+    }
+
+    fn leader(&self) -> &PeerId {
+        self.peers_set_a()
+            .first()
+            .expect("Failed to get first peer.")
+    }
+
+    fn proxy_tail(&self) -> &PeerId {
+        self.peers_set_a().last().expect("Failed to get last peer.")
+    }
+
+    fn validating_peers(&self) -> &[PeerId] {
+        let a_set = self.peers_set_a();
+        if a_set.len() > 1 {
+            &a_set[1..(a_set.len() - 1)]
+        } else {
+            &[]
+        }
+    }
+
+    fn role(&self) -> Role {
+        if *self.leader() == self.peer_id {
+            Role::Leader
+        } else if *self.proxy_tail() == self.peer_id {
+            Role::ProxyTail
+        } else if self.validating_peers().contains(&self.peer_id) {
+            Role::ValidatingPeer
+        } else {
+            Role::ObservingPeer
+        }
     }
 }
 

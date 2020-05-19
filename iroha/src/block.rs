@@ -1,3 +1,6 @@
+//! This module contains `Block` structures for each state, it's transitions, implementations and related traits
+//! implementations.
+
 use crate::{crypto, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
@@ -15,6 +18,7 @@ pub struct PendingBlock {
 }
 
 impl PendingBlock {
+    /// Create a new `PendingBlock` from transactions.
     pub fn new(transactions: Vec<AcceptedTransaction>) -> PendingBlock {
         PendingBlock {
             timestamp: SystemTime::now()
@@ -25,6 +29,7 @@ impl PendingBlock {
         }
     }
 
+    /// Chain block with the existing blockchain.
     pub fn chain(self, height: u64, previous_block_hash: Hash) -> ChainedBlock {
         ChainedBlock {
             timestamp: self.timestamp,
@@ -34,6 +39,7 @@ impl PendingBlock {
         }
     }
 
+    /// Create a new blockchain with current block as a first block.
     pub fn chain_first(self) -> ChainedBlock {
         ChainedBlock {
             timestamp: self.timestamp,
@@ -43,6 +49,7 @@ impl PendingBlock {
         }
     }
 
+    /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
@@ -63,6 +70,7 @@ pub struct ChainedBlock {
 }
 
 impl ChainedBlock {
+    /// Sign block by the given key pair.
     pub fn sign(
         self,
         public_key: &PublicKey,
@@ -93,6 +101,7 @@ impl ChainedBlock {
         })
     }
 
+    /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
@@ -118,6 +127,7 @@ pub struct SignedBlock {
 }
 
 impl SignedBlock {
+    /// Add additional signature to the already signed block.
     pub fn sign(
         mut self,
         public_key: &PublicKey,
@@ -145,6 +155,7 @@ impl SignedBlock {
         })
     }
 
+    /// Validate block transactions against current state of the world.
     pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidBlock, String> {
         let mut world_state_view = world_state_view.clone();
         Ok(ValidBlock {
@@ -161,6 +172,7 @@ impl SignedBlock {
         })
     }
 
+    /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
@@ -183,10 +195,13 @@ pub struct ValidBlock {
 }
 
 impl ValidBlock {
+    /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
     }
 
+    /// Commit block to the store.
+    //TODO: pass block store and block sender as parameters?
     pub fn commit(self) -> CommittedBlock {
         CommittedBlock {
             timestamp: self.timestamp,
@@ -216,6 +231,7 @@ pub struct CommittedBlock {
 }
 
 impl CommittedBlock {
+    /// Calculate hash of the current block.
     /// `CommitedBlock` should have the same hash as `ValidBlock`.
     pub fn hash(&self) -> Hash {
         crypto::hash(self.into())
