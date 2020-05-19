@@ -1,7 +1,7 @@
 //! This module contains `Account` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::prelude::*;
+use crate::{isi::prelude::*, prelude::*};
 use parity_scale_codec::{Decode, Encode};
 use std::collections::BTreeMap;
 
@@ -26,6 +26,19 @@ impl Account {
             id: Id::new(account_name, container),
             assets: BTreeMap::new(),
             signatories: vec![public_key],
+        }
+    }
+
+    /// Constructor of the `Transfer<Account, Asset, Account>` Iroha Special Instruction.
+    pub fn transfer_asset_to(
+        &self,
+        object: Asset,
+        destination_id: Id,
+    ) -> Transfer<Account, Asset, Account> {
+        Transfer {
+            source_id: self.id.clone(),
+            object,
+            destination_id,
         }
     }
 }
@@ -77,7 +90,6 @@ impl Identifiable for Account {
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use crate::isi::prelude::*;
     use iroha_derive::*;
     use std::ops::{Add, Sub};
 

@@ -1,7 +1,7 @@
 //! This module contains `Asset` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::prelude::*;
+use crate::{isi::prelude::*, prelude::*};
 use iroha_derive::log;
 use parity_scale_codec::{Decode, Encode};
 
@@ -28,6 +28,14 @@ impl Asset {
     pub fn with_quantity(mut self, quantity: u128) -> Self {
         self.quantity = quantity;
         self
+    }
+
+    /// Constructor of the `Mint<Asset, u128>` Iroha Special Instruction.
+    pub fn mint(&self, object: u128) -> Mint<Asset, u128> {
+        Mint {
+            object,
+            destination_id: self.id.clone(),
+        }
     }
 }
 
@@ -88,7 +96,6 @@ impl Identifiable for Asset {
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use crate::isi::Mint;
     use iroha_derive::*;
 
     /// Enumeration of all legal Asset related Instructions.

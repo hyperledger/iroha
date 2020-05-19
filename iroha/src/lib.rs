@@ -22,7 +22,7 @@ pub mod wsv;
 use crate::{
     config::Configuration,
     kura::Kura,
-    peer::{Peer, PeerId},
+    peer::Peer,
     prelude::*,
     queue::Queue,
     sumeragi::{Message, Sumeragi},
@@ -77,36 +77,26 @@ impl Iroha {
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
         let (message_sender, message_receiver) = sync::channel(100);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-            config.torii_url.clone(),
-            &Vec::new(),
+            config.peer_id.clone(),
+            &config.trusted_peers,
         ))));
         let torii = Torii::new(
-            &config.torii_url,
+            &config.peer_id.address.clone(),
             Arc::clone(&world_state_view),
             transactions_sender,
             message_sender,
         );
-        let (public_key, private_key) = config.key_pair();
+        let (_public_key, private_key) = config.key_pair();
         let kura = Arc::new(RwLock::new(Kura::new(
             config.mode,
             Path::new(&config.kura_block_store_path),
             wsv_blocks_sender,
         )));
-        //TODO: get peers from json and blockchain
-        //The id of this peer
-        let iroha_peer_id = PeerId {
-            address: config.torii_url.to_string(),
-            public_key,
-        };
-        let peers = match config.trusted_peers {
-            Some(peers) => peers,
-            None => vec![iroha_peer_id.clone()],
-        };
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::new(
                 private_key,
-                &peers,
-                iroha_peer_id,
+                &config.trusted_peers,
+                config.peer_id,
                 config.max_faulty_peers,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),

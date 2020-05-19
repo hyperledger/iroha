@@ -153,6 +153,7 @@ impl<'a> IntoIterator for &'a MerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::peer::PeerId;
 
     #[test]
     fn tree_with_two_layers_should_reach_all_nodes() {
@@ -173,7 +174,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");
@@ -190,7 +194,10 @@ mod tests {
             .sign(&[0; 32], &[0; 64])
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
-                "127.0.0.1:8080".to_string(),
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
                 &Vec::new(),
             )))
             .expect("Failed to validate block.");
