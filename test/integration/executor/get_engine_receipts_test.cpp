@@ -180,6 +180,45 @@ TEST_P(GetEngineReceiptsBasicTest, NoSuchTx) {
       });
 }
 
+/**
+ * @given a user with all related permissions
+ * @when GetEngineReceipts is queried on a tx with vm call with no logs
+ * @then there is one receipt with no logs
+ */
+TEST_P(GetEngineReceiptsBasicTest, DeployWithNoLogs) {
+  getItf().createUserWithPerms(kUser,
+                               kDomain,
+                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               {Role::kCallEngine, Role::kGetMyEngineReceipts});
+
+  auto tx = TestTransactionBuilder{}
+                .creatorAccountId(kUserId)
+                .callEngine(kUserId, std::nullopt, kContractCode)
+                .build();
+  std::string tx_hash = tx.hash().hex();
+  CommandIndexType cmd_idx = 0;
+
+  {  // cmd 1
+    prepareVmCallerForCommand(tx_hash,
+                              cmd_idx,
+                              kContractCode,
+                              std::optional<EvmCalleeHexStringView>{},
+                              iroha::expected::makeValue(kAddress1));
+  }
+
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx));
+
+  commitTx(std::move(tx));
+
+  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
+      getEngineReceipts(tx_hash, kUserId), [](const auto &response) {
+        using namespace testing;
+        EXPECT_THAT(response,
+                    receiptsAre(ElementsAre(receiptIsDeploy(
+                        0, kUserId, std::string_view{kAddress1}, {}))));
+      });
+}
+
 INSTANTIATE_TEST_SUITE_P(Base,
                          GetEngineReceiptsBasicTest,
                          executor_testing::getExecutorTestParams(),
