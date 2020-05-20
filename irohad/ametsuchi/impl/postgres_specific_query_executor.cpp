@@ -1472,7 +1472,7 @@ namespace iroha {
         const shared_model::interface::types::HashType &query_hash) {
       auto cmd = fmt::format(
           R"(
-            with  
+            with
               target as (
                 select distinct creator_id as t
                 from tx_positions
@@ -1491,7 +1491,7 @@ namespace iroha {
                     burrow_tx_logs_topics.topic,
                     has_perms.perm
             from engine_calls
-            inner join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
+            left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id and engine_calls.tx_hash=:tx_hash
             left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
             cross join target
             RIGHT OUTER JOIN has_perms ON TRUE
@@ -1530,18 +1530,24 @@ namespace iroha {
             RecordsCollection records;
             RecordPtr record;
             EngineLogPtr log;
-            uint32_t l_ix;
+            std::optional<uint32_t> prev_log_ix;
+            std::optional<shared_model::interface::types::CommandIndexType> prev_cmd_ix;
 
-            auto store_record = [](RecordsCollection &records, RecordPtr &&rec, EngineLogPtr &&el) {
-              assert(!!rec);
-              assert(!!el);
-              rec->getMutableLogs().emplace_back(std::move(el));
-              records.emplace_back(std::move(rec));
+            auto store_record = [](RecordsCollection &records, RecordPtr &&rec) {
+                if (!!rec) {
+                  records.emplace_back(std::move(rec));
+                }
+            };
+
+            auto store_log = [](RecordPtr &rec, EngineLogPtr &&el) {
+                if (!!rec && !!el) {
+                   rec->getMutableLogs().emplace_back(std::move(el));
+                }
             };
 
             for (const auto &row : range) {
               iroha::ametsuchi::apply(
-                  row, [&q, &store_record, &record, &log, &records, &l_ix](
+                  row, [&q, &store_record, &store_log, &record, &log, &records, &prev_log_ix, &prev_cmd_ix](
                                   auto &cmd_index,
                                   auto &caller,
                                   auto &payload_callee,
@@ -1552,11 +1558,7 @@ namespace iroha {
                                   auto &log_data,
                                   auto &log_topic
                                   ) {
-                    if (!cmd_index ||
-                        !caller ||
-                        !logs_ix ||
-                        !log_address ||
-                        !log_data)
+                    if (!cmd_index || !caller)
                         return;
 
                     auto payloadToPayloadType = [](
@@ -1573,46 +1575,42 @@ namespace iroha {
                       return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress;
                     };
 
-                    {
-                      shared_model::interface::types::EvmAddressHexString const *target;
-                      auto const pt = payloadToPayloadType(payload_callee, payload_cantract_address, target);
-                      if (!record) {
-                        record = std::make_unique<shared_model::plain::EngineReceipt>(
-                                    *cmd_index,
-                                    *caller,
-                                    pt,
-                                    *target,
-                                    engine_response
-                                 );
-                      } else if (*cmd_index != record->getCommandIndex()) {
-                        store_record(records, std::move(record), std::move(log));
-                        record = std::make_unique<shared_model::plain::EngineReceipt>(
-                                    *cmd_index,
-                                    *caller,
-                                    pt,
-                                    *target,
-                                    engine_response
-                                 );
-                      }
+                    auto const new_cmd = (prev_cmd_ix != cmd_index);
+                    auto const new_log = (prev_log_ix != logs_ix) || new_cmd;
+
+                    if (new_log) {
+                        store_log(record, std::move(log));
+
+                        if (!!logs_ix) {
+                            assert(!!log_address && !!log_data);
+                            log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
+                        }
+                        prev_log_ix = logs_ix;
                     }
 
-                    if (!log) {
-                      log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
-                      l_ix = *logs_ix;
-                    }
-                    if (*logs_ix != l_ix) {
-                      record->getMutableLogs().emplace_back(std::move(log));
-                      log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
-                      l_ix = *logs_ix;
-                    }
-                    if (log_topic) {
+                    if (!!log_topic) {
+                      assert(!!log);
                       log->addTopic(*log_topic);
+                    }
+
+                    if (new_cmd) {
+                        store_record(records, std::move(record));
+
+                        shared_model::interface::types::EvmAddressHexString const *target;
+                        auto const pt = payloadToPayloadType(payload_callee, payload_cantract_address, target);
+                        record = std::make_unique<shared_model::plain::EngineReceipt>(
+                                    *cmd_index,
+                                    *caller,
+                                    pt,
+                                    *target,
+                                    engine_response
+                                 );
+                        prev_cmd_ix = cmd_index;
                     }
                   });
             }
-            if (!!record) {
-              store_record(records, std::move(record), std::move(log));
-            }
+            store_log(record, std::move(log));
+            store_record(records, std::move(record));
 
             return query_response_factory_->createEngineReceiptsResponse(records, query_hash);
           },
