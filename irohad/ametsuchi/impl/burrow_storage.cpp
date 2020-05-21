@@ -128,12 +128,12 @@ Iroha_Result Iroha_SetStorage(void *storage,
                       charBufferToStringView(value));
 }
 
-Iroha_Result Iroha_StoreTxReceipt(void *storage,
-                                  Iroha_CharBuffer address,
-                                  Iroha_CharBuffer data,
-                                  Iroha_CharBufferArray topics) {
+Iroha_Result Iroha_StoreLog(void *storage,
+                            Iroha_CharBuffer address,
+                            Iroha_CharBuffer data,
+                            Iroha_CharBufferArray topics) {
   return performQuery(storage,
-                      &BurrowStorage::storeTxReceipt,
+                      &BurrowStorage::storeLog,
                       charBufferToStringView(address),
                       charBufferToStringView(data),
                       charBufferArrayToStringViewVector(topics));

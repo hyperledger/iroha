@@ -39,7 +39,7 @@ namespace iroha::ametsuchi {
         std::string_view key,
         std::string_view value) override;
 
-    expected::Result<void, std::string> storeTxReceipt(
+    expected::Result<void, std::string> storeLog(
         std::string_view address,
         std::string_view data,
         std::vector<std::string_view> topics) override;

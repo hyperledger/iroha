@@ -132,7 +132,7 @@ class PostgresBurrowStorageTest : public testing::Test {
                    log.topics.end(),
                    std::back_inserter(topics_sv),
                    [](auto const &s) { return std::string_view{s}; });
-    return storage_.storeTxReceipt(log.address, log.data, topics_sv);
+    return storage_.storeLog(log.address, log.data, topics_sv);
   }
 
   std::unique_ptr<TestDbManager> test_db_manager_{

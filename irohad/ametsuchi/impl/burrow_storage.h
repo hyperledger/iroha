@@ -48,10 +48,10 @@ extern Iroha_Result Iroha_SetStorage(void *storage,
                                      Iroha_CharBuffer key,
                                      Iroha_CharBuffer value);
 
-extern Iroha_Result Iroha_StoreTxReceipt(void *storage,
-                                         Iroha_CharBuffer address,
-                                         Iroha_CharBuffer data,
-                                         Iroha_CharBufferArray topics);
+extern Iroha_Result Iroha_StoreLog(void *storage,
+                                   Iroha_CharBuffer address,
+                                   Iroha_CharBuffer data,
+                                   Iroha_CharBufferArray topics);
 
 #ifdef __cplusplus
 }  // extern "C"
