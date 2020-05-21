@@ -106,7 +106,7 @@ Result<void, std::string> PostgresBurrowStorage::setStorage(
   }
 }
 
-Result<void, std::string> PostgresBurrowStorage::storeTxReceipt(
+Result<void, std::string> PostgresBurrowStorage::storeLog(
     std::string_view address,
     std::string_view data,
     std::vector<std::string_view> topics) {
