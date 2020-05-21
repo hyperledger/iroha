@@ -6,17 +6,23 @@
 #ifndef IROHA_VALIDATORS_FIXTURE_HPP
 #define IROHA_VALIDATORS_FIXTURE_HPP
 
+#include <string_view>
+
 #include <gtest/gtest.h>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/for_each.hpp>
 #include <boost/range/irange.hpp>
 
+#include "commands.pb.h"
 #include "datetime/time.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/permissions.hpp"
 #include "primitive.pb.h"
 #include "queries.pb.h"
 #include "transaction.pb.h"
+
+using namespace std::literals;
 
 class ValidatorsTest : public ::testing::Test {
  public:
@@ -36,6 +42,12 @@ class ValidatorsTest : public ::testing::Test {
     auto setUInt64 = setField(&google::protobuf::Reflection::SetUInt64);
     auto addEnum = setField(&google::protobuf::Reflection::AddEnumValue);
     auto setEnum = setField(&google::protobuf::Reflection::SetEnumValue);
+    auto setStrongStringView = [](const auto &value) {
+      return [&value](auto refl, auto msg, auto field) {
+        std::string_view sv{value};
+        refl->SetString(msg, field, std::string{sv.data(), sv.size()});
+      };
+    };
 
     ignored_fields_ = {"iroha.protocol.Command.set_setting_value"};
 
@@ -100,6 +112,17 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.AddAssetQuantity.amount", setString(amount)},
         {"iroha.protocol.TransferAsset.amount", setString(amount)},
         {"iroha.protocol.SubtractAssetQuantity.amount", setString(amount)},
+        {"iroha.protocol.CallEngine.type", setEnum(engine_type)},
+        {"iroha.protocol.CallEngine.caller", setString(account_id)},
+        {"iroha.protocol.CallEngine.callee",
+         [this](auto refl, auto msg, auto field) {
+           if (callee) {
+             refl->SetString(msg, field, callee.value());
+           } else {
+             refl->ClearOneof(msg, field->containing_oneof());
+           }
+         }},
+        {"iroha.protocol.CallEngine.input", setStrongStringView(input)},
         {"iroha.protocol.AddPeer.peer",
          [&](auto refl, auto msg, auto field) {
            refl->MutableMessage(msg, field)->CopyFrom(peer);
@@ -241,7 +264,9 @@ class ValidatorsTest : public ::testing::Test {
     domain_id = "ru";
     detail_key = "key";
     writer = "account@domain";
-
+    callee = std::string(40, 'a');
+    engine_type = iroha::protocol::CallEngine::EngineType::
+        CallEngine_EngineType_kSolidity;
     // size of public_key and hash are twice bigger `public_key_size` because it
     // is hex representation
     public_key = std::string(public_key_size * 2, '0');
@@ -279,6 +304,9 @@ class ValidatorsTest : public ::testing::Test {
   std::string public_key;
   std::string hash;
   std::string writer;
+  std::optional<std::string> callee;
+  iroha::protocol::CallEngine::EngineType engine_type;
+  shared_model::interface::types::EvmCodeHexStringView input{"C0DE"sv};
   iroha::protocol::Transaction::Payload::BatchMeta batch_meta;
   shared_model::interface::permissions::Role model_role_permission;
   shared_model::interface::permissions::Grantable model_grantable_permission;

@@ -10,6 +10,7 @@ add_library(shared_model_interfaces
     commands/impl/add_peer.cpp
     commands/impl/add_signatory.cpp
     commands/impl/append_role.cpp
+    commands/impl/call_engine.cpp
     commands/impl/command.cpp
     commands/impl/create_account.cpp
     commands/impl/create_asset.cpp

@@ -17,6 +17,7 @@
 #include "backend/protobuf/permissions.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/engine_type.hpp"
 #include "interfaces/permissions.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "validators/default_validator.hpp"
@@ -187,6 +188,25 @@ namespace shared_model {
           command->set_account_id(account_id);
           const std::string_view public_key_sv = public_key;
           command->set_public_key(public_key_sv.data(), public_key_sv.size());
+        });
+      }
+
+      auto callEngine(
+          const interface::types::AccountIdType &caller,
+          std::optional<interface::types::EvmCalleeHexStringView> callee,
+          interface::types::EvmCodeHexStringView input) const {
+        return addCommand([&](auto proto_command) {
+          auto command = proto_command->mutable_call_engine();
+          command->set_type(iroha::protocol::CallEngine::EngineType::
+                                CallEngine_EngineType_kSolidity);
+          command->set_caller(caller);
+          if (callee) {
+            const auto callee_sv =
+                static_cast<std::string_view const &>(callee.value());
+            command->set_callee(callee_sv.data(), callee_sv.size());
+          }
+          const auto input_sv = static_cast<std::string_view const &>(input);
+          command->set_input(input_sv.data(), input_sv.size());
         });
       }
 

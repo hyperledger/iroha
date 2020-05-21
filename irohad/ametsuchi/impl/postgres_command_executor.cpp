@@ -5,8 +5,10 @@
 
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 
+#include <exception>
 #include <forward_list>
 
+#include <fmt/core.h>
 #include <soci/postgresql/soci-postgresql.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
@@ -18,6 +20,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -36,6 +39,7 @@
 #include "interfaces/commands/transfer_asset.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "interfaces/permission_to_string.hpp"
+#include "interfaces/permissions.hpp"
 #include "utils/string_builder.hpp"
 
 using shared_model::interface::permissions::Grantable;
@@ -1455,6 +1459,31 @@ namespace iroha {
       executor.use("role", role);
 
       return executor.execute();
+    }
+
+    CommandResult PostgresCommandExecutor::operator()(
+        const shared_model::interface::CallEngine &command,
+        const shared_model::interface::types::AccountIdType &creator_account_id,
+        bool do_validation) {
+      try {
+        if (do_validation) {  // check permissions
+          int has_permission = 0;
+          using namespace shared_model::interface::permissions;
+          *sql_ << checkAccountHasRoleOrGrantablePerm(
+              Role::kCallEngine,
+              Grantable::kCallEngineOnMyBehalf,
+              ":creator",
+              ":caller"),
+              soci::use(creator_account_id, "creator"),
+              soci::use(command.caller(), "caller"), soci::into(has_permission);
+          if (has_permission == 0) {
+            return makeCommandError("CallEngine", 2, "Not enough permissions.");
+          }
+        }
+      } catch (std::exception const &e) {
+        return makeCommandError("CallEngine", 1, e.what());
+      }
+      return {};
     }
 
     CommandResult PostgresCommandExecutor::operator()(

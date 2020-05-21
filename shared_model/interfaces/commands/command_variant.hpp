@@ -30,7 +30,8 @@ namespace boost {
       const shared_model::interface::SubtractAssetQuantity &,
       const shared_model::interface::TransferAsset &,
       const shared_model::interface::CompareAndSetAccountDetail &,
-      const shared_model::interface::SetSettingValue &>;
+      const shared_model::interface::SetSettingValue &,
+      const shared_model::interface::CallEngine &>;
 }  // namespace boost
 
 #endif  // IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP

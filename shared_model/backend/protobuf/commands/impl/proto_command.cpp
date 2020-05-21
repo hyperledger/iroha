@@ -9,6 +9,7 @@
 #include "backend/protobuf/commands/proto_add_peer.hpp"
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
 #include "backend/protobuf/commands/proto_append_role.hpp"
+#include "backend/protobuf/commands/proto_call_engine.hpp"
 #include "backend/protobuf/commands/proto_compare_and_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_create_account.hpp"
 #include "backend/protobuf/commands/proto_create_asset.hpp"
@@ -47,7 +48,8 @@ namespace {
                        shared_model::proto::TransferAsset,
                        shared_model::proto::RemovePeer,
                        shared_model::proto::CompareAndSetAccountDetail,
-                       shared_model::proto::SetSettingValue>;
+                       shared_model::proto::SetSettingValue,
+                       shared_model::proto::CallEngine>;
 
   /// list of types in proto variant
   using ProtoCommandListType = ProtoCommandVariantType::types;

@@ -55,6 +55,14 @@ target_link_libraries(add_signatory_test
     executor_fixture_param_provider
     )
 
+addtest(call_engine_test call_engine_test.cpp)
+target_link_libraries(call_engine_test
+    command_permission_test
+    common_test_constants
+    executor_fixture
+    executor_fixture_param_provider
+    )
+
 addtest(create_account_test create_account_test.cpp)
 target_link_libraries(create_account_test
     command_permission_test

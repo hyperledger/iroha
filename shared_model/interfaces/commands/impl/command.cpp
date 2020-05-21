@@ -9,6 +9,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/create_account.hpp"
 #include "interfaces/commands/create_asset.hpp"
 #include "interfaces/commands/create_domain.hpp"
