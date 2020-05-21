@@ -51,8 +51,8 @@ impl Kura {
     pub async fn store(&mut self, mut block: ValidBlock) -> Result<Hash, String> {
         if !self.blocks.is_empty() {
             let last_block_index = self.blocks.len() - 1;
-            block.height = last_block_index as u64 + 1;
-            block.previous_block_hash = Some(self.blocks.as_mut_slice()[last_block_index].hash());
+            block.header.height = last_block_index as u64 + 1;
+            block.header.previous_block_hash = self.blocks.as_mut_slice()[last_block_index].hash();
         }
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
@@ -106,7 +106,7 @@ impl BlockStore {
 
     async fn write(&self, block: &ValidBlock) -> Result<Hash, String> {
         //filename is its height
-        let path = self.get_block_path(block.height);
+        let path = self.get_block_path(block.header.height);
         match File::create(path).await {
             Ok(mut file) => {
                 let hash = block.hash();
