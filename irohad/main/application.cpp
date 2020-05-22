@@ -310,30 +310,30 @@ Irohad::RunResult Irohad::initStorage(
       persistent_block_storage = std::make_unique<PostgresBlockStorage>(
           pool_wrapper_, block_transport_factory, persistent_table, log_);
     }
-  return StorageImpl::create(*pg_opt_,
-                             pool_wrapper_,
-                             perm_converter,
-                             pending_txs_storage_,
-                             query_response_factory_,
-                             std::move(temporary_block_storage_factory),
-                             std::move(persistent_block_storage),
-                             log_manager_->getChild("Storage"))
-             | [&](auto &&v) -> RunResult {
-    storage = std::move(v);
-    finalized_txs_ =
-        storage->on_commit()
-            .flat_map([](auto const &block) {
-              return rxcpp::observable<>::iterate(
-                         block->transactions()
-                         | boost::adaptors::transformed(
-                               [](auto const &tx) { return tx.hash(); }))
-                  .concat(rxcpp::observable<>::iterate(
-                      block->rejected_transactions_hashes()));
-            })
-            .publish()
-            .ref_count();
-    log_->info("[Init] => storage");
-    return {};
+    return StorageImpl::create(*pg_opt_,
+                               pool_wrapper_,
+                               perm_converter,
+                               pending_txs_storage_,
+                               query_response_factory_,
+                               std::move(temporary_block_storage_factory),
+                               std::move(persistent_block_storage),
+                               log_manager_->getChild("Storage"))
+               | [&](auto &&v) -> RunResult {
+      storage = std::move(v);
+      finalized_txs_ =
+          storage->on_commit()
+              .flat_map([](auto const &block) {
+                return rxcpp::observable<>::iterate(
+                           block->transactions()
+                           | boost::adaptors::transformed(
+                                 [](auto const &tx) { return tx.hash(); }))
+                    .concat(rxcpp::observable<>::iterate(
+                        block->rejected_transactions_hashes()));
+              })
+              .publish()
+              .ref_count();
+      log_->info("[Init] => storage");
+      return {};
     };
   };
 }

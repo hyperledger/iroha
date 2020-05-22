@@ -141,7 +141,10 @@ namespace iroha {
         assert(not committed);
         return "Tried to commit mutable storage twice.";
       }
-      assert(ledger_state_);
+      if (not ledger_state_) {
+        assert(ledger_state_);
+        return "Tried to commit mutable storage with no blocks applied.";
+      }
       try {
         sql_ << "COMMIT";
         committed = true;
