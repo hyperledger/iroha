@@ -192,7 +192,7 @@ pub mod prelude {
     #[doc(inline)]
     pub use crate::{
         account::{Account, Id as AccountId},
-        asset::{Asset, Id as AssetId},
+        asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
         block::{CommittedBlock, PendingBlock, ValidBlock},
         config::Configuration,
         crypto::{Hash, PrivateKey, PublicKey, Signature},

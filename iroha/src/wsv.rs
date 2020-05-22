@@ -56,16 +56,36 @@ impl WorldStateView {
     }
 
     /// Get `Asset` without an ability to modify it.
-    pub fn read_asset(
-        &mut self,
-        account_id: &<Account as Identifiable>::Id,
-        asset_id: &<Asset as Identifiable>::Id,
-    ) -> Option<&mut Asset> {
-        self.account(account_id)?.assets.get_mut(asset_id)
+    pub fn read_asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&mut Asset> {
+        self.account(&id.account_id)?.assets.get_mut(id)
     }
 
     /// Get `Asset` with an ability to modify it.
     pub fn asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&mut Asset> {
-        self.account(&id.account_id())?.assets.get_mut(id)
+        self.account(&id.account_id)?.assets.get_mut(id)
+    }
+
+    /// Add new `Asset` entity.
+    pub fn add_asset(&mut self, asset: Asset) {
+        self.account(&asset.id.account_id)
+            .expect("Failed to find an account.")
+            .assets
+            .insert(asset.id.clone(), asset);
+    }
+
+    /// Get `AssetDefinition` without an ability to modify it.
+    pub fn read_asset_definition(
+        &self,
+        id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<&AssetDefinition> {
+        self.read_domain(&id.domain_name)?.asset_definitions.get(id)
+    }
+
+    /// Get `AssetDefinition` with an ability to modify it.
+    pub fn asset_definition(
+        &mut self,
+        id: &<AssetDefinition as Identifiable>::Id,
+    ) -> Option<&mut AssetDefinition> {
+        self.domain(&id.domain_name)?.asset_definitions.get_mut(id)
     }
 }

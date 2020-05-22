@@ -28,9 +28,9 @@ mod tests {
             object: Account::new(account_name, domain_name, public_key),
             destination_id: String::from(domain_name),
         };
-        let asset_id = AssetId::new("xor", domain_name, account_name);
+        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let create_asset = isi::Register {
-            object: Asset::new(asset_id.clone()).with_quantity(0),
+            object: AssetDefinition::new(asset_definition_id.clone()),
             destination_id: domain_name.to_string(),
         };
         let mut iroha_client = Client::new(&configuration);
@@ -47,10 +47,13 @@ mod tests {
         ))
         .await;
         //When
-        let quantity: u128 = 200;
+        let quantity: u32 = 200;
         let mint_asset = isi::Mint {
             object: quantity,
-            destination_id: asset_id.clone(),
+            destination_id: AssetId {
+                definition_id: asset_definition_id.clone(),
+                account_id: account_id.clone(),
+            },
         };
         iroha_client
             .submit(mint_asset.into())

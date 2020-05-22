@@ -11,6 +11,7 @@ pub mod prelude {
 
 /// Enumeration of all legal Iroha Special Instructions.
 #[derive(Clone, Debug, Io, Encode, Decode)]
+#[allow(clippy::large_enum_variant)]
 pub enum Instruction {
     /// Variant of instructions related to `Peer`.
     Peer(crate::peer::isi::PeerInstruction),

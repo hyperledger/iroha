@@ -281,10 +281,10 @@ mod asset {
     }
 
     fn add_asset(asset_id: &str, _account_id: &str, quantity: &str) {
+        let _quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let add_asset = isi::Register {
-            object: Asset::new(asset_id.into())
-                .with_quantity(quantity.parse().expect("Failed to parse Asset quantity.")),
-            destination_id: <Asset as Identifiable>::Id::from(asset_id).container,
+            object: AssetDefinition::new(asset_id.into()),
+            destination_id: <AssetDefinition as Identifiable>::Id::from(asset_id).domain_name,
         };
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
