@@ -1497,6 +1497,7 @@ namespace iroha {
             RIGHT OUTER JOIN has_perms ON TRUE
    			where engine_calls.tx_hash=:tx_hash
                or engine_calls.cmd_index is null    -- we need this because of at least one row must exist in response
+            order by engine_calls.cmd_index asc
             )",
           hasQueryPermissionInternal(creator_id,
                                      Role::kGetMyEngineReceipts,
