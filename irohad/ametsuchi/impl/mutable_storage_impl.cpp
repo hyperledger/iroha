@@ -137,7 +137,10 @@ namespace iroha {
 
     expected::Result<MutableStorage::CommitResult, std::string>
     MutableStorageImpl::commit() && {
-      assert(not committed);
+      if (committed) {
+        assert(not committed);
+        return "Tried to commit mutable storage twice.";
+      }
       assert(ledger_state_);
       try {
         sql_ << "COMMIT";
