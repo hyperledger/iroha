@@ -76,16 +76,6 @@ class PostgresBurrowStorageTest : public testing::Test {
     EXPECT_EQ(cmd_index, kCmdIdx);
   }
 
-  size_t getRowsCount(std::string table_name) {
-    size_t count = 0;
-    *sql_ << fmt::format(
-        "select count(1)"
-        "from {}",
-        table_name),
-        soci::into(count);
-    return count;
-  }
-
   std::vector<std::string> fetchTopics(size_t log_idx) {
     std::vector<std::string> topics;
     std::string topic;
