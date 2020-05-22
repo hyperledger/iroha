@@ -22,11 +22,11 @@
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_string_view.hpp"
 #include "common/result.hpp"
+#include "framework/call_engine_tests_common.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_db_manager.hpp"
 #include "framework/test_logger.hpp"
 #include "logger/logger_manager.hpp"
-#include "utils/string_builder.hpp"
 
 using namespace std::literals;
 using namespace iroha::ametsuchi;
@@ -36,21 +36,6 @@ using iroha::integration_framework::TestDbManager;
 
 static const std::string kTxHash{"tx hash"};
 static const shared_model::interface::types::CommandIndexType kCmdIdx{418};
-
-struct LogData {
-  std::string address;
-  std::string data;
-  std::vector<std::string> topics;
-};
-
-std::ostream &operator<<(std::ostream &os, LogData const &log) {
-  return os << shared_model::detail::PrettyStringBuilder{}
-                   .init("Log")
-                   .appendNamed("address", log.address)
-                   .appendNamed("data", log.data)
-                   .appendNamed("topics", log.topics)
-                   .finalize();
-}
 
 testing::Matcher<LogData const &> logIs(LogData const &log) {
   using namespace testing;
@@ -110,10 +95,10 @@ class PostgresBurrowStorageTest : public testing::Test {
   }
 
   void checkLogs(std::vector<LogData> logs) {
-    std::vector<testing::Matcher<LogData const &>> expected_logs;
+    std::vector<testing::Matcher<LogData const &>> matchers;
     std::transform(
-        logs.begin(), logs.end(), std::back_inserter(expected_logs), &logIs);
-    EXPECT_THAT(fetchLogs(), UnorderedElementsAreArray(expected_logs));
+        logs.begin(), logs.end(), std::back_inserter(matchers), &logIs);
+    EXPECT_THAT(fetchLogs(), UnorderedElementsAreArray(matchers));
   }
 
   Result<void, std::string> storeLog(LogData const &log) {

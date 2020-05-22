@@ -16,6 +16,7 @@
 #include "ametsuchi/impl/block_index.hpp"
 #include "backend/protobuf/queries/proto_get_engine_response.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
+#include "framework/call_engine_tests_common.hpp"
 #include "framework/common_constants.hpp"
 #include "integration/executor/query_permission_test.hpp"
 #include "interfaces/query_responses/engine_response_record.hpp"
@@ -38,6 +39,8 @@ using iroha::ametsuchi::QueryExecutorResult;
 using shared_model::interface::Amount;
 using shared_model::interface::permissions::Role;
 
+using CallResult = shared_model::interface::EngineReceipt::CallResult;
+
 static const EvmCodeHexStringView kContractCode{
     "sit on a bench and have a rest"sv};
 static const EvmCodeHexStringView kEvmInput{"summon satan"sv};
@@ -58,8 +61,41 @@ static const EvmDataHexString kTopic3_3{"fate"};
 static const EvmDataHexString kTopic3_4{"walpurgisnacht"};
 
 static const std::string kCall2ResultData{"Falernus wine"};
-static const shared_model::interface::EngineReceipt::CallResult kCall2Result{
-    kAddress1, kCall2ResultData};
+static const CallResult kCall2Result{kAddress1, kCall2ResultData};
+
+struct CallEngineCmd {
+  std::string caller;
+  std::optional<std::string> callee;
+  EvmCodeHexStringView input;
+  std::optional<std::string> created_address;
+  std::optional<std::string> engine_response;
+  std::vector<LogData> logs;
+};
+
+CallEngineCmd makeDeployCmd(std::string caller,
+                            std::string created_address,
+                            EvmCodeHexStringView code,
+                            std::vector<LogData> logs) {
+  return CallEngineCmd{std::move(caller),
+                       std::nullopt,
+                       code,
+                       std::move(created_address),
+                       std::nullopt,
+                       std::move(logs)};
+}
+
+CallEngineCmd makeCallCmd(std::string caller,
+                          EvmCalleeHexStringView callee,
+                          EvmCodeHexStringView input,
+                          std::string engine_response,
+                          std::vector<LogData> logs) {
+  return CallEngineCmd{std::move(caller),
+                       std::string{callee},
+                       input,
+                       std::nullopt,
+                       std::move(engine_response),
+                       std::move(logs)};
+}
 
 const Matcher<shared_model::interface::EngineReceiptsResponse const &>
 receiptsAre(Matcher<EngineReceiptCollectionType const &> m) {
@@ -68,54 +104,46 @@ receiptsAre(Matcher<EngineReceiptCollectionType const &> m) {
   return Property(&EngineReceiptsResponse::engineReceipts, m);
 }
 
-const Matcher<shared_model::interface::EngineReceipt const &> receiptIsDeploy(
-    Matcher<CommandIndexType> cmd_index,
-    Matcher<AccountIdType> caller,
-    Matcher<std::string_view> deployed_address,
-    std::vector<
-        Matcher<std::unique_ptr<shared_model::interface::EngineLog> const &>>
-        logs) {
-  using namespace testing;
-  using namespace shared_model::interface;
-  return AllOf(
-      Property(&EngineReceipt::getCommandIndex, cmd_index),
-      Property(&EngineReceipt::getCaller, caller),
-      Property(&EngineReceipt::getPayloadType,
-               EngineReceipt::PayloadType::kPayloadTypeContractAddress),
-      Property(&EngineReceipt::getResponseData, std::nullopt),
-      Property(&EngineReceipt::getContractAddress, Optional(deployed_address)),
-      Property(&EngineReceipt::getEngineLogs, UnorderedElementsAreArray(logs)));
-}
-
-const Matcher<shared_model::interface::EngineReceipt const &> receiptIsCall(
-    Matcher<CommandIndexType> cmd_index,
-    Matcher<AccountIdType> caller,
-    Matcher<shared_model::interface::EngineReceipt::CallResult> call_result,
-    std::vector<
-        Matcher<std::unique_ptr<shared_model::interface::EngineLog> const &>>
-        logs) {
-  using namespace testing;
-  using namespace shared_model::interface;
-  return AllOf(
-      Property(&EngineReceipt::getCommandIndex, cmd_index),
-      Property(&EngineReceipt::getCaller, caller),
-      Property(&EngineReceipt::getPayloadType,
-               EngineReceipt::PayloadType::kPayloadTypeCallResult),
-      Property(&EngineReceipt::getResponseData, Optional(call_result)),
-      Property(&EngineReceipt::getContractAddress, std::nullopt),
-      Property(&EngineReceipt::getEngineLogs, UnorderedElementsAreArray(logs)));
-}
-
 const Matcher<std::unique_ptr<shared_model::interface::EngineLog> const &>
-logPtrIs(Matcher<EvmAddressHexString> address,
-         Matcher<EvmDataHexString> data,
-         std::vector<Matcher<EvmTopicsHexString>> topics) {
+logPtrIs(LogData const &log) {
   using namespace testing;
   using namespace shared_model::interface;
   return Pointee(AllOf(
-      Property(&EngineLog::getAddress, address),
-      Property(&EngineLog::getData, data),
-      Property(&EngineLog::getTopics, UnorderedElementsAreArray(topics))));
+      Property(&EngineLog::getAddress, log.address),
+      Property(&EngineLog::getData, log.data),
+      Property(&EngineLog::getTopics, UnorderedElementsAreArray(log.topics))));
+}
+
+inline std::vector<
+    Matcher<std::unique_ptr<shared_model::interface::EngineLog> const &>>
+logPtrMatchers(std::vector<LogData> const &logs) {
+  std::vector<
+      Matcher<std::unique_ptr<shared_model::interface::EngineLog> const &>>
+      matchers;
+  std::transform(
+      logs.begin(), logs.end(), std::back_inserter(matchers), &logPtrIs);
+  return matchers;
+}
+
+const Matcher<shared_model::interface::EngineReceipt const &> receiptIs(
+    Matcher<CommandIndexType> cmd_index, CallEngineCmd const &cmd) {
+  using namespace testing;
+  using namespace shared_model::interface;
+  return AllOf(
+      Property(&EngineReceipt::getCommandIndex, cmd_index),
+      Property(&EngineReceipt::getCaller, cmd.caller),
+      Property(&EngineReceipt::getPayloadType,
+               cmd.created_address
+                   ? EngineReceipt::PayloadType::kPayloadTypeContractAddress
+                   : EngineReceipt::PayloadType::kPayloadTypeCallResult),
+      Property(&EngineReceipt::getResponseData,
+               cmd.engine_response
+                   ? std::make_optional(
+                         CallResult{cmd.callee.value(), cmd.engine_response})
+                   : std::optional<CallResult>{}),
+      Property(&EngineReceipt::getContractAddress, cmd.created_address),
+      Property(&EngineReceipt::getEngineLogs,
+               UnorderedElementsAreArray(logPtrMatchers(cmd.logs))));
 }
 
 struct GetEngineReceiptsTest : public ExecutorTestBase {
@@ -135,7 +163,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
       CommandIndexType cmd_idx,
       Matcher<EvmCodeHexStringView> input,
       Matcher<std::optional<EvmCalleeHexStringView>> callee,
-      iroha::expected::Result<std::string, std::string> engine_response) {
+      std::string engine_response) {
     auto set_expectation = [this](auto &call) -> decltype(call) & {
       if (vm_call_expectation_) {
         return call.After(vm_call_expectation_.value());
@@ -147,7 +175,8 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
             EXPECT_CALL(
                 *getBackendParam()->vm_caller_,
                 call(_, tx_hash, cmd_idx, input, kUserId, callee, _, _)))
-            .WillOnce(::testing::Return(std::move(engine_response)));
+            .WillOnce(::testing::Return(
+                iroha::expected::makeValue(std::move(engine_response))));
   }
 
   void commitTx(shared_model::proto::Transaction tx) {
@@ -162,6 +191,67 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
     block_indexer->index(block);
   }
 
+  iroha::expected::Result<std::string, iroha::ametsuchi::TxExecutionError>
+  createAndCommitTx(std::string tx_creator,
+                    std::vector<CallEngineCmd> commands) {
+    auto tx_builder = TestTransactionBuilder{}.creatorAccountId(tx_creator);
+    for (auto const &cmd : commands) {
+      tx_builder = tx_builder.callEngine(
+          cmd.caller,
+          cmd.callee ? std::optional<EvmCalleeHexStringView>{cmd.callee}
+                     : std::optional<EvmCalleeHexStringView>{},
+          cmd.input);
+    }
+    auto tx = tx_builder.build();
+
+    std::string tx_hash = tx.hash().hex();
+    for (CommandIndexType cmd_idx = 0;
+         cmd_idx < static_cast<CommandIndexType>(commands.size());
+         ++cmd_idx) {
+      auto const &cmd = commands[cmd_idx];
+      const auto burrow_storage =
+          getBackendParam()->makeBurrowStorage(tx_hash, cmd_idx);
+      for (auto const &log : cmd.logs) {
+        burrow_storage->storeLog(log.address, log.data, log.topics);
+      }
+      prepareVmCallerForCommand(
+          tx_hash,
+          cmd_idx,
+          cmd.input,
+          cmd.callee ? std::optional<EvmCalleeHexStringView>{cmd.callee}
+                     : std::optional<EvmCalleeHexStringView>{},
+          cmd.created_address ? cmd.created_address.value()
+                              : cmd.engine_response.value());
+    }
+
+    return getItf().executeTransaction(tx) | [&]() {
+      commitTx(std::move(tx));
+      return tx_hash;
+    };
+  }
+
+  void checkReceiptsResult(
+      const shared_model::interface::EngineReceiptsResponse &response,
+      std::vector<CallEngineCmd> const &commands) {
+    using namespace testing;
+    std::vector<Matcher<shared_model::interface::EngineReceipt const &>>
+        receipts_matchers;
+    for (CommandIndexType cmd_idx = 0;
+         cmd_idx < static_cast<CommandIndexType>(commands.size());
+         ++cmd_idx) {
+      receipts_matchers.emplace_back(receiptIs(cmd_idx, commands[cmd_idx]));
+    }
+    EXPECT_THAT(response, receiptsAre(ElementsAreArray(receipts_matchers)));
+  }
+
+  void checkReceiptsForTx(std::string issuer,
+                          std::string const &tx_hash,
+                          std::vector<CallEngineCmd> const &commands) {
+    checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
+        getEngineReceipts(tx_hash, issuer),
+        [&](const auto &response) { checkReceiptsResult(response, commands); });
+  }
+
   std::optional<testing::Expectation> vm_call_expectation_;
 };
 
@@ -173,11 +263,7 @@ using GetEngineReceiptsBasicTest = BasicExecutorTest<GetEngineReceiptsTest>;
  * @then there is an EngineReceiptsResponse reporting no receipts
  */
 TEST_P(GetEngineReceiptsBasicTest, NoSuchTx) {
-  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
-      getEngineReceipts("no such hash", kAdminId), [](const auto &response) {
-        using namespace testing;
-        EXPECT_EQ(boost::size(response.engineReceipts()), 0);
-      });
+  checkReceiptsForTx(kAdminId, "no such hash", {});
 }
 
 /**
@@ -191,32 +277,10 @@ TEST_P(GetEngineReceiptsBasicTest, DeployWithNoLogs) {
                                PublicKeyHexStringView{kUserKeypair.publicKey()},
                                {Role::kCallEngine, Role::kGetMyEngineReceipts});
 
-  auto tx = TestTransactionBuilder{}
-                .creatorAccountId(kUserId)
-                .callEngine(kUserId, std::nullopt, kContractCode)
-                .build();
-  std::string tx_hash = tx.hash().hex();
-  CommandIndexType cmd_idx = 0;
+  CallEngineCmd cmd = makeDeployCmd(kUserId, kAddress1, kContractCode, {});
+  std::string tx_hash = createAndCommitTx(kUserId, {cmd}).assumeValue();
 
-  {  // cmd 1
-    prepareVmCallerForCommand(tx_hash,
-                              cmd_idx,
-                              kContractCode,
-                              std::optional<EvmCalleeHexStringView>{},
-                              iroha::expected::makeValue(kAddress1));
-  }
-
-  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx));
-
-  commitTx(std::move(tx));
-
-  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
-      getEngineReceipts(tx_hash, kUserId), [](const auto &response) {
-        using namespace testing;
-        EXPECT_THAT(response,
-                    receiptsAre(ElementsAre(receiptIsDeploy(
-                        0, kUserId, std::string_view{kAddress1}, {}))));
-      });
+  checkReceiptsForTx(kUserId, tx_hash, {cmd});
 }
 
 /**
@@ -230,78 +294,21 @@ TEST_P(GetEngineReceiptsBasicTest, TwoTxs) {
                                PublicKeyHexStringView{kUserKeypair.publicKey()},
                                {Role::kCallEngine, Role::kGetMyEngineReceipts});
 
-  // --- first transaction with contract deployment command --- //
+  CallEngineCmd cmd1 = makeDeployCmd(kUserId, kAddress1, kContractCode, {});
+  CallEngineCmd cmd2 = makeCallCmd(
+      kUserId,
+      EvmCalleeHexStringView{kAddress1},
+      kEvmInput,
+      kCall2ResultData,
+      {LogData{kAddress2, kData2, {}},
+       LogData{
+           kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4}}});
 
-  auto tx1 = TestTransactionBuilder{}
-                 .creatorAccountId(kUserId)
-                 .callEngine(kUserId, std::nullopt, kContractCode)
-                 .build();
-  const std::string tx1_hash = tx1.hash().hex();
-  CommandIndexType cmd_idx = 0;
+  std::string tx1_hash = createAndCommitTx(kUserId, {cmd1}).assumeValue();
+  std::string tx2_hash = createAndCommitTx(kUserId, {cmd2}).assumeValue();
 
-  {  // cmd 1
-    prepareVmCallerForCommand(tx1_hash,
-                              cmd_idx,
-                              kContractCode,
-                              std::optional<EvmCalleeHexStringView>{},
-                              iroha::expected::makeValue(kAddress1));
-  }
-
-  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx1));
-
-  commitTx(std::move(tx1));
-
-  // --- second transaction with contract invocation command --- //
-
-  auto tx2 = TestTransactionBuilder{}
-                 .creatorAccountId(kUserId)
-                 .callEngine(kUserId,
-                             std::optional<EvmCalleeHexStringView>{kAddress1},
-                             kEvmInput)
-                 .build();
-  const std::string tx2_hash = tx2.hash().hex();
-
-  {  // cmd 1
-    const auto burrow_storage =
-        getBackendParam()->makeBurrowStorage(tx2_hash, cmd_idx);
-    burrow_storage->storeLog(kAddress2, kData2, {});
-    burrow_storage->storeLog(
-        kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4});
-    prepareVmCallerForCommand(tx2_hash,
-                              cmd_idx,
-                              kEvmInput,
-                              std::optional<EvmCalleeHexStringView>(kAddress1),
-                              iroha::expected::makeValue(kCall2ResultData));
-  }
-
-  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx2));
-
-  commitTx(std::move(tx2));
-
-  // --- receipts queries --- //
-
-  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
-      getEngineReceipts(tx1_hash, kUserId), [](const auto &response) {
-        using namespace testing;
-        EXPECT_THAT(response,
-                    receiptsAre(ElementsAre(receiptIsDeploy(
-                        0, kUserId, std::string_view{kAddress1}, {}))));
-      });
-
-  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
-      getEngineReceipts(tx2_hash, kUserId), [](const auto &response) {
-        using namespace testing;
-        EXPECT_THAT(
-            response,
-            receiptsAre(ElementsAre(receiptIsCall(
-                0,
-                kUserId,
-                kCall2Result,
-                {logPtrIs(kAddress2, kData2, {}),
-                 logPtrIs(kAddress3,
-                          kData3,
-                          {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4})}))));
-      });
+  checkReceiptsForTx(kUserId, tx1_hash, {cmd1});
+  checkReceiptsForTx(kUserId, tx2_hash, {cmd2});
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,
@@ -317,66 +324,22 @@ TEST_P(GetEngineReceiptsPermissionTest, QueryPermissionTest) {
 
   ASSERT_NO_FATAL_FAILURE(prepareState({Role::kCallEngine}));
 
-  auto tx = TestTransactionBuilder{}
-                .creatorAccountId(kUserId)
-                .callEngine(kUserId, std::nullopt, kContractCode)
-                .callEngine(kUserId,
-                            std::optional<EvmCalleeHexStringView>{kAddress1},
-                            kEvmInput)
-                .build();
-  std::string tx_hash = tx.hash().hex();
-  CommandIndexType cmd_idx = 0;
+  CallEngineCmd cmd1 = makeDeployCmd(kUserId, kAddress1, kContractCode, {});
+  CallEngineCmd cmd2 = makeCallCmd(
+      kUserId,
+      EvmCalleeHexStringView{kAddress1},
+      kEvmInput,
+      kCall2ResultData,
+      {LogData{kAddress2, kData2, {}},
+       LogData{
+           kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4}}});
 
-  {  // cmd 1
-    const auto burrow_storage =
-        getBackendParam()->makeBurrowStorage(tx_hash, cmd_idx);
-    burrow_storage->storeLog(kAddress1, kData1, {kTopic1_1, kTopic1_2});
-    prepareVmCallerForCommand(tx_hash,
-                              cmd_idx,
-                              kContractCode,
-                              std::optional<EvmCalleeHexStringView>{},
-                              iroha::expected::makeValue(kAddress1));
-  }
-
-  {  // cmd 2
-    const auto burrow_storage =
-        getBackendParam()->makeBurrowStorage(tx_hash, ++cmd_idx);
-    burrow_storage->storeLog(kAddress2, kData2, {});
-    burrow_storage->storeLog(
-        kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4});
-    prepareVmCallerForCommand(tx_hash,
-                              cmd_idx,
-                              kEvmInput,
-                              std::optional<EvmCalleeHexStringView>(kAddress1),
-                              iroha::expected::makeValue(kCall2ResultData));
-  }
-
-  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx));
-
-  commitTx(std::move(tx));
+  std::string tx_hash = createAndCommitTx(kUserId, {cmd1, cmd2}).assumeValue();
 
   checkResponse<shared_model::interface::EngineReceiptsResponse>(
       getEngineReceipts(tx_hash, getSpectator()),
-      [](const shared_model::interface::EngineReceiptsResponse &response) {
-        using namespace testing;
-        using namespace shared_model::interface;
-        EXPECT_THAT(
-            response,
-            receiptsAre(ElementsAre(
-                receiptIsDeploy(
-                    0,
-                    kUserId,
-                    std::string_view{kAddress1},
-                    {logPtrIs(kAddress1, kData1, {kTopic1_1, kTopic1_2})}),
-                receiptIsCall(
-                    1,
-                    kUserId,
-                    kCall2Result,
-                    {logPtrIs(kAddress2, kData2, {}),
-                     logPtrIs(
-                         kAddress3,
-                         kData3,
-                         {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4})}))));
+      [&](const shared_model::interface::EngineReceiptsResponse &response) {
+        checkReceiptsResult(response, {cmd1, cmd2});
       });
 }
 
