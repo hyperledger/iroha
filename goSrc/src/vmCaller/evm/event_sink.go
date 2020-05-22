@@ -1,8 +1,6 @@
 package evm
 
 import (
-	"fmt"
-
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/errors"
@@ -31,6 +29,5 @@ func (ies *IrohaEventSink) Call(call *exec.CallEvent, exception *errors.Exceptio
 
 func (ies *IrohaEventSink) Log(log *exec.LogEvent) error {
 	err := ies.irohaState.StoreTxReceipt(log.Address, log.Data, log.Topics)
-	fmt.Printf("\n\n[iroha_event_sink::Log:28] log: %v, err: %v\n\n", log, err)
 	return err
 }

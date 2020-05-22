@@ -39,7 +39,6 @@ func TransferAsset(src, dst, asset, amount string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(commandResult)
 	if commandResult.error_code != 0 {
 		return fmt.Errorf("[api.TransferIrohaAsset] error transferring asset nominated in %s from %s to %s", asset, src, dst)
 	}
@@ -85,7 +84,6 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 
 // Execute Iroha command
 func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
-	// fmt.Println(proto.MarshalTextString(command))
 	out, err := proto.Marshal(command)
 	if err != nil {
 		// magic constant, if not 0 => fail happened
@@ -98,19 +96,16 @@ func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) 
 
 // Perform Iroha query
 func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) (res *pb.QueryResponse, err error) {
-	// fmt.Println(proto.MarshalTextString(query))
 	out, err := proto.Marshal(query)
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
 	}
 	cOut := C.CBytes(out)
 	queryResult := C.Iroha_ProtoSpecificQueryExecutorExecute(queryExecutor, cOut, C.int(len(out)))
-	fmt.Println(queryResult)
 	out = C.GoBytes(queryResult.data, queryResult.size)
 	queryResponse := &pb.QueryResponse{}
 	err = proto.Unmarshal(out, queryResponse)
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 	return queryResponse, nil
