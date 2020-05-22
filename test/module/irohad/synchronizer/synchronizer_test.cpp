@@ -8,6 +8,7 @@
 
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
+#include <rxcpp/operators/rx-take.hpp>
 #include "backend/protobuf/block.hpp"
 #include "framework/test_logger.hpp"
 #include "framework/test_subscriber.hpp"
@@ -55,6 +56,8 @@ createMockMutableStorage() {
 }
 
 static constexpr shared_model::interface::types::HeightType kHeight{5};
+static constexpr shared_model::interface::types::HeightType kInitTopBlockHeight{
+    kHeight - 1};
 
 class SynchronizerTest : public ::testing::Test {
  public:
@@ -93,7 +96,7 @@ class SynchronizerTest : public ::testing::Test {
         .WillByDefault(Return(boost::make_optional(
             std::shared_ptr<iroha::ametsuchi::BlockQuery>(block_query))));
     ON_CALL(*block_query, getTopBlockHeight())
-        .WillByDefault(Return(kHeight - 1));
+        .WillByDefault(Return(kInitTopBlockHeight));
     ON_CALL(*mutable_factory, commit_(_))
         .WillByDefault(Return(ByMove(expected::makeValue(
             std::make_shared<LedgerState>(ledger_peers,
@@ -325,7 +328,7 @@ TEST_F(SynchronizerTest, ValidWhenValidChainMultipleBlocks) {
 TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
-  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(3);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   {
     InSequence s;  // ensures the call order
     EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({}), _))
@@ -354,6 +357,63 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
 }
 
 /**
+ * @given A commit from consensus and initialized components
+ * @when gate has voted for other block in the future
+ * @then retrieveBlocks called again after failure in block chain middle
+ */
+TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccess) {
+  DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
+      SetFactory(&createMockMutableStorage);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
+
+  const size_t kConsensusHeight = kInitTopBlockHeight + 10;
+  const size_t kBadBlockNumber = 5;  // in the middle
+  const size_t kBadBlockHeight =
+      kInitTopBlockHeight + kBadBlockNumber;  // in the middle
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_bad;
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_good;
+
+  for (auto height = kInitTopBlockHeight + 1; height <= kConsensusHeight;
+       ++height) {
+    chain_bad.emplace_back(makeCommit(height));
+  }
+  for (auto height = kBadBlockHeight; height <= kConsensusHeight; ++height) {
+    chain_good.emplace_back(makeCommit(height));
+  }
+
+  {
+    InSequence s;  // ensures the call order
+
+    // first attempt: get blocks till kBadBlockHeight, then fail
+    EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
+        .WillOnce(Return(rxcpp::observable<>::iterate(chain_bad)));
+    EXPECT_CALL(*chain_validator, validateAndApply(_, _))
+        .WillOnce([&](auto chain, auto const &) {
+          chain.take(kBadBlockNumber).as_blocking().last();
+          return false;
+        });
+
+    // second attempt: request blocks from kBadBlockHeight and commit
+    const auto kRetrieveBlocksArg =
+        kBadBlockHeight - 1;  // for whatever reason, to request blocks starting
+                              // with N, we need to pass N-1...
+    EXPECT_CALL(*block_loader, retrieveBlocks(kRetrieveBlocksArg, _))
+        .WillOnce(Return(rxcpp::observable<>::iterate(chain_good)));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_good), _))
+        .WillOnce(Return(true));
+  }
+
+  auto wrapper =
+      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
+  wrapper.subscribe();
+
+  gate_outcome.get_subscriber().on_next(consensus::Future{
+      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+
+  ASSERT_TRUE(wrapper.validate());
+}
+
+/**
  * @given commit from the consensus and initialized components
  * @when synchronizer fails to download blocks from all the peers in the list
  * @then no commit event is emitted
@@ -362,8 +422,7 @@ TEST_F(SynchronizerTest, RetrieveBlockSeveralFailures) {
   const size_t number_of_failures{ledger_peers.size()};
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
-  EXPECT_CALL(*mutable_factory, createMutableStorage(_))
-      .Times(number_of_failures);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
   EXPECT_CALL(*block_loader, retrieveBlocks(_, _))
       .WillRepeatedly(Return(rxcpp::observable<>::just(commit_message)));
 
