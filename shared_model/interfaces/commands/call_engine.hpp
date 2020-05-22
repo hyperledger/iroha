@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <optional>
+#include <string>
 
 #include "interfaces/engine_type.hpp"
 
