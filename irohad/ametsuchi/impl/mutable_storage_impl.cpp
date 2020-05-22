@@ -135,17 +135,18 @@ namespace iroha {
       return ledger_state_;
     }
 
-    expected::Result<void, std::string> MutableStorageImpl::commit() {
-      if (committed) {
-        return "Tried to commit mutable storage twice.";
-      }
+    expected::Result<MutableStorage::CommitResult, std::string>
+    MutableStorageImpl::commit() && {
+      assert(not committed);
+      assert(ledger_state_);
       try {
         sql_ << "COMMIT";
         committed = true;
       } catch (std::exception &e) {
         return expected::makeError(e.what());
       }
-      return expected::Value<void>{};
+      return MutableStorage::CommitResult{ledger_state_.value(),
+                                          std::move(block_storage_)};
     }
 
     MutableStorageImpl::~MutableStorageImpl() {

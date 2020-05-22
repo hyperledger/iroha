@@ -283,20 +283,13 @@ namespace iroha {
 
     CommitResult StorageImpl::commit(
         std::unique_ptr<MutableStorage> mutable_storage) {
-      auto storage = static_cast<MutableStorageImpl *>(mutable_storage.get());
-
-      return storage->commit() | [&storage, this]() -> CommitResult {
-        storage->block_storage_->forEach(
+      return std::move(*mutable_storage).commit() |
+                 [this](auto commit_result) -> CommitResult {
+        commit_result.block_storage->forEach(
             [this](const auto &block) { this->storeBlock(block); });
 
-        ledger_state_ = storage->getLedgerState();
-        if (ledger_state_) {
-          return expected::makeValue(ledger_state_.value());
-        } else {
-          return expected::makeError(
-              "This should never happen - a missing ledger state after a "
-              "successful commit!");
-        }
+        ledger_state_ = commit_result.ledger_state;
+        return expected::makeValue(std::move(commit_result.ledger_state));
       };
     }
 
