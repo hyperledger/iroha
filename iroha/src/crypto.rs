@@ -52,7 +52,7 @@ pub fn hash(bytes: Vec<u8>) -> Hash {
 pub struct Signature {
     /// Ed25519 (Edwards-curve Digital Signature Algorithm scheme using SHA-512 and Curve25519)
     /// public-key of an approved authority.
-    public_key: PublicKey,
+    pub public_key: PublicKey,
     /// Ed25519 signature is placed here.
     signature: Ed25519Signature,
 }
