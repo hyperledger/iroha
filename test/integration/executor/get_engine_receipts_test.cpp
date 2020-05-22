@@ -219,6 +219,91 @@ TEST_P(GetEngineReceiptsBasicTest, DeployWithNoLogs) {
       });
 }
 
+/**
+ * @given a user with all related permissions and 2 txs with engine calls
+ * @when GetEngineReceipts is queried on each tx
+ * @then there are correct receipts
+ */
+TEST_P(GetEngineReceiptsBasicTest, TwoTxs) {
+  getItf().createUserWithPerms(kUser,
+                               kDomain,
+                               PublicKeyHexStringView{kUserKeypair.publicKey()},
+                               {Role::kCallEngine, Role::kGetMyEngineReceipts});
+
+  // --- first transaction with contract deployment command --- //
+
+  auto tx1 = TestTransactionBuilder{}
+                 .creatorAccountId(kUserId)
+                 .callEngine(kUserId, std::nullopt, kContractCode)
+                 .build();
+  const std::string tx1_hash = tx1.hash().hex();
+  CommandIndexType cmd_idx = 0;
+
+  {  // cmd 1
+    prepareVmCallerForCommand(tx1_hash,
+                              cmd_idx,
+                              kContractCode,
+                              std::optional<EvmCalleeHexStringView>{},
+                              iroha::expected::makeValue(kAddress1));
+  }
+
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx1));
+
+  commitTx(std::move(tx1));
+
+  // --- second transaction with contract invocation command --- //
+
+  auto tx2 = TestTransactionBuilder{}
+                 .creatorAccountId(kUserId)
+                 .callEngine(kUserId,
+                             std::optional<EvmCalleeHexStringView>{kAddress1},
+                             kEvmInput)
+                 .build();
+  const std::string tx2_hash = tx2.hash().hex();
+
+  {  // cmd 1
+    const auto burrow_storage =
+        getBackendParam()->makeBurrowStorage(tx2_hash, cmd_idx);
+    burrow_storage->storeLog(kAddress2, kData2, {});
+    burrow_storage->storeLog(
+        kAddress3, kData3, {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4});
+    prepareVmCallerForCommand(tx2_hash,
+                              cmd_idx,
+                              kEvmInput,
+                              std::optional<EvmCalleeHexStringView>(kAddress1),
+                              iroha::expected::makeValue(kCall2ResultData));
+  }
+
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeTransaction(tx2));
+
+  commitTx(std::move(tx2));
+
+  // --- receipts queries --- //
+
+  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
+      getEngineReceipts(tx1_hash, kUserId), [](const auto &response) {
+        using namespace testing;
+        EXPECT_THAT(response,
+                    receiptsAre(ElementsAre(receiptIsDeploy(
+                        0, kUserId, std::string_view{kAddress1}, {}))));
+      });
+
+  checkSuccessfulResult<shared_model::interface::EngineReceiptsResponse>(
+      getEngineReceipts(tx2_hash, kUserId), [](const auto &response) {
+        using namespace testing;
+        EXPECT_THAT(
+            response,
+            receiptsAre(ElementsAre(receiptIsCall(
+                0,
+                kUserId,
+                kCall2Result,
+                {logPtrIs(kAddress2, kData2, {}),
+                 logPtrIs(kAddress3,
+                          kData3,
+                          {kTopic3_1, kTopic3_2, kTopic3_3, kTopic3_4})}))));
+      });
+}
+
 INSTANTIATE_TEST_SUITE_P(Base,
                          GetEngineReceiptsBasicTest,
                          executor_testing::getExecutorTestParams(),
