@@ -33,8 +33,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use std::time::Duration;
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 /// Type of `Sender<ValidBlock>` which should be used for channels of `ValidBlock` messages.
 pub type ValidBlockSender = Sender<ValidBlock>;
@@ -141,13 +140,14 @@ impl Iroha {
         let block_build_step_ms = self.block_build_step_ms;
         task::spawn(async move {
             loop {
-                sumeragi
-                    .write()
-                    .await
-                    .round(queue.write().await.pop_pending_transactions())
-                    .await
-                    .expect("Round failed.");
-                task::sleep(Duration::from_millis(block_build_step_ms)).await;
+                let mut sumeragi = sumeragi.write().await;
+                if !sumeragi.voting_in_progress().await {
+                    sumeragi
+                        .round(queue.write().await.pop_pending_transactions())
+                        .await
+                        .expect("Round failed.");
+                    task::sleep(Duration::from_millis(block_build_step_ms)).await;
+                }
             }
         });
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
