@@ -61,17 +61,17 @@ namespace iroha {
         const shared_model::interface::types::HeightType target_height,
         const PublicKeysRange &public_keys) {
       // TODO mboldyrev 21.03.2019 IR-423 Allow consensus outcome update
+      shared_model::interface::types::HeightType my_height = start_height;
+      auto storage = getStorage().value_or(nullptr);
+      if (not storage) {
+        return iroha::expected::makeError("Could not get mutable storage.");
+      }
+
       while (true) {
         // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
         for (const auto &public_key : public_keys) {
-          auto storage = getStorage().value_or(nullptr);
-          if (not storage) {
-            return iroha::expected::makeError("Could not get mutable storage.");
-          }
-
-          shared_model::interface::types::HeightType my_height = start_height;
           auto network_chain =
-              block_loader_->retrieveBlocks(start_height, public_key)
+              block_loader_->retrieveBlocks(my_height, public_key)
                   .tap([&my_height](
                            const std::shared_ptr<shared_model::interface::Block>
                                &block) { my_height = block->height(); });
