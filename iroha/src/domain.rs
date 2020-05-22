@@ -12,7 +12,7 @@ pub struct Domain {
     /// Accounts of the domain.
     pub accounts: HashMap<<Account as Identifiable>::Id, Account>,
     /// Assets of the domain.
-    pub assets: HashMap<<Asset as Identifiable>::Id, Asset>,
+    pub asset_definitions: HashMap<<AssetDefinition as Identifiable>::Id, AssetDefinition>,
 }
 
 impl Domain {
@@ -23,7 +23,7 @@ impl Domain {
         Domain {
             name,
             accounts: HashMap::new(),
-            assets: HashMap::new(),
+            asset_definitions: HashMap::new(),
         }
     }
 
@@ -62,8 +62,8 @@ pub mod isi {
     pub enum DomainInstruction {
         /// Variant of the generic `Register` instruction for `Account` --> `Domain`.
         RegisterAccount(Name, Account),
-        /// Variant of the generic `Register` instruction for `Asset` --> `Domain`.
-        RegisterAsset(Name, Asset),
+        /// Variant of the generic `Register` instruction for `AssetDefinition` --> `Domain`.
+        RegisterAsset(Name, AssetDefinition),
     }
 
     impl DomainInstruction {
@@ -108,8 +108,8 @@ pub mod isi {
         }
     }
 
-    impl From<Register<Domain, Asset>> for Instruction {
-        fn from(instruction: Register<Domain, Asset>) -> Self {
+    impl From<Register<Domain, AssetDefinition>> for Instruction {
+        fn from(instruction: Register<Domain, AssetDefinition>) -> Self {
             Instruction::Domain(DomainInstruction::RegisterAsset(
                 instruction.destination_id,
                 instruction.object,
@@ -117,16 +117,13 @@ pub mod isi {
         }
     }
 
-    impl Register<Domain, Asset> {
+    impl Register<Domain, AssetDefinition> {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
             let asset = self.object.clone();
             world_state_view
                 .domain(&self.destination_id)
                 .ok_or("Failed to find domain.")?
-                .accounts
-                .get_mut(&asset.id.account_id())
-                .expect("Failed to find account.")
-                .assets
+                .asset_definitions
                 .insert(asset.id.clone(), asset);
             Ok(())
         }

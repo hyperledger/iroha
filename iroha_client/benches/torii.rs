@@ -26,10 +26,18 @@ fn query_requests(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
+    };
+    let quantity: u32 = 200;
+    let mint_asset = isi::Mint {
+        object: quantity,
+        destination_id: AssetId {
+            definition_id: asset_definition_id.clone(),
+            account_id: account_id.clone(),
+        },
     };
     let mut iroha_client = Client::new(
         &Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
@@ -38,6 +46,7 @@ fn query_requests(criterion: &mut Criterion) {
         create_domain.into(),
         create_account.into(),
         create_asset.into(),
+        mint_asset.into(),
     ]))
     .expect("Failed to prepare state.");
     let request = assets::by_account_id(account_id);
@@ -79,14 +88,15 @@ fn instruction_submits(criterion: &mut Criterion) {
         destination_id: configuration.peer_id.clone(),
     };
     let account_name = "account";
+    let account_id = AccountId::new(account_name, domain_name);
     let (public_key, _) = configuration.key_pair();
     let create_account = isi::Register {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let mut iroha_client = Client::new(
@@ -102,11 +112,15 @@ fn instruction_submits(criterion: &mut Criterion) {
     let mut failures_count = 0;
     group.bench_function("commands", |b| {
         b.iter(|| {
-            let create_asset = isi::Register {
-                object: Asset::new(asset_id.clone()).with_quantity(0),
-                destination_id: domain_name.to_string(),
+            let quantity: u32 = 200;
+            let mint_asset = isi::Mint {
+                object: quantity,
+                destination_id: AssetId {
+                    definition_id: asset_definition_id.clone(),
+                    account_id: account_id.clone(),
+                },
             };
-            match executor::block_on(iroha_client.submit(create_asset.into())) {
+            match executor::block_on(iroha_client.submit(mint_asset.into())) {
                 Ok(_) => success_count += 1,
                 Err(e) => {
                     eprintln!("Failed to execute instruction: {}", e);
