@@ -1491,10 +1491,12 @@ namespace iroha {
                     burrow_tx_logs_topics.topic,
                     has_perms.perm
             from engine_calls
-            left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id and engine_calls.tx_hash=:tx_hash
+            left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
             left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
             cross join target
             RIGHT OUTER JOIN has_perms ON TRUE
+   			where engine_calls.tx_hash=:tx_hash
+               or engine_calls.cmd_index is null    -- we need this because of at least one row must exist in response
             )",
           hasQueryPermissionInternal(creator_id,
                                      Role::kGetMyEngineReceipts,
