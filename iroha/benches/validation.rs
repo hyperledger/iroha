@@ -15,9 +15,9 @@ fn accept_transaction(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, [0; 32]),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(
@@ -56,9 +56,9 @@ fn sign_transaction(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, [0; 32]),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(
@@ -105,9 +105,9 @@ fn validate_transaction(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(
@@ -161,9 +161,9 @@ fn chain_blocks(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(
@@ -205,9 +205,9 @@ fn sign_blocks(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(
@@ -251,9 +251,9 @@ fn validate_blocks(criterion: &mut Criterion) {
         object: Account::new(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
-    let asset_id = AssetId::new("xor", domain_name, account_name);
+    let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
     let create_asset = isi::Register {
-        object: Asset::new(asset_id.clone()).with_quantity(0),
+        object: AssetDefinition::new(asset_definition_id.clone()),
         destination_id: domain_name.to_string(),
     };
     let transaction = RequestedTransaction::new(

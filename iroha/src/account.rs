@@ -112,10 +112,10 @@ pub mod isi {
                 AccountInstruction::TransferAsset(
                     source_account_id,
                     destination_account_id,
-                    asset,
+                    component,
                 ) => Transfer::new(
                     source_account_id.clone(),
-                    asset.clone(),
+                    component.clone(),
                     destination_account_id.clone(),
                 )
                 .execute(world_state_view),
@@ -147,21 +147,28 @@ pub mod isi {
 
     impl Transfer<Account, Asset, Account> {
         fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            world_state_view
+            let source = world_state_view
                 .account(&self.source_id)
                 .ok_or("Failed to find accounts.")?
                 .assets
                 .get_mut(&self.object.id)
-                .expect("Asset not found.")
-                .quantity -= self.object.quantity;
+                .ok_or("Asset's component was not found.")?;
+            let quantity_to_transfer = self.object.quantity;
+            if source.quantity < quantity_to_transfer {
+                return Err(format!(
+                    "Not enough assets: {:?}, {:?}.",
+                    source, self.object
+                ));
+            }
+            source.quantity -= quantity_to_transfer;
             match world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find destination account.")?
                 .assets
                 .get_mut(&self.object.id)
             {
-                Some(asset) => {
-                    asset.quantity += self.object.quantity;
+                Some(destination) => {
+                    destination.quantity += quantity_to_transfer;
                 }
                 None => {
                     world_state_view

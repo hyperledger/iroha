@@ -34,15 +34,18 @@ mod tests {
             object: Account::new(account2_name, domain_name, public_key),
             destination_id: String::from(domain_name),
         };
-        let asset_id = AssetId::new("xor", domain_name, account1_name);
-        let quantity: u128 = 200;
+        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+        let quantity: u32 = 200;
         let create_asset = isi::Register {
-            object: Asset::new(asset_id.clone()).with_quantity(200),
+            object: AssetDefinition::new(asset_definition_id.clone()),
             destination_id: domain_name.to_string(),
         };
         let mint_asset = isi::Mint {
             object: quantity,
-            destination_id: asset_id.clone(),
+            destination_id: AssetId {
+                definition_id: asset_definition_id.clone(),
+                account_id: account1_id.clone(),
+            },
         };
         let mut iroha_client = Client::new(&configuration);
         iroha_client
@@ -63,7 +66,14 @@ mod tests {
             let transfer_asset = isi::Transfer {
                 source_id: account1_id.clone(),
                 destination_id: account2_id.clone(),
-                object: Asset::new(asset_id.clone()).with_quantity(1),
+                object: Asset::with_quantity(
+                    AssetId {
+                        definition_id: asset_definition_id.clone(),
+                        account_id: account1_id.clone(),
+                    },
+                    quantity,
+                )
+                .into(),
             };
             iroha_client
                 .submit(transfer_asset.into())
