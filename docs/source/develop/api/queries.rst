@@ -91,6 +91,7 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "2", "No such permissions", "Query’s creator does not have any of the permissions to get the call engine receipt", "Grant the necessary permission"
+    "3", "Invalid signatures", "Signatures of this query did not pass validation", "Add more signatures and make sure query's signatures are a subset of account's signatories"
 
 Get Account
 ^^^^^^^^^^^

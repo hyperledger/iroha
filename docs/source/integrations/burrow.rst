@@ -64,16 +64,10 @@ Schematically the interaction between different parts of the system looks as fol
 Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 4 methods to query Iroha assets balances and transfer assets between accounts.
 The signature of these four method looks like this:
 
-	**function** getAssetBalance(string memory *assetID*) public view
+	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
 	returns (string memory *result*) {}
 
-	**function** getOtherAssetBalance(string memory *accountID*, string memory *assetID*) public view
-	returns (string memory *result*) {}
-
-	**function** transferAsset(string memory *dst*, string memory *assetID*, string memory *amount*)
-	public view returns (string memory result) {}
-
-	**function** transferOtherAsset(string memory *src*, string memory *dst*, string memory *assetID*,
+	**function** transferAsset(string memory *src*, string memory *dst*, string memory *assetID*,
 	string memory *amount*) public view returns (string memory *result*) {}
 
 .. hint:: From a developer’s perspective calling a function of a native contract is no different from calling a method of any other smart contract provided the address of the latter is known:
