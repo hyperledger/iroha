@@ -373,7 +373,8 @@ shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
 
 std::unique_ptr<shared_model::interface::QueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
-    std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>> const &engine_receipts,
+    std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>> const
+        &engine_receipts,
     crypto::Hash const &query_hash) const {
   return createQueryResponse(
       [&](iroha::protocol::QueryResponse &protocol_query_response) {
@@ -398,24 +399,26 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
           proto_receipt->set_command_index(receipt->getCommandIndex());
           proto_receipt->set_caller(receipt->getCaller());
           switch (receipt->getPayloadType()) {
-            case interface::EngineReceipt::PayloadType::kPayloadTypeCallResult: {
+            case interface::EngineReceipt::PayloadType::
+                kPayloadTypeCallResult: {
               auto *ptr_call_result = proto_receipt->mutable_call_result();
               if (!!receipt->getResponseData()) {
                 ptr_call_result->set_callee(receipt->getResponseData()->callee);
                 if (!!receipt->getResponseData()->response_data)
-                    ptr_call_result->set_result_data(*receipt->getResponseData()->response_data);
+                  ptr_call_result->set_result_data(
+                      *receipt->getResponseData()->response_data);
               } else
                 assert(!"Response data is not present.");
             } break;
-            case interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress: {
-                if (!!receipt->getContractAddress())
-                    proto_receipt->set_contract_address(*receipt->getContractAddress());
-                else
-                    assert(!"Contract address is not present");
+            case interface::EngineReceipt::PayloadType::
+                kPayloadTypeContractAddress: {
+              if (!!receipt->getContractAddress())
+                proto_receipt->set_contract_address(
+                    *receipt->getContractAddress());
+              else
+                assert(!"Contract address is not present");
             } break;
-            default: {
-              assert(!"Unexpected payload type!");
-            } break;
+            default: { assert(!"Unexpected payload type!"); } break;
           }
         }
       },

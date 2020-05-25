@@ -18,11 +18,11 @@ namespace shared_model {
      * Provide response with reponses to EngineCall commands within a single
      * transaction
      */
-    class EngineReceiptsResponse : public ModelPrimitive<EngineReceiptsResponse> {
+    class EngineReceiptsResponse
+        : public ModelPrimitive<EngineReceiptsResponse> {
      public:
       /// Returns EVM responses to EngineCall commands
-      virtual types::EngineReceiptCollectionType engineReceipts()
-          const = 0;
+      virtual types::EngineReceiptCollectionType engineReceipts() const = 0;
 
       std::string toString() const override;
 

@@ -19,7 +19,6 @@ namespace shared_model {
     /// Provides a response for a single corresponding EngineCall command
     class EngineReceipt : public ModelPrimitive<EngineReceipt> {
      public:
-
       enum struct PayloadType {
         kPayloadTypeUnk,
         kPayloadTypeCallResult,
@@ -30,19 +29,21 @@ namespace shared_model {
         types::EvmDataHexString const &callee;
         std::optional<types::EvmDataHexString> const &response_data;
 
-        bool operator==(CallResult const& c) const {
-          return c.callee == callee &&
-            c.response_data == response_data;
+        bool operator==(CallResult const &c) const {
+          return c.callee == callee && c.response_data == response_data;
         }
 
         std::string toString() const;
       };
 
       static char const *payloadTypeToStr(PayloadType pt) {
-        switch(pt) {
-          case PayloadType::kPayloadTypeCallResult: return "Call result";
-          case PayloadType::kPayloadTypeContractAddress: return "Contract address";
-          default: return "Unknown";
+        switch (pt) {
+          case PayloadType::kPayloadTypeCallResult:
+            return "Call result";
+          case PayloadType::kPayloadTypeContractAddress:
+            return "Contract address";
+          default:
+            return "Unknown";
         }
       }
 
@@ -58,11 +59,13 @@ namespace shared_model {
       /// Returns the payload data type.
       virtual PayloadType getPayloadType() const = 0;
 
-      /// [optional] Get engine response data(output). Enable if getPayloadType() == kPayloadTypeCallResult.
+      /// [optional] Get engine response data(output). Enable if
+      /// getPayloadType() == kPayloadTypeCallResult.
       virtual std::optional<CallResult> const &getResponseData() const = 0;
 
       /// Returns payload data
-      virtual std::optional<types::EvmAddressHexString> const &getContractAddress() const = 0;
+      virtual std::optional<types::EvmAddressHexString> const &
+      getContractAddress() const = 0;
 
       /// Return engine logs collection.
       virtual EngineLogsCollectionType const &getEngineLogs() const = 0;

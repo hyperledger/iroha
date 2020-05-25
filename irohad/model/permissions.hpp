@@ -81,8 +81,10 @@ namespace shared_model {
 
     /*                        Engine receipts                    */
     const std::string can_get_my_engine_receipts = "can_get_my_engine_receipts";
-    const std::string can_get_domain_engine_receipts = "can_get_domain_engine_receipts";
-    const std::string can_get_all_engine_receipts = "can_get_all_engine_receipts";
+    const std::string can_get_domain_engine_receipts =
+        "can_get_domain_engine_receipts";
+    const std::string can_get_all_engine_receipts =
+        "can_get_all_engine_receipts";
 
     /*                     Account asset (wallet)                */
     const std::string can_get_my_acc_ast = "can_get_my_acc_ast";

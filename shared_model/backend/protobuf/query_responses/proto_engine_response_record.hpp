@@ -25,17 +25,25 @@ namespace shared_model {
 
       int32_t getCommandIndex() const override;
       shared_model::interface::types::AccountIdType getCaller() const override;
-      shared_model::interface::EngineReceipt::PayloadType getPayloadType() const override;
-      shared_model::interface::EngineReceipt::EngineLogsCollectionType const &getEngineLogs() const override;
-      std::optional<shared_model::interface::EngineReceipt::CallResult> const &getResponseData() const override;
-      std::optional<shared_model::interface::types::EvmAddressHexString> const &getContractAddress() const override;
+      shared_model::interface::EngineReceipt::PayloadType getPayloadType()
+          const override;
+      shared_model::interface::EngineReceipt::EngineLogsCollectionType const &
+      getEngineLogs() const override;
+      std::optional<shared_model::interface::EngineReceipt::CallResult> const &
+      getResponseData() const override;
+      std::optional<shared_model::interface::types::EvmAddressHexString> const &
+      getContractAddress() const override;
 
      private:
       const TransportType &proto_;
-      shared_model::interface::EngineReceipt::EngineLogsCollectionType engine_logs_;
-      std::optional<shared_model::interface::types::EvmDataHexString> const response_data_;
-      std::optional<shared_model::interface::EngineReceipt::CallResult> const call_result_;
-      std::optional<shared_model::interface::types::EvmAddressHexString> const contact_address_;
+      shared_model::interface::EngineReceipt::EngineLogsCollectionType
+          engine_logs_;
+      std::optional<shared_model::interface::types::EvmDataHexString> const
+          response_data_;
+      std::optional<shared_model::interface::EngineReceipt::CallResult> const
+          call_result_;
+      std::optional<shared_model::interface::types::EvmAddressHexString> const
+          contact_address_;
     };
   }  // namespace proto
 }  // namespace shared_model

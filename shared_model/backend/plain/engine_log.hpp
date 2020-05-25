@@ -14,18 +14,18 @@ namespace shared_model {
   namespace plain {
 
     class EngineLog final : public interface::EngineLog {
-    public:
+     public:
       EngineLog() = delete;
-      EngineLog(EngineLog const&) = delete;
-      EngineLog& operator=(EngineLog const&) = delete;
+      EngineLog(EngineLog const &) = delete;
+      EngineLog &operator=(EngineLog const &) = delete;
 
-      EngineLog(interface::types::EvmAddressHexString const &address, interface::types::EvmDataHexString const &data)
-      : address_(address)
-      , data_(data) { }
+      EngineLog(interface::types::EvmAddressHexString const &address,
+                interface::types::EvmDataHexString const &data)
+          : address_(address), data_(data) {}
 
-      EngineLog(interface::types::EvmAddressHexString &&address, interface::types::EvmDataHexString &&data)
-      : address_(std::move(address))
-      , data_(std::move(data)) { }
+      EngineLog(interface::types::EvmAddressHexString &&address,
+                interface::types::EvmDataHexString &&data)
+          : address_(std::move(address)), data_(std::move(data)) {}
 
       interface::types::EvmAddressHexString const &getAddress() const {
         return address_;
@@ -47,7 +47,7 @@ namespace shared_model {
         topics_.emplace_back(topic);
       }
 
-    private:
+     private:
       interface::types::EvmAddressHexString const address_;
       interface::types::EvmDataHexString const data_;
       interface::EngineLog::TopicsCollectionType topics_;

@@ -8,18 +8,20 @@
 
 #include "interfaces/query_responses/engine_response.hpp"
 
-#include "interfaces/common_objects/range_types.hpp"
 #include "backend/protobuf/query_responses/proto_engine_response_record.hpp"
+#include "interfaces/common_objects/range_types.hpp"
 #include "qry_responses.pb.h"
 
 namespace shared_model {
   namespace proto {
-    class EngineReceiptsResponse final : public interface::EngineReceiptsResponse {
+    class EngineReceiptsResponse final
+        : public interface::EngineReceiptsResponse {
      public:
-      explicit EngineReceiptsResponse(iroha::protocol::QueryResponse &query_response);
+      explicit EngineReceiptsResponse(
+          iroha::protocol::QueryResponse &query_response);
 
-      interface::types::EngineReceiptCollectionType
-      engineReceipts() const override;
+      interface::types::EngineReceiptCollectionType engineReceipts()
+          const override;
 
      private:
       const iroha::protocol::EngineReceiptsResponse &engine_response_;
