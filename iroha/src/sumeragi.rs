@@ -598,7 +598,7 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(1000)).await;
+        async_std::task::sleep(Duration::from_millis(2000)).await;
         for block_counter in block_counters {
             assert_eq!(*block_counter.write().await, 1);
         }
@@ -683,7 +683,7 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(COMMIT_TIME + Duration::from_millis(1000)).await;
+        async_std::task::sleep(COMMIT_TIME + Duration::from_millis(2000)).await;
         for block_counter in block_counters {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
