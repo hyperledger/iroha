@@ -5,6 +5,7 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
+#include <tuple>
 #include <unordered_map>
 
 #include <boost/algorithm/string/join.hpp>
@@ -13,7 +14,6 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/algorithm/transform.hpp>
 #include <boost/range/irange.hpp>
-#include <tuple>
 #include "ametsuchi/block_storage.hpp"
 #include "ametsuchi/impl/executor_common.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
@@ -78,10 +78,11 @@ namespace {
   }
 
   /**
-   * Generate an SQL subquery which checks if creator has corresponding
-   * permissions for target account
-   * It verifies individual, domain, and global permissions, and returns true if
-   * any of listed permissions is present
+   * Generate an SQL subquery called `has_perms' which checks if creator has
+   * corresponding permissions for target account taken from column `t' of table
+   * `target' (should be provided separately).
+   * It verifies individual, domain, and global permissions, and returns true in
+   * `perm' column if any of listed permissions is present, and false otherwise
    */
   auto hasQueryPermissionInternal(
       shared_model::interface::types::AccountIdType const &creator,
@@ -139,6 +140,12 @@ namespace {
         iroha::ametsuchi::getDomainFromName(creator));
   }
 
+  /**
+   * Generate an SQL subquery called `has_perms' which checks if creator has
+   * corresponding permissions for given target account.
+   * It verifies individual, domain, and global permissions, and returns true in
+   * `perm' column if any of listed permissions is present, and false otherwise
+   */
   auto hasQueryPermissionTarget(
       shared_model::interface::types::AccountIdType const &creator,
       shared_model::interface::types::AccountIdType const &target_account,
@@ -1482,23 +1489,22 @@ namespace iroha {
               ),
               {}
             select
-                    engine_calls.cmd_index,
-                    target.t caller,
-                    engine_calls.callee,
-                    engine_calls.created_address,
-                    engine_calls.engine_response,
-                    burrow_tx_logs.log_idx,
-                    burrow_tx_logs.address,
-                    burrow_tx_logs.data,
-                    burrow_tx_logs_topics.topic,
-                    has_perms.perm
-            from engine_calls
-            left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
-            left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
-            cross join target
-            RIGHT OUTER JOIN has_perms ON TRUE
-   			where engine_calls.tx_hash=:tx_hash
-               or engine_calls.cmd_index is null    -- we need this because of at least one row must exist in response
+              engine_calls.cmd_index,
+              target.t caller,
+              engine_calls.callee,
+              engine_calls.created_address,
+              engine_calls.engine_response,
+              burrow_tx_logs.log_idx,
+              burrow_tx_logs.address,
+              burrow_tx_logs.data,
+              burrow_tx_logs_topics.topic,
+              has_perms.perm
+            from
+              target
+              left join engine_calls on engine_calls.tx_hash = :tx_hash
+              left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
+              left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
+              right outer join has_perms on true
             order by engine_calls.cmd_index asc
             )",
           hasQueryPermissionInternal(creator_id,
