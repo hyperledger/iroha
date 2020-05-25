@@ -35,6 +35,9 @@ use async_std::{
 };
 use std::{path::Path, sync::Arc, time::Duration};
 
+/// The interval at which sumeragi checks if there are tx in the `queue`.
+pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Type of `Sender<ValidBlock>` which should be used for channels of `ValidBlock` messages.
 pub type ValidBlockSender = Sender<ValidBlock>;
 /// Type of `Receiver<ValidBlock>` which should be used for channels of `ValidBlock` messages.
@@ -65,7 +68,7 @@ pub struct Iroha {
     kura_blocks_receiver: Arc<RwLock<ValidBlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
-    block_build_step_ms: u64,
+    _block_build_step_ms: u64,
 }
 
 impl Iroha {
@@ -112,7 +115,7 @@ impl Iroha {
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
             message_receiver: Arc::new(RwLock::new(message_receiver)),
-            block_build_step_ms: config.block_build_step_ms,
+            _block_build_step_ms: config.block_build_step_ms,
             kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
         }
     }
@@ -123,50 +126,50 @@ impl Iroha {
         let kura = Arc::clone(&self.kura);
         kura.write().await.init().await?;
         let torii = Arc::clone(&self.torii);
-        task::spawn(async move {
+        let torii_handle = task::spawn(async move {
             if let Err(e) = torii.write().await.start().await {
                 eprintln!("Failed to start Torii: {}", e);
             }
         });
         let transactions_receiver = Arc::clone(&self.transactions_receiver);
         let queue = Arc::clone(&self.queue);
-        task::spawn(async move {
+        let tx_handle = task::spawn(async move {
             while let Some(transaction) = transactions_receiver.write().await.next().await {
                 queue.write().await.push_pending_transaction(transaction);
             }
         });
         let queue = Arc::clone(&self.queue);
         let sumeragi = Arc::clone(&self.sumeragi);
-        let block_build_step_ms = self.block_build_step_ms;
-        task::spawn(async move {
+        let voting_handle = task::spawn(async move {
             loop {
-                let mut sumeragi = sumeragi.write().await;
-                if !sumeragi.voting_in_progress().await {
+                if !sumeragi.write().await.voting_in_progress().await {
                     sumeragi
+                        .write()
+                        .await
                         .round(queue.write().await.pop_pending_transactions())
                         .await
                         .expect("Round failed.");
-                    task::sleep(Duration::from_millis(block_build_step_ms)).await;
                 }
+                task::sleep(TX_RETRIEVAL_INTERVAL).await;
             }
         });
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
-        task::spawn(async move {
+        let wsv_handle = task::spawn(async move {
             while let Some(block) = wsv_blocks_receiver.write().await.next().await {
                 world_state_view.write().await.put(&block).await;
             }
         });
         let message_receiver = Arc::clone(&self.message_receiver);
         let sumeragi = Arc::clone(&self.sumeragi);
-        task::spawn(async move {
+        let sumeragi_message_handle = task::spawn(async move {
             while let Some(message) = message_receiver.write().await.next().await {
                 let _result = sumeragi.write().await.handle_message(message).await;
             }
         });
         let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);
         let kura = Arc::clone(&self.kura);
-        task::spawn(async move {
+        let kura_handle = task::spawn(async move {
             while let Some(block) = kura_blocks_receiver.write().await.next().await {
                 let _hash = kura
                     .write()
@@ -176,6 +179,14 @@ impl Iroha {
                     .expect("Failed to write block.");
             }
         });
+        futures::join!(
+            torii_handle,
+            kura_handle,
+            voting_handle,
+            wsv_handle,
+            sumeragi_message_handle,
+            tx_handle
+        );
         Ok(())
     }
 }

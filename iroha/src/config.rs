@@ -42,8 +42,10 @@ pub struct Configuration {
     pub trusted_peers: Vec<PeerId>,
     /// Maximum amount of peers to fail and do not compromise the consensus.
     pub max_faulty_peers: usize,
-    public_key: PublicKey,
-    private_key: PrivateKey,
+    /// Public key of this peer. Should be the same as in `peer_id`
+    pub public_key: PublicKey,
+    /// Private key of this peer.
+    pub private_key: PrivateKey,
 }
 
 impl Configuration {
