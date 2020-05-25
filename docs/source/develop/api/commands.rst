@@ -245,7 +245,7 @@ Possible Stateful Validation Errors
     :header: "Code", "Error Name", "Description", "How to solve"
 
     "5", "CallEngine error", "Code execution in EVM failed; the reason can be both in the contract code itself or be rooted in nested Iroha commands call", "Investigation of the error root cause is required in order to diagnose the issue"
-    "?", "No such permissions", "Command’s creator does not have a permission to call EVM engine", "Grant the necessary permission"
+    "2", "No such permissions", "Command’s creator does not have a permission to call EVM engine", "Grant the necessary permission"
 
 Create account
 --------------
