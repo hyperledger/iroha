@@ -19,7 +19,7 @@ at ``example/config.sample``
     "block_store_path": "/tmp/block_store/",
     "torii_port": 50051,
     "torii_tls_params": {
-      "port": "55552",
+      "port": 55552,
       "key_pair_path": "/path/to/the/keypair"
     },
     "internal_port": 10001,
@@ -31,7 +31,7 @@ at ``example/config.sample``
       "password": "mysecretpassword",
       "working database": "iroha_data",
       "maintenance database": "postgres"
-    }
+    },
     "max_proposal_size": 10,
     "proposal_delay": 5000,
     "vote_delay": 5000,
