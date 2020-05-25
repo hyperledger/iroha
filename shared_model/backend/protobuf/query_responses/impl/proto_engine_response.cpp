@@ -11,9 +11,8 @@ namespace shared_model {
     EngineReceiptsResponse::EngineReceiptsResponse(
         iroha::protocol::QueryResponse &query_response)
         : engine_response_{query_response.engine_response()},
-          engine_response_records_{
-              engine_response_.engine_receipts().begin(),
-              engine_response_.engine_receipts().end()} {}
+          engine_response_records_{engine_response_.engine_receipts().begin(),
+                                   engine_response_.engine_receipts().end()} {}
 
     interface::types::EngineReceiptCollectionType
     EngineReceiptsResponse::engineReceipts() const {

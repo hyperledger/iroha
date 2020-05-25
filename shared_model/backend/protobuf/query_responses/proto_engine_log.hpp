@@ -21,9 +21,12 @@ namespace shared_model {
       explicit EngineLog(TransportType const &proto);
       explicit EngineLog(EngineLog const &o);
 
-      shared_model::interface::types::EvmAddressHexString const &getAddress() const override;
-      shared_model::interface::types::EvmDataHexString const &getData() const override;
-      shared_model::interface::EngineLog::TopicsCollectionType const &getTopics() const override;
+      shared_model::interface::types::EvmAddressHexString const &getAddress()
+          const override;
+      shared_model::interface::types::EvmDataHexString const &getData()
+          const override;
+      shared_model::interface::EngineLog::TopicsCollectionType const &
+      getTopics() const override;
 
      private:
       const TransportType &proto_;

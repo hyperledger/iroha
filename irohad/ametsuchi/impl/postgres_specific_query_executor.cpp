@@ -563,7 +563,8 @@ namespace iroha {
                     std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH {},
+      auto cmd =
+          fmt::format(R"(WITH {},
       t AS (
           SELECT a.account_id, a.domain_id, a.quorum, a.data, ARRAY_AGG(ar.role_id) AS roles
           FROM account AS a, account_has_roles AS ar
@@ -574,11 +575,11 @@ namespace iroha {
       SELECT account_id, domain_id, quorum, data, roles, perm
       FROM t RIGHT OUTER JOIN has_perms AS p ON TRUE
       )",
-                             hasQueryPermissionTarget(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccount,
-                                                Role::kGetAllAccounts,
-                                                Role::kGetDomainAccounts));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMyAccount,
+                                               Role::kGetAllAccounts,
+                                               Role::kGetDomainAccounts));
 
       auto query_apply = [this, &query_hash](auto &account_id,
                                              auto &domain_id,
@@ -664,7 +665,8 @@ namespace iroha {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH {},
+      auto cmd =
+          fmt::format(R"(WITH {},
       t AS (
           SELECT public_key FROM account_has_signatory
           WHERE account_id = :account_id
@@ -672,11 +674,11 @@ namespace iroha {
       SELECT public_key, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
       )",
-                             hasQueryPermissionTarget(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMySignatories,
-                                                Role::kGetAllSignatories,
-                                                Role::kGetDomainSignatories));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMySignatories,
+                                               Role::kGetAllSignatories,
+                                               Role::kGetDomainSignatories));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
@@ -1505,90 +1507,104 @@ namespace iroha {
                                      Role::kGetDomainEngineReceipts));
 
       using QueryTuple =
-          QueryType<
-              shared_model::interface::types::CommandIndexType,
-              shared_model::interface::types::AccountIdType,
-              shared_model::interface::types::EvmDataHexString,
-              shared_model::interface::types::EvmAddressHexString,
-              shared_model::interface::types::EvmDataHexString,
-              uint32_t,
-              shared_model::interface::types::EvmAddressHexString,
-              shared_model::interface::types::EvmDataHexString,
-              shared_model::interface::types::EvmTopicsHexString
-            >;
+          QueryType<shared_model::interface::types::CommandIndexType,
+                    shared_model::interface::types::AccountIdType,
+                    shared_model::interface::types::EvmDataHexString,
+                    shared_model::interface::types::EvmAddressHexString,
+                    shared_model::interface::types::EvmDataHexString,
+                    uint32_t,
+                    shared_model::interface::types::EvmAddressHexString,
+                    shared_model::interface::types::EvmDataHexString,
+                    shared_model::interface::types::EvmTopicsHexString>;
 
       using PermissionTuple = boost::tuple<int>;
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] {
-            return (sql_.prepare << cmd,
-                    soci::use(q.txHash(), "tx_hash"));
+            return (sql_.prepare << cmd, soci::use(q.txHash(), "tx_hash"));
           },
           query_hash,
           [&](auto range, auto &) {
-            using RecordsCollection = std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>>;
-            using RecordPtr = std::unique_ptr<shared_model::plain::EngineReceipt>;
-            using EngineLogPtr = std::unique_ptr<shared_model::plain::EngineLog>;
+            using RecordsCollection = std::vector<
+                std::unique_ptr<shared_model::interface::EngineReceipt>>;
+            using RecordPtr =
+                std::unique_ptr<shared_model::plain::EngineReceipt>;
+            using EngineLogPtr =
+                std::unique_ptr<shared_model::plain::EngineLog>;
 
             RecordsCollection records;
             RecordPtr record;
             EngineLogPtr log;
             std::optional<uint32_t> prev_log_ix;
-            std::optional<shared_model::interface::types::CommandIndexType> prev_cmd_ix;
+            std::optional<shared_model::interface::types::CommandIndexType>
+                prev_cmd_ix;
 
-            auto store_record = [](RecordsCollection &records, RecordPtr &&rec) {
-                if (!!rec) {
-                  records.emplace_back(std::move(rec));
-                }
+            auto store_record = [](RecordsCollection &records,
+                                   RecordPtr &&rec) {
+              if (!!rec) {
+                records.emplace_back(std::move(rec));
+              }
             };
 
             auto store_log = [](RecordPtr &rec, EngineLogPtr &&el) {
-                if (!!rec && !!el) {
-                   rec->getMutableLogs().emplace_back(std::move(el));
-                }
+              if (!!rec && !!el) {
+                rec->getMutableLogs().emplace_back(std::move(el));
+              }
             };
 
             for (const auto &row : range) {
               iroha::ametsuchi::apply(
-                  row, [&q, &store_record, &store_log, &record, &log, &records, &prev_log_ix, &prev_cmd_ix](
-                                  auto &cmd_index,
-                                  auto &caller,
-                                  auto &payload_callee,
-                                  auto &payload_cantract_address,
-                                  auto &engine_response,
-                                  auto &logs_ix,
-                                  auto &log_address,
-                                  auto &log_data,
-                                  auto &log_topic
-                                  ) {
+                  row,
+                  [&q,
+                   &store_record,
+                   &store_log,
+                   &record,
+                   &log,
+                   &records,
+                   &prev_log_ix,
+                   &prev_cmd_ix](auto &cmd_index,
+                                 auto &caller,
+                                 auto &payload_callee,
+                                 auto &payload_cantract_address,
+                                 auto &engine_response,
+                                 auto &logs_ix,
+                                 auto &log_address,
+                                 auto &log_data,
+                                 auto &log_topic) {
                     if (!cmd_index || !caller)
-                        return;
+                      return;
 
-                    auto payloadToPayloadType = [](
-                        std::optional<shared_model::interface::types::EvmAddressHexString> const &callee,
-                        std::optional<shared_model::interface::types::EvmAddressHexString> const &contract_address,
-                        shared_model::interface::types::EvmAddressHexString const *&target)
-                    {
-                      assert(!callee != !contract_address);
-                      if (!!callee) {
-                          target = &(*callee);
-                          return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeCallResult;
-                      }
-                      target = &(*contract_address);
-                      return shared_model::interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress;
-                    };
+                    auto payloadToPayloadType =
+                        [](std::optional<shared_model::interface::types::
+                                             EvmAddressHexString> const &callee,
+                           std::optional<shared_model::interface::types::
+                                             EvmAddressHexString> const
+                               &contract_address,
+                           shared_model::interface::types::
+                               EvmAddressHexString const *&target) {
+                          assert(!callee != !contract_address);
+                          if (!!callee) {
+                            target = &(*callee);
+                            return shared_model::interface::EngineReceipt::
+                                PayloadType::kPayloadTypeCallResult;
+                          }
+                          target = &(*contract_address);
+                          return shared_model::interface::EngineReceipt::
+                              PayloadType::kPayloadTypeContractAddress;
+                        };
 
                     auto const new_cmd = (prev_cmd_ix != cmd_index);
                     auto const new_log = (prev_log_ix != logs_ix) || new_cmd;
 
                     if (new_log) {
-                        store_log(record, std::move(log));
+                      store_log(record, std::move(log));
 
-                        if (!!logs_ix) {
-                            assert(!!log_address && !!log_data);
-                            log = std::make_unique<shared_model::plain::EngineLog>(*log_address, *log_data);
-                        }
-                        prev_log_ix = logs_ix;
+                      if (!!logs_ix) {
+                        assert(!!log_address && !!log_data);
+                        log = std::make_unique<shared_model::plain::EngineLog>(
+                            *log_address, *log_data);
+                      }
+                      prev_log_ix = logs_ix;
                     }
 
                     if (!!log_topic) {
@@ -1597,31 +1613,35 @@ namespace iroha {
                     }
 
                     if (new_cmd) {
-                        store_record(records, std::move(record));
+                      store_record(records, std::move(record));
 
-                        shared_model::interface::types::EvmAddressHexString const *target;
-                        auto const pt = payloadToPayloadType(payload_callee, payload_cantract_address, target);
-                        record = std::make_unique<shared_model::plain::EngineReceipt>(
-                                    *cmd_index,
-                                    *caller,
-                                    pt,
-                                    *target,
-                                    engine_response
-                                 );
-                        prev_cmd_ix = cmd_index;
+                      shared_model::interface::types::EvmAddressHexString const
+                          *target;
+                      auto const pt = payloadToPayloadType(
+                          payload_callee, payload_cantract_address, target);
+                      record =
+                          std::make_unique<shared_model::plain::EngineReceipt>(
+                              *cmd_index,
+                              *caller,
+                              pt,
+                              *target,
+                              engine_response);
+                      prev_cmd_ix = cmd_index;
                     }
                   });
             }
             store_log(record, std::move(log));
             store_record(records, std::move(record));
 
-            return query_response_factory_->createEngineReceiptsResponse(records, query_hash);
+            return query_response_factory_->createEngineReceiptsResponse(
+                records, query_hash);
           },
           // Permission missing error is not going to happen in case of that
           // query for now
-          notEnoughPermissionsResponse(perm_converter_, Role::kGetMyEngineReceipts,
-                    Role::kGetAllEngineReceipts,
-                    Role::kGetDomainEngineReceipts));
+          notEnoughPermissionsResponse(perm_converter_,
+                                       Role::kGetMyEngineReceipts,
+                                       Role::kGetAllEngineReceipts,
+                                       Role::kGetDomainEngineReceipts));
     }
 
     template <typename ReturnValueType>
