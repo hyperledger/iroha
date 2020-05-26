@@ -7,7 +7,7 @@ members = [
   "iroha_macro",
   "iroha_macro/iroha_derive",
   "iroha_network",
-  "modules/dex",
-  "apps/bridge_substrate_xclaim",
-  "modules/bridge_inner"
+  "iroha_modules/iroha_dex",
+  "apps/iroha_bridge_substrate",
+  "iroha_modules/iroha_bridge"
 ]
