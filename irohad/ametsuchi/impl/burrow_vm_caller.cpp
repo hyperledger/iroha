@@ -34,15 +34,14 @@ iroha::expected::Result<std::string, std::string> BurrowVmCaller::call(
   std::string nonce = tx_hash;
   const char *nonce_raw =
       const_cast<char *>(nonce.append(uint64ToHexstring(cmd_index)).c_str());
-  auto burrow_storage =
-      std::make_unique<PostgresBurrowStorage>(sql, tx_hash, cmd_index);
+  PostgresBurrowStorage burrow_storage(sql, tx_hash, cmd_index);
   auto res = VmCall(input_raw,
                     caller.c_str(),
                     callee_raw,
                     nonce_raw,
                     &command_executor,
                     &query_executor,
-                    burrow_storage.get());
+                    &burrow_storage);
   if (res.r1 != nullptr) {
     return iroha::expected::makeError(fmt::format("Engine error: {}.", res.r1));
   }
