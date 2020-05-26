@@ -10,7 +10,7 @@ import (
 )
 
 type IrohaState struct {
-	*iroha.IrohaStorage
+	iroha.IrohaStorage
 }
 
 // check that IrohaState implements acmstate.ReaderWriter
@@ -21,7 +21,7 @@ func NewIrohaState(storage unsafe.Pointer) *IrohaState {
 		// iroha.IrohaStorage{
 		// 	storage: storage,
 		// },
-		iroha.NewIrohaStorage(storage),
+		*iroha.NewIrohaStorage(storage),
 	}
 }
 
