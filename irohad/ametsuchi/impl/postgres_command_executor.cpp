@@ -222,7 +222,7 @@ namespace {
           permittee_account_id = %5%
           )") % kGrantablePermissionSetSize
                          % perm_str
-                         % checkAccountRolePermission(Role::kRoot, account_id)
+                         % checkAccountRolePermission(Role::kRoot, creator_id)
                          % account_id % creator_id)
                             .str();
     return query;
