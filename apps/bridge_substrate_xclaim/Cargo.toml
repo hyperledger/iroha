@@ -1,5 +1,5 @@
 [package]
-name = "bridge_substrate__xclaim"
+name = "bridge_substrate_xclaim"
 version = "0.1.0"
 authors = ["Iury V. Vinogradov <discours@list.ru>"]
 edition = "2018"
