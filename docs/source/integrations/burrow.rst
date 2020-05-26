@@ -61,7 +61,7 @@ Schematically the interaction between different parts of the system looks as fol
 
 .. image:: ../../image_assets/burrow/natives.png
 
-Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 4 methods to query Iroha assets balances and transfer assets between accounts.
+Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 2 methods to query Iroha assets balances and transfer assets between accounts.
 The signature of these four method looks like this:
 
 	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
