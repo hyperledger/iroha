@@ -14,10 +14,10 @@ namespace iroha {
    public:
     MOCK_METHOD1(subscribe,
                  void(std::shared_ptr<network::MstTransportNotification>));
-    MOCK_METHOD2(
-        sendState,
-        rxcpp::observable<bool>(const shared_model::interface::Peer &to,
-                                const MstState &providing_state));
+    MOCK_METHOD2(sendState,
+                 rxcpp::observable<bool>(
+                     std::shared_ptr<shared_model::interface::Peer const> to,
+                     const MstState &providing_state));
   };
 }  // namespace iroha
 

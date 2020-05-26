@@ -55,7 +55,7 @@ namespace iroha {
        * @return true if transmission was successful, false otherwise
        */
       virtual rxcpp::observable<bool> sendState(
-          shared_model::interface::Peer const &to,
+          std::shared_ptr<shared_model::interface::Peer const> to,
           MstState const &providing_state) = 0;
 
       virtual ~MstTransport() = default;
