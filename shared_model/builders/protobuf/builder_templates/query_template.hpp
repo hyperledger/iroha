@@ -8,6 +8,7 @@
 
 #include <boost/range/algorithm/for_each.hpp>
 #include <optional>
+#include <string_view>
 
 #include "backend/plain/account_detail_record_id.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
@@ -267,6 +268,13 @@ namespace shared_model {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_block();
           query->set_height(height);
+        });
+      }
+
+      auto getEngineReceipts(std::string_view tx_hash) {
+        return queryField([&](auto proto_query) {
+          auto query = proto_query->mutable_get_engine_receipts();
+          query->set_tx_hash(tx_hash.data(), tx_hash.size());
         });
       }
 
