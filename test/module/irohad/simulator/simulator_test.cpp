@@ -112,7 +112,7 @@ auto makeTx(size_t created_time = iroha::time::now()) {
   return shared_model::proto::TransactionBuilder()
       .createdTime(created_time)
       .creatorAccountId("admin@ru")
-      .addAssetQuantity("coin#coin", "1.0")
+      .addAssetQuantity("coin#coin", "1.0") 
       .quorum(1)
       .build()
       .signAndAddSignature(

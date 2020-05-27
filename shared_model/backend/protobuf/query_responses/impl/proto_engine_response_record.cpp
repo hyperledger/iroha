@@ -27,7 +27,7 @@ EngineReceipt::EngineReceipt(const TransportType &proto)
                     {proto.call_result().callee(), response_data_})
               : std::nullopt),
       contact_address_(
-          proto.opt_to_contract_address_case()
+          proto.result_or_contract_address_case()
                   == iroha::protocol::EngineReceipt::kContractAddress
               ? std::optional<
                     shared_model::interface::types::EvmAddressHexString>(
@@ -53,11 +53,11 @@ shared_model::interface::types::AccountIdType EngineReceipt::getCaller() const {
 
 shared_model::interface::EngineReceipt::PayloadType
 EngineReceipt::getPayloadType() const {
-  if (proto_.opt_to_contract_address_case()
+  if (proto_.result_or_contract_address_case()
       == iroha::protocol::EngineReceipt::kCallResult)
     return shared_model::interface::EngineReceipt::PayloadType::
         kPayloadTypeCallResult;
-  else if (proto_.opt_to_contract_address_case()
+  else if (proto_.result_or_contract_address_case()
            == iroha::protocol::EngineReceipt::kContractAddress)
     return shared_model::interface::EngineReceipt::PayloadType::
         kPayloadTypeContractAddress;

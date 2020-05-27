@@ -20,8 +20,8 @@ namespace shared_model {
       EngineReceipt(
           interface::types::CommandIndexType cmd_index,
           interface::types::AccountIdType const &caller,
-          interface::EngineReceipt::PayloadType payload_type,
-          interface::types::EvmAddressHexString const &payload,
+          std::optional<interface::types::EvmDataHexString> const &callee,
+          std::optional<interface::types::EvmDataHexString> const &contract_address,
           std::optional<interface::types::EvmDataHexString> const &e_response);
 
       int32_t getCommandIndex() const override;
