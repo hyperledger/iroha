@@ -5,8 +5,12 @@
 pub mod account;
 pub mod asset;
 pub mod block;
+#[cfg(feature = "bridge")]
+pub mod bridge;
 pub mod config;
 pub mod crypto;
+#[cfg(feature = "dex")]
+pub mod dex;
 pub mod domain;
 pub mod isi;
 mod kura;
