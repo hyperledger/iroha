@@ -12,7 +12,7 @@ echo "Checkout to commit"
 git -C $vcpkg_path checkout (Get-Content -Path $iroha_vcpkg_path\VCPKG_COMMIT_SHA)
 
 echo "Apply patches to vcpkg"
-foreach($file in Get-ChildItem $iroha_vcpkg_path\patches -Filter *.patch) { git -C $vcpkg_path apply $file.FullName }
+foreach($file in Get-ChildItem $iroha_vcpkg_path\patches -Filter *.patch) { git -C $vcpkg_path apply --ignore-whitespace $file.FullName }
 
 echo "Run bootstrap-vcpkg.bat"
 Invoke-Expression "$vcpkg_path\bootstrap-vcpkg.bat"

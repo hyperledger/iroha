@@ -17,6 +17,7 @@
 #include "multi_sig_transactions/storage/mst_storage_impl.hpp"
 
 auto log_ = getTestLogger("MstProcessorTest");
+static constexpr std::chrono::milliseconds kMstStalledThreshold(10);
 
 using namespace iroha;
 using namespace framework::test_subscriber;
@@ -32,6 +33,8 @@ class MstProcessorTest : public testing::Test {
   rxcpp::subjects::subject<PropagationStrategy::PropagationData>
       propagation_subject;
   /// use effective implementation of storage
+  const std::shared_ptr<MockTimeProvider> mock_time_provider_ =
+      std::make_shared<MockTimeProvider>();
   std::shared_ptr<MstStorage> storage;
   std::shared_ptr<FairMstProcessor> mst_processor;
 
@@ -49,8 +52,14 @@ class MstProcessorTest : public testing::Test {
  protected:
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
+    ON_CALL(*mock_time_provider_, getCurrentTime())
+        .WillByDefault(::testing::Return(time_now));
+    EXPECT_CALL(*mock_time_provider_, getCurrentTime())
+        .Times(::testing::AnyNumber());
     storage =
         std::make_shared<MstStorageStateImpl>(std::make_shared<TestCompleter>(),
+                                              mock_time_provider_,
+                                              kMstStalledThreshold,
                                               getTestLogger("MstState"),
                                               getTestLogger("MstStorage"));
 
@@ -66,7 +75,6 @@ class MstProcessorTest : public testing::Test {
         std::make_shared<FairMstProcessor>(transport,
                                            storage,
                                            propagation_strategy,
-                                           time_provider,
                                            getTestLogger("FairMstProcessor"));
   }
 };
@@ -308,14 +316,15 @@ TEST_F(MstProcessorTest, emptyStatePropagation) {
   auto another_peer = makePeer(
       "another", shared_model::interface::types::PubkeyType("sign_one"));
 
-  auto another_peer_state = MstState::empty(
-      getTestLogger("MstState"),
-      std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)));
-  another_peer_state += makeTestBatch(txBuilder(1));
+  {
+    auto another_peer_state = MstState::empty(
+        getTestLogger("MstState"),
+        std::make_shared<iroha::DefaultCompleter>(std::chrono::minutes(0)));
+    another_peer_state += makeTestBatch(txBuilder(1));
 
-  storage->apply(another_peer->pubkey(), another_peer_state);
-  ASSERT_TRUE(
-      storage->getDiffState(another_peer->pubkey(), time_now).isEmpty());
+    storage->apply(another_peer->pubkey(), std::move(another_peer_state));
+  }
+  ASSERT_TRUE(storage->getDiffState(another_peer->pubkey()).isEmpty());
 
   // ---------------------------------| when |----------------------------------
   std::vector<std::shared_ptr<shared_model::interface::Peer>> peers{

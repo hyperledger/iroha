@@ -13,10 +13,11 @@ target_link_libraries(state_test
 AddTest(storage_test storage_test.cpp)
 target_link_libraries(storage_test
     mst_storage
-    test_logger
+    rxcpp
     shared_model_default_builders
     shared_model_stateless_validation
     shared_model_interfaces_factories
+    test_logger
     )
 
 AddTest(completer_test completer_test.cpp)
