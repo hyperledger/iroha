@@ -19,7 +19,8 @@ pub struct PeerId {
 /// Peer represents currently running Iroha instance.
 #[derive(Debug, Clone)]
 pub struct Peer {
-    id: PeerId,
+    /// Peer Identification.
+    pub id: PeerId,
     /// All discovered Peers' Ids.
     pub peers: HashSet<PeerId>,
     /// Address to listen to.

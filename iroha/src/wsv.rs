@@ -47,12 +47,12 @@ impl WorldStateView {
 
     /// Get `Account` without an ability to modify it.
     pub fn read_account(&self, id: &<Account as Identifiable>::Id) -> Option<&Account> {
-        self.read_domain(&id.container)?.accounts.get(id)
+        self.read_domain(&id.domain_name)?.accounts.get(id)
     }
 
     /// Get `Account` with an ability to modify it.
     pub fn account(&mut self, id: &<Account as Identifiable>::Id) -> Option<&mut Account> {
-        self.domain(&id.container)?.accounts.get_mut(id)
+        self.domain(&id.domain_name)?.accounts.get_mut(id)
     }
 
     /// Get `Asset` without an ability to modify it.
