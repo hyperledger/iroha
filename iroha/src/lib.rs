@@ -16,6 +16,7 @@ pub mod isi;
 mod kura;
 mod merkle;
 pub mod peer;
+mod permission;
 pub mod query;
 mod queue;
 pub mod sumeragi;

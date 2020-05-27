@@ -1,10 +1,14 @@
 //! This module contains `Asset` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::{isi::prelude::*, prelude::*};
+use crate::{isi::prelude::*, permission::Permissions, prelude::*};
 use iroha_derive::log;
 use parity_scale_codec::{Decode, Encode};
-use std::{collections::BTreeMap, hash::Hash};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display, Formatter},
+    hash::Hash,
+};
 
 /// Asset entity represents some sort of commodity or value.
 #[derive(Clone, Debug, Encode, Decode)]
@@ -35,6 +39,8 @@ pub struct Asset {
     pub big_quantity: u128,
     /// Asset's key-value structured data associated with an `Account`.
     store: BTreeMap<String, String>,
+    /// Asset's key-value  (action, object_id) structured permissions associated with an `Account`.
+    pub permissions: Permissions,
 }
 
 impl Asset {
@@ -45,6 +51,30 @@ impl Asset {
             quantity,
             big_quantity: 0,
             store: BTreeMap::new(),
+            permissions: Permissions::new(),
+        }
+    }
+
+    /// Constructor with filled `big_quantity` field.
+    pub fn with_big_quantity(id: <Asset as Identifiable>::Id, big_quantity: u128) -> Self {
+        Self {
+            id,
+            quantity: 0,
+            big_quantity,
+            store: BTreeMap::new(),
+            permissions: Permissions::new(),
+        }
+    }
+
+    /// Constructor with filled `permissions` field.
+    pub fn with_permission(id: <Asset as Identifiable>::Id, permission: (String, String)) -> Self {
+        let permissions = Permissions::from(permission);
+        Self {
+            id,
+            quantity: 0,
+            big_quantity: 0,
+            store: BTreeMap::new(),
+            permissions,
         }
     }
 
@@ -101,6 +131,12 @@ impl From<&str> for AssetDefinitionId {
             name: String::from(vector[0]),
             domain_name: String::from(vector[1]),
         }
+    }
+}
+
+impl Display for AssetDefinitionId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.name, self.domain_name)
     }
 }
 
@@ -161,12 +197,10 @@ pub mod isi {
                 Some(asset) => {
                     asset.quantity += self.object;
                 }
-                None => world_state_view.add_asset(Asset {
-                    id: self.destination_id.clone(),
-                    quantity: self.object,
-                    big_quantity: 0,
-                    store: BTreeMap::new(),
-                }),
+                None => world_state_view.add_asset(Asset::with_quantity(
+                    self.destination_id.clone(),
+                    self.object,
+                )),
             }
             Ok(())
         }
@@ -181,12 +215,10 @@ pub mod isi {
                 Some(asset) => {
                     asset.big_quantity += self.object;
                 }
-                None => world_state_view.add_asset(Asset {
-                    id: self.destination_id.clone(),
-                    big_quantity: self.object,
-                    quantity: 0,
-                    store: BTreeMap::new(),
-                }),
+                None => world_state_view.add_asset(Asset::with_big_quantity(
+                    self.destination_id.clone(),
+                    self.object,
+                )),
             }
             Ok(())
         }

@@ -21,9 +21,14 @@ pub enum Instruction {
     Asset(crate::asset::isi::AssetInstruction),
     /// Variant of instructions related to `Account`.
     Account(crate::account::isi::AccountInstruction),
-    /// This variant of Iroha Special Instructions composes two other instructions into one, and
+    /// Variant of instructions related to `Permission`.
+    Permission(crate::permission::isi::PermissionInstruction),
+    /// This variant of Iroha Special Instruction composes two other instructions into one, and
     /// executes them both.
     Compose(Box<Instruction>, Box<Instruction>),
+    /// This variant of Iroha Special Instruction executes the first instruction and if it succeeded
+    /// executes the second one, if failed - the third one.
+    If(Box<Instruction>, Box<Instruction>, Box<Instruction>),
 }
 
 impl Instruction {
@@ -34,10 +39,17 @@ impl Instruction {
             Instruction::Domain(origin) => Ok(origin.execute(world_state_view)?),
             Instruction::Asset(origin) => Ok(origin.execute(world_state_view)?),
             Instruction::Account(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Permission(origin) => Ok(origin.execute(world_state_view)?),
             Instruction::Compose(left, right) => {
                 left.execute(world_state_view)?;
                 right.execute(world_state_view)?;
                 Ok(())
+            }
+            Instruction::If(condition, then, otherwise) => {
+                match condition.execute(world_state_view) {
+                    Ok(_) => then.execute(world_state_view),
+                    Err(_) => otherwise.execute(world_state_view),
+                }
             }
         }
     }
