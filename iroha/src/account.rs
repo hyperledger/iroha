@@ -21,9 +21,9 @@ impl Account {
     /// This method can be used to create an `Account` which should be registered in the domain.
     /// This method should not be used to create an `Account` to work with as a part of the Iroha
     /// State.
-    pub fn new(account_name: &str, container: &str, public_key: PublicKey) -> Self {
+    pub fn new(account_name: &str, domain_name: &str, public_key: PublicKey) -> Self {
         Account {
-            id: Id::new(account_name, container),
+            id: Id::new(account_name, domain_name),
             assets: BTreeMap::new(),
             signatories: vec![public_key],
         }
@@ -56,17 +56,17 @@ impl Account {
 pub struct Id {
     /// Account's name.
     pub name: String,
-    /// Container's name.
-    pub container: String,
+    /// Domain's name.
+    pub domain_name: String,
 }
 
 impl Id {
     /// `Id` constructor used to easily create an `Id` from two string slices - one for the
     /// account's name, another one for the container's name.
-    pub fn new(name: &str, container: &str) -> Self {
+    pub fn new(name: &str, domain_name: &str) -> Self {
         Id {
             name: name.to_string(),
-            container: container.to_string(),
+            domain_name: domain_name.to_string(),
         }
     }
 }
@@ -76,7 +76,7 @@ impl From<&str> for Id {
         let vector: Vec<&str> = string.split('@').collect();
         Id {
             name: String::from(vector[0]),
-            container: String::from(vector[1]),
+            domain_name: String::from(vector[1]),
         }
     }
 }
