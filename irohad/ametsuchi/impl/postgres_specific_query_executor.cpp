@@ -1580,27 +1580,11 @@ namespace iroha {
                     if (!cmd_index || !caller)
                       return;
 
-                    auto payloadToPayloadType =
-                        [](std::optional<shared_model::interface::types::
-                                             EvmAddressHexString> const &callee,
-                           std::optional<shared_model::interface::types::
-                                             EvmAddressHexString> const
-                               &contract_address,
-                           shared_model::interface::types::
-                               EvmAddressHexString const *&target) {
-                          assert(!callee != !contract_address);
-                          if (!!callee) {
-                            target = &(*callee);
-                            return shared_model::interface::EngineReceipt::
-                                PayloadType::kPayloadTypeCallResult;
-                          }
-                          target = &(*contract_address);
-                          return shared_model::interface::EngineReceipt::
-                              PayloadType::kPayloadTypeContractAddress;
-                        };
+                    using namespace shared_model::interface::types;
 
                     auto const new_cmd = (prev_cmd_ix != cmd_index);
-                    auto const new_log = (prev_log_ix != logs_ix) || new_cmd;
+                    auto const new_log = (prev_log_ix != logs_ix);
+                    assert(!new_cmd || new_log || !prev_log_ix);
 
                     if (new_log) {
                       store_log(record, std::move(log));
@@ -1621,16 +1605,12 @@ namespace iroha {
                     if (new_cmd) {
                       store_record(records, std::move(record));
 
-                      shared_model::interface::types::EvmAddressHexString const
-                          *target;
-                      auto const pt = payloadToPayloadType(
-                          payload_callee, payload_cantract_address, target);
                       record =
                           std::make_unique<shared_model::plain::EngineReceipt>(
                               *cmd_index,
                               *caller,
-                              pt,
-                              *target,
+                              payload_callee,
+                              payload_cantract_address,
                               engine_response);
                       prev_cmd_ix = cmd_index;
                     }
@@ -1642,8 +1622,6 @@ namespace iroha {
             return query_response_factory_->createEngineReceiptsResponse(
                 records, query_hash);
           },
-          // Permission missing error is not going to happen in case of that
-          // query for now
           notEnoughPermissionsResponse(perm_converter_,
                                        Role::kGetMyEngineReceipts,
                                        Role::kGetAllEngineReceipts,
