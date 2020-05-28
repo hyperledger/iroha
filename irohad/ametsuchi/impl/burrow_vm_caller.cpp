@@ -16,7 +16,8 @@
 
 using namespace iroha::ametsuchi;
 
-iroha::expected::Result<std::string, std::string> BurrowVmCaller::call(
+iroha::expected::Result<std::optional<std::string>, std::string>
+BurrowVmCaller::call(
     soci::session &sql,
     std::string const &tx_hash,
     shared_model::interface::types::CommandIndexType cmd_index,
@@ -35,18 +36,34 @@ iroha::expected::Result<std::string, std::string> BurrowVmCaller::call(
   const char *nonce_raw =
       const_cast<char *>(nonce.append(uint64ToHexstring(cmd_index)).c_str());
   PostgresBurrowStorage burrow_storage(sql, tx_hash, cmd_index);
-  auto res = VmCall(input_raw,
-                    caller.c_str(),
-                    callee_raw,
-                    nonce_raw,
-                    &command_executor,
-                    &query_executor,
-                    &burrow_storage);
-  if (res.r1 != nullptr) {
-    return iroha::expected::makeError(fmt::format("Engine error: {}.", res.r1));
+  auto raw_result = VmCall(input_raw,
+                           caller.c_str(),
+                           callee_raw,
+                           nonce_raw,
+                           &command_executor,
+                           &query_executor,
+                           &burrow_storage);
+
+  // convert raw c strings to c++ types
+
+  iroha::expected::Result<std::optional<std::string>, std::string>
+      returnable_result;
+  if (raw_result.r1 != nullptr) {
+    returnable_result = iroha::expected::makeError(
+        fmt::format("Engine error: {}.", raw_result.r1));
+  } else if (raw_result.r0 != nullptr) {
+    returnable_result = iroha::expected::makeValue(raw_result.r0);
+  } else {
+    returnable_result = iroha::expected::makeValue(std::nullopt);
   }
-  if (res.r0 != nullptr) {
-    return iroha::expected::makeValue(res.r0);
+
+  // free raw memory
+
+  for (auto maybe_mem : {raw_result.r0, raw_result.r1}) {
+    if (maybe_mem) {
+      free(maybe_mem);
+    }
   }
-  return iroha::expected::makeValue("");
+
+  return returnable_result;
 }
