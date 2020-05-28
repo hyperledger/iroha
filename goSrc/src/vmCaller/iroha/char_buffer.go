@@ -28,8 +28,8 @@ func (buf *C.Iroha_CharBuffer) toStringAndRelease() *string {
 	if buf.data == nil {
 		return nil
 	}
+	defer buf.free()
 	result := C.GoStringN(buf.data, C.int(buf.size))
-	buf.free()
 	return &result
 }
 
