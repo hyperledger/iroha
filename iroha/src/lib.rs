@@ -90,7 +90,7 @@ impl Iroha {
         let torii = Torii::new(
             &config.peer_id.address.clone(),
             Arc::clone(&world_state_view),
-            transactions_sender,
+            transactions_sender.clone(),
             message_sender,
         );
         let (_public_key, private_key) = config.key_pair();
@@ -107,6 +107,9 @@ impl Iroha {
                 config.max_faulty_peers,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
+                transactions_sender,
+                config.commit_time_ms,
+                config.tx_receipt_time_ms,
             )
             .expect("Failed to initialize Sumeragi."),
         ));

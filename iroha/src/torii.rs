@@ -106,7 +106,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        uri::BLOCKS_URI => match Message::try_from(request.payload().to_vec()) {
+        uri::CONSENSUS_URI => match Message::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
                     .write()
@@ -134,7 +134,7 @@ pub mod uri {
     /// Instructions URI is used to handle incoming ISI requests.
     pub const INSTRUCTIONS_URI: &str = "/instruction";
     /// Block URI is used to handle incoming Block requests.
-    pub const BLOCKS_URI: &str = "/block";
+    pub const CONSENSUS_URI: &str = "/consensus";
 }
 
 #[cfg(test)]

@@ -21,11 +21,17 @@ const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
 const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const IROHA_PRIVATE_KEY: &str = "IROHA_PRIVATE_KEY";
+const COMMIT_TIME_MS: &str = "COMMIT_TIME_MS";
+const TX_RECEIPT_TIME_MS: &str = "TX_RECEIPT_TIME_MS";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
 const DEFAULT_KURA_INIT_MODE: Mode = Mode::Strict;
 const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
+/// Amount of time Peer waits for `BlockCommitted` message from the proxy tail.
+pub const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
+/// Amount of time Peer waits for `TransactionReceipt` from the leader.
+pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 100;
 
 /// Configuration parameters container.
 pub struct Configuration {
@@ -46,6 +52,10 @@ pub struct Configuration {
     pub public_key: PublicKey,
     /// Private key of this peer.
     pub private_key: PrivateKey,
+    /// Amount of time Peer waits for CommitMessage from the proxy tail.
+    pub commit_time_ms: u64,
+    /// Amount of time Peer waits for TxReceipt from the leader.
+    pub tx_receipt_time_ms: u64,
 }
 
 impl Configuration {
@@ -109,6 +119,12 @@ impl Configuration {
                     .or_else(|| config_map.remove(IROHA_PRIVATE_KEY))
                     .ok_or("IROHA_PRIVATE_KEY should be set.")?,
             )?,
+            commit_time_ms: env::var(COMMIT_TIME_MS)
+                .ok()
+                .or_else(|| config_map.remove(COMMIT_TIME_MS)),
+            tx_receipt_time_ms: env::var(TX_RECEIPT_TIME_MS)
+                .ok()
+                .or_else(|| config_map.remove(TX_RECEIPT_TIME_MS)),
         }
         .build()?)
     }
@@ -164,6 +180,8 @@ struct ConfigurationBuilder {
     max_faulty_peers: Option<String>,
     public_key: PublicKey,
     private_key: PrivateKey,
+    commit_time_ms: Option<String>,
+    tx_receipt_time_ms: Option<String>,
 }
 
 impl ConfigurationBuilder {
@@ -194,6 +212,16 @@ impl ConfigurationBuilder {
                 .map_err(|e| format!("Max faulty peers parse failed: {}", e))?,
             public_key: self.public_key,
             private_key: self.private_key,
+            commit_time_ms: self
+                .commit_time_ms
+                .unwrap_or_else(|| DEFAULT_COMMIT_TIME_MS.to_string())
+                .parse()
+                .expect("Commit time should be a number."),
+            tx_receipt_time_ms: self
+                .tx_receipt_time_ms
+                .unwrap_or_else(|| DEFAULT_TX_RECEIPT_TIME_MS.to_string())
+                .parse()
+                .expect("Tx receipt time should be a number."),
         })
     }
 }
