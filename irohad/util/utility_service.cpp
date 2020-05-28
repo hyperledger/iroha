@@ -68,17 +68,12 @@ grpc::Status UtilityService::Shutdown(
           return false;
         }
 
-        auto opt_proto_status = makeProtoStatus(status);
-        if (not opt_proto_status) {
-          log->error("Received unimplimented status ({})!", status);
-          return true;
-        }
+        proto::Status proto_status;
+        proto_status.set_status(makeProtoStatus(status));
 
-        log->trace("Sending {} to {}",
-                   opt_proto_status.value()->status(),
-                   context->peer());
+        log->trace("Sending {} to {}", proto_status.status(), context->peer());
 
-        if (not writer->Write(*opt_proto_status.value())) {
+        if (not writer->Write(proto_status)) {
           log->error("Write to stream has failed for client {}",
                      context->peer());
           return false;
