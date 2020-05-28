@@ -40,7 +40,12 @@ func TransferAsset(src, dst, asset, amount string) error {
 		return err
 	}
 	if commandResult.error_code != 0 {
-		return fmt.Errorf("[api.TransferIrohaAsset] error transferring asset nominated in %s from %s to %s", asset, src, dst)
+		error_extra := ""
+		error_extra_ptr := commandResult.error_extra.toStringAndRelease()
+		if error_extra_ptr != nil {
+			error_extra = ": " + *error_extra_ptr
+		}
+		return fmt.Errorf("[api.TransferIrohaAsset] error transferring asset nominated in %s from %s to %s%s", asset, src, dst, error_extra)
 	}
 
 	return nil
@@ -83,11 +88,11 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 // -----------------------Helper functions---------------------------------------
 
 // Execute Iroha command
-func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.struct_Iroha_CommandError, err error) {
+func makeProtobufCmdAndExecute(cmdExecutor unsafe.Pointer, command *pb.Command) (res *C.Iroha_CommandError, err error) {
 	out, err := proto.Marshal(command)
 	if err != nil {
 		// magic constant, if not 0 => fail happened
-		return &C.struct_Iroha_CommandError{error_code: 100}, err
+		return &C.Iroha_CommandError{error_code: 100}, err
 	}
 	cOut := C.CBytes(out)
 	commandResult := C.Iroha_ProtoCommandExecutorExecute(cmdExecutor, cOut, C.int(len(out)), C.CString(Caller))
@@ -109,12 +114,4 @@ func makeProtobufQueryAndExecute(queryExecutor unsafe.Pointer, query *pb.Query) 
 		return nil, err
 	}
 	return queryResponse, nil
-}
-
-func (res *C.struct_Iroha_CommandError) String() string {
-	if res.error_extra != nil {
-		return fmt.Sprintf("%d, %s", res.error_code, C.GoString(res.error_extra))
-	} else {
-		return fmt.Sprintf("Iroha_CommandError: code %d", res.error_code)
-	}
 }
