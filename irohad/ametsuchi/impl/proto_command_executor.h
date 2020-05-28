@@ -6,17 +6,19 @@
 #ifndef IROHA_AMETSUCHI_PROTO_COMMAND_EXECUTOR_H
 #define IROHA_AMETSUCHI_PROTO_COMMAND_EXECUTOR_H
 
+#include "ametsuchi/impl/common_c_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct Iroha_CommandError {
-  char *command_name;
+typedef struct {
+  Iroha_CharBuffer command_name;
   int error_code;
-  char *error_extra;
-};
+  Iroha_CharBuffer error_extra;
+} Iroha_CommandError;
 
-extern struct Iroha_CommandError Iroha_ProtoCommandExecutorExecute(
+extern Iroha_CommandError Iroha_ProtoCommandExecutorExecute(
     void *executor, void *data, int size, char *account_id);
 
 #ifdef __cplusplus

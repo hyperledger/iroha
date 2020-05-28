@@ -6,29 +6,11 @@
 #ifndef IROHA_AMETSUCHI_BURROW_STORAGE_H
 #define IROHA_AMETSUCHI_BURROW_STORAGE_H
 
+#include "ametsuchi/impl/common_c_types.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-typedef struct {
-  char *data;
-  unsigned long long size;
-} Iroha_CharBuffer;
-
-typedef struct {
-  Iroha_CharBuffer *data;
-  unsigned long long size;
-} Iroha_CharBufferArray;
-
-typedef enum {
-  Iroha_Result_Type_Value,
-  Iroha_Result_Type_Error
-} Iroha_Result_Type;
-
-typedef struct {
-  Iroha_CharBuffer data;
-  Iroha_Result_Type which;
-} Iroha_Result;
 
 extern Iroha_Result Iroha_GetAccount(void *storage, Iroha_CharBuffer address);
 
