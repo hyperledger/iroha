@@ -40,8 +40,8 @@ func handleIrohaCallResult(result C.Iroha_Result) (*string, error) {
 
 func (st *IrohaStorage) GetAccount(address crypto.Address) (*acm.Account, error) {
 	cAddress := MakeIrohaCharBuffer(address.String())
+	defer cAddress.free()
 	accountBytesHex, err := handleIrohaCallResult(C.Iroha_GetAccount(st.storage, *cAddress))
-	cAddress.free()
 
 	if err != nil {
 		return nil, err
@@ -84,10 +84,10 @@ func (st *IrohaStorage) UpdateAccount(account *acm.Account) error {
 	}
 
 	cAddress := MakeIrohaCharBuffer(account.GetAddress().String())
+	defer cAddress.free()
 	cAccount := MakeIrohaCharBuffer(hex.EncodeToString(marshalledData))
+	defer cAccount.free()
 	_, err = handleIrohaCallResult(C.Iroha_UpdateAccount(st.storage, *cAddress, *cAccount))
-	cAddress.free()
-	cAccount.free()
 
 	if err != nil {
 		return err
@@ -98,8 +98,8 @@ func (st *IrohaStorage) UpdateAccount(account *acm.Account) error {
 
 func (st *IrohaStorage) RemoveAccount(address crypto.Address) error {
 	cAddress := MakeIrohaCharBuffer(address.String())
+	defer cAddress.free()
 	_, err := handleIrohaCallResult(C.Iroha_RemoveAccount(st.storage, *cAddress))
-	cAddress.free()
 
 	if err != nil {
 		return err
@@ -110,10 +110,10 @@ func (st *IrohaStorage) RemoveAccount(address crypto.Address) error {
 
 func (st *IrohaStorage) GetStorage(address crypto.Address, key binary.Word256) ([]byte, error) {
 	cAddress := MakeIrohaCharBuffer(address.String())
+	defer cAddress.free()
 	cKey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
+	defer cKey.free()
 	valueHex, err := handleIrohaCallResult(C.Iroha_GetStorage(st.storage, *cAddress, *cKey))
-	cAddress.free()
-	cKey.free()
 
 	if err != nil {
 		return nil, err
@@ -128,12 +128,12 @@ func (st *IrohaStorage) GetStorage(address crypto.Address, key binary.Word256) (
 
 func (st *IrohaStorage) SetStorage(address crypto.Address, key binary.Word256, value []byte) error {
 	cAddress := MakeIrohaCharBuffer(address.String())
+	defer cAddress.free()
 	cKey := MakeIrohaCharBuffer(hex.EncodeToString(key.Bytes()))
+	defer cKey.free()
 	cValue := MakeIrohaCharBuffer(hex.EncodeToString(value))
+	defer cValue.free()
 	_, err := handleIrohaCallResult(C.Iroha_SetStorage(st.storage, *cAddress, *cKey, *cValue))
-	cAddress.free()
-	cKey.free()
-	cValue.free()
 
 	if err != nil {
 		return err
@@ -144,12 +144,12 @@ func (st *IrohaStorage) SetStorage(address crypto.Address, key binary.Word256, v
 
 func (st *IrohaStorage) StoreTxReceipt(address crypto.Address, hex_data []byte, topics []binary.Word256) error {
 	cAddress := MakeIrohaCharBuffer(address.String())
+	defer cAddress.free()
 	cData := MakeIrohaCharBuffer(hex.EncodeToString(hex_data))
+	defer cData.free()
 	cTopics := MakeIrohaCharBufferArray(topics)
+	defer cTopics.free()
 	_, err := handleIrohaCallResult(C.Iroha_StoreLog(st.storage, *cAddress, *cData, *cTopics.cArray))
-	cAddress.free()
-	cData.free()
-	cTopics.free()
 
 	if err != nil {
 		return err
