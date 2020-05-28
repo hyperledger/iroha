@@ -240,10 +240,17 @@ The proxy tail should at this point have received the block from at least one of
 
 **Possible faulty cases related to the leader are:**
 
-- leader ignores all transactions and never creates a block
-
-  - the solution to this is to have other nodes broadcast a transaction across the network and if someone sends a transaction to the leader and it gets ignored, then the leader can be suspected; the suspect message is sent around the network and a new leader is elected if *f*+1 nodes cannot get a reply from the leader for any transaction
-
+- Leader does not send a receipt of receiving transaction(s) from a peer in the specified time (*tx receipt time*).
+  
+  - The peer broadcasts a suspect message with the transaction that it tried to send to the leader. 
+  Other non-faulty peers try to reach the leader with this transaction. 
+  If *f*+1 peers can not get a reply from the leader with this transaction, then a new leader is elected (*view change*).
+  
+- Leader sends a receipt of receiving transaction(s), but does not create a block in *block time*.
+  
+  - The peer, that has originally sent the transaction, broadcasts a suspect message, using a receipt from the leader as a proof.
+  Non-faulty peers validate the receipt and vote for changing the leader. If *f*+1 votes are gathered, then a new leader is elected (*view change*).
+  
 - leader creates a block, but only sends it to a minority of peers, so that 2*f*+1 votes cannot be obtained for consensus
 
   - the solution is to have a *commit timer* on each node where a new leader will be elected if a block is not agreed upon; the old leader is then moved to set *b*
