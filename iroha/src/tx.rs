@@ -97,6 +97,22 @@ impl AcceptedTransaction {
             signatures,
         })
     }
+
+    /// Calculate transaction `Hash`.
+    pub fn hash(&self) -> Hash {
+        use ursa::blake2::{
+            digest::{Input, VariableOutput},
+            VarBlake2b,
+        };
+        let bytes: Vec<u8> = self.payload.clone().into();
+        let vec_hash = VarBlake2b::new(32)
+            .expect("Failed to initialize variable size hash")
+            .chain(bytes)
+            .vec_result();
+        let mut hash = [0; 32];
+        hash.copy_from_slice(&vec_hash);
+        hash
+    }
 }
 
 /// `SignedTransaction` represents transaction with signatures accumulated from Peer/Peers.
