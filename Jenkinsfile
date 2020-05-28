@@ -27,7 +27,6 @@ class Builder {
 
 class Build {
   String name = ''
-  String type = ''
   Builder builder
   Worker worker
 }
@@ -76,6 +75,14 @@ def build(Build build) {
       }
     }
   }
+}
+
+def registerBuildSteps(buildSteps, postSteps, String name, worker, tasks){
+  builder = new Builder(buildSteps: buildSteps, postSteps: postSteps)
+
+  build_instance = new Build(name: name, builder: builder, worker: worker)
+
+  tasks[build_instance.name] = build(build_instance)
 }
 
 // sanitise the string it should contain only 'key1=value1;key2=value2;...'
@@ -301,6 +308,9 @@ node ('master') {
   def x64LinuxBuildSteps
   def x64LinuxPostSteps = new Builder.PostSteps()
   if(!x64linux_compiler_list.isEmpty()){
+    x64LinuxPostSteps = new Builder.PostSteps(
+      always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
+      success: [{x64LinuxBuildScript.successPostSteps(scmVars, packagePush, pushDockerTag, environmentList)}])
     x64LinuxBuildSteps = [{x64LinuxBuildScript.buildSteps(
       parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, x64linux_compiler_list, build_type, build_shared_libs, specialBranch, coverage,
       testing, testList, cppcheck, sonar, codestyle, doxygen, packageBuild, sanitize, fuzzing, benchmarking, coredumps, useBTF, use_libursa, use_burrow,
@@ -313,24 +323,28 @@ node ('master') {
     }
     if (build_scenario == 'Before merge to trunk') {
       // TODO 2019-08-14 lebdron: IR-600 Fix integration tests execution when built with shared libraries
-      // Build with shared libraries
-      x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, true, false, false,
-      false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, use_burrow, false, environmentList)}]
-      if (!use_libursa) {
-        // Force build with libursa
-        x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-        parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
-        testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, true, use_burrow, false, environmentList)}]
-      }
+
+      x64LinuxAlwaysPostSteps = new Builder.PostSteps(
+        always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}])
+
+      // toggle shared libraries
+      registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, !build_shared_libs, false, false,
+                         false, testList, false, false, false, false, false, false, fuzzing, benchmarking, false, useBTF, use_libursa, use_burrow, false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Shared Libraries", x64LinuxWorker, tasks)
+
+      // toggle libursa
+      registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
+                         testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, !use_libursa, use_burrow, false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Ursa", x64LinuxWorker, tasks)
+
       // toggle burrow
-      x64LinuxBuildSteps += [{x64LinuxBuildScript.buildSteps(
-      parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
-      testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, use_libursa, !use_burrow, false, environmentList)}]
+      registerBuildSteps([{x64LinuxBuildScript.buildSteps(
+                         parallelism==0 ?x64LinuxWorker.cpusAvailable : parallelism, ['gcc7'], build_type, build_shared_libs, false, false,
+                         testing, testList, false, false, false, false, false, false, fuzzing, benchmarking, coredumps, useBTF, use_libursa, !use_burrow, false, environmentList)}],
+                         x64LinuxAlwaysPostSteps, "x86_64 Linux ${build_type} Burrow", x64LinuxWorker, tasks)
     }
-    x64LinuxPostSteps = new Builder.PostSteps(
-      always: [{x64LinuxBuildScript.alwaysPostSteps(scmVars, environmentList, coredumps)}],
-      success: [{x64LinuxBuildScript.successPostSteps(scmVars, packagePush, pushDockerTag, environmentList)}])
   }
   def x64MacBuildSteps
   def x64MacBuildPostSteps = new Builder.PostSteps()
@@ -357,31 +371,15 @@ node ('master') {
       success: [{x64WinBuildScript.successPostSteps(scmVars, packagePush, environmentList)}])
   }
 
-  // Define builders
-  x64LinuxBuilder = new Builder(buildSteps: x64LinuxBuildSteps, postSteps: x64LinuxPostSteps)
-  x64MacBuilder = new Builder(buildSteps: x64MacBuildSteps, postSteps: x64MacBuildPostSteps )
-  x64WinBuilder = new Builder(buildSteps: x64WinBuildSteps, postSteps: x64WinBuildPostSteps )
-
-  // Define Build
-  x64LinuxBuild = new Build(name: "x86_64 Linux ${build_type}",
-                                    type: build_type,
-                                    builder: x64LinuxBuilder,
-                                    worker: x64LinuxWorker)
-  x64MacBuild = new Build(name: "Mac ${build_type}",
-                                     type: build_type,
-                                     builder: x64MacBuilder,
-                                     worker: x64MacWorker)
-  x64WinBuild = new Build(name: "Windows ${build_type}",
-                                     type: build_type,
-                                     builder: x64WinBuilder,
-                                     worker: x64WinWorker)
-
-  if(!x64linux_compiler_list.isEmpty())
-    tasks[x64LinuxBuild.name] = build(x64LinuxBuild)
-  if(!mac_compiler_list.isEmpty())
-    tasks[x64MacBuild.name] = build(x64MacBuild)
-  if(!win_compiler_list.isEmpty())
-    tasks[x64WinBuild.name] = build(x64WinBuild)
+  if(!x64linux_compiler_list.isEmpty()){
+    registerBuildSteps(x64LinuxBuildSteps, x64LinuxPostSteps, "x86_64 Linux ${build_type}", x64LinuxWorker, tasks)
+  }
+  if(!mac_compiler_list.isEmpty()){
+    registerBuildSteps(x64MacBuildSteps, x64MacBuildPostSteps, "Mac ${build_type}", x64MacWorker, tasks)
+  }
+  if(!win_compiler_list.isEmpty()){
+    registerBuildSteps(x64WinBuildSteps, x64WinBuildPostSteps, "Windows ${build_type}", x64WinWorker, tasks)
+  }
 
   cleanWs()
   parallel tasks
