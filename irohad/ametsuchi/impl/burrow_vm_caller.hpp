@@ -11,7 +11,7 @@
 namespace iroha::ametsuchi {
   class BurrowVmCaller : public VmCaller {
    public:
-    iroha::expected::Result<std::string, std::string> call(
+    iroha::expected::Result<std::optional<std::string>, std::string> call(
         soci::session &sql,
         std::string const &tx_hash,
         shared_model::interface::types::CommandIndexType cmd_index,

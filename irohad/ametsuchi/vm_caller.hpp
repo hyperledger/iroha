@@ -25,16 +25,16 @@ namespace iroha::ametsuchi {
 
   class VmCaller {
    public:
-    virtual iroha::expected::Result<std::string, std::string> call(
-        soci::session &sql,
-        std::string const &tx_hash,
-        shared_model::interface::types::CommandIndexType cmd_index,
-        shared_model::interface::types::EvmCodeHexStringView input,
-        shared_model::interface::types::AccountIdType const &caller,
-        std::optional<shared_model::interface::types::EvmCalleeHexStringView>
-            callee,
-        CommandExecutor &command_executor,
-        SpecificQueryExecutor &query_executor) const = 0;
+    virtual iroha::expected::Result<std::optional<std::string>, std::string>
+    call(soci::session &sql,
+         std::string const &tx_hash,
+         shared_model::interface::types::CommandIndexType cmd_index,
+         shared_model::interface::types::EvmCodeHexStringView input,
+         shared_model::interface::types::AccountIdType const &caller,
+         std::optional<shared_model::interface::types::EvmCalleeHexStringView>
+             callee,
+         CommandExecutor &command_executor,
+         SpecificQueryExecutor &query_executor) const = 0;
   };
 }  // namespace iroha::ametsuchi
 
