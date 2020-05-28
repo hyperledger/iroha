@@ -68,10 +68,8 @@ bool UtilityClient::status(StatusCallback callback) const {
 
   while (reader->Read(&proto_status)) {
     log_->trace("Got status {}.", proto_status.status());
-    auto iface_status = makeStatus(proto_status);
-    if (not iface_status) {
-      log_->warn("Unknown status {}.", proto_status.status());
-    } else if (not callback(iface_status.value())) {
+    auto iface_status = makeStatus(proto_status.status());
+    if (not callback(iface_status)) {
       return true;
     }
   }

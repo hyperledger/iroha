@@ -16,10 +16,9 @@
 
 namespace iroha {
   namespace utility_service {
-    std::optional<std::unique_ptr<proto::Status>> makeProtoStatus(
-        Status status);
+    proto::Status_StatusEnum makeProtoStatus(Status status);
 
-    std::optional<Status> makeStatus(const proto::Status &status);
+    Status makeStatus(const proto::Status_StatusEnum &status);
   }  // namespace utility_service
 
   namespace to_string {
