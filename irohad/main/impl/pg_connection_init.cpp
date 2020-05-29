@@ -315,8 +315,42 @@ CREATE TABLE IF NOT EXISTS setting(
     setting_key text,
     setting_value text,
     PRIMARY KEY (setting_key)
-);)";
-
+);
+CREATE TABLE IF NOT EXISTS engine_calls (
+    call_id serial unique not null,
+    tx_hash text,
+    cmd_index bigint,
+    engine_response text,
+    callee varchar(40),
+    created_address varchar(40),
+    PRIMARY KEY (tx_hash, cmd_index)
+);
+CREATE TABLE IF NOT EXISTS burrow_account_data (
+    address varchar(40),
+    data text,
+    PRIMARY KEY (address)
+);
+CREATE TABLE IF NOT EXISTS burrow_account_key_value (
+    address varchar(40),
+    key varchar(64),
+    value text,
+    PRIMARY KEY (address, key)
+);
+CREATE TABLE IF NOT EXISTS burrow_tx_logs (
+    log_idx serial primary key,
+    call_id integer references engine_calls(call_id),
+    address varchar(40),
+    data text
+);
+CREATE TABLE IF NOT EXISTS burrow_tx_logs_topics (
+    topic varchar(64),
+    log_idx integer references burrow_tx_logs(log_idx)
+);
+CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
+    ON burrow_tx_logs_topics
+    USING btree
+    (log_idx ASC);
+)";
   session << prepare_tables_sql;
 }
 
@@ -340,6 +374,11 @@ iroha::expected::Result<void, std::string> PgConnectionInit::resetWsv(
       TRUNCATE TABLE tx_position_by_creator RESTART IDENTITY CASCADE;
       TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
       TRUNCATE TABLE setting RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE engine_calls RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE burrow_account_data;
+      TRUNCATE TABLE burrow_account_key_value;
+      TRUNCATE TABLE burrow_tx_logs RESTART IDENTITY CASCADE;
+      TRUNCATE TABLE burrow_tx_logs_topics;
     )";
     sql << reset;
   } catch (std::exception &e) {
