@@ -34,7 +34,7 @@ BurrowVmCaller::call(
       const_cast<char *>(static_cast<std::string_view const &>(input).data());
   std::string nonce = tx_hash;
   const char *nonce_raw =
-      const_cast<char *>(nonce.append(uint64ToHexstring(cmd_index)).c_str());
+      const_cast<char *>(nonce.append(numToHexstring(cmd_index)).c_str());
   PostgresBurrowStorage burrow_storage(sql, tx_hash, cmd_index);
   auto raw_result = VmCall(input_raw,
                            caller.c_str(),

@@ -56,18 +56,26 @@ TEST(StringConverterTest, ConvertHexToBinaryAndBack) {
 }
 
 /**
- * @given unsigned integer number
+ * @given numeric value
  * @when converting it to a hex string
  * @then converted string match expected result
  */
-TEST(StringConverterTest, ConvertUint64ToHex) {
-  std::vector<uint64_t> vals{
+TEST(StringConverterTest, ConvertNumToHex) {
+  // Testing uint64_t values
+  std::vector<uint64_t> vals64{
       0x4234324309085, 0x34532, 0x0, 0x1, 0x3333333333333333};
   std::vector<std::string> hexes{"0004234324309085",
                                  "0000000000034532",
                                  "0000000000000000",
                                  "0000000000000001",
                                  "3333333333333333"};
-  for (size_t i = 0; i < vals.size(); i++)
-    ASSERT_EQ(uint64ToHexstring(vals[i]), hexes[i]);
+  for (size_t i = 0; i < vals64.size(); i++)
+    ASSERT_EQ(numToHexstring(vals64[i]), hexes[i]);
+
+  // Testing int32_t values
+  std::vector<int32_t> vals32{0x42343243, 0x34532, 0x0, 0x1, 0x79999999};
+  std::vector<std::string> hexes2{
+      "42343243", "00034532", "00000000", "00000001", "79999999"};
+  for (size_t i = 0; i < vals32.size(); i++)
+    ASSERT_EQ(numToHexstring(vals32[i]), hexes2[i]);
 }
