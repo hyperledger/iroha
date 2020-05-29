@@ -241,6 +241,12 @@ class IrohadTest : public AcceptanceFixture {
   }
 
   void prepareTestData() {
+    if (boost::filesystem::is_directory(test_data_path_)) {
+      log_->info("Removing existing test data directory {}.",
+                 test_data_path_.string());
+      ASSERT_TRUE(boost::filesystem::remove_all(test_data_path_))
+          << "Could not remove directory " << test_data_path_ << ".";
+    }
     ASSERT_TRUE(boost::filesystem::create_directory(test_data_path_))
         << "Could not create directory " << test_data_path_ << ".";
 
