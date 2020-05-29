@@ -15,7 +15,7 @@
 #include "interfaces/permissions.hpp"
 #include "interfaces/queries/account_detail_record_id.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
-#include "interfaces/query_responses/engine_response_record.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"

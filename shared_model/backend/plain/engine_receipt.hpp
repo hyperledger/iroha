@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP
-#define IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP
+#ifndef IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPT_HPP
+#define IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPT_HPP
 
-#include "interfaces/query_responses/engine_response_record.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 
 #include "backend/plain/engine_log.hpp"
 #include "cryptography/hash.hpp"
@@ -48,4 +48,4 @@ namespace shared_model {
   }  // namespace plain
 }  // namespace shared_model
 
-#endif  // IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPTS_RESPONSE_RECORD_HPP
+#endif  // IROHA_SHARED_MODEL_PLAIN_ENGINE_RECEIPT_HPP

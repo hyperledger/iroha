@@ -19,7 +19,7 @@
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
-#include "backend/plain/engine_response_record.hpp"
+#include "backend/plain/engine_receipt.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"

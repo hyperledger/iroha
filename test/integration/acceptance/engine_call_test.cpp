@@ -9,7 +9,7 @@
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
-#include "interfaces/query_responses/engine_response.hpp"
+#include "interfaces/query_responses/engine_receipts_response.hpp"
 
 using namespace std::literals;
 

@@ -72,9 +72,9 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/transactions_page_response.cpp
       query_responses/impl/pending_transactions_page_response.cpp
       query_responses/impl/peers_response.cpp
-      query_responses/impl/engine_response_record.cpp
+      query_responses/impl/engine_receipt.cpp
       query_responses/impl/engine_log.cpp
-      query_responses/impl/engine_response.cpp
+      query_responses/impl/engine_receipts_response.cpp
       transaction_responses/impl/tx_response.cpp
       iroha_internal/batch_meta.cpp
       iroha_internal/transaction_sequence.cpp

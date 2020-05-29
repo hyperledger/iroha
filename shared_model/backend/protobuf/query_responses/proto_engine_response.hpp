@@ -6,7 +6,7 @@
 #ifndef IROHA_SHARED_MODEL_PROTO_ENGINE_RESPONSE_HPP
 #define IROHA_SHARED_MODEL_PROTO_ENGINE_RESPONSE_HPP
 
-#include "interfaces/query_responses/engine_response.hpp"
+#include "interfaces/query_responses/engine_receipts_response.hpp"
 
 #include "backend/protobuf/query_responses/proto_engine_response_record.hpp"
 #include "interfaces/common_objects/range_types.hpp"

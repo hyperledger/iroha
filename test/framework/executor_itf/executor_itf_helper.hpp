@@ -22,7 +22,7 @@
 #include "interfaces/query_responses/block_error_response.hpp"
 #include "interfaces/query_responses/block_query_response.hpp"
 #include "interfaces/query_responses/block_response.hpp"
-#include "interfaces/query_responses/engine_response.hpp"
+#include "interfaces/query_responses/engine_receipts_response.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/pending_transactions_page_response.hpp"
 #include "interfaces/query_responses/query_response.hpp"

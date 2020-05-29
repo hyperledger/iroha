@@ -19,7 +19,7 @@
 #include "framework/call_engine_tests_common.hpp"
 #include "framework/common_constants.hpp"
 #include "integration/executor/query_permission_test.hpp"
-#include "interfaces/query_responses/engine_response_record.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "module/irohad/ametsuchi/mock_vm_caller.hpp"
 #include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/builders/protobuf/test_transaction_builder.hpp"
