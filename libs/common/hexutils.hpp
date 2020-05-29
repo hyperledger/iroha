@@ -88,14 +88,15 @@ namespace iroha {
   }
 
   /**
-   * Convert uint64_t number to a printable hex string
-   * @param val - unsinged integer value
+   * Convert a number to a printable hex string
+   * @param val - numeric type value
    * @return - converted hex string
    */
-  inline std::string uint64ToHexstring(const uint64_t val) {
+  template <typename T,
+            typename = std::enable_if_t<std::is_arithmetic<T>::value>>
+  inline std::string numToHexstring(const T val) {
     std::stringstream ss;
-    ss << std::hex << std::setfill('0') << std::setw(sizeof(uint64_t) * 2)
-       << val;
+    ss << std::hex << std::setfill('0') << std::setw(sizeof(T) * 2) << val;
     return ss.str();
   }
 
