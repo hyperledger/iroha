@@ -94,11 +94,9 @@ namespace iroha {
    */
   inline std::string uint64ToHexstring(const uint64_t val) {
     std::stringstream ss;
-    ss << std::hex << val;
-    auto res = ss.str();
-    if (res.size() & 0x1)
-      res.insert(0, "0");
-    return res;
+    ss << std::hex << std::setfill('0') << std::setw(sizeof(uint64_t) * 2)
+       << val;
+    return ss.str();
   }
 
 }  // namespace iroha
