@@ -409,7 +409,10 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccess) {
         });
 
     // second attempt: request blocks from kBadBlockHeight and commit
-    EXPECT_CALL(*block_loader, retrieveBlocks(kBadBlockHeight, _))
+    const auto kRetrieveBlocksArg =
+        kBadBlockHeight - 1;  // for whatever reason, to request blocks starting
+                              // with N, we need to pass N-1...
+    EXPECT_CALL(*block_loader, retrieveBlocks(kRetrieveBlocksArg, _))
         .WillOnce(Return(rxcpp::observable<>::iterate(chain_good)));
     EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_good), _))
         .WillOnce(Return(true));

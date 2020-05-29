@@ -112,12 +112,12 @@ namespace iroha {
         rxcpp::observable<std::shared_ptr<shared_model::interface::Block>>
             blocks,
         MutableStoragePredicate predicate) {
-      return withSavepoint([&] {
-        return blocks
-            .all([&](auto block) { return this->apply(block, predicate); })
-            .as_blocking()
-            .first();
-      });
+      return blocks
+          .all([&](auto block) {
+            return withSavepoint([&] { return this->apply(block, predicate); });
+          })
+          .as_blocking()
+          .first();
     }
 
     boost::optional<std::shared_ptr<const iroha::LedgerState>>

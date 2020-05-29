@@ -133,6 +133,17 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
             .build();
       };
 
+  // Add a common block committed before fork but without the real peer:
+  valid_block_storage->storeBlock(std::make_shared<shared_model::proto::Block>(
+      sign_block_by_peers(
+          build_block(
+              valid_block_storage->getTopBlock(),
+              {complete(baseTx(kAdminId).transferAsset(
+                            kAdminId, kUserId, kAssetId, "valid_tx3", "3.0"),
+                        kAdminKeypair)}),
+          good_fake_peers)
+          .finish()));
+
   // Create the malicious fork of the ledger:
   auto bad_block_storage =
       std::make_shared<fake_peer::BlockStorage>(*valid_block_storage);
@@ -141,7 +152,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
           build_block(
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
-                            kAdminId, kUserId, kAssetId, "bad_tx3", "300.0"),
+                            kAdminId, kUserId, kAssetId, "bad_tx4", "300.0"),
                         kAdminKeypair)}),
           bad_fake_peers)
           .finish()));
@@ -155,7 +166,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
           build_block(
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
-                            kAdminId, kUserId, kAssetId, "valid_tx3", "3.0"),
+                            kAdminId, kUserId, kAssetId, "valid_tx4", "3.0"),
                         kAdminKeypair)}),
           good_fake_peers)
           .finish()));
@@ -169,7 +180,7 @@ TEST_F(FakePeerFixture, SynchronizeTheRightVersionOfForkedLedger) {
           build_block(
               valid_block_storage->getTopBlock(),
               {complete(baseTx(kAdminId).transferAsset(
-                            kAdminId, kUserId, kAssetId, "valid_tx4", "4.0"),
+                            kAdminId, kUserId, kAssetId, "valid_tx5", "4.0"),
                         kAdminKeypair)})
               .signAndAddSignature(rantipole_peer->getKeypair()),
           good_fake_peers)

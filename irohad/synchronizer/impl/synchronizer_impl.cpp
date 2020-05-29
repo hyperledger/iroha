@@ -76,9 +76,13 @@ namespace iroha {
                            const std::shared_ptr<shared_model::interface::Block>
                                &block) { my_height = block->height(); });
 
-          if (validator_->validateAndApply(network_chain, *storage)
-              and my_height >= target_height) {
-            return mutable_factory_->commit(std::move(storage));
+          if (validator_->validateAndApply(network_chain, *storage)) {
+            if (my_height >= target_height) {
+              return mutable_factory_->commit(std::move(storage));
+            }
+          } else {
+            // last block did not apply - need to ask it again
+            my_height = std::max(my_height - 1, start_height);
           }
         }
       }
