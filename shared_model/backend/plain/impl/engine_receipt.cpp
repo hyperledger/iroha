@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "backend/plain/engine_response_record.hpp"
+#include "backend/plain/engine_receipt.hpp"
 
 using namespace shared_model::interface::types;
 using namespace shared_model::plain;

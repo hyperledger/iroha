@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "interfaces/query_responses/engine_response.hpp"
+#include "interfaces/query_responses/engine_receipts_response.hpp"
 
 #include <iostream>
 
-#include "interfaces/query_responses/engine_response_record.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "utils/string_builder.hpp"
 
 namespace shared_model {

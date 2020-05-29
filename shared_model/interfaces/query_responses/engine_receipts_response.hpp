@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#ifndef IROHA_SHARED_MODEL_ENGINE_RESPONSE_HPP
-#define IROHA_SHARED_MODEL_ENGINE_RESPONSE_HPP
+#ifndef IROHA_SHARED_MODEL_ENGINE_RECEIPTS_RESPONSE_HPP
+#define IROHA_SHARED_MODEL_ENGINE_RECEIPTS_RESPONSE_HPP
 
 #include "interfaces/base/model_primitive.hpp"
 
@@ -32,4 +32,4 @@ namespace shared_model {
     std::ostream &operator<<(std::ostream &os, EngineReceiptsResponse const &);
   }  // namespace interface
 }  // namespace shared_model
-#endif  // IROHA_SHARED_MODEL_ENGINE_RESPONSE_HPP
+#endif  // IROHA_SHARED_MODEL_ENGINE_RECEIPTS_RESPONSE_HPP
