@@ -15,7 +15,14 @@
 struct LogData {
   std::string address;
   std::string data;
-  std::vector<std::string_view> topics;
+  std::vector<std::string> topics;
+
+  LogData(std::string address,
+          std::string data,
+          std::vector<std::string> topics)
+      : address(std::move(address)),
+        data(std::move(data)),
+        topics(std::move(topics)) {}
 };
 
 inline std::ostream &operator<<(std::ostream &os, LogData const &log) {

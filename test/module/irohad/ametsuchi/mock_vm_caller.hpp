@@ -22,7 +22,7 @@ namespace iroha::ametsuchi {
 
     MOCK_CONST_METHOD8(
         call,
-        iroha::expected::Result<std::string, std::string>(
+        iroha::expected::Result<std::optional<std::string>, std::string>(
             soci::session &sql,
             std::string const &tx_hash,
             shared_model::interface::types::CommandIndexType cmd_index,
