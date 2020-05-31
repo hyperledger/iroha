@@ -89,7 +89,7 @@ class PostgresBurrowStorageTest : public testing::Test {
          soci::into(data));
     log_stmt.execute();
     while (log_stmt.fetch()) {
-      logs.emplace_back(LogData{address, data, fetchTopics(log_idx)});
+      logs.emplace_back(address, data, fetchTopics(log_idx));
     }
     return logs;
   }

@@ -212,7 +212,8 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
       const auto burrow_storage =
           getBackendParam()->makeBurrowStorage(tx_hash, cmd_idx);
       for (auto const &log : cmd.logs) {
-        burrow_storage->storeLog(log.address, log.data, log.topics);
+        burrow_storage->storeLog(
+            log.address, log.data, {log.topics.begin(), log.topics.end()});
       }
       prepareVmCallerForCommand(
           tx_hash,
