@@ -49,7 +49,7 @@ Iroha_CommandError Iroha_ProtoCommandExecutorExecute(void *executor,
   }
 
   reinterpret_cast<iroha::ametsuchi::CommandExecutor *>(executor)
-      ->execute(proto_command, account_id, {}, 0, false)
+      ->execute(proto_command, account_id, {}, 0, true)
       .match([](const auto &) {},
              [&result](const auto &error) {
                result.error_code = error.error.error_code;
