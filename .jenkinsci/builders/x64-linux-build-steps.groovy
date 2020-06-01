@@ -40,58 +40,58 @@ def testSteps(String buildDir, List environment, String testList) {
   }
 }
 
-def buildSteps(int parallelism, List compilerVersions, String build_type, boolean build_shared_libs, boolean specialBranch, boolean coverage,
+def buildSteps(int parallelism, String compiler, String build_type, boolean build_shared_libs, boolean specialBranch, boolean coverage,
       boolean testing, String testList, boolean cppcheck, boolean sonar, boolean codestyle, boolean docs, boolean packagebuild, boolean sanitize,
       boolean fuzzing, boolean benchmarking, boolean coredumps, boolean useBTF, boolean use_libursa, boolean use_burrow,
-      boolean forceDockerDevelopBuild, List environment) {
+      boolean forceDockerDevelopBuild, boolean manifest_push, List environment) {
   withEnv(environment) {
-    def build, vars, utils, dockerUtils, doxygen
+    def scmVars, build, utils, doxygen, buildDir, compilers, cmakeBooleanOption, platform, cmakeBuildOptions, cmakeOptions, iC
     stage('Prepare Linux environment') {
-    scmVars = checkout scm
-    build = load '.jenkinsci/build.groovy'
-    vars = load ".jenkinsci/utils/vars.groovy"
-    utils = load ".jenkinsci/utils/utils.groovy"
-    dockerUtils = load ".jenkinsci/utils/docker-pull-or-build.groovy"
-    doxygen = load ".jenkinsci/utils/doxygen.groovy"
-    buildDir = 'build'
-    compilers = vars.compilerMapping()
-    cmakeBooleanOption = [ (true): 'ON', (false): 'OFF' ]
-    platform = sh(script: 'uname -m', returnStdout: true).trim()
-    cmakeBuildOptions = ""
-    cmakeOptions = ""
-    if (packagebuild){
-      cmakeBuildOptions = " --target package "
-    }
-    if (sanitize){
-      cmakeOptions += " -DSANITIZE='address;leak' "
-    }
-    // enable coredumps collecting
-    if (coredumps) {
-      sh "echo %e.%p.coredump > /proc/sys/kernel/core_pattern"
-      sh "ulimit -c unlimited"
-    }
-    // Create postgres
-    // enable prepared transactions so that 2 phase commit works
-    // we set it to 100 as a safe value
-    sh """#!/bin/bash -xe
-      if [ ! "\$(docker ps -q -f name=${env.IROHA_POSTGRES_HOST})" ]; then
-        docker network create ${env.IROHA_NETWORK}
-        docker run -td -e POSTGRES_USER=${env.IROHA_POSTGRES_USER} \
-           -e POSTGRES_PASSWORD=${env.IROHA_POSTGRES_PASSWORD} --name ${env.IROHA_POSTGRES_HOST} \
-           --network=${env.IROHA_NETWORK} postgres:9.5 -c 'max_prepared_transactions=100'
-      fi
-    """
-    referenceBranchOrCommit = 'master'
-    if (scmVars.GIT_LOCAL_BRANCH == referenceBranchOrCommit && scmVars.GIT_PREVIOUS_COMMIT) {
-      referenceBranchOrCommit = scmVars.GIT_PREVIOUS_COMMIT
-    }
-    iC = dockerUtils.dockerPullOrBuild("${platform}-develop-build",
-        "${env.GIT_RAW_BASE_URL}/${scmVars.GIT_COMMIT}/docker/develop/Dockerfile",
-        "${env.GIT_RAW_BASE_URL}/${referenceBranchOrCommit}/docker/develop/Dockerfile",
-        scmVars,
-        environment,
-        forceDockerDevelopBuild,
-        ['PARALLELISM': parallelism])
+      scmVars = checkout scm
+      build = load '.jenkinsci/build.groovy'
+      def vars = load ".jenkinsci/utils/vars.groovy"
+      utils = load ".jenkinsci/utils/utils.groovy"
+      def dockerUtils = load ".jenkinsci/utils/docker-pull-or-build.groovy"
+      doxygen = load ".jenkinsci/utils/doxygen.groovy"
+      buildDir = 'build'
+      compilers = vars.compilerMapping()
+      cmakeBooleanOption = [ (true): 'ON', (false): 'OFF' ]
+      platform = sh(script: 'uname -m', returnStdout: true).trim()
+      cmakeBuildOptions = ""
+      cmakeOptions = ""
+      if (packagebuild){
+        cmakeBuildOptions = " --target package "
+      }
+      if (sanitize){
+        cmakeOptions += " -DSANITIZE='address;leak' "
+      }
+      // enable coredumps collecting
+      if (coredumps) {
+        sh "echo %e.%p.coredump > /proc/sys/kernel/core_pattern"
+        sh "ulimit -c unlimited"
+      }
+      // Create postgres
+      // enable prepared transactions so that 2 phase commit works
+      // we set it to 100 as a safe value
+      sh """#!/bin/bash -xe
+        if [ ! "\$(docker ps -q -f name=${env.IROHA_POSTGRES_HOST})" ]; then
+          docker network create ${env.IROHA_NETWORK}
+          docker run -td -e POSTGRES_USER=${env.IROHA_POSTGRES_USER} \
+             -e POSTGRES_PASSWORD=${env.IROHA_POSTGRES_PASSWORD} --name ${env.IROHA_POSTGRES_HOST} \
+             --network=${env.IROHA_NETWORK} postgres:9.5 -c 'max_prepared_transactions=100'
+        fi
+      """
+      def referenceBranchOrCommit = 'master'
+      if (scmVars.GIT_LOCAL_BRANCH == referenceBranchOrCommit && scmVars.GIT_PREVIOUS_COMMIT) {
+        referenceBranchOrCommit = scmVars.GIT_PREVIOUS_COMMIT
+      }
+      iC = dockerUtils.dockerPullOrBuild("${platform}-develop-build",
+          "${env.GIT_RAW_BASE_URL}/${scmVars.GIT_COMMIT}/docker/develop/Dockerfile",
+          "${env.GIT_RAW_BASE_URL}/${referenceBranchOrCommit}/docker/develop/Dockerfile",
+          scmVars,
+          environment,
+          forceDockerDevelopBuild,
+          ['PARALLELISM': parallelism])
     }
     iC.inside(""
     + " -e IROHA_POSTGRES_HOST=${env.IROHA_POSTGRES_HOST}"
@@ -101,47 +101,59 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
     + " --network=${env.IROHA_NETWORK}"
     + " -v /var/jenkins/ccache:${env.CCACHE_DEBUG_DIR}") {
       utils.ccacheSetup(5)
-      for (compiler in compilerVersions) {
-        stage ("build ${compiler}"){
-          // Remove artifacts from the previous build
-          build.removeDirectory(buildDir)
-          build.cmakeConfigure(buildDir, "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
-            -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
-            -DCMAKE_BUILD_TYPE=${build_type} \
-            -DBUILD_SHARED_LIBS=${cmakeBooleanOption[build_shared_libs]} \
-            -DCOVERAGE=${cmakeBooleanOption[coverage]} \
-            -DTESTING=${cmakeBooleanOption[testing]} \
-            -DFUZZING=${cmakeBooleanOption[fuzzing]} \
-            -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
-            -DPACKAGE_DEB=${cmakeBooleanOption[packagebuild]} \
-            -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
-            -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
-            -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
-            -DUSE_BURROW=${cmakeBooleanOption[use_burrow]} \
-            -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ${cmakeOptions}")
-          build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
+      stage ("Build ${compiler}"){
+        // Remove artifacts from the previous build
+        build.removeDirectory(buildDir)
+        build.cmakeConfigure(buildDir, "-DCMAKE_CXX_COMPILER=${compilers[compiler]['cxx_compiler']} \
+          -DCMAKE_C_COMPILER=${compilers[compiler]['cc_compiler']} \
+          -DCMAKE_BUILD_TYPE=${build_type} \
+          -DBUILD_SHARED_LIBS=${cmakeBooleanOption[build_shared_libs]} \
+          -DCOVERAGE=${cmakeBooleanOption[coverage]} \
+          -DTESTING=${cmakeBooleanOption[testing]} \
+          -DFUZZING=${cmakeBooleanOption[fuzzing]} \
+          -DBENCHMARKING=${cmakeBooleanOption[benchmarking]} \
+          -DPACKAGE_DEB=${cmakeBooleanOption[packagebuild]} \
+          -DPACKAGE_TGZ=${cmakeBooleanOption[packagebuild]} \
+          -DUSE_BTF=${cmakeBooleanOption[useBTF]} \
+          -DUSE_LIBURSA=${cmakeBooleanOption[use_libursa]} \
+          -DUSE_BURROW=${cmakeBooleanOption[use_burrow]} \
+          -DCMAKE_TOOLCHAIN_FILE=/opt/dependencies/scripts/buildsystems/vcpkg.cmake ${cmakeOptions}")
+        build.cmakeBuild(buildDir, cmakeBuildOptions, parallelism)
+      }
+      stage("Initial coverage ${compiler}") {
+        if (coverage) {
+          build.initialCoverage(buildDir)
         }
+      }
+      stage("Test ${compiler}") {
         if (testing) {
-          stage("Test ${compiler}") {
-            coverage ? build.initialCoverage(buildDir) : echo('Skipping initial coverage...')
-            testSteps(buildDir, environment, testList)
-            coverage ? build.postCoverage(buildDir, '/tmp/lcov_cobertura.py') : echo('Skipping post coverage...')
-            // We run coverage once, using the first compiler as it is enough
-            coverage = false
-          }
-        } //end if
-      } //end for
+          testSteps(buildDir, environment, testList)
+        }
+      }
+      stage("Post coverage ${compiler}") {
+        if (coverage) {
+          build.postCoverage(buildDir, '/tmp/lcov_cobertura.py')
+        }
+      }
       stage("Analysis") {
-            cppcheck ? build.cppCheck(buildDir, parallelism) : echo('Skipping Cppcheck...')
-            sonar ? build.sonarScanner(scmVars, environment) : echo('Skipping Sonar Scanner...')
-            codestyle ? build.clangFormat(scmVars, environment) : echo('Skipping Code Style...')
+        if (cppcheck){
+          build.cppCheck(buildDir, parallelism)
+        }
+        if (sonar) {
+          build.sonarScanner(scmVars, environment)
+        }
+        if (codestyle) {
+          build.clangFormat(scmVars, environment)
+        }
       }
       stage('Build docs'){
-        docs ? doxygen.doDoxygen(specialBranch, scmVars.GIT_LOCAL_BRANCH) : echo("Skipping Doxygen...")
+        if (docs) {
+          doxygen.doDoxygen(specialBranch, scmVars.GIT_LOCAL_BRANCH)
+        }
       }
     } // end iC.inside
     stage ('Docker ManifestPush'){
-      if (specialBranch && !env.TAG_NAME || forceDockerDevelopBuild) {
+      if (manifest_push) {
         utils.dockerPush(iC, "${platform}-develop-build")
         dockerManifestPush(iC, "develop-build", environment)
       }
@@ -155,7 +167,7 @@ def successPostSteps(scmVars, boolean packagePush, String dockerTag, List enviro
       if (packagePush) {
         def artifacts = load ".jenkinsci/artifacts.groovy"
         def utils = load ".jenkinsci/utils/utils.groovy"
-        platform = sh(script: 'uname -m', returnStdout: true).trim()
+        def platform = sh(script: 'uname -m', returnStdout: true).trim()
         def commit = scmVars.GIT_COMMIT
 
         // if we use several compilers only the last compiler, used for the build, will be used for iroha.deb and iroha.tar.gz archives
@@ -168,7 +180,7 @@ def successPostSteps(scmVars, boolean packagePush, String dockerTag, List enviro
           mv ./build/iroha.deb ./build/iroha.tar.gz build/artifacts
         """
         // publish docker
-        iCRelease = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${commit}-${env.BUILD_NUMBER}-release", "--no-cache -f docker/release/Dockerfile ${WORKSPACE}/docker/release")
+        def iCRelease = docker.build("${env.DOCKER_REGISTRY_BASENAME}:${commit}-${env.BUILD_NUMBER}-release", "--no-cache -f docker/release/Dockerfile ${WORKSPACE}/docker/release")
         utils.dockerPush(iCRelease, "${platform}-${dockerTag}")
         dockerManifestPush(iCRelease, dockerTag, environment)
         sh "docker rmi ${iCRelease.id}"
