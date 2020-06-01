@@ -1,9 +1,9 @@
 use clap::{App, Arg};
 
 const CONFIG: &str = "config";
-const CREATE: &str = "create";
-const UPDATE: &str = "update";
-const GET: &str = "get";
+const DOMAIN: &str = "domain";
+const ACCOUNT: &str = "account";
+const ASSET: &str = "asset";
 
 fn main() {
     let matches = App::new("Iroha CLI Client")
@@ -20,46 +20,26 @@ fn main() {
                 .default_value("config.json"),
         )
         .subcommand(
-            App::new(CREATE)
-                .about("Use this command to request entities creation in Iroha Peer.")
-                .subcommand(
-                    domain::build_create_app(),
-                )
-                .subcommand(
-                    account::build_create_app(),
-                )
-                .subcommand(
-                    asset::build_create_app(),
-                )
+            domain::build_app(),
         )
         .subcommand(
-            App::new(UPDATE)
-            .about("Use this command to request entities related modifications in Iroha Peer.")
-            .subcommand(
-                asset::build_update_app(),
-            )
+            account::build_app(),
         )
         .subcommand(
-            App::new(GET)
-            .about("Use this command to request entities related information from Iroha Peer.")
-            .subcommand(
-                asset::build_get_app(),
-            )
+            asset::build_app(),
         )
         .get_matches();
     if let Some(configuration_path) = matches.value_of(CONFIG) {
         println!("Value for config: {}", configuration_path);
     }
-    if let Some(ref matches) = matches.subcommand_matches(CREATE) {
-        domain::match_create(matches);
-        account::match_create(matches);
-        asset::match_create(matches);
+    if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
+        domain::process(matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches(UPDATE) {
-        asset::match_update(matches);
+    if let Some(ref matches) = matches.subcommand_matches(ACCOUNT) {
+        account::process(matches);
     }
-    if let Some(ref matches) = matches.subcommand_matches(GET) {
-        asset::match_get(matches);
+    if let Some(ref matches) = matches.subcommand_matches(ASSET) {
+        asset::process(matches);
     }
 }
 
@@ -70,24 +50,28 @@ mod domain {
     use iroha::{isi, prelude::*};
     use iroha_client::client::Client;
 
-    const DOMAIN: &str = "domain";
     const DOMAIN_NAME: &str = "name";
+    const ADD: &str = "add";
 
-    pub fn build_create_app<'a, 'b>() -> App<'a, 'b> {
-        App::new(DOMAIN).arg(
-            Arg::with_name(DOMAIN_NAME)
-                .long(DOMAIN_NAME)
-                .value_name(DOMAIN_NAME)
-                .help("Domain's name as double-quoted string.")
-                .takes_value(true)
-                .required(true),
-        )
+    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
+        App::new(DOMAIN)
+            .about("Use this command to work with Domain Entities in Iroha Peer.")
+            .subcommand(
+                App::new(ADD).arg(
+                    Arg::with_name(DOMAIN_NAME)
+                        .long(DOMAIN_NAME)
+                        .value_name(DOMAIN_NAME)
+                        .help("Domain's name as double-quoted string.")
+                        .takes_value(true)
+                        .required(true),
+                ),
+            )
     }
 
-    pub fn match_create(matches: &ArgMatches<'_>) {
-        if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
+    pub fn process(matches: &ArgMatches<'_>) {
+        if let Some(ref matches) = matches.subcommand_matches(ADD) {
             if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
-                println!("Creating domain with a name: {}", domain_name);
+                println!("Adding a new Domain with a name: {}", domain_name);
                 create_domain(domain_name);
             }
         }
@@ -113,41 +97,46 @@ mod account {
     use iroha::{isi, prelude::*};
     use iroha_client::client::Client;
 
-    const ACCOUNT: &str = "account";
+    const REGISTER: &str = "register";
     const ACCOUNT_NAME: &str = "name";
     const ACCOUNT_DOMAIN_NAME: &str = "domain";
     const ACCOUNT_KEY: &str = "key";
 
-    pub fn build_create_app<'a, 'b>() -> App<'a, 'b> {
+    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         App::new(ACCOUNT)
-            .arg(
-                Arg::with_name(ACCOUNT_NAME)
-                    .long(ACCOUNT_NAME)
-                    .value_name(ACCOUNT_NAME)
-                    .help("Account's name as double-quoted string.")
-                    .takes_value(true)
-                    .required(true),
-            )
-            .arg(
-                Arg::with_name(ACCOUNT_DOMAIN_NAME)
-                    .long(ACCOUNT_DOMAIN_NAME)
-                    .value_name(ACCOUNT_DOMAIN_NAME)
-                    .help("Account's Domain's name as double-quoted string.")
-                    .takes_value(true)
-                    .required(true),
-            )
-            .arg(
-                Arg::with_name(ACCOUNT_KEY)
-                    .long(ACCOUNT_KEY)
-                    .value_name(ACCOUNT_KEY)
-                    .help("Account's public key as double-quoted string.")
-                    .takes_value(true)
-                    .required(true),
+            .about("Use this command to work with Account Entities in Iroha Peer.")
+            .subcommand(
+                App::new(REGISTER)
+                    .about("Use this command to register new Account in existing Iroha Domain.")
+                    .arg(
+                        Arg::with_name(ACCOUNT_NAME)
+                            .long(ACCOUNT_NAME)
+                            .value_name(ACCOUNT_NAME)
+                            .help("Account's name as double-quoted string.")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name(ACCOUNT_DOMAIN_NAME)
+                            .long(ACCOUNT_DOMAIN_NAME)
+                            .value_name(ACCOUNT_DOMAIN_NAME)
+                            .help("Account's Domain's name as double-quoted string.")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name(ACCOUNT_KEY)
+                            .long(ACCOUNT_KEY)
+                            .value_name(ACCOUNT_KEY)
+                            .help("Account's public key as double-quoted string.")
+                            .takes_value(true)
+                            .required(true),
+                    ),
             )
     }
 
-    pub fn match_create(matches: &ArgMatches<'_>) {
-        if let Some(ref matches) = matches.subcommand_matches(ACCOUNT) {
+    pub fn process(matches: &ArgMatches<'_>) {
+        if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
                 if let Some(domain_name) = matches.value_of(ACCOUNT_DOMAIN_NAME) {
@@ -181,17 +170,21 @@ mod asset {
     use iroha::{isi, prelude::*};
     use iroha_client::client::{self, Client};
 
-    const ASSET: &str = "asset";
-    const ASSET_ADD: &str = "add";
+    const REGISTER: &str = "register";
+    const MINT: &str = "mint";
+    const GET: &str = "get";
     const ASSET_NAME: &str = "name";
-    const ASSET_DECIMALS: &str = "decimals";
     const ASSET_DOMAIN_NAME: &str = "domain";
     const ASSET_ACCOUNT_ID: &str = "account_id";
     const ASSET_ID: &str = "id";
-    const ASSET_AMOUNT: &str = "amount";
+    const QUANTITY: &str = "quantity";
 
-    pub fn build_create_app<'a, 'b>() -> App<'a, 'b> {
+    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         App::new(ASSET)
+            .about("Use this command to work with Asset and Asset Definition Entities in Iroha Peer.")
+            .subcommand(
+        App::new(REGISTER)
+        .about("Use this command to register new Asset Definition in existing Iroha Domain.")
             .arg(
                 Arg::with_name(ASSET_DOMAIN_NAME)
                     .long(ASSET_DOMAIN_NAME)
@@ -208,68 +201,52 @@ mod asset {
                     .takes_value(true)
                     .required(true),
             )
-            .arg(
-                Arg::with_name(ASSET_DECIMALS)
-                    .long(ASSET_DECIMALS)
-                    .value_name(ASSET_DECIMALS)
-                    .help("Asset's quantity of decimals as an integer.")
-                    .takes_value(true)
-                    .required(true),
+            )
+               .subcommand(
+                    App::new(MINT)
+                    .about("Use this command to Mint Asset in existing Iroha Account.")
+                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                )
+.subcommand(
+App::new(GET)
+                .about("Use this command to get Asset information from Iroha Account.")
+                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name@domain_name`.").takes_value(true).required(true))
+
             )
     }
 
-    pub fn build_update_app<'a, 'b>() -> App<'a, 'b> {
-        App::new(ASSET)
-                .about("Use this command to request assets related modifications in Iroha Peer.")
-                .subcommand(
-                    App::new(ASSET_ADD)
-                    .about("Use this command to request Add Asset Quantity Iroha Special Instruction execution in Iroha Peer.")
-                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name@domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(ASSET_AMOUNT).long(ASSET_AMOUNT).value_name(ASSET_AMOUNT).help("Asset's amount as a number.").takes_value(true).required(true))
-                )
-    }
-
-    pub fn build_get_app<'a, 'b>() -> App<'a, 'b> {
-        App::new(ASSET)
-                .about("Use this command to request assets related information from Iroha Peer.")
-                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name@domain_name`.").takes_value(true).required(true))
-    }
-
-    pub fn match_create(matches: &ArgMatches<'_>) {
-        if let Some(ref matches) = matches.subcommand_matches(ASSET) {
+    pub fn process(matches: &ArgMatches<'_>) {
+        if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(asset_name) = matches.value_of(ASSET_NAME) {
-                println!("Creating asset with a name: {}", asset_name);
-            }
-            if let Some(domain_name) = matches.value_of(ASSET_DOMAIN_NAME) {
-                println!("Creating asset with a domain's name: {}", domain_name);
-            }
-            if let Some(decimals) = matches.value_of(ASSET_DECIMALS) {
-                println!("Creating asset with a decimals: {}", decimals);
+                println!("Registering asset defintion with a name: {}", asset_name);
+                if let Some(domain_name) = matches.value_of(ASSET_DOMAIN_NAME) {
+                    println!(
+                        "Registering asset definition with a domain's name: {}",
+                        domain_name
+                    );
+                    register_asset_definition(asset_name, domain_name);
+                }
             }
         }
-    }
-
-    pub fn match_update(matches: &ArgMatches<'_>) {
-        if let Some(ref matches) = matches.subcommand_matches(ASSET) {
-            if let Some(ref matches) = matches.subcommand_matches(ASSET_ADD) {
-                if let Some(asset_id) = matches.value_of(ASSET_ID) {
-                    println!("Updating asset with an identification: {}", asset_id);
-                    if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
-                        println!("Updating account with an identification: {}", account_id);
-                        if let Some(amount) = matches.value_of(ASSET_AMOUNT) {
-                            println!("Updating asset's amount: {}", amount);
-                            add_asset(asset_id, account_id, amount);
-                        }
+        if let Some(ref matches) = matches.subcommand_matches(MINT) {
+            if let Some(asset_id) = matches.value_of(ASSET_ID) {
+                println!("Minting asset with an identification: {}", asset_id);
+                if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
+                    println!(
+                        "Minting asset to account with an identification: {}",
+                        account_id
+                    );
+                    if let Some(amount) = matches.value_of(QUANTITY) {
+                        println!("Minting asset's quantity: {}", amount);
+                        mint_asset(asset_id, account_id, amount);
                     }
                 }
             }
         }
-    }
-
-    pub fn match_get(matches: &ArgMatches<'_>) {
-        if let Some(ref matches) = matches.subcommand_matches(ASSET) {
+        if let Some(ref matches) = matches.subcommand_matches(GET) {
             if let Some(asset_id) = matches.value_of(ASSET_ID) {
                 println!("Getting asset with an identification: {}", asset_id);
                 if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
@@ -280,16 +257,35 @@ mod asset {
         }
     }
 
-    fn add_asset(asset_id: &str, _account_id: &str, quantity: &str) {
-        let _quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
-        let add_asset = isi::Register {
-            object: AssetDefinition::new(asset_id.into()),
-            destination_id: <AssetDefinition as Identifiable>::Id::from(asset_id).domain_name,
+    fn register_asset_definition(asset_name: &str, domain_name: &str) {
+        let mut iroha_client = Client::new(
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
+        );
+        executor::block_on(
+            iroha_client.submit(
+                isi::Register {
+                    object: AssetDefinition::new(AssetDefinitionId::new(asset_name, domain_name)),
+                    destination_id: domain_name.to_string(),
+                }
+                .into(),
+            ),
+        )
+        .expect("Failed to create account.");
+    }
+
+    fn mint_asset(asset_definition_id: &str, account_id: &str, quantity: &str) {
+        let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
+        let mint_asset = isi::Mint {
+            object: quantity,
+            destination_id: AssetId {
+                definition_id: AssetDefinitionId::from(asset_definition_id),
+                account_id: AccountId::from(account_id),
+            },
         };
         let mut iroha_client = Client::new(
             &Configuration::from_path("config.json").expect("Failed to load configuration."),
         );
-        executor::block_on(iroha_client.submit(add_asset.into()))
+        executor::block_on(iroha_client.submit(mint_asset.into()))
             .expect("Failed to create account.");
     }
 

@@ -172,7 +172,9 @@ impl Iroha {
         let sumeragi = Arc::clone(&self.sumeragi);
         let sumeragi_message_handle = task::spawn(async move {
             while let Some(message) = message_receiver.write().await.next().await {
-                let _result = sumeragi.write().await.handle_message(message).await;
+                if let Err(e) = sumeragi.write().await.handle_message(message).await {
+                    eprintln!("Handle message failed: {}", e);
+                }
             }
         });
         let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);

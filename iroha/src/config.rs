@@ -4,11 +4,12 @@ use crate::{
     kura::Mode,
     peer::PeerId,
 };
+use iroha_derive::*;
 use std::{
     collections::HashMap,
     convert::TryInto,
     env,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     fs,
     path::Path,
 };
@@ -65,7 +66,8 @@ impl Configuration {
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Configuration, String> {
+    #[log]
+    pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
         let mut config_map: HashMap<String, String> = fs::read_to_string(path)
             .map_err(|error| format!("Failed to read configuration from path: {}.", error))?
             .lines()
@@ -171,6 +173,28 @@ impl Display for Configuration {
     }
 }
 
+impl Debug for Configuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let first_half_of_private_key: [u8; 32] = self.private_key[0..32]
+            .try_into()
+            .expect("Wrong format of private key.");
+        let second_half_of_private_key: [u8; 32] = self.private_key[32..64]
+            .try_into()
+            .expect("Wrong format of private key.");
+        f.debug_struct("Configuration")
+            .field("peer_id", &self.peer_id)
+            .field("block_build_step_ms", &self.block_build_step_ms)
+            .field("mode", &self.mode)
+            .field("kura_block_store_path", &self.kura_block_store_path)
+            .field("trusted_peers", &self.trusted_peers)
+            .field("max_faulty_peers", &self.max_faulty_peers)
+            .field("public_key", &self.public_key)
+            .field("private_key[0..32]", &first_half_of_private_key)
+            .field("private_key[32..64]", &second_half_of_private_key)
+            .finish()
+    }
+}
+
 struct ConfigurationBuilder {
     torii_url: Option<String>,
     block_build_step_ms: Option<String>,
@@ -185,14 +209,13 @@ struct ConfigurationBuilder {
 }
 
 impl ConfigurationBuilder {
-    fn build(mut self) -> Result<Configuration, String> {
+    fn build(self) -> Result<Configuration, String> {
         let peer_id = PeerId {
             address: self
                 .torii_url
                 .unwrap_or_else(|| DEFAULT_TORII_URL.to_string()),
             public_key: self.public_key,
         };
-        self.trusted_peers.push(peer_id.clone());
         Ok(Configuration {
             peer_id,
             block_build_step_ms: self
@@ -236,7 +259,6 @@ fn parse_trusted_peers(trusted_peers_string: Option<String>) -> Result<Vec<PeerI
                 .trim_end_matches(']')
                 .split("}, {")
                 .map(|peer_id| {
-                    dbg!(&peer_id);
                     let key_start = peer_id
                         .find('[')
                         .expect("Failed to find start of the public key.");
@@ -344,13 +366,6 @@ mod tests {
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: [
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
-            },
-            PeerId {
-                address: "127.0.0.1:1338".to_string(),
                 public_key: [
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
