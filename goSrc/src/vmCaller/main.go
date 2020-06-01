@@ -24,9 +24,7 @@ import (
 var (
 	// Create EVM instance
 	burrowEVM = evm.New(evm.Options{
-		DebugOpcodes: true,
-		DumpTokens:   true,
-		Natives:      vm.MustCreateNatives(),
+		Natives: vm.MustCreateNatives(),
 	})
 )
 

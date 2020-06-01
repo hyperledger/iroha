@@ -55,7 +55,7 @@ func getAssetBalance(ctx native.Context, args getAssetBalanceArgs) (getAssetBala
 		return getAssetBalanceRets{}, err
 	}
 
-	value := ""
+	value := "0"
 	for _, v := range balances {
 		if v.GetAssetId() == args.Asset {
 			value = v.GetBalance()

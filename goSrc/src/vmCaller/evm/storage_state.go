@@ -18,9 +18,6 @@ var _ acmstate.ReaderWriter = &IrohaState{}
 
 func NewIrohaState(storage unsafe.Pointer) *IrohaState {
 	return &IrohaState{
-		// iroha.IrohaStorage{
-		// 	storage: storage,
-		// },
 		*iroha.NewIrohaStorage(storage),
 	}
 }
