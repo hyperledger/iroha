@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Queue {
     pending_tx: Vec<AcceptedTransaction>,
 }

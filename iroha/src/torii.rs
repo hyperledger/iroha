@@ -3,6 +3,7 @@
 
 use crate::{prelude::*, sumeragi::Message, MessageSender};
 use async_std::{sync::RwLock, task};
+use iroha_derive::*;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
 #[cfg(not(feature = "mock"))]
@@ -49,6 +50,7 @@ impl Torii {
     }
 }
 
+#[derive(Debug)]
 struct ToriiState {
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
@@ -64,10 +66,12 @@ async fn handle_connection(
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
             eprintln!("Failed to handle message: {}", e);
         }
-    });
+    })
+    .await;
     Ok(())
 }
 
+#[log]
 async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Response, String> {
     match request.url() {
         uri::INSTRUCTIONS_URI => match RequestedTransaction::try_from(request.payload().to_vec()) {
@@ -97,7 +101,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     Ok(Response::Ok(result.into()))
                 }
                 Err(e) => {
-                    eprintln!("{}", e);
+                    eprintln!("Failed to execute Query: {}", e);
                     Ok(Response::InternalError)
                 }
             },

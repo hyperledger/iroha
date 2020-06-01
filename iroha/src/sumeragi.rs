@@ -11,7 +11,7 @@ use crate::{
 };
 use async_std::sync::RwLock;
 use iroha_derive::*;
-use iroha_network::{Network, Request};
+use iroha_network::{Network, Request, Response};
 use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -45,13 +45,20 @@ pub enum Message {
 }
 
 impl Message {
+    #[log]
     async fn send_to(self, peer: &PeerId) -> Result<(), String> {
-        let _response = Network::send_request_to(
+        match Network::send_request_to(
             &peer.address,
             Request::new(uri::CONSENSUS_URI.to_string(), self.into()),
         )
-        .await?;
-        Ok(())
+        .await?
+        {
+            Response::Ok(_) => Ok(()),
+            Response::InternalError => Err(format!(
+                "Failed to send message - Internal Error on peer: {:?}",
+                peer
+            )),
+        }
     }
 }
 
@@ -219,9 +226,6 @@ impl Sumeragi {
         commit_time_ms: u64,
         tx_receipt_time_ms: u64,
     ) -> Result<Self, String> {
-        if !peers.contains(&peer_id) {
-            return Err("Peers list should contain this peer.".to_string());
-        }
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
             //TODO: get previous block hash from kura
@@ -274,7 +278,13 @@ impl Sumeragi {
                     send_futures.push(message.clone().send_to(peer));
                 }
                 send_futures.push(message.clone().send_to(self.proxy_tail()));
-                futures::future::join_all(send_futures).await;
+                let results = futures::future::join_all(send_futures).await;
+                results
+                    .iter()
+                    .filter(|result| result.is_err())
+                    .for_each(|error_result| {
+                        eprintln!("Failed to send messages: {:?}", error_result)
+                    });
                 Ok(())
             }
         } else {
@@ -319,11 +329,29 @@ impl Sumeragi {
                                 );
                             }
                         }
-                        futures::future::join_all(send_futures).await;
+                        let results = futures::future::join_all(send_futures).await;
+                        results
+                            .iter()
+                            .filter(|result| result.is_err())
+                            .for_each(|error_result| {
+                                eprintln!(
+                                    "Failed to send transactions to the leader: {:?}",
+                                    error_result
+                                )
+                            });
                     }
                 });
             }
-            let _results = futures::future::join_all(send_futures).await;
+            let results = futures::future::join_all(send_futures).await;
+            results
+                .iter()
+                .filter(|result| result.is_err())
+                .for_each(|error_result| {
+                    eprintln!(
+                        "Failed to send transactions to the leader: {:?}",
+                        error_result
+                    )
+                });
             Ok(())
         }
     }
@@ -359,6 +387,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn start_commit_countdown(&self, voting_block: VotingBlock) {
         let old_voting_block = voting_block;
         let voting_block = self.voting_block.clone();
@@ -373,9 +402,9 @@ impl Sumeragi {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voting_block.block.hash() == old_voting_block.block.hash() {
                     let mut commit_timeout = CommitTimeout::new(voting_block);
-                    commit_timeout
-                        .sign(&public_key, &private_key)
-                        .expect("Failed to sign commit timout.");
+                    if let Err(e) = commit_timeout.sign(&public_key, &private_key) {
+                        eprintln!("Failed to sign CommitTimeout: {:?}", e);
+                    }
                     let message = Message::CommitTimeout(commit_timeout.clone());
                     let mut send_futures = Vec::new();
                     for peer in &recipient_peers {
@@ -383,12 +412,19 @@ impl Sumeragi {
                             send_futures.push(message.clone().send_to(peer));
                         }
                     }
-                    futures::future::join_all(send_futures).await;
+                    let results = futures::future::join_all(send_futures).await;
+                    results
+                        .iter()
+                        .filter(|result| result.is_err())
+                        .for_each(|error_result| {
+                            eprintln!("Failed to send messages: {:?}", error_result)
+                        });
                 }
             }
         });
     }
 
+    #[log]
     async fn handle_no_transaction_receipt(
         &mut self,
         no_tx_receipt: NoTransactionReceiptReceived,
@@ -440,6 +476,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_transaction_forwarded(
         &mut self,
         forwarded_tx: TransactionForwarded,
@@ -457,6 +494,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_transaction_received(
         &mut self,
         tx_receipt: TransactionReceipt,
@@ -476,13 +514,20 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_block_created(&mut self, block: SignedBlock) -> Result<(), String> {
         match self.role() {
             Role::ValidatingPeer => {
-                let _result =
+                if let Err(e) =
                     Message::BlockSigned(block.clone().sign(&self.public_key, &self.private_key)?)
                         .send_to(self.proxy_tail())
-                        .await;
+                        .await
+                {
+                    eprintln!(
+                        "Failed to send BlockSigned message to the proxy tail: {:?}",
+                        e
+                    );
+                }
                 let voting_block = VotingBlock::new(block);
                 *self.voting_block.write().await = Some(voting_block.clone());
                 self.start_commit_countdown(voting_block.clone()).await;
@@ -498,6 +543,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_block_signed(&mut self, block: SignedBlock) -> Result<(), String> {
         if let Role::ProxyTail = self.role() {
             let voting_block = self.voting_block.write().await.clone();
@@ -527,7 +573,13 @@ impl Sumeragi {
                     for peer in self.peers_set_b() {
                         send_futures.push(message.clone().send_to(peer));
                     }
-                    futures::future::join_all(send_futures).await;
+                    let results = futures::future::join_all(send_futures).await;
+                    results
+                        .iter()
+                        .filter(|result| result.is_err())
+                        .for_each(|error_result| {
+                            eprintln!("Failed to send messages: {:?}", error_result)
+                        });
                     let block = block.validate(&*self.world_state_view.read().await)?;
                     let hash = block.hash();
                     self.blocks_sender.write().await.send(block).await;
@@ -538,6 +590,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_block_committed(&mut self, block: SignedBlock) -> Result<(), String> {
         //TODO: check if the block is the same as pending
         let block = block.validate(&*self.world_state_view.read().await)?;
@@ -547,6 +600,7 @@ impl Sumeragi {
         Ok(())
     }
 
+    #[log]
     async fn handle_commit_timeout(&mut self, commit_timeout: CommitTimeout) -> Result<(), String> {
         let current_time = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -567,7 +621,13 @@ impl Sumeragi {
                                 send_futures.push(message.clone().send_to(peer));
                             }
                         }
-                        futures::future::join_all(send_futures).await;
+                        let results = futures::future::join_all(send_futures).await;
+                        results
+                            .iter()
+                            .filter(|result| result.is_err())
+                            .for_each(|error_result| {
+                                eprintln!("Failed to send messages: {:?}", error_result)
+                            });
                     }
                 }
             }
