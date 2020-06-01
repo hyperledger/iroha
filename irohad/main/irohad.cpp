@@ -188,7 +188,9 @@ int main(int argc, char *argv[]) {
   auto config_result =
       parse_iroha_config(FLAGS_config, getCommonObjectsFactory());
   if (auto e = iroha::expected::resultToOptionalError(config_result)) {
-    log->error("Failed reading the configuration file: {}", e.value());
+    if (log) {
+      log->error("Failed reading the configuration file: {}", e.value());
+    }
     return EXIT_FAILURE;
   }
   auto config = std::move(config_result).assumeValue();
