@@ -46,6 +46,7 @@ add_custom_command(
   COMMAND
   env "PATH=${ENV_PATH}" "GOPATH=${GOPATH}" go build
       --modfile "${GO_MOD_FILE_PATH}"
+      -modcacherw
       -buildmode=c-archive
       -o "${VM_CALLER_LIB}"
       "${CMAKE_CURRENT_SOURCE_DIR}/main.go"
