@@ -9,7 +9,7 @@
 Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri). 
 Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs. 
 
-Check the [overview](http://iroha.readthedocs.io/en/latest/overview.html) page of our documentation.
+Check the [overview](http://iroha.readthedocs.io/) page of our documentation.
 [Here](https://www.youtube.com/channel/UCYlK9OrZo9hvNYFuf0vrwww) is a YouTube channel where we upload meetings and explanatory videos - check them out! 
 
 <img height="300px" src="docs/image_assets/Iroha_3_sm.png"
@@ -33,7 +33,7 @@ We have documentation in several languages available and you are welcome to cont
 #### Here is the build status of different translations
 <center>
  
-| Build Status | **English** <br> [![Documentation Status](https://readthedocs.org/projects/iroha/badge/?version=latest)](https://iroha.readthedocs.io/en/latest/?badge=latest) </br> | **German** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-de/badge/?version=master)](https://iroha.readthedocs.io/de/master/?badge=master) </br> | **Spanish** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-es/badge/?version=latest)](https://iroha.readthedocs.io/es/latest/?badge=latest) </br> | **French** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-fr/badge/?version=latest)](https://iroha.readthedocs.io/fr/latest/?badge=latest) </br> | **Japanese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ja/badge/?version=latest)](https://iroha.readthedocs.io/ja/latest/?badge=latest) </br> |
+| Build Status | **English** <br> [![Documentation Status](https://readthedocs.org/projects/iroha/badge/?version=master)](https://iroha.readthedocs.io/en/master/?badge=master) </br> | **German** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-de/badge/?version=master)](https://iroha.readthedocs.io/de/master/?badge=master) </br> | **Spanish** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-es/badge/?version=latest)](https://iroha.readthedocs.io/es/latest/?badge=latest) </br> | **French** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-fr/badge/?version=latest)](https://iroha.readthedocs.io/fr/latest/?badge=latest) </br> | **Japanese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ja/badge/?version=latest)](https://iroha.readthedocs.io/ja/latest/?badge=latest) </br> |
 |:---:|:---:|:---:|:---:|:---:|:---:|
 | **Korean** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ko/badge/?version=latest)](https://iroha.readthedocs.io/ko/latest/?badge=latest) </br> | **Dutch** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-nl/badge/?version=latest)](https://iroha.readthedocs.io/nl/latest/?badge=latest) </br> | **Portuguese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-pt/badge/?version=latest)](https://iroha.readthedocs.io/pt/latest/?badge=latest) </br> | **Russian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-ru/badge/?version=latest)](https://iroha.readthedocs.io/ru/latest/?badge=latest) </br> | **Ukrainian** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-uk/badge/?version=latest)](https://iroha.readthedocs.io/uk/latest/?badge=latest) </br> | **Simplified Chinese** <br> [![Documentation Status](https://readthedocs.org/projects/iroha-zh/badge/?version=latest)](https://iroha.readthedocs.io/zh_CN/latest/?badge=latest) </br> |
 
@@ -43,11 +43,11 @@ We have documentation in several languages available and you are welcome to cont
  
 ### How to explore Iroha really fast?
 
-Check [getting started](http://iroha.readthedocs.io/en/latest/getting_started/) section in your version of localized docs to start exploring the system.
+Check [getting started](https://iroha.readthedocs.io/en/stable/getting_started/index.html) section in your version of localized docs to start exploring the system.
 
 ### How to build Iroha?
 
-Use [build guide](https://iroha.readthedocs.io/en/latest/build/index.html), which might be helpful if you want to modify the code and contribute.
+Use [build guide](https://iroha.readthedocs.io/en/master/build/index.html), which might be helpful if you want to modify the code and contribute.
 
 ### Is there SDK available?
 
