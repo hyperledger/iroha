@@ -20,6 +20,7 @@ namespace config_members {
   const char *PgOpt = "pg_opt";
   const char *DbConfig = "database";
   const char *Host = "host";
+  const char *Ip = "ip";
   const char *Port = "port";
   const char *User = "user";
   const char *Password = "password";
@@ -47,4 +48,5 @@ namespace config_members {
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";
   const char *TlsCertificatePath = "tls_certificate_path";
+  const char *UtilityService = "utility_service";
 }  // namespace config_members
