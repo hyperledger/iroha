@@ -6,6 +6,7 @@
 #ifndef IROHA_MST_STORAGE_IMPL_HPP
 #define IROHA_MST_STORAGE_IMPL_HPP
 
+#include <memory>
 #include <unordered_map>
 
 #include <rxcpp/rx-lite.hpp>
@@ -16,6 +17,8 @@
 namespace iroha {
   class MstStorageStateImpl : public MstStorage {
    private:
+    struct private_tag {};
+
     // -----------------------------| private API |-----------------------------
 
     /**
@@ -29,14 +32,20 @@ namespace iroha {
 
    public:
     // ----------------------------| interface API |----------------------------
-    MstStorageStateImpl(
-        const CompleterType &completer,
+    MstStorageStateImpl(MstStorageStateImpl::private_tag,
+                        CompleterType const &completer,
+                        logger::LoggerPtr mst_state_logger,
+                        logger::LoggerPtr log);
+
+    MstStorageStateImpl(MstStorageStateImpl const &) = delete;
+    MstStorageStateImpl &operator=(MstStorageStateImpl const &) = delete;
+
+    static std::shared_ptr<MstStorageStateImpl> create(
+        CompleterType const &completer,
         rxcpp::observable<shared_model::interface::types::HashType>
             finalized_txs,
         logger::LoggerPtr mst_state_logger,
         logger::LoggerPtr log);
-
-    ~MstStorageStateImpl() override;
 
     auto applyImpl(
         shared_model::interface::types::PublicKeyHexStringView target_peer_key,
@@ -89,8 +98,6 @@ namespace iroha {
     std::unordered_map<StringViewOrString, MstState, StringViewOrString::Hash>
         peer_states_;
     MstState own_state_;
-
-    rxcpp::composite_subscription finalized_transactions_subscription_;
 
     logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                           ///< objects.

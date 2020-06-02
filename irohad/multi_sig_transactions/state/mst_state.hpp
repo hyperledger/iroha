@@ -118,7 +118,8 @@ namespace iroha {
     /**
      * @return the batches from the state
      */
-    std::unordered_set<DataType, iroha::model::PointerBatchHasher,
+    std::unordered_set<DataType,
+                       iroha::model::PointerBatchHasher,
                        shared_model::interface::BatchHashEquality>
     getBatches() const;
 
@@ -171,25 +172,27 @@ namespace iroha {
     using BatchesForwardCollectionType = boost::
         any_range<BatchPtr, boost::forward_traversal_tag, const BatchPtr &>;
 
-    using BatchesToHashBimap = boost::bimap<
-        boost::bimaps::unordered_set_of<
-            shared_model::interface::types::HashType,
-            shared_model::crypto::HashTypeHasher>,
-        boost::bimaps::unordered_multiset_of<DataType,
-                                             iroha::model::PointerBatchHasher,
-                                             BatchHashEquality>>;
+    using BatchesToHashBimap =
+        boost::bimap<boost::bimaps::unordered_set_of<
+                         shared_model::interface::types::HashType,
+                         shared_model::crypto::Hash::Hasher>,
+                     boost::bimaps::unordered_multiset_of<
+                         DataType,
+                         iroha::model::PointerBatchHasher,
+                         shared_model::interface::BatchHashEquality>>;
 
-    using BatchesBimap = boost::bimap<
-        boost::bimaps::multiset_of<
-            shared_model::interface::types::TimestampType>,
-        boost::bimaps::unordered_set_of<DataType,
-                                        iroha::model::PointerBatchHasher,
-                                        shared_model::interface::BatchHashEquality>>;
+    using BatchesBimap =
+        boost::bimap<boost::bimaps::multiset_of<
+                         shared_model::interface::types::TimestampType>,
+                     boost::bimaps::unordered_set_of<
+                         DataType,
+                         iroha::model::PointerBatchHasher,
+                         shared_model::interface::BatchHashEquality>>;
 
-    MstState(const CompleterType &completer, logger::LoggerPtr log);
+    MstState(CompleterType const &completer, logger::LoggerPtr log);
 
-    MstState(const CompleterType &completer,
-             const BatchesForwardCollectionType &batches,
+    MstState(CompleterType const &completer,
+             BatchesForwardCollectionType const &batches,
              logger::LoggerPtr log);
 
     /**

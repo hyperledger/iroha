@@ -142,6 +142,7 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
+    // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
     return !ametsuchi::isAlreadyProcessed(*tx_result);
   };
 

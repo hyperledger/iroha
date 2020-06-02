@@ -75,6 +75,26 @@ TEST(StateTest, ContainsMethodFindsInsertedBatch) {
 }
 
 /**
+ * @given state with one batch
+ * @when batch is erased by hash
+ * @then "contains" method shows absence of the batch
+ */
+TEST(StateTest, EraseByTransactionHash) {
+  auto state = MstState::empty(mst_state_log_, completer_);
+
+  auto first_signature = makeSignature("1"_hex_sig, "pub_key_1"_hex_pubkey);
+  auto batch = makeTestBatch(txBuilder(1, iroha::time::now()));
+  auto tx = addSignatures(batch, 0, first_signature);
+  state += tx;
+
+  EXPECT_TRUE(state.contains(batch));
+
+  state.eraseByTransactionHash(tx->transactions().front()->hash());
+
+  EXPECT_FALSE(state.contains(batch));
+}
+
+/**
  * @given empty state @and a distinct batch
  * @when checking that batch's presence in the state
  * @then "contains" method shows absence of the batch

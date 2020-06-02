@@ -34,12 +34,9 @@ namespace iroha {
     std::shared_ptr<PendingTransactionStorage>
     createPendingTransactionsStorage();
 
-    void setSubscriptions(const MstProcessor &mst_processor);
+    void setMstSubscriptions(const MstProcessor &mst_processor);
 
-    void setSubscriptions(
-        const network::PeerCommunicationService &peer_communication_service);
-
-    void setSubscriptions(
+    void setFinalizedTxsSubscription(
         rxcpp::observable<shared_model::interface::types::HashType>
             finalized_txs);
 

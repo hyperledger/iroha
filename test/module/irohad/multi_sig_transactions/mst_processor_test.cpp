@@ -42,7 +42,6 @@ class MstProcessorTest : public testing::Test {
   /// use effective implementation of storage
   std::shared_ptr<MstStorage> storage;
   std::shared_ptr<FairMstProcessor> mst_processor;
-  rxcpp::observable<shared_model::interface::types::HashType> finalized_txs_;
 
   // ---------------------------------| mocks |---------------------------------
 
@@ -61,13 +60,11 @@ class MstProcessorTest : public testing::Test {
  protected:
   void SetUp() override {
     transport = std::make_shared<MockMstTransport>();
-    finalized_txs_ =
-        rxcpp::observable<>::empty<shared_model::interface::types::HashType>();
-    storage =
-        std::make_shared<MstStorageStateImpl>(std::make_shared<TestCompleter>(),
-                                              finalized_txs_,
-                                              getTestLogger("MstState"),
-                                              getTestLogger("MstStorage"));
+    storage = MstStorageStateImpl::create(
+        std::make_shared<TestCompleter>(),
+        rxcpp::observable<>::empty<shared_model::interface::types::HashType>(),
+        getTestLogger("MstState"),
+        getTestLogger("MstStorage"));
 
     propagation_strategy = std::make_shared<MockPropagationStrategy>();
     EXPECT_CALL(*propagation_strategy, emitter())
