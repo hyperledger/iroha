@@ -22,7 +22,7 @@ def buildSteps(int parallelism, List compilerVersions, String buildType, boolean
 
       utils.build_vcpkg(win_vcpkg_path,win_vcpkg_toolchain_file)
     }
-    for (compiler in compilerVersions) {
+    compilerVersions.each { compiler ->
       stage ("build ${compiler}"){
         bat """
 cmake -H.\\ -B.\\build -DCMAKE_TOOLCHAIN_FILE=${win_vcpkg_toolchain_file} -G "Visual Studio 16 2019" -A x64 -T host=x64 &&^

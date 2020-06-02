@@ -58,7 +58,7 @@ def buildSteps(int parallelism, List compilerVersions, String build_type, boolea
       utils.ccacheSetup(5)
       utils.build_vcpkg(mac_vcpkg_path,mac_vcpkg_toolchain_file)
     }
-    for (compiler in compilerVersions) {
+    compilerVersions.each { compiler ->
       stage ("build ${compiler}"){
         // Remove artifacts from the previous build
         build.removeDirectory(buildDir)

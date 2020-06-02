@@ -10,9 +10,9 @@
 
 def uploadArtifacts(filePaths, uploadPath, artifactServers=['nexus.iroha.tech']) {
   def filePathsConverted = []
-  agentType = sh(script: 'uname', returnStdout: true).trim()
+  def agentType = sh(script: 'uname', returnStdout: true).trim()
   filePaths.each {
-    fp = sh(script: "ls -d ${it} | tr '\n' ','", returnStdout: true).trim()
+    def fp = sh(script: "ls -d ${it} | tr '\n' ','", returnStdout: true).trim()
     filePathsConverted.addAll(fp.split(','))
   }
   def shaSumBinary = 'sha256sum'
