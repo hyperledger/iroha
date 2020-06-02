@@ -22,15 +22,14 @@ PendingTransactionStorageInit::PendingTransactionStorageInit()
 
 std::shared_ptr<PendingTransactionStorage>
 PendingTransactionStorageInit::createPendingTransactionsStorage() {
-  return std::make_shared<PendingTransactionStorageImpl>(
-      updated_batches.get_observable(),
-      prepared_batch.get_observable(),
-      expired_batch.get_observable(),
-      prepared_txs.get_observable(),
-      finalized_txs.get_observable());
+  return PendingTransactionStorageImpl::create(updated_batches.get_observable(),
+                                               prepared_batch.get_observable(),
+                                               expired_batch.get_observable(),
+                                               prepared_txs.get_observable(),
+                                               finalized_txs.get_observable());
 }
 
-void PendingTransactionStorageInit::setSubscriptions(
+void PendingTransactionStorageInit::setMstSubscriptions(
     const MstProcessor &mst_processor) {
   mst_processor.onStateUpdate().subscribe(pending_storage_lifetime,
                                           updated_batches.get_subscriber());
@@ -40,28 +39,7 @@ void PendingTransactionStorageInit::setSubscriptions(
                                              expired_batch.get_subscriber());
 }
 
-void PendingTransactionStorageInit::setSubscriptions(
-    const network::PeerCommunicationService &peer_communication_service) {
-  using PreparedTransactionDescriptor =
-      PendingTransactionStorageImpl::PreparedTransactionDescriptor;
-  peer_communication_service.onProposal()
-      .flat_map([](const auto &event)
-                    -> rxcpp::observable<PreparedTransactionDescriptor> {
-        if (not event.proposal) {
-          return rxcpp::observable<>::empty<PreparedTransactionDescriptor>();
-        }
-        auto prepared_transactions =
-            event.proposal.get()->transactions()
-            | boost::adaptors::transformed(
-                  [](const auto &tx) -> PreparedTransactionDescriptor {
-                    return std::make_pair(tx.creatorAccountId(), tx.hash());
-                  });
-        return rxcpp::observable<>::iterate(prepared_transactions);
-      })
-      .subscribe(pending_storage_lifetime, prepared_txs.get_subscriber());
-}
-
-void PendingTransactionStorageInit::setSubscriptions(
+void PendingTransactionStorageInit::setFinalizedTxsSubscription(
     rxcpp::observable<shared_model::interface::types::HashType> finalized_txs) {
   finalized_txs.subscribe(pending_storage_lifetime,
                           this->finalized_txs.get_subscriber());

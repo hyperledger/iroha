@@ -162,18 +162,15 @@ namespace iroha {
     return inserted_new_signatures;
   }
 
-  MstState::MstState(const CompleterType &completer, logger::LoggerPtr log)
+  MstState::MstState(CompleterType const &completer, logger::LoggerPtr log)
       : MstState(completer, std::vector<DataType>{}, std::move(log)) {}
 
-  MstState::MstState(const CompleterType &completer,
-                     const BatchesForwardCollectionType &batches,
+  MstState::MstState(CompleterType const &completer,
+                     BatchesForwardCollectionType const &batches,
                      logger::LoggerPtr log)
       : completer_(completer), log_(std::move(log)) {
-    for (const auto &batch : batches) {
-      for (auto &tx : batch->transactions()) {
-        batches_to_hash_.insert({tx->hash(), batch});
-      }
-      batches_.insert({oldestTimestamp(batch), batch});
+    for (auto const &batch : batches) {
+      rawInsert(batch);
     }
   }
 

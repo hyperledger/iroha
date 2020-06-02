@@ -5,11 +5,9 @@
 
 #include "cryptography/hash.hpp"
 
-#include <boost/functional/hash.hpp>
 #include <functional>
 #include <string>
 
-#include "common/byteutils.hpp"
 namespace shared_model {
   namespace crypto {
 
@@ -30,21 +28,14 @@ namespace shared_model {
           .finalize();
     }
 
-    std::size_t Hash::Hasher::operator()(const Hash &h) const {
-      using boost::hash_combine;
-      using boost::hash_value;
-
-      std::size_t seed = 0;
-      hash_combine(seed, hash_value(h.blob()));
-
-      return seed;
-    }
-
-    size_t HashTypeHasher::operator()(Hash const &hashVal) const {
-      auto const &blob = hashVal.blob();
-      assert(!blob.empty());
-      return std::hash<std::string_view>{}(
-          std::string_view((char const *)&blob[0], blob.size()));
+    std::size_t Hash::Hasher::operator()(Hash const &h) const {
+      auto const &blob = h.blob();
+      std::string_view sv;
+      if (!blob.empty()) {
+        sv = {reinterpret_cast<std::string_view::const_pointer>(blob.data()),
+              blob.size()};
+      }
+      return std::hash<std::string_view>{}(sv);
     }
   }  // namespace crypto
 }  // namespace shared_model

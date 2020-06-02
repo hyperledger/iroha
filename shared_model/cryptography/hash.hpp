@@ -21,7 +21,7 @@ namespace shared_model {
        * To calculate hash used by some standard containers
        */
       struct Hasher {
-        std::size_t operator()(const Hash &h) const;
+        std::size_t operator()(Hash const &h) const;
       };
 
       Hash();
@@ -39,11 +39,6 @@ namespace shared_model {
       static Hash fromHexString(const std::string &hex);
 
       std::string toString() const override;
-    };
-
-    class HashTypeHasher {
-     public:
-      size_t operator()(Hash const &hashVal) const;
     };
   }  // namespace crypto
 }  // namespace shared_model

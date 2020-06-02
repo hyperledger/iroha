@@ -815,8 +815,6 @@ Irohad::RunResult Irohad::initPeerCommunicationService() {
     }
   });
 
-  // pending_txs_storage_init->setSubscriptions(*pcs);
-
   log_->info("[Init] => pcs");
   return {};
 }
@@ -832,12 +830,12 @@ Irohad::RunResult Irohad::initMstProcessor() {
       log_manager_->getChild("MultiSignatureTransactions");
   auto mst_state_logger = mst_logger_manager->getChild("State")->getLogger();
   auto mst_completer = std::make_shared<DefaultCompleter>(mst_expiration_time_);
-  auto mst_storage = std::make_shared<MstStorageStateImpl>(
+  auto mst_storage = MstStorageStateImpl::create(
       mst_completer,
       finalized_txs_,
       mst_state_logger,
       mst_logger_manager->getChild("Storage")->getLogger());
-  pending_txs_storage_init->setSubscriptions(finalized_txs_);
+  pending_txs_storage_init->setFinalizedTxsSubscription(finalized_txs_);
   std::shared_ptr<iroha::PropagationStrategy> mst_propagation;
   if (is_mst_supported_) {
     mst_transport = std::make_shared<iroha::network::MstTransportGrpc>(
@@ -867,7 +865,7 @@ Irohad::RunResult Irohad::initMstProcessor() {
   mst_processor = fair_mst_processor;
   mst_transport->subscribe(fair_mst_processor);
 
-  pending_txs_storage_init->setSubscriptions(*mst_processor);
+  pending_txs_storage_init->setMstSubscriptions(*mst_processor);
 
   log_->info("[Init] => MST processor");
   return {};
