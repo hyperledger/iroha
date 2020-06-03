@@ -167,8 +167,8 @@ impl Display for Configuration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PeerId: {:?}, Block Build Step Time in milliseconds: {}, Mode: {:?}",
-            self.peer_id, self.block_build_step_ms, self.mode,
+            "PeerId: {:?}, Block Build Step Time in milliseconds: {}, Commit Time in milliseconds: {}, Mode: {:?}",
+            self.peer_id, self.block_build_step_ms, self.commit_time_ms, self.mode,
         )
     }
 }
@@ -191,6 +191,7 @@ impl Debug for Configuration {
             .field("public_key", &self.public_key)
             .field("private_key[0..32]", &first_half_of_private_key)
             .field("private_key[32..64]", &second_half_of_private_key)
+            .field("commit_time_ms", &self.commit_time_ms)
             .finish()
     }
 }
