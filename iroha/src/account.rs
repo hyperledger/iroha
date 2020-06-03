@@ -90,6 +90,7 @@ impl Identifiable for Account {
 /// and the `From/Into` implementations to convert `AccountInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
+    use crate::permission::isi::PermissionInstruction;
     use iroha_derive::*;
     use std::ops::{Add, Sub};
 
@@ -107,7 +108,11 @@ pub mod isi {
     impl AccountInstruction {
         /// Executes `AccountInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
-        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        pub fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
             match self {
                 AccountInstruction::TransferAsset(
                     source_account_id,
@@ -118,7 +123,7 @@ pub mod isi {
                     component.clone(),
                     destination_account_id.clone(),
                 )
-                .execute(world_state_view),
+                .execute(authority, world_state_view),
             }
         }
     }
@@ -146,7 +151,17 @@ pub mod isi {
     }
 
     impl Transfer<Account, Asset, Account> {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanTransferAsset(
+                authority,
+                self.object.id.definition_id.clone(),
+                None,
+            )
+            .execute(world_state_view)?;
             let source = world_state_view
                 .account(&self.source_id)
                 .ok_or("Failed to find accounts.")?
