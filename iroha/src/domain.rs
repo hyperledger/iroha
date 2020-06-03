@@ -53,7 +53,7 @@ impl Identifiable for Domain {
 /// and the `From/Into` implementations to convert `DomainInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
-    use crate::isi::Register;
+    use crate::{isi::Register, permission::isi::PermissionInstruction};
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
 
@@ -69,13 +69,19 @@ pub mod isi {
     impl DomainInstruction {
         /// Executes `DomainInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
-        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        pub fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
             match self {
                 DomainInstruction::RegisterAccount(domain_name, account) => {
-                    Register::new(account.clone(), domain_name.clone()).execute(world_state_view)
+                    Register::new(account.clone(), domain_name.clone())
+                        .execute(authority, world_state_view)
                 }
                 DomainInstruction::RegisterAsset(domain_name, asset) => {
-                    Register::new(asset.clone(), domain_name.clone()).execute(world_state_view)
+                    Register::new(asset.clone(), domain_name.clone())
+                        .execute(authority, world_state_view)
                 }
             }
         }
@@ -91,7 +97,12 @@ pub mod isi {
     }
 
     impl Register<Domain, Account> {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanRegisterAccount(authority, None).execute(world_state_view)?;
             let account = self.object.clone();
             let domain = world_state_view
                 .domain(&self.destination_id)
@@ -118,7 +129,13 @@ pub mod isi {
     }
 
     impl Register<Domain, AssetDefinition> {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanRegisterAssetDefinition(authority, None)
+                .execute(world_state_view)?;
             let asset = self.object.clone();
             world_state_view
                 .domain(&self.destination_id)

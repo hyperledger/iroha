@@ -40,7 +40,7 @@ impl Client {
     pub async fn submit(&mut self, command: Instruction) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(vec![command], iroha::account::Id::new("account", "domain"))
+            RequestedTransaction::new(vec![command], iroha::account::Id::new("root", "global"))
                 .accept()?
                 .sign(&self.public_key, &self.private_key)?
                 .into();
@@ -66,7 +66,7 @@ impl Client {
     pub async fn submit_all(&mut self, commands: Vec<Instruction>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(commands, iroha::account::Id::new("account", "domain"))
+            RequestedTransaction::new(commands, iroha::account::Id::new("root", "global"))
                 .accept()?
                 .sign(&self.public_key, &self.private_key)?
                 .into();

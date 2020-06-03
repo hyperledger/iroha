@@ -16,18 +16,9 @@ mod tests {
         thread::sleep(std::time::Duration::from_millis(300));
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let domain_name = "domain";
-        let create_domain = isi::Add {
-            object: Domain::new(domain_name.to_string()),
-            destination_id: configuration.peer_id.clone(),
-        };
-        let account_name = "account";
+        let domain_name = "global";
+        let account_name = "root";
         let account_id = AccountId::new(account_name, domain_name);
-        let (public_key, _) = configuration.key_pair();
-        let create_account = isi::Register {
-            object: Account::new(account_name, domain_name, public_key),
-            destination_id: String::from(domain_name),
-        };
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let create_asset = isi::Register {
             object: AssetDefinition::new(asset_definition_id.clone()),
@@ -35,11 +26,7 @@ mod tests {
         };
         let mut iroha_client = Client::new(&configuration);
         iroha_client
-            .submit_all(vec![
-                create_domain.into(),
-                create_account.into(),
-                create_asset.into(),
-            ])
+            .submit(create_asset.into())
             .await
             .expect("Failed to prepare state.");
         task::sleep(Duration::from_millis(
@@ -73,7 +60,7 @@ mod tests {
         assert!(!result.assets.is_empty());
         assert_eq!(
             quantity,
-            result.assets.first().expect("Asset should exist.").quantity,
+            result.assets.last().expect("Asset should exist.").quantity,
         );
     }
 

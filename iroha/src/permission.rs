@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 const PERMISSION_NOT_FOUND: &str = "Permission not found.";
 const PERMISSION_OBJECT_NOT_SATISFIED: &str = "Permission object not satisfied.";
 
-fn permission_asset_definition_id() -> AssetDefinitionId {
+pub fn permission_asset_definition_id() -> AssetDefinitionId {
     AssetDefinitionId::new("permissions", "global")
 }
 
@@ -22,7 +22,7 @@ impl Permissions {
         if self.origin.get("anything").is_some() {
             Ok(())
         } else {
-            Err(PERMISSION_NOT_FOUND.to_string())
+            Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
         }
     }
 
@@ -30,7 +30,7 @@ impl Permissions {
         if self.check_anything().is_ok() || self.origin.get("add_domain").is_some() {
             Ok(())
         } else {
-            Err(PERMISSION_NOT_FOUND.to_string())
+            Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
         }
     }
 
@@ -46,7 +46,7 @@ impl Permissions {
                         Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
                     }
                 }
-                None => Err(PERMISSION_NOT_FOUND.to_string()),
+                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
             }
         }
     }
@@ -63,7 +63,7 @@ impl Permissions {
                         Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
                     }
                 }
-                None => Err(PERMISSION_NOT_FOUND.to_string()),
+                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
             }
         }
     }
@@ -87,7 +87,7 @@ impl Permissions {
                         Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
                     }
                 }
-                None => Err(PERMISSION_NOT_FOUND.to_string()),
+                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
             }
         }
     }
@@ -111,7 +111,7 @@ impl Permissions {
                         Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
                     }
                 }
-                None => Err(PERMISSION_NOT_FOUND.to_string()),
+                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
             }
         }
     }
@@ -169,7 +169,7 @@ pub mod isi {
                         account_id: authority_account_id.clone(),
                     }) {
                         Some(asset) => asset.permissions.check_anything(),
-                        None => Err(PERMISSION_NOT_FOUND.to_string()),
+                        None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                     }
                 }
                 PermissionInstruction::CanAddDomain(authority_account_id) => match world_state_view
@@ -178,7 +178,7 @@ pub mod isi {
                         account_id: authority_account_id.clone(),
                     }) {
                     Some(asset) => asset.permissions.check_add_domain(),
-                    None => Err(PERMISSION_NOT_FOUND.to_string()),
+                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
                 PermissionInstruction::CanRegisterAccount(
                     authority_account_id,
@@ -188,7 +188,7 @@ pub mod isi {
                     account_id: authority_account_id.clone(),
                 }) {
                     Some(asset) => asset.permissions.check_register_account(option_domain_id),
-                    None => Err(PERMISSION_NOT_FOUND.to_string()),
+                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
                 PermissionInstruction::CanRegisterAssetDefinition(
                     authority_account_id,
@@ -198,7 +198,7 @@ pub mod isi {
                     account_id: authority_account_id.clone(),
                 }) {
                     Some(asset) => asset.permissions.check_register_asset(option_domain_id),
-                    None => Err(PERMISSION_NOT_FOUND.to_string()),
+                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
                 PermissionInstruction::CanTransferAsset(
                     authority_account_id,
@@ -211,7 +211,7 @@ pub mod isi {
                     Some(asset) => asset
                         .permissions
                         .check_transfer_asset(asset_definition_id, option_domain_id),
-                    None => Err(PERMISSION_NOT_FOUND.to_string()),
+                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
                 PermissionInstruction::CanMintAsset(
                     authority_account_id,
@@ -224,7 +224,7 @@ pub mod isi {
                     Some(asset) => asset
                         .permissions
                         .check_mint_asset(asset_definition_id, option_domain_id),
-                    None => Err(PERMISSION_NOT_FOUND.to_string()),
+                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
             }
         }
@@ -247,7 +247,7 @@ pub mod isi {
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
             );
-            let account_id = AccountId::new("ROOT", &domain_name);
+            let account_id = AccountId::new("root", &domain_name);
             let asset_id = AssetId {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
@@ -320,25 +320,25 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanAnything(account_id).execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAnything(account_id)
+                .execute(&mut world_state_view)
+                .unwrap_err()
+                .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
         fn test_can_anything_without_an_account_should_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanAnything(AccountId::new("NOT_ROOT", "Company")).execute(
-                    &mut WorldStateView::new(Peer::new(
+            assert!(
+                PermissionInstruction::CanAnything(AccountId::new("NOT_ROOT", "Company"))
+                    .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
                             public_key: [0; 32],
                         },
                         &Vec::new(),
-                    ))
-                )
+                    )))
+                    .unwrap_err()
+                    .contains(PERMISSION_NOT_FOUND)
             );
         }
 
@@ -427,25 +427,25 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanAddDomain(account_id).execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanAddDomain(account_id)
+                .execute(&mut world_state_view)
+                .unwrap_err()
+                .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
         fn test_can_add_domain_without_an_account_should_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanAddDomain(AccountId::new("NOT_ROOT", "Company")).execute(
-                    &mut WorldStateView::new(Peer::new(
+            assert!(
+                PermissionInstruction::CanAddDomain(AccountId::new("NOT_ROOT", "Company"))
+                    .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
                             public_key: [0; 32],
                         },
                         &Vec::new(),
-                    ))
-                )
+                    )))
+                    .unwrap_err()
+                    .contains(PERMISSION_NOT_FOUND)
             );
         }
 
@@ -638,29 +638,27 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanRegisterAccount(account_id, None)
-                    .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanRegisterAccount(account_id, None)
+                .execute(&mut world_state_view)
+                .unwrap_err()
+                .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
         fn test_can_register_account_without_an_account_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanRegisterAccount(
-                    AccountId::new("NOT_ROOT", "Company"),
-                    None
-                )
-                .execute(&mut WorldStateView::new(Peer::new(
-                    PeerId {
-                        address: "127.0.0.1:8080".to_string(),
-                        public_key: [0; 32],
-                    },
-                    &Vec::new(),
-                )))
-            );
+            assert!(PermissionInstruction::CanRegisterAccount(
+                AccountId::new("NOT_ROOT", "Company"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
@@ -857,29 +855,29 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
+            assert!(
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, None)
                     .execute(&mut world_state_view)
+                    .unwrap_err()
+                    .contains(PERMISSION_NOT_FOUND)
             );
         }
 
         #[test]
         fn test_can_register_asset_definition_without_an_account_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanRegisterAssetDefinition(
-                    AccountId::new("NOT_ROOT", "Company"),
-                    None
-                )
-                .execute(&mut WorldStateView::new(Peer::new(
-                    PeerId {
-                        address: "127.0.0.1:8080".to_string(),
-                        public_key: [0; 32],
-                    },
-                    &Vec::new(),
-                )))
-            );
+            assert!(PermissionInstruction::CanRegisterAssetDefinition(
+                AccountId::new("NOT_ROOT", "Company"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
@@ -1091,34 +1089,32 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanTransferAsset(
-                    account_id,
-                    AssetDefinitionId::new("XOR", "SORA"),
-                    None
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanTransferAsset(
+                account_id,
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut world_state_view)
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
         fn test_can_transfer_asset_without_an_account_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanTransferAsset(
-                    AccountId::new("NOT_ROOT", "Company"),
-                    AssetDefinitionId::new("XOR", "SORA"),
-                    None
-                )
-                .execute(&mut WorldStateView::new(Peer::new(
-                    PeerId {
-                        address: "127.0.0.1:8080".to_string(),
-                        public_key: [0; 32],
-                    },
-                    &Vec::new(),
-                )))
-            );
+            assert!(PermissionInstruction::CanTransferAsset(
+                AccountId::new("NOT_ROOT", "Company"),
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
@@ -1326,34 +1322,32 @@ pub mod isi {
                 listen_address: address,
                 domains,
             });
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanMintAsset(
-                    account_id,
-                    AssetDefinitionId::new("XOR", "SORA"),
-                    None
-                )
-                .execute(&mut world_state_view)
-            );
+            assert!(PermissionInstruction::CanMintAsset(
+                account_id,
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut world_state_view)
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
 
         #[test]
         fn test_can_mint_asset_without_an_account_fail_with_permission_not_found() {
-            assert_eq!(
-                Err(PERMISSION_NOT_FOUND.to_string()),
-                PermissionInstruction::CanMintAsset(
-                    AccountId::new("NOT_ROOT", "Company"),
-                    AssetDefinitionId::new("XOR", "SORA"),
-                    None
-                )
-                .execute(&mut WorldStateView::new(Peer::new(
-                    PeerId {
-                        address: "127.0.0.1:8080".to_string(),
-                        public_key: [0; 32],
-                    },
-                    &Vec::new(),
-                )))
-            );
+            assert!(PermissionInstruction::CanMintAsset(
+                AccountId::new("NOT_ROOT", "Company"),
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: [0; 32],
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
         }
     }
 }
