@@ -101,6 +101,7 @@ namespace iroha {
   }
 
   bool MstState::isEmpty() const {
+    assert(batches_.empty() == batches_to_hash_.empty());
     return batches_.empty();
   }
 
@@ -120,6 +121,15 @@ namespace iroha {
 
   void MstState::eraseExpired(const TimeType &current_time) {
     extractExpiredImpl(current_time, boost::none);
+  }
+
+  void MstState::eraseByTransactionHash(
+      const shared_model::interface::types::HashType &hash) {
+    auto it = batches_to_hash_.left.find(hash);
+    if (it != batches_to_hash_.left.end()) {
+      batches_.right.erase(it->second);
+      batches_to_hash_.left.erase(it);
+    }
   }
 
   // ------------------------------| private api |------------------------------
@@ -152,15 +162,15 @@ namespace iroha {
     return inserted_new_signatures;
   }
 
-  MstState::MstState(const CompleterType &completer, logger::LoggerPtr log)
+  MstState::MstState(CompleterType const &completer, logger::LoggerPtr log)
       : MstState(completer, std::vector<DataType>{}, std::move(log)) {}
 
-  MstState::MstState(const CompleterType &completer,
-                     const BatchesForwardCollectionType &batches,
+  MstState::MstState(CompleterType const &completer,
+                     BatchesForwardCollectionType const &batches,
                      logger::LoggerPtr log)
       : completer_(completer), log_(std::move(log)) {
-    for (const auto &batch : batches) {
-      batches_.insert({oldestTimestamp(batch), batch});
+    for (auto const &batch : batches) {
+      rawInsert(batch);
     }
   }
 
@@ -182,6 +192,7 @@ namespace iroha {
     if (completer_->isCompleted(found)) {
       // state already has completed transaction,
       // remove from state and return it
+      batches_to_hash_.right.erase(found);
       batches_.right.erase(found);
       state_update.completed_state_->rawInsert(found);
       return;
@@ -195,11 +206,18 @@ namespace iroha {
   }
 
   void MstState::rawInsert(const DataType &rhs_batch) {
+    for (auto &tx : rhs_batch->transactions()) {
+      batches_to_hash_.insert({tx->hash(), rhs_batch});
+    }
     batches_.insert({oldestTimestamp(rhs_batch), rhs_batch});
   }
 
   bool MstState::contains(const DataType &element) const {
-    return batches_.right.find(element) != batches_.right.end();
+    auto const result = batches_.right.find(element) != batches_.right.end();
+    assert(result
+           == (batches_to_hash_.right.find(element)
+               != batches_to_hash_.right.end()));
+    return result;
   }
 
   void MstState::extractExpiredImpl(const TimeType &current_time,
@@ -209,6 +227,7 @@ namespace iroha {
       if (extracted) {
         *extracted += it->second;
       }
+      batches_to_hash_.right.erase(it->second);
       it = batches_.left.erase(it);
       assert(it == batches_.left.begin());
     }
