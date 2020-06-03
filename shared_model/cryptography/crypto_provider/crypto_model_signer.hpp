@@ -8,13 +8,14 @@
 
 #include "cryptography/crypto_provider/abstract_crypto_model_signer.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
+#include "cryptography/keypair.hpp"
 
 #include "interfaces/iroha_internal/block.hpp"
 
 namespace shared_model {
 
   namespace crypto {
-    template <typename Algorithm = CryptoSigner<>>
+    template <typename Algorithm = CryptoSigner>
     class CryptoModelSigner
         : public AbstractCryptoModelSigner<interface::Block> {
      public:

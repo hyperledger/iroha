@@ -9,6 +9,7 @@ compile_proto_to_grpc_cpp(yac.proto)
 compile_proto_to_grpc_cpp(ordering.proto "-I${SM_SCHEMA_PATH}")
 compile_proto_to_grpc_cpp(loader.proto "-I${SM_SCHEMA_PATH}")
 compile_proto_to_grpc_cpp(mst.proto "-I${SM_SCHEMA_PATH}")
+compile_proto_to_grpc_cpp(utility_endpoint.proto)
 
 add_library(endpoint
     endpoint.grpc.pb.cc
@@ -16,6 +17,18 @@ add_library(endpoint
 target_link_libraries(endpoint
     gRPC::grpc++
     schema
+    )
+
+add_library(utility_endpoint
+    utility_endpoint.pb.cc
+    utility_endpoint.grpc.pb.cc
+    )
+target_link_libraries(utility_endpoint
+    protobuf::libprotobuf
+    gRPC::grpc++
+    )
+target_include_directories(utility_endpoint PUBLIC
+    ${SCHEMA_OUT_DIR}
     )
 
 add_library(yac_grpc

@@ -59,7 +59,7 @@ TEST(ProtoQueryBuilder, Builder) {
 
   auto keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
+  auto signedProto = shared_model::crypto::CryptoSigner::sign(
       shared_model::crypto::Blob(proto_query.payload().SerializeAsString()),
       keypair);
 
@@ -95,7 +95,7 @@ TEST(ProtoQueryBuilder, BlocksQueryBuilder) {
 
   auto keypair =
       shared_model::crypto::DefaultCryptoAlgorithmType::generateKeypair();
-  auto signedProto = shared_model::crypto::CryptoSigner<>::sign(
+  auto signedProto = shared_model::crypto::CryptoSigner::sign(
       shared_model::crypto::Blob(proto_query.meta().SerializeAsString()),
       keypair);
 

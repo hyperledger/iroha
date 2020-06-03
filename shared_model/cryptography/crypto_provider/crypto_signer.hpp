@@ -6,18 +6,19 @@
 #ifndef IROHA_CRYPTO_SIGNER_HPP
 #define IROHA_CRYPTO_SIGNER_HPP
 
-#include "cryptography/blob.hpp"
-#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
-#include "cryptography/keypair.hpp"
+#include <string>
 
 namespace shared_model {
   namespace crypto {
+
+    class Blob;
+    class Keypair;
+
     /**
      * CryptoSigner - wrapper for generalization signing for different
      * cryptographic algorithms
      * @tparam Algorithm - cryptographic algorithm for singing
      */
-    template <typename Algorithm = CryptoProviderEd25519Sha3>
     class CryptoSigner {
      public:
       /**
@@ -26,9 +27,7 @@ namespace shared_model {
        * @param keypair - (public, private) keys for signing
        * @return hex signature
        */
-      static std::string sign(const Blob &blob, const Keypair &keypair) {
-        return Algorithm::sign(blob, keypair);
-      }
+      static std::string sign(const Blob &blob, const Keypair &keypair);
 
       /// close constructor for forbidding instantiation
       CryptoSigner() = delete;
