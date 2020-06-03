@@ -153,15 +153,17 @@ impl SignedBlock {
     /// Validate block transactions against current state of the world.
     pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidBlock, String> {
         let mut world_state_view = world_state_view.clone();
+        let mut transactions = Vec::new();
+        for transaction in self.transactions {
+            match transaction.validate(&mut world_state_view) {
+                Ok(transaction) => transactions.push(transaction),
+                Err(e) => eprintln!("Transaction validation failed: {}", e),
+            }
+        }
         Ok(ValidBlock {
             header: self.header,
             signatures: self.signatures,
-            transactions: self
-                .transactions
-                .into_iter()
-                .map(|transaction| transaction.validate(&mut world_state_view))
-                .filter_map(Result::ok)
-                .collect(),
+            transactions,
         })
     }
 

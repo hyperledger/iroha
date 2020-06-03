@@ -33,22 +33,26 @@ pub enum Instruction {
 
 impl Instruction {
     /// Defines the type of the underlying instructions and executes them on `WorldStateView`.
-    pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+    pub fn execute(
+        &self,
+        authority: <Account as Identifiable>::Id,
+        world_state_view: &mut WorldStateView,
+    ) -> Result<(), String> {
         match self {
-            Instruction::Peer(origin) => Ok(origin.execute(world_state_view)?),
-            Instruction::Domain(origin) => Ok(origin.execute(world_state_view)?),
-            Instruction::Asset(origin) => Ok(origin.execute(world_state_view)?),
-            Instruction::Account(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Peer(origin) => Ok(origin.execute(authority, world_state_view)?),
+            Instruction::Domain(origin) => Ok(origin.execute(authority, world_state_view)?),
+            Instruction::Asset(origin) => Ok(origin.execute(authority, world_state_view)?),
+            Instruction::Account(origin) => Ok(origin.execute(authority, world_state_view)?),
             Instruction::Permission(origin) => Ok(origin.execute(world_state_view)?),
             Instruction::Compose(left, right) => {
-                left.execute(world_state_view)?;
-                right.execute(world_state_view)?;
+                left.execute(authority.clone(), world_state_view)?;
+                right.execute(authority, world_state_view)?;
                 Ok(())
             }
             Instruction::If(condition, then, otherwise) => {
-                match condition.execute(world_state_view) {
-                    Ok(_) => then.execute(world_state_view),
-                    Err(_) => otherwise.execute(world_state_view),
+                match condition.execute(authority.clone(), world_state_view) {
+                    Ok(_) => then.execute(authority, world_state_view),
+                    Err(_) => otherwise.execute(authority, world_state_view),
                 }
             }
         }

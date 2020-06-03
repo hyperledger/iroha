@@ -38,7 +38,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
@@ -83,9 +83,36 @@ impl Iroha {
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
         let (message_sender, message_receiver) = sync::channel(100);
-        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+        let domain_name = "global".to_string();
+        let mut asset_definitions = HashMap::new();
+        let asset_definition_id = permission::permission_asset_definition_id();
+        asset_definitions.insert(
+            asset_definition_id.clone(),
+            AssetDefinition::new(asset_definition_id.clone()),
+        );
+        let account_id = AccountId::new("root", &domain_name);
+        let asset_id = AssetId {
+            definition_id: asset_definition_id,
+            account_id: account_id.clone(),
+        };
+        let asset =
+            Asset::with_permission(asset_id.clone(), ("anything".to_string(), "".to_string()));
+        let mut account =
+            Account::new(&account_id.name, &account_id.domain_name, config.public_key);
+        account.assets.insert(asset_id, asset);
+        let mut accounts = HashMap::new();
+        accounts.insert(account_id, account);
+        let domain = Domain {
+            name: domain_name.clone(),
+            accounts,
+            asset_definitions,
+        };
+        let mut domains = HashMap::new();
+        domains.insert(domain_name, domain);
+        let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
             config.peer_id.clone(),
             &config.trusted_peers,
+            domains,
         ))));
         let torii = Torii::new(
             &config.peer_id.address.clone(),

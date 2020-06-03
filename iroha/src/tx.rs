@@ -143,7 +143,7 @@ impl SignedTransaction {
         world_state_view: &mut WorldStateView,
     ) -> Result<ValidTransaction, String> {
         for instruction in &self.payload.instructions {
-            instruction.execute(world_state_view)?;
+            instruction.execute(self.payload.account_id.clone(), world_state_view)?;
         }
         Ok(ValidTransaction {
             payload: self.payload,
@@ -179,7 +179,7 @@ impl ValidTransaction {
     /// Apply instructions to the `WorldStateView`.
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         for instruction in &self.payload.instructions {
-            if let Err(e) = instruction.execute(world_state_view) {
+            if let Err(e) = instruction.execute(self.payload.account_id.clone(), world_state_view) {
                 eprintln!("Failed to invoke instruction on WSV: {}", e);
             }
         }

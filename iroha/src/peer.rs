@@ -32,6 +32,15 @@ pub struct Peer {
 impl Peer {
     /// Default `Peer` constructor.
     pub fn new(id: PeerId, trusted_peers: &[PeerId]) -> Peer {
+        Self::with_domains(id, trusted_peers, HashMap::new())
+    }
+
+    /// `Peer` constructor with a predefined domains.
+    pub fn with_domains(
+        id: PeerId,
+        trusted_peers: &[PeerId],
+        domains: HashMap<<Domain as Identifiable>::Id, Domain>,
+    ) -> Peer {
         Peer {
             id: id.clone(),
             peers: trusted_peers
@@ -40,7 +49,7 @@ impl Peer {
                 .cloned()
                 .collect(),
             listen_address: id.address,
-            domains: HashMap::new(),
+            domains,
         }
     }
 
@@ -62,6 +71,7 @@ impl Identifiable for Peer {
 /// and the `From/Into` implementations to convert `PeerInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
+    use crate::permission::isi::PermissionInstruction;
     use std::ops::{AddAssign, Sub};
 
     /// Enumeration of all legal Peer related Instructions.
@@ -74,11 +84,15 @@ pub mod isi {
     impl PeerInstruction {
         /// Executes `PeerInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
-        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        pub fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
             match self {
                 PeerInstruction::AddDomain(domain_name, peer_id) => {
                     Add::new(Domain::new(domain_name.to_string()), peer_id.clone())
-                        .execute(world_state_view)
+                        .execute(authority, world_state_view)
                 }
             }
         }
@@ -91,7 +105,12 @@ pub mod isi {
     }
 
     impl Add<Peer, Domain> {
-        fn execute(self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanAddDomain(authority).execute(world_state_view)?;
             *world_state_view.peer() += self.object;
             Ok(())
         }

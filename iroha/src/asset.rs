@@ -162,6 +162,7 @@ impl Identifiable for Asset {
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
     use super::*;
+    use crate::permission::isi::PermissionInstruction;
     use iroha_derive::*;
 
     /// Enumeration of all legal Asset related Instructions.
@@ -176,20 +177,34 @@ pub mod isi {
     impl AssetInstruction {
         /// Executes `AssetInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
-        pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        pub fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
             match self {
                 AssetInstruction::MintAsset(quantity, asset_id) => {
-                    Mint::new(*quantity, asset_id.clone()).execute(world_state_view)
+                    Mint::new(*quantity, asset_id.clone()).execute(authority, world_state_view)
                 }
                 AssetInstruction::MintBigAsset(big_quantity, asset_id) => {
-                    Mint::new(*big_quantity, asset_id.clone()).execute(world_state_view)
+                    Mint::new(*big_quantity, asset_id.clone()).execute(authority, world_state_view)
                 }
             }
         }
     }
 
     impl Mint<Asset, u32> {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanMintAsset(
+                authority,
+                self.destination_id.definition_id.clone(),
+                None,
+            )
+            .execute(world_state_view)?;
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
@@ -207,7 +222,17 @@ pub mod isi {
     }
 
     impl Mint<Asset, u128> {
-        fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanMintAsset(
+                authority,
+                self.destination_id.definition_id.clone(),
+                None,
+            )
+            .execute(world_state_view)?;
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
