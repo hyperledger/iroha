@@ -19,7 +19,6 @@
 #include "backend/protobuf/query_responses/proto_transaction_response.hpp"
 #include "backend/protobuf/query_responses/proto_transactions_page_response.hpp"
 #include "common/byteutils.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -37,50 +36,73 @@ namespace {
                      shared_model::proto::PendingTransactionsPageResponse,
                      shared_model::proto::GetBlockResponse,
                      shared_model::proto::PeersResponse>;
-
-  /// list of types in variant
-  using ProtoQueryResponseListType = ProtoQueryResponseVariantType::types;
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                   \
+  case iroha::protocol::QueryResponse::ResponseCase::val: \
+    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
 
-    struct QueryResponse::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+namespace shared_model::proto {
 
-      TransportType proto_;
+  struct QueryResponse::Impl {
+    explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
 
-      const ProtoQueryResponseVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::variant_impl<ProtoQueryResponseListType>::
-            template load<ProtoQueryResponseVariantType>(ar, which);
-      }()};
+    TransportType proto_;
 
-      const QueryResponseVariantType ivariant_{variant_};
+    const ProtoQueryResponseVariantType variant_{[this]() -> decltype(
+                                                              variant_) {
+      auto &ar = proto_;
+      switch (ar.response_case()) {
+        IROHA_BIND_TYPE(kAccountAssetsResponse, AccountAssetResponse, ar);
+        IROHA_BIND_TYPE(kAccountDetailResponse, AccountDetailResponse, ar);
+        IROHA_BIND_TYPE(kAccountResponse, AccountResponse, ar);
+        IROHA_BIND_TYPE(kErrorResponse, ErrorQueryResponse, ar);
+        IROHA_BIND_TYPE(kSignatoriesResponse, SignatoriesResponse, ar);
+        IROHA_BIND_TYPE(kTransactionsResponse, TransactionsResponse, ar);
+        IROHA_BIND_TYPE(kAssetResponse, AssetResponse, ar);
+        IROHA_BIND_TYPE(kRolesResponse, RolesResponse, ar);
+        IROHA_BIND_TYPE(kRolePermissionsResponse, RolePermissionsResponse, ar);
+        IROHA_BIND_TYPE(
+            kTransactionsPageResponse, TransactionsPageResponse, ar);
+        IROHA_BIND_TYPE(kPendingTransactionsPageResponse,
+                        PendingTransactionsPageResponse,
+                        ar);
+        IROHA_BIND_TYPE(kBlockResponse, GetBlockResponse, ar);
+        IROHA_BIND_TYPE(kPeersResponse, PeersResponse, ar);
 
-      const crypto::Hash hash_{
-          iroha::hexstringToBytestring(proto_.query_hash()).get()};
-    };
+        default:
+        case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
+          assert(!"Unexpected query response case.");
+      }
+    }()};
 
-    QueryResponse::QueryResponse(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+    const QueryResponseVariantType ivariant_{variant_};
 
-    QueryResponse::~QueryResponse() = default;
+    const crypto::Hash hash_{
+        iroha::hexstringToBytestring(proto_.query_hash()).get()};
+  };
 
-    const QueryResponse::QueryResponseVariantType &QueryResponse::get() const {
-      return impl_->ivariant_;
-    }
+  QueryResponse::QueryResponse(TransportType &&ref) {
+    impl_ = std::make_unique<Impl>(std::move(ref));
+  }
 
-    const interface::types::HashType &QueryResponse::queryHash() const {
-      return impl_->hash_;
-    }
+  QueryResponse::~QueryResponse() = default;
 
-    const QueryResponse::TransportType &QueryResponse::getTransport() const {
-      return impl_->proto_;
-    }
+  const QueryResponse::QueryResponseVariantType &QueryResponse::get() const {
+    return impl_->ivariant_;
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+  const interface::types::HashType &QueryResponse::queryHash() const {
+    return impl_->hash_;
+  }
+
+  const QueryResponse::TransportType &QueryResponse::getTransport() const {
+    return impl_->proto_;
+  }
+
+}  // namespace shared_model::proto
+
+#undef IROHA_BIND_TYPE
