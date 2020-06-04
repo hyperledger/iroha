@@ -45,35 +45,35 @@ namespace integration_framework {
 
       // subscribe for all messages
       subscriptions_.emplace_back(
-          getFakePeer().getMstStatesObservable().subscribe(
+          getFakePeer().value()->getMstStatesObservable().subscribe(
               [this, locker](const auto &message) {
                 if (auto protector = locker.protect()) {
                   this->processMstMessage(message);
                 }
               }));
       subscriptions_.emplace_back(
-          getFakePeer().getYacStatesObservable().subscribe(
+          getFakePeer().value()->getYacStatesObservable().subscribe(
               [this, locker](const auto &message) {
                 if (auto protector = locker.protect()) {
                   this->processYacMessage(message);
                 }
               }));
       subscriptions_.emplace_back(
-          getFakePeer().getOsBatchesObservable().subscribe(
+          getFakePeer().value()->getOsBatchesObservable().subscribe(
               [this, locker](const auto &batch) {
                 if (auto protector = locker.protect()) {
                   this->processOsBatch(batch);
                 }
               }));
       subscriptions_.emplace_back(
-          getFakePeer().getOgProposalsObservable().subscribe(
+          getFakePeer().value()->getOgProposalsObservable().subscribe(
               [this, locker](const auto &proposal) {
                 if (auto protector = locker.protect()) {
                   this->processOgProposal(proposal);
                 }
               }));
       subscriptions_.emplace_back(
-          getFakePeer().getBatchesObservable().subscribe(
+          getFakePeer().value()->getBatchesObservable().subscribe(
               [this, locker](const auto &batches) {
                 if (auto protector = locker.protect()) {
                   this->processOrderingBatches(*batches);
@@ -88,11 +88,12 @@ namespace integration_framework {
       fake_peer_wptr_.reset();
     }
 
-    FakePeer &Behaviour::getFakePeer() {
+    std::optional<std::reference_wrapper<FakePeer>> Behaviour::getFakePeer() {
       auto fake_peer = fake_peer_wptr_.lock();
-      assert(fake_peer && "Fake peer shared pointer is not set!"
-        " Probably the fake peer has gone before the associated behaviour.");
-      return *fake_peer;
+      if (fake_peer) {
+        return *fake_peer;
+      }
+      return std::nullopt;
     }
 
     logger::LoggerPtr &Behaviour::getLogger() {
