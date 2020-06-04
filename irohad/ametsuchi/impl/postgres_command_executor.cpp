@@ -1574,10 +1574,8 @@ namespace iroha {
                     return executor.execute();
                   },
                   [](auto &&error) -> CommandResult {
-                    // TODO(IvanTyulyandin): need to set appropriate error
-                    // value, 5 used to pass compilation
                     return makeCommandError(
-                        "CallEngine", 5, std::move(error.error));
+                        "CallEngine", 3, std::move(error.error));
                   });
 
         } else {

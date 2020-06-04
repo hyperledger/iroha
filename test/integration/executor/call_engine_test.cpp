@@ -72,8 +72,8 @@ using CallEngineBasicTest = BasicExecutorTest<CallEngineTest>;
 TEST_P(CallEngineBasicTest, EngineError) {
   EXPECT_CALL(*getBackendParam()->vm_caller_,
               call(_, _, _, kCode, kAdminId, Optional(kCallee), _, _))
-      .WillOnce(::testing::Return(iroha::expected::makeError("success")));
-  checkCommandError(callEngine(kAdminId, kAdminId, kCallee, kCode), 5);
+      .WillOnce(::testing::Return(iroha::expected::makeError("engine error")));
+  checkCommandError(callEngine(kAdminId, kAdminId, kCallee, kCode), 3);
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,
