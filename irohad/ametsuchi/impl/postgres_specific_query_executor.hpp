@@ -262,6 +262,7 @@ namespace iroha {
       std::shared_ptr<shared_model::interface::PermissionToString>
           perm_converter_;
       logger::LoggerPtr log_;
+      std::string ordering_str_;
     };
 
   }  // namespace ametsuchi

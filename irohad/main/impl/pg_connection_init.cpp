@@ -369,16 +369,29 @@ CREATE TABLE account_has_grantable_permissions (
       + R"() NOT NULL,
     PRIMARY KEY (permittee_account_id, account_id)
 );
-CREATE TABLE position_by_hash (
-    hash varchar unique not null,
+CREATE TABLE IF NOT EXISTS tx_positions (
+    creator_id text,
+    hash varchar(64) not null,
+    asset_id text,
+    ts bigint,
     height bigint,
     index bigint
 );
-CREATE INDEX position_by_hash_hash_index
-    ON position_by_hash
+CREATE INDEX IF NOT EXISTS tx_positions_hash_index
+    ON tx_positions
     USING hash
     (hash);
-CREATE TABLE tx_status_by_hash (
+CREATE INDEX IF NOT EXISTS tx_positions_creator_id_index
+    ON tx_positions
+    USING hash
+    (creator_id);
+CREATE INDEX IF NOT EXISTS tx_positions_creator_id_asset_index
+    ON tx_positions
+    (creator_id, asset_id);
+CREATE INDEX IF NOT EXISTS tx_positions_ts_height_index_index
+    ON tx_positions
+    (ts, height, index);
+CREATE TABLE IF NOT EXISTS tx_status_by_hash (
     hash varchar,
     status boolean
 );
@@ -386,21 +399,6 @@ CREATE INDEX tx_status_by_hash_hash_index
   ON tx_status_by_hash
   USING hash
   (hash);
-CREATE TABLE tx_position_by_creator (
-    creator_id text,
-    height bigint,
-    index bigint
-);
-CREATE TABLE position_by_account_asset (
-    account_id text,
-    asset_id text,
-    height bigint,
-    index bigint
-);
-CREATE INDEX IF NOT EXISTS position_by_account_asset_index
-    ON position_by_account_asset
-    USING btree
-    (account_id, asset_id, height, index ASC);
 CREATE TABLE IF NOT EXISTS setting(
     setting_key text,
     setting_value text,

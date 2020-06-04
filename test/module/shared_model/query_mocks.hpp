@@ -140,6 +140,7 @@ namespace shared_model {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
       MOCK_CONST_METHOD0(firstTxHash, std::optional<types::HashType>());
       MOCK_CONST_METHOD0(clone, TxPaginationMeta *());
+      MOCK_CONST_METHOD0(ordering, Ordering const &());
     };
 
   }  // namespace interface

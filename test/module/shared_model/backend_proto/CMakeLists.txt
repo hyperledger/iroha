@@ -20,6 +20,12 @@ target_link_libraries(shared_proto_transaction_test
     shared_model_stateless_validation
     )
 
+addtest(ordering_test ordering_test.cpp)
+target_link_libraries(ordering_test
+    shared_model_proto_backend
+    shared_model_interfaces
+    )
+
 addtest(shared_proto_queries_test
     shared_proto_queries_test.cpp
     )

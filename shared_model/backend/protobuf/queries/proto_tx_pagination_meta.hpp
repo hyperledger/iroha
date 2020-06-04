@@ -11,6 +11,8 @@
 #include "interfaces/common_objects/types.hpp"
 #include "queries.pb.h"
 
+#include "proto_ordering.hpp"
+
 namespace shared_model {
   namespace proto {
 
@@ -22,9 +24,11 @@ namespace shared_model {
       interface::types::TransactionsNumberType pageSize() const override;
 
       std::optional<interface::types::HashType> firstTxHash() const override;
+      interface::Ordering const &ordering() const override;
 
      private:
       const iroha::protocol::TxPaginationMeta &meta_;
+      OrderingImpl ordering_;
     };
   }  // namespace proto
 }  // namespace shared_model

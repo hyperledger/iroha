@@ -5,6 +5,8 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
+#include <unordered_map>
+
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -171,6 +173,62 @@ namespace {
         | boost::adaptors::transformed([](auto t) { return *t; });
   }
 
+  using OrderingField = shared_model::interface::Ordering::Field;
+  using OrderingDirection = shared_model::interface::Ordering::Direction;
+  using OrderingEntry = shared_model::interface::Ordering::OrderingEntry;
+
+  std::unordered_map<OrderingField, std::string> const kOrderingFieldMapping = {
+      {OrderingField::kCreatedTime, "ts"},
+      {OrderingField::kPosition, "height"},
+  };
+
+  std::unordered_map<OrderingDirection, std::string> const
+      kOrderingDirectionMapping = {
+          {OrderingDirection::kAscending, "ASC"},
+          {OrderingDirection::kDescending, "DESC"},
+  };
+
+  /**
+   * Makes a DB string representation of the response ordering.
+   * It APPENDS string data to destination, but not replaces it.
+   * @tparam StringType - string type destination
+   * @tparam OrderingType - source type ordering data
+   * @param src - source ordering data
+   * @param dst - destination of the formatted data
+   * @return true on success, false otherwise
+   */
+  template <typename StringType>
+  bool formatOrderBy(shared_model::interface::Ordering const &src,
+                     StringType &dst) {
+    OrderingEntry const *ptr = nullptr;
+    size_t count = 0;
+    src.get(ptr, count);
+
+    dst.append(" ORDER BY ");
+    for (size_t ix = 0; ix < count; ++ix) {
+      auto const &ordering_entry = ptr[ix];
+      auto it_field = kOrderingFieldMapping.find(ordering_entry.field);
+      if (kOrderingFieldMapping.end() == it_field) {
+        BOOST_ASSERT_MSG(false, "Ordering field mapping missed!");
+        return false;
+      }
+
+      auto it_direction =
+          kOrderingDirectionMapping.find(ordering_entry.direction);
+      if (kOrderingDirectionMapping.end() == it_direction) {
+        BOOST_ASSERT_MSG(false, "Ordering direction mapping missed!");
+        return false;
+      }
+
+      dst.append(it_field->second);
+      dst.append(1, ' ');
+      dst.append(it_direction->second);
+      dst.append(1, ',');
+    }
+
+    dst.append("index ASC");
+    return true;
+  }
 }  // namespace
 
 namespace iroha {
@@ -190,7 +248,21 @@ namespace iroha {
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_{std::move(response_factory)},
           perm_converter_(std::move(perm_converter)),
-          log_(std::move(log)) {}
+          log_(std::move(log)) {
+      for (size_t value = 0; value < (size_t)OrderingField::kMaxValueCount;
+           ++value) {
+        BOOST_ASSERT_MSG(kOrderingFieldMapping.find((OrderingField)value)
+                             != kOrderingFieldMapping.end(),
+                         "Unnamed ordering field found!");
+      }
+      for (size_t value = 0; value < (size_t)OrderingDirection::kMaxValueCount;
+           ++value) {
+        BOOST_ASSERT_MSG(
+            kOrderingDirectionMapping.find((OrderingDirection)value)
+                != kOrderingDirectionMapping.end(),
+            "Unnamed ordering direction found!");
+      }
+    }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::execute(
         const shared_model::interface::Query &qry) {
@@ -351,39 +423,39 @@ namespace iroha {
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
 
-      char const *base = R"(WITH has_perms AS ({}),
-      my_txs AS ({}),
-      first_hash AS ({}),
-      total_size AS (
-        SELECT COUNT(*) FROM my_txs
-      ),
-      t AS (
-        SELECT my_txs.height, my_txs.index
-        FROM my_txs JOIN
-        first_hash ON my_txs.height > first_hash.height
-        OR (my_txs.height = first_hash.height AND
-            my_txs.index >= first_hash.index)
-        LIMIT :page_size
-      )
-      SELECT height, index, count, perm FROM t
-      RIGHT OUTER JOIN has_perms ON TRUE
-      JOIN total_size ON TRUE
-      )";
+      char const *base = R"(WITH
+               has_perms AS ({0}),
+               my_txs AS (
+                 SELECT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
+                 FROM tx_positions
+                 WHERE
+                 {2} -- related_txs
+                 {1} -- ordering
+                 ),
+               total_size AS (SELECT COUNT(*) FROM my_txs) {3}
+               SELECT my_txs.height, my_txs.index, count, perm FROM my_txs
+               {4}
+               RIGHT OUTER JOIN has_perms ON TRUE
+               JOIN total_size ON TRUE
+               LIMIT :page_size)";
 
-      // select tx with specified hash
-      char const *first_by_hash = R"(SELECT height, index FROM position_by_hash
-      WHERE hash = :hash LIMIT 1)";
+      auto const &ordering = q.paginationMeta().ordering();
+      ordering_str_.clear();
 
-      // select first ever tx
-      char const *first_tx = R"(SELECT height, index FROM position_by_hash
-      ORDER BY height, index ASC LIMIT 1)";
+      if (!formatOrderBy(ordering, ordering_str_)) {
+        return this->logAndReturnErrorResponse(QueryErrorType::kStatefulFailed,
+                                               "Ordering query failed.",
+                                               1,
+                                               query_hash);
+      }
 
-      BOOST_ASSERT_MSG(nullptr != related_txs, "related_txs is null.");
-      auto query =
-          fmt::format(base,
-                      hasQueryPermission(creator_id, q.accountId(), perms...),
-                      related_txs,
-                      (first_hash ? first_by_hash : first_tx));
+      auto query = fmt::format(base,
+        hasQueryPermission(creator_id, q.accountId(), perms...),
+        (ordering_str_.empty() ? "" : ordering_str_.c_str()),
+        related_txs,
+        (first_hash ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = :hash LIMIT 1))" : ""),
+        (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : "")
+      );
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
@@ -615,10 +687,10 @@ namespace iroha {
         const shared_model::interface::GetAccountTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      char const *related_txs = R"(SELECT DISTINCT height, index
-      FROM tx_position_by_creator
-      WHERE creator_id = :account_id
-      ORDER BY height, index ASC)";
+      char const *related_txs = R"(
+          creator_id = :account_id
+          AND asset_id IS NULL
+      )";
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
@@ -678,7 +750,7 @@ namespace iroha {
           R"(WITH has_my_perm AS ({}),
       has_all_perm AS ({}),
       t AS (
-          SELECT height, hash FROM position_by_hash WHERE hash IN ({})
+          SELECT height, hash FROM tx_positions WHERE hash IN ({}) LIMIT 1
       )
       SELECT height, hash, has_my_perm.perm, has_all_perm.perm FROM t
       RIGHT OUTER JOIN has_my_perm ON TRUE
@@ -746,11 +818,10 @@ namespace iroha {
         const shared_model::interface::GetAccountAssetTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      char const *related_txs = R"(SELECT DISTINCT height, index
-          FROM position_by_account_asset
-          WHERE account_id = :account_id
+      char const *related_txs = R"(
+          creator_id = :account_id
           AND asset_id = :asset_id
-          ORDER BY height, index ASC)";  // consider index when changing this
+      )";
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
