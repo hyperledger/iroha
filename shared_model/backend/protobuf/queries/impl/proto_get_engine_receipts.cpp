@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "backend/protobuf/queries/proto_get_engine_response.hpp"
+#include "backend/protobuf/queries/proto_get_engine_receipts.hpp"
 
 #include "cryptography/hash.hpp"
 

@@ -14,7 +14,7 @@
 #include <utility>
 #include "ametsuchi/burrow_storage.hpp"
 #include "ametsuchi/impl/block_index.hpp"
-#include "backend/protobuf/queries/proto_get_engine_response.hpp"
+#include "backend/protobuf/queries/proto_get_engine_receipts.hpp"
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "framework/call_engine_tests_common.hpp"
 #include "framework/common_constants.hpp"

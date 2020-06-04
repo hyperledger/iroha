@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "backend/protobuf/query_responses/proto_engine_response_record.hpp"
+#include "backend/protobuf/query_responses/proto_engine_receipt.hpp"
 
 #include <boost/optional.hpp>
 #include <boost/range/adaptor/transformed.hpp>
