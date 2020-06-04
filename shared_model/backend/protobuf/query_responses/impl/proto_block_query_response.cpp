@@ -8,7 +8,6 @@
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "common/hexutils.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -17,41 +16,54 @@ namespace {
                      shared_model::proto::BlockErrorResponse>;
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                        \
+  case iroha::protocol::BlockQueryResponse::ResponseCase::val: \
+    return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
 
-    struct BlockQueryResponse::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+namespace shared_model::proto {
 
-      TransportType proto_;
+  struct BlockQueryResponse::Impl {
+    explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
 
-      const ProtoQueryResponseVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which =
-            ar.GetDescriptor()->FindFieldByNumber(ar.response_case())->index();
-        return shared_model::detail::
-            variant_impl<ProtoQueryResponseVariantType::types>::template load<
-                ProtoQueryResponseVariantType>(ar, which);
-      }()};
+    TransportType proto_;
 
-      const QueryResponseVariantType ivariant_{variant_};
-    };
+    const ProtoQueryResponseVariantType variant_{
+        [this]() -> decltype(variant_) {
+          auto &ar = proto_;
 
-    BlockQueryResponse::BlockQueryResponse(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+          switch (ar.response_case()) {
+            IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
+            IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
 
-    BlockQueryResponse::~BlockQueryResponse() = default;
+            default:
+            case iroha::protocol::BlockQueryResponse::ResponseCase::
+                RESPONSE_NOT_SET:
+              assert(!"Unexpected response case.");
+          };
+        }()};
 
-    const BlockQueryResponse::QueryResponseVariantType &
-    BlockQueryResponse::get() const {
-      return impl_->ivariant_;
-    }
+    const QueryResponseVariantType ivariant_{variant_};
+  };
 
-    const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
-        const {
-      return impl_->proto_;
-    }
+  BlockQueryResponse::BlockQueryResponse(TransportType &&ref) {
+    impl_ = std::make_unique<Impl>(std::move(ref));
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+  BlockQueryResponse::~BlockQueryResponse() = default;
+
+  const BlockQueryResponse::QueryResponseVariantType &BlockQueryResponse::get()
+      const {
+    return impl_->ivariant_;
+  }
+
+  const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
+      const {
+    return impl_->proto_;
+  }
+
+}  // namespace shared_model::proto
+
+#undef IROHA_BIND_TYPE

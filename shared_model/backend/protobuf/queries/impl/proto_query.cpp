@@ -20,7 +20,6 @@
 #include "backend/protobuf/queries/proto_get_signatories.hpp"
 #include "backend/protobuf/queries/proto_get_transactions.hpp"
 #include "backend/protobuf/util.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -38,115 +37,132 @@ namespace {
                      shared_model::proto::GetPendingTransactions,
                      shared_model::proto::GetBlock,
                      shared_model::proto::GetPeers>;
-
-  /// list of types in proto variant
-  using ProtoQueryListType = ProtoQueryVariantType::types;
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)                \
+  case iroha::protocol::Query_Payload::QueryCase::val: \
+    return ProtoQueryVariantType(shared_model::proto::type(__VA_ARGS__))
 
-    struct Query::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
-      explicit Impl(const TransportType &ref) : proto_{ref} {}
+namespace shared_model::proto {
 
-      TransportType proto_;
+  struct Query::Impl {
+    explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+    explicit Impl(const TransportType &ref) : proto_{ref} {}
 
-      ProtoQueryVariantType variant_{[this] {
-        auto &ar = proto_;
-        int which = ar.payload()
-                        .GetDescriptor()
-                        ->FindFieldByNumber(ar.payload().query_case())
-                        ->index_in_oneof();
-        return shared_model::detail::variant_impl<
-            ProtoQueryListType>::template load<ProtoQueryVariantType>(ar,
-                                                                      which);
-      }()};
+    TransportType proto_;
 
-      QueryVariantType ivariant_{variant_};
+    ProtoQueryVariantType variant_{[this]() -> decltype(variant_) {
+      auto &ar = proto_;
+      switch (ar.payload().query_case()) {
+        IROHA_BIND_TYPE(kGetAccount, GetAccount, ar);
+        IROHA_BIND_TYPE(kGetAccountAssets, GetAccountAssets, ar);
+        IROHA_BIND_TYPE(kGetAccountDetail, GetAccountDetail, ar);
+        IROHA_BIND_TYPE(
+            kGetAccountAssetTransactions, GetAccountAssetTransactions, ar);
+        IROHA_BIND_TYPE(kGetSignatories, GetSignatories, ar);
+        IROHA_BIND_TYPE(kGetAccountTransactions, GetAccountTransactions, ar);
+        IROHA_BIND_TYPE(kGetTransactions, GetTransactions, ar);
+        IROHA_BIND_TYPE(kGetRoles, GetRoles, ar);
+        IROHA_BIND_TYPE(kGetAssetInfo, GetAssetInfo, ar);
+        IROHA_BIND_TYPE(kGetRolePermissions, GetRolePermissions, ar);
+        IROHA_BIND_TYPE(kGetPendingTransactions, GetPendingTransactions, ar);
+        IROHA_BIND_TYPE(kGetBlock, GetBlock, ar);
+        IROHA_BIND_TYPE(kGetPeers, GetPeers, ar);
 
-      interface::types::BlobType blob_{makeBlob(proto_)};
+        default:
+        case iroha::protocol::Query_Payload::QueryCase::QUERY_NOT_SET:
+          assert(!"Unexpected query case.");
+      };
+    }()};
 
-      interface::types::BlobType payload_{makeBlob(proto_.payload())};
+    QueryVariantType ivariant_{variant_};
 
-      SignatureSetType<proto::Signature> signatures_{[this] {
-        SignatureSetType<proto::Signature> set;
-        if (proto_.has_signature()) {
-          set.emplace(*proto_.mutable_signature());
-        }
-        return set;
-      }()};
+    interface::types::BlobType blob_{makeBlob(proto_)};
 
-      interface::types::HashType hash_ = makeHash(payload_);
-    };
+    interface::types::BlobType payload_{makeBlob(proto_.payload())};
 
-    Query::Query(const Query &o) : Query(o.impl_->proto_) {}
-    Query::Query(Query &&o) noexcept = default;
-
-    Query::Query(const TransportType &ref) {
-      impl_ = std::make_unique<Impl>(ref);
-    }
-    Query::Query(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
-
-    Query::~Query() = default;
-
-    const Query::QueryVariantType &Query::get() const {
-      return impl_->ivariant_;
-    }
-
-    const interface::types::AccountIdType &Query::creatorAccountId() const {
-      return impl_->proto_.payload().meta().creator_account_id();
-    }
-
-    interface::types::CounterType Query::queryCounter() const {
-      return impl_->proto_.payload().meta().query_counter();
-    }
-
-    const interface::types::BlobType &Query::blob() const {
-      return impl_->blob_;
-    }
-
-    const interface::types::BlobType &Query::payload() const {
-      return impl_->payload_;
-    }
-
-    interface::types::SignatureRangeType Query::signatures() const {
-      return impl_->signatures_;
-    }
-
-    bool Query::addSignature(
-        interface::types::SignedHexStringView signed_blob,
-        interface::types::PublicKeyHexStringView public_key) {
-      if (impl_->proto_.has_signature()) {
-        return false;
+    SignatureSetType<proto::Signature> signatures_{[this] {
+      SignatureSetType<proto::Signature> set;
+      if (proto_.has_signature()) {
+        set.emplace(*proto_.mutable_signature());
       }
+      return set;
+    }()};
 
-      auto sig = impl_->proto_.mutable_signature();
-      std::string_view const &signed_string{signed_blob};
-      sig->set_signature(signed_string.data(), signed_string.size());
-      std::string_view const &public_key_string{public_key};
-      sig->set_public_key(public_key_string.data(), public_key_string.size());
+    interface::types::HashType hash_ = makeHash(payload_);
+  };
 
-      impl_->signatures_ =
-          SignatureSetType<proto::Signature>{proto::Signature{*sig}};
-      impl_->blob_ = makeBlob(impl_->proto_);
+  Query::Query(const Query &o) : Query(o.impl_->proto_) {}
+  Query::Query(Query &&o) noexcept = default;
 
-      return true;
+  Query::Query(const TransportType &ref) {
+    impl_ = std::make_unique<Impl>(ref);
+  }
+  Query::Query(TransportType &&ref) {
+    impl_ = std::make_unique<Impl>(std::move(ref));
+  }
+
+  Query::~Query() = default;
+
+  const Query::QueryVariantType &Query::get() const {
+    return impl_->ivariant_;
+  }
+
+  const interface::types::AccountIdType &Query::creatorAccountId() const {
+    return impl_->proto_.payload().meta().creator_account_id();
+  }
+
+  interface::types::CounterType Query::queryCounter() const {
+    return impl_->proto_.payload().meta().query_counter();
+  }
+
+  const interface::types::BlobType &Query::blob() const {
+    return impl_->blob_;
+  }
+
+  const interface::types::BlobType &Query::payload() const {
+    return impl_->payload_;
+  }
+
+  interface::types::SignatureRangeType Query::signatures() const {
+    return impl_->signatures_;
+  }
+
+  bool Query::addSignature(
+      interface::types::SignedHexStringView signed_blob,
+      interface::types::PublicKeyHexStringView public_key) {
+    if (impl_->proto_.has_signature()) {
+      return false;
     }
 
-    const interface::types::HashType &Query::hash() const {
-      return impl_->hash_;
-    }
+    auto sig = impl_->proto_.mutable_signature();
+    std::string_view const &signed_string{signed_blob};
+    sig->set_signature(signed_string.data(), signed_string.size());
+    std::string_view const &public_key_string{public_key};
+    sig->set_public_key(public_key_string.data(), public_key_string.size());
 
-    interface::types::TimestampType Query::createdTime() const {
-      return impl_->proto_.payload().meta().created_time();
-    }
+    impl_->signatures_ =
+        SignatureSetType<proto::Signature>{proto::Signature{*sig}};
+    impl_->blob_ = makeBlob(impl_->proto_);
 
-    const Query::TransportType &Query::getTransport() const {
-      return impl_->proto_;
-    }
+    return true;
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+  const interface::types::HashType &Query::hash() const {
+    return impl_->hash_;
+  }
+
+  interface::types::TimestampType Query::createdTime() const {
+    return impl_->proto_.payload().meta().created_time();
+  }
+
+  const Query::TransportType &Query::getTransport() const {
+    return impl_->proto_;
+  }
+
+}  // namespace shared_model::proto
+
+#undef IROHA_BIND_TYPE

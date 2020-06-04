@@ -37,6 +37,11 @@ struct IrohadConfig {
     PeerCertProvider peer_certificates;
   };
 
+  struct UtilityService {
+    std::string ip;
+    uint16_t port;
+  };
+
   // TODO: block_store_path is now optional, change docs IR-576
   // luckychess 29.06.2019
   boost::optional<std::string> block_store_path;
@@ -57,6 +62,7 @@ struct IrohadConfig {
   boost::optional<uint32_t> stale_stream_max_rounds;
   boost::optional<logger::LoggerManagerTreePtr> logger_manager;
   boost::optional<shared_model::interface::types::PeerList> initial_peers;
+  boost::optional<UtilityService> utility_service;
 };
 
 /**

@@ -14,7 +14,8 @@ namespace iroha {
         std::shared_ptr<MstTransportNotification>) {}
 
     rxcpp::observable<bool> MstTransportStub::sendState(
-        const shared_model::interface::Peer &, MstState const &) {
+        std::shared_ptr<shared_model::interface::Peer const>,
+        MstState const &) {
       return rxcpp::observable<>::just(true);
     }
   }  // namespace network

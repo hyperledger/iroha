@@ -86,6 +86,8 @@ namespace shared_model {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;
       /// Type of a TLS certificate
       using TLSCertificateType = std::string;
+      /// Type of command index within a transaction
+      using CommandIndexType = uint64_t;
 
       enum class BatchType { ATOMIC = 0, ORDERED = 1 };
 

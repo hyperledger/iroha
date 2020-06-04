@@ -67,7 +67,7 @@ namespace iroha {
           std::shared_ptr<MstTransportNotification> notification) override;
 
       rxcpp::observable<bool> sendState(
-          shared_model::interface::Peer const &to,
+          std::shared_ptr<shared_model::interface::Peer const> to,
           MstState const &providing_state) override;
 
      private:
@@ -82,7 +82,7 @@ namespace iroha {
       std::shared_ptr<iroha::ametsuchi::TxPresenceCache> tx_presence_cache_;
       /// source peer key for MST propogation messages
       std::shared_ptr<Completer> mst_completer_;
-      const std::string my_key_;
+      std::string const my_key_;
 
       logger::LoggerPtr mst_state_logger_;  ///< Logger for created MstState
                                             ///< objects.
@@ -92,8 +92,8 @@ namespace iroha {
     };
 
     void sendStateAsync(
-        const shared_model::interface::Peer &to,
-        iroha::ConstRefState state,
+        shared_model::interface::Peer const &to,
+        MstState const &state,
         shared_model::interface::types::PublicKeyHexStringView sender_key,
         AsyncGrpcClient<google::protobuf::Empty> &async_call,
         std::function<void(grpc::Status &, google::protobuf::Empty &)>

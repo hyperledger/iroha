@@ -38,7 +38,7 @@ def getUrl(String url, String savePath, boolean createDstDir=false) {
 }
 
 def filesDiffer(String f1, String f2) {
-  diffExitCode = sh(script: "diff -q ${f1} ${f2}", returnStatus: true)
+  def diffExitCode = sh(script: "diff -q ${f1} ${f2}", returnStatus: true)
   return diffExitCode != 0
 }
 

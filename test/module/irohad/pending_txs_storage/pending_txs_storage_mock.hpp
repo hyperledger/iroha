@@ -25,6 +25,8 @@ namespace iroha {
                 page_size,
             const std::optional<shared_model::interface::types::HashType>
                 &first_tx_hash));
+    MOCK_METHOD1(insertPresenceCache,
+                 void(std::shared_ptr<ametsuchi::TxPresenceCache> &cache));
   };
 
 }  // namespace iroha

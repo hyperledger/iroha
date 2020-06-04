@@ -21,7 +21,7 @@ namespace shared_model {
        * To calculate hash used by some standard containers
        */
       struct Hasher {
-        std::size_t operator()(const Hash &h) const;
+        std::size_t operator()(Hash const &h) const;
       };
 
       Hash();

@@ -174,7 +174,7 @@ TEST_F(TransportTest, SendAndReceive) {
       grpc::testing::MockClientAsyncResponseReader<google::protobuf::Empty>>();
   EXPECT_CALL(*stub, AsyncSendStateRaw(_, _, _))
       .WillOnce(DoAll(SaveArg<1>(&request), Return(r.get())));
-  transport->sendState(*peer, state).subscribe();
+  transport->sendState(peer, state).subscribe();
   auto response = transport->SendState(&context, &request, nullptr);
   ASSERT_EQ(response.error_code(), grpc::StatusCode::OK);
 }

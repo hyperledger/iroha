@@ -42,6 +42,13 @@ RUN set -e; \
       apt-get -y clean; \
     fi
 
+# golang stuff
+RUN curl https://dl.google.com/go/go1.14.2.linux-amd64.tar.gz | tar -C /opt -xz
+ENV GOPATH=/opt/gopath
+RUN mkdir ${GOPATH}
+ENV PATH=${PATH}:/opt/go/bin:${GOPATH}/bin
+RUN go get github.com/golang/protobuf/protoc-gen-go
+
 # install cmake 3.14.0
 RUN set -e; \
     curl -L -o /tmp/cmake.sh https://github.com/Kitware/CMake/releases/download/v3.14.0/cmake-3.14.0-Linux-x86_64.sh; \
