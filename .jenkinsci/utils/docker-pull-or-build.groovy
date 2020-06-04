@@ -19,13 +19,14 @@ def buildOptionsString(options) {
 }
 
 def dockerPullOrBuild(imageName, currentDockerfileURL, referenceDockerfileURL, scmVars, environment, forceBuild=false, buildOptions=null) {
+  def iC
   buildOptions = buildOptionsString(buildOptions)
   withEnv(environment) {
     def utils = load '.jenkinsci/utils/utils.groovy'
     sh("docker pull ${env.DOCKER_REGISTRY_BASENAME}:${imageName} || true")
-    randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
-    currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
-    referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
+    def randDir = sh(script: "cat /dev/urandom | tr -dc 'a-zA-Z0-9' | head -c 10", returnStdout: true).trim()
+    def currentDockerfile = utils.getUrl(currentDockerfileURL, "/tmp/${randDir}/currentDockerfile", true)
+    def referenceDockerfile = utils.getUrl(referenceDockerfileURL, "/tmp/${randDir}/referenceDockerfile")
     // Always check for updates in base image. See https://github.com/moby/moby/issues/31613
     sh ("docker pull \$(grep -ioP '(?<=^from)\\s+\\S+' /tmp/${randDir}/currentDockerfile)")
     if (utils.filesDiffer(currentDockerfile, referenceDockerfile) || forceBuild) {

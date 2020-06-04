@@ -12,6 +12,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/empty.hpp>
 #include "ametsuchi/tx_presence_cache.hpp"
+#include "ametsuchi/tx_presence_cache_utils.hpp"
 #include "common/visitor.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/transaction_batch_parser_impl.hpp"
@@ -141,17 +142,8 @@ OnDemandOrderingGate::removeReplaysAndDuplicates(
       // TODO andrei 30.11.18 IR-51 Handle database error
       return false;
     }
-    return std::visit(
-        make_visitor(
-            [](const ametsuchi::tx_cache_status_responses::Missing &) {
-              return true;
-            },
-            [](const auto &status) {
-              // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
-              // when log is added
-              return false;
-            }),
-        *tx_result);
+    // TODO nickaleks 21.11.18: IR-1887 log replayed transactions
+    return !ametsuchi::isAlreadyProcessed(*tx_result);
   };
 
   std::unordered_set<std::string> hashes;

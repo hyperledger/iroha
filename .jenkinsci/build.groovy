@@ -37,7 +37,7 @@ def cppCheck(String buildDir, int parallelism) {
 def sonarScanner(scmVars, environment) {
   withEnv(environment) {
     withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN'), string(credentialsId: 'SORABOT_TOKEN', variable: 'SORABOT_TOKEN')]) {
-      sonar_option = ""
+      def sonar_option = ""
       if (env.CHANGE_ID != null) {
         sonar_option = "-Dsonar.github.pullRequest=${env.CHANGE_ID}"
       }

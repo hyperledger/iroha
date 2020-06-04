@@ -88,6 +88,14 @@ add_library(ametsuchi
     impl/in_memory_block_storage_factory.cpp
     )
 
+if(USE_BURROW)
+    add_library(postgres_burrow_storage
+        impl/burrow_storage.cpp
+        impl/postgres_burrow_storage.cpp
+        )
+    target_link_libraries(postgres_burrow_storage common)
+endif()
+
 target_link_libraries(ametsuchi
     pg_connection_init
     flat_file_storage

@@ -307,7 +307,7 @@ namespace integration_framework {
     }
 
     void FakePeer::sendMstState(const iroha::MstState &state) {
-      mst_transport_->sendState(*real_peer_, state);
+      mst_transport_->sendState(real_peer_, state);
     }
 
     void FakePeer::sendYacState(

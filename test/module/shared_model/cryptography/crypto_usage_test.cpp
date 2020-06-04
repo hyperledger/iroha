@@ -115,10 +115,9 @@ TYPED_TEST_CASE(CryptoUsageTest, CryptoUsageTestTypes, );
  * @then check that siganture valid without clarification of algorithm
  */
 TYPED_TEST(CryptoUsageTest, RawSignAndVerifyTest) {
-  auto signature =
-      iroha::hexstringToBytestringResult(
-          TestFixture::CurrentCryptoProvider::sign(this->data, this->keypair))
-          .assumeValue();
+  auto signature = iroha::hexstringToBytestringResult(
+                       CryptoSigner::sign(this->data, this->keypair))
+                       .assumeValue();
   using namespace shared_model::interface::types;
   auto verified = CryptoVerifier::verify(
       SignedHexStringView{iroha::bytestringToHexstring(signature)},
