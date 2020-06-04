@@ -6,6 +6,7 @@
 #include "backend/protobuf/queries/proto_tx_pagination_meta.hpp"
 
 #include <optional>
+#include <boost/range/adaptor/transformed.hpp>
 #include "cryptography/hash.hpp"
 
 namespace types = shared_model::interface::types;
@@ -13,7 +14,11 @@ namespace types = shared_model::interface::types;
 using namespace shared_model::proto;
 
 TxPaginationMeta::TxPaginationMeta(iroha::protocol::TxPaginationMeta &meta)
-    : meta_{meta} {}
+    : meta_{meta}, ordering_(meta.ordering()) {
+  /// default values
+  ordering_.insert(interface::Ordering::Field::kPosition,
+                   interface::Ordering::Direction::kAscending);
+}
 
 types::TransactionsNumberType TxPaginationMeta::pageSize() const {
   return meta_.page_size();
@@ -26,4 +31,8 @@ std::optional<types::HashType> TxPaginationMeta::firstTxHash() const {
     return std::nullopt;
   }
   return types::HashType::fromHexString(meta_.first_tx_hash());
+}
+
+shared_model::interface::Ordering const &TxPaginationMeta::ordering() const {
+  return ordering_;
 }

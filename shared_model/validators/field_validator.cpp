@@ -410,6 +410,32 @@ namespace shared_model {
       return std::nullopt;
     }
 
+    std::optional<ValidationError> validatePaginationOrdering(
+        const interface::Ordering &ordering) {
+      using Field = interface::Ordering::Field;
+      using Direction = interface::Ordering::Direction;
+      using OrderingEntry = interface::Ordering::OrderingEntry;
+
+      OrderingEntry const *ptr = nullptr;
+      size_t count = 0;
+      ordering.get(ptr, count);
+
+      for (size_t ix = 0; ix < count; ++ix) {
+        OrderingEntry const &entry = ptr[ix];
+
+        if (entry.field >= Field::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed field value is unknown.")});
+        }
+
+        if (entry.direction >= Direction::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed direction value is unknown")});
+        }
+      }
+      return std::nullopt;
+    }
+
     std::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
         const interface::TxPaginationMeta &tx_pagination_meta) const {
       using iroha::operator|;
@@ -419,7 +445,8 @@ namespace shared_model {
           {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
            tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
              return this->validateHash(first_hash);
-           }});
+           },
+           validatePaginationOrdering(tx_pagination_meta.ordering())});
     }
 
     std::optional<ValidationError> FieldValidator::validateAsset(

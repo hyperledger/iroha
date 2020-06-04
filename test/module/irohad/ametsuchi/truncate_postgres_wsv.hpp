@@ -25,11 +25,14 @@ namespace iroha {
         TRUNCATE TABLE signatory RESTART IDENTITY CASCADE;
         TRUNCATE TABLE peer RESTART IDENTITY CASCADE;
         TRUNCATE TABLE role RESTART IDENTITY CASCADE;
-        TRUNCATE TABLE position_by_hash RESTART IDENTITY CASCADE;
         TRUNCATE TABLE tx_status_by_hash RESTART IDENTITY CASCADE;
-        TRUNCATE TABLE tx_position_by_creator RESTART IDENTITY CASCADE;
-        TRUNCATE TABLE position_by_account_asset RESTART IDENTITY CASCADE;
         TRUNCATE TABLE setting RESTART IDENTITY CASCADE;
+        TRUNCATE TABLE engine_calls RESTART IDENTITY CASCADE;
+        TRUNCATE TABLE burrow_account_data;
+        TRUNCATE TABLE burrow_account_key_value;
+        TRUNCATE TABLE burrow_tx_logs RESTART IDENTITY CASCADE;
+        TRUNCATE TABLE burrow_tx_logs_topics;
+        TRUNCATE TABLE tx_positions RESTART IDENTITY CASCADE;
             )";
     }
   }  // namespace ametsuchi

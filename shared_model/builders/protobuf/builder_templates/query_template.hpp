@@ -13,6 +13,7 @@
 #include "backend/protobuf/queries/proto_query.hpp"
 #include "builders/protobuf/unsigned_proto.hpp"
 #include "interfaces/common_objects/types.hpp"
+#include "interfaces/queries/ordering.hpp"
 #include "interfaces/transaction.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "queries.pb.h"
@@ -86,10 +87,55 @@ namespace shared_model {
           PageMetaPayload * page_meta_payload,
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
-              std::nullopt) {
+              std::nullopt,
+          const interface::Ordering *ordering = nullptr) {
+        auto from_interface_2_proto_field =
+            [](interface::Ordering::Field value) {
+              switch (value) {
+                case interface::Ordering::Field::kCreatedTime:
+                  return iroha::protocol::Field::created_time;
+
+                case interface::Ordering::Field::kPosition:
+                  return iroha::protocol::Field::position;
+
+                default:
+                  BOOST_ASSERT_MSG(false, "Unexpected Field value!");
+              }
+            };
+
+        auto from_interface_2_proto_direction =
+            [](interface::Ordering::Direction value) {
+              switch (value) {
+                case interface::Ordering::Direction::kAscending:
+                  return iroha::protocol::Direction::ascending;
+
+                case interface::Ordering::Direction::kDescending:
+                  return iroha::protocol::Direction::descending;
+
+                default: {
+                  BOOST_ASSERT_MSG(false, "Unexpected Direction value!");
+                }
+              }
+            };
+
         page_meta_payload->set_page_size(page_size);
         if (first_hash) {
           page_meta_payload->set_first_tx_hash(first_hash->hex());
+        }
+        if (ordering) {
+          interface::Ordering::OrderingEntry const *ptr = nullptr;
+          size_t count = 0;
+          (*ordering).get(ptr, count);
+
+          for (size_t ix = 0; ix < count; ++ix) {
+            interface::Ordering::OrderingEntry const &entry = ptr[ix];
+
+            auto sequence =
+                page_meta_payload->mutable_ordering()->add_sequence();
+            sequence->set_field(from_interface_2_proto_field(entry.field));
+            sequence->set_direction(
+                from_interface_2_proto_direction(entry.direction));
+          }
         }
       }
 
@@ -142,12 +188,15 @@ namespace shared_model {
           const interface::types::AccountIdType &account_id,
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
-              std::nullopt) const {
+              std::nullopt,
+          const interface::Ordering *ordering = nullptr) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_transactions();
           query->set_account_id(account_id);
-          setTxPaginationMeta(
-              query->mutable_pagination_meta(), page_size, first_hash);
+          setTxPaginationMeta(query->mutable_pagination_meta(),
+                              page_size,
+                              first_hash,
+                              ordering);
         });
       }
 
@@ -156,13 +205,16 @@ namespace shared_model {
           const interface::types::AssetIdType &asset_id,
           interface::types::TransactionsNumberType page_size,
           const std::optional<interface::types::HashType> &first_hash =
-              std::nullopt) const {
+              std::nullopt,
+          const interface::Ordering *ordering = nullptr) const {
         return queryField([&](auto proto_query) {
           auto query = proto_query->mutable_get_account_asset_transactions();
           query->set_account_id(account_id);
           query->set_asset_id(asset_id);
-          setTxPaginationMeta(
-              query->mutable_pagination_meta(), page_size, first_hash);
+          setTxPaginationMeta(query->mutable_pagination_meta(),
+                              page_size,
+                              first_hash,
+                              ordering);
         });
       }
 
