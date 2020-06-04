@@ -6,7 +6,6 @@
 #ifndef IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 #define IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 
-#include "compare_and_set_account_detail.hpp"
 #include "interfaces/commands/command.hpp"
 
 #include <boost/variant.hpp>
@@ -17,7 +16,7 @@ namespace boost {
       const shared_model::interface::AddPeer &,
       const shared_model::interface::AddSignatory &,
       const shared_model::interface::AppendRole &,
-      const shared_model::interface::CallEngine &
+      const shared_model::interface::CallEngine &,
       const shared_model::interface::CompareAndSetAccountDetail &,
       const shared_model::interface::CreateAccount &,
       const shared_model::interface::CreateAsset &,

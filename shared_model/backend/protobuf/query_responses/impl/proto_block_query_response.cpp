@@ -8,7 +8,6 @@
 #include "backend/protobuf/query_responses/proto_block_error_response.hpp"
 #include "backend/protobuf/query_responses/proto_block_response.hpp"
 #include "common/hexutils.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -24,49 +23,47 @@ namespace {
   case iroha::protocol::BlockQueryResponse::ResponseCase::val: \
     return ProtoQueryResponseVariantType(shared_model::proto::type(__VA_ARGS__))
 
-namespace shared_model {
-  namespace proto {
+namespace shared_model::proto {
 
-    struct BlockQueryResponse::Impl {
-      explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
+  struct BlockQueryResponse::Impl {
+    explicit Impl(TransportType &&ref) : proto_{std::move(ref)} {}
 
-      TransportType proto_;
+    TransportType proto_;
 
-      const ProtoQueryResponseVariantType variant_{
-          [this]() -> decltype(variant_) {
-            auto &ar = proto_;
+    const ProtoQueryResponseVariantType variant_{
+        [this]() -> decltype(variant_) {
+          auto &ar = proto_;
 
-            switch (ar.response_case()) {
-              IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
-              IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
+          switch (ar.response_case()) {
+            IROHA_BIND_TYPE(kBlockErrorResponse, BlockErrorResponse, ar);
+            IROHA_BIND_TYPE(kBlockResponse, BlockResponse, ar);
 
-              default:
-              case iroha::protocol::BlockQueryResponse::ResponseCase::
-                  RESPONSE_NOT_SET:
-                throw std::runtime_error("Unexpected response case.");
-            };
-          }()};
+            default:
+            case iroha::protocol::BlockQueryResponse::ResponseCase::
+                RESPONSE_NOT_SET:
+              assert(!"Unexpected response case.");
+          };
+        }()};
 
-      const QueryResponseVariantType ivariant_{variant_};
-    };
+    const QueryResponseVariantType ivariant_{variant_};
+  };
 
-    BlockQueryResponse::BlockQueryResponse(TransportType &&ref) {
-      impl_ = std::make_unique<Impl>(std::move(ref));
-    }
+  BlockQueryResponse::BlockQueryResponse(TransportType &&ref) {
+    impl_ = std::make_unique<Impl>(std::move(ref));
+  }
 
-    BlockQueryResponse::~BlockQueryResponse() = default;
+  BlockQueryResponse::~BlockQueryResponse() = default;
 
-    const BlockQueryResponse::QueryResponseVariantType &
-    BlockQueryResponse::get() const {
-      return impl_->ivariant_;
-    }
+  const BlockQueryResponse::QueryResponseVariantType &BlockQueryResponse::get()
+      const {
+    return impl_->ivariant_;
+  }
 
-    const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
-        const {
-      return impl_->proto_;
-    }
+  const BlockQueryResponse::TransportType &BlockQueryResponse::getTransport()
+      const {
+    return impl_->proto_;
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+}  // namespace shared_model::proto
 
 #undef IROHA_BIND_TYPE
