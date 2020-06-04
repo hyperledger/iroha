@@ -379,7 +379,7 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
   return createQueryResponse(
       [&](iroha::protocol::QueryResponse &protocol_query_response) {
         auto *protocol_specific_response =
-            protocol_query_response.mutable_engine_response();
+            protocol_query_response.mutable_engine_receipts_response();
 
         for (auto const &receipt : engine_receipts) {
           auto *proto_receipt =
@@ -399,19 +399,18 @@ shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
           proto_receipt->set_command_index(receipt->getCommandIndex());
           proto_receipt->set_caller(receipt->getCaller());
 
-          if (interface::EngineReceipt::PayloadType::
-                kPayloadTypeCallResult == receipt->getPayloadType()) {
-              auto *ptr_call_result = proto_receipt->mutable_call_result();
-                ptr_call_result->set_callee(receipt->getResponseData()->callee);
-                if (!!receipt->getResponseData()->response_data)
-                  ptr_call_result->set_result_data(
-                      *receipt->getResponseData()->response_data);
+          if (interface::EngineReceipt::PayloadType::kPayloadTypeCallResult
+              == receipt->getPayloadType()) {
+            auto *ptr_call_result = proto_receipt->mutable_call_result();
+            ptr_call_result->set_callee(receipt->getResponseData()->callee);
+            if (!!receipt->getResponseData()->response_data)
+              ptr_call_result->set_result_data(
+                  *receipt->getResponseData()->response_data);
           }
 
-          if (interface::EngineReceipt::PayloadType::
-                kPayloadTypeContractAddress == receipt->getPayloadType()) {
-                proto_receipt->set_contract_address(
-                    *receipt->getContractAddress());
+          if (interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress
+              == receipt->getPayloadType()) {
+            proto_receipt->set_contract_address(*receipt->getContractAddress());
           }
         }
       },

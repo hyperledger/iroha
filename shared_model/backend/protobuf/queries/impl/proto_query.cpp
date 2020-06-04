@@ -73,6 +73,7 @@ namespace shared_model::proto {
         IROHA_BIND_TYPE(kGetPendingTransactions, GetPendingTransactions, ar);
         IROHA_BIND_TYPE(kGetBlock, GetBlock, ar);
         IROHA_BIND_TYPE(kGetPeers, GetPeers, ar);
+        IROHA_BIND_TYPE(kGetEngineReceipts, GetEngineReceipts, ar);
 
         default:
         case iroha::protocol::Query_Payload::QueryCase::QUERY_NOT_SET:

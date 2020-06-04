@@ -135,7 +135,7 @@ message QueryResponse {
     PendingTransactionsPageResponse pending_transactions_page_response = 13;
     BlockResponse block_response = 12;
     PeersResponse peers_response = 14;
-    EngineReceiptsResponse engine_response = 15;
+    EngineReceiptsResponse engine_receipts_response = 15;
   }
   string query_hash = 10;
 }
