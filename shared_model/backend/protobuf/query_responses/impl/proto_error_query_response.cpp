@@ -5,8 +5,8 @@
 
 #include "backend/protobuf/query_responses/proto_error_query_response.hpp"
 
+#include <boost/variant/variant.hpp>
 #include "backend/protobuf/query_responses/proto_concrete_error_query_response.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -20,61 +20,75 @@ namespace {
                      shared_model::proto::NotSupportedErrorResponse,
                      shared_model::proto::NoAssetErrorResponse,
                      shared_model::proto::NoRolesErrorResponse>;
-
-  /// list of types in proto variant
-  using ProtoQueryErrorResponseListType =
-      ProtoQueryErrorResponseVariantType::types;
 }  // namespace
 
-namespace shared_model {
-  namespace proto {
+#ifdef IROHA_BIND_TYPE
+#error IROHA_BIND_TYPE defined.
+#endif  // IROHA_BIND_TYPE
+#define IROHA_BIND_TYPE(val, type, ...)        \
+  case iroha::protocol::ErrorResponse::val:    \
+    return ProtoQueryErrorResponseVariantType( \
+        shared_model::proto::type(__VA_ARGS__))
 
-    struct ErrorQueryResponse::Impl {
-      explicit Impl(iroha::protocol::QueryResponse &ref)
-          : error_response_{*ref.mutable_error_response()},
-            variant_{[this] {
-              auto &ar = error_response_;
+namespace shared_model::proto {
 
-              unsigned which = ar.GetDescriptor()
-                                   ->FindFieldByName("reason")
-                                   ->enum_type()
-                                   ->FindValueByNumber(ar.reason())
-                                   ->index();
-              return shared_model::detail::
-                  variant_impl<ProtoQueryErrorResponseListType>::template load<
-                      ProtoQueryErrorResponseVariantType>(ar, which);
-            }()},
-            ivariant_{variant_} {}
+  struct ErrorQueryResponse::Impl {
+    explicit Impl(iroha::protocol::QueryResponse &ref)
+        : error_response_{*ref.mutable_error_response()},
+          variant_{[this] {
+            auto &ar = error_response_;
 
-      iroha::protocol::ErrorResponse &error_response_;
+            switch (ar.reason()) {
+              IROHA_BIND_TYPE(
+                  STATELESS_INVALID, StatelessFailedErrorResponse, ar);
+              IROHA_BIND_TYPE(
+                  STATEFUL_INVALID, StatefulFailedErrorResponse, ar);
+              IROHA_BIND_TYPE(NO_ACCOUNT, NoAccountErrorResponse, ar);
+              IROHA_BIND_TYPE(
+                  NO_ACCOUNT_ASSETS, NoAccountAssetsErrorResponse, ar);
+              IROHA_BIND_TYPE(
+                  NO_ACCOUNT_DETAIL, NoAccountDetailErrorResponse, ar);
+              IROHA_BIND_TYPE(NO_SIGNATORIES, NoSignatoriesErrorResponse, ar);
+              IROHA_BIND_TYPE(NOT_SUPPORTED, NotSupportedErrorResponse, ar);
+              IROHA_BIND_TYPE(NO_ASSET, NoAssetErrorResponse, ar);
+              IROHA_BIND_TYPE(NO_ROLES, NoRolesErrorResponse, ar);
 
-      ProtoQueryErrorResponseVariantType variant_;
+              default:
+                assert(!"Unexpected query error response case.");
+            }
+          }()},
+          ivariant_{variant_} {}
 
-      QueryErrorResponseVariantType ivariant_;
-    };
+    iroha::protocol::ErrorResponse &error_response_;
 
-    ErrorQueryResponse::ErrorQueryResponse(
-        iroha::protocol::QueryResponse &query_response)
-        : impl_{std::make_unique<Impl>(query_response)} {}
+    ProtoQueryErrorResponseVariantType variant_;
 
-    ErrorQueryResponse::ErrorQueryResponse(ErrorQueryResponse &&o) noexcept =
-        default;
+    QueryErrorResponseVariantType ivariant_;
+  };
 
-    ErrorQueryResponse::~ErrorQueryResponse() = default;
+  ErrorQueryResponse::ErrorQueryResponse(
+      iroha::protocol::QueryResponse &query_response)
+      : impl_{std::make_unique<Impl>(query_response)} {}
 
-    const ErrorQueryResponse::QueryErrorResponseVariantType &
-    ErrorQueryResponse::get() const {
-      return impl_->ivariant_;
-    }
+  ErrorQueryResponse::ErrorQueryResponse(ErrorQueryResponse &&o) noexcept =
+      default;
 
-    const ErrorQueryResponse::ErrorMessageType &
-    ErrorQueryResponse::errorMessage() const {
-      return impl_->error_response_.message();
-    }
+  ErrorQueryResponse::~ErrorQueryResponse() = default;
 
-    ErrorQueryResponse::ErrorCodeType ErrorQueryResponse::errorCode() const {
-      return impl_->error_response_.error_code();
-    }
+  const ErrorQueryResponse::QueryErrorResponseVariantType &
+  ErrorQueryResponse::get() const {
+    return impl_->ivariant_;
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+  const ErrorQueryResponse::ErrorMessageType &ErrorQueryResponse::errorMessage()
+      const {
+    return impl_->error_response_.message();
+  }
+
+  ErrorQueryResponse::ErrorCodeType ErrorQueryResponse::errorCode() const {
+    return impl_->error_response_.error_code();
+  }
+
+}  // namespace shared_model::proto
+
+#undef IROHA_BIND_TYPE

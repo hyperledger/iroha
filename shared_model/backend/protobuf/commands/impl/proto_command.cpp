@@ -25,7 +25,6 @@
 #include "backend/protobuf/commands/proto_set_setting_value.hpp"
 #include "backend/protobuf/commands/proto_subtract_asset_quantity.hpp"
 #include "backend/protobuf/commands/proto_transfer_asset.hpp"
-#include "utils/variant_deserializer.hpp"
 
 namespace {
   /// type of proto variant
@@ -50,9 +49,6 @@ namespace {
                        shared_model::proto::SetSettingValue,
                        shared_model::proto::SubtractAssetQuantity,
                        shared_model::proto::TransferAsset>;
-
-  /// list of types in proto variant
-  using ProtoCommandListType = ProtoCommandVariantType::types;
 }  // namespace
 
 #ifdef IROHA_BIND_TYPE
@@ -62,60 +58,58 @@ namespace {
   case iroha::protocol::Command::CommandCase::val: \
     return ProtoCommandVariantType(shared_model::proto::type(__VA_ARGS__))
 
-namespace shared_model {
-  namespace proto {
+namespace shared_model::proto {
 
-    struct Command::Impl {
-      explicit Impl(TransportType &ref) : proto_(ref) {}
+  struct Command::Impl {
+    explicit Impl(TransportType &ref) : proto_(ref) {}
 
-      TransportType &proto_;
+    TransportType &proto_;
 
-      ProtoCommandVariantType variant_{[this]() -> decltype(variant_) {
-        auto &ar = proto_;
+    ProtoCommandVariantType variant_{[this]() -> decltype(variant_) {
+      auto &ar = proto_;
 
-        switch (ar.command_case()) {
-          IROHA_BIND_TYPE(kAddAssetQuantity, AddAssetQuantity, ar);
-          IROHA_BIND_TYPE(kAddPeer, AddPeer, ar);
-          IROHA_BIND_TYPE(kAddSignatory, AddSignatory, ar);
-          IROHA_BIND_TYPE(kAppendRole, AppendRole, ar);
-          IROHA_BIND_TYPE(kCreateAccount, CreateAccount, ar);
-          IROHA_BIND_TYPE(kCreateAsset, CreateAsset, ar);
-          IROHA_BIND_TYPE(kCreateDomain, CreateDomain, ar);
-          IROHA_BIND_TYPE(kCreateRole, CreateRole, ar);
-          IROHA_BIND_TYPE(kDetachRole, DetachRole, ar);
-          IROHA_BIND_TYPE(kGrantPermission, GrantPermission, ar);
-          IROHA_BIND_TYPE(kRemovePeer, RemovePeer, ar);
-          IROHA_BIND_TYPE(kRemoveSignatory, RemoveSignatory, ar);
-          IROHA_BIND_TYPE(kRevokePermission, RevokePermission, ar);
-          IROHA_BIND_TYPE(kSetAccountDetail, SetAccountDetail, ar);
-          IROHA_BIND_TYPE(kSetAccountQuorum, SetQuorum, ar);
-          IROHA_BIND_TYPE(kSubtractAssetQuantity, SubtractAssetQuantity, ar);
-          IROHA_BIND_TYPE(kTransferAsset, TransferAsset, ar);
-          IROHA_BIND_TYPE(
-              kCompareAndSetAccountDetail, CompareAndSetAccountDetail, ar);
-          IROHA_BIND_TYPE(kSetSettingValue, SetSettingValue, ar);
-          IROHA_BIND_TYPE(kCallEngine, CallEngine, ar);
+      switch (ar.command_case()) {
+        IROHA_BIND_TYPE(kAddAssetQuantity, AddAssetQuantity, ar);
+        IROHA_BIND_TYPE(kAddPeer, AddPeer, ar);
+        IROHA_BIND_TYPE(kAddSignatory, AddSignatory, ar);
+        IROHA_BIND_TYPE(kAppendRole, AppendRole, ar);
+        IROHA_BIND_TYPE(kCreateAccount, CreateAccount, ar);
+        IROHA_BIND_TYPE(kCreateAsset, CreateAsset, ar);
+        IROHA_BIND_TYPE(kCreateDomain, CreateDomain, ar);
+        IROHA_BIND_TYPE(kCreateRole, CreateRole, ar);
+        IROHA_BIND_TYPE(kDetachRole, DetachRole, ar);
+        IROHA_BIND_TYPE(kGrantPermission, GrantPermission, ar);
+        IROHA_BIND_TYPE(kRemovePeer, RemovePeer, ar);
+        IROHA_BIND_TYPE(kRemoveSignatory, RemoveSignatory, ar);
+        IROHA_BIND_TYPE(kRevokePermission, RevokePermission, ar);
+        IROHA_BIND_TYPE(kSetAccountDetail, SetAccountDetail, ar);
+        IROHA_BIND_TYPE(kSetAccountQuorum, SetQuorum, ar);
+        IROHA_BIND_TYPE(kSubtractAssetQuantity, SubtractAssetQuantity, ar);
+        IROHA_BIND_TYPE(kTransferAsset, TransferAsset, ar);
+        IROHA_BIND_TYPE(
+            kCompareAndSetAccountDetail, CompareAndSetAccountDetail, ar);
+        IROHA_BIND_TYPE(kSetSettingValue, SetSettingValue, ar);
+        IROHA_BIND_TYPE(kCallEngine, CallEngine, ar);
 
-          default:
-          case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
-            throw std::runtime_error("Unexpected command case.");
-        };
-      }()};
+        default:
+        case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
+          assert(!"Unexpected command case.");
+      };
+    }()};
 
-      CommandVariantType ivariant_{variant_};
-    };
+    CommandVariantType ivariant_{variant_};
+  };
 
-    Command::Command(TransportType &ref) {
-      impl_ = std::make_unique<Impl>(ref);
-    }
+  Command::Command(TransportType &ref) {
+    impl_ = std::make_unique<Impl>(ref);
+  }
 
-    Command::~Command() = default;
+  Command::~Command() = default;
 
-    const Command::CommandVariantType &Command::get() const {
-      return impl_->ivariant_;
-    }
+  const Command::CommandVariantType &Command::get() const {
+    return impl_->ivariant_;
+  }
 
-  }  // namespace proto
-}  // namespace shared_model
+}  // namespace shared_model::proto
 
 #undef IROHA_BIND_TYPE
