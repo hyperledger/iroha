@@ -187,6 +187,24 @@ class EngineCall : public AcceptanceFixture {
       "000000000000000000000000000000000000000000000000000000000000000b"
       "636f696e23646f6d61696e000000000000000000000000000000000000000000"sv};
 
+  /*
+  Contract code for transferring Iroha assets
+
+  pragma solidity >=0.4.22 <0.7.0;
+
+  contract TestIrohaCommand {
+
+      function transfer(string memory _src, string memory _dst, string memory
+  _asset, string memory _amount) public returns (bytes memory result) { bytes
+  memory payload =
+  abi.encodeWithSignature("transferAsset(string,string,string,string)", _src,
+  _dst, _asset, _amount); (bool success, bytes memory ret) =
+  address(0xA6Abc17819738299B3B2c1CE46d55c74f04E290C).delegatecall(payload);
+          require(success, "Error calling service contract function");
+          result = ret;
+      }
+  }
+  */
   interface::types::EvmCodeHexStringView transferAssetCode{
       "608060405234801561001057600080fd5b506106f6806100206000396000f3fe60806040"
       "5234801561001057600080fd5b506004361061002b5760003560e01c80631457aac01461"
@@ -240,7 +258,9 @@ class EngineCall : public AcceptanceFixture {
       "70667358221220879db2a49bf580a5f9d378b675127a2c81de867960e302ace46b8592b4"
       "b50ed964736f6c63430006080033"sv};
 
-  // transferAsset()
+  /*
+     transfer("user@domain", "user2@domain", "valuable_stock#domain", "63.99")
+  */
   interface::types::EvmCodeHexStringView transferAsset{
       "1457aac0"
       "0000000000000000000000000000000000000000000000000000000000000080"
@@ -460,4 +480,176 @@ TEST_F(EngineCall, TransferAsset) {
   itf.sendTxAwait(
       complete(baseTx().callEngine(kUserId, callee, transferAsset)),
       [](auto &block) { ASSERT_EQ(block->transactions().size(), 1); });
+}
+
+/**
+ * @given some user in Iroha in possession of some asset
+ * @when attempt to transfer asset to an non-existent account
+ * @then the tx is not included in the block
+ */
+TEST_F(EngineCall, AccountMissingError) {
+  IntegrationTestFramework itf(1);
+  itf.setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                 Role::kGetMyEngineReceipts,
+                                 Role::kCreateAsset,
+                                 Role::kAddAssetQty,
+                                 Role::kGetAllAccAst,
+                                 Role::kTransfer}))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
+      .skipProposal()
+      .skipBlock();
+
+  auto deploy_tx =
+      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+
+  itf.sendTxAwait(deploy_tx, [](auto &block) {
+    ASSERT_EQ(block->transactions().size(), 1);
+  });
+  std::vector<std::string> deployed_addresses;
+
+  itf.sendQuery(
+      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+      [&deployed_addresses](const auto &response) {
+        auto *receipts_response =
+            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
+                &response.get());
+        ASSERT_NE(receipts_response, nullptr);
+        const auto &receipts = receipts_response->engineReceipts();
+        std::transform(receipts.begin(),
+                       receipts.end(),
+                       std::back_inserter(deployed_addresses),
+                       [](auto const &receipt) {
+                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
+                         return receipt.getContractAddress().value();
+                       });
+      });
+
+  ASSERT_NE(deployed_addresses.size(), 0);
+  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+
+  itf.sendTxAwait(
+      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+}
+
+/**
+ * @given some user in Iroha without a permission for transfer
+ * @when attempt to transfer asset to another account
+ * @then the tx is discarded
+ */
+TEST_F(EngineCall, PermissionError) {
+  IntegrationTestFramework itf(1);
+  itf.setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                 Role::kGetMyEngineReceipts,
+                                 Role::kCreateAsset,
+                                 Role::kAddAssetQty,
+                                 Role::kGetAllAccAst}))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(makeSecondUser({Role::kReceive}))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "1000.00")))
+      .skipProposal()
+      .skipBlock();
+
+  auto deploy_tx =
+      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+
+  itf.sendTxAwait(deploy_tx, [](auto &block) {
+    ASSERT_EQ(block->transactions().size(), 1);
+  });
+  std::vector<std::string> deployed_addresses;
+
+  itf.sendQuery(
+      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+      [&deployed_addresses](const auto &response) {
+        auto *receipts_response =
+            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
+                &response.get());
+        ASSERT_NE(receipts_response, nullptr);
+        const auto &receipts = receipts_response->engineReceipts();
+        std::transform(receipts.begin(),
+                       receipts.end(),
+                       std::back_inserter(deployed_addresses),
+                       [](auto const &receipt) {
+                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
+                         return receipt.getContractAddress().value();
+                       });
+      });
+
+  ASSERT_NE(deployed_addresses.size(), 0);
+  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+
+  itf.sendTxAwait(
+      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
+}
+
+/**
+ * @given some user in Iroha holding some asset
+ * @when attempt to transfer to some other account more asset than he has got
+ * @then the tx is discarded
+ */
+TEST_F(EngineCall, InsufficientBalanceError) {
+  IntegrationTestFramework itf(1);
+  itf.setInitialState(kAdminKeypair)
+      .sendTx(makeUserWithPerms({Role::kCallEngine,
+                                 Role::kGetMyEngineReceipts,
+                                 Role::kCreateAsset,
+                                 Role::kAddAssetQty,
+                                 Role::kGetAllAccAst}))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(makeSecondUser({Role::kReceive}))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().createAsset(kOtherAssetName, kDomain, 2)))
+      .skipProposal()
+      .skipBlock()
+      .sendTx(complete(baseTx().addAssetQuantity(kOtherAssetId, "50.00")))
+      .skipProposal()
+      .skipBlock();
+
+  auto deploy_tx =
+      complete(baseTx().callEngine(kUserId, std::nullopt, transferAssetCode));
+
+  itf.sendTxAwait(deploy_tx, [](auto &block) {
+    ASSERT_EQ(block->transactions().size(), 1);
+  });
+  std::vector<std::string> deployed_addresses;
+
+  itf.sendQuery(
+      complete(baseQry().getEngineReceipts(deploy_tx.hash().hex())),
+      [&deployed_addresses](const auto &response) {
+        auto *receipts_response =
+            boost::get<const shared_model::interface::EngineReceiptsResponse &>(
+                &response.get());
+        ASSERT_NE(receipts_response, nullptr);
+        const auto &receipts = receipts_response->engineReceipts();
+        std::transform(receipts.begin(),
+                       receipts.end(),
+                       std::back_inserter(deployed_addresses),
+                       [](auto const &receipt) {
+                         EXPECT_NE(receipt.getContractAddress(), std::nullopt);
+                         return receipt.getContractAddress().value();
+                       });
+      });
+
+  ASSERT_NE(deployed_addresses.size(), 0);
+  interface::types::EvmCalleeHexStringView callee{deployed_addresses[0]};
+
+  itf.sendTxAwait(
+      complete(baseTx().callEngine(kUserId, callee, transferAsset)),
+      [](auto &block) { ASSERT_EQ(block->transactions().size(), 0); });
 }

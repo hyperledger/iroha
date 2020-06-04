@@ -45,7 +45,7 @@ func TransferAsset(src, dst, asset, amount string) error {
 		if error_extra_ptr != nil {
 			error_extra = ": " + *error_extra_ptr
 		}
-		return fmt.Errorf("[api.TransferIrohaAsset] error transferring asset nominated in %s from %s to %s%s", asset, src, dst, error_extra)
+		return fmt.Errorf("Error executing TransferAsset command: %s", error_extra)
 	}
 
 	return nil
@@ -68,10 +68,6 @@ func GetAccountAssets(accountID string) ([]*pb.AccountAsset, error) {
 	}
 	switch response := queryResponse.Response.(type) {
 	case *pb.QueryResponse_ErrorResponse:
-		if response.ErrorResponse.Reason == pb.ErrorResponse_NO_ACCOUNT {
-			// No errors, but requested account does not exist
-			return []*pb.AccountAsset{}, nil
-		}
 		return []*pb.AccountAsset{}, fmt.Errorf(
 			"ErrorResponse in GetIrohaAccountAssets: %d, %v",
 			response.ErrorResponse.ErrorCode,
