@@ -74,6 +74,7 @@ namespace shared_model::proto {
                         ar);
         IROHA_BIND_TYPE(kBlockResponse, GetBlockResponse, ar);
         IROHA_BIND_TYPE(kPeersResponse, PeersResponse, ar);
+        IROHA_BIND_TYPE(kEngineReceiptsResponse, EngineReceiptsResponse, ar);
 
         default:
         case iroha::protocol::QueryResponse::ResponseCase::RESPONSE_NOT_SET:
