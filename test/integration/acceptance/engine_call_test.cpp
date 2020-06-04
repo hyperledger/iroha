@@ -3,8 +3,8 @@
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
 
-#include "backend/protobuf/query_responses/proto_engine_response.hpp"
-#include "backend/protobuf/query_responses/proto_engine_response_record.hpp"
+#include "backend/protobuf/query_responses/proto_engine_receipt.hpp"
+#include "backend/protobuf/query_responses/proto_engine_receipts_response.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"

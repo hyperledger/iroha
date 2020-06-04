@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "backend/protobuf/query_responses/proto_engine_response.hpp"
+#include "backend/protobuf/query_responses/proto_engine_receipts_response.hpp"
 
 namespace shared_model {
   namespace proto {

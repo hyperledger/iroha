@@ -13,7 +13,7 @@
 #include "backend/protobuf/queries/proto_get_account_transactions.hpp"
 #include "backend/protobuf/queries/proto_get_asset_info.hpp"
 #include "backend/protobuf/queries/proto_get_block.hpp"
-#include "backend/protobuf/queries/proto_get_engine_response.hpp"
+#include "backend/protobuf/queries/proto_get_engine_receipts.hpp"
 #include "backend/protobuf/queries/proto_get_peers.hpp"
 #include "backend/protobuf/queries/proto_get_pending_transactions.hpp"
 #include "backend/protobuf/queries/proto_get_role_permissions.hpp"

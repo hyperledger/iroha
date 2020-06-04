@@ -7,7 +7,7 @@
 #define IROHA_PROTO_GET_ENGINE_RESPONSE_H
 
 #include "backend/protobuf/common_objects/trivial_proto.hpp"
-#include "interfaces/queries/get_engine_response.hpp"
+#include "interfaces/queries/get_engine_receipts.hpp"
 #include "queries.pb.h"
 
 namespace shared_model {
