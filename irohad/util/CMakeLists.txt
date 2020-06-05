@@ -37,3 +37,8 @@ target_link_libraries(shepherd
     logger
     logger_manager
     )
+
+install(TARGETS shepherd
+    RUNTIME DESTINATION bin
+    CONFIGURATIONS ${CMAKE_BUILD_TYPE}
+    COMPONENT iroha_shepherd)

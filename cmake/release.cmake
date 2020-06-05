@@ -13,6 +13,7 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Iroha - simple decentralized blockchain")
 SET(CPACK_PACKAGE_VENDOR              "Soramitsu LLC")
 SET(CPACK_RESOURCE_FILE_LICENSE       "${CMAKE_SOURCE_DIR}/LICENSE")
 SET(CPACK_PACKAGE_CONTACT             "Bogdan Vaneev <bogdan@soramitsu.co.jp>")
+SET(CPACK_COMPONENTS_GROUPING         ONE_PER_GROUP)
 
 if(NOT IROHA_VERSION)
   message(WARNING  "IROHA_VERSION is not specified, using commit hash as version")
@@ -30,7 +31,7 @@ else()
   SET(CPACK_STRIP_FILES FALSE)
 endif()
 
-set(CPACK_COMPONENTS_ALL binaries libraries)
+set(CPACK_COMPONENTS_ALL irohad iroha_shepherd)
 
 if (APPLE)
   # cmake is running on mac os
