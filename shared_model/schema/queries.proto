@@ -9,13 +9,13 @@ package iroha.protocol;
 import "primitive.proto";
 
 enum Field {
-  created_time = 0;
-  position = 1;
+  kCreatedTime = 0;
+  kPosition = 1;
 }
 
 enum Direction {
-  ascending = 0;
-  descending = 1;
+  kAscending = 0;
+  kDescending = 1;
 }
 
 message Ordering {

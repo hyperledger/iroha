@@ -18,14 +18,13 @@ namespace shared_model {
     class OrderingImpl final : public interface::Ordering {
      public:
       OrderingImpl &operator=(OrderingImpl const &) = delete;
-      OrderingImpl &operator=(OrderingImpl &&) = delete;
 
       OrderingImpl();
       OrderingImpl(iroha::protocol::Ordering const &proto_ordering);
       OrderingImpl(OrderingImpl &&);
       OrderingImpl(OrderingImpl const &);
 
-      bool insert(ModelType::Field field,
+      bool append(ModelType::Field field,
                   ModelType::Direction direction) override;
       void reset() override;
       void get(ModelType::OrderingEntry const *&orderingEntry,
@@ -37,9 +36,9 @@ namespace shared_model {
       ModelType::OrderingEntry
           ordering_[(size_t)ModelType::Field::kMaxValueCount];
 
-      inline void copy_(OrderingImpl const &src);
-      inline void insert_(ModelType::Field field,
-                          ModelType::Direction direction);
+      inline void copy(OrderingImpl const &src);
+      inline void appendUnsafe(ModelType::Field field,
+                               ModelType::Direction direction);
     };
 
   }  // namespace proto

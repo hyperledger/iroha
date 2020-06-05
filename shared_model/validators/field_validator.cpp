@@ -443,9 +443,10 @@ namespace shared_model {
           "TxPaginationMeta",
           {},
           {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
-           tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
-             return this->validateHash(first_hash);
-           },
+           tx_pagination_meta.firstTxHash() |
+               [this](const auto &first_hash) {
+                 return this->validateHash(first_hash);
+               },
            validatePaginationOrdering(tx_pagination_meta.ordering())});
     }
 

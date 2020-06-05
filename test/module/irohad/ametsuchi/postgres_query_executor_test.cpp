@@ -1124,7 +1124,7 @@ namespace iroha {
       using Ordering = shared_model::interface::Ordering;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert(Ordering::Field::kCreatedTime,
+      ordering.append(Ordering::Field::kCreatedTime,
                       Ordering::Direction::kDescending);
 
       auto query_response = this->queryPage(size, std::nullopt, &ordering);
@@ -1162,9 +1162,9 @@ namespace iroha {
       using Ordering = shared_model::interface::Ordering;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert(Ordering::Field::kCreatedTime,
+      ordering.append(Ordering::Field::kCreatedTime,
                       Ordering::Direction::kDescending);
-      ordering.insert(Ordering::Field::kPosition,
+      ordering.append(Ordering::Field::kPosition,
                       Ordering::Direction::kAscending);
 
       auto query_response = this->queryPage(size, std::nullopt, &ordering);
@@ -1197,7 +1197,7 @@ namespace iroha {
       using Ordering = shared_model::interface::Ordering;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert(Ordering::Field::kCreatedTime,
+      ordering.append(Ordering::Field::kCreatedTime,
                       Ordering::Direction::kAscending);
 
       auto query_response = this->queryPage(size, std::nullopt, &ordering);
@@ -1230,7 +1230,7 @@ namespace iroha {
       using Ordering = shared_model::interface::Ordering;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert(Ordering::Field::kCreatedTime,
+      ordering.append(Ordering::Field::kCreatedTime,
                       Ordering::Direction::kAscending);
 
       auto query_response = this->queryPage(size, hash, &ordering);
@@ -1260,7 +1260,7 @@ namespace iroha {
       using Ordering = shared_model::interface::Ordering;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert(Ordering::Field::kCreatedTime,
+      ordering.append(Ordering::Field::kCreatedTime,
                       Ordering::Direction::kDescending);
 
       auto query_response = this->queryPage(size, hash, &ordering);
@@ -1288,7 +1288,7 @@ namespace iroha {
       auto size = 3;
 
       shared_model::proto::OrderingImpl ordering;
-      ordering.insert((Ordering::Field)500, (Ordering::Direction)500);
+      ordering.append((Ordering::Field)500, (Ordering::Direction)500);
 
       auto query_response = this->queryPage(size, hash, &ordering);
       checkSuccessfulResult<TransactionsPageResponse>(

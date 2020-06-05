@@ -16,10 +16,10 @@ namespace {
   shared_model::interface::Ordering::Field fromProto2Interface(
       iroha::protocol::Field value) {
     switch (value) {
-      case iroha::protocol::Field::created_time:
+      case iroha::protocol::Field::kCreatedTime:
         return shared_model::interface::Ordering::Field::kCreatedTime;
 
-      case iroha::protocol::Field::position:
+      case iroha::protocol::Field::kPosition:
         return shared_model::interface::Ordering::Field::kPosition;
 
       default: {
@@ -31,10 +31,10 @@ namespace {
   shared_model::interface::Ordering::Direction fromProto2Interface(
       iroha::protocol::Direction value) {
     switch (value) {
-      case iroha::protocol::Direction::ascending:
+      case iroha::protocol::Direction::kAscending:
         return shared_model::interface::Ordering::Direction::kAscending;
 
-      case iroha::protocol::Direction::descending:
+      case iroha::protocol::Direction::kDescending:
         return shared_model::interface::Ordering::Direction::kDescending;
 
       default: {
@@ -49,11 +49,11 @@ OrderingImpl::OrderingImpl() {
 }
 
 OrderingImpl::OrderingImpl(OrderingImpl &&c) {
-  copy_(c);
+  copy(c);
 }
 
 OrderingImpl::OrderingImpl(OrderingImpl const &c) {
-  copy_(c);
+  copy(c);
 }
 
 OrderingImpl::OrderingImpl(iroha::protocol::Ordering const &proto_ordering) {
@@ -64,19 +64,19 @@ OrderingImpl::OrderingImpl(iroha::protocol::Ordering const &proto_ordering) {
       break;
     }
 
-    insert_(fromProto2Interface(entry.field()),
-            fromProto2Interface(entry.direction()));
+    appendUnsafe(fromProto2Interface(entry.field()),
+                 fromProto2Interface(entry.direction()));
   }
 }
 
-void OrderingImpl::copy_(OrderingImpl const &src) {
+void OrderingImpl::copy(OrderingImpl const &src) {
   iroha::memcpy(ordering_, src.ordering_);
   iroha::memcpy(inserted_, src.inserted_);
   count_ = src.count_;
 }
 
-void OrderingImpl::insert_(ModelType::Field field,
-                           ModelType::Direction direction) {
+void OrderingImpl::appendUnsafe(ModelType::Field field,
+                                ModelType::Direction direction) {
   BOOST_ASSERT_MSG(count_ <= (size_t)ModelType::Field::kMaxValueCount,
                    "Count can not be more than max_count. Check logic.");
 
@@ -96,7 +96,7 @@ void OrderingImpl::insert_(ModelType::Field field,
   }
 }
 
-bool OrderingImpl::insert(ModelType::Field field,
+bool OrderingImpl::append(ModelType::Field field,
                           ModelType::Direction direction) {
   static_assert(sizeof(inserted_) / sizeof(inserted_[0])
                     == sizeof(ordering_) / sizeof(ordering_[0]),
@@ -109,7 +109,7 @@ bool OrderingImpl::insert(ModelType::Field field,
     return false;
   }
 
-  insert_(field, direction);
+  appendUnsafe(field, direction);
   return true;
 }
 

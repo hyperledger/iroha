@@ -93,10 +93,10 @@ namespace shared_model {
             [](interface::Ordering::Field value) {
               switch (value) {
                 case interface::Ordering::Field::kCreatedTime:
-                  return iroha::protocol::Field::created_time;
+                  return iroha::protocol::Field::kCreatedTime;
 
                 case interface::Ordering::Field::kPosition:
-                  return iroha::protocol::Field::position;
+                  return iroha::protocol::Field::kPosition;
 
                 default:
                   BOOST_ASSERT_MSG(false, "Unexpected Field value!");
@@ -107,10 +107,10 @@ namespace shared_model {
             [](interface::Ordering::Direction value) {
               switch (value) {
                 case interface::Ordering::Direction::kAscending:
-                  return iroha::protocol::Direction::ascending;
+                  return iroha::protocol::Direction::kAscending;
 
                 case interface::Ordering::Direction::kDescending:
-                  return iroha::protocol::Direction::descending;
+                  return iroha::protocol::Direction::kDescending;
 
                 default: {
                   BOOST_ASSERT_MSG(false, "Unexpected Direction value!");
