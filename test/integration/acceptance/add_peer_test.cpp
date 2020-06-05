@@ -12,6 +12,7 @@
 #include <rxcpp/operators/rx-timeout.hpp>
 #include "ametsuchi/block_query.hpp"
 #include "builders/protobuf/transaction.hpp"
+#include "common/bind.hpp"
 #include "consensus/yac/vote_message.hpp"
 #include "consensus/yac/yac_hash_provider.hpp"
 #include "framework/crypto_literals.hpp"
@@ -231,7 +232,10 @@ TEST_F(FakePeerFixture, RealPeerIsAdded) {
       if (not message->empty()
           and message->front().hash.vote_round.block_round
               <= sync_hash_.vote_round.block_round) {
-        getFakePeer().sendYacState({getFakePeer().makeVote(sync_hash_)});
+        using iroha::operator|;
+        getFakePeer() | [&](auto fake_peer) {
+          fake_peer->sendYacState({fake_peer->makeVote(sync_hash_)});
+        };
       } else {
         fake_peer::HonestBehaviour::processYacMessage(std::move(message));
       }
