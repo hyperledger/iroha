@@ -6,8 +6,6 @@
 #ifndef IROHA_SHARED_MODEL_ORDERING_HPP
 #define IROHA_SHARED_MODEL_ORDERING_HPP
 
-#include <boost/optional.hpp>
-
 #include "interfaces/base/model_primitive.hpp"
 #include "interfaces/common_objects/types.hpp"
 
@@ -51,11 +49,11 @@ namespace shared_model {
       };
 
       /**
-       * Insert - stores field and direction entry uniquely. The
+       * Append - stores field and direction entry uniquely. The
        * insertion order determines the ordering priority.
        * @return the insertion result(true - inserted, false - skipped).
        */
-      virtual bool insert(Field field, Direction direction) = 0;
+      virtual bool append(Field field, Direction direction) = 0;
 
       /**
        * Reset - drops all saved data.

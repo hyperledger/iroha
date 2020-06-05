@@ -43,8 +43,8 @@ struct OrderingTest : public ::testing::Test {
 */
 TEST_F(OrderingTest, BasicOrder) {
   shared_model::proto::OrderingImpl impl;
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kPosition, Ordering::Direction::kDescending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kPosition, Ordering::Direction::kDescending);
 
   checkValues(
       impl,
@@ -60,12 +60,12 @@ TEST_F(OrderingTest, BasicOrder) {
  */
 TEST_F(OrderingTest, BadValues) {
   shared_model::proto::OrderingImpl impl;
-  impl.insert(Ordering::Field(555), Ordering::Direction(555));
-  impl.insert(Ordering::Field::kUnknownValue,
+  impl.append(Ordering::Field(555), Ordering::Direction(555));
+  impl.append(Ordering::Field::kUnknownValue,
               Ordering::Direction::kUnknownValue);
-  impl.insert(Ordering::Field::kCreatedTime,
+  impl.append(Ordering::Field::kCreatedTime,
               Ordering::Direction::kUnknownValue);
-  impl.insert(Ordering::Field::kUnknownValue, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kUnknownValue, Ordering::Direction::kAscending);
 
   checkCount(impl, 0);
 }
@@ -77,14 +77,14 @@ TEST_F(OrderingTest, BadValues) {
  */
 TEST_F(OrderingTest, MixedValues) {
   shared_model::proto::OrderingImpl impl;
-  impl.insert(Ordering::Field(555), Ordering::Direction(555));
-  impl.insert(Ordering::Field::kUnknownValue,
+  impl.append(Ordering::Field(555), Ordering::Direction(555));
+  impl.append(Ordering::Field::kUnknownValue,
               Ordering::Direction::kUnknownValue);
-  impl.insert(Ordering::Field::kCreatedTime,
+  impl.append(Ordering::Field::kCreatedTime,
               Ordering::Direction::kUnknownValue);
-  impl.insert(Ordering::Field::kUnknownValue, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kPosition, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kUnknownValue, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kPosition, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
 
   checkValues(
       impl,
@@ -101,12 +101,12 @@ TEST_F(OrderingTest, MixedValues) {
  */
 TEST_F(OrderingTest, Reinsertions) {
   shared_model::proto::OrderingImpl impl;
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kDescending);
-  impl.insert(Ordering::Field::kPosition, Ordering::Direction::kDescending);
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kPosition, Ordering::Direction::kAscending);
-  impl.insert(Ordering::Field::kCreatedTime, Ordering::Direction::kDescending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kDescending);
+  impl.append(Ordering::Field::kPosition, Ordering::Direction::kDescending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kPosition, Ordering::Direction::kAscending);
+  impl.append(Ordering::Field::kCreatedTime, Ordering::Direction::kDescending);
 
   checkValues(
       impl,
@@ -124,13 +124,13 @@ TEST_F(OrderingTest, ProtoDoubleValues) {
   iroha::protocol::Ordering proto_ordering;
   {
     auto sequence = proto_ordering.add_sequence();
-    sequence->set_field(iroha::protocol::Field::position);
-    sequence->set_direction(iroha::protocol::Direction::ascending);
+    sequence->set_field(iroha::protocol::Field::kPosition);
+    sequence->set_direction(iroha::protocol::Direction::kAscending);
   }
   {
     auto sequence = proto_ordering.add_sequence();
-    sequence->set_field(iroha::protocol::Field::position);
-    sequence->set_direction(iroha::protocol::Direction::ascending);
+    sequence->set_field(iroha::protocol::Field::kPosition);
+    sequence->set_direction(iroha::protocol::Direction::kAscending);
   }
 
   shared_model::proto::OrderingImpl impl(proto_ordering);
@@ -154,23 +154,23 @@ TEST_F(OrderingTest, ProtoMixedValues) {
   }
   {
     auto sequence = proto_ordering.add_sequence();
-    sequence->set_field(iroha::protocol::Field::created_time);
+    sequence->set_field(iroha::protocol::Field::kCreatedTime);
     sequence->set_direction(iroha::protocol::Direction(1002));
   }
   {
     auto sequence = proto_ordering.add_sequence();
     sequence->set_field(iroha::protocol::Field(555));
-    sequence->set_direction(iroha::protocol::Direction::ascending);
+    sequence->set_direction(iroha::protocol::Direction::kAscending);
   }
   {
     auto sequence = proto_ordering.add_sequence();
-    sequence->set_field(iroha::protocol::Field::position);
-    sequence->set_direction(iroha::protocol::Direction::ascending);
+    sequence->set_field(iroha::protocol::Field::kPosition);
+    sequence->set_direction(iroha::protocol::Direction::kAscending);
   }
   {
     auto sequence = proto_ordering.add_sequence();
-    sequence->set_field(iroha::protocol::Field::created_time);
-    sequence->set_direction(iroha::protocol::Direction::ascending);
+    sequence->set_field(iroha::protocol::Field::kCreatedTime);
+    sequence->set_direction(iroha::protocol::Direction::kAscending);
   }
 
   shared_model::proto::OrderingImpl impl(proto_ordering);

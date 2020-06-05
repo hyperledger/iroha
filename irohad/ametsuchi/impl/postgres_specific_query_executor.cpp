@@ -449,13 +449,15 @@ namespace iroha {
                                                query_hash);
       }
 
-      auto query = fmt::format(base,
-        hasQueryPermission(creator_id, q.accountId(), perms...),
-        (ordering_str_.empty() ? "" : ordering_str_.c_str()),
-        related_txs,
-        (first_hash ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = :hash LIMIT 1))" : ""),
-        (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : "")
-      );
+      auto query = fmt::format(
+          base,
+          hasQueryPermission(creator_id, q.accountId(), perms...),
+          (ordering_str_.empty() ? "" : ordering_str_.c_str()),
+          related_txs,
+          (first_hash
+               ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = :hash LIMIT 1))"
+               : ""),
+          (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),

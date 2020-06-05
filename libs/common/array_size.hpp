@@ -12,8 +12,8 @@
 
 #ifndef IROHA_ARRAY_SIZE
 template <typename T, size_t N>
-char (&SdkCPArraySizeHelper(T (&array)[N]))[N];
-#define IROHA_ARRAY_SIZE(array) (sizeof(SdkCPArraySizeHelper(array)))
+char (&IrohaArraySizeHelper(T (&array)[N]))[N];
+#define IROHA_ARRAY_SIZE(array) (sizeof(IrohaArraySizeHelper(array)))
 #endif  // IROHA_ARRAY_SIZE
 
 #endif  // IROHA_COMMON_ARRAY_SIZE_HPP
