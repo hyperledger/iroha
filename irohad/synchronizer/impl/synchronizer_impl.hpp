@@ -51,11 +51,11 @@ namespace iroha {
        * @param public_keys - public keys of peers from which to ask the blocks
        * @return Result of committing the downloaded blocks.
        */
-      template <typename PublicKeysRange>
       ametsuchi::CommitResult downloadAndCommitMissingBlocks(
           const shared_model::interface::types::HeightType start_height,
           const shared_model::interface::types::HeightType target_height,
-          const PublicKeysRange &public_keys);
+          const shared_model::interface::types::PublicKeyCollectionType
+              &public_keys);
 
       void processNext(const consensus::PairValid &msg);
 

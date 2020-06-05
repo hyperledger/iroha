@@ -254,6 +254,9 @@ namespace integration_framework {
             ->getChild("at " + format_address(kLocalHost, port)));
     fake_peer->initialize();
     fake_peers_.emplace_back(fake_peer);
+    log_->debug("Added a fake peer at {} with {}.",
+                fake_peer->getAddress(),
+                fake_peer->getKeypair().publicKey());
     return fake_peer;
   }
 

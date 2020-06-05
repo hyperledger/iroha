@@ -299,6 +299,8 @@ TEST_F(MstPipelineTest, OldGetPendingTxsNoSignedTxs) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -327,6 +329,8 @@ TEST_F(MstPipelineTest, OldReplayViaFullySignedTransaction) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair), oldNoTxsCheck);
 }
 
@@ -403,6 +407,8 @@ TEST_F(MstPipelineTest, GetPendingTxsNoSignedTxs) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), user_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }
@@ -431,6 +437,8 @@ TEST_F(MstPipelineTest, ReplayViaFullySignedTransaction) {
         ASSERT_EQ(proposal->transactions().size(), 1);
         ASSERT_EQ(proposal->transactions()[0].hash(), fully_signed_tx.hash());
       })
+      .skipVerifiedProposal()
+      .skipBlock()
       .sendQuery(makeGetPendingTxsQuery(kUserId, kUserKeypair, kPageSize),
                  noTxsCheck);
 }
