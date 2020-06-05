@@ -160,7 +160,7 @@ mod tests {
         let mut torii = Torii::new(
             &torii_url,
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                config.peer_id.clone(),
+                config.peer_id,
                 &Vec::new(),
             )))),
             tx_tx,

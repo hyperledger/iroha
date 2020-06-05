@@ -27,8 +27,10 @@ pub enum Instruction {
     /// executes them both.
     Compose(Box<Instruction>, Box<Instruction>),
     /// This variant of Iroha Special Instruction executes the first instruction and if it succeeded
-    /// executes the second one, if failed - the third one.
-    If(Box<Instruction>, Box<Instruction>, Box<Instruction>),
+    /// executes the second one, if failed - the third one if presented.
+    If(Box<Instruction>, Box<Instruction>, Option<Box<Instruction>>),
+    /// This variant of Iroha Special Instructions sends notifications.
+    Notify(String),
 }
 
 impl Instruction {
@@ -52,8 +54,18 @@ impl Instruction {
             Instruction::If(condition, then, otherwise) => {
                 match condition.execute(authority.clone(), world_state_view) {
                     Ok(_) => then.execute(authority, world_state_view),
-                    Err(_) => otherwise.execute(authority, world_state_view),
+                    Err(_) => {
+                        if let Some(otherwise) = otherwise {
+                            otherwise.execute(authority, world_state_view)
+                        } else {
+                            Ok(())
+                        }
+                    }
                 }
+            }
+            Instruction::Notify(message) => {
+                println!("Notification: {}", message);
+                Ok(())
             }
         }
     }

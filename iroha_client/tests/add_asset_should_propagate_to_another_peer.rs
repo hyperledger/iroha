@@ -93,7 +93,7 @@ mod tests {
             .enumerate()
             .map(|(i, (public_key, _))| PeerId {
                 address: format!("127.0.0.1:{}", 1338 + i),
-                public_key: public_key.clone(),
+                public_key: *public_key,
             })
             .collect();
         for (peer_id, (public_key, private_key)) in peer_ids.iter().zip(peer_keys) {
@@ -110,7 +110,7 @@ mod tests {
                 configuration.trusted_peers(peer_ids.clone());
                 configuration.max_faulty_peers(MAX_FAULTS);
                 let iroha = Iroha::new(configuration);
-                iroha.start().await;
+                iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 loop {}
             });

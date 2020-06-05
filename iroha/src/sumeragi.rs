@@ -724,7 +724,7 @@ mod tests {
             crypto::generate_key_pair().expect("Failed to generate key pair.");
         let listen_address = "127.0.0.1".to_string();
         let this_peer = PeerId {
-            address: listen_address.clone(),
+            address: listen_address,
             public_key,
         };
         Sumeragi::new(
@@ -735,7 +735,7 @@ mod tests {
             Arc::new(RwLock::new(blocks_sender)),
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 this_peer.clone(),
-                &vec![this_peer],
+                &[this_peer],
             )))),
             transaction_sender,
             config::DEFAULT_COMMIT_TIME_MS,
