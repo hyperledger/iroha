@@ -13,7 +13,7 @@ services:
     image: postgres:9.5
     environment:
       - POSTGRES_USER=iroha
-      - IROHA_POSTGRES_PASSWORD=helloworld
+      - POSTGRES_PASSWORD=helloworld
 
 networks:
   default:
