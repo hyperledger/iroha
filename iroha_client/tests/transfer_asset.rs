@@ -12,7 +12,7 @@ mod tests {
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_can_transfer_asset_to_another_account() {
         // Given
-        thread::spawn(|| create_and_start_iroha());
+        thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(100));
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
@@ -72,8 +72,7 @@ mod tests {
                     account_id: account1_id.clone(),
                 },
                 quantity,
-            )
-            .into(),
+            ),
         };
         iroha_client
             .submit(transfer_asset.into())

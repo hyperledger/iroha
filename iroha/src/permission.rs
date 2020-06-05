@@ -34,6 +34,14 @@ impl Permissions {
         }
     }
 
+    fn check_add_listener(&self) -> Result<(), String> {
+        if self.check_anything().is_ok() || self.origin.get("add_listener").is_some() {
+            Ok(())
+        } else {
+            Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
+        }
+    }
+
     fn check_register_account(&self, domain: &Option<String>) -> Result<(), String> {
         if self.check_anything().is_ok() {
             Ok(())
@@ -134,6 +142,7 @@ pub mod isi {
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum PermissionInstruction {
         CanAnything(<Account as Identifiable>::Id),
+        CanAddListener(<Account as Identifiable>::Id),
         CanAddDomain(<Account as Identifiable>::Id),
         CanRegisterAccount(
             <Account as Identifiable>::Id,
@@ -180,6 +189,15 @@ pub mod isi {
                     Some(asset) => asset.permissions.check_add_domain(),
                     None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                 },
+                PermissionInstruction::CanAddListener(authority_account_id) => {
+                    match world_state_view.read_asset(&AssetId {
+                        definition_id: permission_asset_definition_id(),
+                        account_id: authority_account_id.clone(),
+                    }) {
+                        Some(asset) => asset.permissions.check_add_listener(),
+                        None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
+                    }
+                }
                 PermissionInstruction::CanRegisterAccount(
                     authority_account_id,
                     option_domain_id,
@@ -235,7 +253,7 @@ pub mod isi {
         use super::*;
         use crate::account::Id as AccountId;
         use crate::peer::PeerId;
-        use std::collections::{HashMap, HashSet};
+        use std::collections::HashMap;
 
         #[test]
         fn test_can_anything_should_pass() {
@@ -270,15 +288,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanAnything(account_id).execute(&mut world_state_view)
@@ -311,15 +328,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(PermissionInstruction::CanAnything(account_id)
                 .execute(&mut world_state_view)
                 .unwrap_err()
@@ -377,15 +393,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanAddDomain(account_id).execute(&mut world_state_view)
@@ -418,15 +433,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(PermissionInstruction::CanAddDomain(account_id)
                 .execute(&mut world_state_view)
                 .unwrap_err()
@@ -437,6 +451,111 @@ pub mod isi {
         fn test_can_add_domain_without_an_account_should_fail_with_permission_not_found() {
             assert!(
                 PermissionInstruction::CanAddDomain(AccountId::new("NOT_ROOT", "Company"))
+                    .execute(&mut WorldStateView::new(Peer::new(
+                        PeerId {
+                            address: "127.0.0.1:8080".to_string(),
+                            public_key: [0; 32],
+                        },
+                        &Vec::new(),
+                    )))
+                    .unwrap_err()
+                    .contains(PERMISSION_NOT_FOUND)
+            );
+        }
+
+        #[test]
+        fn test_can_add_listener_should_pass() {
+            let domain_name = "Company".to_string();
+            let public_key = [0; 32];
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let asset = Asset::with_permission(
+                asset_id.clone(),
+                ("add_listener".to_string(), "".to_string()),
+            );
+            let mut account = Account::new(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert_eq!(
+                Ok(()),
+                PermissionInstruction::CanAddListener(account_id).execute(&mut world_state_view)
+            );
+        }
+
+        #[test]
+        fn test_can_add_listener_without_permission_should_fail_with_permission_not_found() {
+            let domain_name = "Company".to_string();
+            let public_key = [0; 32];
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("NOT_ROOT", &domain_name);
+            let account = Account::new(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert!(PermissionInstruction::CanAddListener(account_id)
+                .execute(&mut world_state_view)
+                .unwrap_err()
+                .contains(PERMISSION_NOT_FOUND));
+        }
+
+        #[test]
+        fn test_can_add_listener_without_an_account_should_fail_with_permission_not_found() {
+            assert!(
+                PermissionInstruction::CanAddListener(AccountId::new("NOT_ROOT", "Company"))
                     .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
@@ -484,15 +603,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanRegisterAccount(account_id, None)
@@ -535,15 +653,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanRegisterAccount(account_id, Some(domain_name))
@@ -587,15 +704,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanRegisterAccount(account_id, Some(domain_name))
@@ -629,15 +745,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(PermissionInstruction::CanRegisterAccount(account_id, None)
                 .execute(&mut world_state_view)
                 .unwrap_err()
@@ -696,15 +811,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, None)
@@ -747,15 +861,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, Some(domain_name))
@@ -803,15 +916,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, Some(domain_name))
@@ -846,15 +958,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, None)
                     .execute(&mut world_state_view)
@@ -919,15 +1030,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanTransferAsset(
@@ -978,15 +1088,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanTransferAsset(
@@ -1034,15 +1143,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanTransferAsset(
@@ -1080,15 +1188,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(PermissionInstruction::CanTransferAsset(
                 account_id,
                 AssetDefinitionId::new("XOR", "SORA"),
@@ -1156,15 +1263,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanMintAsset(account_id, mint_asset_definition_id, None)
@@ -1211,15 +1317,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
                     address: address.clone(),
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Ok(()),
                 PermissionInstruction::CanMintAsset(
@@ -1267,15 +1372,14 @@ pub mod isi {
             let mut domains = HashMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
-                    address: address.clone(),
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address,
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert_eq!(
                 Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanMintAsset(
@@ -1298,11 +1402,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account = Account::new(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = HashMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1311,17 +1411,16 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = HashMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer {
-                id: PeerId {
-                    address: address.clone(),
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address,
                     public_key,
                 },
-                peers: HashSet::new(),
-                listen_address: address,
+                &Vec::new(),
                 domains,
-            });
+            ));
             assert!(PermissionInstruction::CanMintAsset(
                 account_id,
                 AssetDefinitionId::new("XOR", "SORA"),

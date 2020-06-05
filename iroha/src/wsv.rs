@@ -7,12 +7,16 @@ use crate::prelude::*;
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
     peer: Peer,
+    blocks: Vec<CommittedBlock>,
 }
 
 impl WorldStateView {
     /// Default `WorldStateView` constructor.
     pub fn new(peer: Peer) -> Self {
-        WorldStateView { peer }
+        WorldStateView {
+            peer,
+            blocks: Vec::new(),
+        }
     }
 
     /// Put `ValidBlock` of information with changes in form of **Iroha Special Instructions**
@@ -21,6 +25,12 @@ impl WorldStateView {
         for transaction in &block.transactions {
             if let Err(e) = &transaction.proceed(self) {
                 eprintln!("Failed to procced transaction on WSV: {}", e);
+            }
+        }
+        self.blocks.push(block.clone());
+        for listener in self.peer.listeners.clone() {
+            if let Err(e) = listener.execute(self.peer.authority(), self) {
+                eprintln!("Failed to execute listener on WSV: {}", e);
             }
         }
     }
@@ -87,5 +97,79 @@ impl WorldStateView {
         id: &<AssetDefinition as Identifiable>::Id,
     ) -> Option<&mut AssetDefinition> {
         self.domain(&id.domain_name)?.asset_definitions.get_mut(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        block::BlockHeader,
+        peer::{Peer, PeerId},
+    };
+    use std::collections::HashMap;
+
+    #[async_std::test]
+    async fn test_listeners() {
+        let block = CommittedBlock {
+            header: BlockHeader {
+                timestamp: 0,
+                height: 0,
+                previous_block_hash: [0; 32],
+                merkle_root_hash: [0; 32],
+            },
+            transactions: Vec::new(),
+            signatures: Vec::new(),
+        };
+        let domain_name = "global".to_string();
+        let mut asset_definitions = HashMap::new();
+        let asset_definition_id = crate::permission::permission_asset_definition_id();
+        asset_definitions.insert(
+            asset_definition_id.clone(),
+            AssetDefinition::new(asset_definition_id.clone()),
+        );
+        let public_key = [0; 32];
+        let account_id = AccountId::new("root", &domain_name);
+        let asset_id = AssetId {
+            definition_id: asset_definition_id,
+            account_id: account_id.clone(),
+        };
+        let asset =
+            Asset::with_permission(asset_id.clone(), ("anything".to_string(), "".to_string()));
+        let mut account = Account::new(
+            &account_id.name,
+            &account_id.domain_name,
+            public_key.clone(),
+        );
+        account.assets.insert(asset_id.clone(), asset);
+        let mut accounts = HashMap::new();
+        accounts.insert(account_id.clone(), account);
+        let domain = Domain {
+            name: domain_name.clone(),
+            accounts,
+            asset_definitions,
+        };
+        let mut domains = HashMap::new();
+        domains.insert(domain_name.clone(), domain);
+        let address = "127.0.0.1:8080".to_string();
+        let mut peer = Peer::with_domains(
+            PeerId {
+                address: address.clone(),
+                public_key,
+            },
+            &Vec::new(),
+            domains,
+        );
+        peer.add_listener(Instruction::If(
+            Box::new(Instruction::Notify("Test".to_string())),
+            Box::new(peer.add_domain(Domain::new("Test".to_string())).into()),
+            None,
+        ));
+        let mut world_state_view = WorldStateView {
+            peer,
+            blocks: Vec::new(),
+        };
+        world_state_view.put(&block).await;
+        assert!(world_state_view.domain("Test").is_some());
     }
 }
