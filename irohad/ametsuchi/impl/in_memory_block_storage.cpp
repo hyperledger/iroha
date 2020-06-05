@@ -34,7 +34,6 @@ void InMemoryBlockStorage::clear() {
 
 void InMemoryBlockStorage::forEach(FunctionType function) const {
   for (const auto &pair : block_store_) {
-    auto ptr = clone(*(pair.second));
-    function(ptr);
+    function(pair.second);
   }
 }

@@ -36,7 +36,7 @@ namespace iroha {
         return expected::makeError(
             GetBlockError{GetBlockError::Code::kNoBlock, error.str()});
       }
-      return clone(**block);
+      return std::move(*block);
     }
 
     shared_model::interface::types::HeightType

@@ -120,8 +120,7 @@ void PostgresBlockStorage::forEach(
   soci::session sql(*pool_wrapper_->connection_pool_);
   getBlockHeightsRange() | [this, &function](auto range) {
     while (range.min <= range.max) {
-      auto ptr = this->fetch(range.min);
-      function(*ptr);
+      function(*this->fetch(range.min));
       ++range.min;
     }
   };

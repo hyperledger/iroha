@@ -70,6 +70,6 @@ void FlatFileBlockStorage::forEach(
   for (auto block_id : flat_file_storage_->blockIdentifiers()) {
     auto block = fetch(block_id);
     BOOST_ASSERT(block);
-    function(*block);
+    function(std::move(*block));
   }
 }

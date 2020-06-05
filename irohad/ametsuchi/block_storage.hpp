@@ -47,7 +47,7 @@ namespace iroha {
 
       /// type of function which can be applied to the elements of the storage
       using FunctionType = std::function<void(
-          std::unique_ptr<shared_model::interface::Block> &)>;
+          std::shared_ptr<const shared_model::interface::Block>)>;
 
       /**
        * Iterates through all the stored blocks

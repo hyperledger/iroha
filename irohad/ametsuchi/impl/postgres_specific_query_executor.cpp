@@ -562,7 +562,7 @@ namespace iroha {
                                          1,
                                          query_hash);
       }
-      return query_response_factory_->createBlockResponse(clone(**block),
+      return query_response_factory_->createBlockResponse(std::move(*block),
                                                           query_hash);
     }
 
