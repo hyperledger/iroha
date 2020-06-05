@@ -28,12 +28,12 @@ namespace integration_framework {
     void HonestBehaviour::processYacMessage(
         std::shared_ptr<const YacMessage> message) {
       getFakePeer() |
-          [](auto &fake_peer) { fake_peer->voteForTheSame(message); };
+          [&](auto fake_peer) { fake_peer->voteForTheSame(message); };
     }
 
     LoaderBlockRequestResult HonestBehaviour::processLoaderBlockRequest(
         LoaderBlockRequest request) {
-      return getFakePeer() | [](auto &fake_peer) -> LoaderBlockRequestResult {
+      return getFakePeer() | [&](auto fake_peer) -> LoaderBlockRequestResult {
         const auto &block_storage = fake_peer->getBlockStorage();
         if (!block_storage) {
           getLogger()->debug(
@@ -53,7 +53,7 @@ namespace integration_framework {
 
     LoaderBlocksRequestResult HonestBehaviour::processLoaderBlocksRequest(
         LoaderBlocksRequest request) {
-      return getFakePeer() | [](auto &fake_peer) -> LoaderBlocksRequestResult {
+      return getFakePeer() | [&](auto fake_peer) -> LoaderBlocksRequestResult {
         const auto block_storage = fake_peer->getBlockStorage();
         if (!block_storage) {
           getLogger()->debug(
@@ -75,7 +75,7 @@ namespace integration_framework {
     HonestBehaviour::processOrderingProposalRequest(
         const OrderingProposalRequest &request) {
       return getFakePeer() |
-                 [](auto &fake_peer) -> OrderingProposalRequestResult {
+                 [&](auto fake_peer) -> OrderingProposalRequestResult {
         auto opt_proposal =
             fake_peer->getProposalStorage().getProposal(request);
         getLogger()->debug(
@@ -89,7 +89,7 @@ namespace integration_framework {
 
     void HonestBehaviour::processOrderingBatches(
         const BatchesCollection &batches) {
-      getFakePeer() | [](auto &fake_peer) {
+      getFakePeer() | [&](auto fake_peer) {
         if (batches.empty()) {
           getLogger()->debug(
               "Got an OnDemandOrderingService.SendBatches call with "
