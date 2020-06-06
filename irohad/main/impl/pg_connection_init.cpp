@@ -381,16 +381,12 @@ CREATE INDEX IF NOT EXISTS tx_positions_hash_index
     ON tx_positions
     USING hash
     (hash);
-CREATE INDEX IF NOT EXISTS tx_positions_creator_id_index
-    ON tx_positions
-    USING hash
-    (creator_id);
 CREATE INDEX IF NOT EXISTS tx_positions_creator_id_asset_index
     ON tx_positions
     (creator_id, asset_id);
 CREATE INDEX IF NOT EXISTS tx_positions_ts_height_index_index
     ON tx_positions
-    (ts, height, index);
+    (ts);
 CREATE TABLE IF NOT EXISTS tx_status_by_hash (
     hash varchar,
     status boolean

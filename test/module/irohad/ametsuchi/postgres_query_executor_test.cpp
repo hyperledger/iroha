@@ -1235,8 +1235,7 @@ namespace iroha {
 
       auto query_response = this->queryPage(size, hash, &ordering);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, &hash, size](const auto &tx_page_response) {
+          std::move(query_response), [&hash](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), 1);
             EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
             EXPECT_FALSE(tx_page_response.nextTxHash());
@@ -1266,7 +1265,7 @@ namespace iroha {
       auto query_response = this->queryPage(size, hash, &ordering);
       checkSuccessfulResult<TransactionsPageResponse>(
           std::move(query_response),
-          [this, &hash, size](const auto &tx_page_response) {
+          [&hash, size](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), size);
             EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
             EXPECT_FALSE(tx_page_response.nextTxHash());
@@ -1292,8 +1291,7 @@ namespace iroha {
 
       auto query_response = this->queryPage(size, hash, &ordering);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, &hash, size](const auto &tx_page_response) {
+          std::move(query_response), [&hash](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), 1);
             EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
             EXPECT_FALSE(tx_page_response.nextTxHash());
@@ -1315,8 +1313,7 @@ namespace iroha {
 
       auto query_response = this->queryPage(size, hash);
       checkSuccessfulResult<TransactionsPageResponse>(
-          std::move(query_response),
-          [this, &hash, size](const auto &tx_page_response) {
+          std::move(query_response), [&hash](const auto &tx_page_response) {
             EXPECT_EQ(tx_page_response.transactions().size(), 1);
             EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
             EXPECT_FALSE(tx_page_response.nextTxHash());
