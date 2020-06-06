@@ -752,7 +752,7 @@ namespace iroha {
           R"(WITH has_my_perm AS ({}),
       has_all_perm AS ({}),
       t AS (
-          SELECT height, hash FROM tx_positions WHERE hash IN ({}) LIMIT 1
+          SELECT DISTINCT height, hash FROM tx_positions WHERE hash IN ({})
       )
       SELECT height, hash, has_my_perm.perm, has_all_perm.perm FROM t
       RIGHT OUTER JOIN has_my_perm ON TRUE
