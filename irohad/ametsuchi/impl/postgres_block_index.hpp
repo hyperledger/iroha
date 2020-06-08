@@ -37,7 +37,7 @@ namespace iroha {
 
      private:
       /// Index a transaction.
-      bool makeAccountAssetIndex(
+      void makeAccountAssetIndex(
           const shared_model::interface::types::AccountIdType &account_id,
           shared_model::interface::types::HashType const &hash,
           shared_model::interface::types::TimestampType const ts,
