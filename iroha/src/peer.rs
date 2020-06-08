@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 type PublicKey = [u8; 32];
 
 /// Peer's identification.
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io)]
+#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io, Default)]
 pub struct PeerId {
     /// Address of the Peer's entrypoint.
     pub address: String,
@@ -17,7 +17,7 @@ pub struct PeerId {
 }
 
 /// Peer represents currently running Iroha instance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Peer {
     /// Peer Identification.
     pub id: PeerId,
@@ -29,6 +29,9 @@ pub struct Peer {
     pub domains: HashMap<String, Domain>,
     /// Events Listeners.
     pub listeners: Vec<Instruction>,
+    #[cfg(feature = "bridge")]
+    /// Registered bridges.
+    pub bridges: HashMap<String, Bridge>,
 }
 
 impl Peer {
@@ -53,6 +56,7 @@ impl Peer {
             listen_address: id.address,
             domains,
             listeners: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -72,6 +76,7 @@ impl Peer {
             listen_address: id.address,
             domains: HashMap::new(),
             listeners,
+            ..Default::default()
         }
     }
 
@@ -92,6 +97,7 @@ impl Peer {
             listen_address: id.address,
             domains,
             listeners,
+            ..Default::default()
         }
     }
 
@@ -134,6 +140,9 @@ pub mod isi {
         AddDomain(String, PeerId),
         /// Variant of the generic `Add` instruction for `Instruction` --> `Peer`.
         AddListener(Box<Instruction>, PeerId),
+        #[cfg(feature = "bridge")]
+        /// Variant of the generic `Register` instruction for `BridgeDefinition` --> `Peer`.
+        RegisterBridge(BridgeDefinition, PeerId),
     }
 
     impl PeerInstruction {
@@ -153,6 +162,10 @@ pub mod isi {
                     Add::new(*listener.clone(), peer_id.clone())
                         .execute(authority, world_state_view)
                 }
+                #[cfg(feature = "bridge")]
+                PeerInstruction::RegisterBridge(bridge_def, peer_id) => {
+                    Register::new(bridge_def.clone(), peer_id.clone()).execute(world_state_view)
+                }
             }
         }
     }
@@ -164,7 +177,7 @@ pub mod isi {
     }
 
     impl Add<Peer, Domain> {
-        fn execute(
+        pub(crate) fn execute(
             self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &mut WorldStateView,

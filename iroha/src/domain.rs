@@ -97,7 +97,7 @@ pub mod isi {
     }
 
     impl Register<Domain, Account> {
-        fn execute(
+        pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &mut WorldStateView,
