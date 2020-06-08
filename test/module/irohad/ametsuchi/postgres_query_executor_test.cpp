@@ -1485,6 +1485,46 @@ namespace iroha {
 
     /**
      * @given initialized storage, permission to his/her account
+     * AND the user does granted transfer from id2 to user in another domain
+     * @when get account asset transactions
+     * @then Return account asset transactions of user
+     */
+    TEST_F(GetAccountAssetTransactionsExecutorTest, ValidGranted) {
+      addPerms({shared_model::interface::permissions::Role::kGetMyAccAstTxs});
+
+      commitBlocks();
+
+      std::vector<shared_model::proto::Transaction> txs;
+      txs.push_back(
+          TestTransactionBuilder()
+              .creatorAccountId(account_id)
+              .transferAsset(
+                  account_id2, another_account_id, asset_id, "", "1.0")
+              .build());
+
+      auto block = createBlock(txs, 3, second_block_hash);
+
+      apply(storage, block);
+
+      auto hash4 = txs.at(0).hash();
+
+      auto query =
+          TestQueryBuilder()
+              .creatorAccountId(account_id)
+              .getAccountAssetTransactions(account_id, asset_id, kTxPageSize)
+              .build();
+      auto result = executeQuery(query);
+      checkSuccessfulResult<shared_model::interface::TransactionsPageResponse>(
+          std::move(result), [this, &hash4](const auto &cast_resp) {
+            ASSERT_EQ(cast_resp.transactions().size(), 3);
+            ASSERT_EQ(cast_resp.transactions()[0].hash(), hash2);
+            ASSERT_EQ(cast_resp.transactions()[1].hash(), hash3);
+            ASSERT_EQ(cast_resp.transactions()[2].hash(), hash4);
+          });
+    }
+
+    /**
+     * @given initialized storage, permission to his/her account
      * @when get account asset transactions
      * @then Return account asset transactions of user
      */
