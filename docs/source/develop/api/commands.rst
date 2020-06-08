@@ -244,8 +244,9 @@ Possible Stateful Validation Errors
 .. csv-table::
     :header: "Code", "Error Name", "Description", "How to solve"
 
-    "5", "CallEngine error", "Code execution in EVM failed; the reason can be both in the contract code itself or be rooted in nested Iroha commands call", "Investigation of the error root cause is required in order to diagnose the issue"
+    "1", "Engine is not configured", "This error means that Iroha was built without Burrow EVM", "See `Build <../../build/index.html#main-parameters>`_ section of documentation to build Iroha correctly"
     "2", "No such permissions", "Command’s creator does not have a permission to call EVM engine", "Grant the necessary permission"
+    "3", "CallEngine error", "Code execution in EVM failed; the reason can be both in the contract code itself or be rooted in nested Iroha commands call", "Investigation of the error root cause is required in order to diagnose the issue"
 
 Create account
 --------------
