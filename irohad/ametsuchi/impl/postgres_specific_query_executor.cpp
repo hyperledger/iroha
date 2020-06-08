@@ -426,7 +426,7 @@ namespace iroha {
       char const *base = R"(WITH
                has_perms AS ({0}),
                my_txs AS (
-                 SELECT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
+                 SELECT DISTINCT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
                  FROM tx_positions
                  WHERE
                  {2} -- related_txs
