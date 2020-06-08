@@ -35,6 +35,11 @@ impl WorldStateView {
         }
     }
 
+    /// Get `Peer` without an ability to modify it.
+    pub fn read_peer(&self) -> &Peer {
+        &self.peer
+    }
+
     /// Get `Peer` with an ability to modify it.
     pub fn peer(&mut self) -> &mut Peer {
         &mut self.peer

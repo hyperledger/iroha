@@ -10,6 +10,7 @@ edition = "2018"
 bridge = []
 dex = []
 network-mock = ["iroha_network/mock"]
+default = ["bridge"]
 
 [dependencies]
 iroha_derive = { path = "../iroha_macro/iroha_derive" }

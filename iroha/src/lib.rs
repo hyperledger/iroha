@@ -253,4 +253,8 @@ pub mod prelude {
         CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,
         TransactionSender, ValidBlockReceiver, ValidBlockSender,
     };
+
+    #[doc(inline)]
+    #[cfg(feature = "bridge")]
+    pub use crate::bridge::{Bridge, BridgeDefinition, BridgeDefinitionId, BridgeId, BridgeKind};
 }
