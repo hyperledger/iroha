@@ -1,7 +1,7 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
-use crate::{prelude::*, sumeragi::Message, MessageSender};
+use crate::{prelude::*, sumeragi::message::Message, MessageSender};
 use async_std::{sync::RwLock, task};
 use iroha_derive::*;
 #[cfg(feature = "mock")]
