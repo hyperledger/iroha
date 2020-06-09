@@ -1,8 +1,6 @@
 use crate::prelude::*;
 use parity_scale_codec::{Decode, Encode};
-use std::collections::BTreeMap;
 const PERMISSION_NOT_FOUND: &str = "Permission not found.";
-const PERMISSION_OBJECT_NOT_SATISFIED: &str = "Permission object not satisfied.";
 
 pub fn permission_asset_definition_id() -> AssetDefinitionId {
     AssetDefinitionId::new("permissions", "global")
@@ -10,7 +8,24 @@ pub fn permission_asset_definition_id() -> AssetDefinitionId {
 
 #[derive(Clone, Debug, Default, Encode, Decode)]
 pub struct Permissions {
-    origin: BTreeMap<String, String>,
+    origin: Vec<Permission>,
+}
+
+#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+pub enum Permission {
+    Anything,
+    AddDomain,
+    AddListener,
+    RegisterAssetDefinition(Option<<Domain as Identifiable>::Id>),
+    RegisterAccount(Option<<Domain as Identifiable>::Id>),
+    MintAsset(
+        Option<<Domain as Identifiable>::Id>,
+        Option<<AssetDefinition as Identifiable>::Id>,
+    ),
+    TransferAsset(
+        Option<<Domain as Identifiable>::Id>,
+        Option<<AssetDefinition as Identifiable>::Id>,
+    ),
 }
 
 impl Permissions {
@@ -18,118 +33,18 @@ impl Permissions {
         Permissions::default()
     }
 
-    fn check_anything(&self) -> Result<(), String> {
-        if self.origin.get("anything").is_some() {
+    pub fn single(permission: Permission) -> Self {
+        Permissions {
+            origin: vec![permission],
+        }
+    }
+
+    fn check(&self, permission: Permission) -> Result<(), String> {
+        if self.origin.contains(&Permission::Anything) || self.origin.contains(&permission) {
             Ok(())
         } else {
             Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
         }
-    }
-
-    fn check_add_domain(&self) -> Result<(), String> {
-        if self.check_anything().is_ok() || self.origin.get("add_domain").is_some() {
-            Ok(())
-        } else {
-            Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
-        }
-    }
-
-    fn check_add_listener(&self) -> Result<(), String> {
-        if self.check_anything().is_ok() || self.origin.get("add_listener").is_some() {
-            Ok(())
-        } else {
-            Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self))
-        }
-    }
-
-    fn check_register_account(&self, domain: &Option<String>) -> Result<(), String> {
-        if self.check_anything().is_ok() {
-            Ok(())
-        } else {
-            match self.origin.get("register_account") {
-                Some(object) => {
-                    if domain.as_ref().unwrap_or(&"any".to_string()) == object {
-                        Ok(())
-                    } else {
-                        Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
-                    }
-                }
-                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-            }
-        }
-    }
-
-    fn check_register_asset(&self, domain: &Option<String>) -> Result<(), String> {
-        if self.check_anything().is_ok() {
-            Ok(())
-        } else {
-            match self.origin.get("register_asset_definition") {
-                Some(object) => {
-                    if domain.as_ref().unwrap_or(&"any".to_string()) == object {
-                        Ok(())
-                    } else {
-                        Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
-                    }
-                }
-                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-            }
-        }
-    }
-
-    fn check_transfer_asset(
-        &self,
-        asset_definition_id: &AssetDefinitionId,
-        domain: &Option<String>,
-    ) -> Result<(), String> {
-        if self.check_anything().is_ok() {
-            Ok(())
-        } else {
-            match self.origin.get("transfer_asset") {
-                Some(object) => {
-                    if object
-                        == &(asset_definition_id.to_string()
-                            + domain.as_ref().unwrap_or(&"any".to_string()))
-                    {
-                        Ok(())
-                    } else {
-                        Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
-                    }
-                }
-                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-            }
-        }
-    }
-
-    fn check_mint_asset(
-        &self,
-        asset_definition_id: &AssetDefinitionId,
-        domain: &Option<String>,
-    ) -> Result<(), String> {
-        if self.check_anything().is_ok() {
-            Ok(())
-        } else {
-            match self.origin.get("mint_asset") {
-                Some(object) => {
-                    if object
-                        == &(asset_definition_id.to_string()
-                            + domain.as_ref().unwrap_or(&"any".to_string()))
-                    {
-                        Ok(())
-                    } else {
-                        Err(format!("{}: {}", PERMISSION_OBJECT_NOT_SATISFIED, object))
-                    }
-                }
-                None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-            }
-        }
-    }
-}
-
-impl From<(String, String)> for Permissions {
-    fn from(permission: (String, String)) -> Self {
-        let mut origin = BTreeMap::new();
-        origin.insert(permission.0, permission.1);
-        Permissions { origin }
     }
 }
 
@@ -171,79 +86,53 @@ pub mod isi {
         /// If permission check is satysfied - `Result::Ok(())` will be return.
         /// If permission check results in failure - `Result::Err(String)` will be return.
         pub fn execute(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
+            use PermissionInstruction::*;
             match self {
-                PermissionInstruction::CanAnything(authority_account_id) => {
+                CanAnything(authority_account_id)
+                | CanAddDomain(authority_account_id)
+                | CanAddListener(authority_account_id)
+                | CanRegisterAccount(authority_account_id, ..)
+                | CanRegisterAssetDefinition(authority_account_id, ..)
+                | CanTransferAsset(authority_account_id, ..)
+                | CanMintAsset(authority_account_id, ..) => {
                     match world_state_view.read_asset(&AssetId {
                         definition_id: permission_asset_definition_id(),
                         account_id: authority_account_id.clone(),
                     }) {
-                        Some(asset) => asset.permissions.check_anything(),
+                        Some(asset) => asset.permissions.check(self.into()),
                         None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
                     }
                 }
-                PermissionInstruction::CanAddDomain(authority_account_id) => match world_state_view
-                    .read_asset(&AssetId {
-                        definition_id: permission_asset_definition_id(),
-                        account_id: authority_account_id.clone(),
-                    }) {
-                    Some(asset) => asset.permissions.check_add_domain(),
-                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                },
-                PermissionInstruction::CanAddListener(authority_account_id) => {
-                    match world_state_view.read_asset(&AssetId {
-                        definition_id: permission_asset_definition_id(),
-                        account_id: authority_account_id.clone(),
-                    }) {
-                        Some(asset) => asset.permissions.check_add_listener(),
-                        None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                    }
+            }
+        }
+    }
+
+    impl From<&PermissionInstruction> for Permission {
+        fn from(instruction: &PermissionInstruction) -> Self {
+            match instruction {
+                PermissionInstruction::CanAnything(_) => Permission::Anything,
+                PermissionInstruction::CanAddDomain(_) => Permission::AddDomain,
+                PermissionInstruction::CanAddListener(_) => Permission::AddListener,
+                PermissionInstruction::CanRegisterAccount(_, option_domain_id) => {
+                    Permission::RegisterAccount(option_domain_id.clone())
                 }
-                PermissionInstruction::CanRegisterAccount(
-                    authority_account_id,
-                    option_domain_id,
-                ) => match world_state_view.read_asset(&AssetId {
-                    definition_id: permission_asset_definition_id(),
-                    account_id: authority_account_id.clone(),
-                }) {
-                    Some(asset) => asset.permissions.check_register_account(option_domain_id),
-                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                },
-                PermissionInstruction::CanRegisterAssetDefinition(
-                    authority_account_id,
-                    option_domain_id,
-                ) => match world_state_view.read_asset(&AssetId {
-                    definition_id: permission_asset_definition_id(),
-                    account_id: authority_account_id.clone(),
-                }) {
-                    Some(asset) => asset.permissions.check_register_asset(option_domain_id),
-                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                },
+                PermissionInstruction::CanRegisterAssetDefinition(_, option_domain_id) => {
+                    Permission::RegisterAssetDefinition(option_domain_id.clone())
+                }
                 PermissionInstruction::CanTransferAsset(
-                    authority_account_id,
+                    _,
                     asset_definition_id,
                     option_domain_id,
-                ) => match world_state_view.read_asset(&AssetId {
-                    definition_id: permission_asset_definition_id(),
-                    account_id: authority_account_id.clone(),
-                }) {
-                    Some(asset) => asset
-                        .permissions
-                        .check_transfer_asset(asset_definition_id, option_domain_id),
-                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                },
-                PermissionInstruction::CanMintAsset(
-                    authority_account_id,
-                    asset_definition_id,
-                    option_domain_id,
-                ) => match world_state_view.read_asset(&AssetId {
-                    definition_id: permission_asset_definition_id(),
-                    account_id: authority_account_id.clone(),
-                }) {
-                    Some(asset) => asset
-                        .permissions
-                        .check_mint_asset(asset_definition_id, option_domain_id),
-                    None => Err(format!("Error: {}, {:?}", PERMISSION_NOT_FOUND, self)),
-                },
+                ) => Permission::TransferAsset(
+                    option_domain_id.clone(),
+                    Some(asset_definition_id.clone()),
+                ),
+                PermissionInstruction::CanMintAsset(_, asset_definition_id, option_domain_id) => {
+                    Permission::MintAsset(
+                        option_domain_id.clone(),
+                        Some(asset_definition_id.clone()),
+                    )
+                }
             }
         }
     }
@@ -270,8 +159,7 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset =
-                Asset::with_permission(asset_id.clone(), ("anything".to_string(), "".to_string()));
+            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
             let mut account = Account::new(
                 &account_id.name,
                 &account_id.domain_name,
@@ -373,10 +261,7 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("add_domain".to_string(), "".to_string()),
-            );
+            let asset = Asset::with_permission(asset_id.clone(), Permission::AddDomain);
             let mut account = Account::new(
                 &account_id.name,
                 &account_id.domain_name,
@@ -478,10 +363,7 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("add_listener".to_string(), "".to_string()),
-            );
+            let asset = Asset::with_permission(asset_id.clone(), Permission::AddListener);
             let mut account = Account::new(
                 &account_id.name,
                 &account_id.domain_name,
@@ -583,10 +465,7 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("register_account".to_string(), "any".to_string()),
-            );
+            let asset = Asset::with_permission(asset_id.clone(), Permission::RegisterAccount(None));
             let mut account = Account::new(
                 &account_id.name,
                 &account_id.domain_name,
@@ -635,7 +514,7 @@ pub mod isi {
             };
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                ("register_account".to_string(), domain_name.clone()),
+                Permission::RegisterAccount(Some(domain_name.clone())),
             );
             let mut account = Account::new(
                 &account_id.name,
@@ -663,57 +542,6 @@ pub mod isi {
             ));
             assert_eq!(
                 Ok(()),
-                PermissionInstruction::CanRegisterAccount(account_id, Some(domain_name))
-                    .execute(&mut world_state_view)
-            );
-        }
-
-        #[test]
-        fn test_can_register_account_in_domain_should_fail_with_permission_object_not_found() {
-            let domain_name = "Company".to_string();
-            let public_key = [0; 32];
-            let mut asset_definitions = HashMap::new();
-            let asset_definition_id = permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let account_id = AccountId::new("ROOT", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let wrong_domain_name = "AnotherCompany".to_string();
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("register_account".to_string(), wrong_domain_name.clone()),
-            );
-            let mut account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
-            accounts.insert(account_id.clone(), account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = HashMap::new();
-            domains.insert(domain_name.clone(), domain);
-            let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: address.clone(),
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            ));
-            assert_eq!(
-                Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanRegisterAccount(account_id, Some(domain_name))
                     .execute(&mut world_state_view)
             );
@@ -791,10 +619,8 @@ pub mod isi {
                 definition_id: asset_definition_id,
                 account_id: account_id.clone(),
             };
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("register_asset_definition".to_string(), "any".to_string()),
-            );
+            let asset =
+                Asset::with_permission(asset_id.clone(), Permission::RegisterAssetDefinition(None));
             let mut account = Account::new(
                 &account_id.name,
                 &account_id.domain_name,
@@ -843,7 +669,7 @@ pub mod isi {
             };
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                ("register_asset_definition".to_string(), domain_name.clone()),
+                Permission::RegisterAssetDefinition(Some(domain_name.clone())),
             );
             let mut account = Account::new(
                 &account_id.name,
@@ -871,61 +697,6 @@ pub mod isi {
             ));
             assert_eq!(
                 Ok(()),
-                PermissionInstruction::CanRegisterAssetDefinition(account_id, Some(domain_name))
-                    .execute(&mut world_state_view)
-            );
-        }
-
-        #[test]
-        fn test_can_register_asset_definition_in_domain_should_fail_with_permission_object_not_found(
-        ) {
-            let domain_name = "Company".to_string();
-            let public_key = [0; 32];
-            let mut asset_definitions = HashMap::new();
-            let asset_definition_id = permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let account_id = AccountId::new("ROOT", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let wrong_domain_name = "AnotherCompany".to_string();
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                (
-                    "register_asset_definition".to_string(),
-                    wrong_domain_name.clone(),
-                ),
-            );
-            let mut account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
-            accounts.insert(account_id.clone(), account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = HashMap::new();
-            domains.insert(domain_name.clone(), domain);
-            let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: address.clone(),
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            ));
-            assert_eq!(
-                Err("Permission object not satisfied.: AnotherCompany".to_string()),
                 PermissionInstruction::CanRegisterAssetDefinition(account_id, Some(domain_name))
                     .execute(&mut world_state_view)
             );
@@ -1009,10 +780,7 @@ pub mod isi {
             let transfer_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                (
-                    "transfer_asset".to_string(),
-                    transfer_asset_definition_id.to_string() + "any",
-                ),
+                Permission::TransferAsset(None, Some(transfer_asset_definition_id.clone())),
             );
             let mut account = Account::new(
                 &account_id.name,
@@ -1067,9 +835,9 @@ pub mod isi {
             let transfer_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                (
-                    "transfer_asset".to_string(),
-                    transfer_asset_definition_id.to_string() + &domain_name,
+                Permission::TransferAsset(
+                    Some(domain_name.clone()),
+                    Some(transfer_asset_definition_id.clone()),
                 ),
             );
             let mut account = Account::new(
@@ -1101,61 +869,6 @@ pub mod isi {
                 PermissionInstruction::CanTransferAsset(
                     account_id,
                     transfer_asset_definition_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
-        }
-
-        #[test]
-        fn test_can_transfer_asset_in_domain_should_fail_with_permission_object_not_found() {
-            let domain_name = "Company".to_string();
-            let public_key = [0; 32];
-            let mut asset_definitions = HashMap::new();
-            let asset_definition_id = permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let account_id = AccountId::new("ROOT", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let wrong_domain_name = "AnotherCompany".to_string();
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("transfer_asset".to_string(), wrong_domain_name.clone()),
-            );
-            let mut account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
-            accounts.insert(account_id.clone(), account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = HashMap::new();
-            domains.insert(domain_name.clone(), domain);
-            let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address: address.clone(),
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            ));
-            assert_eq!(
-                Err("Permission object not satisfied.: AnotherCompany".to_string()),
-                PermissionInstruction::CanTransferAsset(
-                    account_id,
-                    AssetDefinitionId::new("XOR", "SORA"),
                     Some(domain_name)
                 )
                 .execute(&mut world_state_view)
@@ -1242,10 +955,7 @@ pub mod isi {
             let mint_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                (
-                    "mint_asset".to_string(),
-                    mint_asset_definition_id.to_string() + "any",
-                ),
+                Permission::MintAsset(None, Some(mint_asset_definition_id.clone())),
             );
             let mut account = Account::new(
                 &account_id.name,
@@ -1296,9 +1006,9 @@ pub mod isi {
             let mint_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                (
-                    "mint_asset".to_string(),
-                    mint_asset_definition_id.to_string() + &domain_name,
+                Permission::MintAsset(
+                    Some(domain_name.clone()),
+                    Some(mint_asset_definition_id.clone()),
                 ),
             );
             let mut account = Account::new(
@@ -1330,61 +1040,6 @@ pub mod isi {
                 PermissionInstruction::CanMintAsset(
                     account_id,
                     mint_asset_definition_id,
-                    Some(domain_name)
-                )
-                .execute(&mut world_state_view)
-            );
-        }
-
-        #[test]
-        fn test_can_mint_asset_in_domain_should_fail_with_permission_object_not_found() {
-            let domain_name = "Company".to_string();
-            let public_key = [0; 32];
-            let mut asset_definitions = HashMap::new();
-            let asset_definition_id = permission_asset_definition_id();
-            asset_definitions.insert(
-                asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
-            );
-            let account_id = AccountId::new("ROOT", &domain_name);
-            let asset_id = AssetId {
-                definition_id: asset_definition_id,
-                account_id: account_id.clone(),
-            };
-            let wrong_domain_name = "AnotherCompany".to_string();
-            let asset = Asset::with_permission(
-                asset_id.clone(),
-                ("mint_asset".to_string(), wrong_domain_name.clone()),
-            );
-            let mut account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
-            accounts.insert(account_id.clone(), account);
-            let domain = Domain {
-                name: domain_name.clone(),
-                accounts,
-                asset_definitions,
-            };
-            let mut domains = HashMap::new();
-            domains.insert(domain_name.clone(), domain);
-            let address = "127.0.0.1:8080".to_string();
-            let mut world_state_view = WorldStateView::new(Peer::with_domains(
-                PeerId {
-                    address,
-                    public_key,
-                },
-                &Vec::new(),
-                domains,
-            ));
-            assert_eq!(
-                Err("Permission object not satisfied.: AnotherCompany".to_string()),
-                PermissionInstruction::CanMintAsset(
-                    account_id,
-                    AssetDefinitionId::new("XOR", "SORA"),
                     Some(domain_name)
                 )
                 .execute(&mut world_state_view)

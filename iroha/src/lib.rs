@@ -28,6 +28,7 @@ use crate::{
     config::Configuration,
     kura::Kura,
     peer::Peer,
+    permission::Permission,
     prelude::*,
     queue::Queue,
     sumeragi::{message::Message, Sumeragi},
@@ -95,8 +96,7 @@ impl Iroha {
             definition_id: asset_definition_id,
             account_id: account_id.clone(),
         };
-        let asset =
-            Asset::with_permission(asset_id.clone(), ("anything".to_string(), "".to_string()));
+        let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
         let mut account =
             Account::new(&account_id.name, &account_id.domain_name, config.public_key);
         account.assets.insert(asset_id, asset);

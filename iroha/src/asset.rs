@@ -1,7 +1,11 @@
 //! This module contains `Asset` structure, it's implementation and related traits and
 //! instructions implementations.
 
-use crate::{isi::prelude::*, permission::Permissions, prelude::*};
+use crate::{
+    isi::prelude::*,
+    permission::{Permission, Permissions},
+    prelude::*,
+};
 use iroha_derive::log;
 use parity_scale_codec::{Decode, Encode};
 use std::{
@@ -67,8 +71,8 @@ impl Asset {
     }
 
     /// Constructor with filled `permissions` field.
-    pub fn with_permission(id: <Asset as Identifiable>::Id, permission: (String, String)) -> Self {
-        let permissions = Permissions::from(permission);
+    pub fn with_permission(id: <Asset as Identifiable>::Id, permission: Permission) -> Self {
+        let permissions = Permissions::single(permission);
         Self {
             id,
             quantity: 0,
