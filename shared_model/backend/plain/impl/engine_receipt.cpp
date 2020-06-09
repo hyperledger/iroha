@@ -9,23 +9,28 @@ using namespace shared_model::interface::types;
 using namespace shared_model::plain;
 
 namespace {
-    auto payloadToPayloadType(std::optional<EvmAddressHexString> const &callee, std::optional<EvmAddressHexString> const &contract_address) {
-          assert(!callee != !contract_address);
-          if (!!callee) {
-            return shared_model::interface::EngineReceipt::
-                PayloadType::kPayloadTypeCallResult;
-          }
-          return shared_model::interface::EngineReceipt::
-              PayloadType::kPayloadTypeContractAddress;
-        };
-}
+  auto payloadToPayloadType(
+      std::optional<EvmAddressHexString> const &callee,
+      std::optional<EvmAddressHexString> const &contract_address) {
+    assert(!callee != !contract_address);
+    if (!!callee) {
+      return shared_model::interface::EngineReceipt::PayloadType::
+          kPayloadTypeCallResult;
+    }
+    return shared_model::interface::EngineReceipt::PayloadType::
+        kPayloadTypeContractAddress;
+  };
+}  // namespace
 
 EngineReceipt::EngineReceipt(
     shared_model::interface::types::CommandIndexType cmd_index,
     shared_model::interface::types::AccountIdType const &caller,
-    std::optional<shared_model::interface::types::EvmDataHexString> const &callee,
-    std::optional<shared_model::interface::types::EvmDataHexString> const &contract_address,
-    std::optional<shared_model::interface::types::EvmDataHexString> const &e_response)
+    std::optional<shared_model::interface::types::EvmDataHexString> const
+        &callee,
+    std::optional<shared_model::interface::types::EvmDataHexString> const
+        &contract_address,
+    std::optional<shared_model::interface::types::EvmDataHexString> const
+        &e_response)
     : cmd_index_(cmd_index),
       caller_(caller),
       payload_type_(payloadToPayloadType(callee, contract_address)),
@@ -39,7 +44,7 @@ EngineReceipt::EngineReceipt(
               ? std::optional<
                     shared_model::interface::EngineReceipt::CallResult>(
                     {*callee_, e_response_})
-              : std::nullopt) { }
+              : std::nullopt) {}
 
 shared_model::interface::types::AccountIdType EngineReceipt::getCaller() const {
   return caller_;
