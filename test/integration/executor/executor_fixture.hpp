@@ -13,6 +13,7 @@
 #include "framework/common_constants.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "integration/executor/executor_fixture_param.hpp"
+#include "integration/executor/executor_fixture_param_provider.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/query_responses/error_query_response.hpp"
 #include "interfaces/query_responses/error_responses/no_account_assets_error_response.hpp"
@@ -158,7 +159,7 @@ namespace executor_testing {
             shared_model::interface::types::PublicKeyHexStringView> &keys);
 
    protected:
-    virtual std::shared_ptr<ExecutorTestParam> getBackendParam() = 0;
+    virtual ExecutorTestParam &getBackendParam() = 0;
 
    private:
     std::unique_ptr<iroha::integration_framework::ExecutorItf> executor_itf_;
@@ -175,12 +176,12 @@ namespace executor_testing {
    * parametric cases.
    */
   template <typename SpecificQueryFixture>
-  class BasicExecutorTest : public SpecificQueryFixture,
-                            public ::testing::WithParamInterface<
-                                std::shared_ptr<ExecutorTestParam>> {
+  class BasicExecutorTest
+      : public SpecificQueryFixture,
+        public ::testing::WithParamInterface<ExecutorTestParamProvider> {
    protected:
-    virtual std::shared_ptr<ExecutorTestParam> getBackendParam() {
-      return GetParam();
+    virtual ExecutorTestParam &getBackendParam() {
+      return GetParam()();
     }
   };
 

@@ -7,6 +7,7 @@
 #define TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_POSTGRES_HPP
 
 #include "integration/executor/executor_fixture_param.hpp"
+#include "integration/executor/executor_fixture_param_provider.hpp"
 
 namespace soci {
   class session;
@@ -55,6 +56,8 @@ namespace executor_testing {
     std::unique_ptr<soci::session> block_indexer_session_;
     std::shared_ptr<iroha::ametsuchi::BlockIndex> block_indexer_;
   };
+
+  std::reference_wrapper<ExecutorTestParam> getExecutorTestParamPostgres();
 }  // namespace executor_testing
 
 #endif /* TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_POSTGRES_HPP */

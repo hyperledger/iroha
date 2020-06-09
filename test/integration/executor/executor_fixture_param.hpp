@@ -47,9 +47,6 @@ namespace executor_testing {
     std::unique_ptr<iroha::ametsuchi::MockVmCaller> vm_caller_;
   };
 
-  std::string paramToString(
-      testing::TestParamInfo<std::shared_ptr<ExecutorTestParam>> param);
-
 }  // namespace executor_testing
 
 #endif /* TEST_INTEGRATION_EXECUTOR_FIXTURE_PARAM_HPP */

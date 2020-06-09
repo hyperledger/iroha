@@ -92,6 +92,12 @@ std::string PostgresExecutorTestParam::toString() const {
   return "PostgreSQL";
 }
 
+std::reference_wrapper<ExecutorTestParam>
+executor_testing::getExecutorTestParamPostgres() {
+  static PostgresExecutorTestParam param;
+  return param;
+}
+
 namespace {
   struct SessionHolder {
     SessionHolder(std::unique_ptr<soci::session> session)

@@ -173,7 +173,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
     vm_call_expectation_ =
         set_expectation(
             EXPECT_CALL(
-                *getBackendParam()->vm_caller_,
+                *getBackendParam().vm_caller_,
                 call(_, tx_hash, cmd_idx, input, kUserId, callee, _, _)))
             .WillOnce(::testing::Return(
                 iroha::expected::makeValue(std::move(engine_response))));
@@ -187,7 +187,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
             .prevHash(shared_model::crypto::Hash{"prev_hash"})
             .createdTime(iroha::time::now())
             .build();
-    const auto block_indexer = getBackendParam()->getBlockIndexer();
+    const auto block_indexer = getBackendParam().getBlockIndexer();
     block_indexer->index(block);
   }
 
@@ -210,7 +210,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
          ++cmd_idx) {
       auto const &cmd = commands[cmd_idx];
       const auto burrow_storage =
-          getBackendParam()->makeBurrowStorage(tx_hash, cmd_idx);
+          getBackendParam().makeBurrowStorage(tx_hash, cmd_idx);
       for (auto const &log : cmd.logs) {
         burrow_storage->storeLog(
             log.address, log.data, {log.topics.begin(), log.topics.end()});
