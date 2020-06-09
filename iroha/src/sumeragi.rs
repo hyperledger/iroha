@@ -2,20 +2,18 @@
 //!
 //! `Consensus` trait is now implemented only by `Sumeragi` for now.
 
+use self::message::*;
 use crate::{
     block::{PendingBlock, SignedBlock},
     crypto::Hash,
     peer::PeerId,
     prelude::*,
-    torii::uri,
 };
 use async_std::sync::RwLock;
 use iroha_derive::*;
-use iroha_network::{Network, Request, Response};
-use parity_scale_codec::{Decode, Encode};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fmt::{self, Debug, Formatter},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -23,175 +21,6 @@ use std::{
 
 trait Consensus {
     fn round(&mut self, transactions: Vec<AcceptedTransaction>) -> Option<PendingBlock>;
-}
-
-/// Message's variants that are used by peers to communicate in the process of consensus.
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub enum Message {
-    /// Is sent by leader to all validating peers, when a new block is created.
-    BlockCreated(SignedBlock),
-    /// Is sent by validating peers to proxy tail and observing peers when they have signed this block.
-    BlockSigned(SignedBlock),
-    /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
-    BlockCommitted(SignedBlock),
-    /// Is sent when the node votes to change view due to commit timeout.
-    CommitTimeout(CommitTimeout),
-    /// Receipt of receiving tx from peer. Sent by a leader.
-    TransactionReceived(TransactionReceipt),
-    /// Tx forwarded from client by a peer to a leader.
-    TransactionForwarded(TransactionForwarded),
-    /// Message to other peers that this peer did not receive receipt from leader for a forwarded tx.
-    NoTransactionReceiptReceived(NoTransactionReceiptReceived),
-}
-
-impl Message {
-    #[log]
-    async fn send_to(self, peer: &PeerId) -> Result<(), String> {
-        match Network::send_request_to(
-            &peer.address,
-            Request::new(uri::CONSENSUS_URI.to_string(), self.into()),
-        )
-        .await?
-        {
-            Response::Ok(_) => Ok(()),
-            Response::InternalError => Err(format!(
-                "Failed to send message - Internal Error on peer: {:?}",
-                peer
-            )),
-        }
-    }
-}
-
-/// Message structure describing a failed attempt to forward transaction to a leader.
-/// Peers sign it if they are not able to get a TxReceipt from a leader after sending the specified transaction.
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub struct NoTransactionReceiptReceived {
-    transaction: AcceptedTransaction,
-    signatures: BTreeMap<PublicKey, Signature>,
-}
-
-impl NoTransactionReceiptReceived {
-    /// Constructs a new `NoTransactionReceiptReceived` message with no signatures.
-    pub fn new(transaction: &AcceptedTransaction) -> NoTransactionReceiptReceived {
-        NoTransactionReceiptReceived {
-            transaction: transaction.clone(),
-            signatures: BTreeMap::new(),
-        }
-    }
-
-    /// Signes this failed attempt with the peer's public and private key.
-    /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
-    pub fn sign(&mut self, public_key: &PublicKey, private_key: &PrivateKey) -> Result<(), String> {
-        let payload: Vec<u8> = self.transaction.clone().into();
-        if self.signatures.contains_key(public_key) {
-            Err("Already signed by these keys.".to_string())
-        } else {
-            self.signatures.insert(
-                *public_key,
-                Signature::new(*public_key, &payload, private_key)?,
-            );
-            Ok(())
-        }
-    }
-}
-
-/// Message structure describing a transaction that is forwarded from a client by a peer to the leader.
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub struct TransactionForwarded {
-    transaction: AcceptedTransaction,
-    peer: PeerId,
-}
-
-/// Message structure describing a receipt sent by the leader to the peer it got this transaction from.
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub struct TransactionReceipt {
-    transaction_hash: Hash,
-    received_at: Duration,
-    signature: Signature,
-}
-
-impl TransactionReceipt {
-    /// Constructs a new receipt
-    pub fn new(
-        transaction: &AcceptedTransaction,
-        public_key: &PublicKey,
-        private_key: &PrivateKey,
-    ) -> Result<TransactionReceipt, String> {
-        let transaction_hash = transaction.hash();
-        Ok(TransactionReceipt {
-            transaction_hash,
-            received_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time."),
-            signature: Signature::new(*public_key, &transaction_hash, private_key)?,
-        })
-    }
-}
-
-/// Message structure describing a request to other peers to change view because of the commit timeout.
-/// Peers vote on this view change by signing and forwarding this structure.
-#[derive(Io, Decode, Encode, Debug, Clone)]
-pub struct CommitTimeout {
-    voting_block_hash: Hash,
-    signatures: BTreeMap<PublicKey, Signature>,
-}
-
-impl CommitTimeout {
-    /// Constructs a new commit timeout message with no signatures.
-    pub fn new(voting_block: VotingBlock) -> CommitTimeout {
-        CommitTimeout {
-            voting_block_hash: voting_block.block.hash(),
-            signatures: BTreeMap::new(),
-        }
-    }
-
-    /// Signes this request with the peer's public and private key.
-    /// This way peers vote for changing the view.
-    pub fn sign(&mut self, public_key: &PublicKey, private_key: &PrivateKey) -> Result<(), String> {
-        if self.signatures.contains_key(public_key) {
-            Err("Already signed by these keys.".to_string())
-        } else {
-            self.signatures.insert(
-                *public_key,
-                Signature::new(*public_key, &self.voting_block_hash, private_key)?,
-            );
-            Ok(())
-        }
-    }
-}
-
-/// Structure represents a block that is currently in discussion.
-#[derive(Debug, Clone)]
-pub struct VotingBlock {
-    /// At what time has this peer voted for this block
-    voted_at: Duration,
-    /// Signed Block hash
-    block: SignedBlock,
-}
-
-impl VotingBlock {
-    /// Constructs new VotingBlock.
-    pub fn new(block: SignedBlock) -> VotingBlock {
-        VotingBlock {
-            voted_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("Failed to get System Time."),
-            block,
-        }
-    }
-}
-
-/// Possible Peer's roles in consensus.
-#[derive(Eq, PartialEq, Debug, Hash)]
-pub enum Role {
-    /// Leader.
-    Leader,
-    /// Validating Peer.
-    ValidatingPeer,
-    /// Observing Peer.
-    ObservingPeer,
-    /// Proxy Tail.
-    ProxyTail,
 }
 
 /// `Sumeragi` is the implementation of the consensus.
@@ -705,6 +534,211 @@ impl Debug for Sumeragi {
             .field("peer_id", &self.peer_id)
             .field("voting_block", &self.voting_block)
             .finish()
+    }
+}
+
+/// Possible Peer's roles in consensus.
+#[derive(Eq, PartialEq, Debug, Hash)]
+pub enum Role {
+    /// Leader.
+    Leader,
+    /// Validating Peer.
+    ValidatingPeer,
+    /// Observing Peer.
+    ObservingPeer,
+    /// Proxy Tail.
+    ProxyTail,
+}
+
+/// Contains message structures for p2p communication during consensus.
+pub mod message {
+    use crate::{
+        block::SignedBlock,
+        crypto::{Hash, PrivateKey, PublicKey, Signature},
+        peer::PeerId,
+        torii::uri,
+        tx::AcceptedTransaction,
+    };
+    use iroha_derive::*;
+    use iroha_network::prelude::*;
+    use parity_scale_codec::{Decode, Encode};
+    use std::{
+        collections::BTreeMap,
+        time::{Duration, SystemTime},
+    };
+
+    /// Message's variants that are used by peers to communicate in the process of consensus.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub enum Message {
+        /// Is sent by leader to all validating peers, when a new block is created.
+        BlockCreated(SignedBlock),
+        /// Is sent by validating peers to proxy tail and observing peers when they have signed this block.
+        BlockSigned(SignedBlock),
+        /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
+        BlockCommitted(SignedBlock),
+        /// Is sent when the node votes to change view due to commit timeout.
+        CommitTimeout(CommitTimeout),
+        /// Receipt of receiving tx from peer. Sent by a leader.
+        TransactionReceived(TransactionReceipt),
+        /// Tx forwarded from client by a peer to a leader.
+        TransactionForwarded(TransactionForwarded),
+        /// Message to other peers that this peer did not receive receipt from leader for a forwarded tx.
+        NoTransactionReceiptReceived(NoTransactionReceiptReceived),
+    }
+
+    impl Message {
+        /// Send this message over the network to the specified `peer`.
+        #[log]
+        pub async fn send_to(self, peer: &PeerId) -> Result<(), String> {
+            match Network::send_request_to(
+                &peer.address,
+                Request::new(uri::CONSENSUS_URI.to_string(), self.into()),
+            )
+            .await?
+            {
+                Response::Ok(_) => Ok(()),
+                Response::InternalError => Err(format!(
+                    "Failed to send message - Internal Error on peer: {:?}",
+                    peer
+                )),
+            }
+        }
+    }
+
+    /// Message structure describing a failed attempt to forward transaction to a leader.
+    /// Peers sign it if they are not able to get a TxReceipt from a leader after sending the specified transaction.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct NoTransactionReceiptReceived {
+        /// Transaction for which there was no `TransactionReceipt`.
+        pub transaction: AcceptedTransaction,
+        /// Signatures of the peers who voted for changing the leader.
+        pub signatures: BTreeMap<PublicKey, Signature>,
+    }
+
+    impl NoTransactionReceiptReceived {
+        /// Constructs a new `NoTransactionReceiptReceived` message with no signatures.
+        pub fn new(transaction: &AcceptedTransaction) -> NoTransactionReceiptReceived {
+            NoTransactionReceiptReceived {
+                transaction: transaction.clone(),
+                signatures: BTreeMap::new(),
+            }
+        }
+
+        /// Signes this failed attempt with the peer's public and private key.
+        /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
+        pub fn sign(
+            &mut self,
+            public_key: &PublicKey,
+            private_key: &PrivateKey,
+        ) -> Result<(), String> {
+            let payload: Vec<u8> = self.transaction.clone().into();
+            if self.signatures.contains_key(public_key) {
+                Err("Already signed by these keys.".to_string())
+            } else {
+                self.signatures.insert(
+                    *public_key,
+                    Signature::new(*public_key, &payload, private_key)?,
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Message structure describing a transaction that is forwarded from a client by a peer to the leader.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct TransactionForwarded {
+        /// Transaction that is forwarded from a client by a peer to the leader
+        pub transaction: AcceptedTransaction,
+        /// `PeerId` of the peer that forwarded this transaction to a leader.
+        pub peer: PeerId,
+    }
+
+    /// Message structure describing a receipt sent by the leader to the peer it got this transaction from.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct TransactionReceipt {
+        /// The hash of the transaction that the leader received.
+        pub transaction_hash: Hash,
+        /// The time at which the leader claims to have received this transaction.
+        pub received_at: Duration,
+        /// The signature of the leader.
+        pub signature: Signature,
+    }
+
+    impl TransactionReceipt {
+        /// Constructs a new receipt.
+        pub fn new(
+            transaction: &AcceptedTransaction,
+            public_key: &PublicKey,
+            private_key: &PrivateKey,
+        ) -> Result<TransactionReceipt, String> {
+            let transaction_hash = transaction.hash();
+            Ok(TransactionReceipt {
+                transaction_hash,
+                received_at: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time."),
+                signature: Signature::new(*public_key, &transaction_hash, private_key)?,
+            })
+        }
+    }
+
+    /// Message structure describing a request to other peers to change view because of the commit timeout.
+    /// Peers vote on this view change by signing and forwarding this structure.
+    #[derive(Io, Decode, Encode, Debug, Clone)]
+    pub struct CommitTimeout {
+        /// The hash of the block in discussion in this round.
+        pub voting_block_hash: Hash,
+        /// The signatures of the peers who vote to for a view change.
+        pub signatures: BTreeMap<PublicKey, Signature>,
+    }
+
+    impl CommitTimeout {
+        /// Constructs a new commit timeout message with no signatures.
+        pub fn new(voting_block: VotingBlock) -> CommitTimeout {
+            CommitTimeout {
+                voting_block_hash: voting_block.block.hash(),
+                signatures: BTreeMap::new(),
+            }
+        }
+
+        /// Signes this request with the peer's public and private key.
+        /// This way peers vote for changing the view.
+        pub fn sign(
+            &mut self,
+            public_key: &PublicKey,
+            private_key: &PrivateKey,
+        ) -> Result<(), String> {
+            if self.signatures.contains_key(public_key) {
+                Err("Already signed by these keys.".to_string())
+            } else {
+                self.signatures.insert(
+                    *public_key,
+                    Signature::new(*public_key, &self.voting_block_hash, private_key)?,
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Structure represents a block that is currently in discussion.
+    #[derive(Debug, Clone)]
+    pub struct VotingBlock {
+        /// At what time has this peer voted for this block
+        pub voted_at: Duration,
+        /// Signed Block hash
+        pub block: SignedBlock,
+    }
+
+    impl VotingBlock {
+        /// Constructs new VotingBlock.
+        pub fn new(block: SignedBlock) -> VotingBlock {
+            VotingBlock {
+                voted_at: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time."),
+                block,
+            }
+        }
     }
 }
 
