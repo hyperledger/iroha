@@ -13,8 +13,3 @@ ExecutorTestParam::ExecutorTestParam()
     : vm_caller_(std::make_unique<iroha::ametsuchi::MockVmCaller>()) {}
 
 ExecutorTestParam::~ExecutorTestParam() = default;
-
-std::string executor_testing::paramToString(
-    testing::TestParamInfo<std::shared_ptr<ExecutorTestParam>> param) {
-  return param.param->toString();
-}

@@ -185,9 +185,9 @@ command_permission_test::getParams(
 }
 
 std::string command_permission_test::paramToString(
-    testing::TestParamInfo<std::tuple<std::shared_ptr<ExecutorTestParam>,
+    testing::TestParamInfo<std::tuple<ExecutorTestParamProvider,
                                       SpecificCommandPermissionTestData>>
         param) {
-  return std::get<0>(param.param)->toString() + "___"
+  return std::get<0>(param.param)().get().toString() + "___"
       + std::get<1>(param.param).description;
 }

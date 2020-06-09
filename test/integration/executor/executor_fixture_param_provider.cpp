@@ -1,3 +1,8 @@
+/**
+ * Copyright Soramitsu Co., Ltd. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "integration/executor/executor_fixture_param_provider.hpp"
 
 #include "integration/executor/executor_fixture_param.hpp"
@@ -5,15 +10,20 @@
 
 namespace executor_testing {
 
-  std::vector<std::shared_ptr<ExecutorTestParam>>
-  getExecutorTestParamsVector() {
-    return std::vector<std::shared_ptr<ExecutorTestParam>>{
-        {std::make_shared<PostgresExecutorTestParam>()}};
+  std::vector<ExecutorTestParamProvider> getExecutorTestParamProvidersVector() {
+    return std::vector<ExecutorTestParamProvider>{
+        &getExecutorTestParamPostgres};
   }
 
   auto getExecutorTestParams()
-      -> decltype(::testing::ValuesIn(getExecutorTestParamsVector())) {
-    static auto params = ::testing::ValuesIn(getExecutorTestParamsVector());
+      -> decltype(::testing::ValuesIn(getExecutorTestParamProvidersVector())) {
+    static auto params =
+        ::testing::ValuesIn(getExecutorTestParamProvidersVector());
     return params;
+  }
+
+  std::string paramToString(
+      testing::TestParamInfo<ExecutorTestParamProvider> param) {
+    return param.param().get().toString();
   }
 }  // namespace executor_testing

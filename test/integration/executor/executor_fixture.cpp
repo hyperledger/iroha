@@ -60,9 +60,9 @@ namespace executor_testing {
 }  // namespace executor_testing
 
 void ExecutorTestBase::SetUp() {
-  getBackendParam()->clearBackendState();
+  getBackendParam().clearBackendState();
   auto executor_itf_result =
-      ExecutorItf::create(getBackendParam()->getExecutorItfParam());
+      ExecutorItf::create(getBackendParam().getExecutorItfParam());
   IROHA_ASSERT_RESULT_VALUE(executor_itf_result);
   executor_itf_ = std::move(executor_itf_result).assumeValue();
 }
