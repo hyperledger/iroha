@@ -21,7 +21,8 @@ namespace shared_model {
           interface::types::CommandIndexType cmd_index,
           interface::types::AccountIdType const &caller,
           std::optional<interface::types::EvmDataHexString> const &callee,
-          std::optional<interface::types::EvmDataHexString> const &contract_address,
+          std::optional<interface::types::EvmDataHexString> const
+              &contract_address,
           std::optional<interface::types::EvmDataHexString> const &e_response);
 
       int32_t getCommandIndex() const override;
