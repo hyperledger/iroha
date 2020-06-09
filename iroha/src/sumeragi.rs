@@ -27,7 +27,7 @@ trait Consensus {
 pub struct Sumeragi {
     public_key: PublicKey,
     private_key: PrivateKey,
-    sorted_peers: Vec<PeerId>,
+    network_topology: NetworkTopology,
     max_faults: usize,
     peer_id: PeerId,
     /// PendingBlock in discussion this round
@@ -57,13 +57,11 @@ impl Sumeragi {
     ) -> Result<Self, String> {
         let min_peers = 3 * max_faults + 1;
         if peers.len() >= min_peers {
-            //TODO: get previous block hash from kura
-            let mut sorted_peers = peers.to_vec();
-            Self::sort_peers(&mut sorted_peers, None);
             Ok(Self {
                 public_key: peer_id.public_key,
                 private_key,
-                sorted_peers,
+                //TODO: get previous block hash from kura
+                network_topology: NetworkTopology::new(peers, None, max_faults),
                 max_faults,
                 peer_id,
                 voting_block: Arc::new(RwLock::new(None)),
@@ -89,13 +87,12 @@ impl Sumeragi {
         if transactions.is_empty() {
             return Ok(());
         }
-        if let Role::Leader = self.role() {
+        if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions)
                 //TODO: actually chain block?
                 .chain_first()
                 .sign(&self.public_key, &self.private_key)?;
-            let minimum_quorum_of_peers = 2;
-            if self.sorted_peers.len() < minimum_quorum_of_peers {
+            if !self.network_topology.is_consensus_required() {
                 let block = block.validate(&*self.world_state_view.read().await)?;
                 self.blocks_sender.write().await.send(block).await;
                 Ok(())
@@ -103,10 +100,10 @@ impl Sumeragi {
                 *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
                 let message = Message::BlockCreated(block.clone());
                 let mut send_futures = Vec::new();
-                for peer in self.validating_peers() {
+                for peer in self.network_topology.validating_peers() {
                     send_futures.push(message.clone().send_to(peer));
                 }
-                send_futures.push(message.clone().send_to(self.proxy_tail()));
+                send_futures.push(message.clone().send_to(self.network_topology.proxy_tail()));
                 let results = futures::future::join_all(send_futures).await;
                 results
                     .iter()
@@ -125,7 +122,7 @@ impl Sumeragi {
                         transaction: transaction.clone(),
                         peer: self.peer_id.clone(),
                     })
-                    .send_to(self.leader()),
+                    .send_to(self.network_topology.leader()),
                 );
                 self.pending_forwarded_tx_hashes
                     .write()
@@ -133,12 +130,13 @@ impl Sumeragi {
                     .insert(transaction.hash());
                 let pending_forwarded_tx_hashes = self.pending_forwarded_tx_hashes.clone();
                 let mut no_tx_receipt = NoTransactionReceiptReceived::new(&transaction);
-                if self.role() == Role::ValidatingPeer || self.role() == Role::ProxyTail {
+                let role = self.network_topology.role(&self.peer_id);
+                if role == Role::ValidatingPeer || role == Role::ProxyTail {
                     no_tx_receipt
                         .sign(&self.public_key, &self.private_key)
                         .expect("Failed to put first signature.");
                 }
-                let recipient_peers = self.sorted_peers.clone();
+                let recipient_peers = self.network_topology.sorted_peers.clone();
                 let transaction_hash = transaction.hash();
                 let peer_id = self.peer_id.clone();
                 let tx_receipt_time = self.tx_receipt_time;
@@ -185,15 +183,6 @@ impl Sumeragi {
         }
     }
 
-    /// This method is used to sort list of peers.
-    pub fn sort_peers(peers: &mut Vec<PeerId>, block_hash: Option<Hash>) {
-        peers.sort_by(|p1, p2| p1.address.cmp(&p2.address));
-        if let Some(block_hash) = block_hash {
-            let mut rng = StdRng::from_seed(block_hash);
-            peers.shuffle(&mut rng);
-        }
-    }
-
     /// This method is used to handle messages from other peers.
     #[log]
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
@@ -222,7 +211,7 @@ impl Sumeragi {
         let voting_block = self.voting_block.clone();
         let public_key = self.public_key;
         let private_key = self.private_key;
-        let recipient_peers = self.sorted_peers.clone();
+        let recipient_peers = self.network_topology.sorted_peers.clone();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
         async_std::task::spawn(async move {
@@ -264,7 +253,8 @@ impl Sumeragi {
             self.change_view().await;
             return Ok(());
         }
-        if self.role() == Role::ValidatingPeer || self.role() == Role::ProxyTail {
+        let role = self.network_topology.role(&self.peer_id);
+        if role == Role::ValidatingPeer || role == Role::ProxyTail {
             let mut no_tx_receipt = no_tx_receipt.clone();
             if no_tx_receipt
                 .sign(&self.public_key, &self.private_key)
@@ -274,14 +264,14 @@ impl Sumeragi {
                     transaction: no_tx_receipt.transaction.clone(),
                     peer: self.peer_id.clone(),
                 })
-                .send_to(self.leader())
+                .send_to(self.network_topology.leader())
                 .await;
                 self.pending_forwarded_tx_hashes
                     .write()
                     .await
                     .insert(no_tx_receipt.transaction.hash());
                 let pending_forwarded_tx_hashes = self.pending_forwarded_tx_hashes.clone();
-                let recipient_peers = self.sorted_peers.clone();
+                let recipient_peers = self.network_topology.sorted_peers.clone();
                 let tx_receipt_time = self.tx_receipt_time;
                 async_std::task::spawn(async move {
                     async_std::task::sleep(tx_receipt_time).await;
@@ -329,7 +319,7 @@ impl Sumeragi {
         tx_receipt: TransactionReceipt,
     ) -> Result<(), String> {
         // Implausible time in the future, means that the leader lies
-        if self.role() != Role::Leader
+        if self.network_topology.role(&self.peer_id) != Role::Leader
             && tx_receipt.received_at
                 <= SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
@@ -345,11 +335,11 @@ impl Sumeragi {
 
     #[log]
     async fn handle_block_created(&mut self, block: SignedBlock) -> Result<(), String> {
-        match self.role() {
+        match self.network_topology.role(&self.peer_id) {
             Role::ValidatingPeer => {
                 if let Err(e) =
                     Message::BlockSigned(block.clone().sign(&self.public_key, &self.private_key)?)
-                        .send_to(self.proxy_tail())
+                        .send_to(self.network_topology.proxy_tail())
                         .await
                 {
                     eprintln!(
@@ -374,7 +364,7 @@ impl Sumeragi {
 
     #[log]
     async fn handle_block_signed(&mut self, block: SignedBlock) -> Result<(), String> {
-        if let Role::ProxyTail = self.role() {
+        if let Role::ProxyTail = self.network_topology.role(&self.peer_id) {
             let voting_block = self.voting_block.write().await.clone();
             match voting_block {
                 Some(voting_block) => {
@@ -395,11 +385,11 @@ impl Sumeragi {
                     let block = block.sign(&self.public_key, &self.private_key)?;
                     let message = Message::BlockCommitted(block.clone());
                     let mut send_futures = Vec::new();
-                    for peer in self.validating_peers() {
+                    for peer in self.network_topology.validating_peers() {
                         send_futures.push(message.clone().send_to(peer));
                     }
-                    send_futures.push(message.clone().send_to(self.leader()));
-                    for peer in self.peers_set_b() {
+                    send_futures.push(message.clone().send_to(self.network_topology.leader()));
+                    for peer in self.network_topology.peers_set_b() {
                         send_futures.push(message.clone().send_to(peer));
                     }
                     let results = futures::future::join_all(send_futures).await;
@@ -435,7 +425,8 @@ impl Sumeragi {
             .duration_since(SystemTime::UNIX_EPOCH)
             .expect("Failed to get System Time.");
         let mut commit_timeout = commit_timeout.clone();
-        if self.role() == Role::ValidatingPeer || self.role() == Role::Leader {
+        let role = self.network_topology.role(&self.peer_id);
+        if role == Role::ValidatingPeer || role == Role::Leader {
             let voting_block = self.voting_block.write().await.clone();
             if let Some(voting_block) = voting_block {
                 if voting_block.block.hash() == commit_timeout.voting_block_hash
@@ -445,7 +436,7 @@ impl Sumeragi {
                     if sign_result.is_ok() {
                         let message = Message::CommitTimeout(commit_timeout.clone());
                         let mut send_futures = Vec::new();
-                        for peer in &self.sorted_peers {
+                        for peer in &self.network_topology.sorted_peers {
                             if *peer != self.peer_id {
                                 send_futures.push(message.clone().send_to(peer));
                             }
@@ -471,39 +462,77 @@ impl Sumeragi {
     }
 
     async fn next_round(&mut self, prev_block_hash: Hash) {
-        Self::sort_peers(&mut self.sorted_peers, Some(prev_block_hash));
+        self.network_topology.sort_peers(Some(prev_block_hash));
         *self.voting_block.write().await = None;
     }
 
     async fn change_view(&mut self) {
-        let last_element = self
-            .sorted_peers
-            .pop()
-            .expect("No elements found in sorted peers.");
-        self.sorted_peers.insert(0, last_element);
+        self.network_topology.shift_peers_by_one();
         *self.voting_block.write().await = None;
     }
+}
 
-    fn peers_set_a(&self) -> &[PeerId] {
+impl Debug for Sumeragi {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Sumeragi")
+            .field("public_key", &self.public_key)
+            .field("network_topology", &self.network_topology)
+            .field("max_faults", &self.max_faults)
+            .field("peer_id", &self.peer_id)
+            .field("voting_block", &self.voting_block)
+            .finish()
+    }
+}
+
+/// Represents a topology of peers, defining a `role` for each peer based on the previous block hash.
+#[derive(Debug)]
+pub struct NetworkTopology {
+    /// Current order of peers. The roles of peers are defined based on this order.
+    pub sorted_peers: Vec<PeerId>,
+    max_faults: usize,
+}
+
+impl NetworkTopology {
+    /// Constructs a new `NetworkTopology` instance.
+    pub fn new(peers: &[PeerId], block_hash: Option<Hash>, max_faults: usize) -> NetworkTopology {
+        let mut topology = NetworkTopology {
+            sorted_peers: peers.to_vec(),
+            max_faults,
+        };
+        topology.sort_peers(block_hash);
+        topology
+    }
+
+    /// Answers if the consensus stage is required with the current number of peers.
+    pub fn is_consensus_required(&self) -> bool {
+        self.sorted_peers.len() > 1
+    }
+
+    /// Peers of set A. They participate in the consensus.
+    pub fn peers_set_a(&self) -> &[PeerId] {
         let n_a_peers = 2 * self.max_faults + 1;
         &self.sorted_peers[..n_a_peers]
     }
 
-    fn peers_set_b(&self) -> &[PeerId] {
+    /// Peers of set B. The watch the consensus process.
+    pub fn peers_set_b(&self) -> &[PeerId] {
         &self.sorted_peers[(2 * self.max_faults + 1)..]
     }
 
-    fn leader(&self) -> &PeerId {
+    /// The leader of the current round.
+    pub fn leader(&self) -> &PeerId {
         self.peers_set_a()
             .first()
             .expect("Failed to get first peer.")
     }
 
-    fn proxy_tail(&self) -> &PeerId {
+    /// The proxy tail of the current round.
+    pub fn proxy_tail(&self) -> &PeerId {
         self.peers_set_a().last().expect("Failed to get last peer.")
     }
 
-    fn validating_peers(&self) -> &[PeerId] {
+    /// The peers that validate the block in discussion this round and vote for it to be accepted by the blockchain.
+    pub fn validating_peers(&self) -> &[PeerId] {
         let a_set = self.peers_set_a();
         if a_set.len() > 1 {
             &a_set[1..(a_set.len() - 1)]
@@ -512,28 +541,36 @@ impl Sumeragi {
         }
     }
 
-    fn role(&self) -> Role {
-        if *self.leader() == self.peer_id {
+    /// Sortes peers based on the `block_hash`.
+    pub fn sort_peers(&mut self, block_hash: Option<Hash>) {
+        self.sorted_peers
+            .sort_by(|p1, p2| p1.address.cmp(&p2.address));
+        if let Some(block_hash) = block_hash {
+            let mut rng = StdRng::from_seed(block_hash);
+            self.sorted_peers.shuffle(&mut rng);
+        }
+    }
+
+    /// Shifts `sorted_peers` by one to the right.
+    pub fn shift_peers_by_one(&mut self) {
+        let last_element = self
+            .sorted_peers
+            .pop()
+            .expect("No elements found in sorted peers.");
+        self.sorted_peers.insert(0, last_element);
+    }
+
+    /// Get role of the peer by its id.
+    pub fn role(&self, peer_id: &PeerId) -> Role {
+        if self.leader() == peer_id {
             Role::Leader
-        } else if *self.proxy_tail() == self.peer_id {
+        } else if self.proxy_tail() == peer_id {
             Role::ProxyTail
-        } else if self.validating_peers().contains(&self.peer_id) {
+        } else if self.validating_peers().contains(peer_id) {
             Role::ValidatingPeer
         } else {
             Role::ObservingPeer
         }
-    }
-}
-
-impl Debug for Sumeragi {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Sumeragi")
-            .field("public_key", &self.public_key)
-            .field("sorted_peers", &self.sorted_peers)
-            .field("max_faults", &self.max_faults)
-            .field("peer_id", &self.peer_id)
-            .field("voting_block", &self.voting_block)
-            .finish()
     }
 }
 
@@ -780,7 +817,7 @@ mod tests {
 
     #[test]
     fn different_order() {
-        let mut peers1 = vec![
+        let peers = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
                 public_key: [1u8; 32],
@@ -794,15 +831,17 @@ mod tests {
                 public_key: [3u8; 32],
             },
         ];
-        Sumeragi::sort_peers(&mut peers1, Some([1u8; 32]));
-        let mut peers2 = peers1.clone();
-        Sumeragi::sort_peers(&mut peers2, Some([2u8; 32]));
-        assert_ne!(peers1, peers2);
+        let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1);
+        let network_topology2 = NetworkTopology::new(&peers, Some([2u8; 32]), 1);
+        assert_ne!(
+            network_topology1.sorted_peers,
+            network_topology2.sorted_peers
+        );
     }
 
     #[test]
     fn same_order() {
-        let mut peers1 = vec![
+        let peers = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
                 public_key: [1u8; 32],
@@ -816,10 +855,12 @@ mod tests {
                 public_key: [3u8; 32],
             },
         ];
-        Sumeragi::sort_peers(&mut peers1, Some([1u8; 32]));
-        let mut peers2 = peers1.clone();
-        Sumeragi::sort_peers(&mut peers2, Some([1u8; 32]));
-        assert_eq!(peers1, peers2);
+        let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1);
+        let network_topology2 = NetworkTopology::new(&peers, Some([1u8; 32]), 1);
+        assert_eq!(
+            network_topology1.sorted_peers,
+            network_topology2.sorted_peers
+        );
     }
 
     #[cfg(feature = "network-mock")]
@@ -888,7 +929,10 @@ mod tests {
         async_std::task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
         let leader = peers.first().expect("Failed to get first peer.");
-        assert_eq!(leader.write().await.role(), Role::Leader);
+        {
+            let leader = leader.write().await;
+            assert_eq!(leader.network_topology.role(&leader.peer_id), Role::Leader);
+        }
         leader
             .write()
             .await
@@ -961,7 +1005,7 @@ mod tests {
                 while let Some(message) = message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate faulty proxy tail
-                    if sumeragi.role() == Role::ProxyTail {
+                    if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::ProxyTail {
                         if let Message::BlockSigned(..) = message {
                             continue;
                         }
@@ -979,7 +1023,10 @@ mod tests {
         async_std::task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
         let leader = peers.first().expect("Failed to get first peer.");
-        assert_eq!(leader.write().await.role(), Role::Leader);
+        {
+            let leader = leader.write().await;
+            assert_eq!(leader.network_topology.role(&leader.peer_id), Role::Leader);
+        }
         leader
             .write()
             .await
@@ -996,13 +1043,15 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut order_after_change = ids.clone();
-        Sumeragi::sort_peers(&mut ids, None);
-        let last_peer = order_after_change.pop().expect("Expected at least 1 peer.");
-        order_after_change.insert(0, last_peer);
+        let mut network_topology = NetworkTopology::new(&ids, None, 1);
+        network_topology.shift_peers_by_one();
+        let order_after_change = network_topology.sorted_peers;
         // All peer should perform a view change
         for peer in peers {
-            assert_eq!(peer.write().await.sorted_peers, order_after_change);
+            assert_eq!(
+                peer.write().await.network_topology.sorted_peers,
+                order_after_change
+            );
         }
     }
 
@@ -1066,7 +1115,7 @@ mod tests {
                 while let Some(message) = message_receiver.next().await {
                     let mut sumeragi = sumeragi_arc_clone.write().await;
                     // Simulate faulty proxy tail
-                    if sumeragi.role() == Role::Leader {
+                    if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::Leader {
                         if let Message::TransactionForwarded(..) = message {
                             continue;
                         }
@@ -1094,7 +1143,10 @@ mod tests {
         async_std::task::sleep(Duration::from_millis(2000)).await;
         // Second peer is not a leader in this particular case.
         let peer = peers.get(2).expect("Failed to get second peer.");
-        assert_ne!(peer.write().await.role(), Role::Leader);
+        {
+            let peer = peer.write().await;
+            assert_ne!(peer.network_topology.role(&peer.peer_id), Role::Leader);
+        }
         peer.write()
             .await
             .round(vec![RequestedTransaction::new(
@@ -1110,13 +1162,15 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut order_after_change = ids.clone();
-        Sumeragi::sort_peers(&mut ids, None);
-        let last_peer = order_after_change.pop().expect("Expected at least 1 peer.");
-        order_after_change.insert(0, last_peer);
+        let mut network_topology = NetworkTopology::new(&ids, None, 1);
+        network_topology.shift_peers_by_one();
+        let order_after_change = network_topology.sorted_peers;
         // All peer should perform a view change
         for peer in peers {
-            assert_eq!(peer.write().await.sorted_peers, order_after_change);
+            assert_eq!(
+                peer.write().await.network_topology.sorted_peers,
+                order_after_change
+            );
         }
     }
 }
