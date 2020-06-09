@@ -62,7 +62,7 @@ Schematically the interaction between different parts of the system looks as fol
 .. image:: ../../image_assets/burrow/natives.png
 
 Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 2 methods to query Iroha assets balances and transfer assets between accounts.
-The signature of these four method looks like this:
+The signatures of these two methods look like this:
 
 	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
 	returns (string memory *result*) {}
@@ -79,7 +79,6 @@ The signature of these four method looks like this:
 Here a special kind of EVM message calls is used - the **delegatecall**, which allows a contract to dynamically load and run code from a different address at runtime in its own execution context.
 
 .. seealso:: Now, let's move to the usage `examples <burrow_example.html>`_
-
 
 
 
