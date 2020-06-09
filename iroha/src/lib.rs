@@ -30,7 +30,7 @@ use crate::{
     peer::Peer,
     prelude::*,
     queue::Queue,
-    sumeragi::{Message, Sumeragi},
+    sumeragi::{message::Message, Sumeragi},
     torii::Torii,
 };
 use async_std::{
