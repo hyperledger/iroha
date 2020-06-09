@@ -1,5 +1,5 @@
 use criterion::*;
-use iroha::{peer::PeerId, sumeragi::Sumeragi};
+use iroha::{peer::PeerId, sumeragi::NetworkTopology};
 
 const N_PEERS: usize = 255;
 
@@ -13,9 +13,9 @@ fn get_n_peers(n: usize) -> Vec<PeerId> {
 }
 
 fn sort_peers(criterion: &mut Criterion) {
-    let mut peers: Vec<PeerId> = get_n_peers(N_PEERS);
+    let mut network_topology = NetworkTopology::new(&get_n_peers(N_PEERS), None, 1);
     criterion.bench_function("sort_peers", |b| {
-        b.iter(|| Sumeragi::sort_peers(&mut peers, Some([0u8; 32])));
+        b.iter(|| network_topology.sort_peers(Some([0u8; 32])));
     });
 }
 
