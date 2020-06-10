@@ -310,6 +310,7 @@ namespace iroha {
       std::shared_ptr<iroha::ametsuchi::TransactionExecutor> tx_executor_;
       std::shared_ptr<iroha::ametsuchi::SpecificQueryExecutor> query_executor_;
 
+      mutable shared_model::interface::types::CounterType orphan_cmd_counter_;
       shared_model::interface::types::CounterType query_counter_;
     };
 

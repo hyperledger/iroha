@@ -371,6 +371,52 @@ shared_model::proto::ProtoQueryResponseFactory::createPeersResponse(
       query_hash);
 }
 
+std::unique_ptr<shared_model::interface::QueryResponse>
+shared_model::proto::ProtoQueryResponseFactory::createEngineReceiptsResponse(
+    std::vector<std::unique_ptr<shared_model::interface::EngineReceipt>> const
+        &engine_receipts,
+    crypto::Hash const &query_hash) const {
+  return createQueryResponse(
+      [&](iroha::protocol::QueryResponse &protocol_query_response) {
+        auto *protocol_specific_response =
+            protocol_query_response.mutable_engine_receipts_response();
+
+        for (auto const &receipt : engine_receipts) {
+          auto *proto_receipt =
+              protocol_specific_response->add_engine_receipts();
+
+          /// assign logs
+          for (auto const &e_log : receipt->getEngineLogs()) {
+            assert(!!e_log);
+            auto *p_log = proto_receipt->add_logs();
+            p_log->set_address(e_log->getAddress());
+            p_log->set_data(e_log->getData());
+            for (auto &topic : e_log->getTopics()) {
+              p_log->add_topics(topic);
+            }
+          }
+
+          proto_receipt->set_command_index(receipt->getCommandIndex());
+          proto_receipt->set_caller(receipt->getCaller());
+
+          if (interface::EngineReceipt::PayloadType::kPayloadTypeCallResult
+              == receipt->getPayloadType()) {
+            auto *ptr_call_result = proto_receipt->mutable_call_result();
+            ptr_call_result->set_callee(receipt->getResponseData()->callee);
+            if (!!receipt->getResponseData()->response_data)
+              ptr_call_result->set_result_data(
+                  *receipt->getResponseData()->response_data);
+          }
+
+          if (interface::EngineReceipt::PayloadType::kPayloadTypeContractAddress
+              == receipt->getPayloadType()) {
+            proto_receipt->set_contract_address(*receipt->getContractAddress());
+          }
+        }
+      },
+      query_hash);
+}
+
 std::unique_ptr<shared_model::interface::BlockQueryResponse>
 shared_model::proto::ProtoQueryResponseFactory::createBlockQueryResponse(
     std::shared_ptr<const shared_model::interface::Block> block) const {

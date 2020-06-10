@@ -78,6 +78,9 @@ namespace iroha {
           const shared_model::interface::types::AccountIdType &account_id,
           shared_model::interface::permissions::Grantable permission) override;
 
+      WsvCommandResult setTopBlockInfo(
+          const TopBlockInfo &top_block_info) const override;
+
      private:
       soci::session &sql_;
     };

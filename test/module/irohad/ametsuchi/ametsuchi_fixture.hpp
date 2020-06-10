@@ -28,6 +28,7 @@
 #include "logger/logger.hpp"
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
+#include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/common/validators_config.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "validators/field_validator.hpp"
@@ -54,77 +55,112 @@ namespace iroha {
             std::make_shared<MockPendingTransactionStorage>();
         query_response_factory_ =
             std::make_shared<shared_model::proto::ProtoQueryResponseFactory>();
-        auto block_storage_factory =
-            std::make_unique<InMemoryBlockStorageFactory>();
-        auto block_storage = block_storage_factory->create();
 
         reconnection_strategy_factory_ = std::make_unique<
             iroha::ametsuchi::KTimesReconnectionStrategyFactory>(0);
 
-        auto options = std::make_unique<PostgresOptions>(
+        options_ = std::make_unique<PostgresOptions>(
             pgopt_,
             integration_framework::kDefaultWorkingDatabaseName,
             storage_logger_);
 
-        PgConnectionInit::createDatabaseIfNotExist(*options).match(
-            [](auto &&val) {},
-            [&](auto &&error) {
-              storage_logger_->error("Database creation error: {}",
-                                     error.error);
-              std::terminate();
-            });
+        block_storage_ = InMemoryBlockStorageFactory{}.create();
 
-        auto pool = PgConnectionInit::prepareConnectionPool(
-            *reconnection_strategy_factory_,
-            *options,
-            pool_size_,
-            getTestLoggerManager()->getChild("Storage"));
+        initializeStorage();
+      }
 
-        if (auto error = resultToOptionalError(pool)) {
-          storage_logger_->error("Pool initialization error: {}", *error);
-          std::terminate();
+      static void initializeStorage(bool keep_wsv_data = false) {
+        bool wsv_is_dirty = true;
+        auto db_result = PgConnectionInit::prepareWorkingDatabase(
+            iroha::StartupWsvDataPolicy::kReuse, *options_);
+        if (iroha::expected::hasError(db_result)) {
+          db_result = db_result.or_res(PgConnectionInit::prepareWorkingDatabase(
+              iroha::StartupWsvDataPolicy::kDrop, *options_));
+          wsv_is_dirty = false;
         }
 
-        pool_wrapper_ = std::move(pool).assumeValue();
+        (std::move(db_result) |
+         [&] {
+           return PgConnectionInit::prepareConnectionPool(
+               *reconnection_strategy_factory_,
+               *options_,
+               pool_size_,
+               getTestLoggerManager()->getChild("Storage"));
+         }
+         |
+         [&](auto &&pool_wrapper) {
+           sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
+                                                 pgopt_);
+           sql_query =
+               std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
 
-        StorageImpl::create(std::move(options),
-                            std::move(pool_wrapper_),
-                            perm_converter_,
-                            pending_txs_storage_,
-                            query_response_factory_,
-                            std::move(block_storage_factory),
-                            std::move(block_storage),
-                            getTestLoggerManager()->getChild("Storage"))
-            .match([&](const auto &_storage) { storage = _storage.value; },
+           if (wsv_is_dirty and not keep_wsv_data) {
+             truncateWsv();
+           }
+
+           return StorageImpl::create(
+               *options_,
+               std::move(pool_wrapper),
+               perm_converter_,
+               pending_txs_storage_,
+               query_response_factory_,
+               std::make_unique<InMemoryBlockStorageFactory>(),
+               block_storage_,
+               std::nullopt,
+               getTestLoggerManager()->getChild("Storage"));
+         }
+         |
+         [&](auto &&_storage) {
+           storage = std::move(_storage);
+           return storage->createCommandExecutor();
+         }
+         |
+         [&](auto &&_command_executor) {
+           command_executor = std::move(_command_executor);
+           return iroha::expected::Value<void>{};
+         })
+            .match([&](const auto &) {},
                    [](const auto &error) {
                      storage_logger_->error(
                          "Storage initialization has failed: {}", error.error);
                      // TODO: 2019-05-29 @muratovv find assert workaround IR-522
                      std::terminate();
                    });
-        sql = std::make_shared<soci::session>(*soci::factory_postgresql(),
-                                              pgopt_);
-        sql_query =
-            std::make_unique<framework::ametsuchi::SqlQuery>(*sql, factory);
+        assert(sql);
+        assert(sql_query);
+        assert(storage);
+        assert(command_executor);
+      }
 
-        storage->createCommandExecutor().match(
-            [](auto &&value) { command_executor = std::move(value).value; },
-            [](const auto &error) {
-              FAIL()
-                  << "Could not create command executor to apply genesis block!"
-                  << error.error;
-            });
+      static void destroyWsvStorage() {
+        command_executor.reset();
+        sql_query.reset();
+        sql->close();
+        sql.reset();
+        storage.reset();
       }
 
       static void TearDownTestCase() {
-        command_executor.reset();
-        sql->close();
-        storage->dropStorage();
+        storage_logger_->info("TearDownTestCase()");
+        storage->dropBlockStorage();
+        destroyWsvStorage();
+        PgConnectionInit::dropWorkingDatabase(*options_);
         boost::filesystem::remove_all(block_store_path);
       }
 
+      static void truncateWsv() {
+        storage_logger_->info("truncateWsv()");
+        assert(sql);
+        ::iroha::ametsuchi::truncateWsv(*sql);
+      }
+
       void TearDown() override {
-        storage->reset();
+        storage_logger_->info("TearDown()");
+        block_storage_->clear();
+        assert(sql);
+        storage->tryRollback(*sql);
+        destroyWsvStorage();
+        initializeStorage();
       }
 
       /**
@@ -144,6 +180,20 @@ namespace iroha {
         return storage->createMutableStorage(command_executor);
       }
 
+      // this is for resolving private visibility issues
+#define PROXY_STORAGE_IMPL_FUNCTION(function)                               \
+  template <typename... T>                                                  \
+  auto function(T &&... args)                                               \
+      ->decltype(                                                           \
+          std::declval<StorageImpl>().function(std::forward<T>(args)...)) { \
+    return storage->function(std::forward<T>(args)...);                     \
+  }
+
+      PROXY_STORAGE_IMPL_FUNCTION(storeBlock)
+      PROXY_STORAGE_IMPL_FUNCTION(tryRollback)
+
+#undef PROXY_STORAGE_IMPL_FUNCTION
+
      protected:
       static std::shared_ptr<soci::session> sql;
 
@@ -158,6 +208,7 @@ namespace iroha {
        *  static storage
        */
       static logger::LoggerPtr storage_logger_;
+      static std::shared_ptr<BlockStorage> block_storage_;
       static std::shared_ptr<StorageImpl> storage;
       static std::shared_ptr<CommandExecutor> command_executor;
       static std::unique_ptr<framework::ametsuchi::SqlQuery> sql_query;
@@ -180,10 +231,9 @@ namespace iroha {
       static std::string dbname_;
 
       static std::string pgopt_;
+      static std::unique_ptr<PostgresOptions> options_;
 
       static std::string block_store_path;
-
-      static std::shared_ptr<iroha::ametsuchi::PoolWrapper> pool_wrapper_;
     };
 
     std::shared_ptr<shared_model::proto::ProtoCommonObjectsFactory<
@@ -198,9 +248,7 @@ namespace iroha {
               .substr(0, 8);
     std::string AmetsuchiTest::pgopt_ = "dbname=" + AmetsuchiTest::dbname_ + " "
         + integration_framework::getPostgresCredsOrDefault();
-
-    std::shared_ptr<iroha::ametsuchi::PoolWrapper>
-        AmetsuchiTest::pool_wrapper_ = nullptr;
+    std::unique_ptr<PostgresOptions> AmetsuchiTest::options_ = nullptr;
 
     std::shared_ptr<shared_model::interface::PermissionToString>
         AmetsuchiTest::perm_converter_ = nullptr;
@@ -219,6 +267,7 @@ namespace iroha {
     logger::LoggerPtr AmetsuchiTest::storage_logger_ =
         getTestLoggerManager()->getChild("Storage")->getLogger();
     std::shared_ptr<StorageImpl> AmetsuchiTest::storage = nullptr;
+    std::shared_ptr<BlockStorage> AmetsuchiTest::block_storage_ = nullptr;
     std::shared_ptr<CommandExecutor> AmetsuchiTest::command_executor = nullptr;
     std::unique_ptr<framework::ametsuchi::SqlQuery> AmetsuchiTest::sql_query =
         nullptr;

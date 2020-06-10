@@ -67,6 +67,34 @@ target_link_libraries(tx_executor
     common
     )
 
+add_library(proto_command_executor
+    impl/proto_command_executor.cpp
+    )
+target_link_libraries(proto_command_executor
+    shared_model_proto_backend
+    shared_model_stateless_validation
+    )
+
+add_library(postgres_query_executor
+    impl/postgres_query_executor.cpp
+    )
+target_link_libraries(postgres_query_executor
+    SOCI::core
+    logger
+    )
+target_compile_definitions(postgres_query_executor
+    PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+
+add_library(proto_specific_query_executor
+    impl/proto_specific_query_executor.cpp
+    )
+target_link_libraries(proto_specific_query_executor
+    postgres_query_executor
+    shared_model_proto_backend
+    shared_model_stateless_validation
+    )
+
 add_library(ametsuchi
     impl/storage_impl.cpp
     impl/temporary_wsv_impl.cpp
@@ -78,20 +106,56 @@ add_library(ametsuchi
     impl/postgres_setting_query.cpp
     impl/executor_common.cpp
     impl/postgres_command_executor.cpp
-    impl/postgres_indexer.cpp
-    impl/postgres_block_index.cpp
     impl/wsv_restorer_impl.cpp
-    impl/postgres_query_executor.cpp
     impl/postgres_specific_query_executor.cpp
     impl/tx_presence_cache_impl.cpp
     impl/in_memory_block_storage.cpp
     impl/in_memory_block_storage_factory.cpp
     )
 
+add_library(postgres_indexer
+    impl/postgres_indexer.cpp
+    impl/postgres_block_index.cpp
+    )
+target_link_libraries(postgres_indexer
+    common
+    logger
+    shared_model_interfaces
+    shared_model_cryptography
+    SOCI::postgresql
+    SOCI::core
+    )
+
+target_compile_definitions(postgres_indexer
+    PRIVATE SOCI_USE_BOOST HAVE_BOOST
+    )
+
+add_library(postgres_burrow_storage
+    impl/burrow_storage.cpp
+    impl/postgres_burrow_storage.cpp
+    )
+target_link_libraries(postgres_burrow_storage common)
+
+add_library(default_vm_call INTERFACE)
+if(USE_BURROW)
+    add_library(burrow_vm_caller impl/burrow_vm_caller.cpp)
+    target_link_libraries(burrow_vm_caller
+        burrow_vm_caller_generated
+        fmt::fmt
+        postgres_burrow_storage
+        proto_command_executor
+        proto_specific_query_executor
+        )
+
+    target_link_libraries(default_vm_call INTERFACE burrow_vm_caller)
+endif()
+
 target_link_libraries(ametsuchi
+    default_vm_call
     pg_connection_init
     flat_file_storage
     k_times_reconnection_strategy
+    postgres_indexer
     postgres_storage
     logger
     logger_manager
@@ -106,6 +170,7 @@ target_link_libraries(ametsuchi
     failover_callback
     SOCI::postgresql
     SOCI::core
+    postgres_query_executor
     )
 
 target_compile_definitions(ametsuchi

@@ -38,10 +38,10 @@ namespace executor_testing {
     struct QueryPermissionTest
         : public SpecificQueryFixture,
           public ::testing::WithParamInterface<
-              std::tuple<std::shared_ptr<ExecutorTestParam>,
+              std::tuple<ExecutorTestParamProvider,
                          SpecificQueryPermissionTestData>> {
       QueryPermissionTest()
-          : backend_param_(std::get<0>(GetParam())),
+          : backend_param_(std::get<0>(GetParam())()),
             permissions_param_(std::get<1>(GetParam())) {}
 
       iroha::integration_framework::ExecutorItf &getItf() {
@@ -101,17 +101,17 @@ namespace executor_testing {
       }
 
      protected:
-      virtual std::shared_ptr<ExecutorTestParam> getBackendParam() {
+      virtual ExecutorTestParam &getBackendParam() {
         return backend_param_;
       }
 
      private:
-      const std::shared_ptr<ExecutorTestParam> &backend_param_;
+      ExecutorTestParam &backend_param_;
       const SpecificQueryPermissionTestData &permissions_param_;
     };
 
     std::string paramToString(
-        testing::TestParamInfo<std::tuple<std::shared_ptr<ExecutorTestParam>,
+        testing::TestParamInfo<std::tuple<ExecutorTestParamProvider,
                                           SpecificQueryPermissionTestData>>
             param);
 

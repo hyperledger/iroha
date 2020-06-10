@@ -66,13 +66,13 @@ std::string makeDescription(ActorRolePermissions actor_role_permissions,
   static const EnumMap<ActorRolePermissions, std::string>
       kActorRolePermissionNames{
           {ActorRolePermissions::kNone, "no_role_permissions"},
-          {ActorRolePermissions::kMe, "role_permission_for_myself"},
+          {ActorRolePermissions::kMe, "role_permission_for_himself"},
           {ActorRolePermissions::kSameDomain,
            "role_permission_for_same_domain"},
           {ActorRolePermissions::kEveryone, "role_permission_for_everyone"},
           {ActorRolePermissions::kRoot, "root_permission"}};
   static const EnumMap<Actor, std::string> kActorNames{
-      {Actor::kMe, "me"},
+      {Actor::kMe, "same_account"},
       {Actor::kSameDomain, "an_account_from_same_domain"},
       {Actor::kSecondDomain, "an_account_from_another_domain"}};
   std::stringstream ss;
@@ -185,9 +185,9 @@ command_permission_test::getParams(
 }
 
 std::string command_permission_test::paramToString(
-    testing::TestParamInfo<std::tuple<std::shared_ptr<ExecutorTestParam>,
+    testing::TestParamInfo<std::tuple<ExecutorTestParamProvider,
                                       SpecificCommandPermissionTestData>>
         param) {
-  return std::get<0>(param.param)->toString() + "___"
+  return std::get<0>(param.param)().get().toString() + "___"
       + std::get<1>(param.param).description;
 }

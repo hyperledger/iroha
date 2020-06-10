@@ -55,6 +55,12 @@ namespace shared_model {
       std::optional<ValidationError> validateAssetId(
           const interface::types::AssetIdType &asset_id) const;
 
+      std::optional<ValidationError> validateEvmHexAddress(
+          std::string_view address) const;
+
+      std::optional<ValidationError> validateBytecode(
+          interface::types::EvmCodeHexStringView input) const;
+
       std::optional<ValidationError> validatePeer(
           const interface::Peer &peer) const;
 

@@ -37,6 +37,7 @@ static void BM_AddAssetQuantity(benchmark::State &state) {
   integration_framework::IntegrationTestFramework itf(
       kProposalSize,
       boost::none,
+      iroha::StartupWsvDataPolicy::kDrop,
       false,
       false,
       (boost::filesystem::temp_directory_path()

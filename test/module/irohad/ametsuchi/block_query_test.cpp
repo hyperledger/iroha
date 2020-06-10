@@ -302,8 +302,7 @@ TEST_F(BlockQueryTest, GetTopBlockSuccess) {
  */
 TEST_F(BlockQueryTest, GetTopBlockFail) {
   EXPECT_CALL(*mock_block_storage, size()).WillRepeatedly(Return(0));
-  EXPECT_CALL(*mock_block_storage, fetch(mock_block_storage->size()))
-      .WillOnce(Return(boost::none));
+  ASSERT_EQ(mock_block_storage->fetch(mock_block_storage->size()), boost::none);
 
   auto top_block_error = iroha::expected::resultToOptionalError(
       empty_blocks->getBlock(empty_blocks->getTopBlockHeight()));

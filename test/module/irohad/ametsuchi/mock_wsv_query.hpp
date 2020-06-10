@@ -9,6 +9,25 @@
 #include "ametsuchi/wsv_query.hpp"
 
 #include <gmock/gmock.h>
+#include "ametsuchi/ledger_state.hpp"
+
+namespace testing {
+  // iroha::TopBlockInfo is not default-constructible, so this provides a
+  // default for getTopBlockInfo mock
+  template <>
+  class DefaultValue<
+      iroha::expected::Result<iroha::TopBlockInfo, std::string>> {
+   public:
+    using ValueType = iroha::expected::Result<iroha::TopBlockInfo, std::string>;
+    static bool Exists() {
+      return true;
+    }
+    static ValueType &Get() {
+      static ValueType val("default error value");
+      return val;
+    }
+  };
+}  // namespace testing
 
 namespace iroha {
   namespace ametsuchi {
@@ -27,6 +46,10 @@ namespace iroha {
           getPeerByPublicKey,
           boost::optional<std::shared_ptr<shared_model::interface::Peer>>(
               shared_model::interface::types::PublicKeyHexStringView));
+
+      MOCK_CONST_METHOD0(
+          getTopBlockInfo,
+          iroha::expected::Result<iroha::TopBlockInfo, std::string>());
     };
 
   }  // namespace ametsuchi

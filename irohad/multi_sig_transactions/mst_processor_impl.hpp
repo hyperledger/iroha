@@ -65,12 +65,6 @@ namespace iroha {
     // -----------------------------| private api |-----------------------------
 
     /**
-     * Invoke when propagation strategy emit new data
-     * @param data - propagated data
-     */
-    void onPropagate(const PropagationStrategy::PropagationData &data);
-
-    /**
      * Notify subscribers when some of the batches received all necessary
      * signatures and ready to move forward
      * @param state with those batches
@@ -91,6 +85,8 @@ namespace iroha {
     void expiredBatchesNotify(ConstRefState state) const;
 
     // -------------------------------| fields |--------------------------------
+    logger::LoggerPtr log_;
+
     std::shared_ptr<iroha::network::MstTransport> transport_;
     std::shared_ptr<MstStorage> storage_;
     std::shared_ptr<PropagationStrategy> strategy_;
@@ -110,10 +106,6 @@ namespace iroha {
     /// use for tracking the propagation subscription
 
     rxcpp::composite_subscription propagation_subscriber_;
-
-    rxcpp::composite_subscription send_state_subscriber_;
-
-    logger::LoggerPtr log_;
   };
 }  // namespace iroha
 

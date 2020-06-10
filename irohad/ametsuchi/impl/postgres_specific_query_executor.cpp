@@ -5,6 +5,9 @@
 
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 
+#include <tuple>
+#include <unordered_map>
+
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -16,9 +19,11 @@
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
 #include "backend/plain/account_detail_record_id.hpp"
+#include "backend/plain/engine_receipt.hpp"
 #include "backend/plain/peer.hpp"
 #include "common/bind.hpp"
 #include "common/byteutils.hpp"
+#include "cryptography/hash.hpp"
 #include "interfaces/common_objects/amount.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "interfaces/permission_to_string.hpp"
@@ -30,6 +35,7 @@
 #include "interfaces/queries/get_account_transactions.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
 #include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_engine_receipts.hpp"
 #include "interfaces/queries/get_peers.hpp"
 #include "interfaces/queries/get_pending_transactions.hpp"
 #include "interfaces/queries/get_role_permissions.hpp"
@@ -72,14 +78,14 @@ namespace {
   }
 
   /**
-   * Generate an SQL subquery which checks if creator has corresponding
-   * permissions for target account
-   * It verifies individual, domain, and global permissions, and returns true if
-   * any of listed permissions is present
+   * Generate an SQL subquery called `has_perms' which checks if creator has
+   * corresponding permissions for target account taken from column `t' of table
+   * `target' (should be provided separately).
+   * It verifies individual, domain, and global permissions, and returns true in
+   * `perm' column if any of listed permissions is present, and false otherwise
    */
-  auto hasQueryPermission(
-      const shared_model::interface::types::AccountIdType &creator,
-      const shared_model::interface::types::AccountIdType &target_account,
+  auto hasQueryPermissionInternal(
+      shared_model::interface::types::AccountIdType const &creator,
       Role indiv_permission_id,
       Role all_permission_id,
       Role domain_permission_id) {
@@ -98,7 +104,7 @@ namespace {
 
     return fmt::format(
         R"(
-    WITH
+        target_domain AS (select split_part(target.t, '@', 2) as td from target),
         has_root_perm AS ({0}),
         has_indiv_perm AS (
           SELECT (COALESCE(bit_or(rp.permission), '0'::bit({1}))
@@ -117,11 +123,13 @@ namespace {
           & '{5}') = '{5}' FROM role_has_permissions AS rp
               JOIN account_has_roles AS ar on ar.role_id = rp.role_id
               WHERE ar.account_id = '{2}'
+        ),
+        has_perms as (
+          SELECT (SELECT * from has_root_perm)
+              OR ('{2}' = (select t from target) AND (SELECT * FROM has_indiv_perm))
+              OR (SELECT * FROM has_all_perm)
+              OR ('{6}' = (select td from target_domain) AND (SELECT * FROM has_domain_perm)) AS perm
         )
-    SELECT (SELECT * from has_root_perm)
-        OR ('{2}' = '{6}' AND (SELECT * FROM has_indiv_perm))
-        OR (SELECT * FROM has_all_perm)
-        OR ('{7}' = '{8}' AND (SELECT * FROM has_domain_perm)) AS perm
     )",
         getAccountRolePermissionCheckSql(Role::kRoot, creator_quoted),
         bits,
@@ -129,9 +137,27 @@ namespace {
         perm_str,
         all_perm_str,
         domain_perm_str,
-        target_account,
-        iroha::ametsuchi::getDomainFromName(creator),
-        iroha::ametsuchi::getDomainFromName(target_account));
+        iroha::ametsuchi::getDomainFromName(creator));
+  }
+
+  /**
+   * Generate an SQL subquery called `has_perms' which checks if creator has
+   * corresponding permissions for given target account.
+   * It verifies individual, domain, and global permissions, and returns true in
+   * `perm' column if any of listed permissions is present, and false otherwise
+   */
+  auto hasQueryPermissionTarget(
+      shared_model::interface::types::AccountIdType const &creator,
+      shared_model::interface::types::AccountIdType const &target_account,
+      Role indiv_permission_id,
+      Role all_permission_id,
+      Role domain_permission_id) {
+    return fmt::format("target AS (select '{}'::text as t), {}",
+                       target_account,
+                       hasQueryPermissionInternal(creator,
+                                                  indiv_permission_id,
+                                                  all_permission_id,
+                                                  domain_permission_id));
   }
 
   /// Query result is a tuple of optionals, since there could be no entry
@@ -171,6 +197,62 @@ namespace {
         | boost::adaptors::transformed([](auto t) { return *t; });
   }
 
+  using OrderingField = shared_model::interface::Ordering::Field;
+  using OrderingDirection = shared_model::interface::Ordering::Direction;
+  using OrderingEntry = shared_model::interface::Ordering::OrderingEntry;
+
+  std::unordered_map<OrderingField, std::string> const kOrderingFieldMapping = {
+      {OrderingField::kCreatedTime, "ts"},
+      {OrderingField::kPosition, "height"},
+  };
+
+  std::unordered_map<OrderingDirection, std::string> const
+      kOrderingDirectionMapping = {
+          {OrderingDirection::kAscending, "ASC"},
+          {OrderingDirection::kDescending, "DESC"},
+  };
+
+  /**
+   * Makes a DB string representation of the response ordering.
+   * It APPENDS string data to destination, but not replaces it.
+   * @tparam StringType - string type destination
+   * @tparam OrderingType - source type ordering data
+   * @param src - source ordering data
+   * @param dst - destination of the formatted data
+   * @return true on success, false otherwise
+   */
+  template <typename StringType>
+  bool formatOrderBy(shared_model::interface::Ordering const &src,
+                     StringType &dst) {
+    OrderingEntry const *ptr = nullptr;
+    size_t count = 0;
+    src.get(ptr, count);
+
+    dst.append(" ORDER BY ");
+    for (size_t ix = 0; ix < count; ++ix) {
+      auto const &ordering_entry = ptr[ix];
+      auto it_field = kOrderingFieldMapping.find(ordering_entry.field);
+      if (kOrderingFieldMapping.end() == it_field) {
+        BOOST_ASSERT_MSG(false, "Ordering field mapping missed!");
+        return false;
+      }
+
+      auto it_direction =
+          kOrderingDirectionMapping.find(ordering_entry.direction);
+      if (kOrderingDirectionMapping.end() == it_direction) {
+        BOOST_ASSERT_MSG(false, "Ordering direction mapping missed!");
+        return false;
+      }
+
+      dst.append(it_field->second);
+      dst.append(1, ' ');
+      dst.append(it_direction->second);
+      dst.append(1, ',');
+    }
+
+    dst.append("index ASC");
+    return true;
+  }
 }  // namespace
 
 namespace iroha {
@@ -190,7 +272,21 @@ namespace iroha {
           pending_txs_storage_(std::move(pending_txs_storage)),
           query_response_factory_{std::move(response_factory)},
           perm_converter_(std::move(perm_converter)),
-          log_(std::move(log)) {}
+          log_(std::move(log)) {
+      for (size_t value = 0; value < (size_t)OrderingField::kMaxValueCount;
+           ++value) {
+        BOOST_ASSERT_MSG(kOrderingFieldMapping.find((OrderingField)value)
+                             != kOrderingFieldMapping.end(),
+                         "Unnamed ordering field found!");
+      }
+      for (size_t value = 0; value < (size_t)OrderingDirection::kMaxValueCount;
+           ++value) {
+        BOOST_ASSERT_MSG(
+            kOrderingDirectionMapping.find((OrderingDirection)value)
+                != kOrderingDirectionMapping.end(),
+            "Unnamed ordering direction found!");
+      }
+    }
 
     QueryExecutorResult PostgresSpecificQueryExecutor::execute(
         const shared_model::interface::Query &qry) {
@@ -226,7 +322,7 @@ namespace iroha {
         }
         auto &tx = block->transactions()[tx_id];
         if (pred(tx)) {
-          *dest_it++ = clone(tx);
+          *dest_it++ = tx.moveTo();
         }
       }
 
@@ -351,39 +447,41 @@ namespace iroha {
       // retrieve one extra transaction to populate next_hash
       auto query_size = pagination_info.pageSize() + 1u;
 
-      char const *base = R"(WITH has_perms AS ({}),
-      my_txs AS ({}),
-      first_hash AS ({}),
-      total_size AS (
-        SELECT COUNT(*) FROM my_txs
-      ),
-      t AS (
-        SELECT my_txs.height, my_txs.index
-        FROM my_txs JOIN
-        first_hash ON my_txs.height > first_hash.height
-        OR (my_txs.height = first_hash.height AND
-            my_txs.index >= first_hash.index)
-        LIMIT :page_size
-      )
-      SELECT height, index, count, perm FROM t
-      RIGHT OUTER JOIN has_perms ON TRUE
-      JOIN total_size ON TRUE
-      )";
+      char const *base = R"(WITH
+               {0},
+               my_txs AS (
+                 SELECT DISTINCT ROW_NUMBER() OVER({1}) AS row, hash, ts, height, index
+                 FROM tx_positions
+                 WHERE
+                 {2} -- related_txs
+                 {1} -- ordering
+                 ),
+               total_size AS (SELECT COUNT(*) FROM my_txs) {3}
+               SELECT my_txs.height, my_txs.index, count, perm FROM my_txs
+               {4}
+               RIGHT OUTER JOIN has_perms ON TRUE
+               JOIN total_size ON TRUE
+               LIMIT :page_size)";
 
-      // select tx with specified hash
-      char const *first_by_hash = R"(SELECT height, index FROM position_by_hash
-      WHERE hash = :hash LIMIT 1)";
+      auto const &ordering = q.paginationMeta().ordering();
+      ordering_str_.clear();
 
-      // select first ever tx
-      char const *first_tx = R"(SELECT height, index FROM position_by_hash
-      ORDER BY height, index ASC LIMIT 1)";
+      if (!formatOrderBy(ordering, ordering_str_)) {
+        return this->logAndReturnErrorResponse(QueryErrorType::kStatefulFailed,
+                                               "Ordering query failed.",
+                                               1,
+                                               query_hash);
+      }
 
-      BOOST_ASSERT_MSG(nullptr != related_txs, "related_txs is null.");
-      auto query =
-          fmt::format(base,
-                      hasQueryPermission(creator_id, q.accountId(), perms...),
-                      related_txs,
-                      (first_hash ? first_by_hash : first_tx));
+      auto query = fmt::format(
+          base,
+          hasQueryPermissionTarget(creator_id, q.accountId(), perms...),
+          (ordering_str_.empty() ? "" : ordering_str_.c_str()),
+          related_txs,
+          (first_hash
+               ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = :hash LIMIT 1))"
+               : ""),
+          (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           applier(query),
@@ -472,7 +570,8 @@ namespace iroha {
                     std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
+      auto cmd =
+          fmt::format(R"(WITH {},
       t AS (
           SELECT a.account_id, a.domain_id, a.quorum, a.data, ARRAY_AGG(ar.role_id) AS roles
           FROM account AS a, account_has_roles AS ar
@@ -483,11 +582,11 @@ namespace iroha {
       SELECT account_id, domain_id, quorum, data, roles, perm
       FROM t RIGHT OUTER JOIN has_perms AS p ON TRUE
       )",
-                             hasQueryPermission(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccount,
-                                                Role::kGetAllAccounts,
-                                                Role::kGetDomainAccounts));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMyAccount,
+                                               Role::kGetAllAccounts,
+                                               Role::kGetDomainAccounts));
 
       auto query_apply = [this, &query_hash](auto &account_id,
                                              auto &domain_id,
@@ -562,7 +661,7 @@ namespace iroha {
                                          1,
                                          query_hash);
       }
-      return query_response_factory_->createBlockResponse(clone(**block),
+      return query_response_factory_->createBlockResponse(std::move(*block),
                                                           query_hash);
     }
 
@@ -573,7 +672,8 @@ namespace iroha {
       using QueryTuple = QueryType<std::string>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(WITH has_perms AS ({}),
+      auto cmd =
+          fmt::format(R"(WITH {},
       t AS (
           SELECT public_key FROM account_has_signatory
           WHERE account_id = :account_id
@@ -581,11 +681,11 @@ namespace iroha {
       SELECT public_key, perm FROM t
       RIGHT OUTER JOIN has_perms ON TRUE
       )",
-                             hasQueryPermission(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMySignatories,
-                                                Role::kGetAllSignatories,
-                                                Role::kGetDomainSignatories));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMySignatories,
+                                               Role::kGetAllSignatories,
+                                               Role::kGetDomainSignatories));
 
       return executeQuery<QueryTuple, PermissionTuple>(
           [&] { return (sql_.prepare << cmd, soci::use(q.accountId())); },
@@ -615,10 +715,10 @@ namespace iroha {
         const shared_model::interface::GetAccountTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      char const *related_txs = R"(SELECT DISTINCT height, index
-      FROM tx_position_by_creator
-      WHERE creator_id = :account_id
-      ORDER BY height, index ASC)";
+      char const *related_txs = R"(
+          creator_id = :account_id
+          AND asset_id IS NULL
+      )";
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
@@ -678,7 +778,7 @@ namespace iroha {
           R"(WITH has_my_perm AS ({}),
       has_all_perm AS ({}),
       t AS (
-          SELECT height, hash FROM position_by_hash WHERE hash IN ({})
+          SELECT DISTINCT height, hash FROM tx_positions WHERE hash IN ({})
       )
       SELECT height, hash, has_my_perm.perm, has_all_perm.perm FROM t
       RIGHT OUTER JOIN has_my_perm ON TRUE
@@ -746,11 +846,10 @@ namespace iroha {
         const shared_model::interface::GetAccountAssetTransactions &q,
         const shared_model::interface::types::AccountIdType &creator_id,
         const shared_model::interface::types::HashType &query_hash) {
-      char const *related_txs = R"(SELECT DISTINCT height, index
-          FROM position_by_account_asset
-          WHERE account_id = :account_id
+      char const *related_txs = R"(
+          creator_id = :account_id
           AND asset_id = :asset_id
-          ORDER BY height, index ASC)";  // consider index when changing this
+      )";
 
       const auto &pagination_info = q.paginationMeta();
       auto first_hash = pagination_info.firstTxHash();
@@ -813,7 +912,7 @@ namespace iroha {
 
       // get the assets
       auto cmd = fmt::format(R"(
-      with has_perms as ({}),
+      with {},
       all_data as (
           select row_number() over () rn, *
           from (
@@ -849,11 +948,11 @@ namespace iroha {
               page_data
               right join has_perms on true
       )",
-                             hasQueryPermission(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccAst,
-                                                Role::kGetAllAccAst,
-                                                Role::kGetDomainAccAst));
+                             hasQueryPermissionTarget(creator_id,
+                                                      q.accountId(),
+                                                      Role::kGetMyAccAst,
+                                                      Role::kGetAllAccAst,
+                                                      Role::kGetDomainAccAst));
 
       // These must stay alive while soci query is being done.
       const auto pagination_meta{q.paginationMeta()};
@@ -937,8 +1036,9 @@ namespace iroha {
                     uint32_t>;
       using PermissionTuple = boost::tuple<int>;
 
-      auto cmd = fmt::format(R"(
-      with has_perms as ({}),
+      auto cmd =
+          fmt::format(R"(
+      with {},
       detail AS (
           with filtered_plain_data as (
               select row_number() over () rn, *
@@ -1012,11 +1112,11 @@ namespace iroha {
       select detail.*, perm from detail
       right join has_perms on true
       )",
-                             hasQueryPermission(creator_id,
-                                                q.accountId(),
-                                                Role::kGetMyAccDetail,
-                                                Role::kGetAllAccDetail,
-                                                Role::kGetDomainAccDetail));
+                      hasQueryPermissionTarget(creator_id,
+                                               q.accountId(),
+                                               Role::kGetMyAccDetail,
+                                               Role::kGetAllAccDetail,
+                                               Role::kGetDomainAccDetail));
 
       const auto writer = q.writer();
       const auto key = q.key();
@@ -1373,6 +1473,159 @@ namespace iroha {
                                                                 query_hash);
           },
           notEnoughPermissionsResponse(perm_converter_, Role::kGetPeers));
+    }
+
+    QueryExecutorResult PostgresSpecificQueryExecutor::operator()(
+        const shared_model::interface::GetEngineReceipts &q,
+        const shared_model::interface::types::AccountIdType &creator_id,
+        const shared_model::interface::types::HashType &query_hash) {
+      auto cmd = fmt::format(
+          R"(
+            with
+              target as (
+                select distinct creator_id as t
+                from tx_positions
+                where hash=:tx_hash
+              ),
+              {}
+            select
+              engine_calls.cmd_index,
+              target.t caller,
+              engine_calls.callee,
+              engine_calls.created_address,
+              engine_calls.engine_response,
+              burrow_tx_logs.log_idx,
+              burrow_tx_logs.address,
+              burrow_tx_logs.data,
+              burrow_tx_logs_topics.topic,
+              has_perms.perm
+            from
+              target
+              left join engine_calls on engine_calls.tx_hash = :tx_hash
+              left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
+              left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
+              right outer join has_perms on true
+            order by engine_calls.cmd_index asc
+            )",
+          hasQueryPermissionInternal(creator_id,
+                                     Role::kGetMyEngineReceipts,
+                                     Role::kGetAllEngineReceipts,
+                                     Role::kGetDomainEngineReceipts));
+
+      using QueryTuple =
+          QueryType<shared_model::interface::types::CommandIndexType,
+                    shared_model::interface::types::AccountIdType,
+                    shared_model::interface::types::EvmDataHexString,
+                    shared_model::interface::types::EvmAddressHexString,
+                    shared_model::interface::types::EvmDataHexString,
+                    uint32_t,
+                    shared_model::interface::types::EvmAddressHexString,
+                    shared_model::interface::types::EvmDataHexString,
+                    shared_model::interface::types::EvmTopicsHexString>;
+
+      using PermissionTuple = boost::tuple<int>;
+
+      return executeQuery<QueryTuple, PermissionTuple>(
+          [&] {
+            return (sql_.prepare << cmd, soci::use(q.txHash(), "tx_hash"));
+          },
+          query_hash,
+          [&](auto range, auto &) {
+            using RecordsCollection = std::vector<
+                std::unique_ptr<shared_model::interface::EngineReceipt>>;
+            using RecordPtr =
+                std::unique_ptr<shared_model::plain::EngineReceipt>;
+            using EngineLogPtr =
+                std::unique_ptr<shared_model::plain::EngineLog>;
+
+            RecordsCollection records;
+            RecordPtr record;
+            EngineLogPtr log;
+            std::optional<uint32_t> prev_log_ix;
+            std::optional<shared_model::interface::types::CommandIndexType>
+                prev_cmd_ix;
+
+            auto store_record = [](RecordsCollection &records,
+                                   RecordPtr &&rec) {
+              if (!!rec) {
+                records.emplace_back(std::move(rec));
+              }
+            };
+
+            auto store_log = [](RecordPtr &rec, EngineLogPtr &&el) {
+              if (!!rec && !!el) {
+                rec->getMutableLogs().emplace_back(std::move(el));
+              }
+            };
+
+            for (const auto &row : range) {
+              iroha::ametsuchi::apply(
+                  row,
+                  [&q,
+                   &store_record,
+                   &store_log,
+                   &record,
+                   &log,
+                   &records,
+                   &prev_log_ix,
+                   &prev_cmd_ix](auto &cmd_index,
+                                 auto &caller,
+                                 auto &payload_callee,
+                                 auto &payload_cantract_address,
+                                 auto &engine_response,
+                                 auto &logs_ix,
+                                 auto &log_address,
+                                 auto &log_data,
+                                 auto &log_topic) {
+                    if (!cmd_index || !caller)
+                      return;
+
+                    using namespace shared_model::interface::types;
+
+                    auto const new_cmd = (prev_cmd_ix != cmd_index);
+                    auto const new_log = (prev_log_ix != logs_ix);
+                    assert(!new_cmd || new_log || !prev_log_ix);
+
+                    if (new_log) {
+                      store_log(record, std::move(log));
+
+                      if (!!logs_ix) {
+                        assert(!!log_address && !!log_data);
+                        log = std::make_unique<shared_model::plain::EngineLog>(
+                            *log_address, *log_data);
+                      }
+                      prev_log_ix = logs_ix;
+                    }
+
+                    if (!!log_topic) {
+                      assert(!!log);
+                      log->addTopic(*log_topic);
+                    }
+
+                    if (new_cmd) {
+                      store_record(records, std::move(record));
+
+                      record =
+                          std::make_unique<shared_model::plain::EngineReceipt>(
+                              *cmd_index,
+                              *caller,
+                              payload_callee,
+                              payload_cantract_address,
+                              engine_response);
+                      prev_cmd_ix = cmd_index;
+                    }
+                  });
+            }
+            store_log(record, std::move(log));
+            store_record(records, std::move(record));
+
+            return query_response_factory_->createEngineReceiptsResponse(
+                records, query_hash);
+          },
+          notEnoughPermissionsResponse(perm_converter_,
+                                       Role::kGetMyEngineReceipts,
+                                       Role::kGetAllEngineReceipts,
+                                       Role::kGetDomainEngineReceipts));
     }
 
     template <typename ReturnValueType>

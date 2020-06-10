@@ -27,6 +27,7 @@ namespace shared_model {
     class Signature;
     class Transaction;
     class Peer;
+    class EngineReceipt;
 
     namespace types {
       /// Type of hash
@@ -35,6 +36,12 @@ namespace shared_model {
       using BlobType = crypto::Blob;
       /// Type of account id
       using AccountIdType = std::string;
+      /// Type of evm address
+      using EvmAddressHexString = std::string;
+      /// Types of evm data
+      using EvmDataHexString = std::string;
+      // Type of evm topics
+      using EvmTopicsHexString = std::string;
       /// Type of precision
       using PrecisionType = uint8_t;
       /// Type of height (for Block, Proposal etc)
@@ -86,6 +93,10 @@ namespace shared_model {
           std::vector<std::shared_ptr<shared_model::interface::Peer>>;
       /// Type of a TLS certificate
       using TLSCertificateType = std::string;
+      /// Type of command index within a transaction
+      using CommandIndexType = int32_t;
+      /// Transaction index type
+      using TxIndexType = int32_t;
 
       enum class BatchType { ATOMIC = 0, ORDERED = 1 };
 

@@ -9,10 +9,13 @@
 #include <vector>
 
 #include <boost/optional.hpp>
+#include "common/result.hpp"
 #include "interfaces/common_objects/peer.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 
 namespace iroha {
+  struct TopBlockInfo;
+
   namespace ametsuchi {
     /**
      *  Public interface for world state view queries
@@ -44,6 +47,10 @@ namespace iroha {
       virtual boost::optional<std::shared_ptr<shared_model::interface::Peer>>
       getPeerByPublicKey(shared_model::interface::types::PublicKeyHexStringView
                              public_key) = 0;
+
+      /// Get top block info from ledger state.
+      virtual iroha::expected::Result<iroha::TopBlockInfo, std::string>
+      getTopBlockInfo() const = 0;
     };
 
   }  // namespace ametsuchi

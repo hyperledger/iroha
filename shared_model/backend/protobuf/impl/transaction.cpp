@@ -168,6 +168,10 @@ namespace shared_model {
       return impl_->meta_;
     }
 
+    std::unique_ptr<interface::Transaction> Transaction::moveTo() {
+      return std::make_unique<Transaction>(std::move(*impl_->proto_));
+    }
+
     Transaction::ModelType *Transaction::clone() const {
       return new Transaction(TransportType(*impl_->proto_));
     }

@@ -6,6 +6,7 @@
 #include "validators/field_validator.hpp"
 
 #include <limits>
+#include <string_view>
 
 #include <fmt/core.h>
 #include <boost/algorithm/string_regex.hpp>
@@ -102,6 +103,8 @@ namespace {
   const RegexValidator kAccountDetailKeyValidator{"DetailKey",
                                                   R"([A-Za-z0-9_]{1,64})"};
   const RegexValidator kRoleIdValidator{"RoleId", R"#([a-z_0-9]{1,32})#"};
+  const RegexValidator kHexValidator{
+      "Hex", R"#(([0-9a-fA-F][0-9a-fA-F])*)#", "Hex encoded string expected"};
   const RegexValidator kPublicKeyHexValidator{
       "PublicKeyHex",
       fmt::format("[A-Fa-f0-9]{{1,{}}}",
@@ -110,6 +113,10 @@ namespace {
       "SignatureHex",
       fmt::format("[A-Fa-f0-9]{{1,{}}}",
                   shared_model::crypto::CryptoVerifier::kMaxSignatureSize * 2)};
+  const RegexValidator kEvmAddressValidator{
+      "EvmHexAddress",
+      R"#([0-9a-fA-F]{40})#",
+      "Hex encoded 20-byte address expected"};
 }  // namespace
 
 namespace shared_model {
@@ -129,6 +136,17 @@ namespace shared_model {
     std::optional<ValidationError> FieldValidator::validateAssetId(
         const interface::types::AssetIdType &asset_id) const {
       return kAssetIdValidator.validate(asset_id);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateEvmHexAddress(
+        std::string_view address) const {
+      return kEvmAddressValidator.validate(address);
+    }
+
+    std::optional<ValidationError> FieldValidator::validateBytecode(
+        interface::types::EvmCodeHexStringView input) const {
+      return kHexValidator.validate(
+          static_cast<std::string_view const &>(input));
     }
 
     std::optional<ValidationError> FieldValidator::validatePeer(
@@ -392,6 +410,32 @@ namespace shared_model {
       return std::nullopt;
     }
 
+    std::optional<ValidationError> validatePaginationOrdering(
+        const interface::Ordering &ordering) {
+      using Field = interface::Ordering::Field;
+      using Direction = interface::Ordering::Direction;
+      using OrderingEntry = interface::Ordering::OrderingEntry;
+
+      OrderingEntry const *ptr = nullptr;
+      size_t count = 0;
+      ordering.get(ptr, count);
+
+      for (size_t ix = 0; ix < count; ++ix) {
+        OrderingEntry const &entry = ptr[ix];
+
+        if (entry.field >= Field::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed field value is unknown.")});
+        }
+
+        if (entry.direction >= Direction::kMaxValueCount) {
+          return ValidationError(
+              "Ordering", {fmt::format("Passed direction value is unknown")});
+        }
+      }
+      return std::nullopt;
+    }
+
     std::optional<ValidationError> FieldValidator::validateTxPaginationMeta(
         const interface::TxPaginationMeta &tx_pagination_meta) const {
       using iroha::operator|;
@@ -399,9 +443,11 @@ namespace shared_model {
           "TxPaginationMeta",
           {},
           {validatePaginationMetaPageSize(tx_pagination_meta.pageSize()),
-           tx_pagination_meta.firstTxHash() | [this](const auto &first_hash) {
-             return this->validateHash(first_hash);
-           }});
+           tx_pagination_meta.firstTxHash() |
+               [this](const auto &first_hash) {
+                 return this->validateHash(first_hash);
+               },
+           validatePaginationOrdering(tx_pagination_meta.ordering())});
     }
 
     std::optional<ValidationError> FieldValidator::validateAsset(

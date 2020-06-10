@@ -32,6 +32,7 @@ namespace integration_framework {
                    opt_alternative_peers,
                logger::LoggerManagerTreePtr irohad_log_manager,
                logger::LoggerPtr log,
+               iroha::StartupWsvDataPolicy startup_wsv_data_policy,
                const boost::optional<iroha::GossipPropagationStrategyParams>
                    &opt_mst_gossip_params = boost::none,
                const boost::optional<iroha::torii::TlsParams>
@@ -50,8 +51,10 @@ namespace integration_framework {
                  stale_stream_max_rounds,
                  std::move(opt_alternative_peers),
                  std::move(irohad_log_manager),
+                 startup_wsv_data_policy,
                  opt_mst_gossip_params,
-                 torii_tls_params),
+                 torii_tls_params,
+                 boost::none),
           log_(std::move(log)) {}
 
     auto &getCommandService() {

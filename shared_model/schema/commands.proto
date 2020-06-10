@@ -5,6 +5,9 @@
 
 syntax = "proto3";
 package iroha.protocol;
+
+option go_package = "iroha.generated/protocol";
+
 import "primitive.proto";
 
 message AddAssetQuantity {
@@ -110,6 +113,18 @@ message SetSettingValue {
     string value = 2;
 }
 
+message CallEngine {
+    enum EngineType {
+      kSolidity = 0;
+    }
+    EngineType type = 1;
+    string caller = 2;
+    oneof opt_callee {
+      string callee = 3;  // hex string
+    }
+    string input = 4;  // hex string
+}
+
 message Command {
     oneof command {
         AddAssetQuantity add_asset_quantity = 1;
@@ -131,5 +146,6 @@ message Command {
         RemovePeer remove_peer = 17;
         CompareAndSetAccountDetail compare_and_set_account_detail = 18;
         SetSettingValue set_setting_value = 19;
+        CallEngine call_engine = 20;
     }
 }

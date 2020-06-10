@@ -78,7 +78,7 @@ class FakePeerFixture : public AcceptanceFixture {
  protected:
   void SetUp() override {
     itf_ = std::make_unique<integration_framework::IntegrationTestFramework>(
-        1, boost::none, true, true);
+        1, boost::none, iroha::StartupWsvDataPolicy::kDrop, true, true);
     itf_->initPipeline(common_constants::kAdminKeypair);
   }
 

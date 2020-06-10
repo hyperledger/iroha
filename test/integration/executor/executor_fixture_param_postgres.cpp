@@ -6,7 +6,10 @@
 #include "integration/executor/executor_fixture_param_postgres.hpp"
 
 #include <soci/soci.h>
+#include "ametsuchi/impl/postgres_block_index.hpp"
+#include "ametsuchi/impl/postgres_burrow_storage.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/postgres_indexer.hpp"
 #include "ametsuchi/impl/postgres_query_executor.hpp"
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "backend/protobuf/proto_permission_to_string.hpp"
@@ -18,6 +21,8 @@
 #include "logger/logger_manager.hpp"
 #include "main/impl/pg_connection_init.hpp"
 #include "module/irohad/ametsuchi/mock_block_storage.hpp"
+#include "module/irohad/ametsuchi/mock_vm_caller.hpp"
+#include "module/irohad/ametsuchi/truncate_postgres_wsv.hpp"
 #include "module/irohad/pending_txs_storage/pending_txs_storage_mock.hpp"
 #include "module/shared_model/interface_mocks.hpp"
 
@@ -28,12 +33,15 @@ using namespace iroha::expected;
 using namespace iroha::integration_framework;
 
 namespace {
-  constexpr size_t kDataBaseSessionPoolSize = 3;  // sessions for:
+  constexpr size_t kDataBaseSessionPoolSize = 5;  // sessions for:
+                                                  // - burrow storage
                                                   // - command executor
                                                   // - query executor
                                                   // - resetWsv
+                                                  // - tx data indexer
 
-  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager);
+  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager,
+                                                    VmCaller &);
 }  // namespace
 
 PostgresExecutorTestParam::PostgresExecutorTestParam() {
@@ -45,22 +53,49 @@ PostgresExecutorTestParam::PostgresExecutorTestParam() {
   }
   db_manager_ = std::move(db_manager_result).assumeValue();
 
-  executor_itf_target_ = createPostgresExecutorItfTarget(*db_manager_);
+  executor_itf_target_ =
+      createPostgresExecutorItfTarget(*db_manager_, *vm_caller_);
+  burrow_storage_session_ = db_manager_->getSession();
+
+  block_indexer_session_ = db_manager_->getSession();
+  block_indexer_ = std::make_shared<PostgresBlockIndex>(
+      std::make_unique<PostgresIndexer>(*block_indexer_session_),
+      getTestLogger("PostgresIndexer"));
 }
 
 PostgresExecutorTestParam::~PostgresExecutorTestParam() = default;
 
 void PostgresExecutorTestParam::clearBackendState() {
   auto session = db_manager_->getSession();
-  IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::resetWsv(*session));
+  assert(session);
+  iroha::ametsuchi::truncateWsv(*session);
 }
 
 ExecutorItfTarget PostgresExecutorTestParam::getExecutorItfParam() const {
   return executor_itf_target_;
 }
 
+std::unique_ptr<iroha::ametsuchi::BurrowStorage>
+PostgresExecutorTestParam::makeBurrowStorage(
+    std::string const &tx_hash,
+    shared_model::interface::types::CommandIndexType cmd_index) const {
+  return std::make_unique<PostgresBurrowStorage>(
+      *burrow_storage_session_, tx_hash, cmd_index);
+}
+
+std::shared_ptr<iroha::ametsuchi::BlockIndex>
+PostgresExecutorTestParam::getBlockIndexer() const {
+  return block_indexer_;
+}
+
 std::string PostgresExecutorTestParam::toString() const {
   return "PostgreSQL";
+}
+
+std::reference_wrapper<ExecutorTestParam>
+executor_testing::getExecutorTestParamPostgres() {
+  static PostgresExecutorTestParam param;
+  return param;
 }
 
 namespace {
@@ -96,13 +131,11 @@ namespace {
     std::unique_ptr<BlockStorage> block_storage_;
   };
 
-  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager) {
+  ExecutorItfTarget createPostgresExecutorItfTarget(TestDbManager &db_manager,
+                                                    VmCaller &vm_caller) {
     ExecutorItfTarget target;
-    target.command_executor = std::make_shared<PostgresCommandExecutor>(
-        db_manager.getSession(),
-        std::make_shared<shared_model::proto::ProtoPermissionToString>());
-    target.query_executor =
-        std::make_unique<PostgresSpecificQueryExecutorWrapper>(
+    auto postgres_query_executor =
+        std::make_shared<PostgresSpecificQueryExecutorWrapper>(
             db_manager.getSession(),
             std::make_unique<MockBlockStorage>(),
             std::make_shared<MockPendingTransactionStorage>(),
@@ -111,6 +144,12 @@ namespace {
             getTestLoggerManager()
                 ->getChild("SpecificQueryExecutor")
                 ->getLogger());
+    target.command_executor = std::make_shared<PostgresCommandExecutor>(
+        db_manager.getSession(),
+        std::make_shared<shared_model::proto::ProtoPermissionToString>(),
+        postgres_query_executor,
+        vm_caller);
+    target.query_executor = std::move(postgres_query_executor);
     return target;
   }
 

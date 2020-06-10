@@ -4,6 +4,8 @@
  */
 
 #include "backend/protobuf/permissions.hpp"
+#include "interfaces/permissions.hpp"
+#include "primitive.pb.h"
 
 namespace shared_model {
   namespace proto {

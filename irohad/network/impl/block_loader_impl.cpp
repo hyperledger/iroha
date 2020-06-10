@@ -6,6 +6,7 @@
 #include "network/impl/block_loader_impl.hpp"
 
 #include <chrono>
+#include <string_view>
 
 #include <grpc++/create_channel.h>
 #include <rxcpp/rx-lite.hpp>
@@ -24,8 +25,6 @@ using namespace shared_model::interface;
 namespace {
   const char *kPeerNotFound = "Cannot find peer";
   const char *kPeerRetrieveFail = "Failed to retrieve peers";
-  const char *kPeerFindFail = "Failed to find requested peer";
-  const std::chrono::seconds kBlocksRequestTimeout{5};
 }  // namespace
 
 BlockLoaderImpl::BlockLoaderImpl(
@@ -40,7 +39,7 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
     const shared_model::interface::types::HeightType height,
     types::PublicKeyHexStringView peer_pubkey) {
   return rxcpp::observable<>::create<std::shared_ptr<Block>>(
-      [this, height, &peer_pubkey](auto subscriber) {
+      [this, height, peer_pubkey](auto subscriber) {
         auto peer = this->findPeer(peer_pubkey);
         if (not peer) {
           log_->error("{}", kPeerNotFound);
@@ -51,10 +50,6 @@ rxcpp::observable<std::shared_ptr<Block>> BlockLoaderImpl::retrieveBlocks(
         proto::BlockRequest request;
         grpc::ClientContext context;
         protocol::Block block;
-
-        // set a timeout to avoid being hung
-        context.set_deadline(std::chrono::system_clock::now()
-                             + kBlocksRequestTimeout);
 
         // request next block to our top
         request.set_height(height + 1);
@@ -124,7 +119,8 @@ BlockLoaderImpl::findPeer(types::PublicKeyHexStringView pubkey) {
         return peer->pubkey() == pubkey;
       });
   if (it == peers.value().end()) {
-    log_->error("{}", kPeerFindFail);
+    log_->error("Failed to find requested peer {}",
+                static_cast<std::string_view const &>(pubkey));
     return boost::none;
   }
   return *it;

@@ -3,15 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <gmock/gmock.h>
-#include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
-
 #include "ametsuchi/impl/postgres_setting_query.hpp"
+
+#include <gmock/gmock.h>
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "framework/result_fixture.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
+#include "interfaces/iroha_internal/query_response_factory.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 #include "module/shared_model/interface_mocks.hpp"
+#include "module/shared_model/mock_objects_factories/mock_command_factory.hpp"
 
 namespace iroha {
   namespace ametsuchi {
@@ -25,7 +27,18 @@ namespace iroha {
         executor = std::make_unique<PostgresCommandExecutor>(
             std::make_unique<soci::session>(*soci::factory_postgresql(),
                                             pgopt_),
-            perm_converter);
+            perm_converter,
+            std::make_shared<PostgresSpecificQueryExecutor>(
+                *sql,
+                *block_storage_,
+                std::make_shared<MockPendingTransactionStorage>(),
+                std::make_shared<
+                    shared_model::proto::ProtoQueryResponseFactory>(),
+                perm_converter,
+                getTestLoggerManager()
+                    ->getChild("SpecificQueryExecutor")
+                    ->getLogger()),
+            std::nullopt);
 
         setting_query = std::make_unique<PostgresSettingQuery>(
             std::make_unique<soci::session>(*soci::factory_postgresql(),
@@ -51,7 +64,7 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        return executor->execute(cmd, creator, not do_validation);
+        return executor->execute(cmd, creator, {}, 0, not do_validation);
       }
 
       void TearDown() override {

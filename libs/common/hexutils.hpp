@@ -15,6 +15,18 @@
 
 namespace iroha {
 
+  template <typename Container>
+  inline auto hexstringToBytestringSize(Container const &c)
+      -> decltype(c.size()) {
+    return (c.size() + 1) / 2;
+  }
+
+  template <typename Container>
+  inline auto bytestringToHexstringSize(Container const &c)
+      -> decltype(c.size()) {
+    return c.size() * 2;
+  }
+
   /**
    * Convert string of raw bytes to printable hex string
    * @param str - raw bytes string to convert
@@ -27,7 +39,7 @@ namespace iroha {
     static_assert(sizeof(*input.data()) == sizeof(uint8_t), "type mismatch");
     const auto beg = reinterpret_cast<const uint8_t *>(input.data());
     const auto end = beg + input.size();
-    destination.reserve(destination.size() + input.size() * 2);
+    destination.reserve(destination.size() + bytestringToHexstringSize(input));
     boost::algorithm::hex_lower(beg, end, std::back_inserter(destination));
   }
 
@@ -59,7 +71,7 @@ namespace iroha {
       return makeError("Hex string contains uneven number of characters.");
     }
     std::string result;
-    result.reserve(str.size() / 2);
+    result.reserve(hexstringToBytestringSize(str));
     try {
       boost::algorithm::unhex(
           str.begin(), str.end(), std::back_inserter(result));
@@ -73,6 +85,19 @@ namespace iroha {
       const std::string &str) {
     return iroha::expected::resultToOptionalValue(
         hexstringToBytestringResult(str));
+  }
+
+  /**
+   * Convert a number to a printable hex string
+   * @param val - numeric type value
+   * @return - converted hex string
+   */
+  template <typename T,
+            typename = std::enable_if_t<std::is_arithmetic<T>::value>>
+  inline std::string numToHexstring(const T val) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0') << std::setw(sizeof(T) * 2) << val;
+    return ss.str();
   }
 
 }  // namespace iroha

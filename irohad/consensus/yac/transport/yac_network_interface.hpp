@@ -45,6 +45,9 @@ namespace iroha {
         virtual void sendState(const shared_model::interface::Peer &to,
                                const std::vector<VoteMessage> &state) = 0;
 
+        /// Prevent any new outgoing network activity. Be passive.
+        virtual void stop() = 0;
+
         /**
          * Virtual destructor required for inheritance
          */

@@ -5,6 +5,9 @@
 
 syntax = "proto3";
 package iroha.protocol;
+
+option go_package = "iroha.generated/protocol";
+
 import "block.proto";
 import "transaction.proto";
 import "primitive.proto";
@@ -113,6 +116,10 @@ message PeersResponse {
   repeated Peer peers = 1;
 }
 
+message EngineReceiptsResponse {
+  repeated EngineReceipt engine_receipts = 1;
+}
+
 message QueryResponse {
   oneof response {
     AccountAssetResponse account_assets_response = 1;
@@ -128,6 +135,7 @@ message QueryResponse {
     PendingTransactionsPageResponse pending_transactions_page_response = 13;
     BlockResponse block_response = 12;
     PeersResponse peers_response = 14;
+    EngineReceiptsResponse engine_receipts_response = 15;
   }
   string query_hash = 10;
 }

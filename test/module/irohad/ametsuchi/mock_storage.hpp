@@ -58,10 +58,11 @@ namespace iroha {
       MOCK_METHOD1(insertPeer,
                    expected::Result<void, std::string>(
                        const shared_model::interface::Peer &));
-      MOCK_METHOD0(reset, void());
-      MOCK_METHOD0(resetWsv, expected::Result<void, std::string>());
+      MOCK_METHOD0(dropBlockStorage, expected::Result<void, std::string>());
       MOCK_METHOD0(resetPeers, void());
-      MOCK_METHOD0(dropStorage, void());
+      MOCK_CONST_METHOD0(
+          getLedgerState,
+          boost::optional<std::shared_ptr<const iroha::LedgerState>>());
       MOCK_METHOD0(freeConnections, void());
       MOCK_METHOD1(prepareBlock_, void(std::unique_ptr<TemporaryWsv> &));
 

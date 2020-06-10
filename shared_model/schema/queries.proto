@@ -6,13 +6,34 @@
 syntax = "proto3";
 package iroha.protocol;
 
+option go_package = "iroha.generated/protocol";
+
 import "primitive.proto";
+
+enum Field {
+  kCreatedTime = 0;
+  kPosition = 1;
+}
+
+enum Direction {
+  kAscending = 0;
+  kDescending = 1;
+}
+
+message Ordering {
+  message FieldOrdering {
+    Field field = 1;
+    Direction direction = 2;
+  }
+  repeated FieldOrdering sequence = 1;
+}
 
 message TxPaginationMeta {
   uint32 page_size = 1;
   oneof opt_first_tx_hash {
     string first_tx_hash = 2;
   }
+  Ordering ordering = 3;
 }
 
 message AssetPaginationMeta {
@@ -99,6 +120,10 @@ message QueryPayloadMeta {
   uint64 query_counter = 3;
 }
 
+message GetEngineReceipts {
+  string tx_hash = 1;
+}
+
 
 message Query {
   message Payload {
@@ -117,6 +142,7 @@ message Query {
       GetPendingTransactions get_pending_transactions = 13;
       GetBlock get_block = 14;
       GetPeers get_peers = 15;
+      GetEngineReceipts get_engine_receipts = 16;
     }
   }
 

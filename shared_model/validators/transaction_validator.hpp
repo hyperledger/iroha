@@ -14,6 +14,7 @@
 #include "interfaces/commands/add_peer.hpp"
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
+#include "interfaces/commands/call_engine.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -33,9 +34,12 @@
 #include "interfaces/transaction.hpp"
 #include "validators/abstract_validator.hpp"
 #include "validators/validation_error_helpers.hpp"
+#include "validators/validators_common.hpp"
 
 namespace shared_model {
   namespace validation {
+
+    struct ValidatorsConfig;
 
     /**
      * Visitor used by transaction validator to validate each command
@@ -75,6 +79,19 @@ namespace shared_model {
             {},
             {validator_.validateAccountId(add_signatory.accountId()),
              validator_.validatePubkey(add_signatory.pubkey())});
+      }
+
+      std::optional<ValidationError> operator()(
+          const interface::CallEngine &call_engine) const {
+        ValidationErrorCreator error_creator;
+        error_creator |= validator_.validateAccountId(call_engine.caller());
+        if (call_engine.callee()) {
+          error_creator |= validator_.validateEvmHexAddress(
+              call_engine.callee().value().get());
+        }
+        error_creator |= validator_.validateBytecode(
+            interface::types::EvmCodeHexStringView{call_engine.input()});
+        return std::move(error_creator).getValidationError("CallEngine");
       }
 
       std::optional<ValidationError> operator()(

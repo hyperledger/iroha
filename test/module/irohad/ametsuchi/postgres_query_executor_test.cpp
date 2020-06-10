@@ -20,10 +20,12 @@
 #include <boost/range/size.hpp>
 #include "ametsuchi/impl/flat_file/flat_file.hpp"
 #include "ametsuchi/impl/postgres_command_executor.hpp"
+#include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/mutable_storage.hpp"
 #include "backend/plain/peer.hpp"
 #include "backend/protobuf/proto_query_response_factory.hpp"
+#include "backend/protobuf/queries/proto_ordering.hpp"
 #include "common/result.hpp"
 #include "datetime/time.hpp"
 #include "framework/common_constants.hpp"
@@ -153,14 +155,6 @@ namespace iroha {
       void SetUp() override {
         AmetsuchiTest::SetUp();
 
-        auto factory =
-            std::make_shared<shared_model::proto::ProtoCommonObjectsFactory<
-                shared_model::validation::FieldValidator>>(
-                iroha::test::kTestsValidatorsConfig);
-        executor = std::make_unique<PostgresCommandExecutor>(
-            std::make_unique<soci::session>(*soci::factory_postgresql(),
-                                            pgopt_),
-            perm_converter);
         pending_txs_storage = std::make_shared<MockPendingTransactionStorage>();
 
         auto query_executor_result = storage->createQueryExecutor(
@@ -188,6 +182,7 @@ namespace iroha {
       }
 
       void TearDown() override {
+        query_executor_.reset();
         AmetsuchiTest::TearDown();
       }
 
@@ -204,7 +199,8 @@ namespace iroha {
             std::forward<CommandType>(command)};
         shared_model::interface::MockCommand cmd;
         EXPECT_CALL(cmd, get()).WillRepeatedly(::testing::ReturnRef(variant));
-        ASSERT_TRUE(val(executor->execute(cmd, creator, not do_validation)));
+        IROHA_ASSERT_RESULT_VALUE(
+            command_executor->execute(cmd, creator, "", 0, not do_validation));
       }
 
       void addPerms(
@@ -292,7 +288,6 @@ namespace iroha {
       std::unique_ptr<shared_model::interface::Command> command;
 
       std::shared_ptr<QueryExecutor> query_executor_;
-      std::unique_ptr<CommandExecutor> executor;
       std::shared_ptr<MockPendingTransactionStorage> pending_txs_storage;
 
       std::unique_ptr<BlockStorage> block_store;
@@ -703,8 +698,9 @@ namespace iroha {
 
       auto queryPage(
           types::TransactionsNumberType page_size,
-          const std::optional<types::HashType> &first_hash = std::nullopt) {
-        auto query = Impl::makeQuery(page_size, first_hash);
+          const std::optional<types::HashType> &first_hash = std::nullopt,
+          const shared_model::interface::Ordering *ordering = nullptr) {
+        auto query = Impl::makeQuery(page_size, first_hash, ordering);
         return executeQuery(query);
       }
 
@@ -797,11 +793,12 @@ namespace iroha {
 
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
-          const std::optional<types::HashType> &first_hash = std::nullopt) {
+          const std::optional<types::HashType> &first_hash = std::nullopt,
+          const shared_model::interface::Ordering *ordering = nullptr) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())
-            .getAccountTransactions(account_id, page_size, first_hash)
+            .getAccountTransactions(account_id, page_size, first_hash, ordering)
             .build();
       }
     };
@@ -850,12 +847,13 @@ namespace iroha {
 
       static shared_model::proto::Query makeQuery(
           types::TransactionsNumberType page_size,
-          const std::optional<types::HashType> &first_hash = std::nullopt) {
+          const std::optional<types::HashType> &first_hash = std::nullopt,
+          const shared_model::interface::Ordering *ordering = nullptr) {
         return TestQueryBuilder()
             .creatorAccountId(account_id)
             .createdTime(iroha::time::now())
             .getAccountAssetTransactions(
-                account_id, asset_id, page_size, first_hash)
+                account_id, asset_id, page_size, first_hash, ordering)
             .build();
       }
     };
@@ -1112,6 +1110,219 @@ namespace iroha {
 
     /**
      * @given initialized storage, user has 3 transactions committed
+     * @when query contains descending ordering by creation time
+     * @then response contains exactly 3 transactions
+     * @and they are in reverse order
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, ValidCreatedTimeRevOrdering) {
+      this->createTransactionsAndCommit(3);
+      types::HashType *hashes[] = {&this->tx_hashes_.at(2),
+                                   &this->tx_hashes_.at(1),
+                                   &this->tx_hashes_.at(0)};
+
+      size_t size = 3;
+      using Ordering = shared_model::interface::Ordering;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append(Ordering::Field::kCreatedTime,
+                      Ordering::Direction::kDescending);
+
+      auto query_response = this->queryPage(size, std::nullopt, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response),
+          [&hashes, size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+            for (size_t ix = 0; ix < size; ++ix) {
+              EXPECT_EQ(tx_page_response.transactions()[ix].hash(),
+                        *(hashes[ix]));
+            }
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed in one
+     * block
+     * @when query contains descending ordering by creation time, following
+     * ascending creation time following position desc, following asc creation
+     * time
+     * @then response contains exactly 3 transactions
+     * @and they are in reverse creation time order(because the first will have
+     * the priority and height is eq)
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest,
+               ValidCreatedTimeWithStrangeDataOrdering) {
+      this->createTransactionsAndCommit(3);
+      types::HashType *hashes[] = {&this->tx_hashes_.at(2),
+                                   &this->tx_hashes_.at(1),
+                                   &this->tx_hashes_.at(0)};
+
+      size_t size = 3;
+      using Ordering = shared_model::interface::Ordering;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append(Ordering::Field::kCreatedTime,
+                      Ordering::Direction::kDescending);
+      ordering.append(Ordering::Field::kPosition,
+                      Ordering::Direction::kAscending);
+
+      auto query_response = this->queryPage(size, std::nullopt, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response),
+          [&hashes, size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+            for (size_t ix = 0; ix < size; ++ix) {
+              EXPECT_EQ(tx_page_response.transactions()[ix].hash(),
+                        *(hashes[ix]));
+            }
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains ascending ordering by creation time
+     * @then response contains exactly 3 transactions
+     * @and they are in straight order
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, ValidCreatedTimeOrdering) {
+      this->createTransactionsAndCommit(3);
+      types::HashType *hashes[] = {&this->tx_hashes_.at(0),
+                                   &this->tx_hashes_.at(1),
+                                   &this->tx_hashes_.at(2)};
+
+      size_t size = 3;
+      using Ordering = shared_model::interface::Ordering;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append(Ordering::Field::kCreatedTime,
+                      Ordering::Direction::kAscending);
+
+      auto query_response = this->queryPage(size, std::nullopt, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response),
+          [&hashes, size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+            for (size_t ix = 0; ix < size; ++ix) {
+              EXPECT_EQ(tx_page_response.transactions()[ix].hash(),
+                        *(hashes[ix]));
+            }
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains second transaction as a starting
+     * hash @and ascending ordering by creation time
+     * @then response contains exactly 1 transaction
+     * @and this transaction is second
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest,
+               ValidCreatedTimeFromLastTxOrdering) {
+      this->createTransactionsAndCommit(3);
+      auto &hash = this->tx_hashes_.at(2);
+      auto size = 3;
+
+      using Ordering = shared_model::interface::Ordering;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append(Ordering::Field::kCreatedTime,
+                      Ordering::Direction::kAscending);
+
+      auto query_response = this->queryPage(size, hash, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [&hash](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), 1);
+            EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains second transaction as a starting
+     * hash @and descending ordering by creation time
+     * @then response contains exactly 3 transactions
+     * @and the list is starts from second transaction
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest,
+               ValidCreatedTimeLastTxRevOrdering) {
+      this->createTransactionsAndCommit(3);
+      auto &hash = this->tx_hashes_.at(2);
+      auto size = 3;
+
+      using Ordering = shared_model::interface::Ordering;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append(Ordering::Field::kCreatedTime,
+                      Ordering::Direction::kDescending);
+
+      auto query_response = this->queryPage(size, hash, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response),
+          [&hash, size](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), size);
+            EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains second transaction as a starting
+     * hash @and ordering with unexpected values, they will be skipped and
+     * default ordering take place(Postion ascending)
+     * @then response contains exactly 1 transaction
+     * @and the list is starts from second transaction
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, InvalidOrderingValues) {
+      this->createTransactionsAndCommit(3);
+      auto &hash = this->tx_hashes_.at(2);
+      auto size = 3;
+
+      shared_model::proto::OrderingImpl ordering;
+      ordering.append((Ordering::Field)500, (Ordering::Direction)500);
+
+      auto query_response = this->queryPage(size, hash, &ordering);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [&hash](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), 1);
+            EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
+     * @when query contains second transaction as a starting
+     * hash @and default ordering(Postion ascending)
+     * @then response contains exactly 1 transaction
+     * @and the list is starts from second transaction
+     * @and next transaction hash is not present
+     */
+    TYPED_TEST(GetPagedTransactionsExecutorTest, ValidDefaultOrdering) {
+      this->createTransactionsAndCommit(3);
+      auto &hash = this->tx_hashes_.at(2);
+      auto size = 3;
+
+      auto query_response = this->queryPage(size, hash);
+      checkSuccessfulResult<TransactionsPageResponse>(
+          std::move(query_response), [&hash](const auto &tx_page_response) {
+            EXPECT_EQ(tx_page_response.transactions().size(), 1);
+            EXPECT_EQ(tx_page_response.transactions().begin()->hash(), hash);
+            EXPECT_FALSE(tx_page_response.nextTxHash());
+          });
+    }
+
+    /**
+     * @given initialized storage, user has 3 transactions committed
      * @when query contains 2 transactions page size without starting hash
      * @then response contains exactly 2 transactions
      * @and starts from the first one
@@ -1272,6 +1483,46 @@ namespace iroha {
 
     using GetAccountAssetTransactionsExecutorTest =
         GetPagedTransactionsExecutorTest<GetAccountAssetTxPaginationImpl>;
+
+    /**
+     * @given initialized storage, permission to his/her account
+     * AND the user does granted transfer from id2 to user in another domain
+     * @when get account asset transactions
+     * @then Return account asset transactions of user
+     */
+    TEST_F(GetAccountAssetTransactionsExecutorTest, ValidGranted) {
+      addPerms({shared_model::interface::permissions::Role::kGetMyAccAstTxs});
+
+      commitBlocks();
+
+      std::vector<shared_model::proto::Transaction> txs;
+      txs.push_back(
+          TestTransactionBuilder()
+              .creatorAccountId(account_id)
+              .transferAsset(
+                  account_id2, another_account_id, asset_id, "", "1.0")
+              .build());
+
+      auto block = createBlock(txs, 3, second_block_hash);
+
+      apply(storage, block);
+
+      auto hash4 = txs.at(0).hash();
+
+      auto query =
+          TestQueryBuilder()
+              .creatorAccountId(account_id)
+              .getAccountAssetTransactions(account_id, asset_id, kTxPageSize)
+              .build();
+      auto result = executeQuery(query);
+      checkSuccessfulResult<shared_model::interface::TransactionsPageResponse>(
+          std::move(result), [this, &hash4](const auto &cast_resp) {
+            ASSERT_EQ(cast_resp.transactions().size(), 3);
+            ASSERT_EQ(cast_resp.transactions()[0].hash(), hash2);
+            ASSERT_EQ(cast_resp.transactions()[1].hash(), hash3);
+            ASSERT_EQ(cast_resp.transactions()[2].hash(), hash4);
+          });
+    }
 
     /**
      * @given initialized storage, permission to his/her account

@@ -279,6 +279,17 @@ cmd_description = """
       </ul>
    </li>
    <li>
+      <p><strong>use_burrow</strong> = false </p>
+      <ul>
+         <li>
+            <p>use Hyperledger Burrow Etherium Virtual Machine integration</p>
+         </li>
+         <li>
+            <p>Ex:use_burrow=true</p>
+         </li>
+      </ul>
+   </li>
+   <li>
       <p><strong>forceDockerDevelopBuild</strong> = false </p>
       <ul>
          <li>

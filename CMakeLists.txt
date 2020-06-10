@@ -9,7 +9,9 @@ if(CCACHE_PROGRAM)
   message(STATUS "ccache enabled (${CCACHE_PROGRAM})")
 endif()
 
-PROJECT(iroha C CXX)
+PROJECT(iroha
+  VERSION 1.2.0
+  LANGUAGES C CXX)
 
 SET(CMAKE_CXX_STANDARD 17)
 
@@ -115,6 +117,7 @@ option(PACKAGE_TGZ           "Create TGZ package"                       OFF)
 option(PACKAGE_RPM           "Create RPM package"                       OFF)
 option(PACKAGE_DEB           "Create DEB package"                       OFF)
 option(USE_LIBURSA           "Use Hyperledger Ursa cryptography"        OFF)
+option(USE_BURROW            "Use Hyperledger Burrow EVM"               OFF)
 option(SANITIZE_THREAD       "Build with thread sanitizer"              OFF)
 option(SANITIZE_ADDRESS      "Build with address sanitizer"             OFF)
 option(SANITIZE_MEMORY       "Build with memory sanitizer"              OFF)
@@ -158,6 +161,7 @@ message(STATUS "-DSANITIZE_UNDEFINED=${SANITIZE_UNDEFINED}")
 set(IROHA_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/schema")
 set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")
 set(SCHEMA_OUT_DIR ${CMAKE_BINARY_DIR}/schema)
+set(GO_GENERATED_SCHEMA_PATH "${CMAKE_BINARY_DIR}/schema_go")
 include_directories(
   ${PROJECT_SOURCE_DIR}/shared_model
   ${PROJECT_SOURCE_DIR}/irohad
@@ -180,6 +184,7 @@ if(PACKAGE_TGZ OR PACKAGE_ZIP OR PACKAGE_RPM OR PACKAGE_DEB)
 endif()
 
 add_subdirectory(schema)
+add_subdirectory(goSrc/src/vmCaller)
 add_subdirectory(libs)
 add_subdirectory(irohad)
 add_subdirectory(iroha-cli)

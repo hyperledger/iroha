@@ -55,8 +55,9 @@ bool PostgresBlockStorage::insert(
   }
 }
 
-boost::optional<std::shared_ptr<const shared_model::interface::Block>>
-PostgresBlockStorage::fetch(HeightType height) const {
+boost::optional<std::unique_ptr<shared_model::interface::Block>>
+PostgresBlockStorage::fetch(
+    shared_model::interface::types::HeightType height) const {
   soci::session sql(*pool_wrapper_->connection_pool_);
   using QueryTuple = boost::tuple<boost::optional<std::string>>;
   QueryTuple row;
@@ -80,12 +81,12 @@ PostgresBlockStorage::fetch(HeightType height) const {
                 .match(
                     [&](auto &&v) {
                       return boost::make_optional(
-                          std::shared_ptr<const shared_model::interface::Block>(
+                          std::unique_ptr<shared_model::interface::Block>(
                               std::move(v.value)));
                     },
                     [&](const auto &e)
-                        -> boost::optional<std::shared_ptr<
-                            const shared_model::interface::Block>> {
+                        -> boost::optional<
+                            std::unique_ptr<shared_model::interface::Block>> {
                       log_->error("Could not build block at height {}: {}",
                                   height,
                                   e.error);

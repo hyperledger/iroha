@@ -7,6 +7,8 @@ addtest(ametsuchi_test ametsuchi_test.cpp)
 target_link_libraries(ametsuchi_test
     ametsuchi
     ametsuchi_fixture
+    common_test_constants
+    flat_file_storage
     shared_model_stateless_validation
     test_logger
     )
@@ -130,3 +132,13 @@ addtest(peer_query_wsv_test peer_query_wsv_test.cpp)
 target_link_libraries(peer_query_wsv_test
     ametsuchi
     )
+
+if(USE_BURROW)
+  addtest(postgres_burrow_storage_test postgres_burrow_storage_test.cpp)
+  target_link_libraries(postgres_burrow_storage_test
+      postgres_burrow_storage
+      shared_model_utils
+      test_db_manager
+      test_logger
+      )
+endif()

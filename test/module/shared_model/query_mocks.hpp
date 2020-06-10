@@ -16,6 +16,7 @@
 #include "interfaces/queries/get_account_transactions.hpp"
 #include "interfaces/queries/get_asset_info.hpp"
 #include "interfaces/queries/get_block.hpp"
+#include "interfaces/queries/get_engine_receipts.hpp"
 #include "interfaces/queries/get_peers.hpp"
 #include "interfaces/queries/get_role_permissions.hpp"
 #include "interfaces/queries/get_roles.hpp"
@@ -140,6 +141,12 @@ namespace shared_model {
       MOCK_CONST_METHOD0(pageSize, types::TransactionsNumberType());
       MOCK_CONST_METHOD0(firstTxHash, std::optional<types::HashType>());
       MOCK_CONST_METHOD0(clone, TxPaginationMeta *());
+      MOCK_CONST_METHOD0(ordering, Ordering const &());
+    };
+
+    struct MockGetEngineReceipts : public SpecificMockQuery<GetEngineReceipts> {
+      MOCK_CONST_METHOD0(txHash, const std::string &());
+      MOCK_CONST_METHOD0(clone, GetEngineReceipts *());
     };
 
   }  // namespace interface

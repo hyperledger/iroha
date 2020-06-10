@@ -5,6 +5,17 @@
 
 #include "interfaces/query_responses/error_query_response.hpp"
 
+#include <boost/variant/apply_visitor.hpp>
+#include <boost/variant/variant.hpp>
+#include "interfaces/query_responses/error_responses/no_account_assets_error_response.hpp"
+#include "interfaces/query_responses/error_responses/no_account_detail_error_response.hpp"
+#include "interfaces/query_responses/error_responses/no_account_error_response.hpp"
+#include "interfaces/query_responses/error_responses/no_asset_error_response.hpp"
+#include "interfaces/query_responses/error_responses/no_roles_error_response.hpp"
+#include "interfaces/query_responses/error_responses/no_signatories_error_response.hpp"
+#include "interfaces/query_responses/error_responses/not_supported_error_response.hpp"
+#include "interfaces/query_responses/error_responses/stateful_failed_error_response.hpp"
+#include "interfaces/query_responses/error_responses/stateless_failed_error_response.hpp"
 #include "utils/visitor_apply_for_all.hpp"
 
 namespace shared_model {

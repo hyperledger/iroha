@@ -29,11 +29,6 @@ namespace iroha {
         size_t index;  ///< the number of this transaction in the block
       };
 
-      /// Index tx position by its hash.
-      virtual void txHashPosition(
-          const shared_model::interface::types::HashType &hash,
-          TxPosition position) = 0;
-
       /// Store a committed tx hash.
       virtual void committedTxHash(
           const shared_model::interface::types::HashType
@@ -43,16 +38,14 @@ namespace iroha {
       virtual void rejectedTxHash(
           const shared_model::interface::types::HashType &rejected_tx_hash) = 0;
 
-      /// Index tx position by creator account.
-      virtual void txPositionByCreator(
-          const shared_model::interface::types::AccountIdType creator,
-          TxPosition position) = 0;
-
-      /// Index account asset tx position by involved account and asset.
-      virtual void accountAssetTxPosition(
-          const shared_model::interface::types::AccountIdType &account_id,
-          const shared_model::interface::types::AssetIdType &asset_id,
-          TxPosition position) = 0;
+      /// Index tx info.
+      virtual void txPositions(
+          shared_model::interface::types::AccountIdType const &creator,
+          shared_model::interface::types::HashType const &hash,
+          boost::optional<shared_model::interface::types::AssetIdType>
+              &&asset_id,
+          shared_model::interface::types::TimestampType const ts,
+          TxPosition const &position) = 0;
 
       /**
        * Flush the indices to storage.

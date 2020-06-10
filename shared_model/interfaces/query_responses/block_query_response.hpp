@@ -8,7 +8,7 @@
 
 #include "interfaces/base/model_primitive.hpp"
 
-#include <boost/variant.hpp>
+#include <boost/variant/variant_fwd.hpp>
 
 namespace shared_model {
   namespace interface {
@@ -30,9 +30,6 @@ namespace shared_model {
      public:
       /// Type of container with all concrete query response
       using QueryResponseVariantType = w<BlockResponse, BlockErrorResponse>;
-
-      /// Type of all available query responses
-      using QueryResponseListType = QueryResponseVariantType::types;
 
       /**
        * @return reference to const variant with concrete qr

@@ -137,6 +137,7 @@ namespace integration_framework {
   IntegrationTestFramework::IntegrationTestFramework(
       size_t maximum_proposal_size,
       const boost::optional<std::string> &dbname,
+      iroha::StartupWsvDataPolicy startup_wsv_data_policy,
       bool cleanup_on_exit,
       bool mst_support,
       const boost::optional<std::string> block_store_path,
@@ -165,6 +166,7 @@ namespace integration_framework {
                                             internal_port_,
                                             log_manager_->getChild("Irohad"),
                                             log_,
+                                            startup_wsv_data_policy,
                                             dbname)),
         command_client_(std::make_unique<torii::CommandSyncClient>(
             iroha::network::createClient<iroha::protocol::CommandService_v1>(
@@ -254,6 +256,9 @@ namespace integration_framework {
             ->getChild("at " + format_address(kLocalHost, port)));
     fake_peer->initialize();
     fake_peers_.emplace_back(fake_peer);
+    log_->debug("Added a fake peer at {} with {}.",
+                fake_peer->getAddress(),
+                fake_peer->getKeypair().publicKey());
     return fake_peer;
   }
 

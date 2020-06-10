@@ -42,12 +42,8 @@ class PostgresBlockStorageTest : public ::testing::Test {
 
  protected:
   void SetUp() override {
-    PgConnectionInit::createDatabaseIfNotExist(options_).match(
-        [](auto &&val) {},
-        [&](auto &&error) {
-          storage_logger_->error("Database creation error: {}", error.error);
-          std::terminate();
-        });
+    IROHA_ASSERT_RESULT_VALUE(PgConnectionInit::prepareWorkingDatabase(
+        iroha::StartupWsvDataPolicy::kDrop, options_));
 
     auto reconnection_strategy_factory =
         std::make_unique<iroha::ametsuchi::KTimesReconnectionStrategyFactory>(

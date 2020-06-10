@@ -23,6 +23,8 @@ namespace shared_model {
             return Role::kSetMyAccountDetail;
           case Grantable::kTransferMyAssets:
             return Role::kTransferMyAssets;
+          case Grantable::kCallEngineOnMyBehalf:
+            return Role::kGrantCallEngineOnMyBehalf;
           default:;
         }
         return Role::COUNT;

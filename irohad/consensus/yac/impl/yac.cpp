@@ -69,6 +69,10 @@ namespace iroha {
         notifier_lifetime_.unsubscribe();
       }
 
+      void Yac::stop() {
+        network_->stop();
+      }
+
       // ------|Hash gate|------
 
       void Yac::vote(YacHash hash,
@@ -193,13 +197,10 @@ namespace iroha {
 
         log_->info("Vote {} to peer {}", vote, current_leader);
 
-        network_->sendState(current_leader, {vote});
+        propagateStateDirectly(current_leader, {vote});
         cluster_order.switchToNext();
-        auto has_next = cluster_order.hasNext();
         lock.unlock();
-        if (has_next) {
-          timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
-        }
+        timer_->invokeAfterDelay([this, vote] { this->votingStep(vote); });
       }
 
       void Yac::closeRound() {
@@ -236,6 +237,7 @@ namespace iroha {
             answer,
             [&](const auto &answer) {
               auto &proposal_round = getRound(state);
+              auto current_round = round_;
 
               /*
                * It is possible that a new peer with an outdated peers list may
@@ -244,7 +246,9 @@ namespace iroha {
                * not accept our message with valid supermajority because he
                * cannot apply votes from unknown peers.
                */
-              if (state.size() > 1) {
+              if (state.size() > 1
+                  or (proposal_round.block_round == current_round.block_round
+                      and cluster_order_.getPeers().size() == 1)) {
                 // some peer has already collected commit/reject, so it is sent
                 if (vote_storage_.getProcessingState(proposal_round)
                     == ProposalState::kNotSentNotProcessed) {
@@ -259,9 +263,11 @@ namespace iroha {
               auto processing_state =
                   vote_storage_.getProcessingState(proposal_round);
 
-              auto votes = [](const auto &state) { return state.votes; };
+              auto votes =
+                  [](const auto &state) -> const std::vector<VoteMessage> & {
+                return state.votes;
+              };
 
-              auto current_round = round_;
               switch (processing_state) {
                 case ProposalState::kNotSentNotProcessed:
                   vote_storage_.nextProcessingState(proposal_round);
@@ -279,7 +285,8 @@ namespace iroha {
                   notifier_.get_subscriber().on_next(answer);
                   break;
                 case ProposalState::kSentProcessed:
-                  this->tryPropagateBack(state);
+                  if (current_round > proposal_round)
+                    this->tryPropagateBack(state);
                   break;
               }
             },

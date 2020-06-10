@@ -74,6 +74,9 @@ namespace shared_model {
           types::TransactionsNumberType page_size,
           std::optional<types::HashType> first_tx_hash) const;
 
+      FactoryResult<MockGetEngineReceipts> constructGetEngineReceipts(
+          const std::string &tx_hash) const;
+
      private:
       /**
        * Create the mock object and apply expectations setter on it

@@ -10,6 +10,7 @@ add_library(shared_model_interfaces
     commands/impl/add_peer.cpp
     commands/impl/add_signatory.cpp
     commands/impl/append_role.cpp
+    commands/impl/call_engine.cpp
     commands/impl/command.cpp
     commands/impl/create_account.cpp
     commands/impl/create_asset.cpp
@@ -45,7 +46,9 @@ add_library(shared_model_interfaces
     queries/impl/asset_pagination_meta.cpp
     queries/impl/account_detail_pagination_meta.cpp
     queries/impl/account_detail_record_id.cpp
+    queries/impl/get_engine_receipts.cpp
     queries/impl/get_peers.cpp
+    queries/impl/ordering.cpp
     common_objects/impl/amount.cpp
     common_objects/impl/signature.cpp
     common_objects/impl/peer.cpp
@@ -69,6 +72,9 @@ if (IROHA_ROOT_PROJECT)
       query_responses/impl/transactions_page_response.cpp
       query_responses/impl/pending_transactions_page_response.cpp
       query_responses/impl/peers_response.cpp
+      query_responses/impl/engine_receipt.cpp
+      query_responses/impl/engine_log.cpp
+      query_responses/impl/engine_receipts_response.cpp
       transaction_responses/impl/tx_response.cpp
       iroha_internal/batch_meta.cpp
       iroha_internal/transaction_sequence.cpp

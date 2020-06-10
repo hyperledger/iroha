@@ -15,6 +15,7 @@
 #include "interfaces/iroha_internal/proposal.hpp"
 #include "interfaces/iroha_internal/transaction_batch.hpp"
 #include "interfaces/iroha_internal/unsafe_proposal_factory.hpp"
+#include "interfaces/query_responses/engine_receipt.hpp"
 #include "interfaces/transaction.hpp"
 
 // TODO: 2019-01-18 @muratovv Separate file by classes IR-229
@@ -70,6 +71,7 @@ struct MockTransaction : public shared_model::interface::Transaction {
   MOCK_CONST_METHOD0(
       batchMeta,
       std::optional<std::shared_ptr<shared_model::interface::BatchMeta>>());
+  MOCK_METHOD0(moveTo, std::unique_ptr<Transaction>());
 };
 
 /**
