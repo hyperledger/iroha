@@ -53,15 +53,19 @@ In Iroha, on the other hand, an account can have multiple assets, or not have as
 Same logic applies to transferring/sending assets from account to account.
 
 As a solution to this data model mismatch problem we introduce so-called Service Contracts in Burrow that are “aware” of the Iroha data model and expose an API to interact with Iroha state (query balances, transfer assets and so on).
-From the Burrow EVM perspective such Service Contract is hosted in a Native external VM and is callable via the same interfaces as if it was deployed at some special address in the EVM itself.
 
 .. note:: You can check out `Burrow documentation <https://wiki.hyperledger.org/display/burrow/Burrow+-+The+Boring+Blockchain>`_ for more information on Natives and external dispatchers.
 
 Schematically the interaction between different parts of the system looks as follows:
 
-.. image:: ../../image_assets/burrow/natives.png
+.. image:: ../../image_assets/burrow/natives.svg
+
+.. attention::
+	From the Burrow EVM perspective such Service Contract is hosted in a Native external VM and is callable via the same interfaces as if it was deployed at some special address in the EVM itself.
+	These methods are used specifically for Iroha integration, so the address of the Service Contract can only be found while working with it via Iroha.
 
 Current release of the Iroha EVM wrapper contains a single service contract deployed at the address `A6ABC17819738299B3B2C1CE46D55C74F04E290C` (the last 20 bytes of the *keccak256* hash of the string *ServiceContract*) which exposes 2 methods to query Iroha assets balances and transfer assets between accounts.
+
 The signatures of these two methods look like this:
 
 	**function** getAssetBalance(string memory *accountID*, string memory *assetID*) public view
