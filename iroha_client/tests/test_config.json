@@ -1,6 +1,5 @@
 {
   "TORII_URL": "127.0.0.1:1338",
-  "BLOCK_TIME_MS": 100,
   "KURA_INIT_MODE": "strict",
   "KURA_BLOCK_STORE_PATH": "./blocks",
   "IROHA_TRUSTED_PEERS": [{"address":"127.0.0.1:1338", "public_key":"[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]"}],

@@ -92,7 +92,7 @@ impl Kura {
 }
 
 /// Kura work mode.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Mode {
     /// Strict validation of all blocks.
     Strict,

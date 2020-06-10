@@ -74,7 +74,6 @@ pub struct Iroha {
     kura_blocks_receiver: Arc<RwLock<ValidBlockReceiver>>,
     message_receiver: Arc<RwLock<MessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
-    _block_build_step_ms: u64,
 }
 
 impl Iroha {
@@ -120,23 +119,17 @@ impl Iroha {
             transactions_sender.clone(),
             message_sender,
         );
-        let (_public_key, private_key) = config.key_pair();
         let kura = Arc::new(RwLock::new(Kura::new(
-            config.mode,
+            config.mode.clone(),
             Path::new(&config.kura_block_store_path),
             wsv_blocks_sender,
         )));
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::new(
-                private_key,
-                &config.trusted_peers,
-                config.peer_id,
-                config.max_faulty_peers,
+                config,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
                 transactions_sender,
-                config.commit_time_ms,
-                config.tx_receipt_time_ms,
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -150,7 +143,6 @@ impl Iroha {
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
             message_receiver: Arc::new(RwLock::new(message_receiver)),
-            _block_build_step_ms: config.block_build_step_ms,
             kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
         }
     }
