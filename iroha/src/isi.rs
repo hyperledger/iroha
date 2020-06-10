@@ -1,6 +1,6 @@
 //! This module contains enumeration of all legal Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
-use crate::prelude::*;
+use crate::{prelude::*, query::IrohaQuery};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 
@@ -26,6 +26,11 @@ pub enum Instruction {
     /// This variant of Iroha Special Instruction composes two other instructions into one, and
     /// executes them both.
     Compose(Box<Instruction>, Box<Instruction>),
+    /// This variant of Iroha Special Instruction composes several other instructions into one, and
+    /// executes them one by one. If some instruction fails - the whole sequence will fail.
+    Sequence(Vec<Instruction>),
+    /// This variant of Iroha Special Instruction executes the Iroha Query.
+    ExecuteQuery(IrohaQuery),
     /// This variant of Iroha Special Instruction executes the first instruction and if it succeeded
     /// executes the second one, if failed - the third one if presented.
     If(Box<Instruction>, Box<Instruction>, Option<Box<Instruction>>),
@@ -51,6 +56,13 @@ impl Instruction {
                 right.execute(authority, world_state_view)?;
                 Ok(())
             }
+            Instruction::Sequence(sequence) => {
+                for instruction in sequence {
+                    instruction.execute(authority.clone(), world_state_view)?;
+                }
+                Ok(())
+            }
+            Instruction::ExecuteQuery(query) => query.execute(world_state_view).map(|_| ()),
             Instruction::If(condition, then, otherwise) => {
                 match condition.execute(authority.clone(), world_state_view) {
                     Ok(_) => then.execute(authority, world_state_view),

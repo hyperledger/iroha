@@ -58,9 +58,12 @@ fn query_requests(criterion: &mut Criterion) {
         b.iter(
             || match executor::block_on(iroha_client.request(&request)) {
                 Ok(query_result) => {
-                    let QueryResult::GetAccountAssets(result) = query_result;
-                    assert!(!result.assets.is_empty());
-                    success_count += 1;
+                    if let QueryResult::GetAccountAssets(result) = query_result {
+                        assert!(!result.assets.is_empty());
+                        success_count += 1;
+                    } else {
+                        panic!("Wrong Query Result Type.");
+                    }
                 }
                 Err(e) => {
                     eprintln!("Query failed: {}", e);
