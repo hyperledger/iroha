@@ -18,6 +18,13 @@ You can easily build Iroha with Ursa library by adding just `one flag during the
 It will allow you to use crypto algorithms from Ursa library instead of standard Iroha cryptography.
 With the development of new libraries in Ursa more and more options will be available to you!
 
+.. note::
+	Currently, we only get ed25519 SHA-2 algorithm from Ursa.
+	If you like, you can contribute to the code to add more options.
+
+To allow using native cryptography algorithms as well as new Ursa ones, we use Multihash public key format for the later.
+You can learn more about the `keys <../develop/keys.html>`_.
+
 Hyperledger Explorer
 ====================
 

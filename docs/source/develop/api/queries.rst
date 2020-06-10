@@ -32,7 +32,7 @@ Request Schema
 
    message GetEngineReceipts{
     string tx_hash = 1;     // hex string
-}
+    }
 
 Request Structure
 -----------------
