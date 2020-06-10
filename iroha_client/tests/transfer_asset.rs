@@ -87,11 +87,14 @@ mod tests {
             .request(&request)
             .await
             .expect("Failed to execute request.");
-        let QueryResult::GetAccountAssets(result) = query_result;
-        assert_eq!(
-            quantity,
-            result.assets.first().expect("Asset should exist.").quantity,
-        );
+        if let QueryResult::GetAccountAssets(result) = query_result {
+            assert_eq!(
+                quantity,
+                result.assets.first().expect("Asset should exist.").quantity,
+            );
+        } else {
+            panic!("Wrong Query Result Type.");
+        }
     }
 
     fn create_and_start_iroha() {

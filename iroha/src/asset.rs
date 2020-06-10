@@ -42,12 +42,25 @@ pub struct Asset {
     /// Asset's Big Quantity associated with an `Account`.
     pub big_quantity: u128,
     /// Asset's key-value structured data associated with an `Account`.
-    store: BTreeMap<String, String>,
+    pub store: BTreeMap<String, String>,
     /// Asset's key-value  (action, object_id) structured permissions associated with an `Account`.
     pub permissions: Permissions,
 }
 
 impl Asset {
+    /// Constructor with filled `store` field.
+    pub fn with_parameter(id: <Asset as Identifiable>::Id, parameter: (String, String)) -> Self {
+        let mut store = BTreeMap::new();
+        store.insert(parameter.0, parameter.1);
+        Self {
+            id,
+            quantity: 0,
+            big_quantity: 0,
+            store,
+            permissions: Permissions::new(),
+        }
+    }
+
     /// Constructor with filled `quantity` field.
     pub fn with_quantity(id: <Asset as Identifiable>::Id, quantity: u32) -> Self {
         Self {
@@ -176,6 +189,8 @@ pub mod isi {
         MintAsset(u32, <Asset as Identifiable>::Id),
         /// Variant of the generic `Mint` instruction for `u128` --> `Asset`.
         MintBigAsset(u128, <Asset as Identifiable>::Id),
+        /// Variant of the generic `Mint` instruction for `(String, String)` --> `Asset`.
+        MintParameterAsset((String, String), <Asset as Identifiable>::Id),
     }
 
     impl AssetInstruction {
@@ -192,6 +207,10 @@ pub mod isi {
                 }
                 AssetInstruction::MintBigAsset(big_quantity, asset_id) => {
                     Mint::new(*big_quantity, asset_id.clone()).execute(authority, world_state_view)
+                }
+                AssetInstruction::MintParameterAsset(parameter, asset_id) => {
+                    Mint::new(parameter.clone(), asset_id.clone())
+                        .execute(authority, world_state_view)
                 }
             }
         }
@@ -261,6 +280,45 @@ pub mod isi {
             ))
         }
     }
+
+    impl Mint<Asset, (String, String)> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanMintAsset(
+                authority,
+                self.destination_id.definition_id.clone(),
+                None,
+            )
+            .execute(world_state_view)?;
+            world_state_view
+                .asset_definition(&self.destination_id.definition_id)
+                .ok_or("Failed to find asset definition.")?;
+            match world_state_view.asset(&self.destination_id) {
+                Some(asset) => {
+                    asset
+                        .store
+                        .insert(self.object.0.clone(), self.object.1.clone());
+                }
+                None => world_state_view.add_asset(Asset::with_parameter(
+                    self.destination_id.clone(),
+                    self.object.clone(),
+                )),
+            }
+            Ok(())
+        }
+    }
+
+    impl From<Mint<Asset, (String, String)>> for Instruction {
+        fn from(instruction: Mint<Asset, (String, String)>) -> Self {
+            Instruction::Asset(AssetInstruction::MintParameterAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Asset related implementations.
@@ -273,13 +331,13 @@ pub mod query {
 
     /// To get the state of all assets in an account (a balance),
     /// GetAccountAssets query can be used.
-    #[derive(Debug, Io, IntoQuery, Encode, Decode)]
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
     pub struct GetAccountAssets {
         account_id: <Account as Identifiable>::Id,
     }
 
     /// Result of the `GetAccountAssets` execution.
-    #[derive(Debug, Encode, Decode)]
+    #[derive(Clone, Debug, Encode, Decode)]
     pub struct GetAccountAssetsResult {
         /// Assets types which are needed to be included in query result.
         pub assets: Vec<Asset>,

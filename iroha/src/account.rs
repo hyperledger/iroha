@@ -3,7 +3,10 @@
 
 use crate::{isi::prelude::*, prelude::*};
 use parity_scale_codec::{Decode, Encode};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Display},
+};
 
 /// Account entity is an authority which is used to execute `Iroha Special Insturctions`.
 #[derive(Debug, Clone, Encode, Decode)]
@@ -78,6 +81,12 @@ impl From<&str> for Id {
             name: String::from(vector[0]),
             domain_name: String::from(vector[1]),
         }
+    }
+}
+
+impl Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}@{}", self.name, self.domain_name)
     }
 }
 
@@ -204,6 +213,57 @@ pub mod isi {
                 instruction.destination_id,
                 instruction.object,
             ))
+        }
+    }
+}
+
+/// Query module provides `IrohaQuery` Account related implementations.
+pub mod query {
+    use super::*;
+    use crate::query::IrohaQuery;
+    use iroha_derive::*;
+    use parity_scale_codec::{Decode, Encode};
+    use std::time::SystemTime;
+
+    /// Get information related to the account with a specified `account_id`.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAccount {
+        /// Identification of an account to find information about.
+        pub account_id: <Account as Identifiable>::Id,
+    }
+
+    /// Result of the `GetAccount` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAccountResult {
+        /// Account information.
+        pub account: Account,
+    }
+
+    impl GetAccount {
+        /// Build a `GetAccount` query in the form of a `QueryRequest`.
+        pub fn build_request(account_id: <Account as Identifiable>::Id) -> QueryRequest {
+            let query = GetAccount { account_id };
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAccount {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            Ok(QueryResult::GetAccount(GetAccountResult {
+                account: world_state_view
+                    .read_account(&self.account_id)
+                    .map(Clone::clone)
+                    .ok_or("Failed to get an account.")?,
+            }))
         }
     }
 }

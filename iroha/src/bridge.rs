@@ -87,84 +87,71 @@ impl Identifiable for Bridge {
     type Id = BridgeId;
 }
 
+fn owner_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
+    AssetDefinitionId::new("owner_asset", "bridge")
+}
+
+fn bridge_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
+    AssetDefinitionId::new("bridge_asset", "bridge")
+}
+
 /// Iroha Special Instructions module provides extensions for `Peer` structure and an
 /// implementation of the generic `Register` Iroha Special Instruction for `Bridge` registration.
 pub mod isi {
     use super::*;
-    use crate::isi::prelude::*;
+    use crate::{account::query::*, isi::prelude::*, query::*};
 
     impl Peer {
         /// Constructor of `Register<Peer, BridgeDefinition>` Iroha Special Instruction.
-        pub fn register_bridge(
-            &self,
-            object: BridgeDefinition,
-        ) -> Register<Peer, BridgeDefinition> {
-            Register {
-                object,
-                destination_id: self.id.clone(),
-            }
-        }
-    }
-
-    impl Register<Peer, BridgeDefinition> {
-        /// Registers the `Bridge` by its definition on the given `WorldStateView`.
-        ///
-        /// Adds a `Domain` with the same name as in the `BridgeDefinition`, then registers an
-        /// account with default name "bridge" and a public key generated from a seed, and finally
-        /// constructs a `Bridge` entity from that data.
-        pub(crate) fn execute(self, world_state_view: &mut WorldStateView) -> Result<(), String> {
-            let bridge_definition = self.object;
-            let _owner_account = world_state_view
-                .account(&bridge_definition.owner_account_id)
-                .cloned()
-                .ok_or("Account not found.")?;
+        pub fn register_bridge(&self, bridge_definition: BridgeDefinition) -> Instruction {
             let seed = crate::crypto::hash(bridge_definition.encode());
-            let public_key = crate::crypto::generate_key_pair_from_seed(seed)?.0;
+            let public_key = crate::crypto::generate_key_pair_from_seed(seed)
+                .expect("Failed to generate key pair.")
+                .0;
             let domain = Domain::new(bridge_definition.id.name.clone());
-            let account = Account::new("bridge", &bridge_definition.id.name, public_key);
-            world_state_view
-                .peer()
-                .add_domain(domain.clone())
-                .execute(bridge_definition.owner_account_id.clone(), world_state_view)?;
-            domain
-                .register_account(account.clone())
-                .execute(bridge_definition.owner_account_id, world_state_view)?;
-            let bridge_id = BridgeId::new(&bridge_definition.id.name);
-            let bridge = Bridge::new(bridge_id, account.id);
-            world_state_view.add_bridge(bridge);
-            Ok(())
-        }
-    }
-
-    impl From<Register<Peer, BridgeDefinition>> for Instruction {
-        fn from(reg_instruction: Register<Peer, BridgeDefinition>) -> Self {
-            Instruction::Peer(PeerInstruction::RegisterBridge(
-                reg_instruction.object,
-                reg_instruction.destination_id,
-            ))
-        }
-    }
-}
-
-/// Iroha World State View module provides extensions for the `WorldStateView` for adding and
-/// retrieving `Bridge` entities.
-pub mod wsv {
-    use super::*;
-
-    impl WorldStateView {
-        /// Add new `Bridge` entity.
-        pub fn add_bridge(&mut self, bridge: Bridge) {
-            self.peer().bridges.insert(bridge.name().to_owned(), bridge);
-        }
-
-        /// Get `Bridge` without an ability to modify it.
-        pub fn read_bridge(&self, name: &str) -> Option<&Bridge> {
-            self.read_peer().bridges.get(name)
-        }
-
-        /// Get `Bridge` with an ability to modify it.
-        pub fn bridge(&mut self, name: &str) -> Option<&mut Bridge> {
-            self.peer().bridges.get_mut(name)
+            let account = Account::new("bridge", &domain.name, public_key);
+            Instruction::If(
+                Box::new(Instruction::ExecuteQuery(IrohaQuery::GetAccount(
+                    GetAccount {
+                        account_id: bridge_definition.owner_account_id.clone(),
+                    },
+                ))),
+                Box::new(Instruction::Sequence(vec![
+                    Add {
+                        object: domain.clone(),
+                        destination_id: self.id.clone(),
+                    }
+                    .into(),
+                    Register {
+                        object: account.clone(),
+                        destination_id: domain.name,
+                    }
+                    .into(),
+                    Mint {
+                        object: (
+                            "owner_id".to_string(),
+                            bridge_definition.owner_account_id.to_string(),
+                        ),
+                        destination_id: AssetId {
+                            definition_id: owner_asset_definition_id(),
+                            account_id: account.id.clone(),
+                        },
+                    }
+                    .into(),
+                    Mint {
+                        object: (
+                            "bridge_definition".to_string(),
+                            format!("{:?}", bridge_definition.encode()),
+                        ),
+                        destination_id: AssetId {
+                            definition_id: bridge_asset_definition_id(),
+                            account_id: account.id,
+                        },
+                    }
+                    .into(),
+                ])),
+                None,
+            )
         }
     }
 }

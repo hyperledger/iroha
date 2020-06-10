@@ -297,7 +297,8 @@ App::new(GET)
             &client::assets::by_account_id(<Account as Identifiable>::Id::from(account_id)),
         ))
         .expect("Failed to get asset.");
-        let QueryResult::GetAccountAssets(result) = query_result;
-        println!("Get Asset result: {:?}", result);
+        if let QueryResult::GetAccountAssets(result) = query_result {
+            println!("Get Asset result: {:?}", result);
+        }
     }
 }
