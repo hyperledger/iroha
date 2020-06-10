@@ -59,7 +59,7 @@ mod tests {
             .await
             .expect("Failed to prepare state.");
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.pipeline_time_ms() * 2,
         ));
         //When
         let quantity = 20;
@@ -79,7 +79,7 @@ mod tests {
             .await
             .expect("Failed to submit command.");
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.pipeline_time_ms() * 2,
         ));
         //Then
         let request = client::assets::by_account_id(account2_id);

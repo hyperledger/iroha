@@ -134,6 +134,7 @@ impl SignedTransaction {
         })
     }
 
+    // TODO: comment that it should use a clone
     /// Move transaction lifecycle forward by checking an ability to apply instructions to the
     /// `WorldStateView`.
     ///

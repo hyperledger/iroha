@@ -13,7 +13,8 @@ fn get_n_peers(n: usize) -> Vec<PeerId> {
 }
 
 fn sort_peers(criterion: &mut Criterion) {
-    let mut network_topology = NetworkTopology::new(&get_n_peers(N_PEERS), None, 1);
+    let mut network_topology = NetworkTopology::new(&get_n_peers(N_PEERS), None, 1)
+        .expect("Failed to initialize topology.");
     criterion.bench_function("sort_peers", |b| {
         b.iter(|| network_topology.sort_peers(Some([0u8; 32])));
     });

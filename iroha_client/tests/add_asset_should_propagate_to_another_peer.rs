@@ -46,7 +46,7 @@ mod tests {
             .await
             .expect("Failed to prepare state.");
         task::sleep(std::time::Duration::from_millis(
-            configuration.block_build_step_ms * 20,
+            configuration.pipeline_time_ms() * 2,
         ))
         .await;
         //When
@@ -63,7 +63,7 @@ mod tests {
             .await
             .expect("Failed to create asset.");
         task::sleep(std::time::Duration::from_millis(
-            configuration.block_build_step_ms * 20,
+            configuration.pipeline_time_ms() * 2,
         ))
         .await;
         //Then

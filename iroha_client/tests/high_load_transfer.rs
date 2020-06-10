@@ -59,7 +59,7 @@ mod tests {
             .await
             .expect("Failed to create domain.");
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.pipeline_time_ms() * 2,
         ));
         //When
         for _ in 0..100 {
@@ -82,7 +82,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         std::thread::sleep(std::time::Duration::from_millis(
-            &configuration.block_build_step_ms * 2,
+            &configuration.pipeline_time_ms() * 2,
         ));
         //Then
         let request = client::assets::by_account_id(account2_id);

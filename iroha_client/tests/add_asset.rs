@@ -29,10 +29,7 @@ mod tests {
             .submit(create_asset.into())
             .await
             .expect("Failed to prepare state.");
-        task::sleep(Duration::from_millis(
-            &configuration.block_build_step_ms * 20,
-        ))
-        .await;
+        task::sleep(Duration::from_millis(&configuration.pipeline_time_ms() * 2)).await;
         //When
         let quantity: u32 = 200;
         let mint_asset = isi::Mint {
@@ -46,10 +43,7 @@ mod tests {
             .submit(mint_asset.into())
             .await
             .expect("Failed to create asset.");
-        task::sleep(Duration::from_millis(
-            &configuration.block_build_step_ms * 20,
-        ))
-        .await;
+        task::sleep(Duration::from_millis(&configuration.pipeline_time_ms() * 2)).await;
         //Then
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client

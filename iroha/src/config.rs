@@ -26,21 +26,19 @@ const COMMIT_TIME_MS: &str = "COMMIT_TIME_MS";
 const TX_RECEIPT_TIME_MS: &str = "TX_RECEIPT_TIME_MS";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
+const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
 const DEFAULT_KURA_INIT_MODE: Mode = Mode::Strict;
 const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
 const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
-/// Amount of time Peer waits for `BlockCommitted` message from the proxy tail.
-pub const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
-/// Amount of time Peer waits for `TransactionReceipt` from the leader.
-pub const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 100;
 
 /// Configuration parameters container.
+#[derive(Clone)]
 pub struct Configuration {
     /// Current instance `PeerId`.
     pub peer_id: PeerId,
-    /// Time interval in milliseconds to wait before an attempt to create a new block.
-    /// A new block can be build earlier if the pending transactions queue will be filled.
-    pub block_build_step_ms: u64,
+    /// Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+    pub block_time_ms: u64,
     /// Possible modes: `strict`, `fast`.
     pub mode: Mode,
     /// Path to the existing block store folder or path to create new folder.
@@ -49,6 +47,7 @@ pub struct Configuration {
     pub trusted_peers: Vec<PeerId>,
     /// Maximum amount of peers to fail and do not compromise the consensus.
     pub max_faulty_peers: usize,
+    // TODO: solve duplication problem with having public key in both `peer_id` and main `Configuration` struct
     /// Public key of this peer. Should be the same as in `peer_id`
     pub public_key: PublicKey,
     /// Private key of this peer.
@@ -91,7 +90,7 @@ impl Configuration {
             torii_url: env::var(TORII_URL)
                 .ok()
                 .or_else(|| config_map.remove(TORII_URL)),
-            block_build_step_ms: env::var(BLOCK_TIME_MS)
+            block_time_ms: env::var(BLOCK_TIME_MS)
                 .ok()
                 .or_else(|| config_map.remove(BLOCK_TIME_MS)),
             mode: env::var(KURA_INIT_MODE)
@@ -161,6 +160,11 @@ impl Configuration {
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
         (self.public_key, self.private_key)
     }
+
+    /// Time estimation from receiving a transaction to storing it in a block on all peers.
+    pub fn pipeline_time_ms(&self) -> u64 {
+        self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
+    }
 }
 
 impl Display for Configuration {
@@ -168,7 +172,7 @@ impl Display for Configuration {
         write!(
             f,
             "PeerId: {:?}, Block Build Step Time in milliseconds: {}, Commit Time in milliseconds: {}, Mode: {:?}",
-            self.peer_id, self.block_build_step_ms, self.commit_time_ms, self.mode,
+            self.peer_id, self.block_time_ms, self.commit_time_ms, self.mode,
         )
     }
 }
@@ -183,7 +187,7 @@ impl Debug for Configuration {
             .expect("Wrong format of private key.");
         f.debug_struct("Configuration")
             .field("peer_id", &self.peer_id)
-            .field("block_build_step_ms", &self.block_build_step_ms)
+            .field("block_time_ms", &self.block_time_ms)
             .field("mode", &self.mode)
             .field("kura_block_store_path", &self.kura_block_store_path)
             .field("trusted_peers", &self.trusted_peers)
@@ -198,7 +202,7 @@ impl Debug for Configuration {
 
 struct ConfigurationBuilder {
     torii_url: Option<String>,
-    block_build_step_ms: Option<String>,
+    block_time_ms: Option<String>,
     mode: Option<Mode>,
     kura_block_store_path: Option<String>,
     trusted_peers: Vec<PeerId>,
@@ -219,8 +223,8 @@ impl ConfigurationBuilder {
         };
         Ok(Configuration {
             peer_id,
-            block_build_step_ms: self
-                .block_build_step_ms
+            block_time_ms: self
+                .block_time_ms
                 .unwrap_or_else(|| DEFAULT_BLOCK_TIME_MS.to_string())
                 .parse()
                 .expect("Block build step should be a number."),
@@ -374,7 +378,7 @@ mod tests {
             },
         ];
         assert_eq!("127.0.0.1:1338", configuration.peer_id.address);
-        assert_eq!(100, configuration.block_build_step_ms);
+        assert_eq!(100, configuration.block_time_ms);
         assert_eq!(expected_trusted_peers, configuration.trusted_peers);
         Ok(())
     }
