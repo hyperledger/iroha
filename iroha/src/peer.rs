@@ -29,9 +29,6 @@ pub struct Peer {
     pub domains: HashMap<String, Domain>,
     /// Events Listeners.
     pub listeners: Vec<Instruction>,
-    #[cfg(feature = "bridge")]
-    /// Registered bridges.
-    pub bridges: HashMap<String, Bridge>,
 }
 
 impl Peer {
@@ -56,7 +53,6 @@ impl Peer {
             listen_address: id.address,
             domains,
             listeners: Vec::new(),
-            ..Default::default()
         }
     }
 
@@ -76,7 +72,6 @@ impl Peer {
             listen_address: id.address,
             domains: HashMap::new(),
             listeners,
-            ..Default::default()
         }
     }
 
@@ -97,7 +92,6 @@ impl Peer {
             listen_address: id.address,
             domains,
             listeners,
-            ..Default::default()
         }
     }
 
@@ -140,9 +134,6 @@ pub mod isi {
         AddDomain(String, PeerId),
         /// Variant of the generic `Add` instruction for `Instruction` --> `Peer`.
         AddListener(Box<Instruction>, PeerId),
-        #[cfg(feature = "bridge")]
-        /// Variant of the generic `Register` instruction for `BridgeDefinition` --> `Peer`.
-        RegisterBridge(BridgeDefinition, PeerId),
     }
 
     impl PeerInstruction {
@@ -161,10 +152,6 @@ pub mod isi {
                 PeerInstruction::AddListener(listener, peer_id) => {
                     Add::new(*listener.clone(), peer_id.clone())
                         .execute(authority, world_state_view)
-                }
-                #[cfg(feature = "bridge")]
-                PeerInstruction::RegisterBridge(bridge_def, peer_id) => {
-                    Register::new(bridge_def.clone(), peer_id.clone()).execute(world_state_view)
                 }
             }
         }
