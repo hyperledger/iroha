@@ -12,6 +12,7 @@ pub mod crypto;
 #[cfg(feature = "dex")]
 pub mod dex;
 pub mod domain;
+pub mod event;
 pub mod isi;
 mod kura;
 mod merkle;
@@ -184,7 +185,7 @@ impl Iroha {
         let world_state_view = Arc::clone(&self.world_state_view);
         let wsv_handle = task::spawn(async move {
             while let Some(block) = wsv_blocks_receiver.write().await.next().await {
-                world_state_view.write().await.put(&block).await;
+                world_state_view.write().await.put(&block);
             }
         });
         let message_receiver = Arc::clone(&self.message_receiver);

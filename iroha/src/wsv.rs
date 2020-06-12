@@ -7,7 +7,8 @@ use crate::prelude::*;
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
     peer: Peer,
-    blocks: Vec<CommittedBlock>,
+    /// Blockchain of commited transactions.
+    pub blocks: Vec<CommittedBlock>,
 }
 
 impl WorldStateView {
@@ -21,7 +22,7 @@ impl WorldStateView {
 
     /// Put `ValidBlock` of information with changes in form of **Iroha Special Instructions**
     /// into the world.
-    pub async fn put(&mut self, block: &CommittedBlock) {
+    pub fn put(&mut self, block: &CommittedBlock) {
         for transaction in &block.transactions {
             if let Err(e) = &transaction.proceed(self) {
                 eprintln!("Failed to procced transaction on WSV: {}", e);
@@ -174,7 +175,7 @@ mod tests {
             peer,
             blocks: Vec::new(),
         };
-        world_state_view.put(&block).await;
+        world_state_view.put(&block);
         assert!(world_state_view.domain("Test").is_some());
     }
 }
