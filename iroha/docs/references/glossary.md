@@ -22,16 +22,16 @@ related functionality.
 #### Utilitary Iroha Special Instruction
 
 This set contains logical instructions like `If`, I/O related like `Notify` and compositions
-like `Sequence`. They mostly used by [custom Instructions](#custom-iroha-special-instruction).
+like `Sequence`. They are mostly used by [custom Instructions](#custom-iroha-special-instruction).
 
 #### Domains related Iroha Special Instruction
 
 This set contains domains related instructions (asset/account/domain/peer) and provides
-an ability to make changes on the [World State View](#world-state-view) in a safe way.
+an ability to make changes to the [World State View](#world-state-view) in a safe way.
 
 ### Custom Iroha Special Instruction
 
-These Instructions provided by [Iroha Modules](#todo), clients or 3rd parties. They can be only
+These Instructions are provided by [Iroha Modules](#todo), clients or 3rd parties. They can be only
 build on top of (Out of the Box Instructions)[#out-of-the-box-iroha-special-instruction].
 
 ## World State View
