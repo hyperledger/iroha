@@ -198,7 +198,8 @@ namespace shared_model {
           const interface::AccountDetailPaginationMeta &pagination_meta) const;
 
      private:
-      std::shared_ptr<shared_model::crypto::CryptoVerifier> crypto_verifier_;
+      std::optional<std::shared_ptr<shared_model::crypto::CryptoVerifier>>
+          crypto_verifier_;
       // gap for future transactions
       time_t future_gap_;
       // time provider callback

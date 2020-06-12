@@ -333,12 +333,14 @@ namespace shared_model {
         sig_error_creator |= sig_format_error;
 
         if (not sig_format_error) {
-          using namespace shared_model::interface::types;
-          if (auto e = resultToOptionalError(crypto_verifier_->verify(
-                  SignedHexStringView{signature.value().signedData()},
-                  source,
-                  PublicKeyHexStringView{signature.value().publicKey()}))) {
-            sig_error_creator.addReason(e.value());
+          if (crypto_verifier_) {
+            using namespace shared_model::interface::types;
+            if (auto e = resultToOptionalError(crypto_verifier_.value()->verify(
+                    SignedHexStringView{signature.value().signedData()},
+                    source,
+                    PublicKeyHexStringView{signature.value().publicKey()}))) {
+              sig_error_creator.addReason(e.value());
+            }
           }
         }
         error_creator |= std::move(sig_error_creator)
