@@ -39,7 +39,8 @@ Iroha_CommandError Iroha_ProtoCommandExecutorExecute(void *executor,
   auto maybe_error = boost::apply_visitor(
       shared_model::validation::CommandValidatorVisitor<
           shared_model::validation::FieldValidator>{
-          std::make_shared<shared_model::validation::ValidatorsConfig>(0)},
+          std::make_shared<shared_model::validation::ValidatorsConfig>(
+              0, std::nullopt)},
       proto_command.get());
 
   if (maybe_error) {

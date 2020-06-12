@@ -58,7 +58,8 @@ Iroha_ProtoQueryResponse Iroha_ProtoSpecificQueryExecutorExecute(void *executor,
               shared_model::validation::FieldValidator,
               shared_model::validation::QueryValidatorVisitor<
                   shared_model::validation::FieldValidator>>(
-              std::make_shared<shared_model::validation::ValidatorsConfig>(0))
+              std::make_shared<shared_model::validation::ValidatorsConfig>(
+                  0, std::nullopt))
               .validate(proto_query)) {
     return serialize(makeErrorResponse(300, maybe_error.value().toString()));
   }

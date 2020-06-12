@@ -14,7 +14,8 @@ namespace shared_model {
 
     ValidatorsConfig::ValidatorsConfig(
         uint64_t max_batch_size,
-        std::shared_ptr<shared_model::crypto::CryptoVerifier> crypto_verifier,
+        std::optional<std::shared_ptr<shared_model::crypto::CryptoVerifier>>
+            crypto_verifier,
         std::shared_ptr<const Settings> settings,
         bool partial_ordered_batches_are_valid,
         bool txs_duplicates_allowed)
