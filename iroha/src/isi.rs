@@ -15,14 +15,16 @@ pub mod prelude {
 pub enum Instruction {
     /// Variant of instructions related to `Peer`.
     Peer(crate::peer::isi::PeerInstruction),
-    /// Variant of instructions related to `Domain`.
+    /// Instruction variants related to `Domain`.
     Domain(crate::domain::isi::DomainInstruction),
-    /// Variant of instructions related to `Asset`.
+    /// Instruction variants related to `Asset`.
     Asset(crate::asset::isi::AssetInstruction),
-    /// Variant of instructions related to `Account`.
+    /// Instruction variants related to `Account`.
     Account(crate::account::isi::AccountInstruction),
-    /// Variant of instructions related to `Permission`.
+    /// Instruction variants related to `Permission`.
     Permission(crate::permission::isi::PermissionInstruction),
+    /// Instruction variants connected to different Iroha Events.
+    Event(crate::event::isi::EventInstruction),
     /// This variant of Iroha Special Instruction composes two other instructions into one, and
     /// executes them both.
     Compose(Box<Instruction>, Box<Instruction>),
@@ -51,6 +53,7 @@ impl Instruction {
             Instruction::Asset(origin) => Ok(origin.execute(authority, world_state_view)?),
             Instruction::Account(origin) => Ok(origin.execute(authority, world_state_view)?),
             Instruction::Permission(origin) => Ok(origin.execute(world_state_view)?),
+            Instruction::Event(origin) => Ok(origin.execute(authority, world_state_view)?),
             Instruction::Compose(left, right) => {
                 left.execute(authority.clone(), world_state_view)?;
                 right.execute(authority, world_state_view)?;
