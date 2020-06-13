@@ -16,13 +16,16 @@ namespace shared_model {
       using ByteRange = std::basic_string_view<std::byte>;
 
       template <typename Source>
-      inline ByteRange makeByteRange(const Source &str) {
-        static_assert(
-            sizeof(std::byte) == sizeof(std::decay_t<decltype(str.data()[0])>),
-            "Type size mismatch!");
-        return ByteRange{reinterpret_cast<const std::byte *>(str.data()),
-                         str.size()};
+      inline ByteRange makeByteRange(Source const *data, size_t length) {
+        static_assert(sizeof(Source) == sizeof(std::byte), "type mismatch");
+        return ByteRange{reinterpret_cast<std::byte const *>(data), length};
       }
+
+      template <typename Source>
+      inline ByteRange makeByteRange(const Source &str) {
+        return makeByteRange(str.data(), str.size());
+      }
+
     }  // namespace types
   }    // namespace interface
 }  // namespace shared_model

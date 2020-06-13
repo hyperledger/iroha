@@ -22,7 +22,8 @@ namespace shared_model {
     bool CryptoProviderEd25519Sha3::verify(SignatureByteRangeView signature,
                                            const Blob &orig,
                                            PublicKeyByteRangeView public_key) {
-      return Verifier::verify(signature, orig, public_key);
+      return ed25519_sha3::Verifier::verifyEd25519Sha3(
+          signature, orig.range(), public_key);
     }
 
     Seed CryptoProviderEd25519Sha3::generateSeed() {

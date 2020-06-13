@@ -6,13 +6,16 @@
 #ifndef IROHA_CONF_LOADER_HPP
 #define IROHA_CONF_LOADER_HPP
 
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "common/result_fwd.hpp"
 #include "interfaces/common_objects/common_objects_factory.hpp"
 #include "interfaces/common_objects/types.hpp"
 #include "logger/logger_manager.hpp"
+#include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
 struct IrohadConfig {
@@ -65,8 +68,42 @@ struct IrohadConfig {
   boost::optional<UtilityService> utility_service;
 
   struct Crypto {
-    struct Default {};
-    struct HsmUtimaco {};
+    struct Default {
+      static char const *kName;
+      std::optional<std::string> keypair;
+    };
+
+    struct HsmUtimaco {
+      static char const *kName;
+
+      struct Log {
+        std::string path;
+        std::string level;
+        // rotation option?
+      };
+
+      struct Auth {
+        std::string user;
+        std::optional<std::string> key;
+        std::optional<std::string> password;
+      };
+
+      struct KeyHandle {
+        std::string name;
+        std::optional<std::string> group;
+      };
+
+      struct Signer {
+        KeyHandle signing_key;
+        iroha::multihash::Type type;
+      };
+
+      std::vector<std::string> devices;
+      std::vector<Auth> auth;
+      std::optional<Signer> signer;
+      KeyHandle temporary_key;
+      std::optional<Log> log;
+    };
 
     using ProviderVariant = std::variant<Default, HsmUtimaco>;
     using ProviderId = std::string;
@@ -74,7 +111,7 @@ struct IrohadConfig {
 
     ProviderList providers;
     ProviderId signer;
-    ProviderId verifier;
+    std::vector<ProviderId> verifiers;
   };
 
   boost::optional<Crypto> crypto;

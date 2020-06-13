@@ -117,6 +117,7 @@ option(PACKAGE_TGZ           "Create TGZ package"                       OFF)
 option(PACKAGE_RPM           "Create RPM package"                       OFF)
 option(PACKAGE_DEB           "Create DEB package"                       OFF)
 option(USE_LIBURSA           "Use Hyperledger Ursa cryptography"        OFF)
+option(USE_HSM_UTIMACO       "Biuld HSM Utimaco support module"         OFF)
 option(USE_BURROW            "Use Hyperledger Burrow EVM"               OFF)
 option(SANITIZE_THREAD       "Build with thread sanitizer"              OFF)
 option(SANITIZE_ADDRESS      "Build with address sanitizer"             OFF)
@@ -157,6 +158,9 @@ message(STATUS "-DSANITIZE_THREAD=${SANITIZE_THREAD}")
 message(STATUS "-DSANITIZE_ADDRESS=${SANITIZE_ADDRESS}")
 message(STATUS "-DSANITIZE_MEMORY=${SANITIZE_MEMORY}")
 message(STATUS "-DSANITIZE_UNDEFINED=${SANITIZE_UNDEFINED}")
+message(STATUS "-DUSE_LIBURSA=${USE_LIBURSA}")
+message(STATUS "-DUSE_HSM_UTIMACO=${USE_HSM_UTIMACO}")
+message(STATUS "-DUSE_BURROW=${USE_BURROW}")
 
 set(IROHA_SCHEMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/schema")
 set(SM_SCHEMA_DIR "${PROJECT_SOURCE_DIR}/shared_model/schema")
@@ -167,6 +171,15 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/irohad
   ${PROJECT_SOURCE_DIR}/libs
 )
+
+if(USE_HSM_UTIMACO)
+  if(    NOT DEFINED HSM_UTIMACO_CXI_PATH
+      OR NOT IS_DIRECTORY "${HSM_UTIMACO_CXI_PATH}")
+    message(FATAL_ERROR "please specify a path to HSM Utimaco "
+      "CXI crypto API directory for your architecture "
+      "in the variable HSM_UTIMACO_CXI_PATH")
+  endif()
+endif()
 
 SET(IROHA_ROOT_PROJECT ON)
 

@@ -85,8 +85,8 @@ target_link_libraries(irohad
     raw_block_loader
     gflags
     RapidJSON::rapidjson
-    keys_manager
     common
+    crypto_init
     iroha_conf_loader
     irohad_utility_service
     irohad_utility_status_notifier

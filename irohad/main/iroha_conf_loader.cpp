@@ -7,6 +7,8 @@
 
 #include <fstream>
 #include <limits>
+#include <optional>
+#include <string>
 #include <type_traits>
 
 #include <fmt/core.h>
@@ -18,6 +20,7 @@
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "main/iroha_conf_literals.hpp"
+#include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
 /// The length of the string around the error place to print in case of JSON
@@ -29,6 +32,11 @@ static constexpr size_t kBadJsonPrintOffsset = 5;
 
 static_assert(kBadJsonPrintOffsset <= kBadJsonPrintLength,
               "The place of error is out of the printed string boundaries!");
+
+char const *IrohadConfig::Crypto::Default::kName =
+    config_members::kCryptoProviderDefault;
+char const *IrohadConfig::Crypto::HsmUtimaco::kName =
+    config_members::kCryptoProviderUtimaco;
 
 class JsonDeserializerException : public std::runtime_error {
   using std::runtime_error::runtime_error;
@@ -186,9 +194,9 @@ class JsonDeserializerImpl {
         auto child_path = sublevelPath(children_section_path, child_tag);
         auto child_conf = parent_config.registerChild(
             std::move(child_tag),
-            getOptValByKey<logger::LogLevel>(
+            getBoostOptValByKey<logger::LogLevel>(
                 child_path, child_obj, config_members::LogLevel),
-            getOptValByKey<logger::LogPatterns>(
+            getBoostOptValByKey<logger::LogPatterns>(
                 child_path, child_obj, config_members::LogPatternsSection));
         addChildrenLoggerConfigs(std::move(child_path), *child_conf, child_obj);
       }
@@ -235,10 +243,20 @@ class JsonDeserializerImpl {
   /// A variant of tryGetValByKey for optional destination
   template <typename TDest, typename TKey>
   bool tryGetValByKey(const std::string &path,
-                      boost::optional<TDest> &dest,
+                      std::optional<TDest> &dest,
                       const rapidjson::Value::ConstObject &obj,
                       const TKey &key) {
     dest = getOptValByKey<TDest>(path, obj, key);
+    return true;  // value loaded any way, either from file or boost::none
+  }
+
+  /// A variant of tryGetValByKey for optional destination
+  template <typename TDest, typename TKey>
+  bool tryGetValByKey(const std::string &path,
+                      boost::optional<TDest> &dest,
+                      const rapidjson::Value::ConstObject &obj,
+                      const TKey &key) {
+    dest = getBoostOptValByKey<TDest>(path, obj, key);
     return true;  // value loaded any way, either from file or boost::none
   }
 
@@ -251,7 +269,26 @@ class JsonDeserializerImpl {
    * @return the value if present in the JSON object, otherwise boost::none.
    */
   template <typename TDest, typename TKey>
-  boost::optional<TDest> getOptValByKey(
+  std::optional<TDest> getOptValByKey(const std::string &path,
+                                      const rapidjson::Value::ConstObject &obj,
+                                      const TKey &key) {
+    TDest val;
+    if (tryGetValByKey(path, val, obj, key)) {
+      return std::make_optional(std::move(val));
+    }
+    return std::nullopt;
+  }
+
+  /**
+   * Gets an optional value by a key from a JSON object.
+   * @param path - current config node path used to denote the possible error
+   *    place.
+   * @param obj - the source JSON object
+   * @param key - the key for the requested value
+   * @return the value if present in the JSON object, otherwise boost::none.
+   */
+  template <typename TDest, typename TKey>
+  boost::optional<TDest> getBoostOptValByKey(
       const std::string &path,
       const rapidjson::Value::ConstObject &obj,
       const TKey &key) {
@@ -382,9 +419,8 @@ JsonDeserializerImpl::getVal<std::unique_ptr<shared_model::interface::Peer>>(
   getValByKey(path, address, obj, config_members::Address);
   std::string public_key_str;
   getValByKey(path, public_key_str, obj, config_members::PublicKey);
-  boost::optional<std::string> tls_certificate_path =
-      getOptValByKey<std::string>(
-          path, obj, config_members::TlsCertificatePath);
+  std::optional<std::string> tls_certificate_path = getOptValByKey<std::string>(
+      path, obj, config_members::TlsCertificatePath);
 
   std::optional<std::string> tls_certificate_str;
   if (tls_certificate_path) {
@@ -492,14 +528,8 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto>(
   assert_fatal(src.IsObject(), path + " crypto config must be an object.");
   const auto obj = src.GetObject();
   getValByKey(path, dest.providers, obj, config_members::kProviders);
-  assert_fatal(
-      dest.providers.count(config_members::kCryptoProviderDefault) == 0,
-      fmt::format(
-          "{}: provider name '{}' is reserved and can not be redefined.",
-          path,
-          config_members::kCryptoProviderDefault));
   getValByKey(path, dest.signer, obj, config_members::kSigner);
-  getValByKey(path, dest.verifier, obj, config_members::kVerifier);
+  getValByKey(path, dest.verifiers, obj, config_members::kVerifiers);
 }
 
 template <>
@@ -509,7 +539,69 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco>(
     const rapidjson::Value &src) {
   assert_fatal(src.IsObject(), path + " Utimaco HSM config must be an object.");
   const auto obj = src.GetObject();
-  // TODO
+  getValByKey(path, dest.devices, obj, config_members::kDevices);
+  getValByKey(path, dest.auth, obj, config_members::kAuthentication);
+  getValByKey(path, dest.signer, obj, config_members::kSigner);
+  getValByKey(path, dest.temporary_key, obj, config_members::kTempKey);
+  getValByKey(path, dest.log, obj, config_members::LogSection);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco::Log>(
+    const std::string &path,
+    IrohadConfig::Crypto::HsmUtimaco::Log &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.path, obj, config_members::Path);
+  getValByKey(path, dest.level, obj, config_members::LogLevel);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco::Auth>(
+    const std::string &path,
+    IrohadConfig::Crypto::HsmUtimaco::Auth &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.user, obj, config_members::User);
+  getValByKey(path, dest.key, obj, config_members::kKey);
+  getValByKey(path, dest.password, obj, config_members::Password);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco::KeyHandle>(
+    const std::string &path,
+    IrohadConfig::Crypto::HsmUtimaco::KeyHandle &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.name, obj, config_members::kName);
+  getValByKey(path, dest.group, obj, config_members::kGroup);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco::Signer>(
+    const std::string &path,
+    IrohadConfig::Crypto::HsmUtimaco::Signer &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.signing_key, obj, config_members::kKey);
+  getValByKey(path, dest.type, obj, config_members::Type);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Default>(
+    const std::string &path,
+    IrohadConfig::Crypto::Default &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.keypair, obj, config_members::KeyPairPath);
 }
 
 template <>
@@ -524,6 +616,7 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::ProviderVariant>(
   getValByKey(path, type, obj, config_members::Type);
   if (type == config_members::kCryptoProviderDefault) {
     dest = IrohadConfig::Crypto::Default{};
+    getVal(path, std::get<IrohadConfig::Crypto::Default>(dest), src);
   } else if (type == config_members::kCryptoProviderUtimaco) {
     dest = IrohadConfig::Crypto::HsmUtimaco{};
     getVal(path, std::get<IrohadConfig::Crypto::HsmUtimaco>(dest), src);
@@ -531,6 +624,32 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::ProviderVariant>(
     throw JsonDeserializerException{
         fmt::format("Unknown crypto provider type: '{}'", type)};
   }
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<iroha::multihash::Type>(
+    const std::string &path,
+    iroha::multihash::Type &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsString(), path + " must be a string");
+  std::string str_type = src.GetString();
+  using iroha::multihash::Type;
+  static std::unordered_map<std::string, Type> map{
+      {"Ed25519_SHA2_224", Type::kEd25519Sha2_224},
+      {"Ed25519_SHA2_256", Type::kEd25519Sha2_256},
+      {"Ed25519_SHA2_384", Type::kEd25519Sha2_384},
+      {"Ed25519_SHA2_512", Type::kEd25519Sha2_512},
+      {"Ed25519_SHA3_224", Type::kEd25519Sha3_224},
+      {"Ed25519_SHA3_256", Type::kEd25519Sha3_256},
+      {"Ed25519_SHA3_384", Type::kEd25519Sha3_384},
+      {"Ed25519_SHA3_512", Type::kEd25519Sha3_512}};
+  auto it = map.find(str_type);
+  if (it == map.end()) {
+    throw JsonDeserializerException{fmt::format(
+        "Unknown signature type specified. Allowed values are: '{}'.",
+        fmt::join(map | boost::adaptors::map_keys, "', '"))};
+  }
+  dest = it->second;
 }
 
 template <>

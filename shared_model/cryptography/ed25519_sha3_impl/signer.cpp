@@ -16,8 +16,7 @@ namespace shared_model {
       return iroha::pubkey_t::from_hexstring(keypair.publicKey())
           .match(
               [&](auto &&public_key) {
-                return iroha::sign(iroha::sha3_256(crypto::toBinaryString(blob))
-                                       .to_string(),
+                return iroha::sign(iroha::sha3_256(blob.range()).to_string(),
                                    std::move(public_key).value,
                                    iroha::privkey_t::from_raw(
                                        keypair.privateKey().blob().data()))

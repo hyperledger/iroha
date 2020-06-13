@@ -48,11 +48,21 @@ namespace iroha {
    * @param str - raw bytes string to convert
    * @return - converted hex string
    */
-  inline std::string bytestringToHexstring(std::string_view str) {
+  inline std::string bytestringToHexstring(
+      shared_model::interface::types::ByteRange input) {
     std::string result;
-    bytestringToHexstringAppend(
-        shared_model::interface::types::makeByteRange(str), result);
+    bytestringToHexstringAppend(input, result);
     return result;
+  }
+
+  /**
+   * Convert string of raw bytes to printable hex string
+   * @param str - raw bytes string to convert
+   * @return - converted hex string
+   */
+  inline std::string bytestringToHexstring(std::string_view str) {
+    return bytestringToHexstring(
+        shared_model::interface::types::makeByteRange(str));
   }
 
   /**

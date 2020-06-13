@@ -18,10 +18,30 @@ target_link_libraries(shared_model_cryptography
   sha3_cryptography
 )
 
+add_library(crypto_init
+  crypto_init/from_config.cpp
+  crypto_init/internal.cpp
+  )
+target_link_libraries(crypto_init
+  common
+  iroha_conf_loader
+  keys_manager
+  logger_manager
+  multihash
+  shared_model_cryptography
+  )
+
 if(USE_LIBURSA)
   add_subdirectory(ed25519_ursa_impl)
   target_link_libraries(shared_model_cryptography
     ursa_cryptography
+  )
+endif()
+
+if(USE_HSM_UTIMACO)
+  add_subdirectory(hsm_utimaco)
+  target_link_libraries(shared_model_cryptography
+    hsm_utimaco
   )
 endif()
 

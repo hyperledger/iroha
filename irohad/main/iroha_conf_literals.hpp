@@ -51,10 +51,16 @@ namespace config_members {
   extern const char *UtilityService;
   extern const char *kCrypto;
   extern const char *kSigner;
-  extern const char *kVerifier;
+  extern const char *kVerifiers;
   extern const char *kProviders;
   extern const char *kCryptoProviderDefault;
   extern const char *kCryptoProviderUtimaco;
+  extern const char *kDevices;
+  extern const char *kAuthentication;
+  extern const char *kTempKey;
+  extern const char *kGroup;
+  extern const char *kKey;
+  extern const char *kName;
 
 }  // namespace config_members
 

@@ -51,8 +51,14 @@ namespace config_members {
   const char *UtilityService = "utility_service";
   const char *kCrypto = "crypto";
   const char *kSigner = "signer";
-  const char *kVerifier = "verifier";
+  const char *kVerifiers = "verifiers";
   const char *kProviders = "providers";
   const char *kCryptoProviderDefault = "default";
   const char *kCryptoProviderUtimaco = "utimaco";
+  const char *kDevices = "devices";
+  const char *kAuthentication = "authentication";
+  const char *kTempKey = "temporary_key";
+  const char *kGroup = "group";
+  const char *kKey = "key";
+  const char *kName = "name";
 }  // namespace config_members
