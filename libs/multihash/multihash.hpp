@@ -75,6 +75,21 @@ namespace iroha {
       iroha::bytestringToHexstringAppend(input, output);
     }
 
+    /**
+     * Encode data with its type in multihash format and return as a hex string.
+     * https://github.com/multiformats/multihash
+     * @tparam OutputContainer destination byte string container type
+     * @param[in] type of data to encode
+     * @param[in] input binary data to encode
+     * @param[out] output container to write to
+     */
+    template <typename OutputContainer>
+    inline OutputContainer encode(
+        Type multihash_type, shared_model::interface::types::ByteRange input) {
+      OutputContainer result;
+      encodeHexAppend(multihash_type, input, result);
+      return result;
+    }
   }  // namespace multihash
 }  // namespace iroha
 

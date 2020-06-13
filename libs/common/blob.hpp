@@ -14,6 +14,7 @@
 
 #include "common/hexutils.hpp"
 #include "common/result.hpp"
+#include "interfaces/common_objects/byte_range.hpp"
 
 namespace iroha {
   using BadFormatException = std::invalid_argument;
@@ -55,8 +56,9 @@ namespace iroha {
      * Converts current blob to hex string.
      */
     std::string to_hexstring() const noexcept {
-      return bytestringToHexstring(std::string_view{
-          reinterpret_cast<const char *>(this->data()), this->size()});
+      return bytestringToHexstring(
+          shared_model::interface::types::makeByteRange(this->data(),
+                                                        this->size()));
     }
 
     static blob_t<size_> from_raw(const byte_t data[size_]) {

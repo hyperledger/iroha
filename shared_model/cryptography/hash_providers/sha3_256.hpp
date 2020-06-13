@@ -16,7 +16,7 @@ namespace shared_model {
      public:
       enum { kHashLength = 32 };
       static Hash makeHash(const Blob &blob) {
-        return Hash(iroha::sha3_256(blob.blob()).to_string());
+        return Hash(iroha::sha3_256(blob.range()).to_string());
       }
     };
   }  // namespace crypto

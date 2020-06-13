@@ -6,25 +6,13 @@
 #include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
 
 #include "common/hexutils.hpp"
+#include "cryptography/ed25519_ursa_impl/common.hpp"
 #include "multihash/multihash.hpp"
 #include "ursa_crypto.h"
 
 using namespace std::literals;
+using namespace shared_model::crypto::ursa;
 using namespace shared_model::interface::types;
-
-namespace {
-  inline ByteBuffer irohaToUrsaBuffer(const ByteRange buffer) {
-    return ByteBuffer{
-        static_cast<int64_t>(buffer.size()),
-        reinterpret_cast<uint8_t *>(const_cast<std::byte *>(buffer.data()))};
-  }
-
-  inline ByteRange ursaToIrohaBuffer(const ByteBuffer buffer) {
-    assert(buffer.len > 0);
-    return ByteRange{reinterpret_cast<std::byte *>(buffer.data),
-                     static_cast<size_t>(buffer.len)};
-  }
-}  // namespace
 
 namespace shared_model {
   namespace crypto {
@@ -54,24 +42,6 @@ namespace shared_model {
       return hex_signature;
     }
 
-    bool CryptoProviderEd25519Ursa::verify(ByteRange signed_data,
-                                           ByteRange source,
-                                           ByteRange public_key) {
-      ExternError err;
-
-      const ByteBuffer kMessage = irohaToUrsaBuffer(source);
-      const ByteBuffer kSignature = irohaToUrsaBuffer(signed_data);
-      const ByteBuffer kPublicKey = irohaToUrsaBuffer(public_key);
-
-      if (!ursa_ed25519_verify(&kMessage, &kSignature, &kPublicKey, &err)) {
-        // handle error
-        ursa_ed25519_string_free(err.message);
-        return false;
-      } else {
-        return true;
-      }
-    }
-
     Keypair CryptoProviderEd25519Ursa::generateKeypair() {
       ByteBuffer public_key;
       ByteBuffer private_key;
@@ -84,9 +54,10 @@ namespace shared_model {
       }
 
       std::string multuhash_public_key;
-      iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
-                                        ursaToIrohaBuffer(public_key),
-                                        multuhash_public_key);
+      iroha::multihash::encodeHexAppend(
+          iroha::multihash::Type::kEd25519Sha2_256,
+          ursaToIrohaBuffer(public_key),
+          multuhash_public_key);
 
       Keypair result(PublicKeyHexStringView{multuhash_public_key},
                      PrivateKey{ursaToIrohaBuffer(private_key)});
@@ -113,9 +84,10 @@ namespace shared_model {
       }
 
       std::string multuhash_public_key;
-      iroha::multihash::encodeHexAppend(iroha::multihash::Type::ed25519pub,
-                                        ursaToIrohaBuffer(public_key),
-                                        multuhash_public_key);
+      iroha::multihash::encodeHexAppend(
+          iroha::multihash::Type::kEd25519Sha2_256,
+          ursaToIrohaBuffer(public_key),
+          multuhash_public_key);
 
       Keypair result(PublicKeyHexStringView{multuhash_public_key},
                      PrivateKey{ursaToIrohaBuffer(private_key)});

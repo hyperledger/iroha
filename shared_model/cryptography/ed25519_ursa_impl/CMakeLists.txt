@@ -7,6 +7,7 @@ find_package(ursa REQUIRED)
 
 add_library(ursa_cryptography
     crypto_provider.cpp
+    verifier.cpp
     )
 target_link_libraries(ursa_cryptography
     common

@@ -36,6 +36,7 @@ namespace shared_model {
           shared_model::interface::types::SignatureByteRangeView signature,
           const Blob &orig,
           shared_model::interface::types::PublicKeyByteRangeView public_key);
+
       /**
        * Generates new seed
        * @return Seed generated
