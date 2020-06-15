@@ -10,7 +10,7 @@ use ursa::{
         digest::{Input, VariableOutput},
         VarBlake2b,
     },
-    keys::{KeyGenOption, PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey},
+    keys::{PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey},
     signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
 };
 
@@ -27,20 +27,6 @@ type Ed25519Signature = [u8; 64];
 pub fn generate_key_pair() -> Result<(PublicKey, PrivateKey), String> {
     let (public_key, ursa_private_key) = Ed25519Sha512
         .keypair(Option::None)
-        .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
-    let public_key = public_key[..]
-        .try_into()
-        .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
-    let mut private_key = [0; 64];
-    private_key.copy_from_slice(ursa_private_key.as_ref());
-    Ok((public_key, private_key))
-}
-
-/// Generates a determined pair of Public and Private key from the given seed.
-/// Returns `Err(String)` with error message if failed.
-pub fn generate_key_pair_from_seed(seed: Hash) -> Result<(PublicKey, PrivateKey), String> {
-    let (public_key, ursa_private_key) = Ed25519Sha512
-        .keypair(Some(KeyGenOption::UseSeed(seed.to_vec())))
         .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
     let public_key = public_key[..]
         .try_into()
@@ -149,17 +135,5 @@ mod tests {
                 hex!("ba67336efd6a3df3a70eeb757860763036785c182ff4cf587541a0068d09f5b2")[..]
             );
         })
-    }
-
-    #[test]
-    fn create_keypair_from_seed() {
-        let seed = [64u8; 32];
-        let (public_key, private_key) =
-            super::generate_key_pair_from_seed(seed).expect("Failed to generate key pair.");
-        assert_eq!(
-            public_key[..],
-            hex!("2ce0c446f8a2bcd835336f7db9e047e5d391054d7fdcb8cfdb32252445170f7f")
-        );
-        assert_eq!(private_key[..], hex!("3c0a1fabf193da9c1325e9dc918e4824c35682875aefd20afda2ff56bf8e7cad2ce0c446f8a2bcd835336f7db9e047e5d391054d7fdcb8cfdb32252445170f7f")[..]);
     }
 }

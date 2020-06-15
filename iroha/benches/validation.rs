@@ -12,7 +12,7 @@ fn accept_transaction(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, [0; 32]),
+        object: Account::with_signatory(account_name, domain_name, [0; 32]),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -53,7 +53,7 @@ fn sign_transaction(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, [0; 32]),
+        object: Account::with_signatory(account_name, domain_name, [0; 32]),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -102,7 +102,7 @@ fn validate_transaction(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -158,7 +158,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -202,7 +202,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -248,7 +248,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::new(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, public_key),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);

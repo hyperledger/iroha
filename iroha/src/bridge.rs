@@ -87,10 +87,6 @@ impl Identifiable for Bridge {
     type Id = BridgeId;
 }
 
-fn owner_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
-    AssetDefinitionId::new("owner_asset", "bridge")
-}
-
 fn bridge_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
     AssetDefinitionId::new("bridge_asset", "bridge")
 }
@@ -104,12 +100,8 @@ pub mod isi {
     impl Peer {
         /// Constructor of `Register<Peer, BridgeDefinition>` Iroha Special Instruction.
         pub fn register_bridge(&self, bridge_definition: BridgeDefinition) -> Instruction {
-            let seed = crate::crypto::hash(bridge_definition.encode());
-            let public_key = crate::crypto::generate_key_pair_from_seed(seed)
-                .expect("Failed to generate key pair.")
-                .0;
             let domain = Domain::new(bridge_definition.id.name.clone());
-            let account = Account::new("bridge", &domain.name, public_key);
+            let account = Account::new("bridge", &domain.name);
             Instruction::If(
                 Box::new(Instruction::ExecuteQuery(IrohaQuery::GetAccount(
                     GetAccount {
@@ -129,17 +121,6 @@ pub mod isi {
                     .into(),
                     Mint {
                         object: (
-                            "owner_id".to_string(),
-                            bridge_definition.owner_account_id.to_string(),
-                        ),
-                        destination_id: AssetId {
-                            definition_id: owner_asset_definition_id(),
-                            account_id: account.id.clone(),
-                        },
-                    }
-                    .into(),
-                    Mint {
-                        object: (
                             "bridge_definition".to_string(),
                             format!("{:?}", bridge_definition.encode()),
                         ),
@@ -150,8 +131,131 @@ pub mod isi {
                     }
                     .into(),
                 ])),
-                None,
+                Some(Box::new(Instruction::Fail(
+                    "Account not found.".to_string(),
+                ))),
             )
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::peer::PeerId;
+        use crate::permission::{permission_asset_definition_id, Permission};
+        use std::collections::HashMap;
+
+        struct TestKit {
+            world_state_view: WorldStateView,
+            root_account_id: <Account as Identifiable>::Id,
+        }
+
+        impl TestKit {
+            pub fn new() -> Self {
+                let domain_name = "Company".to_string();
+                let public_key = [1; 32];
+                let mut asset_definitions = HashMap::new();
+                let asset_definition_id = permission_asset_definition_id();
+                asset_definitions.insert(
+                    asset_definition_id.clone(),
+                    AssetDefinition::new(asset_definition_id.clone()),
+                );
+                let account_id = AccountId::new("root", &domain_name);
+                let asset_id = AssetId {
+                    definition_id: asset_definition_id,
+                    account_id: account_id.clone(),
+                };
+                let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
+                let mut account = Account::with_signatory(
+                    &account_id.name,
+                    &account_id.domain_name,
+                    public_key.clone(),
+                );
+                account.assets.insert(asset_id.clone(), asset);
+                let mut accounts = HashMap::new();
+                accounts.insert(account_id.clone(), account);
+                let domain = Domain {
+                    name: domain_name.clone(),
+                    accounts,
+                    asset_definitions,
+                };
+                let bridge_domain_name = "bridge".to_string();
+                let mut bridge_asset_definitions = HashMap::new();
+                let bridge_asset_definition_id = bridge_asset_definition_id();
+                bridge_asset_definitions.insert(
+                    bridge_asset_definition_id.clone(),
+                    AssetDefinition::new(bridge_asset_definition_id.clone()),
+                );
+                let bridge_asset_id = AssetId {
+                    definition_id: bridge_asset_definition_id,
+                    account_id: account_id.clone(),
+                };
+                let bridge_domain = Domain {
+                    name: bridge_domain_name.clone(),
+                    accounts: HashMap::new(),
+                    asset_definitions: bridge_asset_definitions,
+                };
+                let mut domains = HashMap::new();
+                domains.insert(domain_name.clone(), domain);
+                domains.insert(bridge_domain_name.clone(), bridge_domain);
+                let address = "127.0.0.1:8080".to_string();
+                let world_state_view = WorldStateView::new(Peer::with_domains(
+                    PeerId {
+                        address: address.clone(),
+                        public_key,
+                    },
+                    &Vec::new(),
+                    domains,
+                ));
+                TestKit {
+                    world_state_view,
+                    root_account_id: account_id,
+                }
+            }
+        }
+
+        #[test]
+        fn test_register_bridge_test_should_pass() {
+            let mut testkit = TestKit::new();
+            let bridge_owner_public_key = [2; 32];
+            let bridge_owner_account =
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
+            let bridge_definition = BridgeDefinition {
+                id: BridgeDefinitionId::new("Polkadot"),
+                kind: BridgeKind::IClaim,
+                owner_account_id: bridge_owner_account.id.clone(),
+            };
+            let world_state_view = &mut testkit.world_state_view;
+            let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
+            let register_account = domain.register_account(bridge_owner_account);
+            register_account
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge owner account");
+            let register_bridge = world_state_view.peer().register_bridge(bridge_definition);
+            register_bridge
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge");
+        }
+
+        #[test]
+        fn test_register_bridge_should_fail_with_account_not_found() {
+            let mut testkit = TestKit::new();
+            let bridge_owner_public_key = [3; 32];
+            let bridge_owner_account =
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
+            let bridge_definition = BridgeDefinition {
+                id: BridgeDefinitionId::new("Polkadot"),
+                kind: BridgeKind::IClaim,
+                owner_account_id: bridge_owner_account.id.clone(),
+            };
+            let world_state_view = &mut testkit.world_state_view;
+            let register_bridge = world_state_view.peer().register_bridge(bridge_definition);
+            assert_eq!(
+                register_bridge
+                    .execute(testkit.root_account_id.clone(), world_state_view)
+                    .unwrap_err(),
+                "Account not found."
+            );
         }
     }
 }

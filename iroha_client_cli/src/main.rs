@@ -152,7 +152,7 @@ mod account {
 
     fn create_account(account_name: &str, domain_name: &str, _public_key: &str) {
         let create_account = isi::Register {
-            object: Account::new(account_name, domain_name, [0; 32]),
+            object: Account::with_signatory(account_name, domain_name, [0; 32]),
             destination_id: String::from(domain_name),
         };
         let mut iroha_client = Client::new(
