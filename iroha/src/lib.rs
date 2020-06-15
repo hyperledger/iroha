@@ -240,7 +240,7 @@ pub mod prelude {
         domain::Domain,
         isi::Instruction,
         peer::Peer,
-        query::{Query, QueryRequest, QueryResult},
+        query::{IrohaQuery, Query, QueryRequest, QueryResult},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,
         CommittedBlockReceiver, CommittedBlockSender, Identifiable, Iroha, TransactionReceiver,

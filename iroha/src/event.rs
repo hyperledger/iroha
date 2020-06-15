@@ -11,7 +11,7 @@ pub mod isi {
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
 
-    type Trigger = Box<Instruction>;
+    type Trigger = IrohaQuery;
 
     /// Instructions related to different type of Iroha events.
     /// Some of them are time based triggers, another watch the Blockchain and others
@@ -56,7 +56,10 @@ pub mod isi {
                     }
                 }
                 OnWorldStateViewChange(trigger, instruction) => {
-                    if trigger.execute(authority.clone(), world_state_view).is_ok() {
+                    if Instruction::ExecuteQuery(trigger.clone())
+                        .execute(authority.clone(), world_state_view)
+                        .is_ok()
+                    {
                         instruction.execute(authority, world_state_view)
                     } else {
                         Ok(())
@@ -89,6 +92,7 @@ pub mod isi {
     mod tests {
         use super::*;
         use crate::{
+            account::query::GetAccount,
             block::BlockHeader,
             peer::{Peer, PeerId},
             permission::Permission,
@@ -221,7 +225,66 @@ pub mod isi {
 
         #[test]
         fn test_on_world_state_view_change_should_trigger() {
-            //TODO: add good example.
+            let block = CommittedBlock {
+                header: BlockHeader {
+                    timestamp: 0,
+                    height: 0,
+                    previous_block_hash: [0; 32],
+                    merkle_root_hash: [0; 32],
+                },
+                transactions: Vec::new(),
+                signatures: Vec::new(),
+            };
+            let domain_name = "global".to_string();
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = crate::permission::permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let public_key = [0; 32];
+            let account_id = AccountId::new("root", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
+            let mut account = Account::new(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let peer = Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            );
+            let add_domain_instruction = peer.add_domain(Domain::new("Test".to_string())).into();
+            let authority = peer.authority();
+            let mut world_state_view = WorldStateView::new(peer);
+            world_state_view.put(&block);
+            let on_block_created_listener = EventInstruction::OnWorldStateViewChange(
+                IrohaQuery::GetAccount(GetAccount { account_id }),
+                Box::new(add_domain_instruction),
+            );
+            on_block_created_listener
+                .execute(authority, &mut world_state_view)
+                .expect("Failed to execute instruction.");
+            assert!(world_state_view.domain("Test").is_some());
         }
 
         #[test]
