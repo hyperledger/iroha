@@ -1,10 +1,15 @@
 [package]
 name = "iroha"
 version = "0.1.0"
-authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Iroha is a straightforward distributed ledger technology (DLT), inspired by Japanese Kaizen principle — eliminate excessiveness (muri). Iroha has essential functionality for your asset, information and identity management needs, at the same time being an efficient and trustworthy crash fault-tolerant tool for your enterprise needs."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger"]
+categories = ["cryptography::cryptocurrencies"]
 
 [features]
 bridge = []
@@ -12,9 +17,14 @@ dex = []
 network-mock = ["iroha_network/mock"]
 default = ["bridge"]
 
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
+
 [dependencies]
-iroha_derive = { path = "../iroha_macro/iroha_derive" }
-iroha_network = { path = "../iroha_network" }
+iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
+iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 async-std = { version = "1.5", features = ["attributes","unstable"] }
 futures = { version = "0.3.4", features = ["thread-pool"] }
 parity-scale-codec = { version = "1.3", features = ["derive"] }

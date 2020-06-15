@@ -1,14 +1,24 @@
 [package]
 name = "iroha_client_cli"
 version = "0.1.0"
-authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
 edition = "2018"
+description = "Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage. It's a `light` client which only converts Command Line Interface commands into Iroha Web API Network Requests."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "client"]
+categories = ["cryptography::cryptocurrencies", "command-line-utilities"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
 
 [dependencies]
-iroha = { path = "../iroha" }
-iroha_client = { path = "../iroha_client" }
+iroha = { version = "=0.1.0", path = "../iroha" }
+iroha_client = { version = "=0.1.0", path = "../iroha_client" }
 clap = "2.33.0"
 futures = "0.3.4"
 

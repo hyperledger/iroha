@@ -1,8 +1,20 @@
 [package]
 name = "iroha_macro"
 version = "0.1.0"
-authors = ["Nikita Puzankov <humb1t@yandex.ru>"]
+authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
 edition = "2018"
+description = "This crate contains macroses and attributes for Iroha projects. iroha_derive contains derive macroses."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha", "macro"]
+categories = ["cryptography::cryptocurrencies", "encoding", "development-tools::profiling", "development-tools::debugging"]
+
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 parity-scale-codec = "1.2"
