@@ -160,7 +160,7 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -201,7 +201,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -262,7 +262,7 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddDomain);
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -303,7 +303,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -364,7 +364,7 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddListener);
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -405,7 +405,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -466,7 +466,7 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::RegisterAccount(None));
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -516,7 +516,7 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAccount(Some(domain_name.clone())),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -558,7 +558,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -621,7 +621,7 @@ pub mod isi {
             };
             let asset =
                 Asset::with_permission(asset_id.clone(), Permission::RegisterAssetDefinition(None));
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -671,7 +671,7 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAssetDefinition(Some(domain_name.clone())),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -714,7 +714,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -782,7 +782,7 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::TransferAsset(None, Some(transfer_asset_definition_id.clone())),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -840,7 +840,7 @@ pub mod isi {
                     Some(transfer_asset_definition_id.clone()),
                 ),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -886,7 +886,7 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::new(
+            let account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -957,7 +957,7 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::MintAsset(None, Some(mint_asset_definition_id.clone())),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -1011,7 +1011,7 @@ pub mod isi {
                     Some(mint_asset_definition_id.clone()),
                 ),
             );
-            let mut account = Account::new(
+            let mut account = Account::with_signatory(
                 &account_id.name,
                 &account_id.domain_name,
                 public_key.clone(),
@@ -1057,7 +1057,8 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::new(&account_id.name, &account_id.domain_name, public_key);
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = HashMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {

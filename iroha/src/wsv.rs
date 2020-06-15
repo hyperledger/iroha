@@ -142,7 +142,7 @@ mod tests {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account = Account::new(
+        let mut account = Account::with_signatory(
             &account_id.name,
             &account_id.domain_name,
             public_key.clone(),
