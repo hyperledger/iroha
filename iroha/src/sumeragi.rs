@@ -29,9 +29,8 @@ pub struct Sumeragi {
     public_key: PublicKey,
     private_key: PrivateKey,
     network_topology: InitializedNetworkTopology,
-    max_faults: usize,
     peer_id: PeerId,
-    /// PendingBlock in discussion this round
+    /// The block in discussion this round.
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
     transactions_sender: TransactionSender,
@@ -64,7 +63,6 @@ impl Sumeragi {
                 config.max_faulty_peers,
             )
             .init()?,
-            max_faults: config.max_faulty_peers,
             peer_id: config.peer_id,
             voting_block: Arc::new(RwLock::new(None)),
             blocks_sender,
@@ -245,10 +243,10 @@ impl Sumeragi {
                 .await;
             }
         }
-        // TODO: add `minimum_votes` to `NetworkTopology`
-        let minimum_votes = self.max_faults + 1;
         // TODO: check that signatures are from proxy tail and validating peers, ignore other signatures
-        if block_creation_timeout.signatures.len() >= minimum_votes {
+        if block_creation_timeout.signatures.len()
+            >= self.network_topology.min_votes_for_view_change()
+        {
             self.change_view().await;
         }
         Ok(())
@@ -296,9 +294,8 @@ impl Sumeragi {
         &mut self,
         no_tx_receipt: NoTransactionReceiptReceived,
     ) -> Result<(), String> {
-        let minimum_votes = self.max_faults + 1;
         // TODO: check that signatures are from proxy tail and validating peers, ignore other signatures
-        if no_tx_receipt.signatures.len() >= minimum_votes {
+        if no_tx_receipt.signatures.len() >= self.network_topology.min_votes_for_view_change() {
             self.change_view().await;
             return Ok(());
         }
@@ -472,7 +469,7 @@ impl Sumeragi {
             };
             let voting_block = self.voting_block.write().await.clone();
             if let Some(VotingBlock { block, .. }) = voting_block {
-                if block.signatures.len() >= 2 * self.max_faults {
+                if block.signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
                     let block = block.sign(&self.public_key, &self.private_key)?;
                     let message = Message::BlockCommitted(block.clone());
                     let mut send_futures = Vec::new();
@@ -543,9 +540,8 @@ impl Sumeragi {
                 }
             }
         }
-        let minimum_votes = self.max_faults + 1;
         // TODO: check that signatures are from leader and validating peers, ignore other signatures
-        if commit_timeout.signatures.len() >= minimum_votes {
+        if commit_timeout.signatures.len() >= self.network_topology.min_votes_for_view_change() {
             //TODO: store invalidated block hashes
             self.change_view().await;
         }
@@ -568,7 +564,6 @@ impl Debug for Sumeragi {
         f.debug_struct("Sumeragi")
             .field("public_key", &self.public_key)
             .field("network_topology", &self.network_topology)
-            .field("max_faults", &self.max_faults)
             .field("peer_id", &self.peer_id)
             .field("voting_block", &self.voting_block)
             .finish()
@@ -621,6 +616,16 @@ impl InitializedNetworkTopology {
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
         self.sorted_peers.len() > 1
+    }
+
+    /// The minimum number of signatures needed to commit a block
+    pub fn min_votes_for_commit(&self) -> usize {
+        2 * self.max_faults + 1
+    }
+
+    /// The minimum number of signatures needed to perform a view change (change leader, proxy, etc.)
+    pub fn min_votes_for_view_change(&self) -> usize {
+        self.max_faults + 1
     }
 
     /// Peers of set A. They participate in the consensus.
