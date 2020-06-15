@@ -224,22 +224,12 @@ impl Sumeragi {
         {
             return Ok(());
         }
-        let current_time = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("Failed to get System Time.");
         let role = self.network_topology.role(&self.peer_id);
         let tx_receipt = block_creation_timeout.transaction_receipt.clone();
-        // TODO: move checks to private methods in both `tx_receipt` message and `block`.
-        if self
-            .network_topology
-            .verify_signature_with_role(
-                tx_receipt.signature.clone(),
-                Role::Leader,
-                &tx_receipt.transaction_hash,
-            )
-            .is_ok()
-            && (current_time - tx_receipt.received_at) >= self.block_time
+        if tx_receipt.is_valid(&self.network_topology)
+            && tx_receipt.is_block_should_be_created(self.block_time)
             && (role == Role::ValidatingPeer || role == Role::ProxyTail)
+            // Block is not yet created
             && self.voting_block.write().await.is_none()
         {
             let sign_result = block_creation_timeout.sign(&self.public_key, &self.private_key);
@@ -766,6 +756,7 @@ pub mod message {
         block::SignedBlock,
         crypto::{Hash, PrivateKey, PublicKey, Signature},
         peer::PeerId,
+        sumeragi::{InitializedNetworkTopology, Role},
         torii::uri,
         tx::AcceptedTransaction,
     };
@@ -931,6 +922,25 @@ pub mod message {
                     .expect("Failed to get System Time."),
                 signature: Signature::new(*public_key, &transaction_hash, private_key)?,
             })
+        }
+
+        /// Checks that this `TransactionReceipt` is valid.
+        pub fn is_valid(&self, network_topology: &InitializedNetworkTopology) -> bool {
+            network_topology
+                .verify_signature_with_role(
+                    self.signature.clone(),
+                    Role::Leader,
+                    &self.transaction_hash,
+                )
+                .is_ok()
+        }
+
+        /// Checks if the block should have been already created by the `Leader`.
+        pub fn is_block_should_be_created(&self, block_time: Duration) -> bool {
+            let current_time = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time.");
+            (current_time - self.received_at) >= block_time
         }
     }
 

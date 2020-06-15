@@ -249,11 +249,7 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::new(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let mut account = Account::new(&account_id.name, &account_id.domain_name);
             account.assets.insert(asset_id.clone(), asset);
             let mut accounts = HashMap::new();
             accounts.insert(account_id.clone(), account);
