@@ -1,10 +1,20 @@
 [package]
 name = "iroha_network"
 version = "0.1.0"
-authors = ["Egor Ivkov <e.o.ivkov@gmail.com>"]
+authors = [ "Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>" ]
 edition = "2018"
+description = "Iroha Network is built on top Rust STD entities (like Stream) and implements protocol for network peer to peer and client-server communications."
+readme = "README.md"
+homepage = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+repository = "https://github.com/hyperledger/iroha/tree/iroha2-dev"
+license = "Apache-2.0"
+keywords = ["crypto", "blockchain", "ledger", "iroha"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+is-it-maintained-issue-resolution = { repository = "https://github.com/hyperledger/iroha" }
+is-it-maintained-open-issues = { repository = "https://github.com/hyperledger/iroha" }
+maintenance = { status = "actively-developed" }
 
 [features]
 mock = []
