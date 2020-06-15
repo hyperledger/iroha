@@ -28,7 +28,7 @@ trait Consensus {
 pub struct Sumeragi {
     public_key: PublicKey,
     private_key: PrivateKey,
-    network_topology: NetworkTopology,
+    network_topology: InitializedNetworkTopology,
     max_faults: usize,
     peer_id: PeerId,
     /// PendingBlock in discussion this round
@@ -52,6 +52,7 @@ impl Sumeragi {
         blocks_sender: Arc<RwLock<ValidBlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
+        //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
             public_key: config.public_key,
@@ -61,7 +62,8 @@ impl Sumeragi {
                 &config.trusted_peers,
                 None,
                 config.max_faulty_peers,
-            )?,
+            )
+            .init()?,
             max_faults: config.max_faulty_peers,
             peer_id: config.peer_id,
             voting_block: Arc::new(RwLock::new(None)),
@@ -583,34 +585,49 @@ impl Debug for Sumeragi {
     }
 }
 
+/// Uninitialized `NetworkTopology`, use only for construction.
+/// Call `init` to get `InitializedNetworkTopology` and access all other methods.
+pub struct NetworkTopology {
+    peers: Vec<PeerId>,
+    max_faults: usize,
+    block_hash: Option<Hash>,
+}
+
+impl NetworkTopology {
+    /// Constructs a new `NetworkTopology` instance.
+    pub fn new(peers: &[PeerId], block_hash: Option<Hash>, max_faults: usize) -> NetworkTopology {
+        NetworkTopology {
+            peers: peers.to_vec(),
+            max_faults,
+            block_hash,
+        }
+    }
+
+    /// Initializes network topology.
+    pub fn init(self) -> Result<InitializedNetworkTopology, String> {
+        let min_peers = 3 * self.max_faults + 1;
+        if self.peers.len() >= min_peers {
+            let mut topology = InitializedNetworkTopology {
+                sorted_peers: self.peers,
+                max_faults: self.max_faults,
+            };
+            topology.sort_peers(self.block_hash);
+            Ok(topology)
+        } else {
+            Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * self.max_faults + 1, self.peers.len()))
+        }
+    }
+}
+
 /// Represents a topology of peers, defining a `role` for each peer based on the previous block hash.
 #[derive(Debug)]
-pub struct NetworkTopology {
+pub struct InitializedNetworkTopology {
     /// Current order of peers. The roles of peers are defined based on this order.
     pub sorted_peers: Vec<PeerId>,
     max_faults: usize,
 }
 
-impl NetworkTopology {
-    /// Constructs a new `NetworkTopology` instance.
-    pub fn new(
-        peers: &[PeerId],
-        block_hash: Option<Hash>,
-        max_faults: usize,
-    ) -> Result<NetworkTopology, String> {
-        let min_peers = 3 * max_faults + 1;
-        if peers.len() >= min_peers {
-            let mut topology = NetworkTopology {
-                sorted_peers: peers.to_vec(),
-                max_faults,
-            };
-            topology.sort_peers(block_hash);
-            Ok(topology)
-        } else {
-            Err(format!("Not enough peers to be Byzantine fault tolerant. Expected a least {} peers, got {}", 3 * max_faults + 1, peers.len()))
-        }
-    }
-
+impl InitializedNetworkTopology {
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
         self.sorted_peers.len() > 1
@@ -998,6 +1015,7 @@ mod tests {
             public_key: [0u8; 32],
         };
         let network_topology = NetworkTopology::new(&[this_peer.clone()], None, 3)
+            .init()
             .expect("Failed to create topology.");
     }
 
@@ -1021,10 +1039,12 @@ mod tests {
                 public_key: [4u8; 32],
             },
         ];
-        let network_topology1 =
-            NetworkTopology::new(&peers, Some([1u8; 32]), 1).expect("Failed to construct topology");
-        let network_topology2 =
-            NetworkTopology::new(&peers, Some([2u8; 32]), 1).expect("Failed to construct topology");
+        let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
+            .init()
+            .expect("Failed to construct topology");
+        let network_topology2 = NetworkTopology::new(&peers, Some([2u8; 32]), 1)
+            .init()
+            .expect("Failed to construct topology");
         assert_ne!(
             network_topology1.sorted_peers,
             network_topology2.sorted_peers
@@ -1051,10 +1071,12 @@ mod tests {
                 public_key: [4u8; 32],
             },
         ];
-        let network_topology1 =
-            NetworkTopology::new(&peers, Some([1u8; 32]), 1).expect("Failed to construct topology");
-        let network_topology2 =
-            NetworkTopology::new(&peers, Some([1u8; 32]), 1).expect("Failed to construct topology");
+        let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
+            .init()
+            .expect("Failed to initialize topology");
+        let network_topology2 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
+            .init()
+            .expect("Failed to initialize topology");
         assert_eq!(
             network_topology1.sorted_peers,
             network_topology2.sorted_peers
@@ -1253,8 +1275,9 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology =
-            NetworkTopology::new(&ids, None, 1).expect("Failed to construct topology");
+        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+            .init()
+            .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
         let order_after_change = network_topology.sorted_peers;
         // All peer should perform a view change
@@ -1379,8 +1402,9 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology =
-            NetworkTopology::new(&ids, None, 1).expect("Failed to construct topology");
+        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+            .init()
+            .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
         let order_after_change = network_topology.sorted_peers;
         // All peer should perform a view change
@@ -1506,8 +1530,9 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology =
-            NetworkTopology::new(&ids, None, 1).expect("Failed to construct topology");
+        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+            .init()
+            .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
         let order_after_change = network_topology.sorted_peers;
         // All peer should perform a view change
