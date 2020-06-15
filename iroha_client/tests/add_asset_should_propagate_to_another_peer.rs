@@ -28,7 +28,7 @@ mod tests {
         let account_id = AccountId::new(account_name, domain_name);
         let (public_key, _) = configuration.key_pair();
         let create_account = isi::Register {
-            object: Account::new(account_name, domain_name, public_key),
+            object: Account::with_signatory(account_name, domain_name, public_key),
             destination_id: String::from(domain_name),
         };
         let asset_id = AssetDefinitionId::new("xor", domain_name);

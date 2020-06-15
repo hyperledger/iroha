@@ -98,7 +98,7 @@ impl Iroha {
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
         let mut account =
-            Account::new(&account_id.name, &account_id.domain_name, config.public_key);
+            Account::with_signatory(&account_id.name, &account_id.domain_name, config.public_key);
         account.assets.insert(asset_id, asset);
         let mut accounts = HashMap::new();
         accounts.insert(account_id, account);
@@ -115,7 +115,7 @@ impl Iroha {
             domains,
         ))));
         let torii = Torii::new(
-            &config.peer_id.address.clone(),
+            &config.peer_id.address,
             Arc::clone(&world_state_view),
             transactions_sender.clone(),
             message_sender,
@@ -150,6 +150,7 @@ impl Iroha {
 
     /// To make `Iroha` peer work it should be started first. After that moment it will listen for
     /// incoming requests and messages.
+    #[allow(clippy::eval_order_dependence)]
     pub async fn start(&self) -> Result<(), String> {
         let kura = Arc::clone(&self.kura);
         kura.write().await.init().await?;

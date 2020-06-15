@@ -36,6 +36,9 @@ pub enum Instruction {
     /// This variant of Iroha Special Instruction executes the first instruction and if it succeeded
     /// executes the second one, if failed - the third one if presented.
     If(Box<Instruction>, Box<Instruction>, Option<Box<Instruction>>),
+    /// This variant of Iroha Special Instructions explicitly returns an error with the given
+    /// message.
+    Fail(String),
     /// This variant of Iroha Special Instructions sends notifications.
     Notify(String),
 }
@@ -78,6 +81,7 @@ impl Instruction {
                     }
                 }
             }
+            Instruction::Fail(message) => Err(message.into()),
             Instruction::Notify(message) => {
                 println!("Notification: {}", message);
                 Ok(())
