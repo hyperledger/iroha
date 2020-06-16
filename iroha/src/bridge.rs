@@ -120,10 +120,7 @@ pub mod isi {
                     }
                     .into(),
                     Mint {
-                        object: (
-                            "bridge_definition".to_string(),
-                            format!("{:?}", bridge_definition.encode()),
-                        ),
+                        object: ("bridge_definition".to_string(), bridge_definition.encode()),
                         destination_id: AssetId {
                             definition_id: bridge_asset_definition_id(),
                             account_id: account.id,
@@ -186,10 +183,6 @@ pub mod isi {
                     bridge_asset_definition_id.clone(),
                     AssetDefinition::new(bridge_asset_definition_id.clone()),
                 );
-                let bridge_asset_id = AssetId {
-                    definition_id: bridge_asset_definition_id,
-                    account_id: account_id.clone(),
-                };
                 let bridge_domain = Domain {
                     name: bridge_domain_name.clone(),
                     accounts: HashMap::new(),
