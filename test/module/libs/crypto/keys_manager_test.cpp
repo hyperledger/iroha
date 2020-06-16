@@ -5,6 +5,7 @@
 
 #include "crypto/keys_manager.hpp"
 
+#include <cstddef>
 #include <string_view>
 
 #include <gtest/gtest.h>
@@ -12,28 +13,31 @@
 #include <fstream>
 #include <string>
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "framework/result_gtest_checkers.hpp"
 #include "framework/test_logger.hpp"
-#include "module/shared_model/cryptography/crypto_defaults.hpp"
+
+#if defined(USE_LIBURSA)
+#include "cryptography/ed25519_ursa_impl/crypto_provider.hpp"
+#endif
 
 using namespace iroha;
 using namespace boost::filesystem;
 using namespace std::string_literals;
 using namespace shared_model::crypto;
 
+void create_file(const path &ph, std::string_view contents) {
+  std::ofstream f(ph.c_str());
+  assert(f);
+  if (not contents.empty()) {
+    f.write(contents.data(), contents.size());
+  }
+  assert(f.good());
+}
+
+template <typename CurrentCryptoProviderParam>
 class KeyManager : public ::testing::Test {
  public:
-  bool create_file(const path &ph, std::string_view contents) {
-    std::ofstream f(ph.c_str());
-    if (not f) {
-      return false;
-    }
-    if (not contents.empty()) {
-      f.write(contents.data(), contents.size());
-    }
-    return f.good();
-  }
-
   void SetUp() {
     create_directory(test_dir);
   }
@@ -61,82 +65,86 @@ class KeyManager : public ::testing::Test {
                                       .string();
 };
 
-TEST_F(KeyManager, LoadNonExistentKeyFile) {
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+using CryptoUsageTestTypes = ::testing::Types<CryptoProviderEd25519Sha3
+#if defined(USE_LIBURSA)
+                                              ,
+                                              CryptoProviderEd25519Ursa
+#endif
+                                              >;
+TYPED_TEST_CASE(KeyManager, CryptoUsageTestTypes, );
+
+TYPED_TEST(KeyManager, LoadNonExistentKeyFile) {
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadEmptyPubkey) {
-  create_file(pub_key_path, pubkey);
-  create_file(pri_key_path, "");
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadEmptyFilesPubkey) {
+  create_file(this->pub_key_path, "");
+  create_file(this->pri_key_path, this->prikey);
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadEmptyFilesPrikey) {
-  create_file(pub_key_path, "");
-  create_file(pri_key_path, prikey);
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadEmptyFilesPrikey) {
+  create_file(this->pub_key_path, this->pubkey);
+  create_file(this->pri_key_path, "");
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadInvalidPubkey) {
-  create_file(pub_key_path, pubkey);
-  create_file(
-      pri_key_path,
-      std::string(DefaultCryptoAlgorithmType::kPublicKeyLength * 2, '1'));
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadInvalidPubkey) {
+  create_file(this->pub_key_path, std::string(this->pubkey.size() * 2, '1'));
+  create_file(this->pri_key_path, this->prikey);
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadInvalidPrikey) {
-  create_file(
-      pub_key_path,
-      std::string(DefaultCryptoAlgorithmType::kPrivateKeyLength * 2, '1'));
-  create_file(pri_key_path, prikey);
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadInvalidPrikey) {
+  create_file(this->pub_key_path, this->pubkey);
+  create_file(this->pri_key_path, std::string(this->prikey.size() * 2, '1'));
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadValid) {
-  create_file(pub_key_path, pubkey);
-  create_file(pri_key_path, prikey);
-  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadValid) {
+  create_file(this->pub_key_path, this->pubkey);
+  create_file(this->pri_key_path, this->prikey);
+  IROHA_ASSERT_RESULT_VALUE(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, CreateAndLoad) {
-  ASSERT_TRUE(manager.createKeys(boost::none));
-  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, CreateAndLoad) {
+  ASSERT_TRUE(this->manager.createKeys(boost::none));
+  IROHA_ASSERT_RESULT_VALUE(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, CreateAndLoadEncrypted) {
-  ASSERT_TRUE(manager.createKeys(passphrase));
-  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(passphrase));
+TYPED_TEST(KeyManager, CreateAndLoadEncrypted) {
+  ASSERT_TRUE(this->manager.createKeys(this->passphrase));
+  IROHA_ASSERT_RESULT_VALUE(this->manager.loadKeys(this->passphrase));
 }
 
-TEST_F(KeyManager, CreateAndLoadEncryptedEmptyKey) {
-  ASSERT_TRUE(manager.createKeys(std::string{""}));
-  IROHA_ASSERT_RESULT_VALUE(manager.loadKeys(std::string{""}));
+TYPED_TEST(KeyManager, CreateAndLoadEncryptedEmptyKey) {
+  ASSERT_TRUE(this->manager.createKeys(std::string{""}));
+  IROHA_ASSERT_RESULT_VALUE(this->manager.loadKeys(std::string{""}));
 }
 
-TEST_F(KeyManager, CreateAndLoadEncryptedInvalidKey) {
-  ASSERT_TRUE(manager.createKeys(passphrase));
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(passphrase + "123"));
+TYPED_TEST(KeyManager, CreateAndLoadEncryptedInvalidKey) {
+  ASSERT_TRUE(this->manager.createKeys(this->passphrase));
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(this->passphrase + "123"));
 }
 
-TEST_F(KeyManager, LoadInaccessiblePubkey) {
-  create_file(pub_key_path, pubkey);
-  create_file(pri_key_path, prikey);
-  remove(pub_key_path);
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadInaccessiblePubkey) {
+  create_file(this->pub_key_path, this->pubkey);
+  create_file(this->pri_key_path, this->prikey);
+  remove(this->pub_key_path);
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, LoadInaccessiblePrikey) {
-  create_file(pub_key_path, pubkey);
-  create_file(pri_key_path, prikey);
-  remove(pri_key_path);
-  IROHA_ASSERT_RESULT_ERROR(manager.loadKeys(boost::none));
+TYPED_TEST(KeyManager, LoadInaccessiblePrikey) {
+  create_file(this->pub_key_path, this->pubkey);
+  create_file(this->pri_key_path, this->prikey);
+  remove(this->pri_key_path);
+  IROHA_ASSERT_RESULT_ERROR(this->manager.loadKeys(boost::none));
 }
 
-TEST_F(KeyManager, CreateKeypairInNonexistentDir) {
+TYPED_TEST(KeyManager, CreateKeypairInNonexistentDir) {
   KeysManagerImpl manager =
       KeysManagerImpl(boost::filesystem::unique_path().string(),
-                      nonexistent,
-                      kKeysManagerLogger);
-  ASSERT_FALSE(manager.createKeys(passphrase));
+                      this->nonexistent,
+                      this->kKeysManagerLogger);
+  ASSERT_FALSE(manager.createKeys(this->passphrase));
 }
