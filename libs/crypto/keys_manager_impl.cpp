@@ -11,6 +11,7 @@
 #include "common/byteutils.hpp"
 #include "common/files.hpp"
 #include "common/result.hpp"
+#include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
 #include "cryptography/ed25519_sha3_impl/crypto_provider.hpp"
 #include "logger/logger.hpp"
@@ -20,7 +21,7 @@ using namespace shared_model::interface::types;
 
 using iroha::operator|;
 
-using CryptoAlgorithmType = CryptoProviderEd25519Sha3;
+using DefaultCryptoAlgorithmType = CryptoProviderEd25519Sha3;
 
 namespace {
   /**
@@ -30,7 +31,7 @@ namespace {
    */
   iroha::expected::Result<void, const char *> validate(const Keypair &keypair) {
     auto test = Blob("12345");
-    auto signature = CryptoAlgorithmType::sign(test, keypair);
+    auto signature = CryptoSigner::sign(test, keypair);
     return CryptoVerifier::verify(SignedHexStringView{signature},
                                   test,
                                   PublicKeyHexStringView{keypair.publicKey()});
@@ -106,7 +107,7 @@ namespace iroha {
 
   bool KeysManagerImpl::createKeys(
       const boost::optional<std::string> &pass_phrase) {
-    Keypair keypair = CryptoAlgorithmType::generateKeypair();
+    Keypair keypair = DefaultCryptoAlgorithmType::generateKeypair();
 
     auto pub = keypair.publicKey();
     auto &&priv = pass_phrase
