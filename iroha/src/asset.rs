@@ -32,6 +32,9 @@ impl AssetDefinition {
     }
 }
 
+/// Represents a sequence of bytes. Used for storing encoded data.
+pub type Bytes = Vec<u8>;
+
 /// All possible variants of `Asset` entity's components.
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct Asset {
@@ -42,14 +45,14 @@ pub struct Asset {
     /// Asset's Big Quantity associated with an `Account`.
     pub big_quantity: u128,
     /// Asset's key-value structured data associated with an `Account`.
-    pub store: BTreeMap<String, String>,
+    pub store: BTreeMap<String, Bytes>,
     /// Asset's key-value  (action, object_id) structured permissions associated with an `Account`.
     pub permissions: Permissions,
 }
 
 impl Asset {
     /// Constructor with filled `store` field.
-    pub fn with_parameter(id: <Asset as Identifiable>::Id, parameter: (String, String)) -> Self {
+    pub fn with_parameter(id: <Asset as Identifiable>::Id, parameter: (String, Bytes)) -> Self {
         let mut store = BTreeMap::new();
         store.insert(parameter.0, parameter.1);
         Self {
@@ -189,8 +192,8 @@ pub mod isi {
         MintAsset(u32, <Asset as Identifiable>::Id),
         /// Variant of the generic `Mint` instruction for `u128` --> `Asset`.
         MintBigAsset(u128, <Asset as Identifiable>::Id),
-        /// Variant of the generic `Mint` instruction for `(String, String)` --> `Asset`.
-        MintParameterAsset((String, String), <Asset as Identifiable>::Id),
+        /// Variant of the generic `Mint` instruction for `(String, Bytes)` --> `Asset`.
+        MintParameterAsset((String, Bytes), <Asset as Identifiable>::Id),
     }
 
     impl AssetInstruction {
@@ -281,7 +284,7 @@ pub mod isi {
         }
     }
 
-    impl Mint<Asset, (String, String)> {
+    impl Mint<Asset, (String, Bytes)> {
         fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
@@ -311,8 +314,8 @@ pub mod isi {
         }
     }
 
-    impl From<Mint<Asset, (String, String)>> for Instruction {
-        fn from(instruction: Mint<Asset, (String, String)>) -> Self {
+    impl From<Mint<Asset, (String, Bytes)>> for Instruction {
+        fn from(instruction: Mint<Asset, (String, Bytes)>) -> Self {
             Instruction::Asset(AssetInstruction::MintParameterAsset(
                 instruction.object,
                 instruction.destination_id,
