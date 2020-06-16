@@ -6,6 +6,9 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "synchronizer/impl/synchronizer_impl.hpp"
 
+#include <string_view>
+
+#include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <boost/range/adaptor/transformed.hpp>
 #include <rxcpp/operators/rx-take.hpp>
@@ -31,6 +34,7 @@ using namespace iroha::synchronizer;
 using namespace iroha::validation;
 using namespace iroha::network;
 using namespace framework::test_subscriber;
+using namespace shared_model::interface::types;
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -356,12 +360,32 @@ TEST_F(SynchronizerTest, ExactlyThreeRetrievals) {
   ASSERT_TRUE(wrapper.validate());
 }
 
+MATCHER_P(StringEqSharedPtr, ptr, "equals " + *ptr) {
+  return std::string_view{arg} == std::string_view{*ptr};
+}
+
+template <typename Strong>
+struct StringViewHelper {
+  std::shared_ptr<std::string> holder{std::make_shared<std::string>()};
+
+  StringViewHelper<Strong> &operator=(std::string_view s) {
+    *holder = s;
+    return *this;
+  }
+
+  operator testing::Matcher<Strong>() const {
+    return StringEqSharedPtr(holder);
+  }
+};
+
 /**
- * @given A commit from consensus and initialized components
+ * @given A commit from consensus and initialized components. First peer that we
+ * request blocks from provides a bad block in the middle of the block chain.
  * @when gate has voted for other block in the future
- * @then retrieveBlocks called again after failure in block chain middle
+ * @then retrieveBlocks called again with another peer after failure in block
+ * chain middle
  */
-TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccess) {
+TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccessWithOtherPeer) {
   DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
       SetFactory(&createMockMutableStorage);
   EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
@@ -381,12 +405,16 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccess) {
     chain_good.emplace_back(makeCommit(height));
   }
 
+  StringViewHelper<PublicKeyHexStringView> first_asked_peer;
   {
+    using namespace testing;
+
     InSequence s;  // ensures the call order
 
     // first attempt: get blocks till kBadBlockHeight, then fail
     EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
-        .WillOnce(Return(rxcpp::observable<>::iterate(chain_bad)));
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
+                        Return(rxcpp::observable<>::iterate(chain_bad))));
     EXPECT_CALL(*chain_validator, validateAndApply(_, _))
         .WillOnce([&](auto chain, auto const &) {
           chain.take(kBadBlockNumber).as_blocking().last();
@@ -397,9 +425,145 @@ TEST_F(SynchronizerTest, FailureInMiddleOfChainThenSuccess) {
     const auto kRetrieveBlocksArg =
         kBadBlockHeight - 1;  // for whatever reason, to request blocks starting
                               // with N, we need to pass N-1...
-    EXPECT_CALL(*block_loader, retrieveBlocks(kRetrieveBlocksArg, _))
+    EXPECT_CALL(*block_loader,
+                retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
         .WillOnce(Return(rxcpp::observable<>::iterate(chain_good)));
     EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_good), _))
+        .WillOnce(Return(true));
+  }
+
+  auto wrapper =
+      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
+  wrapper.subscribe();
+
+  gate_outcome.get_subscriber().on_next(consensus::Future{
+      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+
+  ASSERT_TRUE(wrapper.validate());
+}
+
+/**
+ * @given A commit from consensus and initialized components. First peer that we
+ * request blocks from is slow and provides only some part of the block chain.
+ * @when gate has voted for other block in the future
+ * @then retrieveBlocks called again on other peer after partial syncing with
+ * the slow peer
+ */
+TEST_F(SynchronizerTest, SyncTillMiddleOfChainThenSuccessWithOtherPeer) {
+  DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
+      SetFactory(&createMockMutableStorage);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
+
+  const size_t kConsensusHeight = kInitTopBlockHeight + 10;
+  const size_t kBlocksFrom1stPeer = 5;  // in the middle
+  const size_t k1stPeerHeight =
+      kInitTopBlockHeight + kBlocksFrom1stPeer;  // in the middle
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_1st_peer;
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_2nd_peer;
+
+  for (auto height = kInitTopBlockHeight + 1; height <= k1stPeerHeight;
+       ++height) {
+    chain_1st_peer.emplace_back(makeCommit(height));
+  }
+  for (auto height = k1stPeerHeight; height <= kConsensusHeight; ++height) {
+    chain_2nd_peer.emplace_back(makeCommit(height));
+  }
+
+  StringViewHelper<PublicKeyHexStringView> first_asked_peer;
+  {
+    using namespace testing;
+
+    InSequence s;  // ensures the call order
+
+    // first attempt: get some blocks till k1stPeerHeight
+    EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
+                        Return(rxcpp::observable<>::iterate(chain_1st_peer))));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_1st_peer), _))
+        .WillOnce(Return(true));
+
+    // then try again with same peer but he has no more blocks
+    const auto kRetrieveBlocksArg =
+        k1stPeerHeight  // it is our height after 1st attempt
+        + 1             // we want the next block
+        - 1;            // but for whatever reason, to request blocks starting
+                        // with N, we need to pass N-1...
+    EXPECT_CALL(*block_loader,
+                retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
+        .WillRepeatedly(
+            Return(rxcpp::observable<>::empty<
+                   std::shared_ptr<shared_model::interface::Block>>()));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq({}), _))
+        .WillOnce(Return(true));
+
+    // then request blocks from second peer starting from k1stPeerHeight
+    EXPECT_CALL(*block_loader,
+                retrieveBlocks(kRetrieveBlocksArg, Not(first_asked_peer)))
+        .WillOnce(Return(rxcpp::observable<>::iterate(chain_2nd_peer)));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_2nd_peer), _))
+        .WillOnce(Return(true));
+  }
+
+  auto wrapper =
+      make_test_subscriber<CallExact>(synchronizer->on_commit_chain(), 1);
+  wrapper.subscribe();
+
+  gate_outcome.get_subscriber().on_next(consensus::Future{
+      consensus::Round{kConsensusHeight, 1}, ledger_state, public_keys});
+
+  ASSERT_TRUE(wrapper.validate());
+}
+
+/**
+ * @given A commit from consensus and initialized components
+ * @when gate has voted for other block in the future. block loading abrupts in
+ * the middile.
+ * @then retrieveBlocks called again on same peer after connection abruption and
+ * sync completes
+ */
+TEST_F(SynchronizerTest, AbruptInMiddleOfChainThenSuccessWithSamePeer) {
+  DefaultValue<expected::Result<std::unique_ptr<MutableStorage>, std::string>>::
+      SetFactory(&createMockMutableStorage);
+  EXPECT_CALL(*mutable_factory, createMutableStorage(_)).Times(1);
+
+  const size_t kConsensusHeight = kInitTopBlockHeight + 10;
+  const size_t kBlocksIn1stTry = 5;  // in the middle
+  const size_t kAbruptHeight =
+      kInitTopBlockHeight + kBlocksIn1stTry;  // in the middle
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_1st_try;
+  std::vector<std::shared_ptr<shared_model::interface::Block>> chain_2nd_try;
+
+  for (auto height = kInitTopBlockHeight + 1; height <= kAbruptHeight;
+       ++height) {
+    chain_1st_try.emplace_back(makeCommit(height));
+  }
+  for (auto height = kAbruptHeight; height <= kConsensusHeight; ++height) {
+    chain_2nd_try.emplace_back(makeCommit(height));
+  }
+
+  StringViewHelper<PublicKeyHexStringView> first_asked_peer;
+  {
+    using namespace testing;
+
+    InSequence s;  // ensures the call order
+
+    // first attempt: get blocks till kAbruptHeight
+    EXPECT_CALL(*block_loader, retrieveBlocks(kInitTopBlockHeight, _))
+        .WillOnce(DoAll(SaveArg<1>(&first_asked_peer),
+                        Return(rxcpp::observable<>::iterate(chain_1st_try))));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_1st_try), _))
+        .WillOnce(Return(true));
+
+    // second attempt: request blocks from same peer starting at kAbruptHeight
+    const auto kRetrieveBlocksArg =
+        kAbruptHeight  // it is our height after 1st attempt
+        + 1            // we want the next block
+        - 1;           // but for whatever reason, to request blocks starting
+                       // with N, we need to pass N-1...
+    EXPECT_CALL(*block_loader,
+                retrieveBlocks(kRetrieveBlocksArg, first_asked_peer))
+        .WillOnce(Return(rxcpp::observable<>::iterate(chain_2nd_try)));
+    EXPECT_CALL(*chain_validator, validateAndApply(ChainEq(chain_2nd_try), _))
         .WillOnce(Return(true));
   }
 
