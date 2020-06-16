@@ -94,6 +94,7 @@ pub mod isi {
         use crate::{
             account::query::GetAccount,
             block::BlockHeader,
+            crypto::KeyPair,
             peer::{Peer, PeerId},
             permission::Permission,
         };
@@ -118,7 +119,9 @@ pub mod isi {
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
             );
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let account_id = AccountId::new("root", &domain_name);
             let asset_id = AssetId {
                 definition_id: asset_definition_id,
@@ -180,7 +183,9 @@ pub mod isi {
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
             );
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let account_id = AccountId::new("root", &domain_name);
             let asset_id = AssetId {
                 definition_id: asset_definition_id,
@@ -242,7 +247,9 @@ pub mod isi {
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
             );
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let account_id = AccountId::new("root", &domain_name);
             let asset_id = AssetId {
                 definition_id: asset_definition_id,
@@ -302,7 +309,9 @@ pub mod isi {
                 asset_definition_id.clone(),
                 AssetDefinition::new(asset_definition_id.clone()),
             );
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let account_id = AccountId::new("root", &domain_name);
             let asset_id = AssetId {
                 definition_id: asset_definition_id,

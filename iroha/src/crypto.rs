@@ -2,7 +2,7 @@
 //! Iroha.
 use parity_scale_codec::{Decode, Encode};
 use std::{
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
 };
 use ursa::{
@@ -16,24 +16,61 @@ use ursa::{
 
 /// Represents hash of Iroha entities like `Block` or `Transaction.
 pub type Hash = [u8; 32];
+
+/// Pair of Public and Private keys.
+#[derive(Clone)]
+pub struct KeyPair {
+    /// Public Key.
+    pub public_key: PublicKey,
+    /// Private Key.
+    pub private_key: PrivateKey,
+}
+
 /// Public Key used in signatures.
-pub type PublicKey = [u8; 32];
+#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Debug, Clone, Hash, Default)]
+pub struct PublicKey {
+    inner: [u8; 32],
+}
+
+impl TryFrom<Vec<u8>> for PublicKey {
+    type Error = String;
+
+    fn try_from(vector: Vec<u8>) -> Result<Self, Self::Error> {
+        if vector.len() > 32 {
+            Err(format!(
+                "Failed to build PublicKey from vector: {:?}, expected length 32, found {}.",
+                &vector,
+                vector.len()
+            ))
+        } else {
+            let mut inner = [0; 32];
+            inner.copy_from_slice(&vector);
+            Ok(PublicKey { inner })
+        }
+    }
+}
+
 /// Private Key used in signatures.
 pub type PrivateKey = [u8; 64];
 type Ed25519Signature = [u8; 64];
 
-/// Generates a pair of Public and Private key.
-/// Returns `Err(String)` with error message if failed.
-pub fn generate_key_pair() -> Result<(PublicKey, PrivateKey), String> {
-    let (public_key, ursa_private_key) = Ed25519Sha512
-        .keypair(Option::None)
-        .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
-    let public_key = public_key[..]
-        .try_into()
-        .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
-    let mut private_key = [0; 64];
-    private_key.copy_from_slice(ursa_private_key.as_ref());
-    Ok((public_key, private_key))
+impl KeyPair {
+    /// Generates a pair of Public and Private key.
+    /// Returns `Err(String)` with error message if failed.
+    pub fn generate() -> Result<Self, String> {
+        let (public_key, ursa_private_key) = Ed25519Sha512
+            .keypair(Option::None)
+            .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
+        let public_key: [u8; 32] = public_key[..]
+            .try_into()
+            .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
+        let mut private_key = [0; 64];
+        private_key.copy_from_slice(ursa_private_key.as_ref());
+        Ok(KeyPair {
+            public_key: PublicKey { inner: public_key },
+            private_key,
+        })
+    }
 }
 
 /// Calculates hash of the given bytes.
@@ -59,19 +96,15 @@ pub struct Signature {
 
 impl Signature {
     /// Creates new `Signature` by signing payload via `private_key`.
-    pub fn new(
-        public_key: PublicKey,
-        payload: &[u8],
-        private_key: &PrivateKey,
-    ) -> Result<Signature, String> {
-        let private_key = UrsaPrivateKey(private_key.to_vec());
+    pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature, String> {
+        let private_key = UrsaPrivateKey(key_pair.private_key.to_vec());
         let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
             .sign(payload)
             .map_err(|e| format!("Failed to sign payload: {}", e))?;
         let mut signature = [0; 64];
         signature.copy_from_slice(&transaction_signature);
         Ok(Signature {
-            public_key,
+            public_key: key_pair.public_key,
             signature,
         })
     }
@@ -82,7 +115,7 @@ impl Signature {
             .verify(
                 message,
                 &self.signature,
-                &UrsaPublicKey(self.public_key.to_vec()),
+                &UrsaPublicKey(self.public_key.inner.to_vec()),
             )
             .map_err(|e| e.to_string())
             .map(|_| ())
@@ -118,11 +151,10 @@ mod tests {
 
     #[test]
     fn create_signature() {
-        let (public_key, private_key) =
-            super::generate_key_pair().expect("Failed to generate key pair.");
-        let result = Signature::new(public_key, b"Test message to sign.", &private_key)
+        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
+        let result = Signature::new(key_pair.clone(), b"Test message to sign.")
             .expect("Failed to create signature.");
-        assert_eq!(result.public_key, public_key[..]);
+        assert_eq!(result.public_key, key_pair.public_key);
     }
 
     #[test]

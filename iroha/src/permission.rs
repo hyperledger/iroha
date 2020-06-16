@@ -140,14 +140,15 @@ pub mod isi {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::account::Id as AccountId;
-        use crate::peer::PeerId;
+        use crate::{account::Id as AccountId, crypto::KeyPair, peer::PeerId};
         use std::collections::HashMap;
 
         #[test]
         fn test_can_anything_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -193,7 +194,9 @@ pub mod isi {
         #[test]
         fn test_can_anything_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -237,7 +240,9 @@ pub mod isi {
                     .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
-                            public_key: [0; 32],
+                            public_key: KeyPair::generate()
+                                .expect("Failed to generate KeyPair.")
+                                .public_key,
                         },
                         &Vec::new(),
                     )))
@@ -249,7 +254,9 @@ pub mod isi {
         #[test]
         fn test_can_add_domain_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -295,7 +302,9 @@ pub mod isi {
         #[test]
         fn test_can_add_domain_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -339,7 +348,9 @@ pub mod isi {
                     .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
-                            public_key: [0; 32],
+                            public_key: KeyPair::generate()
+                                .expect("Failed to generate KeyPair.")
+                                .public_key,
                         },
                         &Vec::new(),
                     )))
@@ -351,7 +362,9 @@ pub mod isi {
         #[test]
         fn test_can_add_listener_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -397,7 +410,9 @@ pub mod isi {
         #[test]
         fn test_can_add_listener_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -441,7 +456,9 @@ pub mod isi {
                     .execute(&mut WorldStateView::new(Peer::new(
                         PeerId {
                             address: "127.0.0.1:8080".to_string(),
-                            public_key: [0; 32],
+                            public_key: KeyPair::generate()
+                                .expect("Failed to generate KeyPair.")
+                                .public_key,
                         },
                         &Vec::new(),
                     )))
@@ -453,7 +470,9 @@ pub mod isi {
         #[test]
         fn test_can_register_account_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -500,7 +519,9 @@ pub mod isi {
         #[test]
         fn test_can_register_account_in_domain_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -550,7 +571,9 @@ pub mod isi {
         #[test]
         fn test_can_register_account_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -596,7 +619,9 @@ pub mod isi {
             .execute(&mut WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &Vec::new(),
             )))
@@ -607,7 +632,9 @@ pub mod isi {
         #[test]
         fn test_can_register_asset_definition_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -655,7 +682,9 @@ pub mod isi {
         #[test]
         fn test_can_register_asset_definition_in_domain_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -706,7 +735,9 @@ pub mod isi {
         fn test_can_register_asset_definition_without_permission_should_fail_with_permission_not_found(
         ) {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -754,7 +785,9 @@ pub mod isi {
             .execute(&mut WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &Vec::new(),
             )))
@@ -765,7 +798,9 @@ pub mod isi {
         #[test]
         fn test_can_transfer_asset_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -820,7 +855,9 @@ pub mod isi {
         #[test]
         fn test_can_transfer_asset_in_domain_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -878,7 +915,9 @@ pub mod isi {
         #[test]
         fn test_can_transfer_asset_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -929,7 +968,9 @@ pub mod isi {
             .execute(&mut WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &Vec::new(),
             )))
@@ -940,7 +981,9 @@ pub mod isi {
         #[test]
         fn test_can_mint_asset_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -991,7 +1034,9 @@ pub mod isi {
         #[test]
         fn test_can_mint_asset_in_domain_should_pass() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -1049,7 +1094,9 @@ pub mod isi {
         #[test]
         fn test_can_mint_asset_without_permission_should_fail_with_permission_not_found() {
             let domain_name = "Company".to_string();
-            let public_key = [0; 32];
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let mut asset_definitions = HashMap::new();
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
@@ -1057,8 +1104,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id.clone()),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = HashMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1097,7 +1147,9 @@ pub mod isi {
             .execute(&mut WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &Vec::new(),
             )))

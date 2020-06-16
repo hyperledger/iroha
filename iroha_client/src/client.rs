@@ -1,21 +1,20 @@
-use iroha::{crypto, prelude::*, torii::uri};
+use iroha::{crypto::KeyPair, prelude::*, torii::uri};
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
 use std::{
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
     fmt::{self, Debug, Formatter},
 };
 
 pub struct Client {
     torii_url: String,
-    public_key: PublicKey,
-    private_key: PrivateKey,
+    key_pair: KeyPair,
 }
 
 impl Debug for Client {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
-            .field("public_key", &self.public_key)
+            .field("public_key", &self.key_pair.public_key)
             .field("torii_url", &self.torii_url)
             .finish()
     }
@@ -24,14 +23,9 @@ impl Debug for Client {
 /// Representation of `Iroha` client.
 impl Client {
     pub fn new(config: &Configuration) -> Self {
-        let (public_key, private_key) =
-            crypto::generate_key_pair().expect("Failed to generate key pair.");
         Client {
             torii_url: config.peer_id.address.clone(),
-            public_key: public_key[..]
-                .try_into()
-                .expect("Public key should be [u8;32]"),
-            private_key,
+            key_pair: KeyPair::generate().expect("Failed to generate KeyPair."),
         }
     }
 
@@ -42,7 +36,7 @@ impl Client {
         let transaction: RequestedTransaction =
             RequestedTransaction::new(vec![command], iroha::account::Id::new("root", "global"))
                 .accept()?
-                .sign(&self.public_key, &self.private_key)?
+                .sign(&self.key_pair)?
                 .into();
         if let Response::InternalError = network
             .send_request(Request::new(
@@ -68,7 +62,7 @@ impl Client {
         let transaction: RequestedTransaction =
             RequestedTransaction::new(commands, iroha::account::Id::new("root", "global"))
                 .accept()?
-                .sign(&self.public_key, &self.private_key)?
+                .sign(&self.key_pair)?
                 .into();
         if let Response::InternalError = network
             .send_request(Request::new(

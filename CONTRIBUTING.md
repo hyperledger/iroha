@@ -142,6 +142,8 @@ complex uses will be easier to incude in dependent modules.
 - Do not use whitespaces or empty lines inside function bodies.
 - Put public methods first in your impl blocks.
 - Put inner modules after `self` module content, but before `tests` module.
+- Prefer to return `Result` instead of panic.
+- Use `expect` with explicit error message instead of `unwrap`.
 
 ### Documentation Styleguide
 
