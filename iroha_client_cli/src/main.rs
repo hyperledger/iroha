@@ -151,8 +151,9 @@ mod account {
     }
 
     fn create_account(account_name: &str, domain_name: &str, _public_key: &str) {
+        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let create_account = isi::Register {
-            object: Account::with_signatory(account_name, domain_name, [0; 32]),
+            object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
             destination_id: String::from(domain_name),
         };
         let mut iroha_client = Client::new(

@@ -6,7 +6,7 @@ use self::message::*;
 use crate::{
     block::{PendingBlock, SignedBlock},
     config::Configuration,
-    crypto::Hash,
+    crypto::{Hash, KeyPair},
     peer::PeerId,
     prelude::*,
 };
@@ -26,8 +26,7 @@ trait Consensus {
 
 /// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
-    public_key: PublicKey,
-    private_key: PrivateKey,
+    key_pair: KeyPair,
     network_topology: InitializedNetworkTopology,
     peer_id: PeerId,
     /// The block in discussion this round.
@@ -54,8 +53,10 @@ impl Sumeragi {
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
-            public_key: config.public_key,
-            private_key: config.private_key,
+            key_pair: KeyPair {
+                public_key: config.public_key,
+                private_key: config.private_key,
+            },
             //TODO: get previous block hash from kura
             network_topology: NetworkTopology::new(
                 &config.trusted_peers,
@@ -90,7 +91,7 @@ impl Sumeragi {
             let block = PendingBlock::new(transactions)
                 //TODO: actually chain block?
                 .chain_first()
-                .sign(&self.public_key, &self.private_key)?;
+                .sign(&self.key_pair)?;
             if !self.network_topology.is_consensus_required() {
                 let block = block.validate(&*self.world_state_view.read().await)?;
                 self.blocks_sender.write().await.send(block).await;
@@ -132,7 +133,7 @@ impl Sumeragi {
                 let role = self.network_topology.role(&self.peer_id);
                 if role == Role::ValidatingPeer || role == Role::ProxyTail {
                     no_tx_receipt
-                        .sign(&self.public_key, &self.private_key)
+                        .sign(&self.key_pair)
                         .expect("Failed to put first signature.");
                 }
                 let recipient_peers = self.network_topology.sorted_peers.clone();
@@ -230,7 +231,7 @@ impl Sumeragi {
             // Block is not yet created
             && self.voting_block.write().await.is_none()
         {
-            let sign_result = block_creation_timeout.sign(&self.public_key, &self.private_key);
+            let sign_result = block_creation_timeout.sign(&self.key_pair);
             if sign_result.is_ok() {
                 let block_creation_timeout_message =
                     Message::BlockCreationTimeout(block_creation_timeout.clone());
@@ -256,8 +257,7 @@ impl Sumeragi {
     async fn start_commit_countdown(&self, voting_block: VotingBlock) {
         let old_voting_block = voting_block;
         let voting_block = self.voting_block.clone();
-        let public_key = self.public_key;
-        let private_key = self.private_key;
+        let key_pair = self.key_pair.clone();
         let recipient_peers = self.network_topology.sorted_peers.clone();
         let peer_id = self.peer_id.clone();
         let commit_time = self.commit_time;
@@ -267,7 +267,7 @@ impl Sumeragi {
                 // If the block was not yet committed send commit timeout to other peers to initiate view change.
                 if voting_block.block.hash() == old_voting_block.block.hash() {
                     let mut commit_timeout = CommitTimeout::new(voting_block);
-                    if let Err(e) = commit_timeout.sign(&public_key, &private_key) {
+                    if let Err(e) = commit_timeout.sign(&key_pair) {
                         eprintln!("Failed to sign CommitTimeout: {:?}", e);
                     }
                     let message = Message::CommitTimeout(commit_timeout.clone());
@@ -302,10 +302,7 @@ impl Sumeragi {
         let role = self.network_topology.role(&self.peer_id);
         if role == Role::ValidatingPeer || role == Role::ProxyTail {
             let mut no_tx_receipt = no_tx_receipt.clone();
-            if no_tx_receipt
-                .sign(&self.public_key, &self.private_key)
-                .is_ok()
-            {
+            if no_tx_receipt.sign(&self.key_pair).is_ok() {
                 let _result = Message::TransactionForwarded(TransactionForwarded {
                     transaction: no_tx_receipt.transaction.clone(),
                     peer: self.peer_id.clone(),
@@ -348,8 +345,7 @@ impl Sumeragi {
     ) -> Result<(), String> {
         let _result = Message::TransactionReceived(TransactionReceipt::new(
             &forwarded_tx.transaction,
-            &self.public_key,
-            &self.private_key,
+            &self.key_pair,
         )?)
         .send_to(&forwarded_tx.peer)
         .await;
@@ -385,7 +381,7 @@ impl Sumeragi {
             let mut block_creation_timeout = BlockCreationTimeout::new(&tx_receipt);
             if role == Role::ValidatingPeer || role == Role::ProxyTail {
                 block_creation_timeout
-                    .sign(&self.public_key, &self.private_key)
+                    .sign(&self.key_pair)
                     .expect("Failed to put first signature.");
             }
             transactions_awaiting_created_block
@@ -425,10 +421,9 @@ impl Sumeragi {
             Role::ValidatingPeer => {
                 // TODO: Validate the block before signing. Check that it is not empty, validate transactions, check that it is signed by the leader.
                 // TODO: Don't vote for the block if it did not pass validation
-                if let Err(e) =
-                    Message::BlockSigned(block.clone().sign(&self.public_key, &self.private_key)?)
-                        .send_to(self.network_topology.proxy_tail())
-                        .await
+                if let Err(e) = Message::BlockSigned(block.clone().sign(&self.key_pair)?)
+                    .send_to(self.network_topology.proxy_tail())
+                    .await
                 {
                     eprintln!(
                         "Failed to send BlockSigned message to the proxy tail: {:?}",
@@ -470,7 +465,7 @@ impl Sumeragi {
             let voting_block = self.voting_block.write().await.clone();
             if let Some(VotingBlock { block, .. }) = voting_block {
                 if block.signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
-                    let block = block.sign(&self.public_key, &self.private_key)?;
+                    let block = block.sign(&self.key_pair)?;
                     let message = Message::BlockCommitted(block.clone());
                     let mut send_futures = Vec::new();
                     for peer in self.network_topology.validating_peers() {
@@ -520,7 +515,7 @@ impl Sumeragi {
                 if voting_block.block.hash() == commit_timeout.voting_block_hash
                     && (current_time - voting_block.voted_at) >= self.commit_time
                 {
-                    let sign_result = commit_timeout.sign(&self.public_key, &self.private_key);
+                    let sign_result = commit_timeout.sign(&self.key_pair);
                     if sign_result.is_ok() {
                         let message = Message::CommitTimeout(commit_timeout.clone());
                         let mut send_futures = Vec::new();
@@ -562,7 +557,7 @@ impl Sumeragi {
 impl Debug for Sumeragi {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("Sumeragi")
-            .field("public_key", &self.public_key)
+            .field("public_key", &self.key_pair.public_key)
             .field("network_topology", &self.network_topology)
             .field("peer_id", &self.peer_id)
             .field("voting_block", &self.voting_block)
@@ -759,7 +754,7 @@ pub enum Role {
 pub mod message {
     use crate::{
         block::SignedBlock,
-        crypto::{Hash, PrivateKey, PublicKey, Signature},
+        crypto::{Hash, KeyPair, PublicKey, Signature},
         peer::PeerId,
         sumeragi::{InitializedNetworkTopology, Role},
         torii::uri,
@@ -835,18 +830,14 @@ pub mod message {
 
         /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader refuses to create blocks.
-        pub fn sign(
-            &mut self,
-            public_key: &PublicKey,
-            private_key: &PrivateKey,
-        ) -> Result<(), String> {
+        pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
             let payload: Vec<u8> = self.transaction_receipt.clone().into();
-            if self.signatures.contains_key(public_key) {
+            if self.signatures.contains_key(&key_pair.public_key) {
                 Err("Already signed by these keys.".to_string())
             } else {
                 self.signatures.insert(
-                    *public_key,
-                    Signature::new(*public_key, &payload, private_key)?,
+                    key_pair.public_key.clone(),
+                    Signature::new(key_pair.clone(), &payload)?,
                 );
                 Ok(())
             }
@@ -874,18 +865,14 @@ pub mod message {
 
         /// Signs this failed attempt with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
-        pub fn sign(
-            &mut self,
-            public_key: &PublicKey,
-            private_key: &PrivateKey,
-        ) -> Result<(), String> {
+        pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
             let payload: Vec<u8> = self.transaction.clone().into();
-            if self.signatures.contains_key(public_key) {
+            if self.signatures.contains_key(&key_pair.public_key) {
                 Err("Already signed by these keys.".to_string())
             } else {
                 self.signatures.insert(
-                    *public_key,
-                    Signature::new(*public_key, &payload, private_key)?,
+                    key_pair.public_key.clone(),
+                    Signature::new(key_pair.clone(), &payload)?,
                 );
                 Ok(())
             }
@@ -916,8 +903,7 @@ pub mod message {
         /// Constructs a new receipt.
         pub fn new(
             transaction: &AcceptedTransaction,
-            public_key: &PublicKey,
-            private_key: &PrivateKey,
+            key_pair: &KeyPair,
         ) -> Result<TransactionReceipt, String> {
             let transaction_hash = transaction.hash();
             Ok(TransactionReceipt {
@@ -925,7 +911,7 @@ pub mod message {
                 received_at: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time."),
-                signature: Signature::new(*public_key, &transaction_hash, private_key)?,
+                signature: Signature::new(key_pair.clone(), &transaction_hash)?,
             })
         }
 
@@ -970,17 +956,13 @@ pub mod message {
 
         /// Signes this request with the peer's public and private key.
         /// This way peers vote for changing the view.
-        pub fn sign(
-            &mut self,
-            public_key: &PublicKey,
-            private_key: &PrivateKey,
-        ) -> Result<(), String> {
-            if self.signatures.contains_key(public_key) {
+        pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
+            if self.signatures.contains_key(&key_pair.public_key) {
                 Err("Already signed by these keys.".to_string())
             } else {
                 self.signatures.insert(
-                    *public_key,
-                    Signature::new(*public_key, &self.voting_block_hash, private_key)?,
+                    key_pair.public_key.clone(),
+                    Signature::new(key_pair.clone(), &self.voting_block_hash)?,
                 );
                 Ok(())
             }
@@ -1024,10 +1006,11 @@ mod tests {
     #[test]
     #[should_panic]
     fn not_enough_peers() {
+        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let listen_address = "127.0.0.1".to_string();
         let this_peer = PeerId {
             address: listen_address,
-            public_key: [0u8; 32],
+            public_key: key_pair.public_key,
         };
         let network_topology = NetworkTopology::new(&[this_peer.clone()], None, 3)
             .init()
@@ -1039,19 +1022,27 @@ mod tests {
         let peers = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
-                public_key: [1u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7879".to_string(),
-                public_key: [2u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7880".to_string(),
-                public_key: [3u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7881".to_string(),
-                public_key: [4u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
         ];
         let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
@@ -1071,19 +1062,27 @@ mod tests {
         let peers = vec![
             PeerId {
                 address: "127.0.0.1:7878".to_string(),
-                public_key: [1u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7879".to_string(),
-                public_key: [2u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7880".to_string(),
-                public_key: [3u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
             PeerId {
                 address: "127.0.0.1:7881".to_string(),
-                public_key: [4u8; 32],
+                public_key: KeyPair::generate()
+                    .expect("Failed to generate KeyPair.")
+                    .public_key,
             },
         ];
         let network_topology1 = NetworkTopology::new(&peers, Some([1u8; 32]), 1)
@@ -1107,12 +1106,11 @@ mod tests {
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
         for i in 0..n_peers {
-            let (public_key, private_key) =
-                crypto::generate_key_pair().expect("Failed to generate key pair.");
-            keys.push((public_key, private_key));
+            let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+            keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + i),
-                public_key,
+                public_key: key_pair.public_key.clone(),
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1132,7 +1130,9 @@ mod tests {
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &ids,
             ))));
@@ -1141,8 +1141,8 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].1;
-            config.public_key = ids[i].public_key;
+            config.private_key = keys[i].private_key;
+            config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1200,12 +1200,11 @@ mod tests {
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
         for i in 0..n_peers {
-            let (public_key, private_key) =
-                crypto::generate_key_pair().expect("Failed to generate key pair.");
-            keys.push((public_key, private_key));
+            let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+            keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + n_peers + i),
-                public_key,
+                public_key: key_pair.public_key,
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1225,7 +1224,9 @@ mod tests {
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &ids,
             ))));
@@ -1234,8 +1235,8 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].1;
-            config.public_key = ids[i].public_key;
+            config.private_key = keys[i].private_key;
+            config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1313,12 +1314,11 @@ mod tests {
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
         for i in 0..n_peers {
-            let (public_key, private_key) =
-                crypto::generate_key_pair().expect("Failed to generate key pair.");
-            keys.push((public_key, private_key));
+            let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+            keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + n_peers * 2 + i),
-                public_key,
+                public_key: key_pair.public_key.clone(),
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1337,7 +1337,9 @@ mod tests {
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &ids,
             ))));
@@ -1351,8 +1353,8 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].1;
-            config.public_key = ids[i].public_key;
+            config.private_key = keys[i].private_key;
+            config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1440,12 +1442,11 @@ mod tests {
         let mut ids = Vec::new();
         let mut block_counters = Vec::new();
         for i in 0..n_peers {
-            let (public_key, private_key) =
-                crypto::generate_key_pair().expect("Failed to generate key pair.");
-            keys.push((public_key, private_key));
+            let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+            keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + n_peers * 3 + i),
-                public_key,
+                public_key: key_pair.public_key.clone(),
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1464,7 +1465,9 @@ mod tests {
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
-                    public_key: [0; 32],
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
                 },
                 &ids,
             ))));
@@ -1478,8 +1481,8 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].1;
-            config.public_key = ids[i].public_key;
+            config.private_key = keys[i].private_key;
+            config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(

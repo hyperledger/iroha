@@ -97,8 +97,11 @@ impl Iroha {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account =
-            Account::with_signatory(&account_id.name, &account_id.domain_name, config.public_key);
+        let mut account = Account::with_signatory(
+            &account_id.name,
+            &account_id.domain_name,
+            config.public_key.clone(),
+        );
         account.assets.insert(asset_id, asset);
         let mut accounts = HashMap::new();
         accounts.insert(account_id, account);
@@ -237,7 +240,7 @@ pub mod prelude {
         asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
         block::{CommittedBlock, PendingBlock, ValidBlock},
         config::Configuration,
-        crypto::{Hash, PrivateKey, PublicKey, Signature},
+        crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature},
         domain::Domain,
         isi::Instruction,
         peer::Peer,

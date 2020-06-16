@@ -1,5 +1,5 @@
 use criterion::*;
-use iroha::{crypto, isi, peer::PeerId, prelude::*};
+use iroha::{isi, peer::PeerId, prelude::*};
 
 fn accept_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
@@ -7,12 +7,20 @@ fn accept_transaction(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, [0; 32]),
+        object: Account::with_signatory(
+            account_name,
+            domain_name,
+            KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
+        ),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -48,12 +56,20 @@ fn sign_transaction(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, [0; 32]),
+        object: Account::with_signatory(
+            account_name,
+            domain_name,
+            KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
+        ),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -71,17 +87,14 @@ fn sign_transaction(criterion: &mut Criterion) {
     )
     .accept()
     .expect("Failed to accept transaction.");
-    let (public_key, private_key) =
-        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign", |b| {
-        b.iter(
-            || match transaction.clone().sign(&public_key, &private_key) {
-                Ok(_) => success_count += 1,
-                Err(_) => failures_count += 1,
-            },
-        );
+        b.iter(|| match transaction.clone().sign(&key_pair) {
+            Ok(_) => success_count += 1,
+            Err(_) => failures_count += 1,
+        });
     });
     println!(
         "Success count: {}, Failures count: {}",
@@ -91,18 +104,17 @@ fn sign_transaction(criterion: &mut Criterion) {
 
 fn validate_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let (public_key, private_key) =
-        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -120,14 +132,14 @@ fn validate_transaction(criterion: &mut Criterion) {
     )
     .accept()
     .expect("Failed to accept transaction.")
-    .sign(&public_key, &private_key)
+    .sign(&key_pair)
     .expect("Failed to sign transaction.");
     let mut success_count = 0;
     let mut failures_count = 0;
     let mut world_state_view = WorldStateView::new(Peer::new(
         PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
         &Vec::new(),
     ));
@@ -147,18 +159,17 @@ fn validate_transaction(criterion: &mut Criterion) {
 
 fn chain_blocks(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let (public_key, _private_key) =
-        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -191,18 +202,17 @@ fn chain_blocks(criterion: &mut Criterion) {
 
 fn sign_blocks(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let (public_key, private_key) =
-        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -224,7 +234,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign_block", |b| {
-        b.iter(|| match block.clone().sign(&public_key, &private_key) {
+        b.iter(|| match block.clone().sign(&key_pair) {
             Ok(_) => success_count += 1,
             Err(_) => failures_count += 1,
         });
@@ -237,18 +247,17 @@ fn sign_blocks(criterion: &mut Criterion) {
 
 fn validate_blocks(criterion: &mut Criterion) {
     let domain_name = "domain";
-    let (public_key, private_key) =
-        crypto::generate_key_pair().expect("Failed to generate key pair.");
+    let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -268,12 +277,12 @@ fn validate_blocks(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let block = PendingBlock::new(vec![transaction])
         .chain_first()
-        .sign(&public_key, &private_key)
+        .sign(&key_pair)
         .expect("Failed to sign a block.");
     let mut world_state_view = WorldStateView::new(Peer::new(
         PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: [0; 32],
+            public_key: key_pair.public_key.clone(),
         },
         &Vec::new(),
     ));

@@ -2,7 +2,7 @@
 //!
 //! `RequestedTransaction` is the start of the Transaction lifecycle.
 
-use crate::prelude::*;
+use crate::{crypto::KeyPair, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
@@ -81,17 +81,9 @@ impl AcceptedTransaction {
     /// Sign transaction with the provided key pair.
     ///
     /// Returns `Ok(SignedTransaction)` if succeeded and `Err(String)` if failed.
-    pub fn sign(
-        self,
-        public_key: &PublicKey,
-        private_key: &PrivateKey,
-    ) -> Result<SignedTransaction, String> {
+    pub fn sign(self, key_pair: &KeyPair) -> Result<SignedTransaction, String> {
         let mut signatures = self.signatures.clone();
-        signatures.push(Signature::new(
-            *public_key,
-            &Vec::from(&self.payload),
-            private_key,
-        )?);
+        signatures.push(Signature::new(key_pair.clone(), &Vec::from(&self.payload))?);
         Ok(SignedTransaction {
             payload: self.payload,
             signatures,

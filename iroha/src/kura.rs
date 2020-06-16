@@ -175,7 +175,7 @@ impl BlockStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::peer::PeerId;
+    use crate::{crypto::KeyPair, peer::PeerId};
     use async_std::sync;
     use tempfile::TempDir;
 
@@ -193,14 +193,15 @@ mod tests {
     async fn strict_init_kura_with_genesis_block() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let (tx, _rx) = sync::channel(100);
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let genesis_block = PendingBlock::new(Vec::new())
             .chain_first()
-            .sign(&[0; 32], &[0; 64])
+            .sign(&keypair)
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: keypair.public_key,
                 },
                 &Vec::new(),
             )))
@@ -213,14 +214,15 @@ mod tests {
     #[async_std::test]
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .sign(&[0; 32], &[0; 64])
+            .sign(&keypair)
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: keypair.public_key,
                 },
                 &Vec::new(),
             )))
@@ -231,14 +233,15 @@ mod tests {
     #[async_std::test]
     async fn read_block_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .sign(&[0; 32], &[0; 64])
+            .sign(&keypair)
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: keypair.public_key,
                 },
                 &Vec::new(),
             )))
@@ -256,14 +259,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let block_store = BlockStore::new(dir.path());
         let n = 10;
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let mut block = PendingBlock::new(Vec::new())
             .chain_first()
-            .sign(&[0; 32], &[0; 64])
+            .sign(&keypair)
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))
@@ -275,12 +279,12 @@ mod tests {
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new())
                 .chain(height + 1, hash)
-                .sign(&[0; 32], &[0; 64])
+                .sign(&keypair)
                 .expect("Failed to sign blocks.")
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
                         address: "127.0.0.1:8080".to_string(),
-                        public_key: [0; 32],
+                        public_key: keypair.public_key.clone(),
                     },
                     &Vec::new(),
                 )))
@@ -298,14 +302,15 @@ mod tests {
     ///chunks of 100 blocks each are stored in files in the block store.
     #[async_std::test]
     async fn store_block() {
+        let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let block = PendingBlock::new(Vec::new())
             .chain_first()
-            .sign(&[0; 32], &[0; 64])
+            .sign(&keypair)
             .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: [0; 32],
+                    public_key: keypair.public_key,
                 },
                 &Vec::new(),
             )))

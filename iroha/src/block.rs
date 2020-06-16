@@ -1,7 +1,10 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-use crate::{crypto, prelude::*};
+use crate::{
+    crypto::{self, KeyPair},
+    prelude::*,
+};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
@@ -89,24 +92,16 @@ impl BlockHeader {
 
 impl ChainedBlock {
     /// Sign block by the given key pair.
-    pub fn sign(
-        self,
-        public_key: &PublicKey,
-        private_key: &PrivateKey,
-    ) -> Result<SignedBlock, String> {
+    pub fn sign(self, keypair: &KeyPair) -> Result<SignedBlock, String> {
         let signature_payload: Vec<u8> = self.hash().to_vec();
         let mut transactions = Vec::new();
         for transaction in self.transactions {
-            transactions.push(transaction.sign(public_key, private_key)?);
+            transactions.push(transaction.sign(keypair)?);
         }
         Ok(SignedBlock {
             header: self.header,
             transactions,
-            signatures: vec![Signature::new(
-                *public_key,
-                &signature_payload,
-                private_key,
-            )?],
+            signatures: vec![Signature::new(keypair.clone(), &signature_payload)?],
         })
     }
 
@@ -132,17 +127,10 @@ pub struct SignedBlock {
 
 impl SignedBlock {
     /// Add additional signature to the already signed block.
-    pub fn sign(
-        mut self,
-        public_key: &PublicKey,
-        private_key: &PrivateKey,
-    ) -> Result<SignedBlock, String> {
+    pub fn sign(mut self, key_pair: &KeyPair) -> Result<SignedBlock, String> {
         let signature_payload: Vec<u8> = self.hash().to_vec();
-        self.signatures.push(Signature::new(
-            *public_key,
-            &signature_payload,
-            private_key,
-        )?);
+        self.signatures
+            .push(Signature::new(key_pair.clone(), &signature_payload)?);
         Ok(SignedBlock {
             header: self.header,
             transactions: self.transactions,

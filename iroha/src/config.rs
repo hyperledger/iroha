@@ -7,7 +7,7 @@ use crate::{
 use iroha_derive::*;
 use std::{
     collections::HashMap,
-    convert::TryInto,
+    convert::{TryFrom, TryInto},
     env,
     fmt::{self, Debug, Display, Formatter},
     fs,
@@ -158,7 +158,7 @@ impl Configuration {
 
     /// Set `public_key` and `private_key` configuration parameters - will overwrite the existing one.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
-        (self.public_key, self.private_key)
+        (self.public_key.clone(), self.private_key)
     }
 
     /// Time estimation from receiving a transaction to storing it in a block on all peers.
@@ -219,7 +219,7 @@ impl ConfigurationBuilder {
             address: self
                 .torii_url
                 .unwrap_or_else(|| DEFAULT_TORII_URL.to_string()),
-            public_key: self.public_key,
+            public_key: self.public_key.clone(),
         };
         Ok(Configuration {
             peer_id,
@@ -308,9 +308,7 @@ fn parse_public_key(public_key_string: &str) -> Result<PublicKey, String> {
         .split(',')
         .map(|byte| byte.trim().parse::<u8>().expect("Failed to parse byte."))
         .collect();
-    vector[..]
-        .try_into()
-        .map_err(|e| format!("Public key should be 32 bytes long: {}", e))
+    Ok(PublicKey::try_from(vector)?)
 }
 
 /// Parses string formatted as "[ byte1, byte2, ... ]" into `crypto::PrivateKey`.
@@ -357,24 +355,24 @@ mod tests {
         let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])?,
             },
             PeerId {
                 address: "localhost:1338".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])?,
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])?,
             },
         ];
         assert_eq!("127.0.0.1:1338", configuration.peer_id.address);
@@ -386,10 +384,11 @@ mod tests {
     #[test]
     fn parse_public_key_success() {
         let public_key_string = "[101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]";
-        let expected_public_key = vec![
+        let expected_public_key = PublicKey::try_from(vec![
             101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22,
             28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-        ];
+        ])
+        .expect("Failed to parse PublicKey from Vec.");
         let result = parse_public_key(public_key_string);
         assert!(result.is_ok());
         assert_eq!(expected_public_key, result.unwrap());
@@ -417,24 +416,27 @@ mod tests {
         let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])
+                .expect("Failed to parse PublicKey from Vec."),
             },
             PeerId {
                 address: "localhost:1338".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])
+                .expect("Failed to parse PublicKey from Vec."),
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: [
+                public_key: PublicKey::try_from(vec![
                     101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
                     15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ],
+                ])
+                .expect("Failed to parse PublicKey from Vec."),
             },
         ];
         let result = parse_trusted_peers(Some(trusted_peers_string.to_string()));
