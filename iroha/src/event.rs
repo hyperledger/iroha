@@ -94,7 +94,7 @@ pub mod isi {
         use crate::{
             account::query::GetAccount,
             block::BlockHeader,
-            crypto::KeyPair,
+            crypto::{KeyPair, Signatures},
             peer::{Peer, PeerId},
             permission::Permission,
         };
@@ -110,7 +110,7 @@ pub mod isi {
                     merkle_root_hash: [0; 32],
                 },
                 transactions: Vec::new(),
-                signatures: Vec::new(),
+                signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = HashMap::new();
@@ -174,7 +174,7 @@ pub mod isi {
                     merkle_root_hash: [0; 32],
                 },
                 transactions: Vec::new(),
-                signatures: Vec::new(),
+                signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = HashMap::new();
@@ -238,7 +238,7 @@ pub mod isi {
                     merkle_root_hash: [0; 32],
                 },
                 transactions: Vec::new(),
-                signatures: Vec::new(),
+                signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = HashMap::new();
@@ -300,7 +300,7 @@ pub mod isi {
                     merkle_root_hash: [0; 32],
                 },
                 transactions: Vec::new(),
-                signatures: Vec::new(),
+                signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
             let mut asset_definitions = HashMap::new();
