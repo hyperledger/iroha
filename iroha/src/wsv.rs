@@ -109,6 +109,7 @@ impl WorldStateView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::Signatures;
     use crate::{
         block::BlockHeader,
         crypto::KeyPair,
@@ -127,7 +128,7 @@ mod tests {
                 merkle_root_hash: [0; 32],
             },
             transactions: Vec::new(),
-            signatures: Vec::new(),
+            signatures: Signatures::default(),
         };
         let domain_name = "global".to_string();
         let mut asset_definitions = HashMap::new();

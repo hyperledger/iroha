@@ -6,7 +6,7 @@ use self::message::*;
 use crate::{
     block::{PendingBlock, SignedBlock},
     config::Configuration,
-    crypto::{Hash, KeyPair},
+    crypto::{Hash, KeyPair, Signatures},
     peer::PeerId,
     prelude::*,
 };
@@ -14,7 +14,7 @@ use async_std::sync::RwLock;
 use iroha_derive::*;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     fmt::{self, Debug, Formatter},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -186,7 +186,6 @@ impl Sumeragi {
     /// This method is used to handle messages from other peers.
     #[log]
     pub async fn handle_message(&mut self, message: Message) -> Result<(), String> {
-        //TODO: check that the messages come from the right peers (check roles, keys)
         //TODO: move handlers to `Message`
         match message {
             Message::BlockCreated(block) => self.handle_block_created(block).await?,
@@ -230,22 +229,28 @@ impl Sumeragi {
             && (role == Role::ValidatingPeer || role == Role::ProxyTail)
             // Block is not yet created
             && self.voting_block.write().await.is_none()
+            && !block_creation_timeout.signatures.contains(&self.key_pair.public_key)
         {
-            let sign_result = block_creation_timeout.sign(&self.key_pair);
-            if sign_result.is_ok() {
-                let block_creation_timeout_message =
-                    Message::BlockCreationTimeout(block_creation_timeout.clone());
-                futures::future::join_all(
-                    self.network_topology
-                        .sorted_peers
-                        .iter()
-                        .map(|peer| block_creation_timeout_message.clone().send_to(peer)),
-                )
-                .await;
-            }
+            block_creation_timeout
+                .sign(&self.key_pair)
+                .expect("Failed to sign.");
+            let block_creation_timeout_message =
+                Message::BlockCreationTimeout(block_creation_timeout.clone());
+            futures::future::join_all(
+                self.network_topology
+                    .sorted_peers
+                    .iter()
+                    .map(|peer| block_creation_timeout_message.clone().send_to(peer)),
+            )
+            .await;
         }
-        // TODO: check that signatures are from proxy tail and validating peers, ignore other signatures
-        if block_creation_timeout.signatures.len()
+        if self
+            .network_topology
+            .filter_signatures_by_roles(
+                &[Role::ProxyTail, Role::ValidatingPeer],
+                &block_creation_timeout.verified_signatures(),
+            )
+            .len()
             >= self.network_topology.min_votes_for_view_change()
         {
             self.change_view().await;
@@ -294,15 +299,23 @@ impl Sumeragi {
         &mut self,
         no_tx_receipt: NoTransactionReceiptReceived,
     ) -> Result<(), String> {
-        // TODO: check that signatures are from proxy tail and validating peers, ignore other signatures
-        if no_tx_receipt.signatures.len() >= self.network_topology.min_votes_for_view_change() {
+        if self
+            .network_topology
+            .filter_signatures_by_roles(
+                &[Role::ProxyTail, Role::ValidatingPeer],
+                &no_tx_receipt.verified_signatures(),
+            )
+            .len()
+            >= self.network_topology.min_votes_for_view_change()
+        {
             self.change_view().await;
             return Ok(());
         }
         let role = self.network_topology.role(&self.peer_id);
         if role == Role::ValidatingPeer || role == Role::ProxyTail {
             let mut no_tx_receipt = no_tx_receipt.clone();
-            if no_tx_receipt.sign(&self.key_pair).is_ok() {
+            if !no_tx_receipt.signatures.contains(&self.key_pair.public_key) {
+                no_tx_receipt.sign(&self.key_pair).expect("Failed to sign.");
                 let _result = Message::TransactionForwarded(TransactionForwarded {
                     transaction: no_tx_receipt.transaction.clone(),
                     peer: self.peer_id.clone(),
@@ -366,8 +379,8 @@ impl Sumeragi {
                 <= SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time.")
+            && tx_receipt.is_valid(&self.network_topology)
         {
-            // TODO: proceed only if the receipt is from the leader, e.g if the signature is valid
             self.transactions_awaiting_receipts
                 .write()
                 .await
@@ -450,21 +463,32 @@ impl Sumeragi {
         if let Role::ProxyTail = self.network_topology.role(&self.peer_id) {
             let voting_block = self.voting_block.write().await.clone();
             match voting_block {
-                Some(voting_block) => {
-                    // TODO: verify signatures
-                    let mut voting_block = voting_block.clone();
-                    for signature in block.signatures {
-                        if !voting_block.block.signatures.contains(&signature) {
-                            voting_block.block.signatures.push(signature)
-                        }
-                    }
+                Some(mut voting_block) => {
+                    voting_block
+                        .block
+                        .signatures
+                        .append(&block.verified_signatures());
                     *self.voting_block.write().await = Some(voting_block);
                 }
-                None => *self.voting_block.write().await = Some(VotingBlock::new(block)),
+                None => {
+                    let mut block = block.clone();
+                    let verified_signatures = block.verified_signatures();
+                    block.signatures.clear();
+                    block.signatures.append(&verified_signatures);
+                    *self.voting_block.write().await = Some(VotingBlock::new(block))
+                }
             };
             let voting_block = self.voting_block.write().await.clone();
             if let Some(VotingBlock { block, .. }) = voting_block {
-                if block.signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
+                let valid_signatures = self.network_topology.filter_signatures_by_roles(
+                    &[Role::ValidatingPeer, Role::Leader],
+                    &block.verified_signatures(),
+                );
+                if valid_signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
+                    let mut signatures = Signatures::default();
+                    signatures.append(&valid_signatures);
+                    let mut block = block.clone();
+                    block.signatures = signatures;
                     let block = block.sign(&self.key_pair)?;
                     let message = Message::BlockCommitted(block.clone());
                     let mut send_futures = Vec::new();
@@ -493,12 +517,26 @@ impl Sumeragi {
     }
 
     #[log]
-    async fn handle_block_committed(&mut self, block: SignedBlock) -> Result<(), String> {
-        //TODO: check if the block is the same as pending
-        let block = block.validate(&*self.world_state_view.read().await)?;
-        let hash = block.hash();
-        self.blocks_sender.write().await.send(block).await;
-        self.next_round(hash).await;
+    async fn handle_block_committed(&mut self, mut block: SignedBlock) -> Result<(), String> {
+        //TODO: check if the block is the same as pending (set b has to be aware of the block)
+        let verified_signatures = block.verified_signatures();
+        let valid_signatures = self.network_topology.filter_signatures_by_roles(
+            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
+            &verified_signatures,
+        );
+        let proxy_tail_signatures = self
+            .network_topology
+            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
+        if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
+            && proxy_tail_signatures.len() == 1
+        {
+            block.signatures.clear();
+            block.signatures.append(&valid_signatures);
+            let block = block.validate(&*self.world_state_view.read().await)?;
+            let hash = block.hash();
+            self.blocks_sender.write().await.send(block).await;
+            self.next_round(hash).await;
+        }
         Ok(())
     }
 
@@ -514,29 +552,39 @@ impl Sumeragi {
             if let Some(voting_block) = voting_block {
                 if voting_block.block.hash() == commit_timeout.voting_block_hash
                     && (current_time - voting_block.voted_at) >= self.commit_time
+                    && !commit_timeout
+                        .signatures
+                        .contains(&self.key_pair.public_key)
                 {
-                    let sign_result = commit_timeout.sign(&self.key_pair);
-                    if sign_result.is_ok() {
-                        let message = Message::CommitTimeout(commit_timeout.clone());
-                        let mut send_futures = Vec::new();
-                        for peer in &self.network_topology.sorted_peers {
-                            if *peer != self.peer_id {
-                                send_futures.push(message.clone().send_to(peer));
-                            }
+                    commit_timeout
+                        .sign(&self.key_pair)
+                        .expect("Failed to sign.");
+                    let message = Message::CommitTimeout(commit_timeout.clone());
+                    let mut send_futures = Vec::new();
+                    for peer in &self.network_topology.sorted_peers {
+                        if *peer != self.peer_id {
+                            send_futures.push(message.clone().send_to(peer));
                         }
-                        let results = futures::future::join_all(send_futures).await;
-                        results
-                            .iter()
-                            .filter(|result| result.is_err())
-                            .for_each(|error_result| {
-                                eprintln!("Failed to send messages: {:?}", error_result)
-                            });
                     }
+                    let results = futures::future::join_all(send_futures).await;
+                    results
+                        .iter()
+                        .filter(|result| result.is_err())
+                        .for_each(|error_result| {
+                            eprintln!("Failed to send messages: {:?}", error_result)
+                        });
                 }
             }
         }
-        // TODO: check that signatures are from leader and validating peers, ignore other signatures
-        if commit_timeout.signatures.len() >= self.network_topology.min_votes_for_view_change() {
+        if self
+            .network_topology
+            .filter_signatures_by_roles(
+                &[Role::Leader, Role::ValidatingPeer],
+                &commit_timeout.verified_signatures(),
+            )
+            .len()
+            >= self.network_topology.min_votes_for_view_change()
+        {
             //TODO: store invalidated block hashes
             self.change_view().await;
         }
@@ -693,52 +741,42 @@ impl InitializedNetworkTopology {
         &self,
         signature: Signature,
         role: Role,
-        message: &[u8],
+        message_payload: &[u8],
     ) -> Result<(), String> {
-        match role {
-            Role::ProxyTail => {
-                if signature.public_key == self.proxy_tail().public_key {
-                    Ok(())
-                } else {
-                    Err("Proxy tail has a different public key.".to_string())
-                }
-            }
-            Role::Leader => {
-                if signature.public_key == self.leader().public_key {
-                    Ok(())
-                } else {
-                    Err("Leader has a different public key.".to_string())
-                }
-            }
-            Role::ValidatingPeer => {
-                if self
-                    .validating_peers()
-                    .iter()
-                    .any(|peer| peer.public_key == signature.public_key)
-                {
-                    Ok(())
-                } else {
-                    Err("No validating peer with this public key exists.".to_string())
-                }
-            }
-            Role::ObservingPeer => {
-                if self
-                    .peers_set_b()
-                    .iter()
-                    .any(|peer| peer.public_key == signature.public_key)
-                {
-                    Ok(())
-                } else {
-                    Err("No observing peer with this public key exists.".to_string())
-                }
-            }
+        if role
+            .peers(&self)
+            .iter()
+            .any(|peer| peer.public_key == signature.public_key)
+        {
+            Ok(())
+        } else {
+            Err(format!("No {:?} with this public key exists.", role))
         }
-        .and(signature.verify(message))
+        .and(signature.verify(message_payload))
+    }
+
+    /// Returns signatures of the peers with the specified `roles` from all `signatures`.
+    pub fn filter_signatures_by_roles(
+        &self,
+        roles: &[Role],
+        signatures: &[Signature],
+    ) -> Vec<Signature> {
+        let roles: HashSet<Role> = roles.iter().cloned().collect();
+        let public_keys: Vec<_> = roles
+            .iter()
+            .flat_map(|role| role.peers(self))
+            .map(|peer| peer.public_key)
+            .collect();
+        signatures
+            .iter()
+            .filter(|signature| public_keys.contains(&signature.public_key))
+            .cloned()
+            .collect()
     }
 }
 
 /// Possible Peer's roles in consensus.
-#[derive(Eq, PartialEq, Debug, Hash)]
+#[derive(Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Role {
     /// Leader.
     Leader,
@@ -750,23 +788,53 @@ pub enum Role {
     ProxyTail,
 }
 
+impl Role {
+    /// Returns peers that have this `Role` in this voting round.
+    pub fn peers(&self, network_topology: &InitializedNetworkTopology) -> Vec<PeerId> {
+        match self {
+            Role::Leader => vec![network_topology.leader().clone()],
+            Role::ValidatingPeer => network_topology.validating_peers().to_vec(),
+            Role::ObservingPeer => network_topology.peers_set_b().to_vec(),
+            Role::ProxyTail => vec![network_topology.proxy_tail().clone()],
+        }
+    }
+}
+
+/// Structure represents a block that is currently in discussion.
+#[derive(Debug, Clone)]
+pub struct VotingBlock {
+    /// At what time has this peer voted for this block
+    pub voted_at: Duration,
+    /// Signed Block
+    pub block: SignedBlock,
+}
+
+impl VotingBlock {
+    /// Constructs new VotingBlock.
+    pub fn new(block: SignedBlock) -> VotingBlock {
+        VotingBlock {
+            voted_at: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .expect("Failed to get System Time."),
+            block,
+        }
+    }
+}
+
 /// Contains message structures for p2p communication during consensus.
 pub mod message {
     use crate::{
         block::SignedBlock,
-        crypto::{Hash, KeyPair, PublicKey, Signature},
+        crypto::{Hash, KeyPair, Signature, Signatures},
         peer::PeerId,
-        sumeragi::{InitializedNetworkTopology, Role},
+        sumeragi::{InitializedNetworkTopology, Role, VotingBlock},
         torii::uri,
         tx::AcceptedTransaction,
     };
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};
-    use std::{
-        collections::BTreeMap,
-        time::{Duration, SystemTime},
-    };
+    use std::time::{Duration, SystemTime};
 
     /// Message's variants that are used by peers to communicate in the process of consensus.
     #[derive(Io, Decode, Encode, Debug, Clone)]
@@ -816,7 +884,7 @@ pub mod message {
         /// A proof of the leader receiving and accepting a transaction.
         pub transaction_receipt: TransactionReceipt,
         /// Signatures of the peers who voted for changing the leader.
-        pub signatures: BTreeMap<PublicKey, Signature>,
+        pub signatures: Signatures,
     }
 
     impl BlockCreationTimeout {
@@ -824,23 +892,26 @@ pub mod message {
         pub fn new(transaction_receipt: &TransactionReceipt) -> BlockCreationTimeout {
             BlockCreationTimeout {
                 transaction_receipt: transaction_receipt.clone(),
-                signatures: BTreeMap::new(),
+                signatures: Signatures::default(),
             }
         }
 
         /// Signs this message with the peer's public and private key.
-        /// This way peers vote for changing the view, if the leader refuses to create blocks.
+        /// This way peers vote for changing the view, if the leader does not produce a block
+        /// after receiving transaction in `block_time`.
         pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
-            let payload: Vec<u8> = self.transaction_receipt.clone().into();
-            if self.signatures.contains_key(&key_pair.public_key) {
-                Err("Already signed by these keys.".to_string())
-            } else {
-                self.signatures.insert(
-                    key_pair.public_key.clone(),
-                    Signature::new(key_pair.clone(), &payload)?,
-                );
-                Ok(())
-            }
+            let signature = Signature::new(
+                key_pair.clone(),
+                &Vec::<u8>::from(self.transaction_receipt.clone()),
+            )?;
+            self.signatures.add(signature);
+            Ok(())
+        }
+
+        /// Signatures that are verified with the `transaction_receipt` bytes as `payload`.
+        pub fn verified_signatures(&self) -> Vec<Signature> {
+            self.signatures
+                .verified(&Vec::<u8>::from(self.transaction_receipt.clone()))
         }
     }
 
@@ -851,7 +922,7 @@ pub mod message {
         /// Transaction for which there was no `TransactionReceipt`.
         pub transaction: AcceptedTransaction,
         /// Signatures of the peers who voted for changing the leader.
-        pub signatures: BTreeMap<PublicKey, Signature>,
+        pub signatures: Signatures,
     }
 
     impl NoTransactionReceiptReceived {
@@ -859,23 +930,23 @@ pub mod message {
         pub fn new(transaction: &AcceptedTransaction) -> NoTransactionReceiptReceived {
             NoTransactionReceiptReceived {
                 transaction: transaction.clone(),
-                signatures: BTreeMap::new(),
+                signatures: Signatures::default(),
             }
         }
 
-        /// Signs this failed attempt with the peer's public and private key.
+        /// Signs this message with the peer's public and private key.
         /// This way peers vote for changing the view, if the leader refuses to accept this transaction.
         pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
-            let payload: Vec<u8> = self.transaction.clone().into();
-            if self.signatures.contains_key(&key_pair.public_key) {
-                Err("Already signed by these keys.".to_string())
-            } else {
-                self.signatures.insert(
-                    key_pair.public_key.clone(),
-                    Signature::new(key_pair.clone(), &payload)?,
-                );
-                Ok(())
-            }
+            let signature =
+                Signature::new(key_pair.clone(), &Vec::<u8>::from(self.transaction.clone()))?;
+            self.signatures.add(signature);
+            Ok(())
+        }
+
+        /// Signatures that are verified with the `transaction` bytes as `payload`.
+        pub fn verified_signatures(&self) -> Vec<Signature> {
+            self.signatures
+                .verified(&Vec::<u8>::from(self.transaction.clone()))
         }
     }
 
@@ -942,7 +1013,7 @@ pub mod message {
         /// The hash of the block in discussion in this round.
         pub voting_block_hash: Hash,
         /// The signatures of the peers who vote to for a view change.
-        pub signatures: BTreeMap<PublicKey, Signature>,
+        pub signatures: Signatures,
     }
 
     impl CommitTimeout {
@@ -950,43 +1021,21 @@ pub mod message {
         pub fn new(voting_block: VotingBlock) -> CommitTimeout {
             CommitTimeout {
                 voting_block_hash: voting_block.block.hash(),
-                signatures: BTreeMap::new(),
+                signatures: Signatures::default(),
             }
         }
 
-        /// Signes this request with the peer's public and private key.
-        /// This way peers vote for changing the view.
+        /// Signs this message with the peer's public and private key.
+        /// This way peers vote for changing the view, if the proxy tail does not send commit message in `commit_time`.
         pub fn sign(&mut self, key_pair: &KeyPair) -> Result<(), String> {
-            if self.signatures.contains_key(&key_pair.public_key) {
-                Err("Already signed by these keys.".to_string())
-            } else {
-                self.signatures.insert(
-                    key_pair.public_key.clone(),
-                    Signature::new(key_pair.clone(), &self.voting_block_hash)?,
-                );
-                Ok(())
-            }
+            let signature = Signature::new(key_pair.clone(), &self.voting_block_hash)?;
+            self.signatures.add(signature);
+            Ok(())
         }
-    }
 
-    /// Structure represents a block that is currently in discussion.
-    #[derive(Debug, Clone)]
-    pub struct VotingBlock {
-        /// At what time has this peer voted for this block
-        pub voted_at: Duration,
-        /// Signed Block hash
-        pub block: SignedBlock,
-    }
-
-    impl VotingBlock {
-        /// Constructs new VotingBlock.
-        pub fn new(block: SignedBlock) -> VotingBlock {
-            VotingBlock {
-                voted_at: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .expect("Failed to get System Time."),
-                block,
-            }
+        /// Signatures that are verified with the `voting_block_hash` bytes as `payload`.
+        pub fn verified_signatures(&self) -> Vec<Signature> {
+            self.signatures.verified(&self.voting_block_hash)
         }
     }
 }

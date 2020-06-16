@@ -2,6 +2,7 @@
 //! Iroha.
 use parity_scale_codec::{Decode, Encode};
 use std::{
+    collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Formatter},
 };
@@ -136,6 +137,57 @@ impl Debug for Signature {
             .field("public_key", &self.public_key)
             .field("signature", &self.signature.to_vec())
             .finish()
+    }
+}
+
+/// Container for multiple signatures.
+#[derive(Debug, Clone, Encode, Decode, Default)]
+pub struct Signatures {
+    signatures: BTreeMap<PublicKey, Signature>,
+}
+
+impl Signatures {
+    /// Adds multiple signatures and replaces the duplicates.
+    pub fn append(&mut self, signatures: &[Signature]) {
+        for signature in signatures.iter().cloned() {
+            self.add(signature.clone())
+        }
+    }
+
+    /// Adds a signature. If the signature with this key was present, replaces it.
+    pub fn add(&mut self, signature: Signature) {
+        let _option = self
+            .signatures
+            .insert(signature.public_key.clone(), signature);
+    }
+
+    /// Whether signatures contain a signature with the specified `public_key`
+    pub fn contains(&self, public_key: &PublicKey) -> bool {
+        self.signatures.contains_key(public_key)
+    }
+
+    /// Removes all signatures
+    pub fn clear(&mut self) {
+        self.signatures.clear()
+    }
+
+    /// Returns signatures that have passed verification.
+    pub fn verified(&self, payload: &[u8]) -> Vec<Signature> {
+        self.signatures
+            .iter()
+            .filter(|&(_, signature)| signature.verify(payload).is_ok())
+            .map(|(_, signature)| signature)
+            .cloned()
+            .collect()
+    }
+
+    /// Returns all signatures.
+    pub fn values(&self) -> Vec<Signature> {
+        self.signatures
+            .iter()
+            .map(|(_, signature)| signature)
+            .cloned()
+            .collect()
     }
 }
 

@@ -2,7 +2,7 @@
 //! implementations.
 
 use crate::{
-    crypto::{self, KeyPair},
+    crypto::{self, KeyPair, Signatures},
     prelude::*,
 };
 use iroha_derive::Io;
@@ -93,7 +93,6 @@ impl BlockHeader {
 impl ChainedBlock {
     /// Sign block by the given key pair.
     pub fn sign(self, keypair: &KeyPair) -> Result<SignedBlock, String> {
-        let signature_payload: Vec<u8> = self.hash().to_vec();
         let mut transactions = Vec::new();
         for transaction in self.transactions {
             transactions.push(transaction.sign(keypair)?);
@@ -101,8 +100,9 @@ impl ChainedBlock {
         Ok(SignedBlock {
             header: self.header,
             transactions,
-            signatures: vec![Signature::new(keypair.clone(), &signature_payload)?],
-        })
+            signatures: Signatures::default(),
+        }
+        .sign(keypair)?)
     }
 
     /// Calculate hash of the current block.
@@ -122,15 +122,14 @@ pub struct SignedBlock {
     /// Array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<SignedTransaction>,
     /// Signatures of peers which approved this block.
-    pub signatures: Vec<Signature>,
+    pub signatures: Signatures,
 }
 
 impl SignedBlock {
     /// Add additional signature to the already signed block.
     pub fn sign(mut self, key_pair: &KeyPair) -> Result<SignedBlock, String> {
-        let signature_payload: Vec<u8> = self.hash().to_vec();
-        self.signatures
-            .push(Signature::new(key_pair.clone(), &signature_payload)?);
+        let signature = Signature::new(key_pair.clone(), &self.hash())?;
+        self.signatures.add(signature);
         Ok(SignedBlock {
             header: self.header,
             transactions: self.transactions,
@@ -159,6 +158,11 @@ impl SignedBlock {
     pub fn hash(&self) -> Hash {
         self.header.hash()
     }
+
+    /// Signatures that are verified with the `hash` of this block as `payload`.
+    pub fn verified_signatures(&self) -> Vec<Signature> {
+        self.signatures.verified(&self.hash())
+    }
 }
 
 /// After full validation `SignedBlock` can transform into `ValidBlock`.
@@ -169,7 +173,7 @@ pub struct ValidBlock {
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<ValidTransaction>,
     /// Signatures of peers which approved this block
-    pub signatures: Vec<Signature>,
+    pub signatures: Signatures,
 }
 
 impl ValidBlock {
@@ -198,7 +202,7 @@ pub struct CommittedBlock {
     /// array of transactions, which successfully passed validation and consensus step.
     pub transactions: Vec<ValidTransaction>,
     /// Signatures of peers which approved this block
-    pub signatures: Vec<Signature>,
+    pub signatures: Signatures,
 }
 
 impl CommittedBlock {
@@ -211,7 +215,10 @@ impl CommittedBlock {
 
 #[cfg(test)]
 mod tests {
-    use crate::block::{BlockHeader, ValidBlock};
+    use crate::{
+        block::{BlockHeader, ValidBlock},
+        crypto::Signatures,
+    };
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {
@@ -223,7 +230,7 @@ mod tests {
                 merkle_root_hash: [0u8; 32],
             },
             transactions: vec![],
-            signatures: vec![],
+            signatures: Signatures::default(),
         };
         let commited_block = valid_block.clone().commit();
         assert_eq!(valid_block.hash(), commited_block.hash())
