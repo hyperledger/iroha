@@ -57,8 +57,5 @@ std::string CryptoSigner::sign(const Blob &blob, const Keypair &keypair) {
 
   return std::move(signing_result)
       .match([](auto &&signature) { return std::move(signature.value); },
-             [](const auto & /* error */) {
-               assert(false);
-               return std::string{};
-             });
+             [](const auto & /* error */) { return std::string{}; });
 }
