@@ -28,7 +28,7 @@ mod tests {
         let account2_id = AccountId::new(account2_name, domain_name);
         let (public_key, _) = configuration.key_pair();
         let create_account1 = isi::Register {
-            object: Account::with_signatory(account1_name, domain_name, public_key),
+            object: Account::with_signatory(account1_name, domain_name, public_key.clone()),
             destination_id: String::from(domain_name),
         };
         let create_account2 = isi::Register {

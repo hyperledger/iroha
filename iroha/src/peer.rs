@@ -5,8 +5,6 @@ use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 
-type PublicKey = [u8; 32];
-
 /// Peer's identification.
 #[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io, Default)]
 pub struct PeerId {

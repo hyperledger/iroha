@@ -1,5 +1,5 @@
 use criterion::*;
-use iroha::{peer::PeerId, sumeragi::NetworkTopology};
+use iroha::{crypto::KeyPair, peer::PeerId, sumeragi::NetworkTopology};
 
 const N_PEERS: usize = 255;
 
@@ -7,7 +7,9 @@ fn get_n_peers(n: usize) -> Vec<PeerId> {
     (0..n)
         .map(|i| PeerId {
             address: format!("127.0.0.{}", i),
-            public_key: [0u8; 32],
+            public_key: KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key,
         })
         .collect()
 }

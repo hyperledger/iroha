@@ -88,18 +88,18 @@ mod tests {
     }
 
     async fn create_and_start_iroha_peers(n_peers: usize) -> Vec<PeerId> {
-        let peer_keys: Vec<(PublicKey, PrivateKey)> = (0..n_peers)
-            .map(|_| crypto::generate_key_pair().expect("Failed to generate key pair."))
+        let peer_keys: Vec<KeyPair> = (0..n_peers)
+            .map(|_| KeyPair::generate().expect("Failed to generate key pair."))
             .collect();
         let peer_ids: Vec<PeerId> = peer_keys
             .iter()
             .enumerate()
-            .map(|(i, (public_key, _))| PeerId {
+            .map(|(i, key_pair)| PeerId {
                 address: format!("127.0.0.1:{}", 1338 + i),
-                public_key: *public_key,
+                public_key: key_pair.public_key.clone(),
             })
             .collect();
-        for (peer_id, (public_key, private_key)) in peer_ids.iter().zip(peer_keys) {
+        for (peer_id, key_pair) in peer_ids.iter().zip(peer_keys) {
             let peer_ids = peer_ids.clone();
             let peer_id = peer_id.clone();
             task::spawn(async move {
@@ -108,8 +108,8 @@ mod tests {
                     .expect("Failed to load configuration.");
                 configuration.kura_block_store_path(temp_dir.path());
                 configuration.peer_id(peer_id.clone());
-                configuration.public_key = public_key;
-                configuration.private_key = private_key;
+                configuration.public_key = key_pair.public_key.clone();
+                configuration.private_key = key_pair.private_key.clone();
                 configuration.trusted_peers(peer_ids.clone());
                 configuration.max_faulty_peers(MAX_FAULTS);
                 let iroha = Iroha::new(configuration);

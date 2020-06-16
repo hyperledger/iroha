@@ -153,7 +153,7 @@ pub mod isi {
         impl TestKit {
             pub fn new() -> Self {
                 let domain_name = "Company".to_string();
-                let public_key = [1; 32];
+                let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
                 let mut asset_definitions = HashMap::new();
                 let asset_definition_id = permission_asset_definition_id();
                 asset_definitions.insert(
@@ -169,7 +169,7 @@ pub mod isi {
                 let mut account = Account::with_signatory(
                     &account_id.name,
                     &account_id.domain_name,
-                    public_key.clone(),
+                    key_pair.public_key.clone(),
                 );
                 account.assets.insert(asset_id.clone(), asset);
                 let mut accounts = HashMap::new();
@@ -202,7 +202,7 @@ pub mod isi {
                 let world_state_view = WorldStateView::new(Peer::with_domains(
                     PeerId {
                         address: address.clone(),
-                        public_key,
+                        public_key: key_pair.public_key,
                     },
                     &Vec::new(),
                     domains,
@@ -217,7 +217,9 @@ pub mod isi {
         #[test]
         fn test_register_bridge_test_should_pass() {
             let mut testkit = TestKit::new();
-            let bridge_owner_public_key = [2; 32];
+            let bridge_owner_public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let bridge_owner_account =
                 Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
             let bridge_definition = BridgeDefinition {
@@ -240,7 +242,9 @@ pub mod isi {
         #[test]
         fn test_register_bridge_should_fail_with_account_not_found() {
             let mut testkit = TestKit::new();
-            let bridge_owner_public_key = [3; 32];
+            let bridge_owner_public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
             let bridge_owner_account =
                 Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
             let bridge_definition = BridgeDefinition {
