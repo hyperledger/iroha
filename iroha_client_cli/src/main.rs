@@ -33,10 +33,8 @@ fn main() {
 
     let configuration_path = matches.value_of(CONFIG).unwrap_or("config.json");
     println!("Value for config: {}", configuration_path);
-    let configuration = &Configuration::from_path(configuration_path).expect(&format!(
-        "Failed to load configuration: {}.",
-        configuration_path
-    ));
+    let configuration = &Configuration::from_path(configuration_path)
+        .unwrap_or_else(|_| panic!("Failed to load configuration: {}.", configuration_path));
 
     if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
         domain::process(matches, configuration);
