@@ -1,10 +1,10 @@
-Sending transactions with Python library
+Sending Transactions With Python library
 ========================================
 
 Prerequisites
 -------------
 
-.. note:: The library only works in Python 3 environment (Python 2 is not supported yet).
+.. note:: The library only works in Python 3 environment (Python 2 is not supported).
 
 To use Iroha Python library, you need to get it from the
 `repository <https://github.com/hyperledger/iroha-python>`_ or via pip3:
@@ -13,7 +13,47 @@ To use Iroha Python library, you need to get it from the
 
 	pip3 install iroha
 
-Now, as we have the library, we can start sending the actual transactions.
+Creating your own key pairs with Python library
+-----------------------------------------------
+
+For testing purposes, you can use example keys.
+But you can also create your own.
+To create **native Iroha ed25519 SHA-3** keys (difference between algorithms can be found `here <../develop/keys.html>`__), please use the following code:
+
+.. code-block:: python
+
+	from iroha import IrohaCrypto
+
+	# these first two lines are enough to create the keys
+	private_key = IrohaCrypto.private_key()
+	public_key = IrohaCrypto.derive_public_key(private_key)
+
+	# the rest of the code writes them into the file
+	with open('keypair.priv', 'wb') as f:
+	    f.write(private_key)
+
+	with open('keypair.pub', 'wb') as f:
+	    f.write(public_key)
+
+And for HL Ursa ed25519 SHA-2 keys in Multihash format, please use:
+
+.. code-block:: python
+
+	from iroha import IrohaCrypto, ed25519_sha2
+	from nacl.encoding import HexEncoder
+
+	private_key = ed25519_sha2.SigningKey.generate()
+	public_key = IrohaCrypto.derive_public_key(private_key).encode('ascii')
+
+	with open('keypair.priv', 'wb') as f:
+	    f.write(private_key.encode(encoder=HexEncoder))
+	    f.write(public_key[6:])
+
+	with open('keypair.pub', 'wb') as f:
+	    f.write(public_key)
+
+
+Now, as we have the library and the keys, we can start sending the actual transactions.
 
 Running example transactions
 ----------------------------
