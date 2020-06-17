@@ -1,6 +1,6 @@
-# How-to develop a new Iroha Module
+# How to Develop a New Iroha Module
 
-When you need to add some functionality to the Iroha use this guide to develop a new Iroha Module.
+When you need to add some functionality to Iroha, use this guide to develop a new Iroha Module.
 
 ## Prerequisites
 
@@ -9,27 +9,28 @@ When you need to add some functionality to the Iroha use this guide to develop a
 
 ## Steps
 
-### Create new Rust module inside Iroha crate
+### 1. Create new Rust module inside Iroha crate
 
-Inside `iroha/src/lib.rs` add declaration of your new module.
-For example for `bridge` module we add the following declaration:
+Inside `iroha/src/lib.rs` add a declaration of your new module.
+For example, for `bridge` module we add the following declaration,
+
 ```rust
 #[cfg(feature = "bridge")]
 pub mod bridge;
 ```
 
-So for you module `x` you will add `pub mod x;`. You should also place your new module under the 
-[Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html) so other developers 
-will be able to turn it on and off when needed.
+so for you module `x` you would add `pub mod x;`.
+You should also place your new module under the [Cargo feature](https://doc.rust-lang.org/cargo/reference/features.html) so other developers would be able to turn it on and off when needed.
 
-Now create a separate file for your module, for `bridge` module it will be `iroha/src/bridge.rs`.
-So for your module `x` you will create a new file `iroha/src/x.rs`.
+Now, create a separate file for your module.
+For `bridge` module it will be `iroha/src/bridge.rs`.
+Likewise, for your module `x` you will need to create a new file `iroha/src/x.rs`.
 
-### Add documentation
+### 2. Add documentation
 
-Each module should provide description of own functionality via Rust Docs.
+Each module must provide description of its own functionality via Rust Docs.
 
-In the start of the module file you should place docs block for the enclosing item.
+For that, at the beginning of the module file you should place docs block for the enclosing item.
 
 ```rust
 //! Here you can see a good description of the module `x` and its functionality.
@@ -37,31 +38,27 @@ In the start of the module file you should place docs block for the enclosing it
 
 All public entites of your module should be documented as well. But first, let's create them.
 
-### Write your logic
+### 3. Write your logic
 
-The development of a new Iroha Module has a goal - bring new functionality to the Iroha.
-So based on the goal and requirements you have you will bring new entities and place them
-inside newly created module.
+The development of a new Iroha Module has a goal - to bring new functionality to Iroha.
+So based on the goal and requirements, you have you will introduce new entities and place them inside newly created module.
 
-Let's specify particular categories of such entities and look how they can be implemented
-according to the Iroha best practices.
+Let's specify particular categories of such entities and look how they can be implemented according to Iroha best practices.
 
-#### Add custom Iroha Special Instruction
+#### 4. Add custom Iroha Special Instruction
 
-If you need to have some module related Iroha Special Instructions you should add `isi` submodule
-to the file of your newly created module, like that:
+If you need to have some module-related Iroha Special Instructions you should add `isi` submodule to the file of your newly created module, like that:
 
 ```rust
 ...
 pub mod isi {
 }
-``` 
+```
 
-Inside this submodule you may declare new Iroha Special Instructions. To provide safety guarantees,
-Iroha Modules can create new Iroha Special Instructions by composing Out of the Box Instructions.
+Inside this submodule you may declare new Iroha Special Instructions.
+To provide safety guarantees, Iroha Modules can create new Iroha Special Instructions composed of the Out of the Box Instructions.
 
-Let's look at the [example](https://github.com/hyperledger/iroha/blob/2005335348585b03b3ee7887272af4c76170c10a/iroha/src/bridge.rs)
-from the `bridge` Iroha Module:
+Let's look at the [example](https://github.com/hyperledger/iroha/blob/2005335348585b03b3ee7887272af4c76170c10a/iroha/src/bridge.rs) from the `bridge` Iroha Module:
 
 ```rust
 ...
@@ -118,7 +115,7 @@ pub fn register_bridge(&self, bridge_definition: BridgeDefinition) -> Instructio
 ...
 ```
 
-And let's represent what's going on as an algorithm, so to register a new Bridge we will:
+And see what it does to register a new Bridge:
 
 1. Check that Bridge's Owner's Account exists and terminate execution if not.
 1. Add new Domain.
@@ -126,23 +123,18 @@ And let's represent what's going on as an algorithm, so to register a new Bridge
 1. Mint one Asset.
 1. Mint another Asset.
 
-We will not discuss Bridge related terminology here, the thing we want to look at is how we can
-compose this steps into one new Iroha Special Instruction.
+We will not discuss Bridge-related terminology here – the thing we want to look at is how we can compose these steps into one new Iroha Special Instruction.
 
-As you can see we have `Instruction::If(...)` here - it's 
-[utilitary Iroha Special Instruction](references/glossary#utilitary-iroha-special-instruction).
+As you can see, we have `Instruction::If(...)` here - it's [the utility Iroha Special Instruction](references/glossary#utility-iroha-special-instruction).
 It takes three arguments - `condition`, `instruction_to_do_if_true`, `instruction_to_do_if_false_or_nothing`.
-By this instruction we made a first step from our algorithm - made a check and terminate execution
-if there is no Owner's Account. Inside `condition` we placed `Instruction::ExecuteQuery(...)`
-which fails if [Iroha Query](references/glossary#iroha-query) fails.
+By this instruction we've made the first step of our algorithm - run a check and terminated execution if there is no Owner's Account.
+Inside `condition` we placed `Instruction::ExecuteQuery(...)` which fails if [Iroha Query](references/glossary#iroha-query) fails.
 
-If first step succeed we should move forward and execute sequence of the following steps.
-For this purpose we also have an utilitary Iroha Special Instruction `Sequence` with a 
-vector of Iroha Special Instructions we will execute one by one.
+If the first step succeeds, we should move forward and execute sequence of the following steps.
+For this purpose we also have a utility Iroha Special Instruction `Sequence` with a [vector](https://doc.rust-lang.org/alloc/vec/struct.Vec.html) of Iroha Special Instructions executed one by one.
 
-Inside this sequence we use [domains related Iroha Special Instructions]
-(references/glossary#domains-related-iroha-special-instruction) `Add`, `Register`, and `Mint` twice. 
+Inside this sequence we use [domains-related Iroha Special Instructions](references/glossary#domains-related-iroha-special-instruction) `Add`, `Register`, and `Mint` twice.
 
-## Additional resouces
+## Additional resources
 
 * //TODO: add link to the pair programming session on `Bridge` module.
