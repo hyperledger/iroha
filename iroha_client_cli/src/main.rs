@@ -33,7 +33,10 @@ fn main() {
 
     let configuration_path = matches.value_of(CONFIG).unwrap_or("config.json");
     println!("Value for config: {}", configuration_path);
-    let configuration = &Configuration::from_path(configuration_path).expect(&format!("Failed to load configuration: {}.", configuration_path));
+    let configuration = &Configuration::from_path(configuration_path).expect(&format!(
+        "Failed to load configuration: {}.",
+        configuration_path
+    ));
 
     if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
         domain::process(matches, configuration);
@@ -151,7 +154,12 @@ mod account {
         }
     }
 
-    fn create_account(configuration: &Configuration, account_name: &str, domain_name: &str, _public_key: &str) {
+    fn create_account(
+        configuration: &Configuration,
+        account_name: &str,
+        domain_name: &str,
+        _public_key: &str,
+    ) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let create_account = isi::Register {
             object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
@@ -256,7 +264,11 @@ App::new(GET)
         }
     }
 
-    fn register_asset_definition(configuration: &Configuration, asset_name: &str, domain_name: &str) {
+    fn register_asset_definition(
+        configuration: &Configuration,
+        asset_name: &str,
+        domain_name: &str,
+    ) {
         let mut iroha_client = Client::new(configuration);
         executor::block_on(
             iroha_client.submit(
