@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use iroha::config::Configuration;
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
@@ -29,17 +30,19 @@ fn main() {
             asset::build_app(),
         )
         .get_matches();
-    if let Some(configuration_path) = matches.value_of(CONFIG) {
-        println!("Value for config: {}", configuration_path);
-    }
+
+    let configuration_path = matches.value_of(CONFIG).unwrap_or("config.json");
+    println!("Value for config: {}", configuration_path);
+    let configuration = &Configuration::from_path(configuration_path).expect(&format!("Failed to load configuration: {}.", configuration_path));
+
     if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
-        domain::process(matches);
+        domain::process(matches, configuration);
     }
     if let Some(ref matches) = matches.subcommand_matches(ACCOUNT) {
-        account::process(matches);
+        account::process(matches, configuration);
     }
     if let Some(ref matches) = matches.subcommand_matches(ASSET) {
-        asset::process(matches);
+        asset::process(matches, configuration);
     }
 }
 
@@ -68,18 +71,16 @@ mod domain {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(ADD) {
             if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
                 println!("Adding a new Domain with a name: {}", domain_name);
-                create_domain(domain_name);
+                create_domain(configuration, domain_name);
             }
         }
     }
 
-    fn create_domain(domain_name: &str) {
-        let configuration =
-            &Configuration::from_path("config.json").expect("Failed to load configuration.");
+    fn create_domain(configuration: &Configuration, domain_name: &str) {
         let mut iroha_client = Client::new(configuration);
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
@@ -135,7 +136,7 @@ mod account {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
@@ -143,22 +144,20 @@ mod account {
                     println!("Creating account with a domain's name: {}", domain_name);
                     if let Some(public_key) = matches.value_of(ACCOUNT_KEY) {
                         println!("Creating account with a public key: {}", public_key);
-                        create_account(account_name, domain_name, public_key);
+                        create_account(configuration, account_name, domain_name, public_key);
                     }
                 }
             }
         }
     }
 
-    fn create_account(account_name: &str, domain_name: &str, _public_key: &str) {
+    fn create_account(configuration: &Configuration, account_name: &str, domain_name: &str, _public_key: &str) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let create_account = isi::Register {
             object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
             destination_id: String::from(domain_name),
         };
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+        let mut iroha_client = Client::new(configuration);
         executor::block_on(iroha_client.submit(create_account.into()))
             .expect("Failed to create account.");
     }
@@ -215,11 +214,10 @@ App::new(GET)
                 .about("Use this command to get Asset information from Iroha Account.")
                     .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
                     .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
-
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(asset_name) = matches.value_of(ASSET_NAME) {
                 println!("Registering asset defintion with a name: {}", asset_name);
@@ -228,7 +226,7 @@ App::new(GET)
                         "Registering asset definition with a domain's name: {}",
                         domain_name
                     );
-                    register_asset_definition(asset_name, domain_name);
+                    register_asset_definition(configuration, asset_name, domain_name);
                 }
             }
         }
@@ -258,10 +256,8 @@ App::new(GET)
         }
     }
 
-    fn register_asset_definition(asset_name: &str, domain_name: &str) {
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+    fn register_asset_definition(configuration: &Configuration, asset_name: &str, domain_name: &str) {
+        let mut iroha_client = Client::new(configuration);
         executor::block_on(
             iroha_client.submit(
                 isi::Register {
