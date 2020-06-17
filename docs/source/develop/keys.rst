@@ -6,6 +6,8 @@ Iroha uses key pairs (.pub and .priv keys) to sign transactions – every `accou
 Some accounts (if `quorum <../concepts_architecture/glossary.html#quorum>`_ is more than 1) might have more `Signatories <../concepts_architecture/glossary.html#signatory>`_ that sign transactions – and each Signatory has a pair of keys.
 Cryptographic algorithms use those keys – and in Iroha we provide you with a choice – which algorithms to use.
 
+.. note:: Check out how to create key pairs using the Python library `here <../getting_started/python-guide.html#creating-your-own-key-pairs-with-python-library>`_.
+
 Supported Crypto Algorithms
 ===========================
 
