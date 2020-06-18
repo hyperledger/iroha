@@ -57,6 +57,11 @@ impl Account {
             destination_id,
         }
     }
+
+    /// Returns the account signatories list without ability to modify it.
+    pub fn read_signatories(&self) -> &Vec<PublicKey> {
+        &self.signatories
+    }
 }
 
 /// Identification of an Account. Consists of Account's name and Domain's name.
@@ -114,7 +119,7 @@ pub mod isi {
     use super::*;
     use crate::permission::isi::PermissionInstruction;
     use iroha_derive::*;
-    use std::ops::{Add, Sub};
+    use std::ops::{AddAssign, SubAssign};
 
     /// Enumeration of all legal Account related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]
@@ -125,6 +130,8 @@ pub mod isi {
             <Account as Identifiable>::Id,
             Asset,
         ),
+        /// Variant of the generic `Add` instruction for `PublicKey` --> `Account`.
+        AddSignatory(<Account as Identifiable>::Id, PublicKey),
     }
 
     impl AccountInstruction {
@@ -146,29 +153,53 @@ pub mod isi {
                     destination_account_id.clone(),
                 )
                 .execute(authority, world_state_view),
+                AccountInstruction::AddSignatory(account_id, public_key) => {
+                    Add::new(public_key.clone(), account_id.clone())
+                        .execute(authority, world_state_view)
+                }
             }
         }
     }
 
     /// The purpose of add signatory command is to add an identifier to the account. Such
     /// identifier is a public key of another device or a public key of another user.
-    impl Add<PublicKey> for Account {
-        type Output = Self;
-
-        fn add(mut self, signatory: PublicKey) -> Self {
+    impl AddAssign<PublicKey> for Account {
+        fn add_assign(&mut self, signatory: PublicKey) {
             self.signatories.push(signatory);
-            self
         }
     }
 
-    impl Sub<PublicKey> for Account {
-        type Output = Self;
-
-        fn sub(mut self, signatory: PublicKey) -> Self {
+    impl SubAssign<PublicKey> for Account {
+        fn sub_assign(&mut self, signatory: PublicKey) {
             if let Some(index) = self.signatories.iter().position(|key| key == &signatory) {
                 self.signatories.remove(index);
             }
-            self
+        }
+    }
+
+    impl Add<Account, PublicKey> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanAddSignatory(authority, self.destination_id.clone(), None)
+                .execute(world_state_view)?;
+            let public_key = self.object.clone();
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or("Failed to find account.")?;
+            *account += public_key;
+            Ok(())
+        }
+    }
+
+    impl From<Add<Account, PublicKey>> for Instruction {
+        fn from(instruction: Add<Account, PublicKey>) -> Self {
+            Instruction::Account(AccountInstruction::AddSignatory(
+                instruction.destination_id,
+                instruction.object,
+            ))
         }
     }
 
