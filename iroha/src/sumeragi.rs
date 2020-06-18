@@ -426,31 +426,38 @@ impl Sumeragi {
 
     #[log]
     async fn handle_block_created(&mut self, block: SignedBlock) -> Result<(), String> {
+        if self
+            .network_topology
+            .filter_signatures_by_roles(&[Role::Leader], &block.verified_signatures())
+            .is_empty()
+        {
+            return Ok(());
+        }
         self.transactions_awaiting_created_block
             .write()
             .await
             .clear();
         match self.network_topology.role(&self.peer_id) {
             Role::ValidatingPeer => {
-                // TODO: Validate the block before signing. Check that it is not empty, validate transactions, check that it is signed by the leader.
-                // TODO: Don't vote for the block if it did not pass validation
-                if let Err(e) = Message::BlockSigned(block.clone().sign(&self.key_pair)?)
-                    .send_to(self.network_topology.proxy_tail())
-                    .await
-                {
-                    eprintln!(
-                        "Failed to send BlockSigned message to the proxy tail: {:?}",
-                        e
-                    );
+                if !block.transactions.is_empty() {
+                    if let Err(e) = Message::BlockSigned(block.clone().sign(&self.key_pair)?)
+                        .send_to(self.network_topology.proxy_tail())
+                        .await
+                    {
+                        eprintln!(
+                            "Failed to send BlockSigned message to the proxy tail: {:?}",
+                            e
+                        );
+                    }
+                    let voting_block = VotingBlock::new(block);
+                    *self.voting_block.write().await = Some(voting_block.clone());
+                    self.start_commit_countdown(voting_block.clone()).await;
+                    //TODO: send to set b so they can observe
                 }
-                let voting_block = VotingBlock::new(block);
-                *self.voting_block.write().await = Some(voting_block.clone());
-                self.start_commit_countdown(voting_block.clone()).await;
-                //TODO: send to set b so they can observe
             }
             Role::ProxyTail => {
                 if self.voting_block.write().await.is_none() {
-                    *self.voting_block.write().await = Some(VotingBlock::new(block));
+                    *self.voting_block.write().await = Some(VotingBlock::new(block))
                 }
             }
             _ => (),
@@ -470,13 +477,7 @@ impl Sumeragi {
                         .append(&block.verified_signatures());
                     *self.voting_block.write().await = Some(voting_block);
                 }
-                None => {
-                    let mut block = block.clone();
-                    let verified_signatures = block.verified_signatures();
-                    block.signatures.clear();
-                    block.signatures.append(&verified_signatures);
-                    *self.voting_block.write().await = Some(VotingBlock::new(block))
-                }
+                None => *self.voting_block.write().await = Some(VotingBlock::new(block)),
             };
             let voting_block = self.voting_block.write().await.clone();
             if let Some(VotingBlock { block, .. }) = voting_block {
