@@ -142,72 +142,86 @@ pub mod isi {
     use crate::account::query::*;
     use crate::bridge::asset::*;
     use crate::isi::prelude::*;
-    use crate::query::*;
 
-    impl Peer {
-        /// Constructor of Iroha Special Instruction for bridge registration.
-        pub fn register_bridge(&self, bridge_definition: &BridgeDefinition) -> Instruction {
-            let domain = Domain::new(bridge_definition.id.name.clone());
-            let account = Account::new(BRIDGE_ACCOUNT_NAME, &domain.name);
-            Instruction::If(
-                Box::new(Instruction::ExecuteQuery(IrohaQuery::GetAccount(
-                    GetAccount {
-                        account_id: bridge_definition.owner_account_id.clone(),
-                    },
-                ))),
-                Box::new(Instruction::Sequence(vec![
-                    Add {
-                        object: domain.clone(),
-                        destination_id: self.id.clone(),
-                    }
-                    .into(),
-                    Register {
-                        object: account.clone(),
-                        destination_id: domain.name,
-                    }
-                    .into(),
-                    Mint {
-                        object: (
-                            BRIDGE_ASSET_BRIDGE_DEFINITION_PARAMETER_KEY.to_string(),
-                            bridge_definition.encode(),
-                        ),
-                        destination_id: AssetId {
-                            definition_id: bridge_asset_definition_id(),
-                            account_id: account.id,
-                        },
-                    }
-                    .into(),
-                ])),
-                Some(Box::new(Instruction::Fail(
-                    "Account not found.".to_string(),
-                ))),
-            )
-        }
-
-        /// Constructor of Iroha Special Instruction for external asset registration.
-        pub fn register_external_asset(&self, external_asset: &ExternalAsset) -> Instruction {
-            let domain_id = &external_asset.bridge_id.definition_id.name;
-            let account = Account::new(BRIDGE_ACCOUNT_NAME, domain_id);
-            let asset_definition = AssetDefinition::new(AssetDefinitionId::new(
-                &external_asset.name,
-                &external_asset.bridge_id.definition_id.name,
-            ));
-            Instruction::Sequence(vec![
+    /// Constructor of Iroha Special Instruction for bridge registration.
+    pub fn register_bridge(
+        peer_id: <Peer as Identifiable>::Id,
+        bridge_definition: &BridgeDefinition,
+    ) -> Instruction {
+        let domain = Domain::new(bridge_definition.id.name.clone());
+        let account = Account::new(BRIDGE_ACCOUNT_NAME, &domain.name);
+        Instruction::If(
+            Box::new(Instruction::ExecuteQuery(IrohaQuery::GetAccount(
+                GetAccount {
+                    account_id: bridge_definition.owner_account_id.clone(),
+                },
+            ))),
+            Box::new(Instruction::Sequence(vec![
+                Add {
+                    object: domain.clone(),
+                    destination_id: peer_id,
+                }
+                .into(),
                 Register {
-                    object: asset_definition,
-                    destination_id: domain_id.clone(),
+                    object: account.clone(),
+                    destination_id: domain.name,
                 }
                 .into(),
                 Mint {
-                    object: (external_asset.name.clone(), external_asset.encode()),
+                    object: (
+                        BRIDGE_ASSET_BRIDGE_DEFINITION_PARAMETER_KEY.to_string(),
+                        bridge_definition.encode(),
+                    ),
                     destination_id: AssetId {
-                        definition_id: bridge_external_assets_asset_definition_id(),
+                        definition_id: bridge_asset_definition_id(),
                         account_id: account.id,
                     },
                 }
                 .into(),
-            ])
+            ])),
+            Some(Box::new(Instruction::Fail(
+                "Account not found.".to_string(),
+            ))),
+        )
+    }
+
+    /// Constructor of Iroha Special Instruction for external asset registration.
+    pub fn register_external_asset(external_asset: &ExternalAsset) -> Instruction {
+        let domain_id = &external_asset.bridge_id.definition_id.name;
+        let account = Account::new(BRIDGE_ACCOUNT_NAME, domain_id);
+        let asset_definition = AssetDefinition::new(AssetDefinitionId::new(
+            &external_asset.name,
+            &external_asset.bridge_id.definition_id.name,
+        ));
+        Instruction::Sequence(vec![
+            Register {
+                object: asset_definition,
+                destination_id: domain_id.clone(),
+            }
+            .into(),
+            Mint {
+                object: (external_asset.name.clone(), external_asset.encode()),
+                destination_id: AssetId {
+                    definition_id: bridge_external_assets_asset_definition_id(),
+                    account_id: account.id,
+                },
+            }
+            .into(),
+        ])
+    }
+
+    /// Constructor of Iroha Special Instruction for adding bridge client.
+    pub fn add_client(
+        bridge_definition_id: &<BridgeDefinition as Identifiable>::Id,
+        client_public_key: PublicKey,
+    ) -> Instruction {
+        let domain_id = &bridge_definition_id.name;
+        let account = Account::new(BRIDGE_ACCOUNT_NAME, domain_id);
+        Add {
+            object: client_public_key,
+            destination_id: account.id,
         }
+        .into()
     }
 
     #[cfg(test)]
@@ -310,7 +324,8 @@ pub mod isi {
             register_account
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge owner account");
-            let register_bridge = world_state_view.peer().register_bridge(&bridge_definition);
+            let register_bridge =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition);
             register_bridge
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge");
@@ -337,7 +352,8 @@ pub mod isi {
                 owner_account_id: bridge_owner_account.id.clone(),
             };
             let world_state_view = &mut testkit.world_state_view;
-            let register_bridge = world_state_view.peer().register_bridge(&bridge_definition);
+            let register_bridge =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition);
             assert_eq!(
                 register_bridge
                     .execute(testkit.root_account_id.clone(), world_state_view)
@@ -365,9 +381,7 @@ pub mod isi {
                 .register_account(bridge_owner_account)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge owner account");
-            world_state_view
-                .peer()
-                .register_bridge(&bridge_definition)
+            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge");
             let external_asset = ExternalAsset {
@@ -376,10 +390,7 @@ pub mod isi {
                 external_id: "DOT".to_string(),
                 decimals: 12,
             };
-            let register_external_asset = world_state_view
-                .peer()
-                .register_external_asset(&external_asset);
-            register_external_asset
+            register_external_asset(&external_asset)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register external asset");
             let bridge_query = query_bridge(BridgeId::new(&bridge_definition.id.name));
@@ -390,6 +401,38 @@ pub mod isi {
                 .expect("failed to decode an external asset");
             assert_eq!(decoded_external_asset, external_asset);
         }
+
+        #[test]
+        fn test_add_client_should_pass() {
+            let mut testkit = TestKit::new();
+            let bridge_owner_public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let bridge_owner_account =
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key.clone());
+            let bridge_definition = BridgeDefinition {
+                id: BridgeDefinitionId::new(BRIDGE_NAME),
+                kind: BridgeKind::IClaim,
+                owner_account_id: bridge_owner_account.id.clone(),
+            };
+            let world_state_view = &mut testkit.world_state_view;
+            let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
+            domain
+                .register_account(bridge_owner_account)
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge owner account");
+            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge");
+            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to add bridge client");
+            let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
+                .execute(&world_state_view)
+                .expect("failed to query a bridge");
+            let clients = get_clients(&query_result).expect("failed to get bridge clients");
+            assert_eq!(clients, &[bridge_owner_public_key]);
+        }
     }
 }
 
@@ -398,11 +441,10 @@ pub mod isi {
 pub mod query {
     use super::asset::*;
     use super::*;
-    use crate::query::*;
 
     /// Constructor of Iroha Query for retrieving information about the bridge.
     pub fn query_bridge(bridge_id: <Bridge as Identifiable>::Id) -> IrohaQuery {
-        crate::asset::query::GetAccountAssets::build_request(AccountId::new(
+        crate::account::query::GetAccount::build_request(AccountId::new(
             BRIDGE_ACCOUNT_NAME,
             bridge_id.name(),
         ))
@@ -417,14 +459,15 @@ pub mod query {
     /// contain the above values, so this function can fail, returning `None`.
     pub fn decode_bridge_definition(query_result: &QueryResult) -> Option<BridgeDefinition> {
         let account_assets_result = match query_result {
-            QueryResult::GetAccountAssets(v) => v,
+            QueryResult::GetAccount(v) => v,
             _ => return None,
         };
         account_assets_result
+            .account
             .assets
             .iter()
-            .filter(|asset| asset.id.definition_id == bridge_asset_definition_id())
-            .filter_map(|asset| {
+            .filter(|(id, _)| id.definition_id == bridge_asset_definition_id())
+            .filter_map(|(_, asset)| {
                 asset
                     .store
                     .get(BRIDGE_ASSET_BRIDGE_DEFINITION_PARAMETER_KEY)
@@ -445,15 +488,25 @@ pub mod query {
         asset_name: &str,
     ) -> Option<ExternalAsset> {
         let account_assets_result = match query_result {
-            QueryResult::GetAccountAssets(v) => v,
+            QueryResult::GetAccount(v) => v,
             _ => return None,
         };
         account_assets_result
+            .account
             .assets
             .iter()
-            .filter(|asset| asset.id.definition_id == bridge_external_assets_asset_definition_id())
-            .filter_map(|asset| asset.store.get(asset_name).cloned())
+            .filter(|(id, _)| id.definition_id == bridge_external_assets_asset_definition_id())
+            .filter_map(|(_, asset)| asset.store.get(asset_name).cloned())
             .filter_map(|data| ExternalAsset::decode(&mut data.as_slice()).ok())
             .next()
+    }
+
+    /// A helper function for retrieving information about bridge clients.
+    pub fn get_clients(query_result: &QueryResult) -> Option<&Vec<PublicKey>> {
+        let account_result = match query_result {
+            QueryResult::GetAccount(v) => v,
+            _ => return None,
+        };
+        Some(&account_result.account.read_signatories())
     }
 }
