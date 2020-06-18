@@ -7,7 +7,7 @@ use crate::{
 use iroha_derive::*;
 use std::{
     collections::HashMap,
-    convert::{TryFrom, TryInto},
+    convert::TryFrom,
     env,
     fmt::{self, Debug, Display, Formatter},
     fs,
@@ -156,9 +156,9 @@ impl Configuration {
         self.max_faulty_peers = max_faulty_peers;
     }
 
-    /// Set `public_key` and `private_key` configuration parameters - will overwrite the existing one.
+    /// Gets `public_key` and `private_key` configuration parameters.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
-        (self.public_key.clone(), self.private_key)
+        (self.public_key.clone(), self.private_key.clone())
     }
 
     /// Time estimation from receiving a transaction to storing it in a block on all peers.
@@ -179,12 +179,6 @@ impl Display for Configuration {
 
 impl Debug for Configuration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let first_half_of_private_key: [u8; 32] = self.private_key[0..32]
-            .try_into()
-            .expect("Wrong format of private key.");
-        let second_half_of_private_key: [u8; 32] = self.private_key[32..64]
-            .try_into()
-            .expect("Wrong format of private key.");
         f.debug_struct("Configuration")
             .field("peer_id", &self.peer_id)
             .field("block_time_ms", &self.block_time_ms)
@@ -193,8 +187,7 @@ impl Debug for Configuration {
             .field("trusted_peers", &self.trusted_peers)
             .field("max_faulty_peers", &self.max_faulty_peers)
             .field("public_key", &self.public_key)
-            .field("private_key[0..32]", &first_half_of_private_key)
-            .field("private_key[32..64]", &second_half_of_private_key)
+            .field("private_key", &self.private_key)
             .field("commit_time_ms", &self.commit_time_ms)
             .finish()
     }
@@ -319,9 +312,7 @@ fn parse_private_key(private_key_string: &str) -> Result<PrivateKey, String> {
         .split(',')
         .map(|byte| byte.trim().parse::<u8>().expect("Failed to parse byte."))
         .collect();
-    let mut private_key = [0; 64];
-    private_key.copy_from_slice(&vector[..]);
-    Ok(private_key)
+    Ok(PrivateKey::try_from(vector).expect("Failed to convert PrivateKey from Vector."))
 }
 
 impl From<String> for Mode {
@@ -397,17 +388,15 @@ mod tests {
     #[test]
     fn parse_private_key_success() {
         let private_key_string = "[113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20, 245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]";
-        let expected_private_key = vec![
+        let expected_private_key = PrivateKey::try_from(vec![
             113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20,
             245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38,
             73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40,
             26, 61, 248, 40, 159, 58, 53,
-        ];
-        let result = parse_private_key(private_key_string);
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        assert_eq!(expected_private_key[..32], result[..32]);
-        assert_eq!(expected_private_key[32..], result[32..]);
+        ])
+        .expect("Failed to convert PrivateKey from Vector.");
+        let result = parse_private_key(private_key_string).expect("Faile to parse PrivateKey");
+        assert_eq!(expected_private_key, result);
     }
 
     #[test]

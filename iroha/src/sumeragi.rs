@@ -1190,7 +1190,7 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].private_key;
+            config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
@@ -1284,7 +1284,7 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].private_key;
+            config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
@@ -1402,7 +1402,7 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].private_key;
+            config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
@@ -1530,7 +1530,7 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
-            config.private_key = keys[i].private_key;
+            config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
             config.peer_id(ids[i].clone());
             config.trusted_peers(ids.clone());
