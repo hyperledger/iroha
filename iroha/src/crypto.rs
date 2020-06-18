@@ -52,7 +52,43 @@ impl TryFrom<Vec<u8>> for PublicKey {
 }
 
 /// Private Key used in signatures.
-pub type PrivateKey = [u8; 64];
+#[derive(Clone)]
+pub struct PrivateKey {
+    inner: [u8; 64],
+}
+
+impl Debug for PrivateKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&&self.inner[..], f)
+    }
+}
+
+impl TryFrom<Vec<u8>> for PrivateKey {
+    type Error = String;
+
+    fn try_from(vector: Vec<u8>) -> Result<Self, Self::Error> {
+        if vector.len() > 64 {
+            Err(format!(
+                "Failed to build PublicKey from vector: {:?}, expected length 32, found {}.",
+                &vector,
+                vector.len()
+            ))
+        } else {
+            let mut inner = [0; 64];
+            inner.copy_from_slice(&vector);
+            Ok(PrivateKey { inner })
+        }
+    }
+}
+
+impl PartialEq for PrivateKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner[0..32] == other.inner[0..32] && self.inner[32..64] == other.inner[32..64]
+    }
+}
+
+impl Eq for PrivateKey {}
+
 type Ed25519Signature = [u8; 64];
 
 impl KeyPair {
@@ -69,7 +105,12 @@ impl KeyPair {
         private_key.copy_from_slice(ursa_private_key.as_ref());
         Ok(KeyPair {
             public_key: PublicKey { inner: public_key },
-            private_key,
+            private_key: PrivateKey::try_from(private_key.to_vec()).map_err(|e| {
+                format!(
+                    "Failed to convert Ursa Private key to Iroha Private Key: {}",
+                    e
+                )
+            })?,
         })
     }
 }
@@ -98,7 +139,7 @@ pub struct Signature {
 impl Signature {
     /// Creates new `Signature` by signing payload via `private_key`.
     pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature, String> {
-        let private_key = UrsaPrivateKey(key_pair.private_key.to_vec());
+        let private_key = UrsaPrivateKey(key_pair.private_key.inner.to_vec());
         let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
             .sign(payload)
             .map_err(|e| format!("Failed to sign payload: {}", e))?;
