@@ -99,9 +99,12 @@ impl Sumeragi {
             } else {
                 *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
                 let message = Message::BlockCreated(block.clone());
+                let recipient_peers = self.network_topology.sorted_peers.clone();
                 let mut send_futures = Vec::new();
-                for peer in self.network_topology.validating_peers() {
-                    send_futures.push(message.clone().send_to(peer));
+                for peer in &recipient_peers {
+                    if self.peer_id != *peer {
+                        send_futures.push(message.clone().send_to(peer));
+                    }
                 }
                 send_futures.push(message.clone().send_to(self.network_topology.proxy_tail()));
                 let results = futures::future::join_all(send_futures).await;
@@ -380,12 +383,16 @@ impl Sumeragi {
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time.")
             && tx_receipt.is_valid(&self.network_topology)
+            && self
+                .transactions_awaiting_receipts
+                .write()
+                .await
+                .contains(&tx_receipt.transaction_hash)
         {
             self.transactions_awaiting_receipts
                 .write()
                 .await
                 .remove(&tx_receipt.transaction_hash);
-            // TODO: proceed only if there was such transaction in the first place
             let block_time = self.block_time;
             let transactions_awaiting_created_block =
                 self.transactions_awaiting_created_block.clone();
@@ -460,6 +467,9 @@ impl Sumeragi {
                     *self.voting_block.write().await = Some(VotingBlock::new(block))
                 }
             }
+            Role::ObservingPeer => {
+                *self.voting_block.write().await = Some(VotingBlock::new(block));
+            }
             _ => (),
         }
         Ok(())
@@ -519,24 +529,27 @@ impl Sumeragi {
 
     #[log]
     async fn handle_block_committed(&mut self, mut block: SignedBlock) -> Result<(), String> {
-        //TODO: check if the block is the same as pending (set b has to be aware of the block)
-        let verified_signatures = block.verified_signatures();
-        let valid_signatures = self.network_topology.filter_signatures_by_roles(
-            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-            &verified_signatures,
-        );
-        let proxy_tail_signatures = self
-            .network_topology
-            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-        if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
-            && proxy_tail_signatures.len() == 1
-        {
-            block.signatures.clear();
-            block.signatures.append(&valid_signatures);
-            let block = block.validate(&*self.world_state_view.read().await)?;
-            let hash = block.hash();
-            self.blocks_sender.write().await.send(block).await;
-            self.next_round(hash).await;
+        let voting_block = self.voting_block.write().await.clone();
+        if let Some(voting_block) = voting_block {
+            let verified_signatures = block.verified_signatures();
+            let valid_signatures = self.network_topology.filter_signatures_by_roles(
+                &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
+                &verified_signatures,
+            );
+            let proxy_tail_signatures = self
+                .network_topology
+                .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
+            if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
+                && proxy_tail_signatures.len() == 1
+                && voting_block.block.hash() == block.hash()
+            {
+                block.signatures.clear();
+                block.signatures.append(&valid_signatures);
+                let block = block.validate(&*self.world_state_view.read().await)?;
+                let hash = block.hash();
+                self.blocks_sender.write().await.send(block).await;
+                self.next_round(hash).await;
+            }
         }
         Ok(())
     }
