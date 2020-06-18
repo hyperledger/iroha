@@ -188,7 +188,7 @@ PgConnectionInit::prepareConnectionPool(
                                     try_rollback,
                                     *failover_callback_factory,
                                     reconnection_strategy_factory,
-                                    options.maintenanceConnectionString(),
+                                    options_str,
                                     log_manager)
                | [&]() -> iroha::expected::Result<std::shared_ptr<PoolWrapper>,
                                                   std::string> {
