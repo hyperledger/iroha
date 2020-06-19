@@ -17,7 +17,7 @@ fn query_requests(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: configuration.peer_id.clone(),
+        destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
     };
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
@@ -88,7 +88,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: configuration.peer_id.clone(),
+        destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
     };
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);

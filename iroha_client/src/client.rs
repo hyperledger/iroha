@@ -24,7 +24,7 @@ impl Debug for Client {
 impl Client {
     pub fn new(config: &Configuration) -> Self {
         Client {
-            torii_url: config.peer_id.address.clone(),
+            torii_url: config.torii_url.clone(),
             key_pair: KeyPair::generate().expect("Failed to generate KeyPair."),
         }
     }

@@ -64,7 +64,7 @@ impl Sumeragi {
                 config.max_faulty_peers,
             )
             .init()?,
-            peer_id: config.peer_id,
+            peer_id: PeerId::new(&config.torii_url, &config.public_key),
             voting_block: Arc::new(RwLock::new(None)),
             blocks_sender,
             world_state_view,
@@ -1206,7 +1206,7 @@ mod tests {
             let mut config = config.clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.peer_id(ids[i].clone());
+            config.torii_url = ids[i].address.clone();
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
@@ -1300,7 +1300,7 @@ mod tests {
             let mut config = config.clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.peer_id(ids[i].clone());
+            config.torii_url = ids[i].address.clone();
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
@@ -1418,7 +1418,7 @@ mod tests {
             let mut config = config.clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.peer_id(ids[i].clone());
+            config.torii_url = ids[i].address.clone();
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
@@ -1546,7 +1546,7 @@ mod tests {
             let mut config = config.clone();
             config.private_key = keys[i].private_key.clone();
             config.public_key = ids[i].public_key.clone();
-            config.peer_id(ids[i].clone());
+            config.torii_url = ids[i].address.clone();
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(

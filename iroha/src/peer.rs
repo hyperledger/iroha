@@ -3,15 +3,26 @@
 use crate::{isi::prelude::*, prelude::*};
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
 /// Peer's identification.
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io, Default)]
+#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io, Default, Deserialize)]
 pub struct PeerId {
     /// Address of the Peer's entrypoint.
     pub address: String,
     /// Public Key of the Peer.
     pub public_key: PublicKey,
+}
+
+impl PeerId {
+    /// Default `PeerId` constructor.
+    pub fn new(address: &str, public_key: &PublicKey) -> Self {
+        PeerId {
+            address: address.to_string(),
+            public_key: *public_key,
+        }
+    }
 }
 
 /// Peer represents currently running Iroha instance.

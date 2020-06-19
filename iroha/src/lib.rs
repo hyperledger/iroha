@@ -28,7 +28,7 @@ pub mod wsv;
 use crate::{
     config::Configuration,
     kura::Kura,
-    peer::Peer,
+    peer::{Peer, PeerId},
     permission::Permission,
     prelude::*,
     queue::Queue,
@@ -97,11 +97,8 @@ impl Iroha {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account = Account::with_signatory(
-            &account_id.name,
-            &account_id.domain_name,
-            config.public_key.clone(),
-        );
+        let mut account =
+            Account::with_signatory(&account_id.name, &account_id.domain_name, config.public_key);
         account.assets.insert(asset_id, asset);
         let mut accounts = HashMap::new();
         accounts.insert(account_id, account);
@@ -113,18 +110,18 @@ impl Iroha {
         let mut domains = HashMap::new();
         domains.insert(domain_name, domain);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-            config.peer_id.clone(),
+            PeerId::new(&config.torii_url, &config.public_key),
             &config.trusted_peers,
             domains,
         ))));
         let torii = Torii::new(
-            &config.peer_id.address,
+            &config.torii_url,
             Arc::clone(&world_state_view),
             transactions_sender.clone(),
             message_sender,
         );
         let kura = Arc::new(RwLock::new(Kura::new(
-            config.mode.clone(),
+            config.kura_init_mode.clone(),
             Path::new(&config.kura_block_store_path),
             wsv_blocks_sender,
         )));
@@ -243,7 +240,7 @@ pub mod prelude {
         crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature},
         domain::Domain,
         isi::{Add, Demint, Instruction, Mint, Register, Transfer},
-        peer::Peer,
+        peer::{Peer, PeerId},
         query::{IrohaQuery, Query, QueryRequest, QueryResult},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
         wsv::WorldStateView,

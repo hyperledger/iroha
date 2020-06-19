@@ -47,7 +47,7 @@ mod domain {
     use super::*;
     use clap::ArgMatches;
     use futures::executor;
-    use iroha::{isi, prelude::*};
+    use iroha::{isi, peer::PeerId, prelude::*};
     use iroha_client::client::Client;
 
     const DOMAIN_NAME: &str = "name";
@@ -83,7 +83,7 @@ mod domain {
         let mut iroha_client = Client::new(configuration);
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: configuration.peer_id.clone(),
+            destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
         };
         executor::block_on(iroha_client.submit(create_domain.into()))
             .expect("Failed to create domain.");
