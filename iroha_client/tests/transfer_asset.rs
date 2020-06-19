@@ -20,7 +20,7 @@ mod tests {
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: configuration.peer_id.clone(),
+            destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
         };
         let account1_name = "account1";
         let account2_name = "account2";
