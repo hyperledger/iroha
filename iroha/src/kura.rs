@@ -7,7 +7,8 @@ use async_std::{
     prelude::*,
     task,
 };
-use iroha_derive::log;
+use iroha_derive::*;
+use serde::Deserialize;
 use std::{
     convert::TryFrom,
     fs,
@@ -92,12 +93,19 @@ impl Kura {
 }
 
 /// Kura work mode.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
     Strict,
     /// Fast initialization with basic checks.
     Fast,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::Strict
+    }
 }
 
 /// Representation of a consistent storage.

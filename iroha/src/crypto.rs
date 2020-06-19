@@ -1,6 +1,7 @@
 //! This module contains structures and implementations related to the cryptographic parts of the
 //! Iroha.
 use parity_scale_codec::{Decode, Encode};
+use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
@@ -19,7 +20,7 @@ use ursa::{
 pub type Hash = [u8; 32];
 
 /// Pair of Public and Private keys.
-#[derive(Clone)]
+#[derive(Clone, Deserialize)]
 pub struct KeyPair {
     /// Public Key.
     pub public_key: PublicKey,
@@ -28,7 +29,9 @@ pub struct KeyPair {
 }
 
 /// Public Key used in signatures.
-#[derive(Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Debug, Clone, Hash, Default)]
+#[derive(
+    Copy, Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Debug, Clone, Hash, Default, Deserialize,
+)]
 pub struct PublicKey {
     inner: [u8; 32],
 }
@@ -52,42 +55,26 @@ impl TryFrom<Vec<u8>> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct PrivateKey {
-    inner: [u8; 64],
-}
-
-impl Debug for PrivateKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&&self.inner[..], f)
-    }
+    inner: Vec<u8>,
 }
 
 impl TryFrom<Vec<u8>> for PrivateKey {
     type Error = String;
 
     fn try_from(vector: Vec<u8>) -> Result<Self, Self::Error> {
-        if vector.len() > 64 {
+        if vector.len() != 64 {
             Err(format!(
                 "Failed to build PublicKey from vector: {:?}, expected length 32, found {}.",
                 &vector,
                 vector.len()
             ))
         } else {
-            let mut inner = [0; 64];
-            inner.copy_from_slice(&vector);
-            Ok(PrivateKey { inner })
+            Ok(PrivateKey { inner: vector })
         }
     }
 }
-
-impl PartialEq for PrivateKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.inner[0..32] == other.inner[0..32] && self.inner[32..64] == other.inner[32..64]
-    }
-}
-
-impl Eq for PrivateKey {}
 
 type Ed25519Signature = [u8; 64];
 
@@ -197,9 +184,7 @@ impl Signatures {
 
     /// Adds a signature. If the signature with this key was present, replaces it.
     pub fn add(&mut self, signature: Signature) {
-        let _option = self
-            .signatures
-            .insert(signature.public_key.clone(), signature);
+        let _option = self.signatures.insert(signature.public_key, signature);
     }
 
     /// Whether signatures contain a signature with the specified `public_key`

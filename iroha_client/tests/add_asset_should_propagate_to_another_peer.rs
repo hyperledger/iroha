@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{crypto, isi, peer::PeerId, prelude::*};
+    use iroha::{isi, peer::PeerId, prelude::*};
     use iroha_client::client::{self, Client};
     use tempfile::TempDir;
 
@@ -21,9 +21,13 @@ mod tests {
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: configuration.peer_id.clone(),
+            destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
         };
-        configuration.peer_id(peers.first().expect("Failed to get first peer.").clone());
+        configuration.torii_url = peers
+            .first()
+            .expect("Failed to get first peer.")
+            .address
+            .clone();
         let account_name = "account";
         let account_id = AccountId::new(account_name, domain_name);
         let (public_key, _) = configuration.key_pair();
@@ -69,7 +73,11 @@ mod tests {
         //Then
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.peer_id(peers.last().expect("Failed to get last peer.").clone());
+        configuration.torii_url = peers
+            .last()
+            .expect("Failed to get last peer.")
+            .address
+            .clone();
         let mut iroha_client = Client::new(&configuration);
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client
@@ -107,7 +115,7 @@ mod tests {
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration.");
                 configuration.kura_block_store_path(temp_dir.path());
-                configuration.peer_id(peer_id.clone());
+                configuration.torii_url = peer_id.address.clone();
                 configuration.public_key = key_pair.public_key.clone();
                 configuration.private_key = key_pair.private_key.clone();
                 configuration.trusted_peers(peer_ids.clone());
