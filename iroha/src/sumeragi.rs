@@ -41,6 +41,8 @@ pub struct Sumeragi {
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
+    latest_block_hash: Hash,
+    block_height: u64,
 }
 
 impl Sumeragi {
@@ -50,6 +52,8 @@ impl Sumeragi {
         blocks_sender: Arc<RwLock<ValidBlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
+        latest_block_hash: Hash,
+        block_height: u64,
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
@@ -57,10 +61,9 @@ impl Sumeragi {
                 public_key: config.public_key,
                 private_key: config.private_key,
             },
-            //TODO: get previous block hash from kura
             network_topology: NetworkTopology::new(
                 &config.trusted_peers,
-                None,
+                Some(latest_block_hash),
                 config.max_faulty_peers,
             )
             .init()?,
@@ -74,6 +77,8 @@ impl Sumeragi {
             transactions_sender,
             tx_receipt_time: Duration::from_millis(config.tx_receipt_time_ms),
             block_time: Duration::from_millis(config.block_time_ms),
+            latest_block_hash,
+            block_height,
         })
     }
 
@@ -89,12 +94,10 @@ impl Sumeragi {
         }
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions)
-                //TODO: actually chain block?
-                .chain_first()
+                .chain(self.block_height, self.latest_block_hash)
                 .sign(&self.key_pair)?;
             if !self.network_topology.is_consensus_required() {
-                let block = block.validate(&*self.world_state_view.read().await)?;
-                self.blocks_sender.write().await.send(block).await;
+                self.commit_block(block).await;
                 Ok(())
             } else {
                 *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
@@ -131,8 +134,11 @@ impl Sumeragi {
                     .write()
                     .await
                     .insert(transaction.hash());
-                let pending_forwarded_tx_hashes = self.transactions_awaiting_receipts.clone();
-                let mut no_tx_receipt = NoTransactionReceiptReceived::new(&transaction);
+                let transactions_awaiting_receipts = self.transactions_awaiting_receipts.clone();
+                let mut no_tx_receipt = NoTransactionReceiptReceived::new(
+                    &transaction,
+                    self.network_topology.leader().clone(),
+                );
                 let role = self.network_topology.role(&self.peer_id);
                 if role == Role::ValidatingPeer || role == Role::ProxyTail {
                     no_tx_receipt
@@ -145,7 +151,7 @@ impl Sumeragi {
                 let tx_receipt_time = self.tx_receipt_time;
                 async_std::task::spawn(async move {
                     async_std::task::sleep(tx_receipt_time).await;
-                    if pending_forwarded_tx_hashes
+                    if transactions_awaiting_receipts
                         .write()
                         .await
                         .contains(&transaction_hash)
@@ -302,6 +308,9 @@ impl Sumeragi {
         &mut self,
         no_tx_receipt: NoTransactionReceiptReceived,
     ) -> Result<(), String> {
+        if no_tx_receipt.leader_id != *self.network_topology.leader() {
+            return Ok(());
+        }
         if self
             .network_topology
             .filter_signatures_by_roles(
@@ -517,10 +526,7 @@ impl Sumeragi {
                         .for_each(|error_result| {
                             eprintln!("Failed to send messages: {:?}", error_result)
                         });
-                    let block = block.validate(&*self.world_state_view.read().await)?;
-                    let hash = block.hash();
-                    self.blocks_sender.write().await.send(block).await;
-                    self.next_round(hash).await;
+                    self.commit_block(block).await;
                 }
             }
         }
@@ -545,10 +551,7 @@ impl Sumeragi {
             {
                 block.signatures.clear();
                 block.signatures.append(&valid_signatures);
-                let block = block.validate(&*self.world_state_view.read().await)?;
-                let hash = block.hash();
-                self.blocks_sender.write().await.send(block).await;
-                self.next_round(hash).await;
+                self.commit_block(block).await;
             }
         }
         Ok(())
@@ -605,8 +608,15 @@ impl Sumeragi {
         Ok(())
     }
 
-    async fn next_round(&mut self, prev_block_hash: Hash) {
-        self.network_topology.sort_peers(Some(prev_block_hash));
+    async fn commit_block(&mut self, block: SignedBlock) {
+        let block = block
+            .validate(&*self.world_state_view.read().await)
+            .expect("Failed to validate the block.");
+        self.latest_block_hash = block.hash();
+        self.block_height = block.header.height;
+        self.blocks_sender.write().await.send(block).await;
+        self.network_topology
+            .sort_peers(Some(self.latest_block_hash));
         *self.voting_block.write().await = None;
     }
 
@@ -937,14 +947,20 @@ pub mod message {
         pub transaction: AcceptedTransaction,
         /// Signatures of the peers who voted for changing the leader.
         pub signatures: Signatures,
+        /// The id of the leader, to determine that peer topologies are synchronized.
+        pub leader_id: PeerId,
     }
 
     impl NoTransactionReceiptReceived {
         /// Constructs a new `NoTransactionReceiptReceived` message with no signatures.
-        pub fn new(transaction: &AcceptedTransaction) -> NoTransactionReceiptReceived {
+        pub fn new(
+            transaction: &AcceptedTransaction,
+            leader_id: PeerId,
+        ) -> NoTransactionReceiptReceived {
             NoTransactionReceiptReceived {
                 transaction: transaction.clone(),
                 signatures: Signatures::default(),
+                leader_id,
             }
         }
 
@@ -1214,6 +1230,8 @@ mod tests {
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
+                    [0u8; 32],
+                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1232,11 +1250,15 @@ mod tests {
         }
         async_std::task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
-        let leader = peers.first().expect("Failed to get first peer.");
-        {
-            let leader = leader.write().await;
-            assert_eq!(leader.network_topology.role(&leader.peer_id), Role::Leader);
-        }
+        let leader = peers
+            .iter()
+            .find(|peer| {
+                async_std::task::block_on(async {
+                    let peer = peer.write().await;
+                    peer.network_topology.role(&peer.peer_id) == Role::Leader
+                })
+            })
+            .expect("Failed to find a leader.");
         leader
             .write()
             .await
@@ -1308,6 +1330,8 @@ mod tests {
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
+                    [0u8; 32],
+                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1333,11 +1357,15 @@ mod tests {
         }
         async_std::task::sleep(Duration::from_millis(2000)).await;
         // First peer is a leader in this particular case.
-        let leader = peers.first().expect("Failed to get first peer.");
-        {
-            let leader = leader.write().await;
-            assert_eq!(leader.network_topology.role(&leader.peer_id), Role::Leader);
-        }
+        let leader = peers
+            .iter()
+            .find(|peer| {
+                async_std::task::block_on(async {
+                    let peer = peer.write().await;
+                    peer.network_topology.role(&peer.peer_id) == Role::Leader
+                })
+            })
+            .expect("Failed to find a leader.");
         leader
             .write()
             .await
@@ -1354,7 +1382,7 @@ mod tests {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
@@ -1426,6 +1454,8 @@ mod tests {
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
+                    [0u8; 32],
+                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1461,12 +1491,15 @@ mod tests {
             });
         }
         async_std::task::sleep(Duration::from_millis(2000)).await;
-        // Second peer is not a leader in this particular case.
-        let peer = peers.get(2).expect("Failed to get second peer.");
-        {
-            let peer = peer.write().await;
-            assert_ne!(peer.network_topology.role(&peer.peer_id), Role::Leader);
-        }
+        let peer = peers
+            .iter()
+            .find(|peer| {
+                async_std::task::block_on(async {
+                    let peer = peer.write().await;
+                    peer.network_topology.role(&peer.peer_id) != Role::Leader
+                })
+            })
+            .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
             .round(vec![RequestedTransaction::new(
@@ -1482,7 +1515,7 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();
@@ -1554,6 +1587,8 @@ mod tests {
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
+                    [0u8; 32],
+                    0,
                 )
                 .expect("Failed to create Sumeragi."),
             ));
@@ -1590,12 +1625,15 @@ mod tests {
             });
         }
         async_std::task::sleep(Duration::from_millis(2000)).await;
-        // Second peer is not a leader in this particular case.
-        let peer = peers.get(2).expect("Failed to get second peer.");
-        {
-            let peer = peer.write().await;
-            assert_ne!(peer.network_topology.role(&peer.peer_id), Role::Leader);
-        }
+        let peer = peers
+            .iter()
+            .find(|peer| {
+                async_std::task::block_on(async {
+                    let peer = peer.write().await;
+                    peer.network_topology.role(&peer.peer_id) != Role::Leader
+                })
+            })
+            .expect("Failed to find a non-leader peer.");
         peer.write()
             .await
             .round(vec![RequestedTransaction::new(
@@ -1611,7 +1649,7 @@ mod tests {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
         }
-        let mut network_topology = NetworkTopology::new(&ids, None, 1)
+        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
             .init()
             .expect("Failed to construct topology");
         network_topology.shift_peers_by_one();

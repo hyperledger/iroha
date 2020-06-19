@@ -121,17 +121,19 @@ impl Iroha {
             transactions_sender.clone(),
             message_sender,
         );
-        let kura = Arc::new(RwLock::new(Kura::new(
+        let kura = Kura::new(
             config.kura_init_mode.clone(),
             Path::new(&config.kura_block_store_path),
             wsv_blocks_sender,
-        )));
+        );
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::new(
                 config,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
                 transactions_sender,
+                kura.latest_block_hash(),
+                kura.height(),
             )
             .expect("Failed to initialize Sumeragi."),
         ));
@@ -140,7 +142,7 @@ impl Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
             sumeragi,
-            kura,
+            kura: Arc::new(RwLock::new(kura)),
             world_state_view,
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
