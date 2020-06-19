@@ -181,7 +181,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);
@@ -202,7 +202,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);

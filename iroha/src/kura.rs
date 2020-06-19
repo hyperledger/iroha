@@ -90,6 +90,20 @@ impl Kura {
             }
         }
     }
+
+    pub fn latest_block_hash(&self) -> Hash {
+        self.blocks
+            .last()
+            .map(|block| block.hash())
+            .unwrap_or([0u8; 32])
+    }
+
+    pub fn height(&self) -> u64 {
+        self.blocks
+            .last()
+            .map(|block| block.header.height)
+            .unwrap_or(0)
+    }
 }
 
 /// Kura work mode.
@@ -213,7 +227,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         let mut kura = Kura::with_genesis_block(Mode::Strict, temp_dir.path(), tx, genesis_block);
         assert!(kura.init().await.is_ok());
         assert!(kura.blocks.len() == 1);
@@ -234,7 +248,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         assert!(BlockStore::new(dir.path()).write(&block).await.is_ok());
     }
 
@@ -253,7 +267,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         let block_store = BlockStore::new(dir.path());
         block_store
             .write(&block)
@@ -279,7 +293,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         for height in 0..n {
             let hash = block_store
                 .write(&block)
@@ -296,7 +310,7 @@ mod tests {
                     },
                     &Vec::new(),
                 )))
-                .expect("Failed to validate block.");
+                .expect("Failed to validate the block.");
         }
         let blocks = block_store.read_all().await;
         assert_eq!(blocks.len(), n as usize)
@@ -322,7 +336,7 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate block.");
+            .expect("Failed to validate the block.");
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx);
