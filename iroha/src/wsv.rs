@@ -72,8 +72,8 @@ impl WorldStateView {
     }
 
     /// Get `Asset` without an ability to modify it.
-    pub fn read_asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&mut Asset> {
-        self.account(&id.account_id)?.assets.get_mut(id)
+    pub fn read_asset(&mut self, id: &<Asset as Identifiable>::Id) -> Option<&Asset> {
+        self.account(&id.account_id)?.assets.get(id)
     }
 
     /// Get `Asset` with an ability to modify it.

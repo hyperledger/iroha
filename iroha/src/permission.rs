@@ -22,6 +22,10 @@ pub enum Permission {
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
     ),
+    DemintAsset(
+        Option<<Domain as Identifiable>::Id>,
+        Option<<AssetDefinition as Identifiable>::Id>,
+    ),
     TransferAsset(
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
@@ -86,6 +90,11 @@ pub mod isi {
             <AssetDefinition as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        CanDemintAsset(
+            <Account as Identifiable>::Id,
+            <AssetDefinition as Identifiable>::Id,
+            Option<<Domain as Identifiable>::Id>,
+        ),
     }
 
     impl PermissionInstruction {
@@ -104,6 +113,7 @@ pub mod isi {
                 | CanRegisterAssetDefinition(authority_account_id, ..)
                 | CanTransferAsset(authority_account_id, ..)
                 | CanAddSignatory(authority_account_id, ..)
+                | CanDemintAsset(authority_account_id, ..)
                 | CanMintAsset(authority_account_id, ..) => {
                     match world_state_view.read_asset(&AssetId {
                         definition_id: permission_asset_definition_id(),
@@ -142,6 +152,12 @@ pub mod isi {
                 }
                 PermissionInstruction::CanMintAsset(_, asset_definition_id, option_domain_id) => {
                     Permission::MintAsset(
+                        option_domain_id.clone(),
+                        Some(asset_definition_id.clone()),
+                    )
+                }
+                PermissionInstruction::CanDemintAsset(_, asset_definition_id, option_domain_id) => {
+                    Permission::DemintAsset(
                         option_domain_id.clone(),
                         Some(asset_definition_id.clone()),
                     )
@@ -1332,6 +1348,185 @@ pub mod isi {
         #[test]
         fn test_can_mint_asset_without_an_account_fail_with_permission_not_found() {
             assert!(PermissionInstruction::CanMintAsset(
+                AccountId::new("NOT_ROOT", "Company"),
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
+        }
+
+        #[test]
+        fn test_can_demint_asset_should_pass() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let demint_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
+            let asset = Asset::with_permission(
+                asset_id.clone(),
+                Permission::DemintAsset(None, Some(demint_asset_definition_id.clone())),
+            );
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert_eq!(
+                Ok(()),
+                PermissionInstruction::CanDemintAsset(account_id, demint_asset_definition_id, None)
+                    .execute(&mut world_state_view)
+            );
+        }
+
+        #[test]
+        fn test_can_demint_asset_in_domain_should_pass() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let demint_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
+            let asset = Asset::with_permission(
+                asset_id.clone(),
+                Permission::DemintAsset(
+                    Some(domain_name.clone()),
+                    Some(demint_asset_definition_id.clone()),
+                ),
+            );
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert_eq!(
+                Ok(()),
+                PermissionInstruction::CanDemintAsset(
+                    account_id,
+                    demint_asset_definition_id,
+                    Some(domain_name)
+                )
+                .execute(&mut world_state_view)
+            );
+        }
+
+        #[test]
+        fn test_can_demint_asset_without_permission_should_fail_with_permission_not_found() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name, domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address,
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert!(PermissionInstruction::CanDemintAsset(
+                account_id,
+                AssetDefinitionId::new("XOR", "SORA"),
+                None
+            )
+            .execute(&mut world_state_view)
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
+        }
+
+        #[test]
+        fn test_can_demint_asset_without_an_account_fail_with_permission_not_found() {
+            assert!(PermissionInstruction::CanDemintAsset(
                 AccountId::new("NOT_ROOT", "Company"),
                 AssetDefinitionId::new("XOR", "SORA"),
                 None
