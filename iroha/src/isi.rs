@@ -162,6 +162,30 @@ where
     }
 }
 
+/// Generic instruction for a demint of an object to the identifiable destination.
+pub struct Demint<D, O>
+where
+    D: Identifiable,
+{
+    /// Object which should be deminted.
+    pub object: O,
+    /// Destination object `Id`.
+    pub destination_id: D::Id,
+}
+
+impl<D, O> Demint<D, O>
+where
+    D: Identifiable,
+{
+    /// Default `Demint` constructor.
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Demint {
+            object,
+            destination_id,
+        }
+    }
+}
+
 /// Generic instruction for a transfer of an object from the identifiable source to the identifiable destination.
 pub struct Transfer<Src: Identifiable, Obj, Dst: Identifiable> {
     /// Source object `Id`.
