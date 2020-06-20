@@ -35,8 +35,8 @@ impl Domain {
         }
     }
 
-    /// Constructor of `Register<Domain, Asset>` Iroha Special Instruction.
-    pub fn register_asset(&self, object: Asset) -> Register<Domain, Asset> {
+    /// Constructor of `Register<Domain, AssetDefinition>` Iroha Special Instruction.
+    pub fn register_asset(&self, object: AssetDefinition) -> Register<Domain, AssetDefinition> {
         Register {
             object,
             destination_id: self.name.clone(),
@@ -129,7 +129,7 @@ pub mod isi {
     }
 
     impl Register<Domain, AssetDefinition> {
-        fn execute(
+        pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &mut WorldStateView,
