@@ -15,6 +15,7 @@ pub mod domain;
 pub mod event;
 pub mod isi;
 mod kura;
+pub mod maintenance;
 mod merkle;
 pub mod peer;
 mod permission;
