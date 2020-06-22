@@ -164,12 +164,12 @@ impl Identifiable for AssetDefinition {
     type Id = AssetDefinitionId;
 }
 
-/// Identification of an Asset's components include Entitiy Id (`Asset::Id`) and `Account::Id`.
+/// Identification of an Asset's components include Entity Id (`Asset::Id`) and `Account::Id`.
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Encode, Decode)]
 pub struct AssetId {
     /// Entity Identification.
     pub definition_id: <AssetDefinition as Identifiable>::Id,
-    /// Account Identificatin.
+    /// Account Identification.
     pub account_id: <Account as Identifiable>::Id,
 }
 
@@ -212,7 +212,7 @@ pub mod isi {
         DemintAsset(u32, <Asset as Identifiable>::Id),
         /// Variant of the generic `Demint` instruction for `u128` --> `Asset`.
         DemintBigAsset(u128, <Asset as Identifiable>::Id),
-        /// Variant of the generic `Demint` instruction for `(String, Bytes)` --> `Asset`.
+        /// Variant of the generic `Demint` instruction for `String` --> `Asset`.
         DemintParameterAsset(String, <Asset as Identifiable>::Id),
     }
 

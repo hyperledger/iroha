@@ -82,16 +82,15 @@ mod tests {
             &configuration.pipeline_time_ms() * 2,
         ));
         //Then
-        let request = client::assets::by_account_id(account2_id);
+        let request = client::assets::by_account_id(account2_id.clone());
         let query_result = iroha_client
             .request(&request)
             .await
             .expect("Failed to execute request.");
         if let QueryResult::GetAccountAssets(result) = query_result {
-            assert_eq!(
-                quantity,
-                result.assets.first().expect("Asset should exist.").quantity,
-            );
+            let asset = result.assets.first().expect("Asset should exist.");
+            assert_eq!(quantity, asset.quantity,);
+            assert_eq!(account2_id, asset.id.account_id,);
         } else {
             panic!("Wrong Query Result Type.");
         }
