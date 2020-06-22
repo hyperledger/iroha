@@ -203,7 +203,7 @@ pub mod isi {
     }
 
     impl Transfer<Account, Asset, Account> {
-        fn execute(
+        pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
             world_state_view: &mut WorldStateView,
@@ -228,11 +228,16 @@ pub mod isi {
                 ));
             }
             source.quantity -= quantity_to_transfer;
+            let transferred_asset = {
+                let mut object = self.object.clone();
+                object.id.account_id = self.destination_id.clone();
+                object
+            };
             match world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find destination account.")?
                 .assets
-                .get_mut(&self.object.id)
+                .get_mut(&transferred_asset.id)
             {
                 Some(destination) => {
                     destination.quantity += quantity_to_transfer;
@@ -242,7 +247,7 @@ pub mod isi {
                         .account(&self.destination_id)
                         .ok_or("Failed to find destination account.")?
                         .assets
-                        .insert(self.object.id.clone(), self.object.clone());
+                        .insert(transferred_asset.id.clone(), transferred_asset.clone());
                 }
             }
             Ok(())
