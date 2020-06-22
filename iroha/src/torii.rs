@@ -127,6 +127,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
+        uri::HEALTH_URI => Ok(Response::Ok(crate::maintenance::Health::Healthy.into())),
         non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
     }
 }
@@ -139,6 +140,8 @@ pub mod uri {
     pub const INSTRUCTIONS_URI: &str = "/instruction";
     /// Block URI is used to handle incoming Block requests.
     pub const CONSENSUS_URI: &str = "/consensus";
+    /// Health URI is used to handle incoming Healthcheck requests.
+    pub const HEALTH_URI: &str = "health";
 }
 
 #[cfg(test)]

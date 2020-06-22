@@ -11,30 +11,21 @@ pub struct Client {
     key_pair: KeyPair,
 }
 
-impl Debug for Client {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Client")
-            .field("public_key", &self.key_pair.public_key)
-            .field("torii_url", &self.torii_url)
-            .finish()
-    }
-}
-
 /// Representation of `Iroha` client.
 impl Client {
-    pub fn new(config: &Configuration) -> Self {
+    pub fn new(configuration: &Configuration) -> Self {
         Client {
-            torii_url: config.torii_url.clone(),
+            torii_url: configuration.torii_url.clone(),
             key_pair: KeyPair::generate().expect("Failed to generate KeyPair."),
         }
     }
 
-    /// Contract API entry point. Submits contract to `Iroha` peers.
+    /// Instructions API entry point. Submits one Iroha Special Instruction to `Iroha` peers.
     #[log]
-    pub async fn submit(&mut self, command: Instruction) -> Result<(), String> {
+    pub async fn submit(&mut self, instruction: Instruction) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(vec![command], iroha::account::Id::new("root", "global"))
+            RequestedTransaction::new(vec![instruction], iroha::account::Id::new("root", "global"))
                 .accept()?
                 .sign(&self.key_pair)?
                 .into();
@@ -56,11 +47,11 @@ impl Client {
         Ok(())
     }
 
-    /// Contract API entry point. Submits contracts to `Iroha` peers.
-    pub async fn submit_all(&mut self, commands: Vec<Instruction>) -> Result<(), String> {
+    /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
+    pub async fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
         let transaction: RequestedTransaction =
-            RequestedTransaction::new(commands, iroha::account::Id::new("root", "global"))
+            RequestedTransaction::new(instructions, iroha::account::Id::new("root", "global"))
                 .accept()?
                 .sign(&self.key_pair)?
                 .into();
@@ -95,6 +86,65 @@ impl Client {
                 QueryResult::try_from(payload).expect("Failed to try Query Result from vector.")
             ),
             Response::InternalError => Err("Server error.".to_string()),
+        }
+    }
+}
+
+impl Debug for Client {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("public_key", &self.key_pair.public_key)
+            .field("torii_url", &self.torii_url)
+            .finish()
+    }
+}
+
+pub mod maintenance {
+    use super::*;
+    use iroha::maintenance::*;
+
+    impl Client {
+        pub fn with_maintenance(configuration: &Configuration) -> MaintenanceClient {
+            MaintenanceClient {
+                client: Client::new(configuration),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct MaintenanceClient {
+        client: Client,
+    }
+
+    impl MaintenanceClient {
+        #[log]
+        pub async fn submit(&mut self, instruction: Instruction) -> Result<(), String> {
+            self.client.submit(instruction).await
+        }
+
+        #[log]
+        pub async fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<(), String> {
+            self.client.submit_all(instructions).await
+        }
+
+        #[log]
+        pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
+            self.client.request(request).await
+        }
+
+        #[log]
+        pub async fn health(&mut self) -> Result<Health, String> {
+            let network = Network::new(&self.client.torii_url);
+            match network
+                .send_request(Request::new(uri::HEALTH_URI.to_string(), vec![]))
+                .await
+                .map_err(|e| format!("Failed to write a get request: {}", e))?
+            {
+                Response::Ok(payload) => {
+                    Ok(Health::try_from(payload).expect("Failed to convert Health from vector."))
+                }
+                Response::InternalError => Err("Server error.".to_string()),
+            }
         }
     }
 }
