@@ -465,11 +465,11 @@ impl Sumeragi {
                             e
                         );
                     }
-                    let voting_block = VotingBlock::new(block);
-                    *self.voting_block.write().await = Some(voting_block.clone());
-                    self.start_commit_countdown(voting_block.clone()).await;
                     //TODO: send to set b so they can observe
                 }
+                let voting_block = VotingBlock::new(block);
+                *self.voting_block.write().await = Some(voting_block.clone());
+                self.start_commit_countdown(voting_block.clone()).await;
             }
             Role::ProxyTail => {
                 if self.voting_block.write().await.is_none() {
@@ -1647,6 +1647,126 @@ mod tests {
         async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
         for block_counter in block_counters {
             // No blocks are committed as the leader failed to send tx receipt
+            assert_eq!(*block_counter.write().await, 0u8);
+        }
+        let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
+            .init()
+            .expect("Failed to construct topology");
+        network_topology.shift_peers_by_one();
+        let order_after_change = network_topology.sorted_peers;
+        // All peer should perform a view change
+        for peer in peers {
+            assert_eq!(
+                peer.write().await.network_topology.sorted_peers,
+                order_after_change
+            );
+        }
+    }
+
+    #[cfg(feature = "network-mock")]
+    #[async_std::test]
+    async fn not_enough_votes() {
+        let n_peers = 10;
+        let max_faults = 1;
+        let mut keys = Vec::new();
+        let mut ids = Vec::new();
+        let mut block_counters = Vec::new();
+        for i in 0..n_peers {
+            let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
+            keys.push(key_pair.clone());
+            let peer_id = PeerId {
+                address: format!("127.0.0.1:{}", 7878 + n_peers * 4 + i),
+                public_key: key_pair.public_key,
+            };
+            ids.push(peer_id);
+            block_counters.push(Arc::new(RwLock::new(0)));
+        }
+        let mut peers = Vec::new();
+        let mut config =
+            Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
+        config.commit_time_ms = COMMIT_TIME_MS;
+        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.block_time_ms = BLOCK_TIME_MS;
+        config.max_faulty_peers(max_faults);
+        for i in 0..n_peers {
+            let (block_sender, mut block_receiver) = sync::channel(100);
+            let (tx, _rx) = sync::channel(100);
+            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:7878".to_string(),
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                },
+                &ids,
+            ))));
+            let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);
+            task::spawn(async move {
+                torii.start().await.expect("Torii failed.");
+            });
+            let mut config = config.clone();
+            config.private_key = keys[i].private_key.clone();
+            config.public_key = ids[i].public_key.clone();
+            config.torii_url = ids[i].address.clone();
+            config.trusted_peers(ids.clone());
+            let sumeragi = Arc::new(RwLock::new(
+                Sumeragi::new(
+                    config,
+                    Arc::new(RwLock::new(block_sender)),
+                    wsv,
+                    transactions_sender,
+                    [0u8; 32],
+                    0,
+                )
+                .expect("Failed to create Sumeragi."),
+            ));
+            peers.push(sumeragi.clone());
+            task::spawn(async move {
+                while let Some(message) = message_receiver.next().await {
+                    let mut sumeragi = sumeragi.write().await;
+                    // Simulate leader producing empty blocks
+                    if let Message::BlockCreated(block) = message {
+                        let mut block = block.clone();
+                        block.transactions = Vec::new();
+                        let _result = sumeragi.handle_message(Message::BlockCreated(block)).await;
+                    } else {
+                        let _result = sumeragi.handle_message(message).await;
+                    }
+                }
+            });
+            let block_counter = block_counters[i].clone();
+            task::spawn(async move {
+                while let Some(_block) = block_receiver.next().await {
+                    *block_counter.write().await += 1;
+                }
+            });
+        }
+        async_std::task::sleep(Duration::from_millis(2000)).await;
+        let leader = peers
+            .iter()
+            .find(|peer| {
+                async_std::task::block_on(async {
+                    let peer = peer.write().await;
+                    peer.network_topology.role(&peer.peer_id) == Role::Leader
+                })
+            })
+            .expect("Failed to find a leader.");
+        leader
+            .write()
+            .await
+            .round(vec![RequestedTransaction::new(
+                vec![],
+                account::Id::new("entity", "domain"),
+            )
+            .accept()
+            .expect("Failed to accept tx.")])
+            .await
+            .expect("Round failed.");
+        async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
+        for block_counter in block_counters {
+            // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
         }
         let mut network_topology = NetworkTopology::new(&ids, Some([0u8; 32]), 1)
