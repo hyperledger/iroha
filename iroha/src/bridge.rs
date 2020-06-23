@@ -107,6 +107,11 @@ pub struct ExternalTransaction {
 }
 
 #[inline]
+fn bridges_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
+    AssetDefinitionId::new("bridges_asset", "bridge")
+}
+
+#[inline]
 fn bridge_asset_definition_id() -> <AssetDefinition as Identifiable>::Id {
     AssetDefinitionId::new("bridge_asset", "bridge")
 }
@@ -197,6 +202,17 @@ pub mod isi {
                     destination_id: AssetId {
                         definition_id: bridge_asset_definition_id(),
                         account_id: account.id,
+                    },
+                }
+                .into(),
+                Mint {
+                    object: (
+                        bridge_definition.id.name.clone(),
+                        bridge_definition.encode(),
+                    ),
+                    destination_id: AssetId {
+                        definition_id: bridges_asset_definition_id(),
+                        account_id: bridge_definition.owner_account_id.clone(),
                     },
                 }
                 .into(),
@@ -353,6 +369,7 @@ pub mod isi {
                 let bridge_domain_name = "bridge".to_string();
                 let mut bridge_asset_definitions = HashMap::new();
                 let asset_definition_ids = [
+                    bridges_asset_definition_id(),
                     bridge_asset_definition_id(),
                     bridge_external_assets_asset_definition_id(),
                     bridge_incoming_external_transactions_asset_definition_id(),
@@ -403,7 +420,7 @@ pub mod isi {
             };
             let world_state_view = &mut testkit.world_state_view;
             let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
-            let register_account = domain.register_account(bridge_owner_account);
+            let register_account = domain.register_account(bridge_owner_account.clone());
             register_account
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge owner account");
@@ -419,6 +436,15 @@ pub mod isi {
             let decoded_bridge_definition = decode_bridge_definition(&query_result)
                 .expect("failed to decode a bridge definition");
             assert_eq!(decoded_bridge_definition, bridge_definition);
+            let bridge_query = query_bridges_list(bridge_owner_account.id.clone());
+            let query_result = bridge_query
+                .execute(&world_state_view)
+                .expect("failed to query bridges list");
+            let decoded_bridge_definitions: Vec<BridgeDefinition> =
+                decode_bridges_list(&query_result)
+                    .expect("failed to decode a bridge definitions")
+                    .collect();
+            assert_eq!(&decoded_bridge_definitions, &[bridge_definition]);
         }
 
         #[test]
@@ -483,6 +509,10 @@ pub mod isi {
             let decoded_external_asset = decode_external_asset(&query_result, &external_asset.id)
                 .expect("failed to decode an external asset");
             assert_eq!(decoded_external_asset, external_asset);
+            let decoded_external_assets: Vec<ExternalAsset> = decode_external_assets(&query_result)
+                .expect("failed to decode an external asset")
+                .collect();
+            assert_eq!(&decoded_external_assets, &[external_asset]);
         }
 
         #[test]
@@ -634,6 +664,35 @@ pub mod query {
     use super::asset::*;
     use super::*;
 
+    /// Constructor of Iroha Query for retrieving list of all registered bridges.
+    pub fn query_bridges_list(bridge_owner_id: <Account as Identifiable>::Id) -> IrohaQuery {
+        crate::asset::query::GetAccountAssets::build_request(bridge_owner_id).query
+    }
+
+    /// A helper function for decoding a list of bridge definitions from the query result.
+    ///
+    /// Each `BridgeDefinition` is encoded and stored in the bridges asset
+    /// (`bridges_asset_definition_id`) store indexed by a name of the bridge. The given query
+    /// result may not contain the above values, so this function can fail, returning `None`.
+    pub fn decode_bridges_list<'a>(
+        query_result: &'a QueryResult,
+    ) -> Option<impl Iterator<Item = BridgeDefinition> + 'a> {
+        let account_assets_result = match query_result {
+            QueryResult::GetAccountAssets(v) => v,
+            _ => return None,
+        };
+        account_assets_result
+            .assets
+            .iter()
+            .find(|asset| asset.id.definition_id == bridges_asset_definition_id())
+            .map(|asset| {
+                asset
+                    .store
+                    .values()
+                    .filter_map(|data| BridgeDefinition::decode(&mut data.as_slice()).ok())
+            })
+    }
+
     /// Constructor of Iroha Query for retrieving information about the bridge.
     pub fn query_bridge(bridge_id: <Bridge as Identifiable>::Id) -> IrohaQuery {
         crate::account::query::GetAccount::build_request(AccountId::new(
@@ -650,11 +709,11 @@ pub mod query {
     /// `BRIDGE_ASSET_BRIDGE_DEFINITION_PARAMETER_KEY` key. The given query result may not
     /// contain the above values, so this function can fail, returning `None`.
     pub fn decode_bridge_definition(query_result: &QueryResult) -> Option<BridgeDefinition> {
-        let account_assets_result = match query_result {
+        let account_result = match query_result {
             QueryResult::GetAccount(v) => v,
             _ => return None,
         };
-        account_assets_result
+        account_result
             .account
             .assets
             .iter()
@@ -677,11 +736,11 @@ pub mod query {
         query_result: &QueryResult,
         asset_name: &str,
     ) -> Option<ExternalAsset> {
-        let account_assets_result = match query_result {
+        let account_result = match query_result {
             QueryResult::GetAccount(v) => v,
             _ => return None,
         };
-        account_assets_result
+        account_result
             .account
             .assets
             .iter()
@@ -692,6 +751,32 @@ pub mod query {
                     .get(asset_name)
                     .cloned()
                     .and_then(|data| ExternalAsset::decode(&mut data.as_slice()).ok())
+            })
+    }
+
+    /// A helper function for decoding information about external assets from the query result.
+    ///
+    /// Each `ExternalAsset` is encoded and stored in the bridge external assets asset
+    /// (`bridge_external_assets_asset_definition_id`) store and indexed by a name of the asset.
+    /// The given query result may not contain the above values, so this function can fail,
+    /// returning `None`.
+    pub fn decode_external_assets<'a>(
+        query_result: &'a QueryResult,
+    ) -> Option<impl Iterator<Item = ExternalAsset> + 'a> {
+        let account_result = match query_result {
+            QueryResult::GetAccount(v) => v,
+            _ => return None,
+        };
+        account_result
+            .account
+            .assets
+            .iter()
+            .find(|(id, _)| id.definition_id == bridge_external_assets_asset_definition_id())
+            .map(|(_, asset)| {
+                asset
+                    .store
+                    .values()
+                    .filter_map(|data| ExternalAsset::decode(&mut data.as_slice()).ok())
             })
     }
 
@@ -708,11 +793,11 @@ pub mod query {
         query_result: &'a QueryResult,
         is_incoming: bool,
     ) -> Option<impl Iterator<Item = ExternalTransaction> + 'a> {
-        let account_assets_result = match query_result {
+        let account_result = match query_result {
             QueryResult::GetAccount(v) => v,
             _ => return None,
         };
-        account_assets_result
+        account_result
             .account
             .assets
             .iter()
