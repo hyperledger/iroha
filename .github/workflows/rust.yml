@@ -58,6 +58,12 @@ jobs:
       with:
         name: code-coverage-report
         path: cobertura.xml
+    - name: Setup docker test environment
+      run: ./scripts/setup_docker_test_env.sh
+    - name: Docker compose test
+      run: ./scripts/test_docker_compose.sh
+    - name: Cleanup docker test environment
+      run: ./scripts/cleanup_docker_test_env.sh
     - name: Run benchmarks
       run: cargo bench
     - name: Documentation build
