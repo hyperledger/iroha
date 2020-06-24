@@ -29,6 +29,7 @@ pub mod wsv;
 use crate::{
     config::Configuration,
     kura::Kura,
+    maintenance::System,
     peer::{Peer, PeerId},
     permission::Permission,
     prelude::*,
@@ -120,6 +121,7 @@ impl Iroha {
             Arc::clone(&world_state_view),
             transactions_sender.clone(),
             message_sender,
+            System::new(&config),
         );
         let kura = Kura::new(
             config.kura_init_mode.clone(),
