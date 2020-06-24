@@ -146,6 +146,21 @@ pub mod maintenance {
                 Response::InternalError => Err("Server error.".to_string()),
             }
         }
+
+        #[log]
+        pub async fn scrape_metrics(&mut self) -> Result<Metrics, String> {
+            let network = Network::new(&self.client.torii_url);
+            match network
+                .send_request(Request::new(uri::METRICS_URI.to_string(), vec![]))
+                .await
+                .map_err(|e| format!("Failed to send request to Metrics API: {}", e))?
+            {
+                Response::Ok(payload) => {
+                    Ok(Metrics::try_from(payload).expect("Failed to convert vector to Metrics."))
+                }
+                Response::InternalError => Err("Server error.".to_string()),
+            }
+        }
     }
 }
 

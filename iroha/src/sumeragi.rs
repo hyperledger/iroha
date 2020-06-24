@@ -1073,7 +1073,7 @@ pub mod message {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{account, config, crypto, torii::Torii};
+    use crate::{account, config, crypto, maintenance::System, torii::Torii};
     use async_std::{prelude::*, sync, task};
     use std::time::Duration;
 
@@ -1215,7 +1215,13 @@ mod tests {
                 },
                 &ids,
             ))));
-            let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);
+            let mut torii = Torii::new(
+                ids[i].address.as_str(),
+                wsv.clone(),
+                tx,
+                message_sender,
+                System::new(&config),
+            );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
@@ -1315,7 +1321,13 @@ mod tests {
                 },
                 &ids,
             ))));
-            let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);
+            let mut torii = Torii::new(
+                ids[i].address.as_str(),
+                wsv.clone(),
+                tx,
+                message_sender,
+                System::new(&config),
+            );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
@@ -1439,6 +1451,7 @@ mod tests {
                 wsv.clone(),
                 transactions_sender.clone(),
                 message_sender,
+                System::new(&config),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1572,6 +1585,7 @@ mod tests {
                 wsv.clone(),
                 transactions_sender.clone(),
                 message_sender,
+                System::new(&config),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1702,7 +1716,13 @@ mod tests {
                 },
                 &ids,
             ))));
-            let mut torii = Torii::new(ids[i].address.as_str(), wsv.clone(), tx, message_sender);
+            let mut torii = Torii::new(
+                ids[i].address.as_str(),
+                wsv.clone(),
+                tx,
+                message_sender,
+                System::new(&config),
+            );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
             });
