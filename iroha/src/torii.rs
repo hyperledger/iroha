@@ -1,7 +1,12 @@
 //! This module contains incoming requests handling logic of Iroha.
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
-use crate::{prelude::*, sumeragi::message::Message, MessageSender};
+use crate::{
+    maintenance::{Health, System},
+    prelude::*,
+    sumeragi::message::Message,
+    MessageSender,
+};
 use async_std::{sync::RwLock, task};
 use iroha_derive::*;
 #[cfg(feature = "mock")]
@@ -16,6 +21,7 @@ pub struct Torii {
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     message_sender: Arc<RwLock<MessageSender>>,
+    system: Arc<RwLock<System>>,
 }
 
 impl Torii {
@@ -25,12 +31,14 @@ impl Torii {
         world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
         message_sender: MessageSender,
+        system: System,
     ) -> Self {
         Torii {
             url: url.to_string(),
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
             message_sender: Arc::new(RwLock::new(message_sender)),
+            system: Arc::new(RwLock::new(system)),
         }
     }
 
@@ -40,10 +48,12 @@ impl Torii {
         let world_state_view = Arc::clone(&self.world_state_view);
         let transaction_sender = Arc::clone(&self.transaction_sender);
         let message_sender = Arc::clone(&self.message_sender);
+        let system = Arc::clone(&self.system);
         let state = ToriiState {
             world_state_view,
             transaction_sender,
             message_sender,
+            system,
         };
         Network::listen(Arc::new(RwLock::new(state)), url, handle_connection).await?;
         Ok(())
@@ -55,6 +65,7 @@ struct ToriiState {
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     message_sender: Arc<RwLock<MessageSender>>,
+    system: Arc<RwLock<System>>,
 }
 
 async fn handle_connection(
@@ -127,7 +138,14 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        uri::HEALTH_URI => Ok(Response::Ok(crate::maintenance::Health::Healthy.into())),
+        uri::HEALTH_URI => Ok(Response::Ok(Health::Healthy.into())),
+        uri::METRICS_URI => match state.read().await.system.read().await.scrape_metrics() {
+            Ok(metrics) => Ok(Response::Ok(metrics.into())),
+            Err(e) => {
+                eprintln!("Failed to scrape metrics: {}", e);
+                Ok(Response::InternalError)
+            }
+        },
         non_supported_uri => panic!("URI not supported: {}.", &non_supported_uri),
     }
 }
@@ -141,7 +159,10 @@ pub mod uri {
     /// Block URI is used to handle incoming Block requests.
     pub const CONSENSUS_URI: &str = "/consensus";
     /// Health URI is used to handle incoming Healthcheck requests.
-    pub const HEALTH_URI: &str = "health";
+    pub const HEALTH_URI: &str = "/health";
+    /// Metrics URI is used to export metrics according to [Prometheus
+    /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
+    pub const METRICS_URI: &str = "/metrics";
 }
 
 #[cfg(test)]
@@ -168,6 +189,7 @@ mod tests {
             )))),
             tx_tx,
             ms_tx,
+            System::new(&config),
         );
         task::spawn(async move {
             if let Err(e) = torii.start().await {
