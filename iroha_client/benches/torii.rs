@@ -82,7 +82,7 @@ fn query_requests(criterion: &mut Criterion) {
 fn instruction_submits(criterion: &mut Criterion) {
     thread::spawn(|| create_and_start_iroha());
     thread::sleep(std::time::Duration::from_millis(50));
-    let mut group = criterion.benchmark_group("command-reqeuests");
+    let mut group = criterion.benchmark_group("instruction-reqeuests");
     let configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
     let domain_name = "domain";
@@ -113,7 +113,7 @@ fn instruction_submits(criterion: &mut Criterion) {
     ));
     let mut success_count = 0;
     let mut failures_count = 0;
-    group.bench_function("commands", |b| {
+    group.bench_function("instructions", |b| {
         b.iter(|| {
             let quantity: u32 = 200;
             let mint_asset = isi::Mint {

@@ -183,14 +183,14 @@ impl Request {
     /// # Arguments
     ///
     /// * uri_path - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
-    /// `path` part (e.g. "/commands")
+    /// `path` part (e.g. "/instructions")
     /// * payload - the message in bytes
     ///
     /// # Examples
     /// ```
     /// use iroha_network::prelude::*;
     ///
-    /// let request = Request::new("/commands".to_string(), "some_message".to_string().into_bytes());
+    /// let request = Request::new("/instructions".to_string(), "some_message".to_string().into_bytes());
     /// ```
     pub fn new(uri_path: String, payload: Vec<u8>) -> Request {
         Request { uri_path, payload }
