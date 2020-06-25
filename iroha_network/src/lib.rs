@@ -139,14 +139,14 @@ impl Request {
     /// # Arguments
     ///
     /// * uri_path - corresponds to [URI syntax](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier)
-    /// `path` part (e.g. "/commands")
+    /// `path` part (e.g. "/metrics")
     /// * payload - the message in bytes
     ///
     /// # Examples
     /// ```
     /// use iroha_network::prelude::*;
     ///
-    /// let request = Request::new("/commands".to_string(), "some_message".to_string().into_bytes());
+    /// let request = Request::new("/metrics".to_string(), "some_message".to_string().into_bytes());
     /// ```
     pub fn new(uri_path: String, payload: Vec<u8>) -> Request {
         Request { uri_path, payload }
@@ -225,21 +225,21 @@ mod tests {
     #[test]
     fn request_correctly_built() {
         let request = Request {
-            uri_path: "/commands".to_string(),
-            payload: b"some_command".to_vec(),
+            uri_path: "/instructions".to_string(),
+            payload: b"some_instruction".to_vec(),
         };
         let bytes: Vec<u8> = request.into();
-        assert_eq!(b"/commands\r\nsome_command".to_vec(), bytes)
+        assert_eq!(b"/instructions\r\nsome_instruction".to_vec(), bytes)
     }
 
     #[test]
     fn request_correctly_parsed() {
         let request = Request {
-            uri_path: "/commands".to_string(),
-            payload: b"some_command".to_vec(),
+            uri_path: "/instructions".to_string(),
+            payload: b"some_instruction".to_vec(),
         };
         assert_eq!(
-            Request::try_from(b"/commands\r\nsome_command".to_vec()).unwrap(),
+            Request::try_from(b"/instructions\r\nsome_instruction".to_vec()).unwrap(),
             request
         )
     }
