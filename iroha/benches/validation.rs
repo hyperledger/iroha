@@ -193,7 +193,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block = block.clone().chain(success_count, previous_block_hash);
+            let new_block = block.clone().chain(success_count, previous_block_hash, 0);
             previous_block_hash = new_block.hash();
         });
     });
@@ -207,7 +207,7 @@ fn sign_blocks(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key.clone(),
+            public_key: key_pair.public_key,
         },
     };
     let account_name = "account";
@@ -252,7 +252,7 @@ fn validate_blocks(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key.clone(),
+            public_key: key_pair.public_key,
         },
     };
     let account_name = "account";
@@ -282,7 +282,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let mut world_state_view = WorldStateView::new(Peer::new(
         PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key.clone(),
+            public_key: key_pair.public_key,
         },
         &Vec::new(),
     ));

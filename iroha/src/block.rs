@@ -33,15 +33,21 @@ impl PendingBlock {
     }
 
     /// Chain block with the existing blockchain.
-    pub fn chain(self, height: u64, previous_block_hash: Hash) -> ChainedBlock {
+    pub fn chain(
+        self,
+        height: u64,
+        previous_block_hash: Hash,
+        number_of_view_changes: u32,
+    ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
             header: BlockHeader {
                 timestamp: self.timestamp,
-                height,
+                height: height + 1,
                 previous_block_hash,
                 // TODO: get actual merkle tree hash
                 merkle_root_hash: [0u8; 32],
+                number_of_view_changes,
             },
         }
     }
@@ -55,6 +61,7 @@ impl PendingBlock {
                 height: 0,
                 previous_block_hash: [0u8; 32],
                 merkle_root_hash: [0u8; 32],
+                number_of_view_changes: 0,
             },
         }
     }
@@ -81,6 +88,8 @@ pub struct BlockHeader {
     pub previous_block_hash: Hash,
     /// Hash of merkle tree root of the tree of transactions hashes.
     pub merkle_root_hash: Hash,
+    /// Number of view changes after the previous block was committed and before this block was committed.
+    pub number_of_view_changes: u32,
 }
 
 impl BlockHeader {
@@ -191,6 +200,11 @@ impl ValidBlock {
     pub fn hash(&self) -> Hash {
         self.header.hash()
     }
+
+    /// Signatures that are verified with the `hash` of this block as `payload`.
+    pub fn verified_signatures(&self) -> Vec<Signature> {
+        self.signatures.verified(&self.hash())
+    }
 }
 
 /// When Kura receives `ValidBlock`, the block is stored and
@@ -228,6 +242,7 @@ mod tests {
                 height: 0,
                 previous_block_hash: [0u8; 32],
                 merkle_root_hash: [0u8; 32],
+                number_of_view_changes: 0,
             },
             transactions: vec![],
             signatures: Signatures::default(),

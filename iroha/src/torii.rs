@@ -2,10 +2,11 @@
 //! `Torii` is used to receive, accept and route incoming instructions, queries and messages.
 
 use crate::{
+    block_sync::message::Message as BlockSyncMessage,
     maintenance::{Health, System},
     prelude::*,
-    sumeragi::message::Message,
-    MessageSender,
+    sumeragi::message::Message as SumeragiMessage,
+    BlockSyncMessageSender, SumeragiMessageSender,
 };
 use async_std::{sync::RwLock, task};
 use iroha_derive::*;
@@ -20,7 +21,8 @@ pub struct Torii {
     url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
-    message_sender: Arc<RwLock<MessageSender>>,
+    sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
+    block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
     system: Arc<RwLock<System>>,
 }
 
@@ -30,14 +32,16 @@ impl Torii {
         url: &str,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
-        message_sender: MessageSender,
+        sumeragi_message_sender: SumeragiMessageSender,
+        block_sync_message_sender: BlockSyncMessageSender,
         system: System,
     ) -> Self {
         Torii {
             url: url.to_string(),
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
-            message_sender: Arc::new(RwLock::new(message_sender)),
+            sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
+            block_sync_message_sender: Arc::new(RwLock::new(block_sync_message_sender)),
             system: Arc::new(RwLock::new(system)),
         }
     }
@@ -47,12 +51,14 @@ impl Torii {
         let url = &self.url.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
         let transaction_sender = Arc::clone(&self.transaction_sender);
-        let message_sender = Arc::clone(&self.message_sender);
+        let sumeragi_message_sender = Arc::clone(&self.sumeragi_message_sender);
+        let block_sync_message_sender = Arc::clone(&self.block_sync_message_sender);
         let system = Arc::clone(&self.system);
         let state = ToriiState {
             world_state_view,
             transaction_sender,
-            message_sender,
+            sumeragi_message_sender,
+            block_sync_message_sender,
             system,
         };
         Network::listen(Arc::new(RwLock::new(state)), url, handle_connection).await?;
@@ -64,7 +70,8 @@ impl Torii {
 struct ToriiState {
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
-    message_sender: Arc<RwLock<MessageSender>>,
+    sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
+    block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
     system: Arc<RwLock<System>>,
 }
 
@@ -121,12 +128,12 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::InternalError)
             }
         },
-        uri::CONSENSUS_URI => match Message::try_from(request.payload().to_vec()) {
+        uri::CONSENSUS_URI => match SumeragiMessage::try_from(request.payload().to_vec()) {
             Ok(message) => {
                 state
                     .write()
                     .await
-                    .message_sender
+                    .sumeragi_message_sender
                     .write()
                     .await
                     .send(message)
@@ -143,6 +150,23 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
             Ok(metrics) => Ok(Response::Ok(metrics.into())),
             Err(e) => {
                 eprintln!("Failed to scrape metrics: {}", e);
+                Ok(Response::InternalError)
+            }
+        },
+        uri::BLOCK_SYNC_URI => match BlockSyncMessage::try_from(request.payload().to_vec()) {
+            Ok(message) => {
+                state
+                    .write()
+                    .await
+                    .block_sync_message_sender
+                    .write()
+                    .await
+                    .send(message)
+                    .await;
+                Ok(Response::empty_ok())
+            }
+            Err(e) => {
+                eprintln!("Failed to decode peer message: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -163,6 +187,8 @@ pub mod uri {
     /// Metrics URI is used to export metrics according to [Prometheus
     /// Guidance](https://prometheus.io/docs/instrumenting/writing_exporters/).
     pub const METRICS_URI: &str = "/metrics";
+    /// The URI used for block synchronization.
+    pub const BLOCK_SYNC_URI: &str = "/block";
 }
 
 #[cfg(test)]
@@ -180,7 +206,8 @@ mod tests {
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_url.to_string();
         let (tx_tx, _) = sync::channel(100);
-        let (ms_tx, _) = sync::channel(100);
+        let (sumeragi_message_sender, _) = sync::channel(100);
+        let (block_sync_message_sender, _) = sync::channel(100);
         let mut torii = Torii::new(
             &torii_url,
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
@@ -188,7 +215,8 @@ mod tests {
                 &Vec::new(),
             )))),
             tx_tx,
-            ms_tx,
+            sumeragi_message_sender,
+            block_sync_message_sender,
             System::new(&config),
         );
         task::spawn(async move {

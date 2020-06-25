@@ -27,7 +27,8 @@ trait Consensus {
 /// `Sumeragi` is the implementation of the consensus.
 pub struct Sumeragi {
     key_pair: KeyPair,
-    network_topology: InitializedNetworkTopology,
+    /// The current topology of the peer to peer network.
+    pub network_topology: InitializedNetworkTopology,
     peer_id: PeerId,
     /// The block in discussion this round.
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
@@ -41,15 +42,17 @@ pub struct Sumeragi {
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
-    //TODO: Think about moving `latest_block_hash` to `NetworkTopology`
+    //TODO: Think about moving `latest_block_hash` to `NetworkTopology` or get it from wsv so there is no controversy
     latest_block_hash: Hash,
     block_height: u64,
+    /// Number of view changes after the previous block was committed
+    number_of_view_changes: u32,
 }
 
 impl Sumeragi {
     /// Default `Sumeragi` constructor.
     pub fn new(
-        config: Configuration,
+        config: &Configuration,
         blocks_sender: Arc<RwLock<ValidBlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
@@ -60,7 +63,7 @@ impl Sumeragi {
         Ok(Self {
             key_pair: KeyPair {
                 public_key: config.public_key,
-                private_key: config.private_key,
+                private_key: config.private_key.clone(),
             },
             network_topology: NetworkTopology::new(
                 &config.trusted_peers,
@@ -80,6 +83,7 @@ impl Sumeragi {
             block_time: Duration::from_millis(config.block_time_ms),
             latest_block_hash,
             block_height,
+            number_of_view_changes: 0,
         })
     }
 
@@ -103,10 +107,20 @@ impl Sumeragi {
         }
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let block = PendingBlock::new(transactions)
-                .chain(self.block_height, self.latest_block_hash)
+                .chain(
+                    self.block_height,
+                    self.latest_block_hash,
+                    self.number_of_view_changes,
+                )
                 .sign(&self.key_pair)?;
             if !self.network_topology.is_consensus_required() {
-                self.commit_block(block).await;
+                let wsv = self.world_state_view.clone();
+                self.commit_block(
+                    block
+                        .validate(&*wsv.read().await)
+                        .expect("Failed to validate the block."),
+                )
+                .await;
                 Ok(())
             } else {
                 *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
@@ -464,7 +478,9 @@ impl Sumeragi {
             .clear();
         match self.network_topology.role(&self.peer_id) {
             Role::ValidatingPeer => {
-                if !block.transactions.is_empty() {
+                if !block.transactions.is_empty()
+                    && self.latest_block_hash == block.header.previous_block_hash
+                {
                     if let Err(e) = Message::BlockSigned(block.clone().sign(&self.key_pair)?)
                         .send_to(self.network_topology.proxy_tail())
                         .await
@@ -535,7 +551,13 @@ impl Sumeragi {
                         .for_each(|error_result| {
                             eprintln!("Failed to send messages: {:?}", error_result)
                         });
-                    self.commit_block(block).await;
+                    let wsv = self.world_state_view.clone();
+                    self.commit_block(
+                        block
+                            .validate(&*wsv.read().await)
+                            .expect("Failed to validate the block."),
+                    )
+                    .await;
                 }
             }
         }
@@ -557,10 +579,17 @@ impl Sumeragi {
             if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
                 && proxy_tail_signatures.len() == 1
                 && voting_block.block.hash() == block.hash()
+                && self.latest_block_hash == block.header.previous_block_hash
             {
                 block.signatures.clear();
                 block.signatures.append(&valid_signatures);
-                self.commit_block(block).await;
+                let wsv = self.world_state_view.clone();
+                self.commit_block(
+                    block
+                        .validate(&*wsv.read().await)
+                        .expect("Failed to validate the block."),
+                )
+                .await;
             }
         }
         Ok(())
@@ -617,21 +646,21 @@ impl Sumeragi {
         Ok(())
     }
 
-    async fn commit_block(&mut self, block: SignedBlock) {
-        let block = block
-            .validate(&*self.world_state_view.read().await)
-            .expect("Failed to validate the block.");
+    /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
+    pub async fn commit_block(&mut self, block: ValidBlock) {
         self.latest_block_hash = block.hash();
         self.block_height = block.header.height;
         self.blocks_sender.write().await.send(block).await;
         self.network_topology
             .sort_peers(Some(self.latest_block_hash));
         *self.voting_block.write().await = None;
+        self.number_of_view_changes = 0;
     }
 
     async fn change_view(&mut self) {
         self.network_topology.shift_peers_by_one();
         *self.voting_block.write().await = None;
+        self.number_of_view_changes += 1;
     }
 }
 
@@ -681,7 +710,7 @@ impl NetworkTopology {
 }
 
 /// Represents a topology of peers, defining a `role` for each peer based on the previous block hash.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InitializedNetworkTopology {
     /// Current order of peers. The roles of peers are defined based on this order.
     pub sorted_peers: Vec<PeerId>,
@@ -763,6 +792,13 @@ impl InitializedNetworkTopology {
             .pop()
             .expect("No elements found in sorted peers.");
         self.sorted_peers.insert(0, last_element);
+    }
+
+    /// Shifts `sorted_peers` by `n` to the right.
+    pub fn shift_peers_by_n(&mut self, n: u32) {
+        for _ in 0..n {
+            self.shift_peers_by_one();
+        }
     }
 
     /// Get role of the peer by its id.
@@ -1223,7 +1259,8 @@ mod tests {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
-            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1237,7 +1274,8 @@ mod tests {
                 ids[i].address.as_str(),
                 wsv.clone(),
                 tx,
-                message_sender,
+                sumeragi_message_sender,
+                block_sync_message_sender,
                 System::new(&config),
             );
             task::spawn(async move {
@@ -1250,7 +1288,7 @@ mod tests {
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
-                    config,
+                    &config,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1261,7 +1299,7 @@ mod tests {
             ));
             peers.push(sumeragi.clone());
             task::spawn(async move {
-                while let Some(message) = message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     let _result = sumeragi.write().await.handle_message(message).await;
                 }
             });
@@ -1328,7 +1366,8 @@ mod tests {
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
-            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
@@ -1343,7 +1382,8 @@ mod tests {
                 ids[i].address.as_str(),
                 wsv.clone(),
                 tx,
-                message_sender,
+                sumeragi_message_sender,
+                block_sync_message_sender,
                 System::new(&config),
             );
             task::spawn(async move {
@@ -1356,7 +1396,7 @@ mod tests {
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
-                    config,
+                    &config,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1367,7 +1407,7 @@ mod tests {
             ));
             peers.push(sumeragi.clone());
             task::spawn(async move {
-                while let Some(message) = message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate faulty proxy tail
                     if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::ProxyTail {
@@ -1453,7 +1493,8 @@ mod tests {
         config.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
-            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
@@ -1468,7 +1509,8 @@ mod tests {
                 ids[i].address.as_str(),
                 wsv.clone(),
                 transactions_sender.clone(),
-                message_sender,
+                sumeragi_message_sender,
+                block_sync_message_sender,
                 System::new(&config),
             );
             task::spawn(async move {
@@ -1481,7 +1523,7 @@ mod tests {
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
-                    config,
+                    &config,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1493,7 +1535,7 @@ mod tests {
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
-                while let Some(message) = message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi_arc_clone.write().await;
                     // Simulate faulty leader
                     if sumeragi.network_topology.role(&sumeragi.peer_id) == Role::Leader {
@@ -1587,7 +1629,8 @@ mod tests {
         config.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
-            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
@@ -1602,7 +1645,8 @@ mod tests {
                 ids[i].address.as_str(),
                 wsv.clone(),
                 transactions_sender.clone(),
-                message_sender,
+                sumeragi_message_sender,
+                block_sync_message_sender,
                 System::new(&config),
             );
             task::spawn(async move {
@@ -1615,7 +1659,7 @@ mod tests {
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
-                    config,
+                    &config,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1627,7 +1671,7 @@ mod tests {
             peers.push(sumeragi.clone());
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
-                while let Some(message) = message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     // Simulate faulty leader as if it does not send `BlockCreated` messages
                     if let Message::BlockCreated(..) = message {
                         continue;
@@ -1723,7 +1767,8 @@ mod tests {
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
-            let (message_sender, mut message_receiver) = sync::channel(100);
+            let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
+            let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
@@ -1738,7 +1783,8 @@ mod tests {
                 ids[i].address.as_str(),
                 wsv.clone(),
                 tx,
-                message_sender,
+                sumeragi_message_sender,
+                block_sync_message_sender,
                 System::new(&config),
             );
             task::spawn(async move {
@@ -1751,7 +1797,7 @@ mod tests {
             config.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
                 Sumeragi::new(
-                    config,
+                    &config,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1762,7 +1808,7 @@ mod tests {
             ));
             peers.push(sumeragi.clone());
             task::spawn(async move {
-                while let Some(message) = message_receiver.next().await {
+                while let Some(message) = sumeragi_message_receiver.next().await {
                     let mut sumeragi = sumeragi.write().await;
                     // Simulate leader producing empty blocks
                     if let Message::BlockCreated(block) = message {

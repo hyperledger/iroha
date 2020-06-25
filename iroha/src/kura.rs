@@ -71,12 +71,7 @@ impl Kura {
 
     /// Methods consumes new validated block and atomically stores and caches it.
     #[log]
-    pub async fn store(&mut self, mut block: ValidBlock) -> Result<Hash, String> {
-        if !self.blocks.is_empty() {
-            let last_block_index = self.blocks.len() - 1;
-            block.header.height = last_block_index as u64 + 1;
-            block.header.previous_block_hash = self.blocks.as_mut_slice()[last_block_index].hash();
-        }
+    pub async fn store(&mut self, block: ValidBlock) -> Result<Hash, String> {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
@@ -105,6 +100,18 @@ impl Kura {
             .last()
             .map(|block| block.header.height)
             .unwrap_or(0)
+    }
+
+    pub fn blocks_after(&self, hash: Hash) -> Option<&[ValidBlock]> {
+        let from_pos = self
+            .blocks
+            .iter()
+            .position(|block| block.header.previous_block_hash == hash)?;
+        if self.blocks.len() > from_pos {
+            Some(&self.blocks[from_pos..])
+        } else {
+            None
+        }
     }
 }
 
@@ -302,7 +309,7 @@ mod tests {
                 .await
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new())
-                .chain(height + 1, hash)
+                .chain(height, hash, 0)
                 .sign(&keypair)
                 .expect("Failed to sign blocks.")
                 .validate(&WorldStateView::new(Peer::new(
