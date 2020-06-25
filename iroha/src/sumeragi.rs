@@ -41,6 +41,7 @@ pub struct Sumeragi {
     commit_time: Duration,
     tx_receipt_time: Duration,
     block_time: Duration,
+    //TODO: Think about moving `latest_block_hash` to `NetworkTopology`
     latest_block_hash: Hash,
     block_height: u64,
 }
@@ -80,6 +81,14 @@ impl Sumeragi {
             latest_block_hash,
             block_height,
         })
+    }
+
+    /// Updates network topology by taking the actual list of peers from `WorldStateView`.
+    /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
+    pub async fn update_network_topology(&mut self) {
+        let wsv_peers = self.world_state_view.read().await.peer.peers.clone();
+        self.network_topology
+            .update(wsv_peers, self.latest_block_hash);
     }
 
     /// Returns `true` if some block is in discussion, `false` otherwise.
@@ -680,6 +689,15 @@ pub struct InitializedNetworkTopology {
 }
 
 impl InitializedNetworkTopology {
+    /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
+    pub fn update(&mut self, peers: HashSet<PeerId>, latest_block_hash: Hash) {
+        let current_peers: HashSet<_> = self.sorted_peers.iter().cloned().collect();
+        if peers != current_peers {
+            self.sorted_peers = peers.iter().cloned().collect();
+            self.sort_peers(Some(latest_block_hash));
+        }
+    }
+
     /// Answers if the consensus stage is required with the current number of peers.
     pub fn is_consensus_required(&self) -> bool {
         self.sorted_peers.len() > 1

@@ -54,11 +54,7 @@ impl Peer {
     ) -> Peer {
         Peer {
             id: id.clone(),
-            peers: trusted_peers
-                .iter()
-                .filter(|peer_id| id.address != peer_id.address)
-                .cloned()
-                .collect(),
+            peers: trusted_peers.iter().cloned().collect(),
             listen_address: id.address,
             domains,
             listeners: Vec::new(),
@@ -143,6 +139,8 @@ pub mod isi {
         AddDomain(String, PeerId),
         /// Variant of the generic `Add` instruction for `Instruction` --> `Peer`.
         AddListener(Box<Instruction>, PeerId),
+        /// Instruction to add a peer to the network.
+        AddPeer(PeerId),
     }
 
     impl PeerInstruction {
@@ -161,6 +159,15 @@ pub mod isi {
                 PeerInstruction::AddListener(listener, peer_id) => {
                     Add::new(*listener.clone(), peer_id.clone())
                         .execute(authority, world_state_view)
+                }
+                PeerInstruction::AddPeer(candidate_peer) => {
+                    let peer = world_state_view.peer();
+                    if peer.peers.contains(candidate_peer) {
+                        Err("Peer is already in the peer network.".to_string())
+                    } else {
+                        peer.peers.insert(candidate_peer.clone());
+                        Ok(())
+                    }
                 }
             }
         }

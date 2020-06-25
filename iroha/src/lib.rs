@@ -157,8 +157,14 @@ impl Iroha {
     /// incoming requests and messages.
     #[allow(clippy::eval_order_dependence)]
     pub async fn start(&self) -> Result<(), String> {
+        //TODO: ensure the initialization order of `Kura` and `WSV`.
         let kura = Arc::clone(&self.kura);
         kura.write().await.init().await?;
+        let world_state_view = Arc::clone(&self.world_state_view);
+        world_state_view
+            .write()
+            .await
+            .init(&kura.read().await.blocks);
         let torii = Arc::clone(&self.torii);
         let torii_handle = task::spawn(async move {
             if let Err(e) = torii.write().await.start().await {
@@ -189,9 +195,11 @@ impl Iroha {
         });
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
+        let sumeragi = Arc::clone(&self.sumeragi);
         let wsv_handle = task::spawn(async move {
             while let Some(block) = wsv_blocks_receiver.write().await.next().await {
                 world_state_view.write().await.put(&block);
+                sumeragi.write().await.update_network_topology().await;
             }
         });
         let message_receiver = Arc::clone(&self.message_receiver);
