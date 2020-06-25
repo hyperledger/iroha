@@ -160,7 +160,7 @@ pub mod isi {
         }
     }
 
-    /// The purpose of add signatory command is to add an identifier to the account. Such
+    /// The purpose of add signatory instruction is to add an identifier to the account. Such
     /// identifier is a public key of another device or a public key of another user.
     impl AddAssign<PublicKey> for Account {
         fn add_assign(&mut self, signatory: PublicKey) {

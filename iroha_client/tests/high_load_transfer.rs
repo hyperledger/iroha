@@ -78,7 +78,7 @@ mod tests {
             iroha_client
                 .submit(transfer_asset.into())
                 .await
-                .expect("Failed to submit command.");
+                .expect("Failed to submit instruction.");
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         std::thread::sleep(std::time::Duration::from_millis(
