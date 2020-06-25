@@ -134,6 +134,7 @@ mod tests {
                 height: 0,
                 previous_block_hash: [0; 32],
                 merkle_root_hash: [0; 32],
+                number_of_view_changes: 0,
             },
             transactions: Vec::new(),
             signatures: Signatures::default(),

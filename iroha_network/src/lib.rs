@@ -15,7 +15,7 @@ use std::{
     sync::Arc,
 };
 
-const BUFFER_SIZE: usize = 2048;
+const BUFFER_SIZE: usize = 4096;
 
 pub type State<T> = Arc<RwLock<T>>;
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}

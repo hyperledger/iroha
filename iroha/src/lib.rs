@@ -5,6 +5,7 @@
 pub mod account;
 pub mod asset;
 pub mod block;
+pub mod block_sync;
 #[cfg(feature = "bridge")]
 pub mod bridge;
 pub mod config;
@@ -27,6 +28,7 @@ pub mod tx;
 pub mod wsv;
 
 use crate::{
+    block_sync::{message::Message as BlockSyncMessage, BlockSynchronizer},
     config::Configuration,
     kura::Kura,
     maintenance::System,
@@ -34,7 +36,7 @@ use crate::{
     permission::Permission,
     prelude::*,
     queue::Queue,
-    sumeragi::{message::Message, Sumeragi},
+    sumeragi::{message::Message as SumeragiMessage, Sumeragi},
     torii::Torii,
 };
 use async_std::{
@@ -61,9 +63,13 @@ pub type TransactionSender = Sender<AcceptedTransaction>;
 /// `AcceptedTransaction` messages.
 pub type TransactionReceiver = Receiver<AcceptedTransaction>;
 /// Type of `Sender<Message>` which should be used for channels of `Message` messages.
-pub type MessageSender = Sender<Message>;
+pub type SumeragiMessageSender = Sender<SumeragiMessage>;
 /// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
-pub type MessageReceiver = Receiver<Message>;
+pub type SumeragiMessageReceiver = Receiver<SumeragiMessage>;
+/// Type of `Sender<Message>` which should be used for channels of `Message` messages.
+pub type BlockSyncMessageSender = Sender<BlockSyncMessage>;
+/// Type of `Receiver<Message>` which should be used for channels of `Message` messages.
+pub type BlockSyncMessageReceiver = Receiver<BlockSyncMessage>;
 
 /// Iroha is an [Orchestrator](https://en.wikipedia.org/wiki/Orchestration_%28computing%29) of the
 /// system. It configure, coordinate and manage transactions and queries processing, work of consensus and storage.
@@ -75,8 +81,10 @@ pub struct Iroha {
     transactions_receiver: Arc<RwLock<TransactionReceiver>>,
     wsv_blocks_receiver: Arc<RwLock<CommittedBlockReceiver>>,
     kura_blocks_receiver: Arc<RwLock<ValidBlockReceiver>>,
-    message_receiver: Arc<RwLock<MessageReceiver>>,
+    sumeragi_message_receiver: Arc<RwLock<SumeragiMessageReceiver>>,
+    block_sync_message_receiver: Arc<RwLock<BlockSyncMessageReceiver>>,
     world_state_view: Arc<RwLock<WorldStateView>>,
+    block_sync: Arc<RwLock<BlockSynchronizer>>,
 }
 
 impl Iroha {
@@ -85,7 +93,8 @@ impl Iroha {
         let (transactions_sender, transactions_receiver) = sync::channel(100);
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
-        let (message_sender, message_receiver) = sync::channel(100);
+        let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
+        let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
         let domain_name = "global".to_string();
         let mut asset_definitions = HashMap::new();
         let asset_definition_id = permission::permission_asset_definition_id();
@@ -120,7 +129,8 @@ impl Iroha {
             &config.torii_url,
             Arc::clone(&world_state_view),
             transactions_sender.clone(),
-            message_sender,
+            sumeragi_message_sender,
+            block_sync_message_sender,
             System::new(&config),
         );
         let kura = Kura::new(
@@ -130,7 +140,7 @@ impl Iroha {
         );
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::new(
-                config,
+                &config,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
                 transactions_sender,
@@ -139,17 +149,27 @@ impl Iroha {
             )
             .expect("Failed to initialize Sumeragi."),
         ));
+        let kura = Arc::new(RwLock::new(kura));
+        let block_sync = Arc::new(RwLock::new(BlockSynchronizer::new(
+            kura.clone(),
+            sumeragi.clone(),
+            PeerId::new(&config.torii_url, &config.public_key),
+            //TODO: get duration from config
+            Duration::from_secs(10),
+        )));
         let queue = Arc::new(RwLock::new(Queue::default()));
         Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
             sumeragi,
-            kura: Arc::new(RwLock::new(kura)),
+            kura,
             world_state_view,
             transactions_receiver: Arc::new(RwLock::new(transactions_receiver)),
             wsv_blocks_receiver: Arc::new(RwLock::new(wsv_blocks_receiver)),
-            message_receiver: Arc::new(RwLock::new(message_receiver)),
+            sumeragi_message_receiver: Arc::new(RwLock::new(sumeragi_message_receiver)),
             kura_blocks_receiver: Arc::new(RwLock::new(kura_blocks_receiver)),
+            block_sync_message_receiver: Arc::new(RwLock::new(block_sync_message_receiver)),
+            block_sync,
         }
     }
 
@@ -171,6 +191,7 @@ impl Iroha {
                 eprintln!("Failed to start Torii: {}", e);
             }
         });
+        self.block_sync.read().await.start();
         let transactions_receiver = Arc::clone(&self.transactions_receiver);
         let queue = Arc::clone(&self.queue);
         let tx_handle = task::spawn(async move {
@@ -196,19 +217,28 @@ impl Iroha {
         let wsv_blocks_receiver = Arc::clone(&self.wsv_blocks_receiver);
         let world_state_view = Arc::clone(&self.world_state_view);
         let sumeragi = Arc::clone(&self.sumeragi);
+        let block_sync = Arc::clone(&self.block_sync);
         let wsv_handle = task::spawn(async move {
             while let Some(block) = wsv_blocks_receiver.write().await.next().await {
                 world_state_view.write().await.put(&block);
                 sumeragi.write().await.update_network_topology().await;
+                block_sync.write().await.continue_sync().await;
             }
         });
-        let message_receiver = Arc::clone(&self.message_receiver);
+        let sumeragi_message_receiver = Arc::clone(&self.sumeragi_message_receiver);
         let sumeragi = Arc::clone(&self.sumeragi);
         let sumeragi_message_handle = task::spawn(async move {
-            while let Some(message) = message_receiver.write().await.next().await {
+            while let Some(message) = sumeragi_message_receiver.write().await.next().await {
                 if let Err(e) = sumeragi.write().await.handle_message(message).await {
                     eprintln!("Handle message failed: {}", e);
                 }
+            }
+        });
+        let block_sync_message_receiver = Arc::clone(&self.block_sync_message_receiver);
+        let block_sync = Arc::clone(&self.block_sync);
+        let block_sync_message_handle = task::spawn(async move {
+            while let Some(message) = block_sync_message_receiver.write().await.next().await {
+                message.handle(&mut *block_sync.write().await).await;
             }
         });
         let kura_blocks_receiver = Arc::clone(&self.kura_blocks_receiver);
@@ -229,7 +259,8 @@ impl Iroha {
             voting_handle,
             wsv_handle,
             sumeragi_message_handle,
-            tx_handle
+            tx_handle,
+            block_sync_message_handle,
         );
         Ok(())
     }
