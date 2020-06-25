@@ -6,7 +6,8 @@ use crate::prelude::*;
 /// Current state of the blockchain alligned with `Iroha` module.
 #[derive(Debug, Clone)]
 pub struct WorldStateView {
-    peer: Peer,
+    /// The state of this peer.
+    pub peer: Peer,
     /// Blockchain of commited transactions.
     pub blocks: Vec<CommittedBlock>,
 }
@@ -17,6 +18,13 @@ impl WorldStateView {
         WorldStateView {
             peer,
             blocks: Vec::new(),
+        }
+    }
+
+    /// Initializes WSV with the blocks from block storage.
+    pub fn init(&mut self, blocks: &[ValidBlock]) {
+        for block in blocks {
+            self.put(&block.clone().commit());
         }
     }
 
