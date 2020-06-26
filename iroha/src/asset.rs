@@ -551,31 +551,27 @@ mod tests {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account = Account::with_signatory(
-            &account_id.name,
-            &account_id.domain_name,
-            public_key.clone(),
-        );
-        account.assets.insert(asset_id.clone(), asset);
+        let mut account =
+            Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+        account.assets.insert(asset_id, asset);
         let mut accounts = BTreeMap::new();
-        accounts.insert(account_id.clone(), account);
+        accounts.insert(account_id, account);
         let domain = Domain {
             name: domain_name.clone(),
             accounts,
             asset_definitions,
         };
         let mut domains = BTreeMap::new();
-        domains.insert(domain_name.clone(), domain);
+        domains.insert(domain_name, domain);
         let address = "127.0.0.1:8080".to_string();
-        let mut world_state_view = WorldStateView::new(Peer::with_domains(
+        WorldStateView::new(Peer::with_domains(
             PeerId {
-                address: address.clone(),
-                public_key: public_key.clone(),
+                address,
+                public_key,
             },
             &Vec::new(),
             domains,
-        ));
-        world_state_view
+        ))
     }
 
     #[test]
@@ -608,7 +604,7 @@ mod tests {
             .execute(account_id.clone(), &mut world_state_view)
             .expect("failed to big mint asset");
         Demint::new("key".to_string(), asset_id.clone())
-            .execute(account_id.clone(), &mut world_state_view)
+            .execute(account_id, &mut world_state_view)
             .expect("failed to big demint asset");
         assert!(world_state_view
             .asset(&asset_id)
@@ -655,7 +651,7 @@ mod tests {
             .expect("failed to big mint asset");
         assert_eq!(
             Demint::new("other_key".to_string(), asset_id.clone())
-                .execute(account_id.clone(), &mut world_state_view)
+                .execute(account_id, &mut world_state_view)
                 .unwrap_err(),
             "Key not found.".to_string()
         );

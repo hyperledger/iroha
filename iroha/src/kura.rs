@@ -42,6 +42,17 @@ impl Kura {
         }
     }
 
+    pub fn from_configuration(
+        configuration: &config::KuraConfiguration,
+        block_sender: CommittedBlockSender,
+    ) -> Self {
+        Kura::new(
+            configuration.kura_init_mode,
+            Path::new(&configuration.kura_block_store_path),
+            block_sender,
+        )
+    }
+
     /// `Kura` constructor with a [Genesis
     /// Block](https://en.wikipedia.org/wiki/Blockchain#cite_note-hadc-21).
     /// Kura will not be ready to work with before `init` method invocation.
@@ -116,7 +127,7 @@ impl Kura {
 }
 
 /// Kura work mode.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Strict validation of all blocks.
@@ -200,6 +211,58 @@ impl BlockStore {
             height += 1;
         }
         blocks
+    }
+}
+
+/// This module contains all configuration related logic.
+pub mod config {
+    use super::Mode;
+    use iroha_derive::*;
+    use serde::Deserialize;
+    use std::{env, path::Path};
+
+    const KURA_INIT_MODE: &str = "KURA_INIT_MODE";
+    const KURA_BLOCK_STORE_PATH: &str = "KURA_BLOCK_STORE_PATH";
+    const DEFAULT_KURA_BLOCK_STORE_PATH: &str = "./blocks";
+
+    #[derive(Clone, Deserialize, Debug)]
+    #[serde(rename_all = "UPPERCASE")]
+    pub struct KuraConfiguration {
+        /// Possible modes: `strict`, `fast`.
+        #[serde(default)]
+        pub kura_init_mode: Mode,
+        /// Path to the existing block store folder or path to create new folder.
+        #[serde(default = "default_kura_block_store_path")]
+        pub kura_block_store_path: String,
+    }
+
+    impl KuraConfiguration {
+        /// Set `kura_block_store_path` configuration parameter - will overwrite the existing one.
+        ///
+        /// # Panic
+        /// If path is not valid this method will panic.
+        pub fn kura_block_store_path(&mut self, path: &Path) {
+            self.kura_block_store_path = path
+                .to_str()
+                .expect("Failed to yield slice from path")
+                .to_string();
+        }
+
+        #[log]
+        pub fn load_environment(&mut self) -> Result<(), String> {
+            if let Ok(kura_init_mode) = env::var(KURA_INIT_MODE) {
+                self.kura_init_mode = serde_json::from_str(&kura_init_mode)
+                    .map_err(|e| format!("Failed to parse Kura Init Mode: {}", e))?;
+            }
+            if let Ok(kura_block_store_path) = env::var(KURA_BLOCK_STORE_PATH) {
+                self.kura_block_store_path = kura_block_store_path;
+            }
+            Ok(())
+        }
+    }
+
+    fn default_kura_block_store_path() -> String {
+        DEFAULT_KURA_BLOCK_STORE_PATH.to_string()
     }
 }
 
@@ -297,7 +360,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key.clone(),
+                    public_key: keypair.public_key,
                 },
                 &Vec::new(),
             )))
@@ -314,7 +377,7 @@ mod tests {
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
                         address: "127.0.0.1:8080".to_string(),
-                        public_key: keypair.public_key.clone(),
+                        public_key: keypair.public_key,
                     },
                     &Vec::new(),
                 )))

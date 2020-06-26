@@ -5,7 +5,6 @@
 use self::message::*;
 use crate::{
     block::PendingBlock,
-    config::Configuration,
     crypto::{Hash, KeyPair, Signatures},
     peer::PeerId,
     prelude::*,
@@ -53,8 +52,8 @@ pub struct Sumeragi {
 
 impl Sumeragi {
     /// Default `Sumeragi` constructor.
-    pub fn new(
-        config: &Configuration,
+    pub fn from_configuration(
+        configuration: &config::SumeragiConfiguration,
         blocks_sender: Arc<RwLock<ValidBlockSender>>,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
@@ -63,27 +62,24 @@ impl Sumeragi {
         //TODO: separate initialization from construction and do not return Result in `new`
     ) -> Result<Self, String> {
         Ok(Self {
-            key_pair: KeyPair {
-                public_key: config.public_key,
-                private_key: config.private_key.clone(),
-            },
+            key_pair: configuration.key_pair.clone(),
             network_topology: NetworkTopology::new(
-                &config.trusted_peers,
+                &configuration.trusted_peers,
                 Some(latest_block_hash),
-                config.max_faulty_peers,
+                configuration.max_faulty_peers,
             )
             .init()?,
-            peer_id: PeerId::new(&config.torii_url, &config.public_key),
+            peer_id: configuration.peer_id.clone(),
             voting_block: Arc::new(RwLock::new(None)),
             votes_for_blocks: BTreeMap::new(),
             blocks_sender,
             world_state_view,
             transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
             transactions_awaiting_created_block: Arc::new(RwLock::new(BTreeSet::new())),
-            commit_time: Duration::from_millis(config.commit_time_ms),
+            commit_time: Duration::from_millis(configuration.commit_time_ms),
             transactions_sender,
-            tx_receipt_time: Duration::from_millis(config.tx_receipt_time_ms),
-            block_time: Duration::from_millis(config.block_time_ms),
+            tx_receipt_time: Duration::from_millis(configuration.tx_receipt_time_ms),
+            block_time: Duration::from_millis(configuration.block_time_ms),
             latest_block_hash,
             block_height,
             number_of_view_changes: 0,
@@ -256,10 +252,10 @@ impl Sumeragi {
         let tx_receipt = block_creation_timeout.transaction_receipt.clone();
         if tx_receipt.is_valid(&self.network_topology)
             && tx_receipt.is_block_should_be_created(self.block_time)
-            && (role == Role::ValidatingPeer || role == Role::ProxyTail)
-            // Block is not yet created
-            && self.voting_block.write().await.is_none()
-            && !block_creation_timeout.signatures.contains(&self.key_pair.public_key)
+                && (role == Role::ValidatingPeer || role == Role::ProxyTail)
+                // Block is not yet created
+                && self.voting_block.write().await.is_none()
+                && !block_creation_timeout.signatures.contains(&self.key_pair.public_key)
         {
             block_creation_timeout
                 .sign(&self.key_pair)
@@ -1103,10 +1099,120 @@ pub mod message {
     }
 }
 
+/// This module contains all configuration related logic.
+pub mod config {
+    use crate::{crypto::KeyPair, peer::PeerId};
+    use iroha_derive::*;
+    use serde::Deserialize;
+    use std::env;
+
+    const BLOCK_TIME_MS: &str = "BLOCK_TIME_MS";
+    const TRUSTED_PEERS: &str = "IROHA_TRUSTED_PEERS";
+    const MAX_FAULTY_PEERS: &str = "MAX_FAULTY_PEERS";
+    const COMMIT_TIME_MS: &str = "COMMIT_TIME_MS";
+    const TX_RECEIPT_TIME_MS: &str = "TX_RECEIPT_TIME_MS";
+    const DEFAULT_BLOCK_TIME_MS: u64 = 1000;
+    const DEFAULT_MAX_FAULTY_PEERS: usize = 0;
+    const DEFAULT_COMMIT_TIME_MS: u64 = 1000;
+    const DEFAULT_TX_RECEIPT_TIME_MS: u64 = 200;
+
+    /// `SumeragiConfiguration` provides an ability to define parameters such as `BLOCK_TIME_MS`
+    /// and list of `TRUSTED_PEERS`.
+    #[derive(Clone, Deserialize, Debug)]
+    #[serde(rename_all = "UPPERCASE")]
+    pub struct SumeragiConfiguration {
+        /// Key pair of private and public keys.
+        #[serde(skip)]
+        pub key_pair: KeyPair,
+        /// Current Peer Identification.
+        #[serde(skip)]
+        pub peer_id: PeerId,
+        /// Amount of time peer waits for the `CreatedBlock` message after getting a `TransactionReceipt`
+        #[serde(default = "default_block_time_ms")]
+        pub block_time_ms: u64,
+        /// Optional list of predefined trusted peers.
+        #[serde(default)]
+        pub trusted_peers: Vec<PeerId>,
+        /// Maximum amount of peers to fail and do not compromise the consensus.
+        #[serde(default = "default_max_faulty_peers")]
+        pub max_faulty_peers: usize,
+        /// Amount of time Peer waits for CommitMessage from the proxy tail.
+        #[serde(default = "default_commit_time_ms")]
+        pub commit_time_ms: u64,
+        /// Amount of time Peer waits for TxReceipt from the leader.
+        #[serde(default = "default_tx_receipt_time_ms")]
+        pub tx_receipt_time_ms: u64,
+    }
+
+    impl SumeragiConfiguration {
+        /// Load environment variables and replace predefined parameters with these variables
+        /// values.
+        #[log]
+        pub fn load_environment(&mut self) -> Result<(), String> {
+            if let Ok(block_time_ms) = env::var(BLOCK_TIME_MS) {
+                self.block_time_ms = block_time_ms
+                    .parse()
+                    .map_err(|e| format!("Failed to parse Block Build Time: {}", e))?;
+            }
+            if let Ok(trusted_peers) = env::var(TRUSTED_PEERS) {
+                self.trusted_peers = serde_json::from_str(&trusted_peers)
+                    .map_err(|e| format!("Failed to parse Trusted Peers: {}", e))?;
+            }
+            if let Ok(max_faulty_peers) = env::var(MAX_FAULTY_PEERS) {
+                self.max_faulty_peers = max_faulty_peers
+                    .parse()
+                    .map_err(|e| format!("Failed to parse Max Faulty Peers: {}", e))?;
+            }
+            if let Ok(commit_time_ms) = env::var(COMMIT_TIME_MS) {
+                self.commit_time_ms = commit_time_ms
+                    .parse()
+                    .map_err(|e| format!("Failed to parse Commit Time Ms: {}", e))?;
+            }
+            if let Ok(tx_receipt_time_ms) = env::var(TX_RECEIPT_TIME_MS) {
+                self.tx_receipt_time_ms = tx_receipt_time_ms
+                    .parse()
+                    .map_err(|e| format!("Failed to parse Tx Receipt Time Ms: {}", e))?;
+            }
+            Ok(())
+        }
+
+        /// Set `trusted_peers` configuration parameter - will overwrite the existing one.
+        pub fn trusted_peers(&mut self, trusted_peers: Vec<PeerId>) {
+            self.trusted_peers = trusted_peers;
+        }
+
+        /// Set `max_faulty_peers` configuration parameter - will overwrite the existing one.
+        pub fn max_faulty_peers(&mut self, max_faulty_peers: usize) {
+            self.max_faulty_peers = max_faulty_peers;
+        }
+
+        /// Time estimation from receiving a transaction to storing it in a block on all peers.
+        pub fn pipeline_time_ms(&self) -> u64 {
+            self.tx_receipt_time_ms + self.block_time_ms + self.commit_time_ms
+        }
+    }
+
+    fn default_block_time_ms() -> u64 {
+        DEFAULT_BLOCK_TIME_MS
+    }
+
+    fn default_max_faulty_peers() -> usize {
+        DEFAULT_MAX_FAULTY_PEERS
+    }
+
+    fn default_commit_time_ms() -> u64 {
+        DEFAULT_COMMIT_TIME_MS
+    }
+
+    fn default_tx_receipt_time_ms() -> u64 {
+        DEFAULT_TX_RECEIPT_TIME_MS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{account, config, crypto, maintenance::System, torii::Torii};
+    use crate::{account, config::Configuration, maintenance::System, torii::Torii};
     use async_std::{prelude::*, sync, task};
     use std::time::Duration;
 
@@ -1124,7 +1230,7 @@ mod tests {
             address: listen_address,
             public_key: key_pair.public_key,
         };
-        let network_topology = NetworkTopology::new(&[this_peer.clone()], None, 3)
+        let _network_topology = NetworkTopology::new(&[this_peer], None, 3)
             .init()
             .expect("Failed to create topology.");
     }
@@ -1222,7 +1328,7 @@ mod tests {
             keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + i),
-                public_key: key_pair.public_key.clone(),
+                public_key: key_pair.public_key,
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1230,10 +1336,10 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
-        config.commit_time_ms = COMMIT_TIME_MS;
-        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
-        config.block_time_ms = BLOCK_TIME_MS;
-        config.max_faulty_peers(max_faults);
+        config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
+        config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
+        config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
@@ -1263,13 +1369,15 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
+            config.sumeragi_configuration.key_pair = keys[i].clone();
+            config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key.clone();
-            config.torii_url = ids[i].address.clone();
-            config.trusted_peers(ids.clone());
+            config.public_key = ids[i].public_key;
+            config.torii_configuration.torii_url = ids[i].address.clone();
+            config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
-                Sumeragi::new(
-                    &config,
+                Sumeragi::from_configuration(
+                    &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1340,10 +1448,10 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
-        config.commit_time_ms = COMMIT_TIME_MS;
-        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
-        config.block_time_ms = BLOCK_TIME_MS;
-        config.max_faulty_peers(max_faults);
+        config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
+        config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
+        config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
@@ -1373,13 +1481,15 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
+            config.sumeragi_configuration.key_pair = keys[i].clone();
+            config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key.clone();
-            config.torii_url = ids[i].address.clone();
-            config.trusted_peers(ids.clone());
+            config.public_key = ids[i].public_key;
+            config.torii_configuration.torii_url = ids[i].address.clone();
+            config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
-                Sumeragi::new(
-                    &config,
+                Sumeragi::from_configuration(
+                    &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1430,7 +1540,10 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
+        async_std::task::sleep(Duration::from_millis(
+            config.sumeragi_configuration.pipeline_time_ms() + 2000,
+        ))
+        .await;
         for block_counter in block_counters {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);
@@ -1462,7 +1575,7 @@ mod tests {
             keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + n_peers * 2 + i),
-                public_key: key_pair.public_key.clone(),
+                public_key: key_pair.public_key,
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1470,10 +1583,10 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
-        config.commit_time_ms = COMMIT_TIME_MS;
-        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
-        config.block_time_ms = BLOCK_TIME_MS;
-        config.max_faulty_peers(max_faults);
+        config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
+        config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
+        config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -1502,13 +1615,15 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
+            config.sumeragi_configuration.key_pair = keys[i].clone();
+            config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key.clone();
-            config.torii_url = ids[i].address.clone();
-            config.trusted_peers(ids.clone());
+            config.public_key = ids[i].public_key;
+            config.torii_configuration.torii_url = ids[i].address.clone();
+            config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
-                Sumeragi::new(
-                    &config,
+                Sumeragi::from_configuration(
+                    &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1540,11 +1655,14 @@ mod tests {
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
-                    sumeragi_arc_clone
+                    if let Err(e) = sumeragi_arc_clone
                         .write()
                         .await
                         .round(vec![transaction])
-                        .await;
+                        .await
+                    {
+                        eprintln!("{}", e);
+                    }
                 }
             });
         }
@@ -1568,7 +1686,10 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
+        async_std::task::sleep(Duration::from_millis(
+            config.sumeragi_configuration.pipeline_time_ms() + 2000,
+        ))
+        .await;
         for block_counter in block_counters {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
@@ -1600,7 +1721,7 @@ mod tests {
             keys.push(key_pair.clone());
             let peer_id = PeerId {
                 address: format!("127.0.0.1:{}", 7878 + n_peers * 3 + i),
-                public_key: key_pair.public_key.clone(),
+                public_key: key_pair.public_key,
             };
             ids.push(peer_id);
             block_counters.push(Arc::new(RwLock::new(0)));
@@ -1608,10 +1729,10 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
-        config.commit_time_ms = COMMIT_TIME_MS;
-        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
-        config.block_time_ms = BLOCK_TIME_MS;
-        config.max_faulty_peers(max_faults);
+        config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
+        config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
+        config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
@@ -1640,13 +1761,15 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
+            config.sumeragi_configuration.key_pair = keys[i].clone();
+            config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key.clone();
-            config.torii_url = ids[i].address.clone();
-            config.trusted_peers(ids.clone());
+            config.public_key = ids[i].public_key;
+            config.torii_configuration.torii_url = ids[i].address.clone();
+            config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
-                Sumeragi::new(
-                    &config,
+                Sumeragi::from_configuration(
+                    &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1679,11 +1802,14 @@ mod tests {
             let sumeragi_arc_clone = sumeragi.clone();
             task::spawn(async move {
                 while let Some(transaction) = transactions_receiver.next().await {
-                    sumeragi_arc_clone
+                    if let Err(e) = sumeragi_arc_clone
                         .write()
                         .await
                         .round(vec![transaction])
-                        .await;
+                        .await
+                    {
+                        eprintln!("{}", e);
+                    }
                 }
             });
         }
@@ -1707,7 +1833,10 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
+        async_std::task::sleep(Duration::from_millis(
+            config.sumeragi_configuration.pipeline_time_ms() + 2000,
+        ))
+        .await;
         for block_counter in block_counters {
             // No blocks are committed as the leader failed to send tx receipt
             assert_eq!(*block_counter.write().await, 0u8);
@@ -1747,10 +1876,10 @@ mod tests {
         let mut peers = Vec::new();
         let mut config =
             Configuration::from_path(CONFIG_PATH).expect("Failed to get configuration.");
-        config.commit_time_ms = COMMIT_TIME_MS;
-        config.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
-        config.block_time_ms = BLOCK_TIME_MS;
-        config.max_faulty_peers(max_faults);
+        config.sumeragi_configuration.commit_time_ms = COMMIT_TIME_MS;
+        config.sumeragi_configuration.tx_receipt_time_ms = TX_RECEIPT_TIME_MS;
+        config.sumeragi_configuration.block_time_ms = BLOCK_TIME_MS;
+        config.sumeragi_configuration.max_faulty_peers(max_faults);
         for i in 0..n_peers {
             let (block_sender, mut block_receiver) = sync::channel(100);
             let (tx, _rx) = sync::channel(100);
@@ -1780,13 +1909,15 @@ mod tests {
                 torii.start().await.expect("Torii failed.");
             });
             let mut config = config.clone();
+            config.sumeragi_configuration.key_pair = keys[i].clone();
+            config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key.clone();
-            config.torii_url = ids[i].address.clone();
-            config.trusted_peers(ids.clone());
+            config.public_key = ids[i].public_key;
+            config.torii_configuration.torii_url = ids[i].address.clone();
+            config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
-                Sumeragi::new(
-                    &config,
+                Sumeragi::from_configuration(
+                    &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
                     wsv,
                     transactions_sender,
@@ -1837,7 +1968,10 @@ mod tests {
             .expect("Failed to accept tx.")])
             .await
             .expect("Round failed.");
-        async_std::task::sleep(Duration::from_millis(config.pipeline_time_ms() + 2000)).await;
+        async_std::task::sleep(Duration::from_millis(
+            config.sumeragi_configuration.pipeline_time_ms() + 2000,
+        ))
+        .await;
         for block_counter in block_counters {
             // No blocks are committed as there was a commit timeout for current block
             assert_eq!(*block_counter.write().await, 0u8);

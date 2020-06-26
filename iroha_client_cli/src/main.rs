@@ -48,7 +48,7 @@ mod domain {
     use clap::ArgMatches;
     use futures::executor;
     use iroha::{isi, peer::PeerId, prelude::*};
-    use iroha_client::client::Client;
+    use iroha_client::{client::Client, config::Configuration};
 
     const DOMAIN_NAME: &str = "name";
     const ADD: &str = "add";
@@ -80,7 +80,7 @@ mod domain {
     fn create_domain(domain_name: &str) {
         let configuration =
             &Configuration::from_path("config.json").expect("Failed to load configuration.");
-        let mut iroha_client = Client::new(configuration);
+        let mut iroha_client = Client::new(&configuration);
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
             destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
@@ -95,7 +95,7 @@ mod account {
     use clap::ArgMatches;
     use futures::executor;
     use iroha::{isi, prelude::*};
-    use iroha_client::client::Client;
+    use iroha_client::{client::Client, config::Configuration};
 
     const REGISTER: &str = "register";
     const ACCOUNT_NAME: &str = "name";
@@ -169,7 +169,10 @@ mod asset {
     use clap::ArgMatches;
     use futures::executor;
     use iroha::{isi, prelude::*};
-    use iroha_client::client::{self, Client};
+    use iroha_client::{
+        client::{self, Client},
+        config::Configuration,
+    };
 
     const REGISTER: &str = "register";
     const MINT: &str = "mint";
