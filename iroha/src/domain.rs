@@ -1,18 +1,20 @@
 //! This module contains `Domain` structure and related implementations and trait implementations.
 use crate::{isi::prelude::*, prelude::*};
-use std::collections::HashMap;
+use iroha_derive::*;
+use parity_scale_codec::{Decode, Encode};
+use std::collections::BTreeMap;
 
 type Name = String;
 
 /// Named group of `Account` and `Asset` entities.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Io, Encode, Decode)]
 pub struct Domain {
     /// Domain name, for example company name.
     pub name: Name,
     /// Accounts of the domain.
-    pub accounts: HashMap<<Account as Identifiable>::Id, Account>,
+    pub accounts: BTreeMap<<Account as Identifiable>::Id, Account>,
     /// Assets of the domain.
-    pub asset_definitions: HashMap<<AssetDefinition as Identifiable>::Id, AssetDefinition>,
+    pub asset_definitions: BTreeMap<<AssetDefinition as Identifiable>::Id, AssetDefinition>,
 }
 
 impl Domain {
@@ -22,8 +24,8 @@ impl Domain {
     pub fn new(name: Name) -> Self {
         Domain {
             name,
-            accounts: HashMap::new(),
-            asset_definitions: HashMap::new(),
+            accounts: BTreeMap::new(),
+            asset_definitions: BTreeMap::new(),
         }
     }
 
@@ -54,8 +56,6 @@ impl Identifiable for Domain {
 pub mod isi {
     use super::*;
     use crate::{isi::Register, permission::isi::PermissionInstruction};
-    use iroha_derive::*;
-    use parity_scale_codec::{Decode, Encode};
 
     /// Enumeration of all legal Domain related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]

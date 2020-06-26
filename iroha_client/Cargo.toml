@@ -20,10 +20,10 @@ maintenance = { status = "actively-developed" }
 iroha = { version = "=0.1.0", path = "../iroha" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
+async-std = { version = "1.5", features = ["attributes"] }
 ursa = "0.3.2"
 
 [dev-dependencies]
-async-std = { version = "1.5", features = ["attributes"] }
 criterion = "0.3"
 futures = "0.3.4"
 tempfile = "3"

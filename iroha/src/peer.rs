@@ -4,10 +4,12 @@ use crate::{isi::prelude::*, prelude::*};
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Peer's identification.
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone, Hash, Io, Default, Deserialize)]
+#[derive(
+    Encode, Decode, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Hash, Io, Default, Deserialize,
+)]
 pub struct PeerId {
     /// Address of the Peer's entrypoint.
     pub address: String,
@@ -26,16 +28,16 @@ impl PeerId {
 }
 
 /// Peer represents currently running Iroha instance.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Encode, Decode, Io)]
 pub struct Peer {
     /// Peer Identification.
     pub id: PeerId,
     /// All discovered Peers' Ids.
-    pub peers: HashSet<PeerId>,
+    pub peers: BTreeSet<PeerId>,
     /// Address to listen to.
     pub listen_address: String,
     /// Registered domains.
-    pub domains: HashMap<String, Domain>,
+    pub domains: BTreeMap<String, Domain>,
     /// Events Listeners.
     pub listeners: Vec<Instruction>,
 }
@@ -43,14 +45,14 @@ pub struct Peer {
 impl Peer {
     /// Default `Peer` constructor.
     pub fn new(id: PeerId, trusted_peers: &[PeerId]) -> Peer {
-        Self::with_domains(id, trusted_peers, HashMap::new())
+        Self::with_domains(id, trusted_peers, BTreeMap::new())
     }
 
     /// `Peer` constructor with a predefined domains.
     pub fn with_domains(
         id: PeerId,
         trusted_peers: &[PeerId],
-        domains: HashMap<<Domain as Identifiable>::Id, Domain>,
+        domains: BTreeMap<<Domain as Identifiable>::Id, Domain>,
     ) -> Peer {
         Peer {
             id: id.clone(),
@@ -75,7 +77,7 @@ impl Peer {
                 .cloned()
                 .collect(),
             listen_address: id.address,
-            domains: HashMap::new(),
+            domains: BTreeMap::new(),
             listeners,
         }
     }
@@ -84,7 +86,7 @@ impl Peer {
     pub fn with_domains_and_listeners(
         id: PeerId,
         trusted_peers: &[PeerId],
-        domains: HashMap<<Domain as Identifiable>::Id, Domain>,
+        domains: BTreeMap<<Domain as Identifiable>::Id, Domain>,
         listeners: Vec<Instruction>,
     ) -> Peer {
         Peer {

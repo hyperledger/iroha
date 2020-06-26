@@ -342,7 +342,7 @@ pub mod isi {
         use crate::bridge::query::*;
         use crate::peer::PeerId;
         use crate::permission::{permission_asset_definition_id, Permission};
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
 
         const BRIDGE_NAME: &str = "Polkadot";
 
@@ -355,7 +355,7 @@ pub mod isi {
             pub fn new() -> Self {
                 let domain_name = "Company".to_string();
                 let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-                let mut asset_definitions = HashMap::new();
+                let mut asset_definitions = BTreeMap::new();
                 let asset_definition_id = permission_asset_definition_id();
                 asset_definitions.insert(
                     asset_definition_id.clone(),
@@ -373,7 +373,7 @@ pub mod isi {
                     key_pair.public_key.clone(),
                 );
                 account.assets.insert(asset_id.clone(), asset);
-                let mut accounts = HashMap::new();
+                let mut accounts = BTreeMap::new();
                 accounts.insert(account_id.clone(), account);
                 let domain = Domain {
                     name: domain_name.clone(),
@@ -381,7 +381,7 @@ pub mod isi {
                     asset_definitions,
                 };
                 let bridge_domain_name = "bridge".to_string();
-                let mut bridge_asset_definitions = HashMap::new();
+                let mut bridge_asset_definitions = BTreeMap::new();
                 let asset_definition_ids = [
                     bridges_asset_definition_id(),
                     bridge_asset_definition_id(),
@@ -397,10 +397,10 @@ pub mod isi {
                 }
                 let bridge_domain = Domain {
                     name: bridge_domain_name.clone(),
-                    accounts: HashMap::new(),
+                    accounts: BTreeMap::new(),
                     asset_definitions: bridge_asset_definitions,
                 };
-                let mut domains = HashMap::new();
+                let mut domains = BTreeMap::new();
                 domains.insert(domain_name.clone(), domain);
                 domains.insert(bridge_domain_name.clone(), bridge_domain);
                 let address = "127.0.0.1:8080".to_string();
