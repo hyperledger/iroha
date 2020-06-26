@@ -191,25 +191,22 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
-            accounts.insert(account_id.clone(), account);
+            accounts.insert(account_id, account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -256,25 +253,22 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
-            accounts.insert(account_id.clone(), account);
+            accounts.insert(account_id, account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -322,7 +316,7 @@ pub mod isi {
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
             let mut account = Account::new(&account_id.name, &account_id.domain_name);
-            account.assets.insert(asset_id.clone(), asset);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -331,11 +325,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -384,25 +378,22 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
-            accounts.insert(account_id.clone(), account);
+            accounts.insert(account_id, account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),

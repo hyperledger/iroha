@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{isi, peer::isi as peer_isi, peer::PeerId, prelude::*};
-    use iroha_client::client::{self, Client};
+    use iroha::{config::Configuration, isi, peer::isi as peer_isi, peer::PeerId, prelude::*};
+    use iroha_client::{
+        client::{self, Client},
+        config::Configuration as ClientConfiguration,
+    };
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -19,9 +22,12 @@ mod tests {
         let domain_name = "domain";
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
-            destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
+            destination_id: PeerId::new(
+                &configuration.torii_configuration.torii_url,
+                &configuration.public_key,
+            ),
         };
-        configuration.torii_url = peers
+        configuration.torii_configuration.torii_url = peers
             .first()
             .expect("Failed to get first peer.")
             .address
@@ -38,7 +44,9 @@ mod tests {
             object: AssetDefinition::new(asset_id.clone()),
             destination_id: domain_name.to_string(),
         };
-        let mut iroha_client = Client::new(&configuration);
+        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
+            &configuration,
+        ));
         iroha_client
             .submit_all(vec![
                 create_domain.into(),
@@ -48,7 +56,7 @@ mod tests {
             .await
             .expect("Failed to prepare state.");
         task::sleep(std::time::Duration::from_millis(
-            configuration.pipeline_time_ms() * 2,
+            configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ))
         .await;
         //When
@@ -65,25 +73,35 @@ mod tests {
             .await
             .expect("Failed to create asset.");
         task::sleep(std::time::Duration::from_millis(
-            configuration.pipeline_time_ms() * 2,
+            configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ))
         .await;
         let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let address = format!("127.0.0.1:{}", 1338 + N_PEERS);
+        let address = format!("127.0.0.1:{}", 1337 + N_PEERS);
         let new_peer = PeerId::new(&address, &key_pair.public_key);
+        let temp_dir = TempDir::new().expect("Failed to create TempDir.");
+        let mut configuration =
+            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
+        configuration.sumeragi_configuration.key_pair = key_pair.clone();
+        configuration.sumeragi_configuration.peer_id = new_peer.clone();
+        configuration
+            .kura_configuration
+            .kura_block_store_path(temp_dir.path());
+        configuration.torii_configuration.torii_url = address;
+        configuration.public_key = key_pair.public_key;
+        configuration.private_key = key_pair.private_key.clone();
+        configuration
+            .sumeragi_configuration
+            .trusted_peers(peers.clone());
+        configuration
+            .sumeragi_configuration
+            .max_faulty_peers(MAX_FAULTS);
+        let mut configuration_clone = configuration.clone();
         task::spawn(async move {
-            let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                .expect("Failed to load configuration.");
-            configuration.kura_block_store_path(temp_dir.path());
-            configuration.torii_url = address;
-            configuration.public_key = key_pair.public_key;
-            configuration.private_key = key_pair.private_key.clone();
-            configuration.trusted_peers(peers.clone());
-            configuration.max_faulty_peers(MAX_FAULTS);
             let iroha = Iroha::new(configuration);
             iroha.start().await.expect("Failed to start Iroha.");
             //Prevents temp_dir from clean up until the end of the tests.
+            #[allow(clippy::empty_loop)]
             loop {}
         });
         let add_peer = isi::Instruction::Peer(peer_isi::PeerInstruction::AddPeer(new_peer.clone()));
@@ -92,15 +110,17 @@ mod tests {
             .await
             .expect("Failed to add new peer.");
         task::sleep(std::time::Duration::from_millis(
-            //TODO: get sync period from config
-            20000,
+            configuration_clone
+                .sumeragi_configuration
+                .pipeline_time_ms()
+                * 8,
         ))
         .await;
         //Then
-        let mut configuration =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.torii_url = new_peer.address.clone();
-        let mut iroha_client = Client::new(&configuration);
+        configuration_clone.torii_configuration.torii_url = new_peer.address.clone();
+        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
+            &configuration_clone,
+        ));
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
@@ -125,7 +145,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, key_pair)| PeerId {
-                address: format!("127.0.0.1:{}", 1338 + i),
+                address: format!("127.0.0.1:{}", 1337 + i),
                 public_key: key_pair.public_key,
             })
             .collect();
@@ -136,15 +156,24 @@ mod tests {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration.");
-                configuration.kura_block_store_path(temp_dir.path());
-                configuration.torii_url = peer_id.address.clone();
+                configuration.sumeragi_configuration.key_pair = key_pair.clone();
+                configuration.sumeragi_configuration.peer_id = peer_id.clone();
+                configuration
+                    .kura_configuration
+                    .kura_block_store_path(temp_dir.path());
+                configuration.torii_configuration.torii_url = peer_id.address.clone();
                 configuration.public_key = key_pair.public_key;
                 configuration.private_key = key_pair.private_key.clone();
-                configuration.trusted_peers(peer_ids.clone());
-                configuration.max_faulty_peers(MAX_FAULTS);
+                configuration
+                    .sumeragi_configuration
+                    .trusted_peers(peer_ids.clone());
+                configuration
+                    .sumeragi_configuration
+                    .max_faulty_peers(MAX_FAULTS);
                 let iroha = Iroha::new(configuration);
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up until the end of the tests.
+                #[allow(clippy::empty_loop)]
                 loop {}
             });
             task::sleep(std::time::Duration::from_millis(100)).await;

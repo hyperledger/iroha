@@ -44,7 +44,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
@@ -122,12 +122,12 @@ impl Iroha {
         let mut domains = BTreeMap::new();
         domains.insert(domain_name, domain);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
-            PeerId::new(&config.torii_url, &config.public_key),
-            &config.trusted_peers,
+            PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
+            &config.sumeragi_configuration.trusted_peers,
             domains,
         ))));
-        let torii = Torii::new(
-            &config.torii_url,
+        let torii = Torii::from_configuration(
+            &config.torii_configuration,
             Arc::clone(&world_state_view),
             transactions_sender.clone(),
             sumeragi_message_sender,
@@ -135,14 +135,10 @@ impl Iroha {
             System::new(&config),
             (events_sender, events_receiver),
         );
-        let kura = Kura::new(
-            config.kura_init_mode.clone(),
-            Path::new(&config.kura_block_store_path),
-            wsv_blocks_sender,
-        );
+        let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender);
         let sumeragi = Arc::new(RwLock::new(
-            Sumeragi::new(
-                &config,
+            Sumeragi::from_configuration(
+                &config.sumeragi_configuration,
                 Arc::new(RwLock::new(kura_blocks_sender)),
                 world_state_view.clone(),
                 transactions_sender,
@@ -155,7 +151,7 @@ impl Iroha {
         let block_sync = Arc::new(RwLock::new(BlockSynchronizer::new(
             kura.clone(),
             sumeragi.clone(),
-            PeerId::new(&config.torii_url, &config.public_key),
+            PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
             //TODO: get duration from config
             Duration::from_secs(10),
         )));
@@ -282,7 +278,6 @@ pub mod prelude {
         account::{Account, Id as AccountId},
         asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
         block::{CommittedBlock, PendingBlock, ValidBlock},
-        config::Configuration,
         crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature},
         domain::Domain,
         isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},

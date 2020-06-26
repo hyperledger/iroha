@@ -20,7 +20,7 @@ use ursa::{
 pub type Hash = [u8; 32];
 
 /// Pair of Public and Private keys.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Default)]
 pub struct KeyPair {
     /// Public Key.
     pub public_key: PublicKey,
@@ -55,7 +55,7 @@ impl TryFrom<Vec<u8>> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Default)]
 pub struct PrivateKey {
     inner: Vec<u8>,
 }

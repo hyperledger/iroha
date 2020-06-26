@@ -2,14 +2,17 @@ use async_std::task;
 use criterion::*;
 use futures::executor;
 use iroha::{config::Configuration, isi, prelude::*};
-use iroha_client::client::{assets, Client};
+use iroha_client::{
+    client::{assets, Client},
+    config::Configuration as ClientConfiguration,
+};
 use std::thread;
 use tempfile::TempDir;
 
 const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
 fn query_requests(criterion: &mut Criterion) {
-    thread::spawn(|| create_and_start_iroha());
+    thread::spawn(create_and_start_iroha);
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("query-reqeuests");
     let configuration =
@@ -17,7 +20,10 @@ fn query_requests(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
+        destination_id: PeerId::new(
+            &configuration.torii_configuration.torii_url,
+            &configuration.public_key,
+        ),
     };
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
@@ -35,12 +41,12 @@ fn query_requests(criterion: &mut Criterion) {
     let mint_asset = isi::Mint {
         object: quantity,
         destination_id: AssetId {
-            definition_id: asset_definition_id.clone(),
+            definition_id: asset_definition_id,
             account_id: account_id.clone(),
         },
     };
     let mut iroha_client = Client::new(
-        &Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     executor::block_on(iroha_client.submit_all(vec![
         create_domain.into(),
@@ -80,7 +86,7 @@ fn query_requests(criterion: &mut Criterion) {
 }
 
 fn instruction_submits(criterion: &mut Criterion) {
-    thread::spawn(|| create_and_start_iroha());
+    thread::spawn(create_and_start_iroha);
     thread::sleep(std::time::Duration::from_millis(50));
     let mut group = criterion.benchmark_group("instruction-reqeuests");
     let configuration =
@@ -88,7 +94,10 @@ fn instruction_submits(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
         object: Domain::new(domain_name.to_string()),
-        destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
+        destination_id: PeerId::new(
+            &configuration.torii_configuration.torii_url,
+            &configuration.public_key,
+        ),
     };
     let account_name = "account";
     let account_id = AccountId::new(account_name, domain_name);
@@ -103,7 +112,7 @@ fn instruction_submits(criterion: &mut Criterion) {
         destination_id: domain_name.to_string(),
     };
     let mut iroha_client = Client::new(
-        &Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
+        &ClientConfiguration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration."),
     );
     executor::block_on(iroha_client.submit_all(vec![create_domain.into(), create_account.into()]))
         .expect("Failed to create role.");
@@ -143,10 +152,13 @@ fn create_and_start_iroha() {
     let temp_dir = TempDir::new().expect("Failed to create TempDir.");
     let mut configuration =
         Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-    configuration.kura_block_store_path(temp_dir.path());
+    configuration
+        .kura_configuration
+        .kura_block_store_path(temp_dir.path());
     let iroha = Iroha::new(configuration);
     task::block_on(iroha.start()).expect("Failed to start Iroha.");
     //Prevents temp_dir from clean up untill the end of the tests.
+    #[allow(clippy::empty_loop)]
     loop {}
 }
 
