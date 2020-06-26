@@ -215,3 +215,14 @@ impl From<&ValidTransaction> for RequestedTransaction {
         }
     }
 }
+
+mod event {
+    use super::*;
+    use crate::event::{Entity, Occurrence};
+
+    impl From<&RequestedTransaction> for Occurrence {
+        fn from(transaction: &RequestedTransaction) -> Occurrence {
+            Occurrence::Created(Entity::Transaction(transaction.into()))
+        }
+    }
+}

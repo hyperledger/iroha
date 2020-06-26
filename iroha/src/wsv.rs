@@ -124,7 +124,7 @@ mod tests {
         peer::{Peer, PeerId},
         permission::Permission,
     };
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     #[async_std::test]
     async fn test_listeners() {
@@ -140,7 +140,7 @@ mod tests {
             signatures: Signatures::default(),
         };
         let domain_name = "global".to_string();
-        let mut asset_definitions = HashMap::new();
+        let mut asset_definitions = BTreeMap::new();
         let asset_definition_id = crate::permission::permission_asset_definition_id();
         asset_definitions.insert(
             asset_definition_id.clone(),
@@ -161,14 +161,14 @@ mod tests {
             public_key.clone(),
         );
         account.assets.insert(asset_id.clone(), asset);
-        let mut accounts = HashMap::new();
+        let mut accounts = BTreeMap::new();
         accounts.insert(account_id.clone(), account);
         let domain = Domain {
             name: domain_name.clone(),
             accounts,
             asset_definitions,
         };
-        let mut domains = HashMap::new();
+        let mut domains = BTreeMap::new();
         domains.insert(domain_name.clone(), domain);
         let address = "127.0.0.1:8080".to_string();
         let mut peer = Peer::with_domains(

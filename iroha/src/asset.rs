@@ -529,18 +529,17 @@ pub mod query {
 
 #[cfg(test)]
 mod tests {
-    use crate::asset::isi::AssetInstruction;
     use crate::peer::PeerId;
     use crate::permission::{permission_asset_definition_id, Permission};
     use crate::prelude::*;
-    use parity_scale_codec::alloc::collections::HashMap;
+    use parity_scale_codec::alloc::collections::BTreeMap;
 
     fn init() -> WorldStateView {
         let domain_name = "Company".to_string();
         let public_key = KeyPair::generate()
             .expect("Failed to generate KeyPair.")
             .public_key;
-        let mut asset_definitions = HashMap::new();
+        let mut asset_definitions = BTreeMap::new();
         let asset_definition_id = permission_asset_definition_id();
         asset_definitions.insert(
             asset_definition_id.clone(),
@@ -558,14 +557,14 @@ mod tests {
             public_key.clone(),
         );
         account.assets.insert(asset_id.clone(), asset);
-        let mut accounts = HashMap::new();
+        let mut accounts = BTreeMap::new();
         accounts.insert(account_id.clone(), account);
         let domain = Domain {
             name: domain_name.clone(),
             accounts,
             asset_definitions,
         };
-        let mut domains = HashMap::new();
+        let mut domains = BTreeMap::new();
         domains.insert(domain_name.clone(), domain);
         let address = "127.0.0.1:8080".to_string();
         let mut world_state_view = WorldStateView::new(Peer::with_domains(

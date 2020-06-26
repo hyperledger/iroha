@@ -44,7 +44,7 @@ use async_std::{
     sync::{self, Receiver, RwLock, Sender},
     task,
 };
-use std::{collections::HashMap, path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 /// The interval at which sumeragi checks if there are tx in the `queue`.
 pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
@@ -95,8 +95,9 @@ impl Iroha {
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
         let (sumeragi_message_sender, sumeragi_message_receiver) = sync::channel(100);
         let (block_sync_message_sender, block_sync_message_receiver) = sync::channel(100);
+        let (events_sender, events_receiver) = sync::channel(100);
         let domain_name = "global".to_string();
-        let mut asset_definitions = HashMap::new();
+        let mut asset_definitions = BTreeMap::new();
         let asset_definition_id = permission::permission_asset_definition_id();
         asset_definitions.insert(
             asset_definition_id.clone(),
@@ -111,14 +112,14 @@ impl Iroha {
         let mut account =
             Account::with_signatory(&account_id.name, &account_id.domain_name, config.public_key);
         account.assets.insert(asset_id, asset);
-        let mut accounts = HashMap::new();
+        let mut accounts = BTreeMap::new();
         accounts.insert(account_id, account);
         let domain = Domain {
             name: domain_name.clone(),
             accounts,
             asset_definitions,
         };
-        let mut domains = HashMap::new();
+        let mut domains = BTreeMap::new();
         domains.insert(domain_name, domain);
         let world_state_view = Arc::new(RwLock::new(WorldStateView::new(Peer::with_domains(
             PeerId::new(&config.torii_url, &config.public_key),
@@ -132,6 +133,7 @@ impl Iroha {
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(&config),
+            (events_sender, events_receiver),
         );
         let kura = Kura::new(
             config.kura_init_mode.clone(),

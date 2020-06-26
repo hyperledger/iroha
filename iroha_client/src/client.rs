@@ -1,3 +1,4 @@
+use async_std::stream::Stream;
 use iroha::{crypto::KeyPair, prelude::*, torii::uri};
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
@@ -160,6 +161,14 @@ pub mod maintenance {
                 }
                 Response::InternalError => Err("Server error.".to_string()),
             }
+        }
+
+        pub async fn subscribe_to_block_changes(
+            &mut self,
+        ) -> Result<impl Stream<Item = Vec<u8>>, String> {
+            let network = Network::new("127.0.0.1:8888");
+            let connection = network.connect().await.expect("Failed to connect.");
+            Ok(connection)
         }
     }
 }

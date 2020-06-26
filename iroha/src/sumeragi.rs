@@ -14,7 +14,7 @@ use async_std::sync::RwLock;
 use iroha_derive::*;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::BTreeSet,
     fmt::{self, Debug, Formatter},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -719,8 +719,8 @@ pub struct InitializedNetworkTopology {
 
 impl InitializedNetworkTopology {
     /// Updates it only if the new peers were added, otherwise leaves the order unchanged.
-    pub fn update(&mut self, peers: HashSet<PeerId>, latest_block_hash: Hash) {
-        let current_peers: HashSet<_> = self.sorted_peers.iter().cloned().collect();
+    pub fn update(&mut self, peers: BTreeSet<PeerId>, latest_block_hash: Hash) {
+        let current_peers: BTreeSet<_> = self.sorted_peers.iter().cloned().collect();
         if peers != current_peers {
             self.sorted_peers = peers.iter().cloned().collect();
             self.sort_peers(Some(latest_block_hash));
@@ -839,7 +839,7 @@ impl InitializedNetworkTopology {
         roles: &[Role],
         signatures: &[Signature],
     ) -> Vec<Signature> {
-        let roles: HashSet<Role> = roles.iter().cloned().collect();
+        let roles: BTreeSet<Role> = roles.iter().cloned().collect();
         let public_keys: Vec<_> = roles
             .iter()
             .flat_map(|role| role.peers(self))
@@ -854,7 +854,7 @@ impl InitializedNetworkTopology {
 }
 
 /// Possible Peer's roles in consensus.
-#[derive(Eq, PartialEq, Debug, Hash, Clone)]
+#[derive(PartialOrd, Ord, Eq, PartialEq, Debug, Hash, Clone)]
 pub enum Role {
     /// Leader.
     Leader,
@@ -1261,6 +1261,7 @@ mod tests {
             let (tx, _rx) = sync::channel(100);
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1277,6 +1278,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
+                (events_sender, events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1369,6 +1371,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1385,6 +1388,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
+                (events_sender, events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1496,6 +1500,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1512,6 +1517,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
+                (events_sender, events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1632,6 +1638,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, mut transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1648,6 +1655,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
+                (events_sender, events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1770,6 +1778,7 @@ mod tests {
             let (sumeragi_message_sender, mut sumeragi_message_receiver) = sync::channel(100);
             let (block_sync_message_sender, _) = sync::channel(100);
             let (transactions_sender, _transactions_receiver) = sync::channel(100);
+            let (events_sender, events_receiver) = sync::channel(100);
             let wsv = Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:7878".to_string(),
@@ -1786,6 +1795,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
+                (events_sender, events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");

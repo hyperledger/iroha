@@ -5,6 +5,7 @@ use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
     sync::RwLock,
+    task::{Context, Poll},
 };
 use iroha_derive::{log, Io};
 use parity_scale_codec::{Decode, Encode};
@@ -12,6 +13,9 @@ use std::{
     convert::{TryFrom, TryInto},
     error::Error,
     future::Future,
+    io::prelude::*,
+    net::TcpStream as SyncTcpStream,
+    pin::Pin,
     sync::Arc,
 };
 
@@ -96,7 +100,7 @@ impl Network {
         Ok(())
     }
 
-    /// Helper function to call inside `listen_async` `handler` function to parse and send response.
+    /// Helper function to call inside `listen` `handler` function to parse and send response.
     /// The `handler` specified here will need to generate `Response` from `Request`.
     /// See `listen_async` for the description of the `state`.
     pub async fn handle_message_async<H, F, S>(
@@ -124,6 +128,49 @@ impl Network {
             .map_err(|e| e.to_string())?;
         stream.flush().await.map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub async fn connect(&self) -> Result<Connection, String> {
+        Ok(Connection::new(
+            SyncTcpStream::connect(&self.server_url).map_err(|e| e.to_string())?,
+        ))
+    }
+}
+
+pub struct Connection {
+    tcp_stream: SyncTcpStream,
+}
+
+impl Connection {
+    fn new(tcp_stream: SyncTcpStream) -> Self {
+        Connection { tcp_stream }
+    }
+}
+
+impl Stream for Connection {
+    type Item = Vec<u8>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut buffer = [0u8; BUFFER_SIZE];
+        match self.tcp_stream.read(&mut buffer) {
+            Ok(read_size) => {
+                let bytes: Vec<u8> = buffer[..read_size].to_vec();
+                let receipt = [1, 1, 1, 1];
+                if let Err(e) = self.tcp_stream.write_all(&receipt) {
+                    eprintln!("Write receipt to stream failed: {}", e);
+                    return Poll::Ready(None);
+                }
+                if let Err(e) = self.tcp_stream.flush() {
+                    eprintln!("Flush stream with receipt failed: {}", e);
+                    return Poll::Ready(None);
+                }
+                Poll::Ready(Some(bytes))
+            }
+            Err(e) => {
+                eprintln!("Read data from stream failed: {}", e);
+                Poll::Ready(None)
+            }
+        }
     }
 }
 
@@ -206,7 +253,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Network, Request, Response, State};
+    pub use crate::{AsyncStream, Connection, Network, Request, Response, State};
 }
 
 #[cfg(test)]

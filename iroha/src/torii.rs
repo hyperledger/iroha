@@ -3,12 +3,13 @@
 
 use crate::{
     block_sync::message::Message as BlockSyncMessage,
+    event::{EventsReceiver, EventsSender},
     maintenance::{Health, System},
     prelude::*,
     sumeragi::message::Message as SumeragiMessage,
     BlockSyncMessageSender, SumeragiMessageSender,
 };
-use async_std::{sync::RwLock, task};
+use async_std::{prelude::*, sync::RwLock, task};
 use iroha_derive::*;
 #[cfg(feature = "mock")]
 use iroha_network::mock::prelude::*;
@@ -24,6 +25,8 @@ pub struct Torii {
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
     block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
     system: Arc<RwLock<System>>,
+    events_sender: EventsSender,
+    events_receiver: EventsReceiver,
 }
 
 impl Torii {
@@ -35,6 +38,7 @@ impl Torii {
         sumeragi_message_sender: SumeragiMessageSender,
         block_sync_message_sender: BlockSyncMessageSender,
         system: System,
+        (events_sender, events_receiver): (EventsSender, EventsReceiver),
     ) -> Self {
         Torii {
             url: url.to_string(),
@@ -43,6 +47,8 @@ impl Torii {
             sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
             block_sync_message_sender: Arc::new(RwLock::new(block_sync_message_sender)),
             system: Arc::new(RwLock::new(system)),
+            events_sender,
+            events_receiver,
         }
     }
 
@@ -60,8 +66,15 @@ impl Torii {
             sumeragi_message_sender,
             block_sync_message_sender,
             system,
+            events_sender: self.events_sender.clone(),
+            events_receiver: self.events_receiver.clone(),
         };
-        Network::listen(Arc::new(RwLock::new(state)), url, handle_connection).await?;
+        let state = Arc::new(RwLock::new(state));
+        let a = Network::listen(state.clone(), "127.0.0.1:8888", handle_connections);
+        let b = Network::listen(state.clone(), url, handle_requests);
+        let result = a.join(b).await;
+        result.0?;
+        result.1?;
         Ok(())
     }
 }
@@ -73,9 +86,11 @@ struct ToriiState {
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
     block_sync_message_sender: Arc<RwLock<BlockSyncMessageSender>>,
     system: Arc<RwLock<System>>,
+    events_sender: EventsSender,
+    events_receiver: EventsReceiver,
 }
 
-async fn handle_connection(
+async fn handle_requests(
     state: State<ToriiState>,
     stream: Box<dyn AsyncStream>,
 ) -> Result<(), String> {
@@ -86,6 +101,33 @@ async fn handle_connection(
         }
     })
     .await;
+    Ok(())
+}
+
+async fn handle_connections(
+    state: State<ToriiState>,
+    mut stream: Box<dyn AsyncStream>,
+) -> Result<(), String> {
+    let mut receiver = state.write().await.events_receiver.clone();
+    while let Some(change) = receiver.next().await {
+        let change: Vec<u8> = change.into();
+        stream
+            .write_all(&change)
+            .await
+            .map_err(|e| format!("Failed to write message: {}", e))?;
+        stream
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
+        let mut receipt = [0u8; 4];
+        stream
+            .read(&mut receipt)
+            .await
+            .map_err(|e| format!("Failed to read receipt: {}", e))?;
+        if receipt != [1; 4] {
+            panic!("F");
+        }
+    }
     Ok(())
 }
 
@@ -208,6 +250,7 @@ mod tests {
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);
+        let (events_sender, events_receiver) = sync::channel(100);
         let mut torii = Torii::new(
             &torii_url,
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
@@ -218,6 +261,7 @@ mod tests {
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(&config),
+            (events_sender, events_receiver),
         );
         task::spawn(async move {
             if let Err(e) = torii.start().await {

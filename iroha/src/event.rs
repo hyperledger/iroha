@@ -2,6 +2,68 @@
 //! This module contains descriptions of such an events and
 //! utilitary Iroha Special Instructions to work with them.
 
+use crate::prelude::*;
+use async_std::sync::{Receiver, Sender};
+use chrono::Utc;
+use cloudevents::{Event, EventBuilder};
+use iroha_derive::*;
+use parity_scale_codec::{Decode, Encode};
+use url::Url;
+
+/// Type of `Sender<Event>` which should be used for channels of `Event` messages.
+pub type EventsSender = Sender<Occurrence>;
+/// Type of `Receiver<Event>` which should be used for channels of `Event` messages.
+pub type EventsReceiver = Receiver<Occurrence>;
+
+/// Payload for
+/// [CloudEvents](https://docs.rs/cloudevents-sdk/0.1.0/cloudevents/event/enum.Data.html).
+///
+/// Can represent different possible captures of statements of facts during the operation of
+/// Iroha - creation of new entities, updates on and deletion of existing entities.
+///
+/// [Specification](https://github.com/cloudevents/spec/blob/v1.0/spec.md#occurrence).
+#[derive(Io, Encode, Decode)]
+pub enum Occurrence {
+    /// Entity was added, registered, minted or another action was made to make entity appear on
+    /// the blockchain for the first time.
+    Created(Entity),
+    /// Entity's state was changed, lifecycle stage was moved forward or backward,
+    /// any parameter updated it's value.
+    Updated(Entity),
+    /// Entity was archived or by any other way was put into state that guarantees absense of
+    /// `Updated` events for this entity.
+    Deleted(Entity),
+}
+
+/// Enumeration of all possible Iroha entities.
+#[derive(Io, Encode, Decode)]
+pub enum Entity {
+    /// Account.
+    Account(Account),
+    /// AssetDefinition.
+    AssetDefinition(AssetDefinition),
+    /// Asset.
+    Asset(Asset),
+    /// Domain.
+    Domain(Domain),
+    /// Peer.
+    Peer(Peer),
+    /// Transaction.
+    Transaction(Vec<u8>),
+}
+
+impl Into<Event> for Occurrence {
+    fn into(self) -> Event {
+        EventBuilder::v10()
+            .id("uid.created.account.iroha")
+            //TODO: will be great to have `Environment` struct as Runtime read-only global
+            //configurations holder?
+            .source(Url::parse("127.0.0.1:8888").expect("Failed to parse Url."))
+            .time(Utc::now())
+            .build()
+    }
+}
+
 /// Iroha Special Instructions module provides `EventInstruction` enum with all legal types of
 /// events related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `EventInstruction` variants into generic ISI.
@@ -98,7 +160,7 @@ pub mod isi {
             peer::{Peer, PeerId},
             permission::Permission,
         };
-        use std::collections::HashMap;
+        use std::collections::BTreeMap;
 
         #[test]
         fn test_on_block_created_should_trigger() {
@@ -114,7 +176,7 @@ pub mod isi {
                 signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
-            let mut asset_definitions = HashMap::new();
+            let mut asset_definitions = BTreeMap::new();
             let asset_definition_id = crate::permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
@@ -135,14 +197,14 @@ pub mod isi {
                 public_key.clone(),
             );
             account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
+            let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
-            let mut domains = HashMap::new();
+            let mut domains = BTreeMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
@@ -179,7 +241,7 @@ pub mod isi {
                 signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
-            let mut asset_definitions = HashMap::new();
+            let mut asset_definitions = BTreeMap::new();
             let asset_definition_id = crate::permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
@@ -200,14 +262,14 @@ pub mod isi {
                 public_key.clone(),
             );
             account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
+            let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
-            let mut domains = HashMap::new();
+            let mut domains = BTreeMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
@@ -244,7 +306,7 @@ pub mod isi {
                 signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
-            let mut asset_definitions = HashMap::new();
+            let mut asset_definitions = BTreeMap::new();
             let asset_definition_id = crate::permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
@@ -261,14 +323,14 @@ pub mod isi {
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
             let mut account = Account::new(&account_id.name, &account_id.domain_name);
             account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
+            let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
-            let mut domains = HashMap::new();
+            let mut domains = BTreeMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
@@ -307,7 +369,7 @@ pub mod isi {
                 signatures: Signatures::default(),
             };
             let domain_name = "global".to_string();
-            let mut asset_definitions = HashMap::new();
+            let mut asset_definitions = BTreeMap::new();
             let asset_definition_id = crate::permission::permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
@@ -328,14 +390,14 @@ pub mod isi {
                 public_key.clone(),
             );
             account.assets.insert(asset_id.clone(), asset);
-            let mut accounts = HashMap::new();
+            let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
                 name: domain_name.clone(),
                 accounts,
                 asset_definitions,
             };
-            let mut domains = HashMap::new();
+            let mut domains = BTreeMap::new();
             domains.insert(domain_name.clone(), domain);
             let address = "127.0.0.1:8080".to_string();
             let peer = Peer::with_domains(
