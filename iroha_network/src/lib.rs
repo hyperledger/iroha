@@ -297,7 +297,7 @@ mod tests {
             _state: State<S>,
             _request: Request,
         ) -> Result<Response, String> {
-            Ok(Response::Ok("pong".as_bytes().to_vec()))
+            Ok(Response::Ok(b"pong".to_vec()))
         };
 
         async fn handle_connection<S>(
@@ -315,7 +315,7 @@ mod tests {
             .await
             .expect("Failed to send request to.")
         {
-            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
+            Response::Ok(payload) => assert_eq!(payload, b"pong"),
             _ => panic!("Response should be ok."),
         }
     }
@@ -330,7 +330,7 @@ mod tests {
         ) -> Result<Response, String> {
             let mut data = state.write().await;
             *data += 1;
-            Ok(Response::Ok("pong".as_bytes().to_vec()))
+            Ok(Response::Ok(b"pong".to_vec()))
         };
         async fn handle_connection(
             state: State<usize>,
@@ -347,7 +347,7 @@ mod tests {
             .await
             .expect("Failed to send request to.")
         {
-            Response::Ok(payload) => assert_eq!(payload, "pong".as_bytes()),
+            Response::Ok(payload) => assert_eq!(payload, b"pong"),
             _ => panic!("Response should be ok."),
         }
         std::thread::sleep(std::time::Duration::from_millis(200));

@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::{isi, prelude::*};
-    use iroha_client::client::{self, Client};
+    use iroha::{config::Configuration, isi, prelude::*};
+    use iroha_client::{
+        client::{self, Client},
+        config::Configuration as ClientConfiguration,
+    };
     use std::{thread, time::Duration};
     use tempfile::TempDir;
 
@@ -12,7 +15,7 @@ mod tests {
     //TODO: use cucumber to write `gherkin` instead of code.
     async fn client_add_asset_quantity_to_existing_asset_should_increase_asset_amount() {
         // Given
-        thread::spawn(|| create_and_start_iroha());
+        thread::spawn(create_and_start_iroha);
         thread::sleep(std::time::Duration::from_millis(300));
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
@@ -24,12 +27,17 @@ mod tests {
             object: AssetDefinition::new(asset_definition_id.clone()),
             destination_id: domain_name.to_string(),
         };
-        let mut iroha_client = Client::new(&configuration);
+        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
+            &configuration,
+        ));
         iroha_client
             .submit(create_asset.into())
             .await
             .expect("Failed to prepare state.");
-        task::sleep(Duration::from_millis(&configuration.pipeline_time_ms() * 2)).await;
+        task::sleep(Duration::from_millis(
+            &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
+        ))
+        .await;
         //When
         let quantity: u32 = 200;
         let mint_asset = isi::Mint {
@@ -43,7 +51,10 @@ mod tests {
             .submit(mint_asset.into())
             .await
             .expect("Failed to create asset.");
-        task::sleep(Duration::from_millis(&configuration.pipeline_time_ms() * 2)).await;
+        task::sleep(Duration::from_millis(
+            &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
+        ))
+        .await;
         //Then
         let request = client::assets::by_account_id(account_id);
         let query_result = iroha_client
@@ -65,10 +76,13 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create TempDir.");
         let mut configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        configuration.kura_block_store_path(temp_dir.path());
+        configuration
+            .kura_configuration
+            .kura_block_store_path(temp_dir.path());
         let iroha = Iroha::new(configuration);
         task::block_on(iroha.start()).expect("Failed to start Iroha.");
         //Prevents temp_dir from clean up untill the end of the tests.
+        #[allow(clippy::empty_loop)]
         loop {}
     }
 }

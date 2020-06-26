@@ -52,7 +52,7 @@ impl Metrics {
     /// Default `Metrics` constructor.
     pub fn new(configuration: &Configuration) -> Self {
         Metrics {
-            disk: disk::Disk::new(configuration),
+            disk: disk::Disk::new(&configuration.kura_configuration),
             ..Default::default()
         }
     }
@@ -69,7 +69,7 @@ impl Metrics {
 }
 
 mod disk {
-    use crate::config::Configuration;
+    use crate::kura::config::KuraConfiguration;
     use iroha_derive::Io;
     use parity_scale_codec::{Decode, Encode};
     use std::fs::read_dir;
@@ -81,7 +81,7 @@ mod disk {
     }
 
     impl Disk {
-        pub fn new(configuration: &Configuration) -> Self {
+        pub fn new(configuration: &KuraConfiguration) -> Self {
             Disk {
                 block_storage_path: configuration.kura_block_store_path.clone(),
                 ..Default::default()

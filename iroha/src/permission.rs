@@ -203,12 +203,9 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -217,11 +214,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -243,14 +240,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -259,11 +253,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -311,12 +305,9 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddDomain);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -325,11 +316,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -351,14 +342,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -367,11 +355,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -419,12 +407,9 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddListener);
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -433,11 +418,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -459,14 +444,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -475,11 +457,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -527,12 +509,9 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::RegisterAccount(None));
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -541,11 +520,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -579,12 +558,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAccount(Some(domain_name.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -597,7 +573,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -620,14 +596,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -636,11 +609,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -690,12 +663,9 @@ pub mod isi {
             };
             let asset =
                 Asset::with_permission(asset_id.clone(), Permission::RegisterAssetDefinition(None));
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -704,11 +674,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -742,12 +712,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAssetDefinition(Some(domain_name.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -760,7 +727,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -784,14 +751,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -800,11 +764,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -859,12 +823,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::TransferAsset(None, Some(transfer_asset_definition_id.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -873,11 +834,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -919,12 +880,9 @@ pub mod isi {
                     Some(transfer_asset_definition_id.clone()),
                 ),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -937,7 +895,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -964,14 +922,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -980,11 +935,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1042,12 +997,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::AddSignatory(None, Some(multisignature_account_id.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1056,11 +1008,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1098,12 +1050,9 @@ pub mod isi {
                     Some(multisignature_account_id.clone()),
                 ),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1116,7 +1065,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1143,14 +1092,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1163,7 +1109,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1221,12 +1167,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RemoveSignatory(None, Some(multisignature_account_id.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1235,11 +1178,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1281,12 +1224,9 @@ pub mod isi {
                     Some(multisignature_account_id.clone()),
                 ),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1299,7 +1239,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1326,14 +1266,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1346,7 +1283,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1404,12 +1341,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::MintAsset(None, Some(mint_asset_definition_id.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1418,11 +1352,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1460,12 +1394,9 @@ pub mod isi {
                     Some(mint_asset_definition_id.clone()),
                 ),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1478,7 +1409,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1505,14 +1436,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1583,12 +1511,9 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::DemintAsset(None, Some(demint_asset_definition_id.clone())),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1597,11 +1522,11 @@ pub mod isi {
                 asset_definitions,
             };
             let mut domains = BTreeMap::new();
-            domains.insert(domain_name.clone(), domain);
+            domains.insert(domain_name, domain);
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1639,12 +1564,9 @@ pub mod isi {
                     Some(demint_asset_definition_id.clone()),
                 ),
             );
-            let mut account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
-            account.assets.insert(asset_id.clone(), asset);
+            let mut account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1657,7 +1579,7 @@ pub mod isi {
             let address = "127.0.0.1:8080".to_string();
             let mut world_state_view = WorldStateView::new(Peer::with_domains(
                 PeerId {
-                    address: address.clone(),
+                    address,
                     public_key,
                 },
                 &Vec::new(),
@@ -1684,14 +1606,11 @@ pub mod isi {
             let asset_definition_id = permission_asset_definition_id();
             asset_definitions.insert(
                 asset_definition_id.clone(),
-                AssetDefinition::new(asset_definition_id.clone()),
+                AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account = Account::with_signatory(
-                &account_id.name,
-                &account_id.domain_name,
-                public_key.clone(),
-            );
+            let account =
+                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {

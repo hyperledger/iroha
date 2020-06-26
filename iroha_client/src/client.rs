@@ -1,3 +1,4 @@
+use crate::config::Configuration;
 use async_std::stream::Stream;
 use iroha::{crypto::KeyPair, prelude::*, torii::uri};
 use iroha_derive::log;

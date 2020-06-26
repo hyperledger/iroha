@@ -370,9 +370,9 @@ pub mod isi {
                 let mut account = Account::with_signatory(
                     &account_id.name,
                     &account_id.domain_name,
-                    key_pair.public_key.clone(),
+                    key_pair.public_key,
                 );
-                account.assets.insert(asset_id.clone(), asset);
+                account.assets.insert(asset_id, asset);
                 let mut accounts = BTreeMap::new();
                 accounts.insert(account_id.clone(), account);
                 let domain = Domain {
@@ -401,12 +401,12 @@ pub mod isi {
                     asset_definitions: bridge_asset_definitions,
                 };
                 let mut domains = BTreeMap::new();
-                domains.insert(domain_name.clone(), domain);
-                domains.insert(bridge_domain_name.clone(), bridge_domain);
+                domains.insert(domain_name, domain);
+                domains.insert(bridge_domain_name, bridge_domain);
                 let address = "127.0.0.1:8080".to_string();
                 let world_state_view = WorldStateView::new(Peer::with_domains(
                     PeerId {
-                        address: address.clone(),
+                        address,
                         public_key: key_pair.public_key,
                     },
                     &Vec::new(),
@@ -450,7 +450,7 @@ pub mod isi {
             let decoded_bridge_definition = decode_bridge_definition(&query_result)
                 .expect("failed to decode a bridge definition");
             assert_eq!(decoded_bridge_definition, bridge_definition);
-            let bridge_query = query_bridges_list(bridge_owner_account.id.clone());
+            let bridge_query = query_bridges_list(bridge_owner_account.id);
             let query_result = bridge_query
                 .execute(&world_state_view)
                 .expect("failed to query bridges list");
@@ -472,7 +472,7 @@ pub mod isi {
             let bridge_definition = BridgeDefinition {
                 id: BridgeDefinitionId::new(BRIDGE_NAME),
                 kind: BridgeKind::IClaim,
-                owner_account_id: bridge_owner_account.id.clone(),
+                owner_account_id: bridge_owner_account.id,
             };
             let world_state_view = &mut testkit.world_state_view;
             let register_bridge =
@@ -536,7 +536,7 @@ pub mod isi {
                 .expect("Failed to generate KeyPair.")
                 .public_key;
             let bridge_owner_account =
-                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key.clone());
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
             let bridge_definition = BridgeDefinition {
                 id: BridgeDefinitionId::new(BRIDGE_NAME),
                 kind: BridgeKind::IClaim,
@@ -551,7 +551,7 @@ pub mod isi {
             register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge");
-            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+            add_client(&bridge_definition.id, bridge_owner_public_key)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to add bridge client");
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
@@ -568,7 +568,7 @@ pub mod isi {
                 .expect("Failed to generate KeyPair.")
                 .public_key;
             let bridge_owner_account =
-                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key.clone());
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
             let bridge_definition = BridgeDefinition {
                 id: BridgeDefinitionId::new(BRIDGE_NAME),
                 kind: BridgeKind::IClaim,
@@ -583,7 +583,7 @@ pub mod isi {
             register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to register bridge");
-            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+            add_client(&bridge_definition.id, bridge_owner_public_key)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to add bridge client");
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
@@ -592,7 +592,7 @@ pub mod isi {
             let clients = get_clients(&query_result).expect("failed to get bridge clients");
             assert_eq!(clients, &[bridge_owner_public_key]);
 
-            remove_client(&bridge_definition.id, bridge_owner_public_key.clone())
+            remove_client(&bridge_definition.id, bridge_owner_public_key)
                 .execute(testkit.root_account_id.clone(), world_state_view)
                 .expect("failed to remove bridge client");
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
@@ -609,12 +609,12 @@ pub mod isi {
                 .expect("Failed to generate KeyPair.")
                 .public_key;
             let bridge_owner_account =
-                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key.clone());
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key);
             let recipient_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
             let recipient_account =
-                Account::with_signatory("recepient", "Company", recipient_public_key.clone());
+                Account::with_signatory("recepient", "Company", recipient_public_key);
             let bridge_definition = BridgeDefinition {
                 id: BridgeDefinitionId::new(BRIDGE_NAME),
                 kind: BridgeKind::IClaim,
