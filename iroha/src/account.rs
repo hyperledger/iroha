@@ -15,6 +15,8 @@ pub struct Account {
     pub id: Id,
     /// Asset's in this `Account`.
     pub assets: BTreeMap<<Asset as Identifiable>::Id, Asset>,
+    /// Associated instruction.
+    pub instruction: Option<Box<Instruction>>,
     signatories: Vec<PublicKey>,
 }
 
@@ -28,6 +30,7 @@ impl Account {
         Account {
             id: Id::new(account_name, domain_name),
             assets: BTreeMap::new(),
+            instruction: None,
             signatories: Vec::new(),
         }
     }
@@ -41,6 +44,7 @@ impl Account {
         Account {
             id: Id::new(account_name, domain_name),
             assets: BTreeMap::new(),
+            instruction: None,
             signatories: vec![public_key],
         }
     }
@@ -132,6 +136,10 @@ pub mod isi {
         ),
         /// Variant of the generic `Add` instruction for `PublicKey` --> `Account`.
         AddSignatory(<Account as Identifiable>::Id, PublicKey),
+        /// Variant of the generic `Add` instruction for `Instruction` --> `Account`.
+        AddInstruction(<Account as Identifiable>::Id, Box<Instruction>),
+        /// Variant of Iroha Special Instructions executes an ISI associated with the account.
+        ExecuteInstruction(<Account as Identifiable>::Id),
     }
 
     impl AccountInstruction {
@@ -155,6 +163,20 @@ pub mod isi {
                 .execute(authority, world_state_view),
                 AccountInstruction::AddSignatory(account_id, public_key) => {
                     Add::new(*public_key, account_id.clone()).execute(authority, world_state_view)
+                }
+                AccountInstruction::AddInstruction(account_id, instruction) => {
+                    Add::new(instruction, account_id.clone()).execute(authority, world_state_view)
+                }
+                AccountInstruction::ExecuteInstruction(account_id) => {
+                    let account = world_state_view
+                        .read_account(account_id)
+                        .ok_or("Failed to find account.")?;
+                    account
+                        .instruction
+                        .as_ref()
+                        .ok_or("Failed to find instruction.")?
+                        .clone()
+                        .execute(account_id.clone(), world_state_view)
                 }
             }
         }
@@ -256,6 +278,21 @@ pub mod isi {
                 instruction.destination_id,
                 instruction.object,
             ))
+        }
+    }
+
+    impl Add<Account, &Box<Instruction>> {
+        fn execute(
+            &self,
+            _authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            // TODO: permissions
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or("Failed to find account.")?;
+            account.instruction = Some(self.object.clone());
+            Ok(())
         }
     }
 }
