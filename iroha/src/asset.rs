@@ -260,6 +260,7 @@ pub mod isi {
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
+                None,
             )
             .execute(world_state_view)?;
             world_state_view
@@ -287,6 +288,7 @@ pub mod isi {
             PermissionInstruction::CanMintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
+                None,
                 None,
             )
             .execute(world_state_view)?;
@@ -333,6 +335,7 @@ pub mod isi {
             PermissionInstruction::CanMintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
+                Some("bytes".into()),
                 None,
             )
             .execute(world_state_view)?;
@@ -351,6 +354,40 @@ pub mod isi {
                 None => world_state_view.add_asset(Asset::with_parameter(
                     self.destination_id.clone(),
                     self.object.clone(),
+                )),
+            }
+            Ok(())
+        }
+    }
+
+    impl Mint<Asset, (String, i64)> {
+        pub(crate) fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanMintAsset(
+                authority,
+                self.destination_id.definition_id.clone(),
+                Some("integer".into()),
+                None,
+            )
+            .execute(world_state_view)?;
+            world_state_view
+                .asset_definition(&self.destination_id.definition_id)
+                .ok_or(format!(
+                    "Failed to find asset definition. {:?}",
+                    &self.destination_id.definition_id
+                ))?;
+            let key = self.object.0.clone();
+            let value = self.object.1.to_le_bytes().to_vec();
+            match world_state_view.asset(&self.destination_id) {
+                Some(asset) => {
+                    asset.store.insert(key.clone(), value.clone());
+                }
+                None => world_state_view.add_asset(Asset::with_parameter(
+                    self.destination_id.clone(),
+                    (key, value),
                 )),
             }
             Ok(())

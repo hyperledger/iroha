@@ -21,6 +21,7 @@ pub enum Permission {
     MintAsset(
         Option<<Domain as Identifiable>::Id>,
         Option<<AssetDefinition as Identifiable>::Id>,
+        Option<String>,
     ),
     DemintAsset(
         Option<<Domain as Identifiable>::Id>,
@@ -88,6 +89,7 @@ pub mod isi {
         CanMintAsset(
             <Account as Identifiable>::Id,
             <AssetDefinition as Identifiable>::Id,
+            Option<String>,
             Option<<Domain as Identifiable>::Id>,
         ),
         CanDemintAsset(
@@ -150,12 +152,16 @@ pub mod isi {
                 PermissionInstruction::CanAddSignatory(_, account_id, option_domain_id) => {
                     Permission::AddSignatory(option_domain_id.clone(), Some(account_id.clone()))
                 }
-                PermissionInstruction::CanMintAsset(_, asset_definition_id, option_domain_id) => {
-                    Permission::MintAsset(
-                        option_domain_id.clone(),
-                        Some(asset_definition_id.clone()),
-                    )
-                }
+                PermissionInstruction::CanMintAsset(
+                    _,
+                    asset_definition_id,
+                    option_data_format,
+                    option_domain_id,
+                ) => Permission::MintAsset(
+                    option_domain_id.clone(),
+                    Some(asset_definition_id.clone()),
+                    option_data_format.clone(),
+                ),
                 PermissionInstruction::CanDemintAsset(_, asset_definition_id, option_domain_id) => {
                     Permission::DemintAsset(
                         option_domain_id.clone(),
@@ -1206,7 +1212,7 @@ pub mod isi {
             let mint_asset_definition_id = AssetDefinitionId::new("XOR", "SORA");
             let asset = Asset::with_permission(
                 asset_id.clone(),
-                Permission::MintAsset(None, Some(mint_asset_definition_id.clone())),
+                Permission::MintAsset(None, Some(mint_asset_definition_id.clone()), None),
             );
             let mut account = Account::with_signatory(
                 &account_id.name,
@@ -1234,8 +1240,13 @@ pub mod isi {
             ));
             assert_eq!(
                 Ok(()),
-                PermissionInstruction::CanMintAsset(account_id, mint_asset_definition_id, None)
-                    .execute(&mut world_state_view)
+                PermissionInstruction::CanMintAsset(
+                    account_id,
+                    mint_asset_definition_id,
+                    None,
+                    None
+                )
+                .execute(&mut world_state_view)
             );
         }
 
@@ -1262,6 +1273,7 @@ pub mod isi {
                 Permission::MintAsset(
                     Some(domain_name.clone()),
                     Some(mint_asset_definition_id.clone()),
+                    None,
                 ),
             );
             let mut account = Account::with_signatory(
@@ -1293,7 +1305,8 @@ pub mod isi {
                 PermissionInstruction::CanMintAsset(
                     account_id,
                     mint_asset_definition_id,
-                    Some(domain_name)
+                    None,
+                    Some(domain_name),
                 )
                 .execute(&mut world_state_view)
             );
@@ -1338,7 +1351,8 @@ pub mod isi {
             assert!(PermissionInstruction::CanMintAsset(
                 account_id,
                 AssetDefinitionId::new("XOR", "SORA"),
-                None
+                None,
+                None,
             )
             .execute(&mut world_state_view)
             .unwrap_err()
@@ -1350,7 +1364,8 @@ pub mod isi {
             assert!(PermissionInstruction::CanMintAsset(
                 AccountId::new("NOT_ROOT", "Company"),
                 AssetDefinitionId::new("XOR", "SORA"),
-                None
+                None,
+                None,
             )
             .execute(&mut WorldStateView::new(Peer::new(
                 PeerId {
