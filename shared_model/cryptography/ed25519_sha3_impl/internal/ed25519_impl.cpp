@@ -21,11 +21,11 @@ namespace iroha {
              const pubkey_t &pub,
              const privkey_t &priv) {
     sig_t sig;
-    ed25519_sign(reinterpret_cast<signature_t *>(sig.data()),
-                 msg,
-                 msgsize,
-                 reinterpret_cast<const public_key_t *>(pub.data()),
-                 reinterpret_cast<const private_key_t *>(priv.data()));
+    iroha_ed25519_sign(reinterpret_cast<signature_t *>(sig.data()),
+                       msg,
+                       msgsize,
+                       reinterpret_cast<const public_key_t *>(pub.data()),
+                       reinterpret_cast<const private_key_t *>(priv.data()));
     return sig;
   }
 
@@ -46,10 +46,11 @@ namespace iroha {
     assert(pub.size() == iroha::pubkey_t::size());
     assert(sig.size() == iroha::sig_t::size());
     return 1
-        == ed25519_verify(reinterpret_cast<const signature_t *>(sig.data()),
-                          msg,
-                          msgsize,
-                          reinterpret_cast<const public_key_t *>(pub.data()));
+        == iroha_ed25519_verify(
+               reinterpret_cast<const signature_t *>(sig.data()),
+               msg,
+               msgsize,
+               reinterpret_cast<const public_key_t *>(pub.data()));
   }
 
   bool verify(std::string_view msg,
@@ -67,7 +68,7 @@ namespace iroha {
    */
   blob_t<32> create_seed() {
     blob_t<32> seed;
-    randombytes(seed.data(), seed.size());
+    iroha_ed25519_randombytes(seed.data(), seed.size());
     return seed;
   }
 
@@ -87,7 +88,7 @@ namespace iroha {
     keypair_t kp;
     kp.privkey = seed;
 
-    ed25519_derive_public_key(
+    iroha_ed25519_derive_public_key(
         reinterpret_cast<const private_key_t *>(kp.privkey.data()),
         reinterpret_cast<public_key_t *>(kp.pubkey.data()));
 
