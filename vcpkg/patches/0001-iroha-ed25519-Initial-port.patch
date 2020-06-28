@@ -1,7 +1,7 @@
-From f4c07b52668b03f33ff460053f95230169d4e4ec Mon Sep 17 00:00:00 2001
+From dd6ef8475cf413ffde9af270144c72bec2b95c57 Mon Sep 17 00:00:00 2001
 From: Andrei Lebedev <lebdron@gmail.com>
 Date: Wed, 11 Mar 2020 10:38:21 +0300
-Subject: [PATCH] [iroha-ed25519] Initial port
+Subject: [PATCH 1/4] Initial port
 
 Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
 ---
@@ -91,5 +91,5 @@ index 000000000..675b9226d
 +
 +file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/iroha-ed25519 RENAME copyright)
 -- 
-2.25.1
+2.26.2
 

@@ -1,7 +1,7 @@
-From 703e2bfd4143fec63304cef3781eff04ef834102 Mon Sep 17 00:00:00 2001
+From 894736cf312aecda3de0c4bf6380b5bab9a4cc38 Mon Sep 17 00:00:00 2001
 From: Mikhail Boldyrev <miboldyrev@gmail.com>
 Date: Mon, 23 Mar 2020 12:24:17 -0500
-Subject: [PATCH] fix tbb repo in vcpkg
+Subject: [PATCH 3/4] fix tbb repo in vcpkg
 
 reference: https://github.com/microsoft/vcpkg/pull/10456
 ---
@@ -25,5 +25,5 @@ index 1d543b317..4e81df37d 100644
      PATCHES fix-static-build.patch
  )
 -- 
-2.25.0
+2.26.2
 

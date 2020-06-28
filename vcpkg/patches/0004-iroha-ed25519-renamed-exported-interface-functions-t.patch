@@ -1,0 +1,1031 @@
+From df902d7b8671ed76c3fc15faa1b6ebdf02a5deb3 Mon Sep 17 00:00:00 2001
+From: Mikhail Boldyrev <miboldyrev@gmail.com>
+Date: Sun, 28 Jun 2020 10:33:41 -0500
+Subject: [PATCH 4/4] iroha-ed25519: renamed exported interface functions to
+ include iroha_ed25519_ prefix
+
+---
+ ...dd-check-for-amd64-64-24k-pic-target.patch |   6 +-
+ ...-interface-functions-to-include-iroh.patch | 973 ++++++++++++++++++
+ ports/iroha-ed25519/portfile.cmake            |   4 +-
+ 3 files changed, 979 insertions(+), 4 deletions(-)
+ create mode 100644 ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
+
+diff --git a/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
+index 70d3edcc0..228ce1245 100644
+--- a/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
++++ b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
+@@ -1,7 +1,7 @@
+-From 6afefd3224c2ab3da80564ef2be2259a4b0c620c Mon Sep 17 00:00:00 2001
++From 82aa86f40ffa74758d35742cda948da2adf2e3de Mon Sep 17 00:00:00 2001
+ From: Andrei Lebedev <lebdron@gmail.com>
+ Date: Wed, 11 Mar 2020 10:18:14 +0300
+-Subject: [PATCH] Add check for amd64-64-24k-pic target
++Subject: [PATCH 1/2] Add check for amd64-64-24k-pic target
+ 
+ Signed-off-by: Andrei Lebedev <lebdron@gmail.com>
+ ---
+@@ -22,5 +22,5 @@ index f6ad14b..f2a61cd 100644
+              "-Wl,--version-script=${CMAKE_SOURCE_DIR}/linker_exportmap"
+              )
+ -- 
+-2.25.1
++2.26.2
+ 
+diff --git a/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch b/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
+new file mode 100644
+index 000000000..3937b5de8
+--- /dev/null
++++ b/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
+@@ -0,0 +1,973 @@
++From 03612fef9143e43df5da5f85af62d2eb06036f11 Mon Sep 17 00:00:00 2001
++From: Mikhail Boldyrev <miboldyrev@gmail.com>
++Date: Sun, 28 Jun 2020 10:18:08 -0500
++Subject: [PATCH 2/2] renamed exported interface functions to include
++ iroha_ed25519_ prefix
++
++Signed-off-by: Mikhail Boldyrev <miboldyrev@gmail.com>
++---
++ benchmark/benchmark.cpp                 | 20 +++++------
++ example/sign-verify/main.c              |  6 ++--
++ fuzzing/fuzz_sign.cc                    |  4 +--
++ include/ed25519/ed25519/ed25519.h       |  8 ++---
++ include/ed25519/ed25519/randombytes.h   |  2 +-
++ include/ed25519/ed25519/sha256.h        |  8 ++---
++ include/ed25519/ed25519/sha512.h        |  8 ++---
++ lib/ed25519/amd64-64-24k-pic/ed25519.c  | 48 ++++++++++++-------------
++ lib/ed25519/amd64-64-24k-pic/hram.c     |  2 +-
++ lib/ed25519/ref10/ed25519.c             | 40 ++++++++++-----------
++ lib/hash/sha2_openssl/sha256.c          |  8 ++---
++ lib/hash/sha2_openssl/sha512.c          |  8 ++---
++ lib/hash/sha2_sphlib/sha2_256.c         |  6 ++--
++ lib/hash/sha2_sphlib/sha2_512.c         |  8 ++---
++ lib/hash/sha3_brainhub/sha3_256.c       | 14 ++++----
++ lib/hash/sha3_brainhub/sha3_512.c       | 14 ++++----
++ lib/randombytes/bcryptgen/randombytes.c |  2 +-
++ lib/randombytes/openssl/randombytes.c   |  2 +-
++ lib/randombytes/random/random.c         |  2 +-
++ lib/randombytes/urandom/urandom.c       |  2 +-
++ linker_exportmap                        | 26 +++++++-------
++ test/ed25519/ed25519_test.cpp           | 12 +++----
++ test/hash/sha_test.cpp                  | 26 +++++++-------
++ test/randombytes/random.cpp             |  2 +-
++ util/helpers.hpp                        |  4 +--
++ util/tosha3/tosha3.cpp                  |  2 +-
++ 26 files changed, 142 insertions(+), 142 deletions(-)
++
++diff --git a/benchmark/benchmark.cpp b/benchmark/benchmark.cpp
++index 7269edf..9c05152 100644
++--- a/benchmark/benchmark.cpp
+++++ b/benchmark/benchmark.cpp
++@@ -18,14 +18,14 @@ static void Sign(benchmark::State &state) {
++   signature_t sig{};
++ 
++   // use the same keypair for all signing operations
++-  ed25519_create_keypair(&priv, &pub);
+++  iroha_ed25519_create_keypair(&priv, &pub);
++ 
++   for (auto _ : state) {
++     state.PauseTiming();
++     msg = random_str(state.range(0));
++     state.ResumeTiming();
++ 
++-    ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++    iroha_ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                  msg.size(), &pub, &priv);
++   }
++ }
++@@ -37,12 +37,12 @@ static void VerifyCorrectSig(benchmark::State &state) {
++   signature_t sig;
++ 
++   // use the same keypair for all signing operations
++-  ed25519_create_keypair(&priv, &pub);
++-  ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++  iroha_ed25519_create_keypair(&priv, &pub);
+++  iroha_ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                msg.size(), &pub, &priv);
++ 
++   for (auto _ : state) {
++-    ed25519_verify(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++    iroha_ed25519_verify(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                    msg.size(), &pub);
++   }
++ }
++@@ -54,15 +54,15 @@ static void VerifyIncorrectSig(benchmark::State &state) {
++   signature_t sig;
++ 
++   // use the same keypair for all signing operations
++-  ed25519_create_keypair(&priv, &pub);
++-  ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++  iroha_ed25519_create_keypair(&priv, &pub);
+++  iroha_ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                msg.size(), &pub, &priv);
++   // intentionally break the signature
++   sig.data[0] = 0;
++   sig.data[1] = 1;
++ 
++   for (auto _ : state) {
++-    ed25519_verify(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++    iroha_ed25519_verify(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                    msg.size(), &pub);
++   }
++ }
++@@ -72,7 +72,7 @@ static void GenerateKeypair(benchmark::State &state) {
++   public_key_t pub;
++ 
++   for (auto _ : state) {
++-    ed25519_create_keypair(&priv, &pub);
+++    iroha_ed25519_create_keypair(&priv, &pub);
++   }
++ }
++ 
++@@ -85,7 +85,7 @@ static void SHA512(benchmark::State &state) {
++     msg = random_str(state.range(0));
++     state.ResumeTiming();
++ 
++-    sha512(hash, reinterpret_cast<const unsigned char *>(msg.data()),
+++    iroha_ed25519_sha512(hash, reinterpret_cast<const unsigned char *>(msg.data()),
++            msg.size());
++   }
++ }
++diff --git a/example/sign-verify/main.c b/example/sign-verify/main.c
++index 194e7e0..b2b7853 100644
++--- a/example/sign-verify/main.c
+++++ b/example/sign-verify/main.c
++@@ -4,16 +4,16 @@
++ int main(int arc, char** argv) {
++   public_key_t pub;
++   private_key_t priv;
++-  int ret = ed25519_create_keypair(&priv, &pub);
+++  int ret = iroha_ed25519_create_keypair(&priv, &pub);
++   assert(ret != 0);  // status code: ok
++ 
++   const int size      = 7;
++   unsigned char *buff = "ed25519";
++ 
++   signature_t sig;
++-  ed25519_sign(&sig, buff, size, &pub, &priv);
+++  iroha_ed25519_sign(&sig, buff, size, &pub, &priv);
++ 
++-  ret = ed25519_verify(&sig, buff, size, &pub);
+++  ret = iroha_ed25519_verify(&sig, buff, size, &pub);
++   assert(ret != 0);  // correct result
++ 
++   return 0;
++diff --git a/fuzzing/fuzz_sign.cc b/fuzzing/fuzz_sign.cc
++index 5fe32b9..0e98f86 100644
++--- a/fuzzing/fuzz_sign.cc
+++++ b/fuzzing/fuzz_sign.cc
++@@ -12,11 +12,11 @@ static private_key_t priv;
++ static signature_t sig;
++ 
++ extern "C" int LLVMFuzzerInitialize(int argc, char** argv){
++-  ed25519_create_keypair(&priv, &pub);
+++  iroha_ed25519_create_keypair(&priv, &pub);
++   return 0;
++ }
++ 
++ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
++-  ed25519_sign(&sig, Data, Size, &pub, &priv);
+++  iroha_ed25519_sign(&sig, Data, Size, &pub, &priv);
++   return 0;  // Non-zero return values are reserved for future use.
++ }
++diff --git a/include/ed25519/ed25519/ed25519.h b/include/ed25519/ed25519/ed25519.h
++index 630e286..6e73fcb 100644
++--- a/include/ed25519/ed25519/ed25519.h
+++++ b/include/ed25519/ed25519/ed25519.h
++@@ -31,7 +31,7 @@ typedef struct {
++  * @param[out] pk allocated buffer of ed25519_pubkey_SIZE
++  * @return 0 if failed, non-0 otherwise
++  */
++-ED25519_EXPORT int ed25519_create_keypair(private_key_t* sk, public_key_t* pk);
+++ED25519_EXPORT int iroha_ed25519_create_keypair(private_key_t* sk, public_key_t* pk);
++ 
++ /**
++  * @brief Creates a public key from given private key. For every private key
++@@ -42,7 +42,7 @@ ED25519_EXPORT int ed25519_create_keypair(private_key_t* sk, public_key_t* pk);
++  * @param[in] sk allocated buffer of ed25519_privkey_SIZE
++  * @param[out] pk allocated buffer of ed25519_pubkey_SIZE
++  */
++-ED25519_EXPORT void ed25519_derive_public_key(const private_key_t* sk,
+++ED25519_EXPORT void iroha_ed25519_derive_public_key(const private_key_t* sk,
++                                public_key_t* pk);
++ 
++ /**
++@@ -53,7 +53,7 @@ ED25519_EXPORT void ed25519_derive_public_key(const private_key_t* sk,
++  * @param pk[in] public key
++  * @param sk[in] secret (private) key
++  */
++-ED25519_EXPORT void ed25519_sign(signature_t* sig, const unsigned char* msg,
+++ED25519_EXPORT void iroha_ed25519_sign(signature_t* sig, const unsigned char* msg,
++                   unsigned long long msglen, const public_key_t* pk,
++                   const private_key_t* sk);
++ 
++@@ -65,7 +65,7 @@ ED25519_EXPORT void ed25519_sign(signature_t* sig, const unsigned char* msg,
++  * @param pk[in] public key
++  * @return 1 if signature is valid, 0 otherwise
++  */
++-ED25519_EXPORT int ed25519_verify(const signature_t* sig, const unsigned char* msg,
+++ED25519_EXPORT int iroha_ed25519_verify(const signature_t* sig, const unsigned char* msg,
++                    unsigned long long msglen,
++                    const public_key_t* pk);
++ 
++diff --git a/include/ed25519/ed25519/randombytes.h b/include/ed25519/ed25519/randombytes.h
++index 43b1b04..ce5d7ee 100644
++--- a/include/ed25519/ed25519/randombytes.h
+++++ b/include/ed25519/ed25519/randombytes.h
++@@ -14,7 +14,7 @@ extern "C" {
++  * @return 0 if failed, non-0 otherwise
++  * @note You should always check return code of randombytes
++  */
++-ED25519_EXPORT extern int randombytes(unsigned char *p, int len);
+++ED25519_EXPORT extern int iroha_ed25519_randombytes(unsigned char *p, int len);
++ 
++ #if defined(__cplusplus)
++ }
++diff --git a/include/ed25519/ed25519/sha256.h b/include/ed25519/ed25519/sha256.h
++index b96bf1c..44ec173 100644
++--- a/include/ed25519/ed25519/sha256.h
+++++ b/include/ed25519/ed25519/sha256.h
++@@ -16,7 +16,7 @@ extern "C" {
++  * @return 0 if error, non-0 otherwise.
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha256_init(sha_context *context);
+++ED25519_EXPORT extern int iroha_ed25519_sha256_init(sha_context *context);
++ 
++ /**
++  * Updates hash state with given buffer
++@@ -26,7 +26,7 @@ ED25519_EXPORT extern int sha256_init(sha_context *context);
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha256_update(sha_context *context, const unsigned char *in,
+++ED25519_EXPORT extern int iroha_ed25519_sha256_update(sha_context *context, const unsigned char *in,
++                                         unsigned long long inlen);
++ 
++ /**
++@@ -36,7 +36,7 @@ ED25519_EXPORT extern int sha256_update(sha_context *context, const unsigned cha
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha256_final(sha_context *context, unsigned char *out);
+++ED25519_EXPORT extern int iroha_ed25519_sha256_final(sha_context *context, unsigned char *out);
++ 
++ /**
++  * Inline hash calculation of sha256.
++@@ -46,7 +46,7 @@ ED25519_EXPORT extern int sha256_final(sha_context *context, unsigned char *out)
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha256(unsigned char *out, const unsigned char *message,
+++ED25519_EXPORT extern int iroha_ed25519_sha256(unsigned char *out, const unsigned char *message,
++                                  unsigned long long message_len);
++ 
++ #if defined(__cplusplus)
++diff --git a/include/ed25519/ed25519/sha512.h b/include/ed25519/ed25519/sha512.h
++index 0e5fcea..77b08e0 100644
++--- a/include/ed25519/ed25519/sha512.h
+++++ b/include/ed25519/ed25519/sha512.h
++@@ -16,7 +16,7 @@ extern "C" {
++  * @return 0 if error, non-0 otherwise.
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha512_init(sha_context *context);
+++ED25519_EXPORT extern int iroha_ed25519_sha512_init(sha_context *context);
++ 
++ /**
++  * Updates hash state with given buffer
++@@ -26,7 +26,7 @@ ED25519_EXPORT extern int sha512_init(sha_context *context);
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha512_update(sha_context *context, const unsigned char *in,
+++ED25519_EXPORT extern int iroha_ed25519_sha512_update(sha_context *context, const unsigned char *in,
++                                         unsigned long long inlen);
++ 
++ /**
++@@ -36,7 +36,7 @@ ED25519_EXPORT extern int sha512_update(sha_context *context, const unsigned cha
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha512_final(sha_context *context, unsigned char *out);
+++ED25519_EXPORT extern int iroha_ed25519_sha512_final(sha_context *context, unsigned char *out);
++ 
++ /**
++  * Inline hash calculation of sha512.
++@@ -46,7 +46,7 @@ ED25519_EXPORT extern int sha512_final(sha_context *context, unsigned char *out)
++  * @return 0 if error, non-0 otherwise
++  * @note some implementations may return bad code sometimes, some may not
++  */
++-ED25519_EXPORT extern int sha512(unsigned char *out, const unsigned char *message,
+++ED25519_EXPORT extern int iroha_ed25519_sha512(unsigned char *out, const unsigned char *message,
++                                  unsigned long long message_len);
++ 
++ #if defined(__cplusplus)
++diff --git a/lib/ed25519/amd64-64-24k-pic/ed25519.c b/lib/ed25519/amd64-64-24k-pic/ed25519.c
++index a55b166..0e9e93d 100644
++--- a/lib/ed25519/amd64-64-24k-pic/ed25519.c
+++++ b/lib/ed25519/amd64-64-24k-pic/ed25519.c
++@@ -4,19 +4,19 @@
++ #include "ge25519.h"
++ #include <ed25519/ed25519/crypto_verify.h>
++ 
++-ED25519_EXPORT int ed25519_create_keypair(private_key_t *sk, public_key_t *pk) {
++-  if (!randombytes(sk->data, ed25519_privkey_SIZE))
+++ED25519_EXPORT int iroha_ed25519_create_keypair(private_key_t *sk, public_key_t *pk) {
+++  if (!iroha_ed25519_randombytes(sk->data, ed25519_privkey_SIZE))
++     return ED25519_ERROR;            /* RNG failed, not enough entropy */
++-  ed25519_derive_public_key(sk, pk); /* fill with data */
+++  iroha_ed25519_derive_public_key(sk, pk); /* fill with data */
++   return ED25519_SUCCESS;            /* ok */
++ }
++ 
++-ED25519_EXPORT void ed25519_derive_public_key(const private_key_t *sk, public_key_t *pk) {
+++ED25519_EXPORT void iroha_ed25519_derive_public_key(const private_key_t *sk, public_key_t *pk) {
++   unsigned char az[64];
++   sc25519 scsk;
++   ge25519 gepk;
++ 
++-  sha512(az, sk->data, ed25519_privkey_SIZE);
+++  iroha_ed25519_sha512(az, sk->data, ed25519_privkey_SIZE);
++   az[0] &= 248;
++   az[31] &= 127;
++   az[31] |= 64;
++@@ -27,7 +27,7 @@ ED25519_EXPORT void ed25519_derive_public_key(const private_key_t *sk, public_ke
++   ge25519_pack(pk->data, &gepk);
++ }
++ 
++-ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
+++ED25519_EXPORT void iroha_ed25519_sign(signature_t *sig, const unsigned char *msg,
++                   unsigned long long msglen, const public_key_t *pk,
++                   const private_key_t *sk) {
++   sha_context ctx;
++@@ -37,19 +37,19 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   sc25519 sck, scs, scsk;
++   ge25519 ger;
++ 
++-  sha512_init(&ctx);
++-  sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
++-  sha512_final(&ctx, az);
+++  iroha_ed25519_sha512_init(&ctx);
+++  iroha_ed25519_sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
+++  iroha_ed25519_sha512_final(&ctx, az);
++   az[0] &= 248;
++   az[31] &= 127;
++   az[31] |= 64;
++   /* az: 64-byte H(sk) */
++   /* az: 32-byte scalar a, 32-byte randomizer z */
++ 
++-  sha512_init(&ctx);
++-  sha512_update(&ctx, /* z */ az + 32, 32);
++-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, nonce);
+++  iroha_ed25519_sha512_init(&ctx);
+++  iroha_ed25519_sha512_update(&ctx, /* z */ az + 32, 32);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_final(&ctx, nonce);
++   /* nonce: 64-byte H(z,msg) */
++ 
++   sc25519_from64bytes(&sck, nonce);
++@@ -57,12 +57,12 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   ge25519_pack(sig->data, &ger);
++   /* sig: [32 bytes R | 32 bytes uninit] */
++ 
++-  sha512_init(&ctx);
+++  iroha_ed25519_sha512_init(&ctx);
++   // first 32 bytes of signature
++-  sha512_update(&ctx, /* R */ sig->data, 32);
++-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
++-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, hram);
+++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
+++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_final(&ctx, hram);
++   /* hram: 64-byte H(R,A,m) */
++ 
++   sc25519_from64bytes(&scs, hram);
++@@ -75,7 +75,7 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   /* sig: [32 bytes R | 32 bytes S] */
++ }
++ 
++-ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *msg,
+++ED25519_EXPORT int iroha_ed25519_verify(const signature_t *sig, const unsigned char *msg,
++                    unsigned long long msglen, const public_key_t *pk) {
++   sha_context ctx;
++   unsigned char pkcopy[32];
++@@ -93,12 +93,12 @@ ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *m
++ 
++   sc25519_from32bytes(&scs, /* S, seconds 32 bytes */ sig->data + 32);
++ 
++-  sha512_init(&ctx);
+++  iroha_ed25519_sha512_init(&ctx);
++   // first 32 bytes of signature
++-  sha512_update(&ctx, /* R */ sig->data, 32);
++-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
++-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, hram);
+++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
+++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_final(&ctx, hram);
++   /* scs: S = nonce + H(R,A,m)a */
++ 
++   sc25519_from64bytes(&schram, hram);
++diff --git a/lib/ed25519/amd64-64-24k-pic/hram.c b/lib/ed25519/amd64-64-24k-pic/hram.c
++index 13d0f09..603cf33 100644
++--- a/lib/ed25519/amd64-64-24k-pic/hram.c
+++++ b/lib/ed25519/amd64-64-24k-pic/hram.c
++@@ -9,5 +9,5 @@ void get_hram(unsigned char *hram, const unsigned char *sm, const unsigned char
++   for (i = 32;i < 64;++i)    playground[i] = pk[i-32];
++   for (i = 64;i < smlen;++i) playground[i] = sm[i];
++ 
++-  sha512(hram,playground,smlen);
+++  iroha_ed25519_sha512(hram,playground,smlen);
++ }
++diff --git a/lib/ed25519/ref10/ed25519.c b/lib/ed25519/ref10/ed25519.c
++index 0e80c6b..e51a26d 100644
++--- a/lib/ed25519/ref10/ed25519.c
+++++ b/lib/ed25519/ref10/ed25519.c
++@@ -4,18 +4,18 @@
++ #include "ge.h"
++ #include "sc.h"
++ 
++-ED25519_EXPORT int ed25519_create_keypair(private_key_t *sk, public_key_t *pk) {
++-  if (!randombytes(sk->data, ed25519_privkey_SIZE))
+++ED25519_EXPORT int iroha_ed25519_create_keypair(private_key_t *sk, public_key_t *pk) {
+++  if (!iroha_ed25519_randombytes(sk->data, ed25519_privkey_SIZE))
++     return ED25519_ERROR;            /* RNG failed, not enough entropy */
++-  ed25519_derive_public_key(sk, pk); /* fill with data */
+++  iroha_ed25519_derive_public_key(sk, pk); /* fill with data */
++   return ED25519_SUCCESS;            /* ok */
++ }
++ 
++-ED25519_EXPORT void ed25519_derive_public_key(const private_key_t *sk, public_key_t *pk) {
+++ED25519_EXPORT void iroha_ed25519_derive_public_key(const private_key_t *sk, public_key_t *pk) {
++   unsigned char az[64];
++   ge_p3 A;
++ 
++-  sha512(az, sk->data, ed25519_privkey_SIZE);
+++  iroha_ed25519_sha512(az, sk->data, ed25519_privkey_SIZE);
++   az[0] &= 248;
++   az[31] &= 63;
++   az[31] |= 64;
++@@ -24,7 +24,7 @@ ED25519_EXPORT void ed25519_derive_public_key(const private_key_t *sk, public_ke
++   ge_p3_tobytes(pk->data, &A);
++ }
++ 
++-ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
+++ED25519_EXPORT void iroha_ed25519_sign(signature_t *sig, const unsigned char *msg,
++                   unsigned long long msglen, const public_key_t *pk,
++                   const private_key_t *sk) {
++   sha_context ctx;
++@@ -34,8 +34,8 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   ge_p3 R;
++ 
++   // TODO: it is possible to pre-calculate this hash while reading private key
++-  sha512_init(&ctx);
++-  sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
+++  iroha_ed25519_sha512_init(&ctx);
+++  iroha_ed25519_sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
++   sha512_final(&ctx, az);
++   az[0] &= 248;
++   az[31] &= 63;
++@@ -43,9 +43,9 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   /* az: 64-byte H(sk) */
++   /* az: 32-byte scalar a, 32-byte randomizer z */
++ 
++-  sha512_init(&ctx);
++-  sha512_update(&ctx, /* z */ az + 32, 32);
++-  sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_init(&ctx);
+++  iroha_ed25519_sha512_update(&ctx, /* z */ az + 32, 32);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
++   sha512_final(&ctx, nonce);
++   /* nonce: 64-byte H(z,msg) */
++ 
++@@ -54,11 +54,11 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   ge_p3_tobytes(sig->data, &R);
++   /* sig: [32 bytes R | 32 bytes uninit] */
++ 
++-  sha512_init(&ctx);
+++  iroha_ed25519_sha512_init(&ctx);
++   // first 32 bytes of signature
++-  sha512_update(&ctx, /* R */ sig->data, 32);
++-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
++-  sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
+++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
++   sha512_final(&ctx, hram);
++   /* hram: 64-byte H(R,A,m) */
++ 
++@@ -67,7 +67,7 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   /* sig: [32 bytes R | 32 bytes S] */
++ }
++ 
++-ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *msg,
+++ED25519_EXPORT int iroha_ed25519_verify(const signature_t *sig, const unsigned char *msg,
++                    unsigned long long msglen, const public_key_t *pk) {
++   sha_context ctx;
++   unsigned char pkcopy[32];
++@@ -83,11 +83,11 @@ ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *m
++   memcpy(pkcopy, pk->data, 32);
++   memcpy(rcopy, /* R, first 32 bytes */ sig->data, 32);
++ 
++-  sha512_init(&ctx);
+++  iroha_ed25519_sha512_init(&ctx);
++   // first 32 bytes of signature
++-  sha512_update(&ctx, /* R */ sig->data, 32);
++-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
++-  sha512_update(&ctx, msg, msglen);
+++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
+++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
+++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
++   sha512_final(&ctx, hram);
++   /* scs: S = nonce + H(R,A,m)a */
++ 
++diff --git a/lib/hash/sha2_openssl/sha256.c b/lib/hash/sha2_openssl/sha256.c
++index 19af165..5718c4b 100644
++--- a/lib/hash/sha2_openssl/sha256.c
+++++ b/lib/hash/sha2_openssl/sha256.c
++@@ -2,21 +2,21 @@
++ #include <openssl/sha.h>
++ #include <stddef.h>
++ 
++-ED25519_EXPORT int sha256_init(sha_context *ctx) {
+++ED25519_EXPORT int iroha_ed25519_sha256_init(sha_context *ctx) {
++   /* SHA256_Init returns 1 if succeeded, 0 otherwise */
++   return SHA256_Init((SHA256_CTX *)ctx);
++ }
++ 
++-ED25519_EXPORT int sha256_update(sha_context *ctx, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha256_update(sha_context *ctx, const unsigned char *in,
++                   unsigned long long inlen) {
++   return SHA256_Update((SHA256_CTX *)ctx, in, inlen);
++ }
++ 
++-ED25519_EXPORT int sha256_final(sha_context *ctx, unsigned char *out) {
+++ED25519_EXPORT int iroha_ed25519_sha256_final(sha_context *ctx, unsigned char *out) {
++   return SHA256_Final(out, (SHA256_CTX *)ctx);
++ }
++ 
++-ED25519_EXPORT int sha256(unsigned char *out, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha256(unsigned char *out, const unsigned char *in,
++            unsigned long long inlen) {
++   // SHA256 returns NULL in case of error
++   return SHA256(in, inlen, out) != NULL;
++diff --git a/lib/hash/sha2_openssl/sha512.c b/lib/hash/sha2_openssl/sha512.c
++index 192bce5..c5d0187 100644
++--- a/lib/hash/sha2_openssl/sha512.c
+++++ b/lib/hash/sha2_openssl/sha512.c
++@@ -2,21 +2,21 @@
++ #include <openssl/sha.h>
++ #include <stddef.h>
++ 
++-ED25519_EXPORT int sha512_init(sha_context *ctx) {
+++ED25519_EXPORT int iroha_ed25519_sha512_init(sha_context *ctx) {
++   /* SHA512_Init returns 1 if succeeded, 0 otherwise */
++   return SHA512_Init((SHA512_CTX *) ctx);
++ }
++ 
++-ED25519_EXPORT int sha512_update(sha_context *ctx, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha512_update(sha_context *ctx, const unsigned char *in,
++                   unsigned long long inlen) {
++   return SHA512_Update((SHA512_CTX *) ctx, in, inlen);
++ }
++ 
++-ED25519_EXPORT int sha512_final(sha_context *ctx, unsigned char *out) {
+++ED25519_EXPORT int iroha_ed25519_sha512_final(sha_context *ctx, unsigned char *out) {
++   return SHA512_Final(out, (SHA512_CTX *) ctx);
++ }
++ 
++-ED25519_EXPORT int sha512(unsigned char *out, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha512(unsigned char *out, const unsigned char *in,
++            unsigned long long inlen) {
++   // SHA512 returns NULL in case of error
++   return SHA512(in, inlen, out) != NULL;
++diff --git a/lib/hash/sha2_sphlib/sha2_256.c b/lib/hash/sha2_sphlib/sha2_256.c
++index c8e512a..514fb83 100644
++--- a/lib/hash/sha2_sphlib/sha2_256.c
+++++ b/lib/hash/sha2_sphlib/sha2_256.c
++@@ -3,18 +3,18 @@
++ 
++ #include "sph_sha2.h"
++ 
++-ED25519_EXPORT int sha256_init(sha_context *context) {
+++ED25519_EXPORT int iroha_ed25519_sha256_init(sha_context *context) {
++   sph_sha256_init((void *) context);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha256_update(sha_context *context, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha256_update(sha_context *context, const unsigned char *in,
++                                  unsigned long long inlen) {
++   sph_sha256((void *) context, in, inlen);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha256_final(sha_context *context, unsigned char *out) {
+++ED25519_EXPORT int iroha_ed25519_sha256_final(sha_context *context, unsigned char *out) {
++   sph_sha256_close((void *) context, out);
++   return ED25519_SUCCESS;
++ }
++diff --git a/lib/hash/sha2_sphlib/sha2_512.c b/lib/hash/sha2_sphlib/sha2_512.c
++index ca09aa0..9090b24 100644
++--- a/lib/hash/sha2_sphlib/sha2_512.c
+++++ b/lib/hash/sha2_sphlib/sha2_512.c
++@@ -3,23 +3,23 @@
++ 
++ #include "sph_sha2.h"
++ 
++-ED25519_EXPORT inline int sha512_init(sha_context *context) {
+++ED25519_EXPORT inline int iroha_ed25519_sha512_init(sha_context *context) {
++   sph_sha512_init((void *) context);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT inline int sha512_update(sha_context *context, const unsigned char *in,
+++ED25519_EXPORT inline int iroha_ed25519_sha512_update(sha_context *context, const unsigned char *in,
++                                  unsigned long long inlen) {
++   sph_sha512((void *) context, in, inlen);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT inline int sha512_final(sha_context *context, unsigned char *out) {
+++ED25519_EXPORT inline int iroha_ed25519_sha512_final(sha_context *context, unsigned char *out) {
++   sph_sha512_close((void *) context, out);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT inline int sha512(unsigned char *out, const unsigned char *message,
+++ED25519_EXPORT inline int iroha_ed25519_sha512(unsigned char *out, const unsigned char *message,
++                           unsigned long long message_len) {
++   sha_context context;
++   sph_sha512_init((void *) &context);
++diff --git a/lib/hash/sha3_brainhub/sha3_256.c b/lib/hash/sha3_brainhub/sha3_256.c
++index e568978..346402a 100644
++--- a/lib/hash/sha3_brainhub/sha3_256.c
+++++ b/lib/hash/sha3_brainhub/sha3_256.c
++@@ -2,27 +2,27 @@
++ #include <ed25519/ed25519/sha256.h>
++ #include "sha3.h"
++ 
++-ED25519_EXPORT int sha256_init(sha_context *ctx) {
+++ED25519_EXPORT int iroha_ed25519_sha256_init(sha_context *ctx) {
++   sha3_Init256((sha3_context *) ctx);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha256_update(sha_context *ctx, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha256_update(sha_context *ctx, const unsigned char *in,
++                   unsigned long long inlen) {
++   sha3_Update((sha3_context *) ctx, in, inlen);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha256_final(sha_context *ctx, unsigned char *out) {
+++ED25519_EXPORT int iroha_ed25519_sha256_final(sha_context *ctx, unsigned char *out) {
++   sha3_Finalize((sha3_context *) ctx, out);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha256(unsigned char *out, const unsigned char *message,
+++ED25519_EXPORT int iroha_ed25519_sha256(unsigned char *out, const unsigned char *message,
++            unsigned long long message_len) {
++   sha_context ctx;
++-  sha256_init(&ctx);
++-  sha256_update(&ctx, message, message_len);
++-  sha256_final(&ctx, out);
+++  iroha_ed25519_sha256_init(&ctx);
+++  iroha_ed25519_sha256_update(&ctx, message, message_len);
+++  iroha_ed25519_sha256_final(&ctx, out);
++   return ED25519_SUCCESS;
++ }
++diff --git a/lib/hash/sha3_brainhub/sha3_512.c b/lib/hash/sha3_brainhub/sha3_512.c
++index 2a8fe85..951257c 100644
++--- a/lib/hash/sha3_brainhub/sha3_512.c
+++++ b/lib/hash/sha3_brainhub/sha3_512.c
++@@ -2,27 +2,27 @@
++ #include <ed25519/ed25519/sha512.h>
++ #include "sha3.h"
++ 
++-ED25519_EXPORT int sha512_init(sha_context *ctx) {
+++ED25519_EXPORT int iroha_ed25519_sha512_init(sha_context *ctx) {
++   sha3_Init512((sha3_context *) ctx);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha512_update(sha_context *ctx, const unsigned char *in,
+++ED25519_EXPORT int iroha_ed25519_sha512_update(sha_context *ctx, const unsigned char *in,
++                   unsigned long long inlen) {
++   sha3_Update((sha3_context *) ctx, in, inlen);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha512_final(sha_context *ctx, unsigned char *out) {
+++ED25519_EXPORT int iroha_ed25519_sha512_final(sha_context *ctx, unsigned char *out) {
++   sha3_Finalize((sha3_context *) ctx, out);
++   return ED25519_SUCCESS;
++ }
++ 
++-ED25519_EXPORT int sha512(unsigned char *out, const unsigned char *message,
+++ED25519_EXPORT int iroha_ed25519_sha512(unsigned char *out, const unsigned char *message,
++            unsigned long long message_len) {
++   sha_context ctx;
++-  sha512_init(&ctx);
++-  sha512_update(&ctx, message, message_len);
++-  sha512_final(&ctx, out);
+++  iroha_ed25519_sha512_init(&ctx);
+++  iroha_ed25519_sha512_update(&ctx, message, message_len);
+++  iroha_ed25519_sha512_final(&ctx, out);
++   return ED25519_SUCCESS;
++ }
++diff --git a/lib/randombytes/bcryptgen/randombytes.c b/lib/randombytes/bcryptgen/randombytes.c
++index 92e6064..99bb3ce 100644
++--- a/lib/randombytes/bcryptgen/randombytes.c
+++++ b/lib/randombytes/bcryptgen/randombytes.c
++@@ -3,7 +3,7 @@
++ #include <windows.h>
++ #include <bcrypt.h>
++ 
++-ED25519_EXPORT int randombytes(unsigned char *p, int len) {
+++ED25519_EXPORT int iroha_ed25519_randombytes(unsigned char *p, int len) {
++   return BCRYPT_SUCCESS(
++       BCryptGenRandom(NULL, p, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG));
++ }
++diff --git a/lib/randombytes/openssl/randombytes.c b/lib/randombytes/openssl/randombytes.c
++index 4b37233..21ee8d8 100644
++--- a/lib/randombytes/openssl/randombytes.c
+++++ b/lib/randombytes/openssl/randombytes.c
++@@ -1,6 +1,6 @@
++ #include <openssl/rand.h>
++ #include <ed25519/ed25519/randombytes.h>
++ 
++-ED25519_EXPORT int randombytes(unsigned char *p, int len) {
+++ED25519_EXPORT int iroha_ed25519_randombytes(unsigned char *p, int len) {
++   return RAND_bytes(p, len);
++ }
++diff --git a/lib/randombytes/random/random.c b/lib/randombytes/random/random.c
++index 28b7cf1..70f8215 100644
++--- a/lib/randombytes/random/random.c
+++++ b/lib/randombytes/random/random.c
++@@ -4,7 +4,7 @@
++ #include <stdio.h>
++ #include <unistd.h>  // for read, ssize_t
++ 
++-ED25519_EXPORT int randombytes(unsigned char *p, int len) {
+++ED25519_EXPORT int iroha_ed25519_randombytes(unsigned char *p, int len) {
++   int source = open("/dev/random", O_RDONLY);
++   if (source < 0) {
++     return ED25519_ERROR; /* something went wrong */
++diff --git a/lib/randombytes/urandom/urandom.c b/lib/randombytes/urandom/urandom.c
++index 77a1da3..451d775 100644
++--- a/lib/randombytes/urandom/urandom.c
+++++ b/lib/randombytes/urandom/urandom.c
++@@ -3,7 +3,7 @@
++ #include <fcntl.h>   // for open
++ #include <unistd.h>  // for read, ssize_t
++ 
++-ED25519_EXPORT int randombytes(unsigned char *p, int len) {
+++ED25519_EXPORT int iroha_ed25519_randombytes(unsigned char *p, int len) {
++   int source = open("/dev/urandom", O_RDONLY);
++   if (source < 0) {
++     return ED25519_ERROR; /* something went wrong */
++diff --git a/linker_exportmap b/linker_exportmap
++index a0317f2..f370e90 100644
++--- a/linker_exportmap
+++++ b/linker_exportmap
++@@ -1,18 +1,18 @@
++ {
++ global: 
++-    ed25519_create_keypair;
++-    ed25519_derive_public_key;
++-    ed25519_sign;
++-    ed25519_verify;
++-    sha512_init;
++-    sha512_final;
++-    sha512_update;
++-    sha512;
++-    sha256_init;
++-    sha256_final;
++-    sha256_update;
++-    sha256;
++-    randombytes;
+++    iroha_ed25519_create_keypair;
+++    iroha_ed25519_derive_public_key;
+++    iroha_ed25519_sign;
+++    iroha_ed25519_verify;
+++    iroha_ed25519_sha512_init;
+++    iroha_ed25519_sha512_final;
+++    iroha_ed25519_sha512_update;
+++    iroha_ed25519_sha512;
+++    iroha_ed25519_sha256_init;
+++    iroha_ed25519_sha256_final;
+++    iroha_ed25519_sha256_update;
+++    iroha_ed25519_sha256;
+++    iroha_ed25519_randombytes;
++ local: *;
++ };
++ 
++diff --git a/test/ed25519/ed25519_test.cpp b/test/ed25519/ed25519_test.cpp
++index 99b42aa..3032536 100644
++--- a/test/ed25519/ed25519_test.cpp
+++++ b/test/ed25519/ed25519_test.cpp
++@@ -60,7 +60,7 @@ TEST(Ed25519, SignThenVerifyFixedMsg) {
++ 
++   public_key_t pub{};
++   private_key_t priv{};
++-  ASSERT_TRUE(ed25519_create_keypair(&priv, &pub));
+++  ASSERT_TRUE(iroha_ed25519_create_keypair(&priv, &pub));
++ 
++   std::string hpub  = bytes2hex(pub.data, ed25519_pubkey_SIZE);
++   std::string hpriv = bytes2hex(priv.data, ed25519_privkey_SIZE);
++@@ -72,11 +72,11 @@ TEST(Ed25519, SignThenVerifyFixedMsg) {
++ TEST(Ed25519, DifferentKeypairs) {
++   public_key_t pub1{};
++   private_key_t priv1{};
++-  ASSERT_TRUE(ed25519_create_keypair(&priv1, &pub1));
+++  ASSERT_TRUE(iroha_ed25519_create_keypair(&priv1, &pub1));
++ 
++   public_key_t pub2{};
++   private_key_t priv2{};
++-  ASSERT_TRUE(ed25519_create_keypair(&priv2, &pub2));
+++  ASSERT_TRUE(iroha_ed25519_create_keypair(&priv2, &pub2));
++ 
++   auto a = make_str(&pub1, ed25519_pubkey_SIZE);
++   auto b = make_str(&pub2, ed25519_pubkey_SIZE);
++@@ -90,7 +90,7 @@ TEST(Ed25519, NonEmptyKeypair) {
++   std::string empty(32, 0);
++   public_key_t pub1{};
++   private_key_t priv1{};
++-  ed25519_create_keypair(&priv1, &pub1);
+++  iroha_ed25519_create_keypair(&priv1, &pub1);
++ 
++   auto a = make_str(&pub1, ed25519_pubkey_SIZE);
++   auto b = make_str(&priv1, ed25519_privkey_SIZE);
++@@ -102,10 +102,10 @@ TEST(Ed25519, NonEmptyKeypair) {
++ TEST(Ed25519, PubkeyDerivation) {
++   public_key_t pub1{};
++   private_key_t priv{};
++-  ASSERT_TRUE(ed25519_create_keypair(&priv, &pub1));
+++  ASSERT_TRUE(iroha_ed25519_create_keypair(&priv, &pub1));
++ 
++   public_key_t pub2{};
++-  ed25519_derive_public_key(&priv, &pub2);
+++  iroha_ed25519_derive_public_key(&priv, &pub2);
++ 
++   auto a = make_str(&pub1, ed25519_pubkey_SIZE);
++   auto b = make_str(&pub2, ed25519_pubkey_SIZE);
++diff --git a/test/hash/sha_test.cpp b/test/hash/sha_test.cpp
++index 97fbb30..07659a5 100644
++--- a/test/hash/sha_test.cpp
+++++ b/test/hash/sha_test.cpp
++@@ -41,15 +41,15 @@ TEST(SHA_512, IUF_partial) {
++   sha_context ctx;
++   sha512_init(&ctx);
++   /* first half */
++-  sha512_update(&ctx,
+++  iroha_ed25519_sha512_update(&ctx,
++                 reinterpret_cast<const unsigned char *>(first.data()),
++                 first.size());
++   /* second half */
++-  sha512_update(&ctx,
+++  iroha_ed25519_sha512_update(&ctx,
++                 reinterpret_cast<const unsigned char *>(second.data()),
++                 second.size());
++ 
++-  sha512_final(&ctx, (unsigned char *)out.data());
+++  iroha_ed25519_sha512_final(&ctx, (unsigned char *)out.data());
++ 
++   std::string actual = bytes2hex((unsigned char *)out.data(), out.size());
++ 
++@@ -65,10 +65,10 @@ TEST(SHA_512, IUF) {
++ 
++     sha_context ctx;
++     sha512_init(&ctx);
++-    sha512_update(&ctx,
+++    iroha_ed25519_sha512_update(&ctx,
++                   reinterpret_cast<const unsigned char *>(msg.data()),
++                   msg.size());
++-    sha512_final(&ctx, (unsigned char *)out.data());
+++    iroha_ed25519_sha512_final(&ctx, (unsigned char *)out.data());
++ 
++     std::string actual = bytes2hex((unsigned char *)out.data(), out.size());
++ 
++@@ -111,17 +111,17 @@ TEST(SHA_256, IUF_partial) {
++   std::string second = msg.substr(msg.size() / 2, msg.size() - 1);
++ 
++   sha_context ctx;
++-  sha256_init(&ctx);
+++  iroha_ed25519_sha256_init(&ctx);
++   /* first half */
++-  sha256_update(&ctx,
+++  iroha_ed25519_sha256_update(&ctx,
++                 reinterpret_cast<const unsigned char *>(first.data()),
++                 first.size());
++   /* second half */
++-  sha256_update(&ctx,
+++  iroha_ed25519_sha256_update(&ctx,
++                 reinterpret_cast<const unsigned char *>(second.data()),
++                 second.size());
++ 
++-  sha256_final(&ctx, (unsigned char *)out.data());
+++  iroha_ed25519_sha256_final(&ctx, (unsigned char *)out.data());
++ 
++   std::string actual = bytes2hex((unsigned char *)out.data(), out.size());
++ 
++@@ -136,11 +136,11 @@ TEST(SHA_256, IUF) {
++     std::string out(SHA_256_SIZE, 0);
++ 
++     sha_context ctx;
++-    sha256_init(&ctx);
++-    sha256_update(&ctx,
+++    iroha_ed25519_sha256_init(&ctx);
+++    iroha_ed25519_sha256_update(&ctx,
++                   reinterpret_cast<const unsigned char *>(msg.data()),
++                   msg.size());
++-    sha256_final(&ctx, (unsigned char *)out.data());
+++    iroha_ed25519_sha256_final(&ctx, (unsigned char *)out.data());
++ 
++     std::string actual = bytes2hex((unsigned char *)out.data(), out.size());
++ 
++@@ -155,7 +155,7 @@ TEST(SHA_256, Immediate) {
++     std::string msg      = c.msg;
++     std::string out(SHA_256_SIZE, 0);
++ 
++-    sha256((unsigned char *)out.data(),
+++    iroha_ed25519_sha256((unsigned char *)out.data(),
++            reinterpret_cast<const unsigned char *>(msg.data()),
++            msg.size());
++ 
++diff --git a/test/randombytes/random.cpp b/test/randombytes/random.cpp
++index c807f80..70ae2e7 100644
++--- a/test/randombytes/random.cpp
+++++ b/test/randombytes/random.cpp
++@@ -27,7 +27,7 @@ double max_entropy(int max) { return log2(max + 1); }
++ 
++ TEST(Random, EnoughEntropy) {
++   std::vector<uint8_t> buf(256, 0);
++-  ASSERT_TRUE(randombytes(buf.data(), buf.size()));
+++  ASSERT_TRUE(iroha_ed25519_randombytes(buf.data(), buf.size()));
++ 
++   auto max = max_entropy(256); // 8
++   auto ent = entropy(buf);
++diff --git a/util/helpers.hpp b/util/helpers.hpp
++index c40e27a..59be8e5 100644
++--- a/util/helpers.hpp
+++++ b/util/helpers.hpp
++@@ -38,7 +38,7 @@ inline std::string /* sig */ sign(std::string hmsg,
++   auto priv = make<private_key_t>(hex2bytes(hpriv));
++ 
++   signature_t sig{};
++-  ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
+++  iroha_ed25519_sign(&sig, reinterpret_cast<const unsigned char *>(msg.data()),
++                msg.size(), &pub, &priv);
++ 
++   return bytes2hex(sig.data, 64);
++@@ -50,7 +50,7 @@ inline bool verify(std::string hmsg, std::string hpub, std::string hsig) {
++   auto sig = make<signature_t>(hex2bytes(hsig));
++ 
++   return 1 ==
++-         ed25519_verify(&sig,
+++         iroha_ed25519_verify(&sig,
++                         reinterpret_cast<const unsigned char *>(msg.data()),
++                         msg.size(),
++                         &pub);
++diff --git a/util/tosha3/tosha3.cpp b/util/tosha3/tosha3.cpp
++index 420e5ea..2adf7cd 100644
++--- a/util/tosha3/tosha3.cpp
+++++ b/util/tosha3/tosha3.cpp
++@@ -30,7 +30,7 @@ int main() {
++     auto sk           = make<private_key_t>(hex2bytes(hpriv));
++ 
++     public_key_t pk{};
++-    ed25519_derive_public_key(&sk, &pk);
+++    iroha_ed25519_derive_public_key(&sk, &pk);
++     std::string pub  = make_str(&pk, ed25519_pubkey_SIZE);
++     std::string hpub = bytes2hex((unsigned char *) pub.data(), pub.size());
++ 
++-- 
++2.26.2
++
+diff --git a/ports/iroha-ed25519/portfile.cmake b/ports/iroha-ed25519/portfile.cmake
+index 675b9226d..2bdfd17c2 100644
+--- a/ports/iroha-ed25519/portfile.cmake
++++ b/ports/iroha-ed25519/portfile.cmake
+@@ -6,7 +6,9 @@ vcpkg_from_github(
+     REF 2.0.1
+     SHA512 dd873b5d13d9665ae0d97204a4769f744e7d35d3e6739c1a515ea5c1a9ed6ca27c570f118e5aa009b469ae4a8574515bfced4a3ece82113439630b28e8cbfac8
+     HEAD_REF master
+-    PATCHES 0001-Add-check-for-amd64-64-24k-pic-target.patch
++    PATCHES
++      0001-Add-check-for-amd64-64-24k-pic-target.patch
++      0002-renamed-exported-interface-functions-to-include-iroh.patch
+ )
+ 
+ vcpkg_configure_cmake(
+-- 
+2.27.0
+
