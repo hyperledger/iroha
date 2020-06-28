@@ -11,11 +11,11 @@
 namespace iroha {
 
   void sha3_256(uint8_t *output, const uint8_t *input, size_t in_size) {
-    sha256(output, input, in_size);
+    iroha_ed25519_sha256(output, input, in_size);
   }
 
   void sha3_512(uint8_t *output, const uint8_t *input, size_t in_size) {
-    sha512(output, input, in_size);
+    iroha_ed25519_sha512(output, input, in_size);
   }
 
   hash256_t sha3_256(shared_model::interface::types::ByteRange input) {
