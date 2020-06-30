@@ -132,6 +132,8 @@ pub mod isi {
         ),
         /// Variant of the generic `Add` instruction for `PublicKey` --> `Account`.
         AddSignatory(<Account as Identifiable>::Id, PublicKey),
+        /// Variant of the generic `Remove` instruction for `PublicKey` --> `Account`.
+        RemoveSignatory(<Account as Identifiable>::Id, PublicKey),
     }
 
     impl AccountInstruction {
@@ -155,6 +157,10 @@ pub mod isi {
                 .execute(authority, world_state_view),
                 AccountInstruction::AddSignatory(account_id, public_key) => {
                     Add::new(*public_key, account_id.clone()).execute(authority, world_state_view)
+                }
+                AccountInstruction::RemoveSignatory(account_id, public_key) => {
+                    Remove::new(*public_key, account_id.clone())
+                        .execute(authority, world_state_view)
                 }
             }
         }
@@ -196,6 +202,32 @@ pub mod isi {
     impl From<Add<Account, PublicKey>> for Instruction {
         fn from(instruction: Add<Account, PublicKey>) -> Self {
             Instruction::Account(AccountInstruction::AddSignatory(
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
+
+    impl Remove<Account, PublicKey> {
+        fn execute(
+            &self,
+            authority: <Account as Identifiable>::Id,
+            world_state_view: &mut WorldStateView,
+        ) -> Result<(), String> {
+            PermissionInstruction::CanRemoveSignatory(authority, self.destination_id.clone(), None)
+                .execute(world_state_view)?;
+            let public_key = self.object;
+            let account = world_state_view
+                .account(&self.destination_id)
+                .ok_or("Failed to find account.")?;
+            *account -= public_key;
+            Ok(())
+        }
+    }
+
+    impl From<Remove<Account, PublicKey>> for Instruction {
+        fn from(instruction: Remove<Account, PublicKey>) -> Self {
+            Instruction::Account(AccountInstruction::RemoveSignatory(
                 instruction.destination_id,
                 instruction.object,
             ))

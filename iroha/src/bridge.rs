@@ -263,6 +263,20 @@ pub mod isi {
         .into()
     }
 
+    /// Constructor of Iroha Special Instruction for removing bridge client.
+    pub fn remove_client(
+        bridge_definition_id: &<BridgeDefinition as Identifiable>::Id,
+        client_public_key: PublicKey,
+    ) -> Instruction {
+        let domain_id = &bridge_definition_id.name;
+        let account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, domain_id);
+        Remove {
+            object: client_public_key,
+            destination_id: account_id,
+        }
+        .into()
+    }
+
     /// Constructor of Iroha Special Instruction for registering incoming transfer and minting
     /// the external asset to the recipient.
     pub fn handle_incoming_transfer(
@@ -545,6 +559,47 @@ pub mod isi {
                 .expect("failed to query a bridge");
             let clients = get_clients(&query_result).expect("failed to get bridge clients");
             assert_eq!(clients, &[bridge_owner_public_key]);
+        }
+
+        #[test]
+        fn test_remove_client_should_pass() {
+            let mut testkit = TestKit::new();
+            let bridge_owner_public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let bridge_owner_account =
+                Account::with_signatory("bridge_owner", "Company", bridge_owner_public_key.clone());
+            let bridge_definition = BridgeDefinition {
+                id: BridgeDefinitionId::new(BRIDGE_NAME),
+                kind: BridgeKind::IClaim,
+                owner_account_id: bridge_owner_account.id.clone(),
+            };
+            let world_state_view = &mut testkit.world_state_view;
+            let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
+            domain
+                .register_account(bridge_owner_account)
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge owner account");
+            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to register bridge");
+            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to add bridge client");
+            let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
+                .execute(&world_state_view)
+                .expect("failed to query a bridge");
+            let clients = get_clients(&query_result).expect("failed to get bridge clients");
+            assert_eq!(clients, &[bridge_owner_public_key]);
+
+            remove_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                .execute(testkit.root_account_id.clone(), world_state_view)
+                .expect("failed to remove bridge client");
+            let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
+                .execute(&world_state_view)
+                .expect("failed to query a bridge");
+            let clients = get_clients(&query_result).expect("failed to get bridge clients");
+            assert!(clients.is_empty());
         }
 
         #[test]
