@@ -1,0 +1,7 @@
+@startuml
+OtherPeer -> NewPeer: Latest block hash
+NewPeer --> OtherPeer: Request for blocks starting at `hash`
+OtherPeer -> NewPeer: 1st batch of blocks
+... Sending batches of blocks ...
+OtherPeer -> NewPeer: nth batch of blocks
+@enduml
