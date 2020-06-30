@@ -34,6 +34,10 @@ pub enum Permission {
         Option<<Domain as Identifiable>::Id>,
         Option<<Account as Identifiable>::Id>,
     ),
+    RemoveSignatory(
+        Option<<Domain as Identifiable>::Id>,
+        Option<<Account as Identifiable>::Id>,
+    ),
 }
 
 impl Permissions {
@@ -85,6 +89,11 @@ pub mod isi {
             <Account as Identifiable>::Id,
             Option<<Domain as Identifiable>::Id>,
         ),
+        CanRemoveSignatory(
+            <Account as Identifiable>::Id,
+            <Account as Identifiable>::Id,
+            Option<<Domain as Identifiable>::Id>,
+        ),
         CanMintAsset(
             <Account as Identifiable>::Id,
             <AssetDefinition as Identifiable>::Id,
@@ -113,6 +122,7 @@ pub mod isi {
                 | CanRegisterAssetDefinition(authority_account_id, ..)
                 | CanTransferAsset(authority_account_id, ..)
                 | CanAddSignatory(authority_account_id, ..)
+                | CanRemoveSignatory(authority_account_id, ..)
                 | CanDemintAsset(authority_account_id, ..)
                 | CanMintAsset(authority_account_id, ..) => {
                     match world_state_view.read_asset(&AssetId {
@@ -149,6 +159,9 @@ pub mod isi {
                 ),
                 PermissionInstruction::CanAddSignatory(_, account_id, option_domain_id) => {
                     Permission::AddSignatory(option_domain_id.clone(), Some(account_id.clone()))
+                }
+                PermissionInstruction::CanRemoveSignatory(_, account_id, option_domain_id) => {
+                    Permission::RemoveSignatory(option_domain_id.clone(), Some(account_id.clone()))
                 }
                 PermissionInstruction::CanMintAsset(_, asset_definition_id, option_domain_id) => {
                     Permission::MintAsset(
@@ -1169,6 +1182,189 @@ pub mod isi {
         #[test]
         fn test_can_add_signatory_without_an_account_fail_with_permission_not_found() {
             assert!(PermissionInstruction::CanAddSignatory(
+                AccountId::new("NOT_ROOT", "Company"),
+                AccountId::new("ACCOUNT", "Company"),
+                None
+            )
+            .execute(&mut WorldStateView::new(Peer::new(
+                PeerId {
+                    address: "127.0.0.1:8080".to_string(),
+                    public_key: KeyPair::generate()
+                        .expect("Failed to generate KeyPair.")
+                        .public_key,
+                },
+                &Vec::new(),
+            )))
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
+        }
+
+        #[test]
+        fn test_can_remove_signatory_should_pass() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let multisignature_account_id = AccountId::new("NON_ROOT", &domain_name);
+            let asset = Asset::with_permission(
+                asset_id.clone(),
+                Permission::RemoveSignatory(None, Some(multisignature_account_id.clone())),
+            );
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert_eq!(
+                Ok(()),
+                PermissionInstruction::CanRemoveSignatory(
+                    account_id,
+                    multisignature_account_id,
+                    None
+                )
+                .execute(&mut world_state_view)
+            );
+        }
+
+        #[test]
+        fn test_remove_signatory_in_domain_should_pass() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let asset_id = AssetId {
+                definition_id: asset_definition_id,
+                account_id: account_id.clone(),
+            };
+            let multisignature_account_id = AccountId::new("NON_ROOT", &domain_name);
+            let asset = Asset::with_permission(
+                asset_id.clone(),
+                Permission::RemoveSignatory(
+                    Some(domain_name.clone()),
+                    Some(multisignature_account_id.clone()),
+                ),
+            );
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            account.assets.insert(asset_id.clone(), asset);
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert_eq!(
+                Ok(()),
+                PermissionInstruction::CanRemoveSignatory(
+                    account_id,
+                    multisignature_account_id,
+                    Some(domain_name)
+                )
+                .execute(&mut world_state_view)
+            );
+        }
+
+        #[test]
+        fn test_remove_signatory_without_permission_should_fail_with_permission_not_found() {
+            let domain_name = "Company".to_string();
+            let public_key = KeyPair::generate()
+                .expect("Failed to generate KeyPair.")
+                .public_key;
+            let mut asset_definitions = HashMap::new();
+            let asset_definition_id = permission_asset_definition_id();
+            asset_definitions.insert(
+                asset_definition_id.clone(),
+                AssetDefinition::new(asset_definition_id.clone()),
+            );
+            let account_id = AccountId::new("ROOT", &domain_name);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
+            let mut accounts = HashMap::new();
+            accounts.insert(account_id.clone(), account);
+            let domain = Domain {
+                name: domain_name.clone(),
+                accounts,
+                asset_definitions,
+            };
+            let mut domains = HashMap::new();
+            domains.insert(domain_name.clone(), domain);
+            let address = "127.0.0.1:8080".to_string();
+            let mut world_state_view = WorldStateView::new(Peer::with_domains(
+                PeerId {
+                    address: address.clone(),
+                    public_key,
+                },
+                &Vec::new(),
+                domains,
+            ));
+            assert!(PermissionInstruction::CanRemoveSignatory(
+                account_id,
+                AccountId::new("NON_ROOT", &domain_name),
+                None
+            )
+            .execute(&mut world_state_view)
+            .unwrap_err()
+            .contains(PERMISSION_NOT_FOUND));
+        }
+
+        #[test]
+        fn test_can_remove_signatory_without_an_account_fail_with_permission_not_found() {
+            assert!(PermissionInstruction::CanRemoveSignatory(
                 AccountId::new("NOT_ROOT", "Company"),
                 AccountId::new("ACCOUNT", "Company"),
                 None

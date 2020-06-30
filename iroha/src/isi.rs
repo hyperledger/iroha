@@ -114,6 +114,30 @@ where
     }
 }
 
+/// Generic instruction for a removal of an object from the identifiable destination.
+pub struct Remove<D, O>
+where
+    D: Identifiable,
+{
+    /// Object which should be removed.
+    pub object: O,
+    /// Destination object `Id`.
+    pub destination_id: D::Id,
+}
+
+impl<D, O> Remove<D, O>
+where
+    D: Identifiable,
+{
+    /// Default `Remove` constructor.
+    pub fn new(object: O, destination_id: D::Id) -> Self {
+        Remove {
+            object,
+            destination_id,
+        }
+    }
+}
+
 /// Generic instruction for a registration of an object to the identifiable destination.
 pub struct Register<D, O>
 where
