@@ -283,7 +283,7 @@ pub mod prelude {
         config::Configuration,
         crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature},
         domain::Domain,
-        isi::{Add, Demint, Instruction, Mint, Register, Transfer},
+        isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},
         peer::{Peer, PeerId},
         query::{IrohaQuery, Query, QueryRequest, QueryResult},
         tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction, ValidTransaction},
