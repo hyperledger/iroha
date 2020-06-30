@@ -1,0 +1,18 @@
+@startuml
+(*)  --> "LatestBlock(other_hash, other_peer).handle(...)"
+If "kura.latest_block_hash != other_hash" then
+--> [yes] Get blocks from other_peer
+--> "Take the first block"
+--> "Clone Network Topology with ordered set of known peers"
+--> "Shift network topology by the number of view changes specified in the block"
+--> "Validate block signatures with this network topology roles"
+    if "Validation passed" then
+    --> [yes] "Commit block"
+    --> [Block passed through the commit pipeline] "Take the first block"
+    else
+    --> [no] (*)
+    endif
+else
+--> [no] (*)
+Endif
+@enduml
