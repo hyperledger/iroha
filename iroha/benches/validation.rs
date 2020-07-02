@@ -187,7 +187,7 @@ fn chain_blocks(criterion: &mut Criterion) {
     )
     .accept()
     .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction]);
+    let block = PendingBlock::new(vec![transaction], &key_pair).expect("Failed to create block");
     let mut previous_block_hash = block.clone().chain_first().hash();
     let mut success_count = 0;
     criterion.bench_function("chain_block", |b| {
@@ -230,7 +230,17 @@ fn sign_blocks(criterion: &mut Criterion) {
     )
     .accept()
     .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction]).chain_first();
+    let mut world_state_view = WorldStateView::new(Peer::new(
+        PeerId {
+            address: "127.0.0.1:8080".to_string(),
+            public_key: key_pair.public_key.clone(),
+        },
+        &Vec::new(),
+    ));
+    let block = PendingBlock::new(vec![transaction], &key_pair)
+        .expect("Failed to create block")
+        .chain_first()
+        .validate(&world_state_view);
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("sign_block", |b| {
@@ -275,10 +285,9 @@ fn validate_blocks(criterion: &mut Criterion) {
     )
     .accept()
     .expect("Failed to accept transaction.");
-    let block = PendingBlock::new(vec![transaction])
-        .chain_first()
-        .sign(&key_pair)
-        .expect("Failed to sign a block.");
+    let block = PendingBlock::new(vec![transaction], &key_pair)
+        .expect("Failed to create a block.")
+        .chain_first();
     let mut world_state_view = WorldStateView::new(Peer::new(
         PeerId {
             address: "127.0.0.1:8080".to_string(),
@@ -289,10 +298,7 @@ fn validate_blocks(criterion: &mut Criterion) {
     let mut success_count = 0;
     let mut failures_count = 0;
     criterion.bench_function("validate_block", |b| {
-        b.iter(|| match block.clone().validate(&mut world_state_view) {
-            Ok(_) => success_count += 1,
-            Err(_) => failures_count += 1,
-        });
+        b.iter(|| block.clone().validate(&world_state_view));
     });
     println!(
         "Success count: {}, Failures count: {}",

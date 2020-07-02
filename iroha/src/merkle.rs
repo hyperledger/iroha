@@ -170,10 +170,9 @@ mod tests {
     #[test]
     fn four_blocks_should_built_seven_nodes() {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new())
+        let block = PendingBlock::new(Vec::new(), &key_pair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&key_pair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -181,7 +180,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&key_pair)
+            .expect("Failed to sign blocks.");
         let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);
@@ -191,10 +191,9 @@ mod tests {
     #[test]
     fn three_blocks_should_built_seven_nodes() {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new())
+        let block = PendingBlock::new(Vec::new(), &key_pair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&key_pair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -202,7 +201,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&key_pair)
+            .expect("Failed to sign blocks.");
         let blocks = [&block, &block, &block, &block];
         let mut merkle_tree = MerkleTree::new();
         merkle_tree.build(&blocks);

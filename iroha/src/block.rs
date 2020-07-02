@@ -17,19 +17,26 @@ pub struct PendingBlock {
     /// Unix time (in milliseconds) of block forming by a peer.
     pub timestamp: u128,
     /// array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<AcceptedTransaction>,
+    pub transactions: Vec<SignedTransaction>,
 }
 
 impl PendingBlock {
     /// Create a new `PendingBlock` from transactions.
-    pub fn new(transactions: Vec<AcceptedTransaction>) -> PendingBlock {
-        PendingBlock {
+    pub fn new(
+        transactions: Vec<AcceptedTransaction>,
+        key_pair: &KeyPair,
+    ) -> Result<PendingBlock, String> {
+        Ok(PendingBlock {
             timestamp: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .expect("Failed to get System Time.")
                 .as_millis(),
-            transactions,
-        }
+            transactions: transactions
+                .iter()
+                .cloned()
+                .map(|transaction| transaction.sign(key_pair))
+                .collect::<Result<Vec<_>, _>>()?,
+        })
     }
 
     /// Chain block with the existing blockchain.
@@ -73,7 +80,7 @@ pub struct ChainedBlock {
     /// Header
     pub header: BlockHeader,
     /// Array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<AcceptedTransaction>,
+    pub transactions: Vec<SignedTransaction>,
 }
 
 /// Header of the block. The hash should be taken from its byte representation.
@@ -100,54 +107,8 @@ impl BlockHeader {
 }
 
 impl ChainedBlock {
-    /// Sign block by the given key pair.
-    pub fn sign(self, keypair: &KeyPair) -> Result<SignedBlock, String> {
-        let mut transactions = Vec::new();
-        for transaction in self.transactions {
-            transactions.push(transaction.sign(keypair)?);
-        }
-        Ok(SignedBlock {
-            header: self.header,
-            transactions,
-            signatures: Signatures::default(),
-        }
-        .sign(keypair)?)
-    }
-
-    /// Calculate hash of the current block.
-    pub fn hash(&self) -> Hash {
-        self.header.hash()
-    }
-}
-
-/// When a `ChainedBlock` is created by a peer or received for a vote it can be signed by the peer
-/// changing it's type to a `SignedBlock`. Block can be signed several times by different peers.
-//TODO[@humb1t:RH2-8]: based on https://iroha.readthedocs.io/en/latest/concepts_architecture/glossary.html#block
-//signatures placed outside of the payload - should we store them?
-#[derive(Clone, Debug, Io, Encode, Decode)]
-pub struct SignedBlock {
-    /// Header
-    pub header: BlockHeader,
-    /// Array of transactions, which successfully passed validation and consensus step.
-    pub transactions: Vec<SignedTransaction>,
-    /// Signatures of peers which approved this block.
-    pub signatures: Signatures,
-}
-
-impl SignedBlock {
-    /// Add additional signature to the already signed block.
-    pub fn sign(mut self, key_pair: &KeyPair) -> Result<SignedBlock, String> {
-        let signature = Signature::new(key_pair.clone(), &self.hash())?;
-        self.signatures.add(signature);
-        Ok(SignedBlock {
-            header: self.header,
-            transactions: self.transactions,
-            signatures: self.signatures,
-        })
-    }
-
     /// Validate block transactions against current state of the world.
-    pub fn validate(self, world_state_view: &WorldStateView) -> Result<ValidBlock, String> {
+    pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
         let mut world_state_view = world_state_view.clone();
         let mut transactions = Vec::new();
         for transaction in self.transactions {
@@ -156,32 +117,28 @@ impl SignedBlock {
                 Err(e) => eprintln!("Transaction validation failed: {}", e),
             }
         }
-        Ok(ValidBlock {
+        //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
+        ValidBlock {
             header: self.header,
-            signatures: self.signatures,
             transactions,
-        })
+            signatures: Signatures::default(),
+        }
     }
 
     /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         self.header.hash()
     }
-
-    /// Signatures that are verified with the `hash` of this block as `payload`.
-    pub fn verified_signatures(&self) -> Vec<Signature> {
-        self.signatures.verified(&self.hash())
-    }
 }
 
-/// After full validation `SignedBlock` can transform into `ValidBlock`.
+/// After full validation `ChainedBlock` can transform into `ValidBlock`.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 pub struct ValidBlock {
     /// Header
     pub header: BlockHeader,
-    /// array of transactions, which successfully passed validation and consensus step.
+    /// Array of transactions.
     pub transactions: Vec<ValidTransaction>,
-    /// Signatures of peers which approved this block
+    /// Signatures of peers which approved this block.
     pub signatures: Signatures,
 }
 
@@ -196,9 +153,34 @@ impl ValidBlock {
         }
     }
 
+    /// Validate block transactions against current state of the world.
+    pub fn validate(self, world_state_view: &WorldStateView) -> ValidBlock {
+        let mut world_state_view = world_state_view.clone();
+        let mut transactions = Vec::new();
+        for transaction in self.transactions {
+            match transaction.validate(&mut world_state_view) {
+                Ok(transaction) => transactions.push(transaction),
+                Err(e) => eprintln!("Transaction validation failed: {}", e),
+            }
+        }
+        //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
+        ValidBlock {
+            header: self.header,
+            transactions,
+            signatures: self.signatures,
+        }
+    }
+
     /// Calculate hash of the current block.
     pub fn hash(&self) -> Hash {
         self.header.hash()
+    }
+
+    /// Sign this block and get `ValidBlock`.
+    pub fn sign(mut self, key_pair: &KeyPair) -> Result<ValidBlock, String> {
+        let signature = Signature::new(key_pair.clone(), &self.hash())?;
+        self.signatures.add(signature);
+        Ok(self)
     }
 
     /// Signatures that are verified with the `hash` of this block as `payload`.
