@@ -225,10 +225,9 @@ mod tests {
         let temp_dir = TempDir::new().expect("Failed to create temp dir.");
         let (tx, _rx) = sync::channel(100);
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let genesis_block = PendingBlock::new(Vec::new())
+        let genesis_block = PendingBlock::new(Vec::new(), &keypair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&keypair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -236,7 +235,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&keypair)
+            .expect("Failed to sign blocks.");
         let mut kura = Kura::with_genesis_block(Mode::Strict, temp_dir.path(), tx, genesis_block);
         assert!(kura.init().await.is_ok());
         assert!(kura.blocks.len() == 1);
@@ -246,10 +246,9 @@ mod tests {
     async fn write_block_to_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new())
+        let block = PendingBlock::new(Vec::new(), &keypair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&keypair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -257,7 +256,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&keypair)
+            .expect("Failed to sign blocks.");
         assert!(BlockStore::new(dir.path()).write(&block).await.is_ok());
     }
 
@@ -265,10 +265,9 @@ mod tests {
     async fn read_block_from_block_store() {
         let dir = tempfile::tempdir().unwrap();
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new())
+        let block = PendingBlock::new(Vec::new(), &keypair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&keypair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -276,7 +275,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&keypair)
+            .expect("Failed to sign blocks.");
         let block_store = BlockStore::new(dir.path());
         block_store
             .write(&block)
@@ -291,10 +291,9 @@ mod tests {
         let block_store = BlockStore::new(dir.path());
         let n = 10;
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let mut block = PendingBlock::new(Vec::new())
+        let mut block = PendingBlock::new(Vec::new(), &keypair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&keypair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -302,16 +301,16 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&keypair)
+            .expect("Failed to sign blocks.");
         for height in 0..n {
             let hash = block_store
                 .write(&block)
                 .await
                 .expect("Failed to write block to file.");
-            block = PendingBlock::new(Vec::new())
+            block = PendingBlock::new(Vec::new(), &keypair)
+                .expect("Failed to create a block.")
                 .chain(height, hash, 0)
-                .sign(&keypair)
-                .expect("Failed to sign blocks.")
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
                         address: "127.0.0.1:8080".to_string(),
@@ -319,7 +318,8 @@ mod tests {
                     },
                     &Vec::new(),
                 )))
-                .expect("Failed to validate the block.");
+                .sign(&keypair)
+                .expect("Failed to sign blocks.");
         }
         let blocks = block_store.read_all().await;
         assert_eq!(blocks.len(), n as usize)
@@ -334,10 +334,9 @@ mod tests {
     #[async_std::test]
     async fn store_block() {
         let keypair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new())
+        let block = PendingBlock::new(Vec::new(), &keypair)
+            .expect("Failed to create a block.")
             .chain_first()
-            .sign(&keypair)
-            .expect("Failed to sign blocks.")
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
@@ -345,7 +344,8 @@ mod tests {
                 },
                 &Vec::new(),
             )))
-            .expect("Failed to validate the block.");
+            .sign(&keypair)
+            .expect("Failed to sign blocks.");
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = sync::channel(100);
         let mut kura = Kura::new(Mode::Strict, dir.path(), tx);

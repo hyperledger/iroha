@@ -4,7 +4,7 @@
 
 use self::message::*;
 use crate::{
-    block::{PendingBlock, SignedBlock},
+    block::PendingBlock,
     config::Configuration,
     crypto::{Hash, KeyPair, Signatures},
     peer::PeerId,
@@ -14,7 +14,7 @@ use async_std::sync::RwLock;
 use iroha_derive::*;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fmt::{self, Debug, Formatter},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -30,8 +30,10 @@ pub struct Sumeragi {
     /// The current topology of the peer to peer network.
     pub network_topology: InitializedNetworkTopology,
     peer_id: PeerId,
-    /// The block in discussion this round.
+    /// The block in discussion this round, received from a leader.
     voting_block: Arc<RwLock<Option<VotingBlock>>>,
+    /// This field is used to count votes when the peer is a proxy tail role.
+    votes_for_blocks: BTreeMap<Hash, ValidBlock>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
     transactions_sender: TransactionSender,
     world_state_view: Arc<RwLock<WorldStateView>>,
@@ -73,6 +75,7 @@ impl Sumeragi {
             .init()?,
             peer_id: PeerId::new(&config.torii_url, &config.public_key),
             voting_block: Arc::new(RwLock::new(None)),
+            votes_for_blocks: BTreeMap::new(),
             blocks_sender,
             world_state_view,
             transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
@@ -106,25 +109,20 @@ impl Sumeragi {
             return Ok(());
         }
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
-            let block = PendingBlock::new(transactions)
+            let wsv = self.world_state_view.clone();
+            let block = PendingBlock::new(transactions, &self.key_pair)?
                 .chain(
                     self.block_height,
                     self.latest_block_hash,
                     self.number_of_view_changes,
                 )
-                .sign(&self.key_pair)?;
+                .validate(&*wsv.read().await);
             if !self.network_topology.is_consensus_required() {
-                let wsv = self.world_state_view.clone();
-                self.commit_block(
-                    block
-                        .validate(&*wsv.read().await)
-                        .expect("Failed to validate the block."),
-                )
-                .await;
+                self.commit_block(block).await;
                 Ok(())
             } else {
                 *self.voting_block.write().await = Some(VotingBlock::new(block.clone()));
-                let message = Message::BlockCreated(block.clone());
+                let message = Message::BlockCreated(block.clone().sign(&self.key_pair)?);
                 let recipient_peers = self.network_topology.sorted_peers.clone();
                 let mut send_futures = Vec::new();
                 for peer in &recipient_peers {
@@ -464,7 +462,7 @@ impl Sumeragi {
     }
 
     #[log]
-    async fn handle_block_created(&mut self, block: SignedBlock) -> Result<(), String> {
+    async fn handle_block_created(&mut self, block: ValidBlock) -> Result<(), String> {
         if self
             .network_topology
             .filter_signatures_by_roles(&[Role::Leader], &block.verified_signatures())
@@ -480,10 +478,14 @@ impl Sumeragi {
             Role::ValidatingPeer => {
                 if !block.transactions.is_empty()
                     && self.latest_block_hash == block.header.previous_block_hash
+                    && self.number_of_view_changes == block.header.number_of_view_changes
+                    && self.block_height + 1 == block.header.height
                 {
-                    if let Err(e) = Message::BlockSigned(block.clone().sign(&self.key_pair)?)
-                        .send_to(self.network_topology.proxy_tail())
-                        .await
+                    let wsv = self.world_state_view.read().await;
+                    if let Err(e) =
+                        Message::BlockSigned(block.clone().validate(&*wsv).sign(&self.key_pair)?)
+                            .send_to(self.network_topology.proxy_tail())
+                            .await
                     {
                         eprintln!(
                             "Failed to send BlockSigned message to the proxy tail: {:?}",
@@ -510,87 +512,64 @@ impl Sumeragi {
     }
 
     #[log]
-    async fn handle_block_signed(&mut self, block: SignedBlock) -> Result<(), String> {
+    async fn handle_block_signed(&mut self, block: ValidBlock) -> Result<(), String> {
         if let Role::ProxyTail = self.network_topology.role(&self.peer_id) {
-            let voting_block = self.voting_block.write().await.clone();
-            match voting_block {
-                Some(mut voting_block) => {
-                    voting_block
-                        .block
-                        .signatures
-                        .append(&block.verified_signatures());
-                    *self.voting_block.write().await = Some(voting_block);
+            let block_hash = block.hash();
+            let entry = self
+                .votes_for_blocks
+                .entry(block_hash)
+                .or_insert_with(|| block.clone());
+            entry.signatures.append(&block.verified_signatures());
+            let valid_signatures = self.network_topology.filter_signatures_by_roles(
+                &[Role::ValidatingPeer, Role::Leader],
+                &entry.verified_signatures(),
+            );
+            if valid_signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
+                let mut signatures = Signatures::default();
+                signatures.append(&valid_signatures);
+                let mut block = entry.clone();
+                block.signatures = signatures;
+                let block = block.sign(&self.key_pair)?;
+                let message = Message::BlockCommitted(block.clone());
+                let mut send_futures = Vec::new();
+                for peer in self.network_topology.validating_peers() {
+                    send_futures.push(message.clone().send_to(peer));
                 }
-                None => *self.voting_block.write().await = Some(VotingBlock::new(block)),
-            };
-            let voting_block = self.voting_block.write().await.clone();
-            if let Some(VotingBlock { block, .. }) = voting_block {
-                let valid_signatures = self.network_topology.filter_signatures_by_roles(
-                    &[Role::ValidatingPeer, Role::Leader],
-                    &block.verified_signatures(),
-                );
-                if valid_signatures.len() >= self.network_topology.min_votes_for_commit() - 1 {
-                    let mut signatures = Signatures::default();
-                    signatures.append(&valid_signatures);
-                    let mut block = block.clone();
-                    block.signatures = signatures;
-                    let block = block.sign(&self.key_pair)?;
-                    let message = Message::BlockCommitted(block.clone());
-                    let mut send_futures = Vec::new();
-                    for peer in self.network_topology.validating_peers() {
-                        send_futures.push(message.clone().send_to(peer));
-                    }
-                    send_futures.push(message.clone().send_to(self.network_topology.leader()));
-                    for peer in self.network_topology.peers_set_b() {
-                        send_futures.push(message.clone().send_to(peer));
-                    }
-                    let results = futures::future::join_all(send_futures).await;
-                    results
-                        .iter()
-                        .filter(|result| result.is_err())
-                        .for_each(|error_result| {
-                            eprintln!("Failed to send messages: {:?}", error_result)
-                        });
-                    let wsv = self.world_state_view.clone();
-                    self.commit_block(
-                        block
-                            .validate(&*wsv.read().await)
-                            .expect("Failed to validate the block."),
-                    )
-                    .await;
+                send_futures.push(message.clone().send_to(self.network_topology.leader()));
+                for peer in self.network_topology.peers_set_b() {
+                    send_futures.push(message.clone().send_to(peer));
                 }
+                let results = futures::future::join_all(send_futures).await;
+                results
+                    .iter()
+                    .filter(|result| result.is_err())
+                    .for_each(|error_result| {
+                        eprintln!("Failed to send messages: {:?}", error_result)
+                    });
+                self.votes_for_blocks.clear();
+                self.commit_block(block).await;
             }
         }
         Ok(())
     }
 
     #[log]
-    async fn handle_block_committed(&mut self, mut block: SignedBlock) -> Result<(), String> {
-        let voting_block = self.voting_block.write().await.clone();
-        if let Some(voting_block) = voting_block {
-            let verified_signatures = block.verified_signatures();
-            let valid_signatures = self.network_topology.filter_signatures_by_roles(
-                &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
-                &verified_signatures,
-            );
-            let proxy_tail_signatures = self
-                .network_topology
-                .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
-            if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
-                && proxy_tail_signatures.len() == 1
-                && voting_block.block.hash() == block.hash()
-                && self.latest_block_hash == block.header.previous_block_hash
-            {
-                block.signatures.clear();
-                block.signatures.append(&valid_signatures);
-                let wsv = self.world_state_view.clone();
-                self.commit_block(
-                    block
-                        .validate(&*wsv.read().await)
-                        .expect("Failed to validate the block."),
-                )
-                .await;
-            }
+    async fn handle_block_committed(&mut self, mut block: ValidBlock) -> Result<(), String> {
+        let verified_signatures = block.verified_signatures();
+        let valid_signatures = self.network_topology.filter_signatures_by_roles(
+            &[Role::ValidatingPeer, Role::Leader, Role::ProxyTail],
+            &verified_signatures,
+        );
+        let proxy_tail_signatures = self
+            .network_topology
+            .filter_signatures_by_roles(&[Role::ProxyTail], &verified_signatures);
+        if valid_signatures.len() >= self.network_topology.min_votes_for_commit()
+            && proxy_tail_signatures.len() == 1
+            && self.latest_block_hash == block.header.previous_block_hash
+        {
+            block.signatures.clear();
+            block.signatures.append(&valid_signatures);
+            self.commit_block(block).await;
         }
         Ok(())
     }
@@ -883,13 +862,13 @@ impl Role {
 pub struct VotingBlock {
     /// At what time has this peer voted for this block
     pub voted_at: Duration,
-    /// Signed Block
-    pub block: SignedBlock,
+    /// Valid Block
+    pub block: ValidBlock,
 }
 
 impl VotingBlock {
     /// Constructs new VotingBlock.
-    pub fn new(block: SignedBlock) -> VotingBlock {
+    pub fn new(block: ValidBlock) -> VotingBlock {
         VotingBlock {
             voted_at: SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -902,7 +881,7 @@ impl VotingBlock {
 /// Contains message structures for p2p communication during consensus.
 pub mod message {
     use crate::{
-        block::SignedBlock,
+        block::ValidBlock,
         crypto::{Hash, KeyPair, Signature, Signatures},
         peer::PeerId,
         sumeragi::{InitializedNetworkTopology, Role, VotingBlock},
@@ -918,11 +897,11 @@ pub mod message {
     #[derive(Io, Decode, Encode, Debug, Clone)]
     pub enum Message {
         /// Is sent by leader to all validating peers, when a new block is created.
-        BlockCreated(SignedBlock),
+        BlockCreated(ValidBlock),
         /// Is sent by validating peers to proxy tail and observing peers when they have signed this block.
-        BlockSigned(SignedBlock),
+        BlockSigned(ValidBlock),
         /// Is sent by proxy tail to validating peers and to leader, when the block is committed.
-        BlockCommitted(SignedBlock),
+        BlockCommitted(ValidBlock),
         /// Is sent when the node votes to change view due to commit timeout.
         CommitTimeout(CommitTimeout),
         /// Receipt of receiving tx from peer. Sent by a leader.

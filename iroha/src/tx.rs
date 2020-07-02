@@ -169,6 +169,24 @@ pub struct ValidTransaction {
 }
 
 impl ValidTransaction {
+    // TODO: comment that it should use a clone
+    /// Move transaction lifecycle forward by checking an ability to apply instructions to the
+    /// `WorldStateView`.
+    ///
+    /// Returns `Ok(ValidTransaction)` if succeeded and `Err(String)` if failed.
+    pub fn validate(
+        self,
+        world_state_view: &mut WorldStateView,
+    ) -> Result<ValidTransaction, String> {
+        for instruction in &self.payload.instructions {
+            instruction.execute(self.payload.account_id.clone(), world_state_view)?;
+        }
+        Ok(ValidTransaction {
+            payload: self.payload,
+            signatures: self.signatures,
+        })
+    }
+
     /// Apply instructions to the `WorldStateView`.
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         for instruction in &self.payload.instructions {
