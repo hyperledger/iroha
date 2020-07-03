@@ -49,6 +49,11 @@ namespace config_members {
   extern const char *PublicKey;
   extern const char *TlsCertificatePath;
   extern const char *UtilityService;
+  extern const char *DataModelModules;
+  extern const char *Python;
+  extern const char *PythonPaths;
+  extern const char *ModuleName;
+  extern const char *InitArgument;
 
 }  // namespace config_members
 
