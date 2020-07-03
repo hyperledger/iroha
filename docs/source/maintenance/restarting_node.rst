@@ -73,5 +73,9 @@ Although it might be unnecessary (Iroha will refuse to start if the schema is in
 You are encouraged to perform a database backup before migration using standard `PostgreSQL guidelines <https://www.postgresql.org/docs/current/backup.html>`__ for that.
 
 To perform migration, please use our `script <https://github.com/hyperledger/iroha-state-migration-tool/blob/master/state_migration.py>`__.
+
 It will load the schema information from the database and match it with migration steps (by default, migration scenarios are defined in ``migration_data`` directory in the same folder as the script).
 Then it will find all migration paths that will transition your database to the desired version and ask you to choose one.
+
+.. seealso::
+	`Here <https://github.com/hyperledger/iroha-state-migration-tool/blob/master/README.md>`_ are some details about different migration cases and examples you can check out to perform migration
