@@ -149,6 +149,8 @@ if(USE_BURROW)
     target_link_libraries(default_vm_call INTERFACE burrow_vm_caller)
 endif()
 
+add_subdirectory(data_models)
+
 target_link_libraries(ametsuchi
     default_vm_call
     pg_connection_init

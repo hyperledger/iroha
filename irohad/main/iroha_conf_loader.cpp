@@ -471,6 +471,47 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::UtilityService>(
 }
 
 template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::DataModelModule::Python>(
+    const std::string &path,
+    IrohadConfig::DataModelModule::Python &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.python_paths, obj, config_members::PythonPaths);
+  getValByKey(path, dest.module_name, obj, config_members::ModuleName);
+  getValByKey(
+      path, dest.initialization_argument, obj, config_members::InitArgument);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::DataModelModule::ModuleType>(
+    const std::string &path,
+    IrohadConfig::DataModelModule::ModuleType &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+
+  std::string type;
+  getValByKey(path, type, obj, config_members::Type);
+  if (type == config_members::Python) {
+    dest = IrohadConfig::DataModelModule::Python{};
+    getVal(path, std::get<IrohadConfig::DataModelModule::Python>(dest), src);
+  } else {
+    throw JsonDeserializerException{
+        fmt::format("Unknown data model module type: '{}'", type)};
+  }
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::DataModelModule>(
+    const std::string &path,
+    IrohadConfig::DataModelModule &dest,
+    const rapidjson::Value &src) {
+  getVal(path, dest.module, src);
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig>(
     const std::string &path, IrohadConfig &dest, const rapidjson::Value &src) {
   assert_fatal(src.IsObject(),
@@ -499,6 +540,8 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig>(
   getValByKey(path, dest.logger_manager, obj, config_members::LogSection);
   getValByKey(path, dest.initial_peers, obj, config_members::InitialPeers);
   getValByKey(path, dest.utility_service, obj, config_members::UtilityService);
+  getValByKey(
+      path, dest.data_model_modules, obj, config_members::DataModelModules);
 }
 
 // ------------ end of getVal(path, dst, src) specializations ------------

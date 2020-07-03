@@ -16,5 +16,6 @@ bool DataModelId::operator==(DataModelId const &rhs) const {
 
 std::size_t DataModelId::Hasher::operator()(DataModelId const &id) const {
   std::hash<std::string> hasher;
+  // TODO rework without addition
   return hasher(id.name) + hasher(id.version);
 }
