@@ -48,6 +48,7 @@ pub struct Sumeragi {
     block_height: u64,
     /// Number of view changes after the previous block was committed
     number_of_view_changes: u32,
+    invalidated_blocks_hashes: Vec<Hash>,
 }
 
 impl Sumeragi {
@@ -83,6 +84,7 @@ impl Sumeragi {
             latest_block_hash,
             block_height,
             number_of_view_changes: 0,
+            invalidated_blocks_hashes: Vec::new(),
         })
     }
 
@@ -111,6 +113,7 @@ impl Sumeragi {
                     self.block_height,
                     self.latest_block_hash,
                     self.number_of_view_changes,
+                    self.invalidated_blocks_hashes.clone(),
                 )
                 .validate(&*wsv.read().await);
             if !self.network_topology.is_consensus_required() {
@@ -615,7 +618,8 @@ impl Sumeragi {
             .len()
             >= self.network_topology.min_votes_for_view_change()
         {
-            //TODO: store invalidated block hashes
+            self.invalidated_blocks_hashes
+                .push(commit_timeout.voting_block_hash);
             self.change_view().await;
         }
         Ok(())
@@ -624,6 +628,7 @@ impl Sumeragi {
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
     pub async fn commit_block(&mut self, block: ValidBlock) {
         self.latest_block_hash = block.hash();
+        self.invalidated_blocks_hashes.clear();
         self.block_height = block.header.height;
         self.blocks_sender.write().await.send(block).await;
         self.network_topology
@@ -1565,6 +1570,7 @@ mod tests {
                 peer.write().await.network_topology.sorted_peers,
                 order_after_change
             );
+            assert_eq!(peer.write().await.invalidated_blocks_hashes.len(), 1);
         }
     }
 
@@ -2002,6 +2008,7 @@ mod tests {
                 peer.write().await.network_topology.sorted_peers,
                 order_after_change
             );
+            assert_eq!(peer.write().await.invalidated_blocks_hashes.len(), 1);
         }
     }
 }

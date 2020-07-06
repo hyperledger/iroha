@@ -135,6 +135,7 @@ mod tests {
                 previous_block_hash: [0; 32],
                 merkle_root_hash: [0; 32],
                 number_of_view_changes: 0,
+                invalidated_blocks_hashes: Vec::new(),
             },
             transactions: Vec::new(),
             signatures: Signatures::default(),
