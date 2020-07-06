@@ -193,7 +193,9 @@ fn chain_blocks(criterion: &mut Criterion) {
     criterion.bench_function("chain_block", |b| {
         b.iter(|| {
             success_count += 1;
-            let new_block = block.clone().chain(success_count, previous_block_hash, 0);
+            let new_block = block
+                .clone()
+                .chain(success_count, previous_block_hash, 0, Vec::new());
             previous_block_hash = new_block.hash();
         });
     });

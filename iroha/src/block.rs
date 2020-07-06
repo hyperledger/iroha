@@ -45,6 +45,7 @@ impl PendingBlock {
         height: u64,
         previous_block_hash: Hash,
         number_of_view_changes: u32,
+        invalidated_blocks_hashes: Vec<Hash>,
     ) -> ChainedBlock {
         ChainedBlock {
             transactions: self.transactions,
@@ -55,6 +56,7 @@ impl PendingBlock {
                 // TODO: get actual merkle tree hash
                 merkle_root_hash: [0u8; 32],
                 number_of_view_changes,
+                invalidated_blocks_hashes,
             },
         }
     }
@@ -69,6 +71,7 @@ impl PendingBlock {
                 previous_block_hash: [0u8; 32],
                 merkle_root_hash: [0u8; 32],
                 number_of_view_changes: 0,
+                invalidated_blocks_hashes: Vec::new(),
             },
         }
     }
@@ -97,6 +100,8 @@ pub struct BlockHeader {
     pub merkle_root_hash: Hash,
     /// Number of view changes after the previous block was committed and before this block was committed.
     pub number_of_view_changes: u32,
+    /// Hashes of the blocks that were rejected by consensus.
+    pub invalidated_blocks_hashes: Vec<Hash>,
 }
 
 impl BlockHeader {
@@ -225,6 +230,7 @@ mod tests {
                 previous_block_hash: [0u8; 32],
                 merkle_root_hash: [0u8; 32],
                 number_of_view_changes: 0,
+                invalidated_blocks_hashes: Vec::new(),
             },
             transactions: vec![],
             signatures: Signatures::default(),
