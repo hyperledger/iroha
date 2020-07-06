@@ -148,12 +148,11 @@ impl Iroha {
             .expect("Failed to initialize Sumeragi."),
         ));
         let kura = Arc::new(RwLock::new(kura));
-        let block_sync = Arc::new(RwLock::new(BlockSynchronizer::new(
+        let block_sync = Arc::new(RwLock::new(BlockSynchronizer::from_configuration(
+            &config.block_sync_configuration,
             kura.clone(),
             sumeragi.clone(),
             PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
-            //TODO: get duration from config
-            Duration::from_secs(10),
         )));
         let queue = Arc::new(RwLock::new(Queue::default()));
         Iroha {
