@@ -109,6 +109,7 @@ pub mod maintenance {
         pub fn with_maintenance(configuration: &Configuration) -> MaintenanceClient {
             MaintenanceClient {
                 client: Client::new(configuration),
+                torii_connect_url: configuration.torii_connect_url.clone(),
             }
         }
     }
@@ -116,6 +117,7 @@ pub mod maintenance {
     #[derive(Debug)]
     pub struct MaintenanceClient {
         client: Client,
+        torii_connect_url: String,
     }
 
     impl MaintenanceClient {
@@ -167,7 +169,7 @@ pub mod maintenance {
         pub async fn subscribe_to_block_changes(
             &mut self,
         ) -> Result<impl Stream<Item = Vec<u8>>, String> {
-            let network = Network::new("127.0.0.1:8888");
+            let network = Network::new(&self.torii_connect_url);
             let connection = network.connect().await.expect("Failed to connect.");
             Ok(connection)
         }

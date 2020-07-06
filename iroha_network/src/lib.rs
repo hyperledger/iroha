@@ -141,6 +141,14 @@ pub struct Connection {
     tcp_stream: SyncTcpStream,
 }
 
+/// `Receipt` should be used by [Consumers](https://github.com/cloudevents/spec/blob/v1.0/spec.md#consumer)
+/// to notify [Source](https://github.com/cloudevents/spec/blob/v1.0/spec.md#source) about
+/// [Message](https://github.com/cloudevents/spec/blob/v1.0/spec.md#message) consumption.
+#[derive(Io, Encode, Decode)]
+pub enum Receipt {
+    Ok,
+}
+
 impl Connection {
     fn new(tcp_stream: SyncTcpStream) -> Self {
         Connection { tcp_stream }
@@ -154,8 +162,9 @@ impl Stream for Connection {
         let mut buffer = [0u8; BUFFER_SIZE];
         match self.tcp_stream.read(&mut buffer) {
             Ok(read_size) => {
+                dbg!(&read_size);
                 let bytes: Vec<u8> = buffer[..read_size].to_vec();
-                let receipt = [1, 1, 1, 1];
+                let receipt: Vec<u8> = Receipt::Ok.into();
                 if let Err(e) = self.tcp_stream.write_all(&receipt) {
                     eprintln!("Write receipt to stream failed: {}", e);
                     return Poll::Ready(None);
@@ -253,7 +262,7 @@ pub mod prelude {
     //! Re-exports important traits and types. Meant to be glob imported when using `iroha_network`.
 
     #[doc(inline)]
-    pub use crate::{AsyncStream, Connection, Network, Request, Response, State};
+    pub use crate::{AsyncStream, Connection, Network, Receipt, Request, Response, State};
 }
 
 #[cfg(test)]
