@@ -20,6 +20,7 @@ use std::{convert::TryFrom, sync::Arc};
 /// Main network handler and the only entrypoint of the Iroha.
 pub struct Torii {
     url: String,
+    connect_url: String,
     world_state_view: Arc<RwLock<WorldStateView>>,
     transaction_sender: Arc<RwLock<TransactionSender>>,
     sumeragi_message_sender: Arc<RwLock<SumeragiMessageSender>>,
@@ -32,7 +33,7 @@ pub struct Torii {
 impl Torii {
     /// Default `Torii` constructor.
     pub fn new(
-        url: &str,
+        (url, connect_url): (&str, &str),
         world_state_view: Arc<RwLock<WorldStateView>>,
         transaction_sender: TransactionSender,
         sumeragi_message_sender: SumeragiMessageSender,
@@ -42,6 +43,7 @@ impl Torii {
     ) -> Self {
         Torii {
             url: url.to_string(),
+            connect_url: connect_url.to_string(),
             world_state_view,
             transaction_sender: Arc::new(RwLock::new(transaction_sender)),
             sumeragi_message_sender: Arc::new(RwLock::new(sumeragi_message_sender)),
@@ -63,7 +65,7 @@ impl Torii {
         (events_sender, events_receiver): (EventsSender, EventsReceiver),
     ) -> Self {
         Torii::new(
-            &configuration.torii_url,
+            (&configuration.torii_url, &configuration.torii_connect_url),
             world_state_view,
             transaction_sender,
             sumeragi_message_sender,
@@ -75,7 +77,6 @@ impl Torii {
 
     /// To handle incoming requests `Torii` should be started first.
     pub async fn start(&mut self) -> Result<(), String> {
-        let url = &self.url.clone();
         let world_state_view = Arc::clone(&self.world_state_view);
         let transaction_sender = Arc::clone(&self.transaction_sender);
         let sumeragi_message_sender = Arc::clone(&self.sumeragi_message_sender);
@@ -91,8 +92,8 @@ impl Torii {
             events_receiver: self.events_receiver.clone(),
         };
         let state = Arc::new(RwLock::new(state));
-        let a = Network::listen(state.clone(), "127.0.0.1:8888", handle_connections);
-        let b = Network::listen(state.clone(), url, handle_requests);
+        let a = Network::listen(state.clone(), &self.connect_url, handle_connections);
+        let b = Network::listen(state.clone(), &self.url, handle_requests);
         let result = a.join(b).await;
         result.0?;
         result.1?;
@@ -140,14 +141,13 @@ async fn handle_connections(
             .flush()
             .await
             .map_err(|e| format!("Failed to flush: {}", e))?;
-        let mut receipt = [0u8; 4];
-        stream
+        //TODO: replace with known size.
+        let mut receipt = vec![0u8; 1000];
+        let read_size = stream
             .read(&mut receipt)
             .await
             .map_err(|e| format!("Failed to read receipt: {}", e))?;
-        if receipt != [1; 4] {
-            panic!("F");
-        }
+        Receipt::try_from(receipt[..read_size].to_vec())?;
     }
     Ok(())
 }
@@ -261,7 +261,9 @@ pub mod config {
     use std::env;
 
     const TORII_URL: &str = "TORII_URL";
+    const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
     const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
+    const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 
     /// `ToriiConfiguration` provides an ability to define parameters such as `TORII_URL`.
     #[derive(Clone, Deserialize, Debug)]
@@ -270,6 +272,9 @@ pub mod config {
         /// Torii URL.
         #[serde(default = "default_torii_url")]
         pub torii_url: String,
+        /// Torii connection URL.
+        #[serde(default = "default_torii_connect_url")]
+        pub torii_connect_url: String,
     }
 
     impl ToriiConfiguration {
@@ -280,12 +285,19 @@ pub mod config {
             if let Ok(torii_url) = env::var(TORII_URL) {
                 self.torii_url = torii_url;
             }
+            if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
+                self.torii_connect_url = torii_connect_url;
+            }
             Ok(())
         }
     }
 
     fn default_torii_url() -> String {
         DEFAULT_TORII_URL.to_string()
+    }
+
+    fn default_torii_connect_url() -> String {
+        DEFAULT_TORII_CONNECT_URL.to_string()
     }
 }
 
@@ -303,12 +315,13 @@ mod tests {
         let config =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let torii_url = config.torii_configuration.torii_url.to_string();
+        let torii_connect_url = config.torii_configuration.torii_connect_url.to_string();
         let (tx_tx, _) = sync::channel(100);
         let (sumeragi_message_sender, _) = sync::channel(100);
         let (block_sync_message_sender, _) = sync::channel(100);
         let (events_sender, events_receiver) = sync::channel(100);
         let mut torii = Torii::new(
-            &torii_url,
+            (&torii_url, &torii_connect_url),
             Arc::new(RwLock::new(WorldStateView::new(Peer::new(
                 PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
                 &Vec::new(),

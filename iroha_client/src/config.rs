@@ -4,8 +4,10 @@ use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
 const TORII_URL: &str = "TORII_URL";
+const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
+const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 #[derive(Clone, Deserialize, Debug)]
@@ -16,6 +18,9 @@ pub struct Configuration {
     /// Torii URL.
     #[serde(default = "default_torii_url")]
     pub torii_url: String,
+    /// Torii connection URL.
+    #[serde(default = "default_torii_connect_url")]
+    pub torii_connect_url: String,
 }
 
 impl Configuration {
@@ -39,6 +44,7 @@ impl Configuration {
         Configuration {
             torii_url: configuration.torii_configuration.torii_url.clone(),
             public_key: configuration.public_key,
+            torii_connect_url: default_torii_connect_url(),
         }
     }
 
@@ -48,6 +54,9 @@ impl Configuration {
     pub fn load_environment(&mut self) -> Result<(), String> {
         if let Ok(torii_url) = env::var(TORII_URL) {
             self.torii_url = torii_url;
+        }
+        if let Ok(torii_connect_url) = env::var(TORII_CONNECT_URL) {
+            self.torii_connect_url = torii_connect_url;
         }
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_str(&public_key)
@@ -59,4 +68,8 @@ impl Configuration {
 
 fn default_torii_url() -> String {
     DEFAULT_TORII_URL.to_string()
+}
+
+fn default_torii_connect_url() -> String {
+    DEFAULT_TORII_CONNECT_URL.to_string()
 }

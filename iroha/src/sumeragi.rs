@@ -1357,7 +1357,10 @@ mod tests {
                 &ids,
             ))));
             let mut torii = Torii::new(
-                ids[i].address.as_str(),
+                (
+                    ids[i].address.as_str(),
+                    &format!("{}{}", ids[i].address, "0"),
+                ),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -1469,7 +1472,10 @@ mod tests {
                 &ids,
             ))));
             let mut torii = Torii::new(
-                ids[i].address.as_str(),
+                (
+                    ids[i].address.as_str(),
+                    &format!("{}{}", ids[i].address, "0"),
+                ),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
@@ -1603,7 +1609,10 @@ mod tests {
                 &ids,
             ))));
             let mut torii = Torii::new(
-                ids[i].address.as_str(),
+                (
+                    ids[i].address.as_str(),
+                    &format!("{}{}", ids[i].address, "0"),
+                ),
                 wsv.clone(),
                 transactions_sender.clone(),
                 sumeragi_message_sender,
@@ -1749,7 +1758,10 @@ mod tests {
                 &ids,
             ))));
             let mut torii = Torii::new(
-                ids[i].address.as_str(),
+                (
+                    ids[i].address.as_str(),
+                    &format!("{}{}", ids[i].address, "0"),
+                ),
                 wsv.clone(),
                 transactions_sender.clone(),
                 sumeragi_message_sender,
@@ -1897,7 +1909,10 @@ mod tests {
                 &ids,
             ))));
             let mut torii = Torii::new(
-                ids[i].address.as_str(),
+                (
+                    ids[i].address.as_str(),
+                    &format!("{}{}", ids[i].address, "0"),
+                ),
                 wsv.clone(),
                 tx,
                 sumeragi_message_sender,
