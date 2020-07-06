@@ -1,5 +1,6 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
+    block_sync::config::BlockSyncConfiguration,
     crypto::{KeyPair, PrivateKey, PublicKey},
     kura::config::KuraConfiguration,
     peer::PeerId,
@@ -21,12 +22,14 @@ pub struct Configuration {
     pub public_key: PublicKey,
     /// Private key of this peer.
     pub private_key: PrivateKey,
-    /// `Kura` related documentation.
+    /// `Kura` related configuration.
     pub kura_configuration: KuraConfiguration,
-    /// `Sumeragi` related documentation.
+    /// `Sumeragi` related configuration.
     pub sumeragi_configuration: SumeragiConfiguration,
-    /// `Torii` related documentation.
+    /// `Torii` related configuration.
     pub torii_configuration: ToriiConfiguration,
+    /// `BlockSynchronizer` configuration.
+    pub block_sync_configuration: BlockSyncConfiguration,
 }
 
 impl Configuration {
@@ -59,6 +62,7 @@ impl Configuration {
         self.torii_configuration.load_environment()?;
         self.kura_configuration.load_environment()?;
         self.sumeragi_configuration.load_environment()?;
+        self.block_sync_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_str(&public_key)
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
