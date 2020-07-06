@@ -373,7 +373,7 @@ mod tests {
                 .expect("Failed to write block to file.");
             block = PendingBlock::new(Vec::new(), &keypair)
                 .expect("Failed to create a block.")
-                .chain(height, hash, 0)
+                .chain(height, hash, 0, Vec::new())
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
                         address: "127.0.0.1:8080".to_string(),
