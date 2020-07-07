@@ -133,13 +133,14 @@ impl Iroha {
             sumeragi_message_sender,
             block_sync_message_sender,
             System::new(&config),
-            (events_sender, events_receiver),
+            (events_sender.clone(), events_receiver),
         );
         let kura = Kura::from_configuration(&config.kura_configuration, wsv_blocks_sender);
         let sumeragi = Arc::new(RwLock::new(
             Sumeragi::from_configuration(
                 &config.sumeragi_configuration,
                 Arc::new(RwLock::new(kura_blocks_sender)),
+                events_sender,
                 world_state_view.clone(),
                 transactions_sender,
                 kura.latest_block_hash(),

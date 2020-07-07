@@ -12,7 +12,7 @@ mod tests {
     #[ignore]
     async fn client_subscribe_to_changes_request_should_receive_changes() {
         thread::spawn(create_and_start_iroha);
-        thread::sleep(std::time::Duration::from_millis(300));
+        thread::sleep(Duration::from_millis(300));
         let configuration =
             Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
         let mut iroha_client = Client::with_maintenance(
@@ -22,23 +22,6 @@ mod tests {
             .subscribe_to_block_changes()
             .await
             .expect("Failed to execute request.");
-        let domain_name = "global";
-        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
-        let create_asset = isi::Register {
-            object: AssetDefinition::new(asset_definition_id.clone()),
-            destination_id: domain_name.to_string(),
-        };
-        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
-            &configuration,
-        ));
-        iroha_client
-            .submit(create_asset.into())
-            .await
-            .expect("Failed to prepare state.");
-        task::sleep(Duration::from_millis(
-            &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
-        ))
-        .await;
         if let Some(change) = stream.next().await {
             println!("Change received {:?}", change);
         } else {
@@ -53,8 +36,18 @@ mod tests {
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
-        let iroha = Iroha::new(configuration);
+        let iroha = Iroha::new(configuration.clone());
         task::block_on(iroha.start()).expect("Failed to start Iroha.");
+        let domain_name = "global";
+        let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+        let create_asset = isi::Register {
+            object: AssetDefinition::new(asset_definition_id),
+            destination_id: domain_name.to_string(),
+        };
+        let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
+            &configuration,
+        ));
+        task::block_on(iroha_client.submit(create_asset.into())).expect("Failed to prepare state.");
         //Prevents temp_dir from clean up untill the end of the tests.
         #[allow(clippy::empty_loop)]
         loop {}

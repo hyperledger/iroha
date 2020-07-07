@@ -6,6 +6,7 @@ mod tests {
         client::{self, Client},
         config::Configuration as ClientConfiguration,
     };
+    use std::time::Duration;
     use tempfile::TempDir;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
@@ -55,7 +56,7 @@ mod tests {
             ])
             .await
             .expect("Failed to prepare state.");
-        task::sleep(std::time::Duration::from_millis(
+        task::sleep(Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ))
         .await;
@@ -72,7 +73,7 @@ mod tests {
             .submit(mint_asset.into())
             .await
             .expect("Failed to create asset.");
-        task::sleep(std::time::Duration::from_millis(
+        task::sleep(Duration::from_millis(
             configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ))
         .await;
@@ -87,7 +88,8 @@ mod tests {
         configuration
             .kura_configuration
             .kura_block_store_path(temp_dir.path());
-        configuration.torii_configuration.torii_url = address;
+        configuration.torii_configuration.torii_url = address.clone();
+        configuration.torii_configuration.torii_connect_url = format!("{}{}", address, "0");
         configuration.public_key = key_pair.public_key;
         configuration.private_key = key_pair.private_key.clone();
         configuration
@@ -104,12 +106,19 @@ mod tests {
             #[allow(clippy::empty_loop)]
             loop {}
         });
+        task::sleep(Duration::from_millis(
+            configuration_clone
+                .sumeragi_configuration
+                .pipeline_time_ms()
+                * 2,
+        ))
+        .await;
         let add_peer = isi::Instruction::Peer(peer_isi::PeerInstruction::AddPeer(new_peer.clone()));
         iroha_client
             .submit(add_peer)
             .await
             .expect("Failed to add new peer.");
-        task::sleep(std::time::Duration::from_millis(
+        task::sleep(Duration::from_millis(
             configuration_clone
                 .sumeragi_configuration
                 .pipeline_time_ms()
@@ -162,6 +171,8 @@ mod tests {
                     .kura_configuration
                     .kura_block_store_path(temp_dir.path());
                 configuration.torii_configuration.torii_url = peer_id.address.clone();
+                configuration.torii_configuration.torii_connect_url =
+                    format!("{}{}", peer_id.address, "0");
                 configuration.public_key = key_pair.public_key;
                 configuration.private_key = key_pair.private_key.clone();
                 configuration
@@ -176,7 +187,7 @@ mod tests {
                 #[allow(clippy::empty_loop)]
                 loop {}
             });
-            task::sleep(std::time::Duration::from_millis(100)).await;
+            task::sleep(std::time::Duration::from_millis(200)).await;
         }
         peer_ids.clone()
     }

@@ -3,7 +3,10 @@
 
 use crate::{
     block_sync::message::Message as BlockSyncMessage,
-    event::{EventsReceiver, EventsSender},
+    event::{
+        connection::{ConnectRequest, Filter},
+        EventsReceiver, EventsSender,
+    },
     maintenance::{Health, System},
     prelude::*,
     sumeragi::message::Message as SumeragiMessage,
@@ -92,11 +95,16 @@ impl Torii {
             events_receiver: self.events_receiver.clone(),
         };
         let state = Arc::new(RwLock::new(state));
-        let a = Network::listen(state.clone(), &self.connect_url, handle_connections);
-        let b = Network::listen(state.clone(), &self.url, handle_requests);
-        let result = a.join(b).await;
-        result.0?;
-        result.1?;
+        let (handle_requests_result, handle_connects_result) =
+            Network::listen(state.clone(), &self.url, handle_requests)
+                .join(Network::listen(
+                    state.clone(),
+                    &self.connect_url,
+                    handle_connections,
+                ))
+                .await;
+        handle_requests_result?;
+        handle_connects_result?;
         Ok(())
     }
 }
@@ -130,24 +138,34 @@ async fn handle_connections(
     state: State<ToriiState>,
     mut stream: Box<dyn AsyncStream>,
 ) -> Result<(), String> {
+    let mut initial_message = vec![0u8; 1000];
+    let read_size = stream
+        .read(&mut initial_message)
+        .await
+        .map_err(|e| format!("Failed to read initial message: {}", e))?;
+    let filter: Filter = ConnectRequest::try_from(initial_message[..read_size].to_vec())?
+        .validate()
+        .into();
     let mut receiver = state.write().await.events_receiver.clone();
     while let Some(change) = receiver.next().await {
-        let change: Vec<u8> = change.into();
-        stream
-            .write_all(&change)
-            .await
-            .map_err(|e| format!("Failed to write message: {}", e))?;
-        stream
-            .flush()
-            .await
-            .map_err(|e| format!("Failed to flush: {}", e))?;
-        //TODO: replace with known size.
-        let mut receipt = vec![0u8; 1000];
-        let read_size = stream
-            .read(&mut receipt)
-            .await
-            .map_err(|e| format!("Failed to read receipt: {}", e))?;
-        Receipt::try_from(receipt[..read_size].to_vec())?;
+        if filter.apply(&change).is_some() {
+            let change: Vec<u8> = change.into();
+            stream
+                .write_all(&change)
+                .await
+                .map_err(|e| format!("Failed to write message: {}", e))?;
+            stream
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush: {}", e))?;
+            //TODO: replace with known size.
+            let mut receipt = vec![0u8; 1000];
+            let read_size = stream
+                .read(&mut receipt)
+                .await
+                .map_err(|e| format!("Failed to read receipt: {}", e))?;
+            Receipt::try_from(receipt[..read_size].to_vec())?;
+        }
     }
     Ok(())
 }
