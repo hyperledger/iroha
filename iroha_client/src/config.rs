@@ -6,8 +6,10 @@ use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 const TORII_URL: &str = "TORII_URL";
 const TORII_CONNECT_URL: &str = "TORII_CONNECT_URL";
 const IROHA_PUBLIC_KEY: &str = "IROHA_PUBLIC_KEY";
+const TRANSACTION_TIME_TO_LIVE_MS: &str = "TRANSACTION_TIME_TO_LIVE_MS";
 const DEFAULT_TORII_URL: &str = "127.0.0.1:1337";
 const DEFAULT_TORII_CONNECT_URL: &str = "127.0.0.1:8888";
+const DEFAULT_TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
 /// `Configuration` provides an ability to define client parameters such as `TORII_URL`.
 #[derive(Clone, Deserialize, Debug)]
@@ -21,6 +23,9 @@ pub struct Configuration {
     /// Torii connection URL.
     #[serde(default = "default_torii_connect_url")]
     pub torii_connect_url: String,
+    /// Proposed transaction TTL in milliseconds.
+    #[serde(default = "default_transaction_time_to_live_ms")]
+    pub transaction_time_to_live_ms: u64,
 }
 
 impl Configuration {
@@ -45,6 +50,9 @@ impl Configuration {
             torii_url: configuration.torii_configuration.torii_url.clone(),
             public_key: configuration.public_key,
             torii_connect_url: default_torii_connect_url(),
+            transaction_time_to_live_ms: configuration
+                .queue_configuration
+                .transaction_time_to_live_ms,
         }
     }
 
@@ -62,6 +70,11 @@ impl Configuration {
             self.public_key = serde_json::from_str(&public_key)
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
         }
+        if let Ok(proposed_transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {
+            self.transaction_time_to_live_ms =
+                serde_json::from_str(&proposed_transaction_ttl_ms)
+                    .map_err(|e| format!("Failed to parse proposed transaction ttl: {}", e))?;
+        }
         Ok(())
     }
 }
@@ -72,4 +85,8 @@ fn default_torii_url() -> String {
 
 fn default_torii_connect_url() -> String {
     DEFAULT_TORII_CONNECT_URL.to_string()
+}
+
+fn default_transaction_time_to_live_ms() -> u64 {
+    DEFAULT_TRANSACTION_TIME_TO_LIVE_MS
 }

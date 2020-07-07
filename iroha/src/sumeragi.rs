@@ -1225,6 +1225,7 @@ mod tests {
     const BLOCK_TIME_MS: u64 = 1000;
     const COMMIT_TIME_MS: u64 = 1000;
     const TX_RECEIPT_TIME_MS: u64 = 200;
+    const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
 
     #[test]
     #[should_panic]
@@ -1424,6 +1425,7 @@ mod tests {
             .round(vec![RequestedTransaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
+                TRANSACTION_TIME_TO_LIVE_MS,
             )
             .accept()
             .expect("Failed to accept tx.")])
@@ -1546,6 +1548,7 @@ mod tests {
             .round(vec![RequestedTransaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
+                TRANSACTION_TIME_TO_LIVE_MS,
             )
             .accept()
             .expect("Failed to accept tx.")])
@@ -1696,6 +1699,7 @@ mod tests {
             .round(vec![RequestedTransaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
+                TRANSACTION_TIME_TO_LIVE_MS,
             )
             .accept()
             .expect("Failed to accept tx.")])
@@ -1846,6 +1850,7 @@ mod tests {
             .round(vec![RequestedTransaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
+                TRANSACTION_TIME_TO_LIVE_MS,
             )
             .accept()
             .expect("Failed to accept tx.")])
@@ -1984,6 +1989,7 @@ mod tests {
             .round(vec![RequestedTransaction::new(
                 vec![],
                 account::Id::new("entity", "domain"),
+                TRANSACTION_TIME_TO_LIVE_MS,
             )
             .accept()
             .expect("Failed to accept tx.")])
