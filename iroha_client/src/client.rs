@@ -11,6 +11,7 @@ use std::{
 pub struct Client {
     torii_url: String,
     key_pair: KeyPair,
+    proposed_transaction_ttl_ms: u64,
 }
 
 /// Representation of `Iroha` client.
@@ -18,7 +19,9 @@ impl Client {
     pub fn new(configuration: &Configuration) -> Self {
         Client {
             torii_url: configuration.torii_url.clone(),
+            //TODO: The `public_key` from `configuration` will be different. Fix this inconsistency.
             key_pair: KeyPair::generate().expect("Failed to generate KeyPair."),
+            proposed_transaction_ttl_ms: configuration.transaction_time_to_live_ms,
         }
     }
 
@@ -26,11 +29,14 @@ impl Client {
     #[log]
     pub async fn submit(&mut self, instruction: Instruction) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction: RequestedTransaction =
-            RequestedTransaction::new(vec![instruction], iroha::account::Id::new("root", "global"))
-                .accept()?
-                .sign(&self.key_pair)?
-                .into();
+        let transaction: RequestedTransaction = RequestedTransaction::new(
+            vec![instruction],
+            iroha::account::Id::new("root", "global"),
+            self.proposed_transaction_ttl_ms,
+        )
+        .accept()?
+        .sign(&self.key_pair)?
+        .into();
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),
@@ -52,11 +58,14 @@ impl Client {
     /// Instructions API entry point. Submits several Iroha Special Instructions to `Iroha` peers.
     pub async fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<(), String> {
         let network = Network::new(&self.torii_url);
-        let transaction: RequestedTransaction =
-            RequestedTransaction::new(instructions, iroha::account::Id::new("root", "global"))
-                .accept()?
-                .sign(&self.key_pair)?
-                .into();
+        let transaction: RequestedTransaction = RequestedTransaction::new(
+            instructions,
+            iroha::account::Id::new("root", "global"),
+            self.proposed_transaction_ttl_ms,
+        )
+        .accept()?
+        .sign(&self.key_pair)?
+        .into();
         if let Response::InternalError = network
             .send_request(Request::new(
                 uri::INSTRUCTIONS_URI.to_string(),

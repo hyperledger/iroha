@@ -1,6 +1,8 @@
 use criterion::*;
 use iroha::{isi, peer::PeerId, prelude::*};
 
+const TRANSACTION_TIME_TO_LIVE_MS: u64 = 100_000;
+
 fn accept_transaction(criterion: &mut Criterion) {
     let domain_name = "domain";
     let create_domain = isi::Add {
@@ -35,6 +37,7 @@ fn accept_transaction(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     );
     let mut success_count = 0;
     let mut failures_count = 0;
@@ -84,6 +87,7 @@ fn sign_transaction(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
     .expect("Failed to accept transaction.");
@@ -129,6 +133,7 @@ fn validate_transaction(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
     .expect("Failed to accept transaction.")
@@ -184,6 +189,7 @@ fn chain_blocks(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
     .expect("Failed to accept transaction.");
@@ -229,6 +235,7 @@ fn sign_blocks(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
     .expect("Failed to accept transaction.");
@@ -284,6 +291,7 @@ fn validate_blocks(criterion: &mut Criterion) {
             create_asset.into(),
         ],
         AccountId::new("account", "domain"),
+        TRANSACTION_TIME_TO_LIVE_MS,
     )
     .accept()
     .expect("Failed to accept transaction.");
