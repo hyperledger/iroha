@@ -4,6 +4,7 @@ use crate::{
     crypto::{KeyPair, PrivateKey, PublicKey},
     kura::config::KuraConfiguration,
     peer::PeerId,
+    queue::config::QueueConfiguration,
     sumeragi::config::SumeragiConfiguration,
     torii::config::ToriiConfiguration,
 };
@@ -30,6 +31,8 @@ pub struct Configuration {
     pub torii_configuration: ToriiConfiguration,
     /// `BlockSynchronizer` configuration.
     pub block_sync_configuration: BlockSyncConfiguration,
+    /// `Queue` configuration.
+    pub queue_configuration: QueueConfiguration,
 }
 
 impl Configuration {
@@ -63,6 +66,7 @@ impl Configuration {
         self.kura_configuration.load_environment()?;
         self.sumeragi_configuration.load_environment()?;
         self.block_sync_configuration.load_environment()?;
+        self.queue_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_str(&public_key)
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
