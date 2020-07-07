@@ -5,7 +5,10 @@
 use crate::{crypto::KeyPair, prelude::*};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
-use std::time::SystemTime;
+use std::{
+    cmp::min,
+    time::{Duration, SystemTime},
+};
 
 /// This structure represents transaction in non-trusted form.
 ///
@@ -25,7 +28,9 @@ struct Payload {
     /// An ordered set of instructions.
     instructions: Vec<Instruction>,
     /// Time of creation (unix time, in milliseconds).
-    creation_time: String,
+    creation_time: u64,
+    /// The transaction will be dropped after this time if it is still in a `Queue`.
+    time_to_live_ms: u64,
 }
 
 impl RequestedTransaction {
@@ -33,6 +38,7 @@ impl RequestedTransaction {
     pub fn new(
         instructions: Vec<Instruction>,
         account_id: <Account as Identifiable>::Id,
+        proposed_ttl_ms: u64,
     ) -> RequestedTransaction {
         RequestedTransaction {
             payload: Payload {
@@ -41,8 +47,8 @@ impl RequestedTransaction {
                 creation_time: SystemTime::now()
                     .duration_since(SystemTime::UNIX_EPOCH)
                     .expect("Failed to get System Time.")
-                    .as_millis()
-                    .to_string(),
+                    .as_millis() as u64,
+                time_to_live_ms: proposed_ttl_ms,
             },
             signatures: Vec::new(),
         }
@@ -104,6 +110,19 @@ impl AcceptedTransaction {
         let mut hash = [0; 32];
         hash.copy_from_slice(&vec_hash);
         hash
+    }
+
+    /// Checks if this transaction is waiting longer than specified in `transaction_time_to_live` from `QueueConfiguration` or `time_to_live_ms` of this transaction.
+    /// Meaning that the transaction will be expired as soon as the lesser of the specified TTLs was reached.
+    pub fn is_expired(&self, transaction_time_to_live: Duration) -> bool {
+        let current_time = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("Failed to get System Time.");
+        (current_time - Duration::from_millis(self.payload.creation_time))
+            > min(
+                Duration::from_millis(self.payload.time_to_live_ms),
+                transaction_time_to_live,
+            )
     }
 }
 
