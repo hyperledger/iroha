@@ -6,6 +6,7 @@ use self::message::*;
 use crate::{
     block::PendingBlock,
     crypto::{Hash, KeyPair, Signatures},
+    event::EventsSender,
     peer::PeerId,
     prelude::*,
 };
@@ -34,6 +35,7 @@ pub struct Sumeragi {
     /// This field is used to count votes when the peer is a proxy tail role.
     votes_for_blocks: BTreeMap<Hash, ValidBlock>,
     blocks_sender: Arc<RwLock<ValidBlockSender>>,
+    events_sender: EventsSender,
     transactions_sender: TransactionSender,
     world_state_view: Arc<RwLock<WorldStateView>>,
     /// Hashes of the transactions that were forwarded to a leader, but not yet confirmed with a receipt.
@@ -56,6 +58,7 @@ impl Sumeragi {
     pub fn from_configuration(
         configuration: &config::SumeragiConfiguration,
         blocks_sender: Arc<RwLock<ValidBlockSender>>,
+        events_sender: EventsSender,
         world_state_view: Arc<RwLock<WorldStateView>>,
         transactions_sender: TransactionSender,
         latest_block_hash: Hash,
@@ -74,6 +77,7 @@ impl Sumeragi {
             voting_block: Arc::new(RwLock::new(None)),
             votes_for_blocks: BTreeMap::new(),
             blocks_sender,
+            events_sender,
             world_state_view,
             transactions_awaiting_receipts: Arc::new(RwLock::new(BTreeSet::new())),
             transactions_awaiting_created_block: Arc::new(RwLock::new(BTreeSet::new())),
@@ -116,6 +120,11 @@ impl Sumeragi {
                     self.invalidated_blocks_hashes.clone(),
                 )
                 .validate(&*wsv.read().await);
+            self.events_sender
+                .send(crate::event::Occurrence::Created(
+                    crate::event::Entity::Block(block.clone()),
+                ))
+                .await;
             if !self.network_topology.is_consensus_required() {
                 self.commit_block(block).await;
                 Ok(())
@@ -626,6 +635,7 @@ impl Sumeragi {
     }
 
     /// Commits `ValidBlock` and changes the state of the `Sumeragi` and its `NetworkTopology`.
+    #[log]
     pub async fn commit_block(&mut self, block: ValidBlock) {
         self.latest_block_hash = block.hash();
         self.invalidated_blocks_hashes.clear();
@@ -1372,7 +1382,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
-                (events_sender, events_receiver),
+                (events_sender.clone(), events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1388,6 +1398,7 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
+                    events_sender,
                     wsv,
                     transactions_sender,
                     [0u8; 32],
@@ -1488,7 +1499,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
-                (events_sender, events_receiver),
+                (events_sender.clone(), events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1504,6 +1515,7 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
+                    events_sender,
                     wsv,
                     transactions_sender,
                     [0u8; 32],
@@ -1627,7 +1639,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
-                (events_sender, events_receiver),
+                (events_sender.clone(), events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1643,6 +1655,7 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
+                    events_sender,
                     wsv,
                     transactions_sender,
                     [0u8; 32],
@@ -1777,7 +1790,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
-                (events_sender, events_receiver),
+                (events_sender.clone(), events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1793,6 +1806,7 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
+                    events_sender,
                     wsv,
                     transactions_sender,
                     [0u8; 32],
@@ -1929,7 +1943,7 @@ mod tests {
                 sumeragi_message_sender,
                 block_sync_message_sender,
                 System::new(&config),
-                (events_sender, events_receiver),
+                (events_sender.clone(), events_receiver),
             );
             task::spawn(async move {
                 torii.start().await.expect("Torii failed.");
@@ -1945,6 +1959,7 @@ mod tests {
                 Sumeragi::from_configuration(
                     &config.sumeragi_configuration,
                     Arc::new(RwLock::new(block_sender)),
+                    events_sender,
                     wsv,
                     transactions_sender,
                     [0u8; 32],

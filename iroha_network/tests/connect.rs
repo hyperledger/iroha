@@ -19,13 +19,16 @@ mod tests {
         });
         thread::sleep(Duration::from_millis(50));
         let network = Network::new("127.0.0.1:8888");
-        let mut actual_changes: u64 = 0;
-        let mut connection = network.connect().await.expect("Failed to connect.");
-        while let Some(change) = connection.next().await {
-            println!("Change #{} - {:?}", actual_changes, change);
-            actual_changes += 1;
+        let mut actual_changes = Vec::new();
+        let mut connection = network
+            .connect(&[0u8, 10])
+            .await
+            .expect("Failed to connect.");
+        while let Some(mut change) = connection.next().await {
+            println!("Change #{} - {:?}", actual_changes.len(), change);
+            actual_changes.append(&mut change);
         }
-        assert_eq!(actual_changes, 100);
+        assert_eq!(actual_changes.len(), 99);
     }
 
     async fn handle_connection(
