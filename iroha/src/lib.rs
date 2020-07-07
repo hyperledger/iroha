@@ -154,7 +154,9 @@ impl Iroha {
             sumeragi.clone(),
             PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
         )));
-        let queue = Arc::new(RwLock::new(Queue::default()));
+        let queue = Arc::new(RwLock::new(Queue::from_configuration(
+            &config.queue_configuration,
+        )));
         Iroha {
             queue,
             torii: Arc::new(RwLock::new(torii)),
