@@ -22,7 +22,7 @@ pub type EventsReceiver = Receiver<Occurrence>;
 /// Iroha - creation of new entities, updates on and deletion of existing entities.
 ///
 /// [Specification](https://github.com/cloudevents/spec/blob/v1.0/spec.md#occurrence).
-#[derive(Io, Encode, Decode)]
+#[derive(Io, Encode, Decode, Debug)]
 pub enum Occurrence {
     /// Entity was added, registered, minted or another action was made to make entity appear on
     /// the blockchain for the first time.
@@ -36,7 +36,7 @@ pub enum Occurrence {
 }
 
 /// Enumeration of all possible Iroha entities.
-#[derive(Io, Encode, Decode)]
+#[derive(Io, Encode, Decode, Debug)]
 pub enum Entity {
     /// Account.
     Account(Account),
@@ -50,6 +50,10 @@ pub enum Entity {
     Peer(Peer),
     /// Transaction.
     Transaction(Vec<u8>),
+    /// Block.
+    Block(ValidBlock),
+    /// Time.
+    Time,
 }
 
 impl Into<Event> for Occurrence {
@@ -61,6 +65,115 @@ impl Into<Event> for Occurrence {
             .source(Url::parse("127.0.0.1:8888").expect("Failed to parse Url."))
             .time(Utc::now())
             .build()
+    }
+}
+
+/// Module `connection` provides functionality needed for Iroha Events consumers.
+pub mod connection {
+    use super::*;
+
+    /// Criteria to filter `Occurrences` based on.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub struct Criteria {
+        occurrence_type: OccurrenceType,
+        entity_type: EntityType,
+    }
+
+    /// Which type of `Occurrences` should be added to filter.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub enum OccurrenceType {
+        /// Filter `Occurrence::Created` events.
+        Created,
+        /// Filter `Occurrence::Updated` events.
+        Updated,
+        /// Filter `Occurrence::Deleted` events.
+        Deleted,
+        /// Filter all types of `Occurrence`.
+        All,
+    }
+
+    /// Which type of `Entities` should be added to filter.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub enum EntityType {
+        /// Filter `Entity::Account` events.
+        Account,
+        /// Filter `Entity::AssetDefinition` events.
+        AssetDefinition,
+        /// Filter `Entity::Asset` events.
+        Asset,
+        /// Filter `Entity::Domain` events.
+        Domain,
+        /// Filter `Entity::Peer` events.
+        Peer,
+        /// Filter `Entity::Transaction` events.
+        Transaction,
+        /// Filter `Entity::Block` events.
+        Block,
+        /// Filter `Entity::Time` events.
+        Time,
+        /// Filter all types of `Entity`.
+        All,
+    }
+
+    impl Criteria {
+        /// Default `Criteria` constructor.
+        pub fn new(occurrence_type: OccurrenceType, entity_type: EntityType) -> Self {
+            Self {
+                occurrence_type,
+                entity_type,
+            }
+        }
+
+        /// To create `ConnectRequest` `Criteria` should be signed.
+        pub fn sign(self, key_pair: KeyPair) -> ConnectRequest {
+            let signature =
+                Signature::new(key_pair, &Vec::from(&self)).expect("Failed to create a signature.");
+            ConnectRequest {
+                criteria: self,
+                signature,
+            }
+        }
+    }
+
+    /// Initial Message for Connect functionality.
+    /// Provides Authority and Criteria to Filter Events.
+    #[derive(Clone, Debug, Io, Encode, Decode)]
+    pub struct ConnectRequest {
+        criteria: Criteria,
+        signature: Signature,
+    }
+
+    impl ConnectRequest {
+        /// Validates `ConnectRequest` and it's signature.
+        pub fn validate(&self) -> ValidConnectRequest {
+            self.signature
+                .verify(&Vec::from(&self.criteria))
+                .expect("Failed to verify Connect Request");
+            ValidConnectRequest {
+                _authority: self.signature.public_key,
+            }
+        }
+    }
+
+    /// Validated `ConnectRequest`.
+    pub struct ValidConnectRequest {
+        _authority: PublicKey,
+    }
+
+    impl From<ValidConnectRequest> for Filter {
+        fn from(_valid_connect_request: ValidConnectRequest) -> Self {
+            Filter {}
+        }
+    }
+
+    /// Filter to apply to Events stream before sending to Consumers.
+    pub struct Filter {}
+
+    impl Filter {
+        /// Apply filter and decide - to send Event to the Consumer or not to send.
+        pub fn apply(&self, _occurrence: &Occurrence) -> Option<()> {
+            Some(())
+        }
     }
 }
 

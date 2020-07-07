@@ -8,10 +8,11 @@ use crate::{
     sumeragi::{Role, Sumeragi},
 };
 use async_std::{sync::RwLock, task};
+use iroha_derive::*;
 use std::{sync::Arc, time::Duration};
 
 /// The state of `BlockSynchronizer`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum State {
     /// Not synchronizing now.
     Idle,
@@ -21,6 +22,7 @@ enum State {
 }
 
 /// Structure responsible for block synchronization between peers.
+#[derive(Debug)]
 pub struct BlockSynchronizer {
     kura: Arc<RwLock<Kura>>,
     sumeragi: Arc<RwLock<Sumeragi>>,
@@ -51,6 +53,7 @@ impl BlockSynchronizer {
     /// Starts the `BlockSync`, meaning that every `gossip_period`
     /// the peers would gossip about latest block hashes
     /// and try to synchronize their blocks.
+    #[log]
     pub fn start(&self) {
         let gossip_period = self.gossip_period;
         let kura = self.kura.clone();

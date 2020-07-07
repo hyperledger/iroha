@@ -17,6 +17,7 @@ use std::{
     net::TcpStream as SyncTcpStream,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 
 const BUFFER_SIZE: usize = 4096;
@@ -130,10 +131,8 @@ impl Network {
         Ok(())
     }
 
-    pub async fn connect(&self) -> Result<Connection, String> {
-        Ok(Connection::new(
-            SyncTcpStream::connect(&self.server_url).map_err(|e| e.to_string())?,
-        ))
+    pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection, String> {
+        Connection::connect(&self.server_url, 4000, initial_message)
     }
 }
 
@@ -150,8 +149,19 @@ pub enum Receipt {
 }
 
 impl Connection {
-    fn new(tcp_stream: SyncTcpStream) -> Self {
-        Connection { tcp_stream }
+    fn connect(address: &str, timeout_millis: u64, initial_message: &[u8]) -> Result<Self, String> {
+        let mut tcp_stream: SyncTcpStream =
+            SyncTcpStream::connect(address).map_err(|e| e.to_string())?;
+        tcp_stream
+            .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
+            .expect("Set read timeout call failed.");
+        tcp_stream
+            .write_all(initial_message)
+            .expect("Failed to write initial message.");
+        tcp_stream
+            .flush()
+            .expect("Failed to flush initial message.");
+        Ok(Connection { tcp_stream })
     }
 }
 
@@ -162,7 +172,6 @@ impl Stream for Connection {
         let mut buffer = [0u8; BUFFER_SIZE];
         match self.tcp_stream.read(&mut buffer) {
             Ok(read_size) => {
-                dbg!(&read_size);
                 let bytes: Vec<u8> = buffer[..read_size].to_vec();
                 let receipt: Vec<u8> = Receipt::Ok.into();
                 if let Err(e) = self.tcp_stream.write_all(&receipt) {

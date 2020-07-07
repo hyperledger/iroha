@@ -1,6 +1,5 @@
 use crate::config::Configuration;
 use crate::prelude::*;
-use async_std::stream::Stream;
 use iroha::{crypto::KeyPair, torii::uri};
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
@@ -108,81 +107,6 @@ impl Debug for Client {
             .field("public_key", &self.key_pair.public_key)
             .field("torii_url", &self.torii_url)
             .finish()
-    }
-}
-
-pub mod maintenance {
-    use super::*;
-    use iroha::maintenance::*;
-
-    impl Client {
-        pub fn with_maintenance(configuration: &Configuration) -> MaintenanceClient {
-            MaintenanceClient {
-                client: Client::new(configuration),
-                torii_connect_url: configuration.torii_connect_url.clone(),
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    pub struct MaintenanceClient {
-        client: Client,
-        torii_connect_url: String,
-    }
-
-    impl MaintenanceClient {
-        #[log]
-        pub async fn submit(&mut self, instruction: Instruction) -> Result<(), String> {
-            self.client.submit(instruction).await
-        }
-
-        #[log]
-        pub async fn submit_all(&mut self, instructions: Vec<Instruction>) -> Result<(), String> {
-            self.client.submit_all(instructions).await
-        }
-
-        #[log]
-        pub async fn request(&mut self, request: &QueryRequest) -> Result<QueryResult, String> {
-            self.client.request(request).await
-        }
-
-        #[log]
-        pub async fn health(&mut self) -> Result<Health, String> {
-            let network = Network::new(&self.client.torii_url);
-            match network
-                .send_request(Request::new(uri::HEALTH_URI.to_string(), vec![]))
-                .await
-                .map_err(|e| format!("Failed to write a get request: {}", e))?
-            {
-                Response::Ok(payload) => {
-                    Ok(Health::try_from(payload).expect("Failed to convert Health from vector."))
-                }
-                Response::InternalError => Err("Server error.".to_string()),
-            }
-        }
-
-        #[log]
-        pub async fn scrape_metrics(&mut self) -> Result<Metrics, String> {
-            let network = Network::new(&self.client.torii_url);
-            match network
-                .send_request(Request::new(uri::METRICS_URI.to_string(), vec![]))
-                .await
-                .map_err(|e| format!("Failed to send request to Metrics API: {}", e))?
-            {
-                Response::Ok(payload) => {
-                    Ok(Metrics::try_from(payload).expect("Failed to convert vector to Metrics."))
-                }
-                Response::InternalError => Err("Server error.".to_string()),
-            }
-        }
-
-        pub async fn subscribe_to_block_changes(
-            &mut self,
-        ) -> Result<impl Stream<Item = Vec<u8>>, String> {
-            let network = Network::new(&self.torii_connect_url);
-            let connection = network.connect().await.expect("Failed to connect.");
-            Ok(connection)
-        }
     }
 }
 

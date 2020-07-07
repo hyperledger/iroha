@@ -1,6 +1,6 @@
 use crate::config::Configuration;
 use async_std::stream::Stream;
-use iroha::{crypto::KeyPair, prelude::*, torii::uri};
+use iroha::{crypto::KeyPair, event::connection::*, prelude::*, torii::uri};
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
 use std::{
@@ -179,7 +179,14 @@ pub mod maintenance {
             &mut self,
         ) -> Result<impl Stream<Item = Vec<u8>>, String> {
             let network = Network::new(&self.torii_connect_url);
-            let connection = network.connect().await.expect("Failed to connect.");
+            let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
+            let initial_message: Vec<u8> = Criteria::new(OccurrenceType::All, EntityType::Block)
+                .sign(key_pair)
+                .into();
+            let connection = network
+                .connect(&initial_message)
+                .await
+                .expect("Failed to connect.");
             Ok(connection)
         }
     }

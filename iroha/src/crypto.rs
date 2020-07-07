@@ -30,10 +30,16 @@ pub struct KeyPair {
 
 /// Public Key used in signatures.
 #[derive(
-    Copy, Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Debug, Clone, Hash, Default, Deserialize,
+    Copy, Encode, Decode, Ord, PartialEq, Eq, PartialOrd, Clone, Hash, Default, Deserialize,
 )]
 pub struct PublicKey {
     inner: [u8; 32],
+}
+
+impl Debug for PublicKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:X?}", self.inner))
+    }
 }
 
 impl TryFrom<Vec<u8>> for PublicKey {
@@ -55,9 +61,15 @@ impl TryFrom<Vec<u8>> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Debug, Deserialize, PartialEq, Default)]
+#[derive(Clone, Deserialize, PartialEq, Default)]
 pub struct PrivateKey {
     inner: Vec<u8>,
+}
+
+impl Debug for PrivateKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("{:X?}", self.inner))
+    }
 }
 
 impl TryFrom<Vec<u8>> for PrivateKey {
