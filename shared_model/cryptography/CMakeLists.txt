@@ -45,6 +45,11 @@ if(USE_HSM_UTIMACO)
   )
 endif()
 
+if(USE_PKCS11)
+  add_subdirectory(pkcs11)
+  target_link_libraries(shared_model_cryptography pkcs11)
+endif()
+
 add_library(crypto_blob_hasher blob_hasher.cpp)
 target_link_libraries(crypto_blob_hasher
     common
