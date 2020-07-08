@@ -137,4 +137,9 @@ message EngineReceipt {
   repeated EngineLog logs = 5;
 }
 
+message DataModelId {
+    string name = 1;
+    string version = 2;
+}
+
 
