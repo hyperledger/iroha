@@ -163,7 +163,9 @@ class FieldValidatorTest : public ValidatorsTest {
                               "tx_hashes",
                               "tx_hash",
                               // permissions are always valid
-                              "permissions"}) {
+                              "permissions",
+                              "dm_id",
+                              "payload"}) {
       field_validators.insert(makeNullValidator(field));
     }
   }

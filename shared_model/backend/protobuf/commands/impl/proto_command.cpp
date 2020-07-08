@@ -10,6 +10,7 @@
 #include "backend/protobuf/commands/proto_add_signatory.hpp"
 #include "backend/protobuf/commands/proto_append_role.hpp"
 #include "backend/protobuf/commands/proto_call_engine.hpp"
+#include "backend/protobuf/commands/proto_call_model.hpp"
 #include "backend/protobuf/commands/proto_compare_and_set_account_detail.hpp"
 #include "backend/protobuf/commands/proto_create_account.hpp"
 #include "backend/protobuf/commands/proto_create_asset.hpp"
@@ -48,7 +49,8 @@ namespace {
                        shared_model::proto::SetQuorum,
                        shared_model::proto::SetSettingValue,
                        shared_model::proto::SubtractAssetQuantity,
-                       shared_model::proto::TransferAsset>;
+                       shared_model::proto::TransferAsset,
+                       shared_model::proto::CallModel>;
 }  // namespace
 
 #ifdef IROHA_BIND_TYPE
@@ -90,6 +92,7 @@ namespace shared_model::proto {
             kCompareAndSetAccountDetail, CompareAndSetAccountDetail, ar);
         IROHA_BIND_TYPE(kSetSettingValue, SetSettingValue, ar);
         IROHA_BIND_TYPE(kCallEngine, CallEngine, ar);
+        IROHA_BIND_TYPE(kCallModel, CallModel, ar);
 
         default:
         case iroha::protocol::Command::CommandCase::COMMAND_NOT_SET:
