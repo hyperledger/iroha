@@ -98,7 +98,7 @@ TEST_P(CreateAccountBasicTest, NameExists) {
 }
 
 /**
- * Checks that there is no privelege elevation issue via CreateAccount
+ * Checks that there is no privilege elevation issue via CreateAccount
  *
  * @given an account with can_create_account permission, but without
  * can_set_detail permission
@@ -120,6 +120,28 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
 
   checkCommandError(createDefaultAccount(kUserId), 2);
   checkNoSuchAccount();
+}
+
+/**
+ * @given a user with root permission, but without can_set_detail permission
+ * @and a domain that has a default role that contains can_set_detail permission
+ * @when the user tries to create an account in that domain
+ * @then the command succeeds
+ */
+TEST_P(CreateAccountBasicTest, RootWithNoPermSubset) {
+  ASSERT_NO_FATAL_FAILURE(
+      getItf().createRoleWithPerms("target_role", {Role::kSetDetail}));
+  IROHA_ASSERT_RESULT_VALUE(getItf().executeMaintenanceCommand(
+      *getItf().getMockCommandFactory()->constructCreateDomain(kSecondDomain,
+                                                               "target_role")));
+  ASSERT_NO_FATAL_FAILURE(getItf().createUserWithPerms(
+      kUser,
+      kDomain,
+      PublicKeyHexStringView{kUserKeypair.publicKey()},
+      {Role::kRoot}));
+
+  framework::expected::expectResultValue(createDefaultAccount(kUserId));
+  checkAccount();
 }
 
 INSTANTIATE_TEST_SUITE_P(Base,
