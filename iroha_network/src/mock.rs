@@ -134,7 +134,7 @@ impl Network {
         unsafe {
             ENDPOINTS.push((server_url.to_string(), tx));
         }
-        while let Some(stream) = rx.recv().await {
+        while let Ok(stream) = rx.recv().await {
             handler(Arc::clone(&state), Box::new(stream)).await?;
         }
         Ok(())

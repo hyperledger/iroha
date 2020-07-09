@@ -6,7 +6,7 @@ use self::message::*;
 use crate::{
     block::PendingBlock,
     crypto::{Hash, KeyPair},
-    event::EventsSender,
+    event::{Entity, EventsSender, Occurrence},
     peer::PeerId,
     prelude::*,
 };
@@ -112,18 +112,18 @@ impl Sumeragi {
         }
         if let Role::Leader = self.network_topology.role(&self.peer_id) {
             let wsv = self.world_state_view.clone();
-            let block = PendingBlock::new(transactions, &self.key_pair)?
-                .chain(
-                    self.block_height,
-                    self.latest_block_hash,
-                    self.number_of_view_changes,
-                    self.invalidated_blocks_hashes.clone(),
-                )
-                .validate(&*wsv.read().await);
+            let block = PendingBlock::new(transactions, &self.key_pair)?.chain(
+                self.block_height,
+                self.latest_block_hash,
+                self.number_of_view_changes,
+                self.invalidated_blocks_hashes.clone(),
+            );
             self.events_sender
-                .send(crate::event::Occurrence::Created(
-                    crate::event::Entity::Block(block.clone()),
-                ))
+                .send(Occurrence::Created(Entity::Block(Vec::from(&block))))
+                .await;
+            let block = block.validate(&*wsv.read().await);
+            self.events_sender
+                .send(Occurrence::Updated(Entity::Block(Vec::from(&block))))
                 .await;
             if !self.network_topology.is_consensus_required() {
                 self.commit_block(block).await;

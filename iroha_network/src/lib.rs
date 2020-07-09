@@ -21,6 +21,7 @@ use std::{
 };
 
 const BUFFER_SIZE: usize = 4096;
+const REQUEST_TIMEOUT_MILLIS: u64 = 500;
 
 pub type State<T> = Arc<RwLock<T>>;
 pub trait AsyncStream: async_std::io::Read + async_std::io::Write + Send + Unpin {}
@@ -58,18 +59,17 @@ impl Network {
     /// Establishes connection to server on `server_url`, sends `request` closes connection and returns `Response`.
     #[log]
     pub async fn send_request_to(server_url: &str, request: Request) -> Result<Response, String> {
-        let mut stream = TcpStream::connect(server_url)
-            .await
-            .map_err(|e| e.to_string())?;
-        let payload: Vec<u8> = request.into();
-        stream
-            .write_all(&payload)
-            .await
-            .map_err(|e| e.to_string())?;
-        stream.flush().await.map_err(|e| e.to_string())?;
-        let mut buffer = vec![0u8; BUFFER_SIZE];
-        let read_size = stream.read(&mut buffer).await.map_err(|e| e.to_string())?;
-        Ok(Response::try_from(buffer[..read_size].to_vec())?)
+        async_std::io::timeout(Duration::from_millis(REQUEST_TIMEOUT_MILLIS), async {
+            let mut stream = TcpStream::connect(server_url).await?;
+            let payload: Vec<u8> = request.into();
+            stream.write_all(&payload).await?;
+            stream.flush().await?;
+            let mut buffer = vec![0u8; BUFFER_SIZE];
+            let read_size = stream.read(&mut buffer).await?;
+            Ok(Response::try_from(buffer[..read_size].to_vec()))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     /// Listens on the specified `server_url`.
