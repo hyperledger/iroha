@@ -1906,6 +1906,20 @@ namespace iroha {
         const std::string &tx_hash,
         shared_model::interface::types::CommandIndexType,
         bool do_validation) {
+      try {
+        if (do_validation) {
+          int has_permission = 0;
+          using namespace ::shared_model::interface::permissions;
+          *sql_ << checkAccountRolePermission(Role::kCallModel, ":creator"),
+              soci::use(creator_account_id, "creator"),
+              soci::into(has_permission);
+          if (has_permission == 0) {
+            return makeCommandError("CallModel", 2, "Not enough permissions.");
+          }
+        }
+      } catch (std::exception const &e) {
+        return makeCommandError("CallModel", 1, e.what());
+      }
       return {};
     }
 
