@@ -140,4 +140,13 @@ pub mod isi {
         /// Instruction to add a peer to the network.
         AddPeer(PeerId),
     }
+
+    impl From<Add<Peer, Domain>> for Instruction {
+        fn from(add_instruction: Add<Peer, Domain>) -> Self {
+            Instruction::Peer(PeerInstruction::AddDomain(
+                add_instruction.object.name,
+                add_instruction.destination_id,
+            ))
+        }
+    }
 }

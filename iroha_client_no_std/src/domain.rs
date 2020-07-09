@@ -49,4 +49,22 @@ pub mod isi {
         /// Variant of the generic `Register` instruction for `AssetDefinition` --> `Domain`.
         RegisterAsset(Name, AssetDefinition),
     }
+
+    impl From<Register<Domain, Account>> for Instruction {
+        fn from(instruction: Register<Domain, Account>) -> Self {
+            Instruction::Domain(DomainInstruction::RegisterAccount(
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
+
+    impl From<Register<Domain, AssetDefinition>> for Instruction {
+        fn from(instruction: Register<Domain, AssetDefinition>) -> Self {
+            Instruction::Domain(DomainInstruction::RegisterAsset(
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
 }

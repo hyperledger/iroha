@@ -1,5 +1,6 @@
 //! This module contains `Asset` structure and it's implementation.
 
+use crate::permission::{Permission, Permissions};
 use crate::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use std::{
@@ -191,6 +192,60 @@ pub mod isi {
         DemintBigAsset(u128, <Asset as Identifiable>::Id),
         /// Variant of the generic `Demint` instruction for `String` --> `Asset`.
         DemintParameterAsset(String, <Asset as Identifiable>::Id),
+    }
+
+    impl From<Mint<Asset, u32>> for Instruction {
+        fn from(instruction: Mint<Asset, u32>) -> Self {
+            Instruction::Asset(AssetInstruction::MintAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
+
+    impl From<Mint<Asset, u128>> for Instruction {
+        fn from(instruction: Mint<Asset, u128>) -> Self {
+            Instruction::Asset(AssetInstruction::MintBigAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
+
+    impl From<Mint<Asset, (String, Bytes)>> for Instruction {
+        fn from(instruction: Mint<Asset, (String, Bytes)>) -> Self {
+            Instruction::Asset(AssetInstruction::MintParameterAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
+
+    impl From<Demint<Asset, u32>> for Instruction {
+        fn from(instruction: Demint<Asset, u32>) -> Self {
+            Instruction::Asset(AssetInstruction::DemintAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
+
+    impl From<Demint<Asset, u128>> for Instruction {
+        fn from(instruction: Demint<Asset, u128>) -> Self {
+            Instruction::Asset(AssetInstruction::DemintBigAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
+    }
+
+    impl From<Demint<Asset, String>> for Instruction {
+        fn from(instruction: Demint<Asset, String>) -> Self {
+            Instruction::Asset(AssetInstruction::DemintParameterAsset(
+                instruction.object,
+                instruction.destination_id,
+            ))
+        }
     }
 }
 

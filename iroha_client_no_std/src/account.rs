@@ -115,6 +115,34 @@ pub mod isi {
         /// Variant of the generic `Remove` instruction for `PublicKey` --> `Account`.
         RemoveSignatory(<Account as Identifiable>::Id, PublicKey),
     }
+
+    impl From<Add<Account, PublicKey>> for Instruction {
+        fn from(instruction: Add<Account, PublicKey>) -> Self {
+            Instruction::Account(AccountInstruction::AddSignatory(
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
+
+    impl From<Remove<Account, PublicKey>> for Instruction {
+        fn from(instruction: Remove<Account, PublicKey>) -> Self {
+            Instruction::Account(AccountInstruction::RemoveSignatory(
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
+
+    impl From<Transfer<Account, Asset, Account>> for Instruction {
+        fn from(instruction: Transfer<Account, Asset, Account>) -> Self {
+            Instruction::Account(AccountInstruction::TransferAsset(
+                instruction.source_id,
+                instruction.destination_id,
+                instruction.object,
+            ))
+        }
+    }
 }
 
 /// Query module provides `IrohaQuery` Account related implementations.
