@@ -98,7 +98,7 @@ TEST_P(CreateAccountBasicTest, NameExists) {
 }
 
 /**
- * Checks that there is no privelege elevation issue via CreateAccount
+ * Checks that there is no privilege elevation issue via CreateAccount
  *
  * @given an account with can_create_account permission, but without
  * can_set_detail permission
@@ -123,8 +123,6 @@ TEST_P(CreateAccountBasicTest, PrivelegeElevation) {
 }
 
 /**
- * Checks that there is no privelege elevation issue via CreateAccount
- *
  * @given a user with root permission, but without can_set_detail permission
  * @and a domain that has a default role that contains can_set_detail permission
  * @when the user tries to create an account in that domain
