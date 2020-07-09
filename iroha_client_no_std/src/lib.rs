@@ -12,8 +12,15 @@ pub mod query;
 pub mod tx;
 
 pub mod prelude {
-    pub use super::{
-        account::*, asset::*, domain::*, event::*, isi::*, peer::*, permission::*, query::*, tx::*,
+    #[doc(inline)]
+    pub use crate::{
+        account::{Account, Id as AccountId},
+        asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
+        domain::Domain,
+        isi::Instruction,
+        peer::{Peer, PeerId},
+        query::{IrohaQuery, QueryRequest, QueryResult},
+        tx::{AcceptedTransaction, RequestedTransaction, SignedTransaction},
         Identifiable,
     };
 }
