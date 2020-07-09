@@ -51,7 +51,7 @@ pub enum Entity {
     /// Transaction.
     Transaction(Vec<u8>),
     /// Block.
-    Block(ValidBlock),
+    Block(Vec<u8>),
     /// Time.
     Time,
 }

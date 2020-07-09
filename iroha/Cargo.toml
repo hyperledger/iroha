@@ -25,7 +25,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
-async-std = { version = "1.5", features = ["attributes","unstable"] }
+async-std = { version = "1.6", features = ["attributes","unstable"] }
 chrono = "0.4"
 cloudevents-sdk = "0.1.0"
 futures = { version = "0.3.4", features = ["thread-pool"] }

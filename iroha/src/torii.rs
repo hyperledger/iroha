@@ -5,7 +5,7 @@ use crate::{
     block_sync::message::Message as BlockSyncMessage,
     event::{
         connection::{ConnectRequest, Filter},
-        EventsReceiver, EventsSender,
+        Entity, EventsReceiver, EventsSender, Occurrence,
     },
     maintenance::{Health, System},
     prelude::*,
@@ -175,14 +175,34 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
     match request.url() {
         uri::INSTRUCTIONS_URI => match RequestedTransaction::try_from(request.payload().to_vec()) {
             Ok(transaction) => {
+                if let Err(e) = state
+                    .write()
+                    .await
+                    .events_sender
+                    .try_send(Occurrence::Created(Entity::Transaction(Vec::from(
+                        &transaction,
+                    ))))
+                {
+                    eprintln!("Failed to send event - channel is full: {}", e);
+                }
+                let transaction = transaction.accept()?;
+                let payload = Vec::from(&transaction);
                 state
                     .write()
                     .await
                     .transaction_sender
                     .write()
                     .await
-                    .send(transaction.accept()?)
+                    .send(transaction)
                     .await;
+                if let Err(e) = state
+                    .write()
+                    .await
+                    .events_sender
+                    .try_send(Occurrence::Updated(Entity::Transaction(payload)))
+                {
+                    eprintln!("Failed to send event - channel is full: {}", e);
+                }
                 Ok(Response::empty_ok())
             }
             Err(e) => {
