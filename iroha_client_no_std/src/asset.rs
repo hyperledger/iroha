@@ -1,5 +1,6 @@
 //! This module contains `Asset` structure and it's implementation.
 
+use crate::permission::{Permission, Permissions};
 use crate::prelude::*;
 use parity_scale_codec::{Decode, Encode};
 use std::{
