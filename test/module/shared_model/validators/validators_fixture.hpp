@@ -49,7 +49,8 @@ class ValidatorsTest : public ::testing::Test {
       };
     };
 
-    ignored_fields_ = {"iroha.protocol.Command.set_setting_value"};
+    ignored_fields_ = {"iroha.protocol.Command.set_setting_value",
+                       "iroha.protocol.Command.call_model"};
 
     field_setters = {
         {"iroha.protocol.GetAccount.account_id", setString(account_id)},
