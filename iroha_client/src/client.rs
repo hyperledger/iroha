@@ -112,7 +112,8 @@ impl Debug for Client {
 
 pub mod maintenance {
     use super::*;
-    use iroha::maintenance::*;
+    use async_std::stream::StreamExt;
+    use iroha::{event::Occurrence, maintenance::*};
 
     impl Client {
         pub fn with_maintenance(configuration: &Configuration) -> MaintenanceClient {
@@ -177,7 +178,7 @@ pub mod maintenance {
 
         pub async fn subscribe_to_block_changes(
             &mut self,
-        ) -> Result<impl Stream<Item = Vec<u8>>, String> {
+        ) -> Result<impl Stream<Item = Occurrence>, String> {
             let network = Network::new(&self.torii_connect_url);
             let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
             let initial_message: Vec<u8> = Criteria::new(OccurrenceType::All, EntityType::Block)
@@ -186,7 +187,25 @@ pub mod maintenance {
             let connection = network
                 .connect(&initial_message)
                 .await
-                .expect("Failed to connect.");
+                .expect("Failed to connect.")
+                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."));
+            Ok(connection)
+        }
+
+        pub async fn subscribe_to_transaction_changes(
+            &mut self,
+        ) -> Result<impl Stream<Item = Occurrence>, String> {
+            let network = Network::new(&self.torii_connect_url);
+            let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
+            let initial_message: Vec<u8> =
+                Criteria::new(OccurrenceType::All, EntityType::Transaction)
+                    .sign(key_pair)
+                    .into();
+            let connection = network
+                .connect(&initial_message)
+                .await
+                .expect("Failed to connect.")
+                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."));
             Ok(connection)
         }
     }
