@@ -41,7 +41,6 @@ impl Queue {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_derive::*;
     use serde::Deserialize;
     use std::env;
 
@@ -65,7 +64,6 @@ pub mod config {
     impl QueueConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        #[log]
         pub fn load_environment(&mut self) -> Result<(), String> {
             if let Ok(max_block_tx) = env::var(MAXIMUM_TRANSACTIONS_IN_BLOCK) {
                 self.maximum_transactions_in_block =

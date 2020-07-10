@@ -20,10 +20,12 @@ maintenance = { status = "actively-developed" }
 iroha = { version = "=0.1.0", path = "../iroha" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
+iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 async-std = { version = "1.6", features = ["attributes"] }
 ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+log = { version = "0.4", features = ["std", "serde"] }
 
 [dev-dependencies]
 criterion = "0.3"
