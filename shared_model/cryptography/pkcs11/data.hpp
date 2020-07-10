@@ -8,8 +8,6 @@
 
 #include <memory>
 
-#include <botan/emsa.h>
-#include <botan/hash.h>
 #include <botan/p11_module.h>
 #include <botan/p11_session.h>
 #include <botan/p11_slot.h>
@@ -20,8 +18,6 @@ namespace shared_model::crypto::pkcs11 {
     Botan::PKCS11::Module module;
     Botan::PKCS11::Slot slot;
     Botan::PKCS11::Session session;
-    std::unique_ptr<Botan::EMSA> emsa;
-    std::unique_ptr<Botan::HashFunction> hash;
   };
 
 }  // namespace shared_model::crypto::pkcs11

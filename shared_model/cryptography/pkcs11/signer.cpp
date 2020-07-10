@@ -11,10 +11,11 @@
 #include <botan/emsa1.h>
 #include <botan/pk_keys.h>
 #include <botan/pubkey.h>
-#include <ed25519/ed25519/ed25519.h>
 #include <fmt/format.h>
 #include "common/hexutils.hpp"
 //#include "cryptography/pkcs11/common.hpp"
+#include "cryptography/blob.hpp"
+#include "cryptography/pkcs11/algorithm_identifier.hpp"
 #include "cryptography/pkcs11/data.hpp"
 #include "interfaces/common_objects/byte_range.hpp"
 #include "multihash/multihash.hpp"
@@ -24,33 +25,41 @@ using namespace shared_model::crypto::pkcs11;
 using namespace shared_model::interface::types;
 
 Signer::Signer(std::shared_ptr<Data> data,
-               std::unique_ptr<Botan::Private_Key> private_key)
+               std::unique_ptr<Botan::Private_Key> private_key,
+               Botan::EMSA const &emsa,
+               iroha::multihash::Type multihash_type)
     : data_(std::move(data)),
       private_key_(std::move(private_key)),
       rng_(std::make_unique<Botan::AutoSeeded_RNG>()),
       signer_(std::make_unique<Botan::PK_Signer>(
-          *private_key_, *rng_, Botan::EMSA1{data_->hash.get()})),
+          *private_key_, *rng_, emsa.name())),
       public_key_(iroha::multihash::encode<std::string>(
-          makeByteRange(private_key_->public_key_bits()))) {
-  assert(multihashToCxiHashAlgo(multihash_type) == cxi_algo_);
+          multihash_type, makeByteRange(private_key_->public_key_bits()))) {
+  assert(getMultihashType(emsa, private_key_->algorithm_identifier())
+         == multihash_type);
+  Botan::PKCS11::Info module_info = data_->module.get_info();
+  Botan::PKCS11::SlotInfo slot_info = data_->slot.get_slot_info();
+  description_ = fmt::format(
+      "PKCS11 cryptographic signer "
+      "using library {} version {}.{} from {}, "
+      "slot {}, "
+      "algorithm {} {}, "
+      "public key '{}'",
+      module_info.libraryDescription,
+      module_info.libraryVersion.major,
+      module_info.libraryVersion.minor,
+      module_info.manufacturerID,
+      slot_info.slotDescription,
+      emsa.name(),
+      private_key_->algo_name(),
+      public_key_);
 }
 
 Signer::~Signer() = default;
 
 std::string Signer::sign(const shared_model::crypto::Blob &blob) const {
-  std::lock_guard<std::mutex> lock{connection_.mutex};
-
-  cxi::MechanismParameter mech;
-  mech.set(cxi_algo_);
-
-  cxi::ByteArray result =
-      connection_.cxi->sign(CXI_FLAG_HASH_DATA | CXI_FLAG_CRYPT_FINAL,
-                            *key_,
-                            mech,
-                            irohaToCxiBuffer(blob.range()),
-                            nullptr);
-
-  return iroha::bytestringToHexstring(cxiToIrohaBufferView(std::move(result)));
+  return iroha::bytestringToHexstring(
+      makeByteRange(signer_->sign_message(blob.blob(), *rng_)));
 }
 
 PublicKeyHexStringView Signer::publicKey() const {
@@ -58,6 +67,5 @@ PublicKeyHexStringView Signer::publicKey() const {
 }
 
 std::string Signer::toString() const {
-  return fmt::format("HSM Utimaco cryptographic signer with public key '{}'",
-                     public_key_);
+  return description_;
 }

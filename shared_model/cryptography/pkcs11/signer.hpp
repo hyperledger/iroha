@@ -13,6 +13,7 @@
 #include "multihash/type.hpp"
 
 namespace Botan {
+  class EMSA;
   class PK_Signer;
   class Private_Key;
   class RandomNumberGenerator;
@@ -26,8 +27,10 @@ namespace shared_model::crypto::pkcs11 {
    */
   class Signer : public CryptoSigner {
    public:
-    Signer(std::shared_ptr<Data> connection,
-           std::unique_ptr<Botan::Private_Key> private_key);
+    Signer(std::shared_ptr<Data> data,
+           std::unique_ptr<Botan::Private_Key> private_key,
+           Botan::EMSA const &emsa,
+           iroha::multihash::Type multihash_type);
 
     virtual ~Signer();
 
@@ -44,6 +47,7 @@ namespace shared_model::crypto::pkcs11 {
     std::unique_ptr<Botan::RandomNumberGenerator> rng_;
     std::unique_ptr<Botan::PK_Signer> signer_;
     std::string public_key_;
+    std::string description_;
   };
 }  // namespace shared_model::crypto::pkcs11
 
