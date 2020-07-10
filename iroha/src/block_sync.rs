@@ -204,7 +204,6 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_derive::*;
     use serde::Deserialize;
     use std::env;
 
@@ -229,7 +228,6 @@ pub mod config {
     impl BlockSyncConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        #[log]
         pub fn load_environment(&mut self) -> Result<(), String> {
             if let Ok(batch_size) = env::var(BATCH_SIZE) {
                 self.batch_size = serde_json::from_str(&batch_size)

@@ -1156,7 +1156,6 @@ pub mod message {
 /// This module contains all configuration related logic.
 pub mod config {
     use crate::{crypto::KeyPair, peer::PeerId};
-    use iroha_derive::*;
     use serde::Deserialize;
     use std::env;
 
@@ -1201,7 +1200,6 @@ pub mod config {
     impl SumeragiConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        #[log]
         pub fn load_environment(&mut self) -> Result<(), String> {
             if let Ok(block_time_ms) = env::var(BLOCK_TIME_MS) {
                 self.block_time_ms = block_time_ms

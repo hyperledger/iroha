@@ -3,12 +3,21 @@ mod tests {
 
     use iroha_derive::*;
 
+    fn init_logger() {
+        iroha_logger::init(&iroha_logger::config::LoggerConfiguration {
+            max_log_level: log::LevelFilter::Trace,
+            terminal_color_enabled: true,
+            date_time_format: "%Y-%m-%d %H:%M:%S:%f".to_string(),
+        })
+        .expect("Failed to initialize logger.");
+    }
+
     #[log]
     fn func_to_log(arg1: String) -> Result<String, String> {
         Ok(arg1)
     }
 
-    #[log]
+    #[log("trace")]
     fn func_to_log2(arg1: String, _arg2: String) -> Result<String, String> {
         Ok(arg1)
     }
@@ -23,6 +32,7 @@ mod tests {
     /// ```
     #[test]
     fn test_single_argument_function() {
+        init_logger();
         let test_value = "test_value".to_string();
         assert_eq!(
             test_value,
@@ -32,6 +42,7 @@ mod tests {
 
     #[test]
     fn test_two_argument_function() {
+        init_logger();
         let test_value = "test_value".to_string();
         assert_eq!(
             test_value,

@@ -8,7 +8,6 @@ async fn main() -> Result<(), String> {
     println!("Hyperledgerいろは2にようこそ！");
     let mut configuration = Configuration::from_path(CONFIGURATION_PATH)?;
     configuration.load_environment()?;
-    println!("Configuration: {:?}", configuration);
     Iroha::new(configuration).start().await?;
     loop {
         thread::sleep(Duration::from_secs(10));

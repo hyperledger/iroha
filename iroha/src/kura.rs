@@ -217,7 +217,6 @@ impl BlockStore {
 /// This module contains all configuration related logic.
 pub mod config {
     use super::Mode;
-    use iroha_derive::*;
     use serde::Deserialize;
     use std::{env, path::Path};
 
@@ -248,7 +247,6 @@ pub mod config {
                 .to_string();
         }
 
-        #[log]
         pub fn load_environment(&mut self) -> Result<(), String> {
             if let Ok(kura_init_mode) = env::var(KURA_INIT_MODE) {
                 self.kura_init_mode = serde_json::from_str(&kura_init_mode)
