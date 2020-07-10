@@ -25,6 +25,7 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
+iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
 async-std = { version = "1.6", features = ["attributes","unstable"] }
 chrono = "0.4"
 cloudevents-sdk = "0.1.0"
@@ -36,6 +37,7 @@ ursa = "0.3.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 heim = "0.0.10"
+log = { version = "0.4", features = ["std", "serde"] }
 
 [dev-dependencies]
 hex-literal = "0.2.1"

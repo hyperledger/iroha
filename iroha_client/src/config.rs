@@ -1,5 +1,5 @@
 use iroha::{config::Configuration as IrohaConfiguration, crypto::PublicKey};
-use iroha_derive::*;
+use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
@@ -26,6 +26,8 @@ pub struct Configuration {
     /// Proposed transaction TTL in milliseconds.
     #[serde(default = "default_transaction_time_to_live_ms")]
     pub transaction_time_to_live_ms: u64,
+    /// `Logger` configuration.
+    pub logger_configuration: LoggerConfiguration,
 }
 
 impl Configuration {
@@ -35,7 +37,6 @@ impl Configuration {
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
-    #[log]
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
         let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
         let reader = BufReader::new(file);
@@ -44,10 +45,10 @@ impl Configuration {
     }
 
     /// This method will build `Configuration` from existing `IrohaConfiguration`.
-    #[log]
     pub fn from_iroha_configuration(configuration: &IrohaConfiguration) -> Self {
         Configuration {
             torii_url: configuration.torii_configuration.torii_url.clone(),
+            logger_configuration: configuration.logger_configuration.clone(),
             public_key: configuration.public_key,
             torii_connect_url: configuration.torii_configuration.torii_connect_url.clone(),
             transaction_time_to_live_ms: configuration
@@ -58,8 +59,8 @@ impl Configuration {
 
     /// Load environment variables and replace predefined parameters with these variables
     /// values.
-    #[log]
     pub fn load_environment(&mut self) -> Result<(), String> {
+        self.logger_configuration.load_environment()?;
         if let Ok(torii_url) = env::var(TORII_URL) {
             self.torii_url = torii_url;
         }

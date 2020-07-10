@@ -8,7 +8,7 @@ use crate::{
     sumeragi::config::SumeragiConfiguration,
     torii::config::ToriiConfiguration,
 };
-use iroha_derive::*;
+use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
 
@@ -33,6 +33,8 @@ pub struct Configuration {
     pub block_sync_configuration: BlockSyncConfiguration,
     /// `Queue` configuration.
     pub queue_configuration: QueueConfiguration,
+    /// `Logger` configuration.
+    pub logger_configuration: LoggerConfiguration,
 }
 
 impl Configuration {
@@ -42,7 +44,6 @@ impl Configuration {
     /// This method will panic if configuration file presented, but has incorrect scheme or format.
     /// # Errors
     /// This method will return error if system will fail to find a file or read it's content.
-    #[log]
     pub fn from_path<P: AsRef<Path> + Debug>(path: P) -> Result<Configuration, String> {
         let file = File::open(path).map_err(|e| format!("Failed to open a file: {}", e))?;
         let reader = BufReader::new(file);
@@ -60,13 +61,13 @@ impl Configuration {
     }
 
     /// Load environment variables and replace existing parameters with these variables values.
-    #[log]
     pub fn load_environment(&mut self) -> Result<(), String> {
         self.torii_configuration.load_environment()?;
         self.kura_configuration.load_environment()?;
         self.sumeragi_configuration.load_environment()?;
         self.block_sync_configuration.load_environment()?;
         self.queue_configuration.load_environment()?;
+        self.logger_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
             self.public_key = serde_json::from_str(&public_key)
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;

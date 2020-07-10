@@ -294,7 +294,6 @@ pub mod uri {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use iroha_derive::*;
     use serde::Deserialize;
     use std::env;
 
@@ -318,7 +317,6 @@ pub mod config {
     impl ToriiConfiguration {
         /// Load environment variables and replace predefined parameters with these variables
         /// values.
-        #[log]
         pub fn load_environment(&mut self) -> Result<(), String> {
             if let Ok(torii_url) = env::var(TORII_URL) {
                 self.torii_url = torii_url;

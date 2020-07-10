@@ -90,6 +90,8 @@ pub struct Iroha {
 impl Iroha {
     /// Default `Iroha` constructor used to build it based on the provided `Configuration`.
     pub fn new(config: Configuration) -> Self {
+        iroha_logger::init(&config.logger_configuration).expect("Failed to initialize logger.");
+        log::info!("Configuration: {:?}", config);
         let (transactions_sender, transactions_receiver) = sync::channel(100);
         let (wsv_blocks_sender, wsv_blocks_receiver) = sync::channel(100);
         let (kura_blocks_sender, kura_blocks_receiver) = sync::channel(100);
