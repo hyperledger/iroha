@@ -51,6 +51,7 @@ add_library(shared_model_interfaces
     queries/impl/get_peers.cpp
     queries/impl/ordering.cpp
     common_objects/impl/amount.cpp
+    common_objects/impl/data_model_id.cpp
     common_objects/impl/signature.cpp
     common_objects/impl/peer.cpp
     )
