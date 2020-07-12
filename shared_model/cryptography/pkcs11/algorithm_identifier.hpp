@@ -9,23 +9,52 @@
 #include <memory>
 #include <optional>
 
-#include <botan/alg_id.h>
-#include <botan/emsa.h>
+//#include <botan/emsa.h>
+#include <botan/p11.h>
+//#include <botan/pk_keys.h>
+//#include "cryptography/pkcs11/signer.hpp"
+#include "cryptography/pkcs11/signer.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "multihash/type.hpp"
+
+namespace Botan {
+  class Private_Key;
+  class Public_Key;
+
+  namespace PKCS11 {
+    class Session;
+  }
+}  // namespace Botan
 
 namespace shared_model::crypto::pkcs11 {
 
+  /*
   struct AlgorithmIdentifier {
     iroha::multihash::Type multihash_type;
-    std::unique_ptr<Botan::EMSA> emsa;
-    Botan::AlgorithmIdentifier alg_id;
+    std::function<std::unique_ptr<Botan::Public_Key>(
+        shared_model::interface::types::ByteRange)>
+        pubkey_factory;
+    std::string emsa_name;
   };
+  */
 
-  std::optional<AlgorithmIdentifier> getAlgorithmIdentifier(
+  std::optional<char const *> getEmsaName(
       iroha::multihash::Type multihash_type);
 
+  std::optional<Botan::PKCS11::KeyType> getPkcs11KeyType(
+      iroha::multihash::Type multihash_type);
+
+  std::optional<std::unique_ptr<Botan::Private_Key>> loadPrivateKeyOfType(
+      iroha::multihash::Type multihash_type,
+      Botan::PKCS11::Session &session,
+      Botan::PKCS11::ObjectHandle object);
+
+  std::optional<std::unique_ptr<Botan::Public_Key>> makePublicKeyOfType(
+      iroha::multihash::Type multihash_type,
+      shared_model::interface::types::PublicKeyByteRangeView raw_data);
+
   std::optional<iroha::multihash::Type> getMultihashType(
-      Botan::EMSA const &emsa, Botan::AlgorithmIdentifier const &alg_id);
+      Botan::PKCS11::MechanismType mech_type);
 
 }  // namespace shared_model::crypto::pkcs11
 

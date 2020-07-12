@@ -21,7 +21,7 @@ namespace shared_model::crypto::pkcs11 {
    */
   class Verifier : public shared_model::crypto::CryptoVerifierMultihash {
    public:
-    Verifier(std::shared_ptr<Data> data);
+    Verifier(OperationContextFactory operation_context_factory);
 
     ~Verifier() override;
 
@@ -35,7 +35,8 @@ namespace shared_model::crypto::pkcs11 {
     std::vector<iroha::multihash::Type> getSupportedTypes() const override;
 
    private:
-    std::shared_ptr<Data> data_;
+    OperationContextFactory operation_context_factory_;
+    std::vector<iroha::multihash::Type> supported_types_;
     std::string description_;
   };
 

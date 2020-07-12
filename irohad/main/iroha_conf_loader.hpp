@@ -105,6 +105,23 @@ struct IrohadConfig {
       std::optional<Log> log;
     };
 
+    struct Pkcs11 {
+      struct ObjectAttrs {
+        std::optional<std::string> label;
+        std::optional<std::vector<uint8_t>> id;
+      };
+
+      struct Signer {
+        std::optional<std::string> password;
+        std::optional<ObjectAttrs> signer_key_attrs;
+        iroha::multihash::Type type;
+      };
+
+      std::string library_file;
+      unsigned long int slot_id;
+      std::optional<Signer> signer;
+    };
+
     using ProviderVariant = std::variant<Default, HsmUtimaco>;
     using ProviderId = std::string;
     using ProviderList = std::unordered_map<ProviderId, ProviderVariant>;

@@ -9,6 +9,7 @@
 
 #include <botan/auto_rng.h>
 #include <botan/emsa1.h>
+#include <botan/p11_module.h>
 #include <botan/pk_keys.h>
 #include <botan/pubkey.h>
 #include <fmt/format.h>
@@ -24,21 +25,21 @@ using namespace shared_model::crypto;
 using namespace shared_model::crypto::pkcs11;
 using namespace shared_model::interface::types;
 
-Signer::Signer(std::shared_ptr<Data> data,
+Signer::Signer(std::shared_ptr<Botan::PKCS11::Module> module,
+               OperationContext operation_context,
                std::unique_ptr<Botan::Private_Key> private_key,
-               Botan::EMSA const &emsa,
+               char const *emsa_name,
                iroha::multihash::Type multihash_type)
-    : data_(std::move(data)),
+    : module_(std::move(module)),
+      operation_context_(std::move(operation_context)),
       private_key_(std::move(private_key)),
       rng_(std::make_unique<Botan::AutoSeeded_RNG>()),
-      signer_(std::make_unique<Botan::PK_Signer>(
-          *private_key_, *rng_, emsa.name())),
+      signer_(
+          std::make_unique<Botan::PK_Signer>(*private_key_, *rng_, emsa_name)),
       public_key_(iroha::multihash::encode<std::string>(
           multihash_type, makeByteRange(private_key_->public_key_bits()))) {
-  assert(getMultihashType(emsa, private_key_->algorithm_identifier())
-         == multihash_type);
-  Botan::PKCS11::Info module_info = data_->module.get_info();
-  Botan::PKCS11::SlotInfo slot_info = data_->slot.get_slot_info();
+  Botan::PKCS11::Info module_info = operation_context_.module.get_info();
+  Botan::PKCS11::SlotInfo slot_info = operation_context_.slot.get_slot_info();
   description_ = fmt::format(
       "PKCS11 cryptographic signer "
       "using library {} version {}.{} from {}, "
@@ -50,7 +51,7 @@ Signer::Signer(std::shared_ptr<Data> data,
       module_info.libraryVersion.minor,
       module_info.manufacturerID,
       slot_info.slotDescription,
-      emsa.name(),
+      emsa_name,
       private_key_->algo_name(),
       public_key_);
 }
