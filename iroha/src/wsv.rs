@@ -33,13 +33,13 @@ impl WorldStateView {
     pub fn put(&mut self, block: &CommittedBlock) {
         for transaction in &block.transactions {
             if let Err(e) = &transaction.proceed(self) {
-                eprintln!("Failed to procced transaction on WSV: {}", e);
+                log::warn!("Failed to procced transaction on WSV: {}", e);
             }
         }
         self.blocks.push(block.clone());
         for listener in self.peer.listeners.clone() {
             if let Err(e) = listener.execute(self.peer.authority(), self) {
-                eprintln!("Failed to execute listener on WSV: {}", e);
+                log::warn!("Failed to execute listener on WSV: {}", e);
             }
         }
     }

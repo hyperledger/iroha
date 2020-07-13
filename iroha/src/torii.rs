@@ -127,7 +127,7 @@ async fn handle_requests(
     let state_arc = Arc::clone(&state);
     task::spawn(async {
         if let Err(e) = Network::handle_message_async(state_arc, stream, handle_request).await {
-            eprintln!("Failed to handle message: {}", e);
+            log::error!("Failed to handle message: {}", e);
         }
     })
     .await;
@@ -183,7 +183,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                         &transaction,
                     ))))
                 {
-                    eprintln!("Failed to send event - channel is full: {}", e);
+                    log::error!("Failed to send event - channel is full: {}", e);
                 }
                 let transaction = transaction.accept()?;
                 let payload = Vec::from(&transaction);
@@ -201,12 +201,12 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     .events_sender
                     .try_send(Occurrence::Updated(Entity::Transaction(payload)))
                 {
-                    eprintln!("Failed to send event - channel is full: {}", e);
+                    log::error!("Failed to send event - channel is full: {}", e);
                 }
                 Ok(Response::empty_ok())
             }
             Err(e) => {
-                eprintln!("Failed to decode transaction: {}", e);
+                log::error!("Failed to decode transaction: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -220,12 +220,12 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                     Ok(Response::Ok(result.into()))
                 }
                 Err(e) => {
-                    eprintln!("Failed to execute Query: {}", e);
+                    log::error!("Failed to execute Query: {}", e);
                     Ok(Response::InternalError)
                 }
             },
             Err(e) => {
-                eprintln!("Failed to decode transaction: {}", e);
+                log::error!("Failed to decode transaction: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -242,7 +242,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::empty_ok())
             }
             Err(e) => {
-                eprintln!("Failed to decode peer message: {}", e);
+                log::error!("Failed to decode peer message: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -250,7 +250,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
         uri::METRICS_URI => match state.read().await.system.read().await.scrape_metrics() {
             Ok(metrics) => Ok(Response::Ok(metrics.into())),
             Err(e) => {
-                eprintln!("Failed to scrape metrics: {}", e);
+                log::error!("Failed to scrape metrics: {}", e);
                 Ok(Response::InternalError)
             }
         },
@@ -267,7 +267,7 @@ async fn handle_request(state: State<ToriiState>, request: Request) -> Result<Re
                 Ok(Response::empty_ok())
             }
             Err(e) => {
-                eprintln!("Failed to decode peer message: {}", e);
+                log::error!("Failed to decode peer message: {}", e);
                 Ok(Response::InternalError)
             }
         },

@@ -119,7 +119,7 @@ impl ChainedBlock {
         for transaction in self.transactions {
             match transaction.validate(&mut world_state_view) {
                 Ok(transaction) => transactions.push(transaction),
-                Err(e) => eprintln!("Transaction validation failed: {}", e),
+                Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
         }
         //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
@@ -165,7 +165,7 @@ impl ValidBlock {
         for transaction in self.transactions {
             match transaction.validate(&mut world_state_view) {
                 Ok(transaction) => transactions.push(transaction),
-                Err(e) => eprintln!("Transaction validation failed: {}", e),
+                Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
         }
         //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
