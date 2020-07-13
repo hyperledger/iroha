@@ -28,16 +28,6 @@ namespace Botan {
 
 namespace shared_model::crypto::pkcs11 {
 
-  /*
-  struct AlgorithmIdentifier {
-    iroha::multihash::Type multihash_type;
-    std::function<std::unique_ptr<Botan::Public_Key>(
-        shared_model::interface::types::ByteRange)>
-        pubkey_factory;
-    std::string emsa_name;
-  };
-  */
-
   std::optional<char const *> getEmsaName(
       iroha::multihash::Type multihash_type);
 
