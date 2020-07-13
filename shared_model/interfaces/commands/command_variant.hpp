@@ -6,9 +6,9 @@
 #ifndef IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 #define IROHA_SHARED_MODEL_COMMAND_VARIANT_HPP
 
-#include "interfaces/commands/command.hpp"
-
 #include <boost/variant.hpp>
+
+#include "interfaces/commands/command.hpp"
 
 namespace boost {
   extern template class variant<
@@ -17,6 +17,7 @@ namespace boost {
       const shared_model::interface::AddSignatory &,
       const shared_model::interface::AppendRole &,
       const shared_model::interface::CallEngine &,
+      const shared_model::interface::CallModel &,
       const shared_model::interface::CompareAndSetAccountDetail &,
       const shared_model::interface::CreateAccount &,
       const shared_model::interface::CreateAsset &,

@@ -23,6 +23,7 @@ namespace shared_model {
     class AppendRole;
     class CompareAndSetAccountDetail;
     class CallEngine;
+    class CallModel;
     class CreateAccount;
     class CreateAsset;
     class CreateDomain;
@@ -226,6 +227,14 @@ namespace iroha {
           const shared_model::interface::types::AccountIdType
               &creator_account_id,
           const std::string &,
+          shared_model::interface::types::CommandIndexType,
+          bool do_validation);
+
+      CommandResult operator()(
+          const shared_model::interface::CallModel &command,
+          const shared_model::interface::types::AccountIdType
+              &creator_account_id,
+          const std::string &tx_hash,
           shared_model::interface::types::CommandIndexType,
           bool do_validation);
 

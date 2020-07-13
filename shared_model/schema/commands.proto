@@ -125,6 +125,12 @@ message CallEngine {
     string input = 4;  // hex string
 }
 
+message CallModel{
+    message Payload {}
+    Payload payload = 1;
+    DataModelId dm_id = 2;
+}
+
 message Command {
     oneof command {
         AddAssetQuantity add_asset_quantity = 1;
@@ -147,5 +153,6 @@ message Command {
         CompareAndSetAccountDetail compare_and_set_account_detail = 18;
         SetSettingValue set_setting_value = 19;
         CallEngine call_engine = 20;
+        CallModel call_model = 21;
     }
 }
