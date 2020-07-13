@@ -1829,7 +1829,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");
@@ -1852,7 +1852,7 @@ namespace iroha {
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
@@ -1869,7 +1869,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id));
       auto kv = sql_query->getAccountDetail(account2_id);
@@ -1885,7 +1885,7 @@ namespace iroha {
     TEST_F(CompareAndSetAccountDetail, NoPerms) {
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      account2_id, "key", "value", std::nullopt),
+                      account2_id, "key", "value", std::nullopt, true),
                   false,
                   account_id);
 
@@ -1906,7 +1906,7 @@ namespace iroha {
       addAllPermsWithoutRoot();
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-                      "doge@noaccount", "key", "value", std::nullopt),
+                      "doge@noaccount", "key", "value", std::nullopt, true),
                   false,
                   account_id);
 
@@ -1923,7 +1923,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
@@ -1936,7 +1936,8 @@ namespace iroha {
               "value1",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "value"))));
+                  "value"),
+              true)));
       auto kv1 = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv1);
       ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value1"}})");
@@ -1951,7 +1952,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
@@ -1964,7 +1965,8 @@ namespace iroha {
               "value1",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "oldValue")));
+                  "oldValue"),
+              true));
 
       std::vector<std::string> query_args{
           account_id, "key", "value1", "oldValue"};
@@ -1980,11 +1982,11 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
 
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key1", "value1", std::nullopt)));
+              account_id, "key1", "value1", std::nullopt, true)));
 
       auto ad = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(ad);
@@ -2001,11 +2003,11 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "", std::nullopt)));
+              account_id, "key", "", std::nullopt, true)));
 
       auto cmd_result =
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt));
+              account_id, "key", "value", std::nullopt, true));
 
       std::vector<std::string> query_args{account_id, "key", "value"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
@@ -2026,11 +2028,35 @@ namespace iroha {
               "value",
               std::optional<
                   shared_model::interface::types::AccountDetailValueType>(
-                  "notEmptyOldValue")));
+                  "notEmptyOldValue"),
+              true));
 
       std::vector<std::string> query_args{
           account_id, "key", "value", "notEmptyOldValue"};
       CHECK_ERROR_CODE_AND_MESSAGE(cmd_result, 4, query_args);
+    }
+
+    /**
+     * @given commands
+     * @when trying to set new kv with not empty oldValue
+     * @then corresponding error code is returned
+     */
+    TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValueLegacy) {
+      addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
+
+      CHECK_SUCCESSFUL_RESULT(
+          execute(*mock_command_factory->constructCompareAndSetAccountDetail(
+              account_id,
+              "key",
+              "value",
+              std::optional<
+                  shared_model::interface::types::AccountDetailValueType>(
+                  "notEmptyOldValue"),
+              false)));
+
+      auto kv1 = sql_query->getAccountDetail(account_id);
+      ASSERT_TRUE(kv1);
+      ASSERT_EQ(kv1.get(), R"({"id@domain": {"key": "value"}})");
     }
 
     /**
@@ -2042,7 +2068,7 @@ namespace iroha {
       addOnePerm(shared_model::interface::permissions::Role::kRoot);
       CHECK_SUCCESSFUL_RESULT(
           execute(*mock_command_factory->constructCompareAndSetAccountDetail(
-              account_id, "key", "value", std::nullopt)));
+              account_id, "key", "value", std::nullopt, true)));
       auto kv = sql_query->getAccountDetail(account_id);
       ASSERT_TRUE(kv);
       ASSERT_EQ(kv.get(), R"({"id@domain": {"key": "value"}})");

@@ -42,6 +42,7 @@ class ValidatorsTest : public ::testing::Test {
     auto setUInt64 = setField(&google::protobuf::Reflection::SetUInt64);
     auto addEnum = setField(&google::protobuf::Reflection::AddEnumValue);
     auto setEnum = setField(&google::protobuf::Reflection::SetEnumValue);
+    auto setBool = setField(&google::protobuf::Reflection::SetBool);
     auto setStrongStringView = [](const auto &value) {
       return [&value](auto refl, auto msg, auto field) {
         std::string_view sv{value};
@@ -71,6 +72,8 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.SetAccountQuorum.account_id", setString(account_id)},
         {"iroha.protocol.CompareAndSetAccountDetail.account_id",
          setString(account_id)},
+        {"iroha.protocol.CompareAndSetAccountDetail.need_to_check_empty",
+         setBool(true)},
         {"iroha.protocol.AppendRole.role_name", setString(role_name)},
         {"iroha.protocol.DetachRole.role_name", setString(role_name)},
         {"iroha.protocol.CreateRole.role_name", setString(role_name)},

@@ -204,7 +204,8 @@ namespace shared_model {
           const types::AccountIdType &account_id,
           const types::AccountDetailKeyType &key,
           const types::AccountDetailValueType &value,
-          const std::optional<types::AccountDetailValueType> old_value) const;
+          const std::optional<types::AccountDetailValueType> old_value,
+          bool need_to_check_empty) const;
 
       /**
        * Construct a mocked SetSettingValue
