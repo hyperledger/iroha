@@ -693,7 +693,7 @@ namespace iroha {
                             THEN data->:creator->:key = :expected_value::jsonb
                         ELSE FALSE
                         END
-                    ELSE not :have_expected_value::boolean
+                    ELSE not (:need_to_check_empty::boolean and :have_expected_value::boolean)
                   END
             ),
             inserted AS
@@ -1605,6 +1605,7 @@ namespace iroha {
       executor.use("target", command.accountId());
       executor.use("key", command.key());
       executor.use("new_value", new_json_value);
+      executor.use("need_to_check_empty", command.needToCheckEmpty());
       executor.use("have_expected_value",
                    static_cast<bool>(command.oldValue()));
       executor.use("expected_value", expected_json_value);
