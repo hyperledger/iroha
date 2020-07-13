@@ -46,7 +46,7 @@ namespace iroha {
       auto qry = R"(
         SELECT count(public_key) = 1
         FROM account_has_signatory
-        WHERE account_id = :account_id AND public_key = :pk
+        WHERE account_id = :account_id AND public_key = lower(:pk)
         )";
 
       try {
