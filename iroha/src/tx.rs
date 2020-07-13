@@ -210,7 +210,7 @@ impl ValidTransaction {
     pub fn proceed(&self, world_state_view: &mut WorldStateView) -> Result<(), String> {
         for instruction in &self.payload.instructions {
             if let Err(e) = instruction.execute(self.payload.account_id.clone(), world_state_view) {
-                eprintln!("Failed to invoke instruction on WSV: {}", e);
+                log::warn!("Failed to invoke instruction on WSV: {}", e);
             }
         }
         Ok(())

@@ -190,7 +190,7 @@ impl Iroha {
         let torii = Arc::clone(&self.torii);
         let torii_handle = task::spawn(async move {
             if let Err(e) = torii.write().await.start().await {
-                eprintln!("Failed to start Torii: {}", e);
+                log::error!("Failed to start Torii: {}", e);
             }
         });
         self.block_sync.read().await.start();
@@ -232,7 +232,7 @@ impl Iroha {
         let sumeragi_message_handle = task::spawn(async move {
             while let Some(message) = sumeragi_message_receiver.write().await.next().await {
                 if let Err(e) = message.handle(&mut *sumeragi.write().await).await {
-                    eprintln!("Handle message failed: {}", e);
+                    log::error!("Handle message failed: {}", e);
                 }
             }
         });

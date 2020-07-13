@@ -144,7 +144,7 @@ impl Sumeragi {
                     .iter()
                     .filter(|result| result.is_err())
                     .for_each(|error_result| {
-                        eprintln!("Failed to send messages: {:?}", error_result)
+                        log::error!("Failed to send messages: {:?}", error_result)
                     });
                 Ok(())
             }
@@ -199,7 +199,7 @@ impl Sumeragi {
                             .iter()
                             .filter(|result| result.is_err())
                             .for_each(|error_result| {
-                                eprintln!(
+                                log::error!(
                                     "Failed to send transactions to the leader: {:?}",
                                     error_result
                                 )
@@ -212,7 +212,7 @@ impl Sumeragi {
                 .iter()
                 .filter(|result| result.is_err())
                 .for_each(|error_result| {
-                    eprintln!(
+                    log::error!(
                         "Failed to send transactions to the leader: {:?}",
                         error_result
                     )
@@ -251,7 +251,7 @@ impl Sumeragi {
                         .iter()
                         .filter(|result| result.is_err())
                         .for_each(|error_result| {
-                            eprintln!("Failed to send messages: {:?}", error_result)
+                            log::error!("Failed to send messages: {:?}", error_result)
                         });
                 }
             }
@@ -632,7 +632,7 @@ pub mod message {
                         .send_to(sumeragi.network_topology.proxy_tail())
                         .await
                         {
-                            eprintln!(
+                            log::error!(
                                 "Failed to send BlockSigned message to the proxy tail: {:?}",
                                 e
                             );
@@ -706,7 +706,7 @@ pub mod message {
                         .iter()
                         .filter(|result| result.is_err())
                         .for_each(|error_result| {
-                            eprintln!("Failed to send messages: {:?}", error_result)
+                            log::error!("Failed to send messages: {:?}", error_result)
                         });
                     sumeragi.votes_for_blocks.clear();
                     sumeragi.commit_block(block).await;
@@ -1129,7 +1129,7 @@ pub mod message {
                             .iter()
                             .filter(|result| result.is_err())
                             .for_each(|error_result| {
-                                eprintln!("Failed to send messages: {:?}", error_result)
+                                log::error!("Failed to send messages: {:?}", error_result)
                             });
                     }
                 }
@@ -1877,7 +1877,7 @@ mod tests {
                         .round(vec![transaction])
                         .await
                     {
-                        eprintln!("{}", e);
+                        log::error!("{}", e);
                     }
                 }
             });
