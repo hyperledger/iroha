@@ -111,7 +111,7 @@ impl BlockSynchronizer {
                 .send_to(&peer_id)
                 .await
                 {
-                    eprintln!("Failed to request next batch of blocks. {}", e)
+                    log::error!("Failed to request next batch of blocks. {}", e)
                 }
             }
         }
@@ -149,7 +149,7 @@ pub mod message {
                                 .send_to(peer)
                                 .await
                         {
-                            eprintln!("Failed to request blocks: {:?}", err)
+                            log::error!("Failed to request blocks: {:?}", err)
                         }
                     }
                 }
@@ -166,12 +166,12 @@ pub mod message {
                                 .send_to(peer)
                                 .await
                                 {
-                                    eprintln!("Failed to send blocks: {:?}", err)
+                                    log::error!("Failed to send blocks: {:?}", err)
                                 }
                             }
                         }
                     } else {
-                        eprintln!("Error: not sending any blocks as batch_size is equal to zero.")
+                        log::error!("Error: not sending any blocks as batch_size is equal to zero.")
                     }
                 }
                 Message::ShareBlocks(blocks, peer_id) => {
