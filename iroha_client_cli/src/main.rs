@@ -4,6 +4,7 @@ const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
 const ACCOUNT: &str = "account";
 const ASSET: &str = "asset";
+const MAINTENANCE: &str = "maintenance";
 
 fn main() {
     let matches = App::new("Iroha CLI Client")
@@ -12,22 +13,25 @@ fn main() {
         .about("Iroha CLI Client provides an ability to interact with Iroha Peers Web API without direct network usage.")
         .arg(
             Arg::with_name(CONFIG)
-                .short("c")
-                .long(CONFIG)
-                .value_name("FILE")
-                .help("Sets a config file path.")
-                .takes_value(true)
-                .default_value("config.json"),
-        )
+            .short("c")
+            .long(CONFIG)
+            .value_name("FILE")
+            .help("Sets a config file path.")
+            .takes_value(true)
+            .default_value("config.json"),
+            )
         .subcommand(
             domain::build_app(),
-        )
+            )
         .subcommand(
             account::build_app(),
-        )
+            )
         .subcommand(
             asset::build_app(),
-        )
+            )
+        .subcommand(
+            maintenance::build_app(),
+            )
         .get_matches();
     if let Some(configuration_path) = matches.value_of(CONFIG) {
         println!("Value for config: {}", configuration_path);
@@ -40,6 +44,9 @@ fn main() {
     }
     if let Some(ref matches) = matches.subcommand_matches(ASSET) {
         asset::process(matches);
+    }
+    if let Some(ref matches) = matches.subcommand_matches(MAINTENANCE) {
+        maintenance::process(matches);
     }
 }
 
@@ -187,39 +194,39 @@ mod asset {
         App::new(ASSET)
             .about("Use this command to work with Asset and Asset Definition Entities in Iroha Peer.")
             .subcommand(
-        App::new(REGISTER)
-        .about("Use this command to register new Asset Definition in existing Iroha Domain.")
-            .arg(
-                Arg::with_name(ASSET_DOMAIN_NAME)
+                App::new(REGISTER)
+                .about("Use this command to register new Asset Definition in existing Iroha Domain.")
+                .arg(
+                    Arg::with_name(ASSET_DOMAIN_NAME)
                     .long(ASSET_DOMAIN_NAME)
                     .value_name(ASSET_DOMAIN_NAME)
                     .help("Asset's domain's name as double-quoted string.")
                     .takes_value(true)
                     .required(true),
-            )
-            .arg(
-                Arg::with_name(ASSET_NAME)
+                    )
+                .arg(
+                    Arg::with_name(ASSET_NAME)
                     .long(ASSET_NAME)
                     .value_name(ASSET_NAME)
                     .help("Asset's name as double-quoted string.")
                     .takes_value(true)
                     .required(true),
-            )
-            )
-               .subcommand(
-                    App::new(MINT)
-                    .about("Use this command to Mint Asset in existing Iroha Account.")
-                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                    )
                 )
-.subcommand(
-App::new(GET)
+            .subcommand(
+                App::new(MINT)
+                .about("Use this command to Mint Asset in existing Iroha Account.")
+                .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(QUANTITY).long(QUANTITY).value_name(QUANTITY).help("Asset's quantity as a number.").takes_value(true).required(true))
+                )
+            .subcommand(
+                App::new(GET)
                 .about("Use this command to get Asset information from Iroha Account.")
-                    .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
-                    .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(ASSET_ACCOUNT_ID).long(ASSET_ACCOUNT_ID).value_name(ASSET_ACCOUNT_ID).help("Account's id as double-quoted string in the following format `account_name@domain_name`.").takes_value(true).required(true))
+                .arg(Arg::with_name(ASSET_ID).long(ASSET_ID).value_name(ASSET_ID).help("Asset's id as double-quoted string in the following format `asset_name#domain_name`.").takes_value(true).required(true))
 
-            )
+                )
     }
 
     pub fn process(matches: &ArgMatches<'_>) {
@@ -303,6 +310,120 @@ App::new(GET)
         .expect("Failed to get asset.");
         if let QueryResult::GetAccountAssets(result) = query_result {
             println!("Get Asset result: {:?}", result);
+        }
+    }
+}
+
+mod maintenance {
+    use super::*;
+    use async_std::prelude::*;
+    use clap::ArgMatches;
+    use futures::executor;
+    use iroha_client::{client::Client, config::Configuration};
+
+    const CONNECT: &str = "connect";
+    const ENTITY_TYPE: &str = "entity";
+    const EVENT_TYPE: &str = "event";
+
+    pub fn build_app<'a, 'b>() -> App<'a, 'b> {
+        App::new(MAINTENANCE)
+            .about("Use this command to use maintenance functionality.")
+            .subcommand(
+                App::new(CONNECT)
+                    .about("Use this command to connect to the peer and start consuming events.")
+                    .arg(
+                        Arg::with_name(ENTITY_TYPE)
+                            .long(ENTITY_TYPE)
+                            .value_name(ENTITY_TYPE)
+                            .help("Type of entity to consume events about.")
+                            .takes_value(true)
+                            .required(true),
+                    )
+                    .arg(
+                        Arg::with_name(EVENT_TYPE)
+                            .long(EVENT_TYPE)
+                            .value_name(EVENT_TYPE)
+                            .help("Type of event to consume.")
+                            .takes_value(true)
+                            .required(true),
+                    ),
+            )
+    }
+
+    pub fn process(matches: &ArgMatches<'_>) {
+        if let Some(ref matches) = matches.subcommand_matches(CONNECT) {
+            if let Some(entity_type) = matches.value_of(ENTITY_TYPE) {
+                println!("Connecting to consume events for: {}", entity_type);
+                if let Some(event_type) = matches.value_of(EVENT_TYPE) {
+                    println!("Connecting to consume events: {}", event_type);
+                    connect(entity_type, event_type);
+                }
+            }
+        }
+    }
+
+    fn connect(entity_type: &str, _event_type: &str) {
+        let mut iroha_client = Client::with_maintenance(
+            &Configuration::from_path("config.json").expect("Failed to load configuration."),
+        );
+        executor::block_on(async {
+            match entity_type {
+                "transaction" => {
+                    let mut stream = iroha_client
+                        .subscribe_to_transaction_changes()
+                        .await
+                        .expect("Failed to execute request.");
+                    while let Some(change) = stream.next().await {
+                        println!("Change received {:?}", change);
+                    }
+                }
+                &_ => {
+                    eprintln!("Failed to match Entity Type: {}", entity_type);
+                }
+            }
+        });
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use async_std::task;
+        use iroha::{config::Configuration, isi, prelude::*};
+        use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
+        use std::{thread, time::Duration};
+        use tempfile::TempDir;
+
+        const CONFIGURATION_PATH: &str = "tests/test_config.json";
+
+        #[async_std::test]
+        #[ignore]
+        async fn cli_connect_to_consume_block_changes_should_work() {
+            thread::spawn(|| {
+                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
+                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                    .expect("Failed to load configuration.");
+                configuration
+                    .kura_configuration
+                    .kura_block_store_path(temp_dir.path());
+                let iroha = Iroha::new(configuration.clone());
+                task::block_on(iroha.start()).expect("Failed to start Iroha.");
+                //Prevents temp_dir from clean up untill the end of the tests.
+                #[allow(clippy::empty_loop)]
+                loop {}
+            });
+            thread::sleep(Duration::from_millis(300));
+            super::connect("transaction", "all");
+            let domain_name = "global";
+            let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
+            let create_asset = isi::Register {
+                object: AssetDefinition::new(asset_definition_id),
+                destination_id: domain_name.to_string(),
+            };
+            let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
+                &Configuration::from_path(CONFIGURATION_PATH)
+                    .expect("Failed to load configuration."),
+            ));
+            task::block_on(iroha_client.submit(create_asset.into()))
+                .expect("Failed to prepare state.");
         }
     }
 }
