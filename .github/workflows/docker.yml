@@ -1,0 +1,82 @@
+name: Docker
+
+trigger:
+- iroha2-dev
+pr: none
+
+
+jobs:
+  test-docker:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Cache cargo registry
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry
+    - name: Cache cargo index
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index
+    - name: Cache workspace target
+      uses: actions/cache@v1
+      env:
+        cache-name: ${{ runner.os }}-cargo-build-target
+      with:
+        path: target
+        key: workspace-target
+    - name: Cache iroha target
+      uses: actions/cache@v1
+      env:
+        cache-name: criterion-iroha-target
+      with:
+        path: iroha/target
+        key: iroha-target
+    - name: Build
+      run: cargo build --verbose
+    - name: Setup docker test environment
+      run: ./scripts/setup_docker_test_env.sh
+    - name: Docker compose test
+      run: ./scripts/test_docker_compose.sh
+    - name: Cleanup docker test environment
+      run: ./scripts/cleanup_docker_test_env.sh
+  deploy:
+    needs: test-docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache cargo registry
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry
+      - name: Cache cargo index
+        uses: actions/cache@v1
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index
+      - name: Cache workspace target
+        uses: actions/cache@v1
+        env:
+          cache-name: ${{ runner.os }}-cargo-build-target
+        with:
+          path: target
+          key: workspace-target
+      - name: Cache iroha target
+        uses: actions/cache@v1
+        env:
+          cache-name: criterion-iroha-target
+        with:
+          path: iroha/target
+          key: iroha-target
+      - name: Build artifact
+        run: cargo build --release 
+      - name: Build docker image
+        run: docker build ./
+      - name: Docker login
+        run: docker login -u humb1t -p ${{ secrets.DOCKERHUB }} 
+      - name: Push to registry
+        run: docker push hyperledger/iroha:iroha2-dev 
