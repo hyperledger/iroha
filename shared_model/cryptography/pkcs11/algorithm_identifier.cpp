@@ -17,20 +17,26 @@
 #include "interfaces/common_objects/byte_range.hpp"
 #include "multihash/type.hpp"
 
+using P11KeyType = Botan::PKCS11::P11KeyType;
+using MhType = iroha::multihash::Type;
+
 namespace shared_model::crypto::pkcs11 {
+  enum class KeyType {
+    kEcdsaSecp256r1,
+  };
 
 // clang-format off
 // - iroha::multihash::Type
 // - Emsa::name() -> Botan::get_emsa(%s)
 // - Botan::PKCS11::KeyType
-#define MULTIHASH_EL0 (Type::kEcdsaSha2_224, "EMSA1(SHA-224)",    KeyType::Ecdsa)
-#define MULTIHASH_EL1 (Type::kEcdsaSha2_256, "EMSA1(SHA-256)",    KeyType::Ecdsa)
-#define MULTIHASH_EL2 (Type::kEcdsaSha2_384, "EMSA1(SHA-384)",    KeyType::Ecdsa)
-#define MULTIHASH_EL3 (Type::kEcdsaSha2_512, "EMSA1(SHA-512)",    KeyType::Ecdsa)
-#define MULTIHASH_EL4 (Type::kEcdsaSha3_224, "EMSA1(SHA-3(224))", KeyType::Ecdsa)
-#define MULTIHASH_EL5 (Type::kEcdsaSha3_256, "EMSA1(SHA-3(256))", KeyType::Ecdsa)
-#define MULTIHASH_EL6 (Type::kEcdsaSha3_384, "EMSA1(SHA-3(384))", KeyType::Ecdsa)
-#define MULTIHASH_EL7 (Type::kEcdsaSha3_512, "EMSA1(SHA-3(512))", KeyType::Ecdsa)
+#define MULTIHASH_EL0 (MhType::kEcdsaSecp256r1Sha2_224, "EMSA1(SHA-224)",    KEY_TYPE_EL0)
+#define MULTIHASH_EL1 (MhType::kEcdsaSecp256r1Sha2_256, "EMSA1(SHA-256)",    KEY_TYPE_EL0)
+#define MULTIHASH_EL2 (MhType::kEcdsaSecp256r1Sha2_384, "EMSA1(SHA-384)",    KEY_TYPE_EL0)
+#define MULTIHASH_EL3 (MhType::kEcdsaSecp256r1Sha2_512, "EMSA1(SHA-512)",    KEY_TYPE_EL0)
+#define MULTIHASH_EL4 (MhType::kEcdsaSecp256r1Sha3_224, "EMSA1(SHA-3(224))", KEY_TYPE_EL0)
+#define MULTIHASH_EL5 (MhType::kEcdsaSecp256r1Sha3_256, "EMSA1(SHA-3(256))", KEY_TYPE_EL0)
+#define MULTIHASH_EL6 (MhType::kEcdsaSecp256r1Sha3_384, "EMSA1(SHA-3(384))", KEY_TYPE_EL0)
+#define MULTIHASH_EL7 (MhType::kEcdsaSecp256r1Sha3_512, "EMSA1(SHA-3(512))", KEY_TYPE_EL0)
 
 #define NUM_MULTIHASH 8
 
@@ -38,7 +44,8 @@ namespace shared_model::crypto::pkcs11 {
 // - Public_Key::algo_name()
 // - Botan::PKCS11 private key class
 // - Botan::PKCS11 public key class
-#define KEY_TYPE_EL0 (KeyType::Ecdsa, "ECDSA", PKCS11_EC_PrivateKey, PKCS11_EC_PublicKey)
+// - other key-specific values
+#define KEY_TYPE_EL0 (P11KeyType::Ec, "ECDSA", PKCS11_EC_PrivateKey, PKCS11_EC_PublicKey, "secp256r1")
   // clang-format on
 
 #define NUM_KEY_TYPES 1
@@ -59,11 +66,10 @@ namespace shared_model::crypto::pkcs11 {
 
   std::optional<Botan::PKCS11::KeyType> getPkcs11KeyType(
       iroha::multihash::Type multihash_type) {
-    using iroha::multihash::Type;
-
 #define SW(z, i, ...)                              \
   case BOOST_PP_TUPLE_ELEM(3, 0, MULTIHASH_EL##i): \
-    return BOOST_PP_TUPLE_ELEM(3, 2, MULTIHASH_EL##i);
+    return BOOST_PP_TUPLE_ELEM(                    \
+        5, 0, BOOST_PP_TUPLE_ELEM(3, 2, MULTIHASH_EL##i));
 
     switch (multihash_type) { BOOST_PP_REPEAT(NUM_MULTIHASH, SW, ) }
 #undef SW
@@ -80,7 +86,6 @@ namespace shared_model::crypto::pkcs11 {
       return std::nullopt;
     }
 
-    using Botan::PKCS11::KeyType;
 #define SW(z, i, ...)                                                   \
   case BOOST_PP_TUPLE_ELEM(4, 0, KEY_TYPE_EL##i):                       \
     return std::make_unique<BOOST_PP_TUPLE_ELEM(4, 3, KEY_TYPE_EL##i)>( \
@@ -102,15 +107,29 @@ namespace shared_model::crypto::pkcs11 {
       return std::nullopt;
     }
 
-    using Botan::PKCS11::KeyType;
-    //#define SW(z, i, ...)                                                   \
-//  case BOOST_PP_TUPLE_ELEM(4, 0, KEY_TYPE_EL##i):                       \
-//    return std::make_unique<BOOST_PP_TUPLE_ELEM(4, 4, KEY_TYPE_EL##i)>( \
-//        session, object);
-    //
-    //    switch (opt_pkcs11_key_type.value()) { BOOST_PP_REPEAT(NUM_KEY_TYPES,
-    //    SW, ) }
-    //#undef SW
+    Botan::PKCS11::ObjectProperties public_key_attrs{
+        Botan::PKCS11::ObjectClass::PublicKey};
+    public_key_attrs.add_numeric(
+        Botan::PKCS11::AttributeType::KeyType,
+        static_cast<CK_ATTRIBUTE_TYPE>(opt_pkcs11_key_type.value()));
+    public_key_attrs.add_bool(Botan::PKCS11::AttributeType::Token, false);
+    public_key_attrs.add_bool(Botan::PKCS11::AttributeType::Private, false);
+
+    if (opt_pkcs11_key_type.value() == P11KeyType::Ec
+    public_key_attrs.add_binary(Botan::PKCS11::AttributeType::EcdsaParams,
+                                reinterpret_cast<uint8_t const *>(kSecp256r1),
+                                sizeof(kSecp256r1));
+    public_key_attrs.add_binary(Botan::PKCS11::AttributeType::EcPoint,
+                                pubkey_raw);
+
+#define SW(z, i, ...)                                                   \
+  case BOOST_PP_TUPLE_ELEM(4, 0, KEY_TYPE_EL##i):                       \
+    return std::make_unique<BOOST_PP_TUPLE_ELEM(4, 4, KEY_TYPE_EL##i)>( \
+        session, object);
+
+    switch (opt_pkcs11_key_type.value()) {
+      BOOST_PP_REPEAT(NUM_KEY_TYPES, SW, ) }
+#undef SW
 
     return std::nullopt;
   }
@@ -119,7 +138,6 @@ namespace shared_model::crypto::pkcs11 {
       Botan::AlgorithmIdentifier const &alg_id) {
     std::string const algo_name = alg_id.get_oid().to_formatted_string();
 
-    using Botan::PKCS11::KeyType;
 #define SW(z, i, ...)                                                      \
   if (algo_name.compare(BOOST_PP_TUPLE_ELEM(4, 1, KEY_TYPE_EL##i)) == 0) { \
     return BOOST_PP_TUPLE_ELEM(4, 0, KEY_TYPE_EL##i);                      \
@@ -140,8 +158,6 @@ namespace shared_model::crypto::pkcs11 {
 
     std::string const emsa_name = emsa.name();
 
-    using Botan::PKCS11::KeyType;
-    using iroha::multihash::Type;
 #define SW(z, i, ...)                                                   \
   if (opt_pkcs11_key_type.value()                                       \
           == BOOST_PP_TUPLE_ELEM(3, 2, MULTIHASH_EL##i)                 \

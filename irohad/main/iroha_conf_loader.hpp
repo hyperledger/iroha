@@ -112,13 +112,14 @@ struct IrohadConfig {
       };
 
       struct Signer {
-        std::optional<std::string> password;
+        std::optional<std::string> pin;
         std::optional<ObjectAttrs> signer_key_attrs;
         iroha::multihash::Type type;
       };
 
       std::string library_file;
       unsigned long int slot_id;
+      std::optional<std::string> pin;
       std::optional<Signer> signer;
     };
 

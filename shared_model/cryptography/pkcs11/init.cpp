@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include <botan/p11.h>
+#include <botan/p11_module.h>
 #include <botan/p11_object.h>
 #include <botan/p11_session.h>
 #include <botan/p11_slot.h>
@@ -30,28 +31,32 @@ using namespace shared_model::crypto;
 using iroha::InitCryptoProviderException;
 
 namespace {
-  pkcs11::OperationContext makeAnonReadOnlyOperationContext(
-      std::shared_ptr<Botan::PKCS11::Module> module,
-      IrohadConfig::Crypto::Pkcs11 const &config) {
-    Botan::PKCS11::Slot slot{*module, config.slot_id};
-    return pkcs11::OperationContext{
-        *module, slot, Botan::PKCS11::Session{slot, true}};
+  pkcs11::OperationContext makeOperationContext(
+      Botan::PKCS11::Module &module,
+      Botan::PKCS11::SlotId slot_id,
+      std::optional<std::string> pin) {
+    Botan::PKCS11::Slot slot{module, slot_id};
+    pkcs11::OperationContext op_ctx{
+        module, slot, Botan::PKCS11::Session{slot, true}};
+    if (pin) {
+      Botan::PKCS11::secure_string pkcs11_pin;
+      pkcs11_pin.reserve(pin->size());
+      std::transform(pin->begin(),
+                     pin->end(),
+                     std::back_inserter(pkcs11_pin),
+                     [](auto c) -> decltype(*pkcs11_pin.data()) { return c; });
+      op_ctx.session.login(Botan::PKCS11::UserType::User, pkcs11_pin);
+      return op_ctx;
+    }
   }
 
   // throws InitCryptoProviderException
   std::unique_ptr<CryptoSigner> makeSigner(
       IrohadConfig::Crypto::Pkcs11::Signer const &config,
       std::shared_ptr<Botan::PKCS11::Module> module,
-      pkcs11::OperationContext op_ctx) {
-    if (config.password) {
-      Botan::PKCS11::secure_string password;
-      password.reserve(config.password->size());
-      std::transform(config.password->begin(),
-                     config.password->end(),
-                     std::back_inserter(password),
-                     [](auto c) -> decltype(*password.data()) { return c; });
-      op_ctx.session.init_pin(password);
-    }
+      Botan::PKCS11::SlotId slot_id) {
+    pkcs11::OperationContext op_ctx{
+        makeOperationContext(*module, slot_id, config.pin)};
 
     auto opt_pkcs11_key_type = pkcs11::getPkcs11KeyType(config.type);
     auto opt_emsa_name = pkcs11::getEmsaName(config.type);
@@ -96,6 +101,7 @@ namespace {
                                             opt_emsa_name.value(),
                                             config.type);
   }
+
 }  // namespace
    // open a read-only session
    // login for private token objects access
@@ -105,23 +111,22 @@ void iroha::initCryptoProviderPkcs11(iroha::PartialCryptoInit initializer,
                                      logger::LoggerManagerTreePtr log_manager) {
   auto module = std::make_shared<Botan::PKCS11::Module>(config.library_file);
 
-  auto make_anon_context = [module, slot_id{config.slot_id}]() {
-    Botan::PKCS11::Slot slot{*module, slot_id};
-    return pkcs11::OperationContext{
-        *module, slot, Botan::PKCS11::Session{slot, true}};
-  };
-
   if (initializer.init_signer) {
     if (not config.signer) {
       throw InitCryptoProviderException{"Signer configuration missing."};
     }
 
     initializer.init_signer.value()(makeSigner(
-        config.signer.value(), std::move(module), make_anon_context()));
+        config.signer.value(), module, config.slot_id);
   }
 
   if (initializer.init_verifier) {
+    auto make_op_context =
+        [module, slot_id{config.slot_id}, pin{config.pin}]() {
+          return makeOperationContext(*module, slot_id, pin);
+        };
+
     initializer.init_verifier.value()(
-        std::make_unique<pkcs11::Verifier>(std::move(make_anon_context)));
+        std::make_unique<pkcs11::Verifier>(std::move(make_op_context)));
   }
 }
