@@ -3,6 +3,7 @@
 
 use crate::{
     crypto::{self, KeyPair, Signatures},
+    merkle::MerkleTree,
     prelude::*,
 };
 use iroha_derive::Io;
@@ -122,9 +123,17 @@ impl ChainedBlock {
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
         }
-        //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
+        let mut header = self.header;
+        header.merkle_root_hash = MerkleTree::new()
+            .build(
+                &transactions
+                    .iter()
+                    .map(|transaction| transaction.hash())
+                    .collect::<Vec<_>>(),
+            )
+            .root_hash();
         ValidBlock {
-            header: self.header,
+            header,
             transactions,
             signatures: Signatures::default(),
         }
@@ -168,9 +177,17 @@ impl ValidBlock {
                 Err(e) => log::warn!("Transaction validation failed: {}", e),
             }
         }
-        //TODO: rebuild merkle tree and reassign `merkle_root_hash`, as tx set may be different.
+        let mut header = self.header;
+        header.merkle_root_hash = MerkleTree::new()
+            .build(
+                &transactions
+                    .iter()
+                    .map(|transaction| transaction.hash())
+                    .collect::<Vec<_>>(),
+            )
+            .root_hash();
         ValidBlock {
-            header: self.header,
+            header,
             transactions,
             signatures: self.signatures,
         }

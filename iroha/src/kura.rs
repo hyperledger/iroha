@@ -74,8 +74,8 @@ impl Kura {
     /// After constructing `Kura` it should be initialized to be ready to work with it.
     pub async fn init(&mut self) -> Result<(), String> {
         let blocks = self.block_store.read_all().await;
-        let blocks_refs = blocks.iter().collect::<Vec<&ValidBlock>>();
-        self.merkle_tree.build(&blocks_refs);
+        self.merkle_tree =
+            MerkleTree::new().build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
         self.blocks = blocks;
         Ok(())
     }
@@ -86,14 +86,15 @@ impl Kura {
         let block_store_result = self.block_store.write(&block).await;
         match block_store_result {
             Ok(hash) => {
+                //TODO: shouldn't we add block hash to merkle tree here?
                 self.block_sender.send(block.clone().commit()).await;
                 self.blocks.push(block);
                 Ok(hash)
             }
             Err(error) => {
                 let blocks = self.block_store.read_all().await;
-                let blocks_refs = blocks.iter().collect::<Vec<&ValidBlock>>();
-                self.merkle_tree.build(&blocks_refs);
+                self.merkle_tree = MerkleTree::new()
+                    .build(&blocks.iter().map(|block| block.hash()).collect::<Vec<_>>());
                 Err(error)
             }
         }

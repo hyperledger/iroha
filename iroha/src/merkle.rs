@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use std::collections::VecDeque;
 
 /// [Merkle Tree](https://en.wikipedia.org/wiki/Merkle_tree) used to validate and prove data at
 /// each block height.
@@ -15,14 +16,12 @@ impl MerkleTree {
         }
     }
 
-    /// Builds a Merkle Tree from sorted array of `ValidBlocks`.
-    //TODO: should we check or sort blocks here?
-    pub fn build(&mut self, blocks: &[&ValidBlock]) {
-        //hm, can we write map(ValidBlock::hash) in Rust?
-        let mut nodes: std::collections::VecDeque<Node> = blocks
-            .iter()
-            .map(|block| Node::Leaf { hash: block.hash() })
-            .collect();
+    /// Builds a Merkle Tree from an array of `Hash` values values. For example of `Block` and `Transaction` hashes.
+    pub fn build(self, hashes: &[Hash]) -> Self {
+        let mut hashes: Vec<Hash> = hashes.to_vec();
+        hashes.sort();
+        let mut nodes: VecDeque<Node> =
+            hashes.into_iter().map(|hash| Node::Leaf { hash }).collect();
         if nodes.len() % 2 != 0 {
             nodes.push_back(Node::Empty);
         }
@@ -35,7 +34,14 @@ impl MerkleTree {
                 });
             }
         }
-        self.root_node = nodes.pop_front().unwrap_or(Node::Empty);
+        MerkleTree {
+            root_node: nodes.pop_front().unwrap_or(Node::Empty),
+        }
+    }
+
+    /// Return the `Hash` of the root node.
+    pub fn root_hash(&self) -> Hash {
+        self.root_node.hash()
     }
 }
 
@@ -153,7 +159,6 @@ impl<'a> IntoIterator for &'a MerkleTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{crypto::KeyPair, peer::PeerId};
 
     #[test]
     fn tree_with_two_layers_should_reach_all_nodes() {
@@ -168,44 +173,32 @@ mod tests {
     }
 
     #[test]
-    fn four_blocks_should_built_seven_nodes() {
-        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), &key_pair)
-            .expect("Failed to create a block.")
-            .chain_first()
-            .validate(&WorldStateView::new(Peer::new(
-                PeerId {
-                    address: "127.0.0.1:8080".to_string(),
-                    public_key: key_pair.public_key,
-                },
-                &Vec::new(),
-            )))
-            .sign(&key_pair)
-            .expect("Failed to sign blocks.");
-        let blocks = [&block, &block, &block, &block];
-        let mut merkle_tree = MerkleTree::new();
-        merkle_tree.build(&blocks);
+    fn four_hashes_should_built_seven_nodes() {
+        let hash = [1u8; 32];
+        let hashes = [hash, hash, hash, hash];
+        let merkle_tree = MerkleTree::new().build(&hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
     }
 
     #[test]
-    fn three_blocks_should_built_seven_nodes() {
-        let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
-        let block = PendingBlock::new(Vec::new(), &key_pair)
-            .expect("Failed to create a block.")
-            .chain_first()
-            .validate(&WorldStateView::new(Peer::new(
-                PeerId {
-                    address: "127.0.0.1:8080".to_string(),
-                    public_key: key_pair.public_key,
-                },
-                &Vec::new(),
-            )))
-            .sign(&key_pair)
-            .expect("Failed to sign blocks.");
-        let blocks = [&block, &block, &block, &block];
-        let mut merkle_tree = MerkleTree::new();
-        merkle_tree.build(&blocks);
+    fn three_hashes_should_built_seven_nodes() {
+        let hash = [1u8; 32];
+        let hashes = [hash, hash, hash];
+        let merkle_tree = MerkleTree::new().build(&hashes);
         assert_eq!(7, merkle_tree.into_iter().count());
+    }
+
+    #[test]
+    fn same_root_hash_for_same_hashes() {
+        let merkle_tree_1 = MerkleTree::new().build(&[[1u8; 32], [2u8; 32], [3u8; 32]]);
+        let merkle_tree_2 = MerkleTree::new().build(&[[2u8; 32], [1u8; 32], [3u8; 32]]);
+        assert_eq!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
+    }
+
+    #[test]
+    fn different_root_hash_for_different_hashes() {
+        let merkle_tree_1 = MerkleTree::new().build(&[[1u8; 32], [2u8; 32], [3u8; 32]]);
+        let merkle_tree_2 = MerkleTree::new().build(&[[1u8; 32], [4u8; 32], [5u8; 32]]);
+        assert_ne!(merkle_tree_1.root_hash(), merkle_tree_2.root_hash());
     }
 }
