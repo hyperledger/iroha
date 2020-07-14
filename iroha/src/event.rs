@@ -56,6 +56,17 @@ pub enum Entity {
     Time,
 }
 
+impl Occurrence {
+    /// Find out which `Entity` relates to the `Occurrence`.
+    pub fn entity(&self) -> &Entity {
+        match self {
+            Occurrence::Created(entity)
+            | Occurrence::Updated(entity)
+            | Occurrence::Deleted(entity) => entity,
+        }
+    }
+}
+
 impl Into<Event> for Occurrence {
     fn into(self) -> Event {
         EventBuilder::v10()
