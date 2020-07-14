@@ -132,7 +132,7 @@ impl Network {
     }
 
     pub async fn connect(&self, initial_message: &[u8]) -> Result<Connection, String> {
-        Connection::connect(&self.server_url, 4000, initial_message)
+        Connection::connect(&self.server_url, REQUEST_TIMEOUT_MILLIS, initial_message)
     }
 }
 

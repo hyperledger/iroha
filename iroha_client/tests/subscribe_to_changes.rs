@@ -9,6 +9,7 @@ mod tests {
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
     #[async_std::test]
+    #[ignore]
     async fn client_subscribe_to_block_changes_request_should_receive_block_change() {
         thread::spawn(|| {
             let temp_dir = TempDir::new().expect("Failed to create TempDir.");
@@ -64,6 +65,7 @@ mod tests {
     }
 
     #[async_std::test]
+    #[ignore]
     async fn client_subscribe_to_transaction_changes_request_should_receive_transaction_change() {
         thread::spawn(|| {
             let temp_dir = TempDir::new().expect("Failed to create TempDir.");
