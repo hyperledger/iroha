@@ -26,7 +26,7 @@ Starting Iroha Node
 
 .. raw:: html
 
-  <script src="https://asciinema.org/a/z7VkEd0hAfVnwwKcfJCbiRfJT.js" id="asciicast-z7VkEd0hAfVnwwKcfJCbiRfJT" async></script>
+  <script id="asciicast-345137" src="https://asciinema.org/a/345137.js" async></script>
 
 Creating a Docker Network
 ^^^^^^^^^^^^^^^^^^^^^^^^^
