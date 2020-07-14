@@ -12,7 +12,8 @@ See `the configuration details <#configuring-irohad>`_.
 
 Next, when invoking ``shepherd``, pass the ``--irohad`` command line argument with address and port of irohad utility service:
 
-.. code-block::
+.. code-block:: shell
+
    ./shepherd --irohad 127.0.0.1:11001 <...>
 
 Supported actions
@@ -26,7 +27,8 @@ How did you stop iroha before?
 What, did you really really kill it?
 Oh, please never do that again, it is not polite and nice!
 
-.. code-block::
+.. code-block:: shell
+
    ./shepherd <...> --shutdown
 
 With ``--shutdown`` argument, shepherd will politely ask Iroha to stop.
@@ -36,7 +38,8 @@ Watch it work
 Widely considered one of the greatest pleasures is watching others work.
 With shepherd you can watch Iroha working!
 
-.. code-block::
+.. code-block:: shell
+
    ./shepherd <...> --status
 
 This will subscribe for work cycle status updates.
@@ -47,7 +50,8 @@ Other parameters
 
 You can also set the logging level:
 
-.. code-block::
+.. code-block:: shell
+
    ./shepherd <...> --verbosity debug <...>
 
 Supported values are ``trace``, ``debug``, ``info``, ``warning``, ``error`` and ``critical``.
