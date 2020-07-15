@@ -4,7 +4,7 @@
 <!-- ### Requirements -->
 <!-- * Filling out the template is required. Any pull request that does not include enough information to be reviewed in a timely manner may be closed at the maintainers' discretion. -->
 <!-- * All new code must have code coverage above 70% (https://docs.codecov.io/docs/about-code-coverage). -->
-<!-- * CircleCI builds must be passed. -->
+<!-- * CI builds must be passed. -->
 <!-- * Critical and blocker issues reported by Sorabot must be fixed. -->
 <!-- * Branch must be rebased onto base branch (https://soramitsu.atlassian.net/wiki/spaces/IS/pages/11173889/Rebase+and+merge+guide). -->
 

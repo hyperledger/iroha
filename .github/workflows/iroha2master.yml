@@ -1,0 +1,75 @@
+name: Iroha 2 main branch workflow
+
+on:
+  push:
+    branches: [ iroha2-dev ]
+env:
+  CACHE_PATHS: |
+    ~/.cargo/registry
+    ~/.cargo/git
+    ~/.rustup
+    target
+    iroha/target
+    iroha_client/target
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: ${{ env.CACHE_PATHS }}
+        key: ${{ hashFiles('Cargo.toml') }}
+    - name: Run benchmarks
+      run: cargo bench --workspace --jobs 1 --verbose
+    - name: Measure lines of code tests coverage
+      uses: actions-rs/tarpaulin@v0.1
+      with:
+        args: '-v'
+    - name: Archive code coverage results
+      uses: actions/upload-artifact@v1
+      with:
+        name: code-coverage-report
+        path: cobertura.xml
+  bench:
+    runs-on: ubuntu-latest
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: ${{ env.CACHE_PATHS }}
+        key: ${{ hashFiles('Cargo.toml') }}
+    - name: Run benchmarks
+      run: cargo bench --workspace --jobs 1 --verbose
+  deploy:
+    needs: [coverage, bench]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/cache@v2
+      with:
+        path: ${{ env.CACHE_PATHS }}
+        key: ${{ hashFiles('Cargo.toml') }}
+    - name: Test
+      run: cargo test --workspace --release --jobs 1 --verbose
+    - name: Build
+      run: cargo build --release --verbose
+    - name: Archive build 
+      uses: actions/upload-artifact@v1
+      with:
+        name: cargo-build-release
+        path: 
+        - target/release/iroha
+        - target/release/iroha_client_cli
+    - name: Build docker image
+      run: docker build ./
+    - name: Docker login
+      run: docker login -u humb1t -p ${{ secrets.DOCKERHUB }} 
+    - name: Push to registry
+      run: docker push hyperledger/iroha:iroha2-dev 
+    - name: Build and push Docker images
+      uses: docker/build-push-action@v1.1.0
+      with:
+        username: humb1t
+        password: ${{ secrets.DOCKERHUB }}
+        repository: hyperledger/iroha
+        tags: iroha2-dev
+
