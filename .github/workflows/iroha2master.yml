@@ -14,6 +14,7 @@ env:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    steps:
     - uses: actions/checkout@v2
     - uses: actions/cache@v2
       with:
@@ -32,6 +33,7 @@ jobs:
         path: cobertura.xml
   bench:
     runs-on: ubuntu-latest
+    steps:
     - uses: actions/checkout@v2
     - uses: actions/cache@v2
       with:
@@ -56,9 +58,12 @@ jobs:
       uses: actions/upload-artifact@v1
       with:
         name: cargo-build-release
-        path: 
-        - target/release/iroha
-        - target/release/iroha_client_cli
+        path: target/release/iroha
+    - name: Archive CLI build 
+      uses: actions/upload-artifact@v1
+      with:
+        name: cargo-cli-build-release
+        path: target/release/iroha_client_cli
     - name: Build docker image
       run: docker build ./
     - name: Docker login
