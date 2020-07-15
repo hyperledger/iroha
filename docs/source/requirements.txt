@@ -1,4 +1,4 @@
-alabaster==0.7.10
+alabaster==0.7.12
 argh==0.26.2
 Babel==2.5.3
 backports-abc==0.5
