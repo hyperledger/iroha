@@ -18,6 +18,7 @@ namespace shared_model {
     class AddSignatory;
     class AppendRole;
     class CallEngine;
+    class CallModel;
     class CreateAccount;
     class CreateAsset;
     class CreateDomain;
@@ -65,7 +66,8 @@ namespace shared_model {
                                       SetQuorum,
                                       SetSettingValue,
                                       SubtractAssetQuantity,
-                                      TransferAsset>;
+                                      TransferAsset,
+                                      CallModel>;
 
       /**
        * @return reference to const variant with concrete command

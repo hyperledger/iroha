@@ -95,29 +95,45 @@ namespace iroha {
 
       // TODO andrei 17.10.18 IR-1763 Add delay strategy for loading blocks
       for (const auto &public_key : public_keys) {
-        log_->debug(
-            "trying to download blocks from {} to {} from peer with key {}",
-            my_height + 1,
-            target_height,
-            public_key);
-        auto network_chain =
-            block_loader_
-                ->retrieveBlocks(my_height, PublicKeyHexStringView{public_key})
-                .tap([&my_height](
-                         const std::shared_ptr<shared_model::interface::Block>
-                             &block) { my_height = block->height(); });
+        while (true) {
+          bool got_some_blocks_from_this_peer = false;
+          log_->debug(
+              "trying to download blocks from {} to {} from peer with key {}",
+              my_height + 1,
+              target_height,
+              public_key);
+          auto network_chain =
+              block_loader_
+                  ->retrieveBlocks(my_height,
+                                   PublicKeyHexStringView{public_key})
+                  .tap([&my_height, &got_some_blocks_from_this_peer](
+                           const std::shared_ptr<shared_model::interface::Block>
+                               &block) {
+                    got_some_blocks_from_this_peer = true;
+                    my_height = block->height();
+                  });
 
-        if (validator_->validateAndApply(network_chain, *storage)) {
-          if (my_height >= target_height) {
-            return mutable_factory_->commit(std::move(storage));
+          if (validator_->validateAndApply(network_chain, *storage)) {
+            if (my_height >= target_height) {
+              // goto is alright to break out of nested loops:
+              // https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#es76-avoid-goto
+              return mutable_factory_->commit(std::move(storage));
+            }
+            if (not got_some_blocks_from_this_peer) {
+              // if we got no new blocks from this peer we should switch to
+              // next peer
+              break;
+            }
+          } else {
+            // last block did not apply - need to ask it again from other peer
+            my_height = std::max(my_height - 1, start_height);
+            break;
           }
-        } else {
-          // last block did not apply - need to ask it again
-          my_height = std::max(my_height - 1, start_height);
         }
       }
+
       return expected::makeError(
-          "Failed to download and commit blocks from given peers");
+          "Failed to download and commit any blocks from given peers");
     }
 
     std::unique_ptr<ametsuchi::MutableStorage> SynchronizerImpl::getStorage() {

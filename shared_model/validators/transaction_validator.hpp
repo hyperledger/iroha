@@ -15,6 +15,7 @@
 #include "interfaces/commands/add_signatory.hpp"
 #include "interfaces/commands/append_role.hpp"
 #include "interfaces/commands/call_engine.hpp"
+#include "interfaces/commands/call_model.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/commands/compare_and_set_account_detail.hpp"
 #include "interfaces/commands/create_account.hpp"
@@ -256,6 +257,11 @@ namespace shared_model {
                      const auto &oldValue) -> std::optional<ValidationError> {
                return this->validator_.validateOldAccountDetailValue(oldValue);
              }});
+      }
+
+      std::optional<ValidationError> operator()(
+          const interface::CallModel &call_model) const {
+        return std::nullopt;
       }
 
       std::optional<ValidationError> operator()(
