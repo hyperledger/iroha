@@ -1,0 +1,8 @@
+# General information about the project.
+project: "Hyperledger Iroha"
+documentation: "Iroha handbook: installation, getting started, API, guides, and troubleshooting"
+description: "Distributed ledger technology platform, written in C++"
+copyright: "Soramitsu Co., Ltd."
+author: "Hyperledger Iroha community"
+version: "1.0 release candidate 1"
+release: "v1.0 rc1"
