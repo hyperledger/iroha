@@ -6,6 +6,7 @@
 find_package(Botan REQUIRED)
 
 add_library(pkcs11
+  algorithm_identifier.cpp
   init.cpp
   signer.cpp
   verifier.cpp

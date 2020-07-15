@@ -42,6 +42,15 @@ namespace iroha {
       kEcdsaSecp256r1Sha3_384,
       kEcdsaSecp256r1Sha3_512,
 
+      kEcdsaSecp384r1Sha2_224,
+      kEcdsaSecp384r1Sha2_256,
+      kEcdsaSecp384r1Sha2_384,
+      kEcdsaSecp384r1Sha2_512,
+      kEcdsaSecp384r1Sha3_224,
+      kEcdsaSecp384r1Sha3_256,
+      kEcdsaSecp384r1Sha3_384,
+      kEcdsaSecp384r1Sha3_512,
+
     };
   }  // namespace multihash
 }  // namespace iroha
