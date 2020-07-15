@@ -13,7 +13,7 @@ use std::{
     convert::{TryFrom, TryInto},
     error::Error,
     future::Future,
-    io::prelude::*,
+    io::{prelude::*, ErrorKind},
     net::TcpStream as SyncTcpStream,
     pin::Pin,
     sync::Arc,
@@ -143,7 +143,7 @@ pub struct Connection {
 /// `Receipt` should be used by [Consumers](https://github.com/cloudevents/spec/blob/v1.0/spec.md#consumer)
 /// to notify [Source](https://github.com/cloudevents/spec/blob/v1.0/spec.md#source) about
 /// [Message](https://github.com/cloudevents/spec/blob/v1.0/spec.md#message) consumption.
-#[derive(Io, Encode, Decode)]
+#[derive(Io, Encode, Decode, Debug)]
 pub enum Receipt {
     Ok,
 }
@@ -185,8 +185,12 @@ impl Stream for Connection {
                 Poll::Ready(Some(bytes))
             }
             Err(e) => {
-                eprintln!("Read data from stream failed: {}", e);
-                Poll::Ready(None)
+                if ErrorKind::WouldBlock == e.kind() {
+                    Poll::Pending
+                } else {
+                    eprintln!("Read data from stream failed: {}", e);
+                    Poll::Ready(None)
+                }
             }
         }
     }
