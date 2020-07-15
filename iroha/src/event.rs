@@ -22,7 +22,7 @@ pub type EventsReceiver = Receiver<Occurrence>;
 /// Iroha - creation of new entities, updates on and deletion of existing entities.
 ///
 /// [Specification](https://github.com/cloudevents/spec/blob/v1.0/spec.md#occurrence).
-#[derive(Io, Encode, Decode, Debug)]
+#[derive(Io, Encode, Decode, Debug, Clone)]
 pub enum Occurrence {
     /// Entity was added, registered, minted or another action was made to make entity appear on
     /// the blockchain for the first time.
@@ -36,7 +36,7 @@ pub enum Occurrence {
 }
 
 /// Enumeration of all possible Iroha entities.
-#[derive(Io, Encode, Decode, Debug)]
+#[derive(Io, Encode, Decode, Debug, Clone)]
 pub enum Entity {
     /// Account.
     Account(Account),
@@ -82,6 +82,12 @@ impl Into<Event> for Occurrence {
 /// Module `connection` provides functionality needed for Iroha Events consumers.
 pub mod connection {
     use super::*;
+    use async_std::prelude::*;
+    #[cfg(feature = "mock")]
+    use iroha_network::mock::prelude::*;
+    #[cfg(not(feature = "mock"))]
+    use iroha_network::prelude::*;
+    use std::{convert::TryFrom, fmt::Debug};
 
     /// Criteria to filter `Occurrences` based on.
     #[derive(Clone, Debug, Io, Encode, Decode)]
@@ -178,12 +184,63 @@ pub mod connection {
     }
 
     /// Filter to apply to Events stream before sending to Consumers.
+    #[derive(Debug)]
     pub struct Filter {}
 
     impl Filter {
         /// Apply filter and decide - to send Event to the Consumer or not to send.
         pub fn apply(&self, _occurrence: &Occurrence) -> Option<()> {
+            //TODO: implement filter
             Some(())
+        }
+    }
+
+    /// Consumer for Iroha `Occurrence`(s).
+    /// Passes the occurences over the corresponding connection `stream` if they match the `filter`.
+    pub struct Consumer {
+        stream: Box<dyn AsyncStream>,
+        filter: Filter,
+    }
+
+    impl Consumer {
+        /// Constructs `Consumer`.
+        pub fn new(stream: Box<dyn AsyncStream>, filter: Filter) -> Self {
+            Consumer { stream, filter }
+        }
+
+        /// Forwards the `occurrence` over the `stream` if it matches the `filter`.
+        pub async fn consume(&mut self, occurrence: &Occurrence) -> Result<(), String> {
+            if self.filter.apply(occurrence).is_some() {
+                let occurrence: Vec<u8> = occurrence.clone().into();
+                self.stream
+                    .write_all(&occurrence)
+                    .await
+                    .map_err(|e| format!("Failed to write message: {}", e))?;
+                self.stream
+                    .flush()
+                    .await
+                    .map_err(|e| format!("Failed to flush: {}", e))?;
+                //TODO: replace with known size.
+                let mut receipt = vec![0u8; 1000];
+                let read_size = self
+                    .stream
+                    .read(&mut receipt)
+                    .await
+                    .map_err(|e| format!("Failed to read receipt: {}", e))?;
+                let _receipt = Receipt::try_from(receipt[..read_size].to_vec())?;
+            }
+            Ok(())
+        }
+    }
+
+    unsafe impl Send for Consumer {}
+    unsafe impl Sync for Consumer {}
+
+    impl Debug for Consumer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("EventConnection")
+                .field("filter", &self.filter)
+                .finish()
         }
     }
 }
