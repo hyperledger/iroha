@@ -125,7 +125,7 @@ struct IrohadConfig {
       std::optional<Signer> signer;
     };
 
-    using ProviderVariant = std::variant<Default, HsmUtimaco>;
+    using ProviderVariant = std::variant<Default, HsmUtimaco, Pkcs11>;
     using ProviderId = std::string;
     using ProviderList = std::unordered_map<ProviderId, ProviderVariant>;
 

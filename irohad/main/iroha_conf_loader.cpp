@@ -660,6 +660,9 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::ProviderVariant>(
   } else if (type == config_members::kCryptoProviderUtimaco) {
     dest = IrohadConfig::Crypto::HsmUtimaco{};
     getVal(path, std::get<IrohadConfig::Crypto::HsmUtimaco>(dest), src);
+  } else if (type == config_members::kCryptoProviderPkcs11) {
+    dest = IrohadConfig::Crypto::Pkcs11{};
+    getVal(path, std::get<IrohadConfig::Crypto::Pkcs11>(dest), src);
   } else {
     throw JsonDeserializerException{
         fmt::format("Unknown crypto provider type: '{}'", type)};
