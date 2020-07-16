@@ -122,8 +122,12 @@ Response Schema
         }
         repeated EngineLog logs = 5;
     }
+    message CallResult {
+        string callee = 1;
+        string result_data = 2;
+    }
     message EngineLog {
-        string address = 1;     // hex string
+        string address = 1;         // hex string
         string data = 2;            // hex string
         repeated string topics = 3; // hex string
     }
@@ -135,15 +139,15 @@ Response Structure
     :header: "Field", "Description", "Constraint", "Example"
     :widths: 15, 30, 20, 15
 
-    "Command Index", "Index of the CallEngine command in the transaction", "non-negative integer", "0"
-    "Tx Hash", "Hash of the transaction that contained the CallEngine command", "hash in hex format", "5241f70cf3adbc180199c1d2d02db82334137aede5f5ed35d649bbbc75ab2634"
-    "Tx Index", "Index of the transaction in the block", "non-negative integer", "3"
-    "Block Hash", "Hash of the block that contains the transaction with CallEngine command", "hash in hex format", "bf85ed02c52f8aed04e88cca3ce4595000ca10fe7ab5e07fc96f1d005eb6bedc"
-    "Block Height", "Block’s ordinal number in the chain", "non-negative integer", "19"
-    "From", "Transaction sender account ID", "<account_name>@<domain_id>", "admin@test"
-    "To", "EVM address of a contract - the Callee of the original CallEngine command", "20-bytes string in hex representation", "7C370993FD90AF204FD582004E2E54E6A94F2651"
-    "Contract Address", "EVM address of a newly deployed contract", "20-bytes string in hex representation", "7C370993FD90AF204FD582004E2E54E6A94F2651"
-    "Engine Log", "Array of EVM event logs created during smart contract execution. Each log entry is a tuple (Address, [Topic], Data), where Address is the contract caller EVM address, topics are 32-byte strings and Data is an arbitrary length byte array (in hex)", "From Ethereum Yellow Paper: Log entry O ≡ (Oa,(Ot0, Ot1, ...), Od), where Oa ∈ B20 ∧ ∀x ∈ Ot : x ∈ B32 ∧ Od ∈ B", "(577266A3CE7DD267A4C14039416B725786605FF4, [3990DB2D31862302A685E8086B5755072A6E2B5B780AF1EE81ECE35EE3CD3345, 000000000000000000000000969453762B0C739DD285B31635EFA00E24C25628], 0000000000000000000000007203DF5D7B4F198848477D7F9EE080B207E544DD000000000000000000000000000000000000000000000000000000000000006D)"
+    "command_index", "Index of the CallEngine command in the transaction", "non-negative integer", "0"
+    "caller", "caller account of the smart contract", "<account_name>@<domain_id>", "admin@test"
+    "call_result.callee", "address of called contract", "20-bytes string in hex representation", "0000000000000000000000000000000000000000"
+    "call_result.result_data", "the value returned by the contract", "string in hex representation", "00"
+    "contract_address", "EVM address of a newly deployed contract", "20-bytes string in hex representation", "7C370993FD90AF204FD582004E2E54E6A94F2651"
+    "logs", "Array of EVM event logs created during smart contract execution.", "see below", "see below"
+    "logs.[].address", "the contract caller EVM address", "20-bytes string in hex representation", "577266A3CE7DD267A4C14039416B725786605FF4"
+    "logs.[].data", "the logged data", "hex string", "0000000000000000000000007203DF5D7B4F198848477D7F9EE080B207E544DD000000000000000000000000000000000000000000000000000000000000006D"
+    "logs.[].topics", "log topic as in Ethereum", "32-byte strings", "[3990DB2D31862302A685E8086B5755072A6E2B5B780AF1EE81ECE35EE3CD3345, 000000000000000000000000969453762B0C739DD285B31635EFA00E24C25628]"
 
 
 Possible Stateful Validation Errors
