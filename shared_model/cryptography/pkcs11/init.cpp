@@ -67,9 +67,11 @@ namespace {
   std::unique_ptr<CryptoSigner> makeSigner(
       IrohadConfig::Crypto::Pkcs11::Signer const &config,
       std::shared_ptr<Botan::PKCS11::Module> module,
-      Botan::PKCS11::SlotId slot_id) {
+      Botan::PKCS11::SlotId slot_id,
+      std::optional<std::string> default_pin) {
+    auto &signer_pin = config.pin ? config.pin : default_pin;
     pkcs11::OperationContext op_ctx{
-        makeOperationContext(*module, slot_id, config.pin)};
+        makeOperationContext(*module, slot_id, signer_pin)};
 
     auto signer_key_attrs = pkcs11::getPkcs11PrivateKeyProperties(config.type);
     auto emsa_name = pkcs11::getEmsaName(config.type);
@@ -199,8 +201,8 @@ void iroha::initCryptoProviderPkcs11(iroha::PartialCryptoInit initializer,
         throw InitCryptoProviderException{"Signer configuration missing."};
       }
 
-      initializer.init_signer.value()(
-          makeSigner(config.signer.value(), module, config.slot_id));
+      initializer.init_signer.value()(makeSigner(
+          config.signer.value(), module, config.slot_id, config.pin));
     }
 
     if (initializer.init_verifier) {
