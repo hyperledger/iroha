@@ -7,6 +7,7 @@
 
 #include "common/result.hpp"
 #include "crypto/keys_manager_impl.hpp"
+#include "cryptography/crypto_init/from_config.hpp"
 #include "cryptography/crypto_provider/crypto_signer.hpp"
 #include "cryptography/crypto_provider/crypto_signer_internal.hpp"
 #include "cryptography/crypto_provider/crypto_verifier.hpp"
@@ -87,8 +88,11 @@ void iroha::initCryptoProviderInternal(
     IrohadConfig::Crypto::Default const &param,
     logger::LoggerManagerTreePtr log_manager) {
   if (initializer.init_signer) {
+    if (not param.keypair) {
+      throw InitCryptoProviderException{"Keypair not specified."};
+    }
     initializer.init_signer.value()(
-        makeCryptoSignerInternal(param.keypair, log_manager));
+        makeCryptoSignerInternal(param.keypair.value(), log_manager));
   }
   if (initializer.init_verifier) {
     initializer.init_verifier.value()(

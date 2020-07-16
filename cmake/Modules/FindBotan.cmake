@@ -47,7 +47,7 @@ endif()
 
 if(BOTAN_FOUND)
   add_library(Botan STATIC IMPORTED)
-  set_target_properties(Botan PROPERTIES IMPORTED_LOCATION "${BOTAN_LIBRARIES}/libbotan-2.a")
+  set_target_properties(Botan PROPERTIES IMPORTED_LOCATION "${BOTAN_LIBRARY}")
   target_include_directories(Botan INTERFACE "${BOTAN_INCLUDE_DIRS}")
 endif()
 

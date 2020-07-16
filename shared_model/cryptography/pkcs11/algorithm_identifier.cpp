@@ -19,6 +19,7 @@
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/tuple/elem.hpp>
+#include <utility>
 #include <vector>
 #include "interfaces/common_objects/byte_range.hpp"
 #include "multihash/type.hpp"
@@ -126,7 +127,8 @@ namespace shared_model::crypto::pkcs11 {
 #undef SET_BINARY_ATTR_FROM_LITERAL
   }
 
-  std::optional<Botan::PKCS11::ObjectProperties> getPkcs11PrivateKeyProperties(
+  std::optional<Botan::PKCS11::ObjectProperties> getPkcs11KeyProperties(
+      Botan::PKCS11::ObjectClass key_type,
       iroha::multihash::Type multihash_type) {
     auto opt_pkcs11_key_type = pkcs11::getPkcs11KeyType(multihash_type);
     if (not opt_pkcs11_key_type) {
@@ -135,12 +137,19 @@ namespace shared_model::crypto::pkcs11 {
 
     Botan::PKCS11::ObjectProperties props{
         Botan::PKCS11::ObjectClass::PrivateKey};
+
     props.add_numeric(Botan::PKCS11::AttributeType::KeyType,
                       static_cast<CK_KEY_TYPE>(opt_pkcs11_key_type.value()));
 
     setPkcs11KeyAttrs(multihash_type, props);
 
     return props;
+  }
+
+  std::optional<Botan::PKCS11::ObjectProperties> getPkcs11PrivateKeyProperties(
+      iroha::multihash::Type multihash_type) {
+    return getPkcs11KeyProperties(Botan::PKCS11::ObjectClass::PrivateKey,
+                                  multihash_type);
   }
 
   std::optional<std::unique_ptr<Botan::Private_Key>> loadPrivateKeyOfType(
@@ -193,6 +202,62 @@ namespace shared_model::crypto::pkcs11 {
 #undef SW
 
     return std::nullopt;
+  }
+
+  std::optional<std::pair<std::unique_ptr<Botan::Private_Key>,
+                          std::unique_ptr<Botan::Public_Key>>>
+  generateKeypairOfType(OperationContext &op_ctx,
+                        iroha::multihash::Type multihash_type) {
+    auto priv_key_props = getPkcs11PrivateKeyProperties(multihash_type);
+    auto pub_key_props = getPkcs11KeyProperties(
+        Botan::PKCS11::ObjectClass::PublicKey, multihash_type);
+
+    if (not priv_key_props or not pub_key_props) {
+      return std::nullopt;
+    }
+
+#define SET_KEY_PROPS_BOOL(key, val)                                \
+  priv_key_props->add_bool(Botan::PKCS11::AttributeType::key, val); \
+  pub_key_props->add_bool(Botan::PKCS11::AttributeType::key, val);
+
+    SET_KEY_PROPS_BOOL(Token, false);
+    SET_KEY_PROPS_BOOL(Private, false);
+    SET_KEY_PROPS_BOOL(Sign, true);
+    SET_KEY_PROPS_BOOL(Verify, true);
+#undef SET_KEY_PROPS_BOOL
+
+    Botan::PKCS11::ObjectHandle pub_key_handle = CK_INVALID_HANDLE;
+    Botan::PKCS11::ObjectHandle priv_key_handle = CK_INVALID_HANDLE;
+    Botan::PKCS11::Mechanism mechanism = {CKM_EC_KEY_PAIR_GEN, nullptr, 0};
+    op_ctx.module->C_GenerateKeyPair(op_ctx.session.handle(),
+                                     &mechanism,
+                                     const_cast<Botan::PKCS11::Attribute *>(
+                                         pub_key_props->attributes().data()),
+                                     pub_key_props->attributes().size(),
+                                     const_cast<Botan::PKCS11::Attribute *>(
+                                         priv_key_props->attributes().data()),
+                                     priv_key_props->attributes().size(),
+                                     &pub_key_handle,
+                                     &priv_key_handle);
+
+    if (pub_key_handle != CK_INVALID_HANDLE
+        and priv_key_handle != CK_INVALID_HANDLE) {
+      return std::make_pair(
+          std::make_unique<Botan::PKCS11::PKCS11_ECDSA_PrivateKey>(
+              op_ctx.session, pub_key_handle),
+          std::make_unique<Botan::PKCS11::PKCS11_ECDSA_PublicKey>(
+              op_ctx.session, pub_key_handle));
+    }
+
+    return std::nullopt;
+  }
+
+  std::vector<iroha::multihash::Type> getAllMultihashTypes() {
+    return std::vector<iroha::multihash::Type>{
+#define GET_MH_TYPE(_, i, ...) BOOST_PP_TUPLE_ELEM(3, 0, MULTIHASH_EL##i),
+        BOOST_PP_REPEAT(NUM_MULTIHASH, GET_MH_TYPE, )
+#undef GET_MH_TYPE
+    };
   }
 
 }  // namespace shared_model::crypto::pkcs11

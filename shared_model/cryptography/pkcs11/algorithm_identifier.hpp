@@ -8,6 +8,7 @@
 
 #include <memory>
 #include <optional>
+#include <vector>
 
 //#include <botan/emsa.h>
 #include <botan/p11.h>
@@ -47,6 +48,14 @@ namespace shared_model::crypto::pkcs11 {
   std::optional<std::unique_ptr<Botan::Public_Key>> createPublicKeyOfType(
       iroha::multihash::Type multihash_type,
       shared_model::interface::types::PublicKeyByteRangeView raw_data);
+
+  // generates temporary objects, lost after session closed
+  std::optional<std::pair<std::unique_ptr<Botan::Private_Key>,
+                          std::unique_ptr<Botan::Public_Key>>>
+  generateKeypairOfType(OperationContext &op_ctx,
+                        iroha::multihash::Type multihash_type);
+
+  std::vector<iroha::multihash::Type> getAllMultihashTypes();
 
 }  // namespace shared_model::crypto::pkcs11
 

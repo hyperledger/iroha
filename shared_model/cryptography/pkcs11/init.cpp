@@ -22,11 +22,20 @@
 #include <fmt/core.h>
 #include <sys/types.h>
 #include <boost/range/adaptor/map.hpp>
+#include <utility>
+#include "common/hexutils.hpp"
+#include "common/result.hpp"
+#include "cryptography/blob.hpp"
 #include "cryptography/crypto_init/from_config.hpp"
 #include "cryptography/pkcs11/algorithm_identifier.hpp"
 #include "cryptography/pkcs11/data.hpp"
 #include "cryptography/pkcs11/signer.hpp"
 #include "cryptography/pkcs11/verifier.hpp"
+#include "interfaces/common_objects/byte_range.hpp"
+#include "interfaces/common_objects/range_types.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
+#include "multihash/multihash.hpp"
+#include "multihash/type.hpp"
 
 using namespace shared_model::crypto;
 
@@ -38,9 +47,11 @@ namespace {
       Botan::PKCS11::SlotId slot_id,
       std::optional<std::string> pin) {
     Botan::PKCS11::Slot slot{module, slot_id};
+    // open a read-only session
     pkcs11::OperationContext op_ctx{
         module, slot, Botan::PKCS11::Session{slot, true}};
     if (pin) {
+      // login for private token objects access
       Botan::PKCS11::secure_string pkcs11_pin;
       pkcs11_pin.reserve(pin->size());
       std::transform(
@@ -100,9 +111,82 @@ namespace {
                                             config.type);
   }
 
+  bool isAlgoSupported(
+      pkcs11::OperationContextFactory operation_context_factory,
+      std::shared_ptr<Botan::PKCS11::Module> module,
+      iroha::multihash::Type multihash_type) {
+    try {
+      auto op_ctx = operation_context_factory();
+
+      auto opt_emsa_name = pkcs11::getEmsaName(multihash_type);
+      auto opt_keypair = pkcs11::generateKeypairOfType(op_ctx, multihash_type);
+      if (not opt_emsa_name or not opt_keypair) {
+        return false;
+      }
+
+      using namespace shared_model::interface::types;
+
+      pkcs11::Signer signer{module,
+                            std::move(op_ctx),
+                            std::move(opt_keypair->first),
+                            opt_emsa_name.value(),
+                            multihash_type};
+
+      // parse and check public_key from signer
+      auto signer_multihash_pubkey =
+          iroha::multihash::createFromBuffer(
+              makeByteRange(
+                  iroha::hexstringToBytestringResult(signer.publicKey())
+                      .assumeValue()))
+              .assumeValue();
+      if (signer_multihash_pubkey.type != multihash_type
+          or signer_multihash_pubkey.data
+              != makeByteRange(opt_keypair->second->public_key_bits())) {
+        return false;
+      }
+
+      pkcs11::Verifier verifier{std::move(operation_context_factory),
+                                {multihash_type}};
+
+      shared_model::crypto::Blob message{"attack at dawn"};
+      auto signature_hex = signer.sign(message);
+      return iroha::expected::hasValue(verifier.verify(
+          multihash_type,
+          SignatureByteRangeView{makeByteRange(
+              iroha::hexstringToBytestringResult(signature_hex).assumeValue())},
+          message.range(),
+          PublicKeyByteRangeView{makeByteRange(
+              iroha::hexstringToBytestringResult(signer.publicKey())
+                  .assumeValue())}));
+
+    } catch (iroha::expected::ResultException const &) {
+      return false;
+    } catch (iroha::InitCryptoProviderException const &) {
+      return false;
+    } catch (Botan::Exception const &) {
+      return false;
+    }
+    return true;
+  }
+
+  std::unique_ptr<pkcs11::Verifier> makeVerifier(
+      std::shared_ptr<Botan::PKCS11::Module> module,
+      pkcs11::OperationContextFactory operation_context_factory) {
+    std::vector<iroha::multihash::Type> all_types{
+        pkcs11::getAllMultihashTypes()};
+    std::vector<iroha::multihash::Type> supported_types;
+    std::copy_if(all_types.begin(),
+                 all_types.end(),
+                 std::back_inserter(supported_types),
+                 [&](iroha::multihash::Type multihash_type) {
+                   return isAlgoSupported(
+                       operation_context_factory, module, multihash_type);
+                 });
+    return std::make_unique<pkcs11::Verifier>(
+        std::move(operation_context_factory), std::move(supported_types));
+  }
+
 }  // namespace
-   // open a read-only session
-   // login for private token objects access
 
 void iroha::initCryptoProviderPkcs11(iroha::PartialCryptoInit initializer,
                                      IrohadConfig::Crypto::Pkcs11 const &config,
@@ -126,7 +210,7 @@ void iroha::initCryptoProviderPkcs11(iroha::PartialCryptoInit initializer,
           };
 
       initializer.init_verifier.value()(
-          std::make_unique<pkcs11::Verifier>(std::move(make_op_context)));
+          makeVerifier(std::move(module), std::move(make_op_context)));
     }
   } catch (Botan::Exception const &ex) {
     throw InitCryptoProviderException{ex.what()};

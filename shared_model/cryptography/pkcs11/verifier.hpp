@@ -21,7 +21,8 @@ namespace shared_model::crypto::pkcs11 {
    */
   class Verifier : public shared_model::crypto::CryptoVerifierMultihash {
    public:
-    Verifier(OperationContextFactory operation_context_factory);
+    Verifier(OperationContextFactory operation_context_factory,
+             std::vector<iroha::multihash::Type> supported_types);
 
     ~Verifier() override;
 

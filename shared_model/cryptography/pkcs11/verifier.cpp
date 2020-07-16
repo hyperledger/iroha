@@ -5,15 +5,19 @@
 
 #include "cryptography/pkcs11/verifier.hpp"
 
+#include <botan/emsa.h>
 #include <botan/exceptn.h>
 #include <botan/p11.h>
 #include <botan/p11_slot.h>
 #include <botan/pk_ops.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <memory>
+#include <utility>
 #include "common/bind.hpp"
 #include "common/hexutils.hpp"
 #include "common/result.hpp"
+#include "cryptography/crypto_init/from_config.hpp"
 #include "cryptography/pkcs11/algorithm_identifier.hpp"
 #include "interfaces/common_objects/byte_range.hpp"
 #include "multihash/type.hpp"
@@ -23,8 +27,10 @@ using namespace shared_model::interface::types;
 
 using iroha::operator|;
 
-Verifier::Verifier(OperationContextFactory operation_context_factory)
-    : operation_context_factory_(std::move(operation_context_factory)) {
+Verifier::Verifier(OperationContextFactory operation_context_factory,
+                   std::vector<iroha::multihash::Type> supported_types)
+    : operation_context_factory_(std::move(operation_context_factory)),
+      supported_types_(std::move(supported_types)) {
   auto operation_context = operation_context_factory_();
   /*
   for (Botan::PKCS11::MechanismType mech :
