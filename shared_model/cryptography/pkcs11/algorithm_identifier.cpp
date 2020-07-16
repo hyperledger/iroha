@@ -28,31 +28,28 @@ using P11KeyType = Botan::PKCS11::KeyType;
 using MhType = iroha::multihash::Type;
 
 namespace shared_model::crypto::pkcs11 {
-  enum class KeyType {
-    kEcdsaSecp256r1,
-  };
 
 // clang-format off
 // - iroha::multihash::Type
 // - Emsa::name() -> Botan::get_emsa(%s)
 // - KEY_TYPE_EL#
-#define MULTIHASH_EL0  (MhType::kEcdsaSecp256r1Sha2_224, "EMSA1(SHA-224)",    0)
-#define MULTIHASH_EL1  (MhType::kEcdsaSecp256r1Sha2_256, "EMSA1(SHA-256)",    0)
-#define MULTIHASH_EL2  (MhType::kEcdsaSecp256r1Sha2_384, "EMSA1(SHA-384)",    0)
-#define MULTIHASH_EL3  (MhType::kEcdsaSecp256r1Sha2_512, "EMSA1(SHA-512)",    0)
-#define MULTIHASH_EL4  (MhType::kEcdsaSecp256r1Sha3_224, "EMSA1(SHA-3(224))", 0)
-#define MULTIHASH_EL5  (MhType::kEcdsaSecp256r1Sha3_256, "EMSA1(SHA-3(256))", 0)
-#define MULTIHASH_EL6  (MhType::kEcdsaSecp256r1Sha3_384, "EMSA1(SHA-3(384))", 0)
-#define MULTIHASH_EL7  (MhType::kEcdsaSecp256r1Sha3_512, "EMSA1(SHA-3(512))", 0)
+#define MULTIHASH_EL0  (MhType::ecdsa_secp256r1_sha2_224, "EMSA1(SHA-224)",    0)
+#define MULTIHASH_EL1  (MhType::ecdsa_secp256r1_sha2_256, "EMSA1(SHA-256)",    0)
+#define MULTIHASH_EL2  (MhType::ecdsa_secp256r1_sha2_384, "EMSA1(SHA-384)",    0)
+#define MULTIHASH_EL3  (MhType::ecdsa_secp256r1_sha2_512, "EMSA1(SHA-512)",    0)
+#define MULTIHASH_EL4  (MhType::ecdsa_secp256r1_sha3_224, "EMSA1(SHA-3(224))", 0)
+#define MULTIHASH_EL5  (MhType::ecdsa_secp256r1_sha3_256, "EMSA1(SHA-3(256))", 0)
+#define MULTIHASH_EL6  (MhType::ecdsa_secp256r1_sha3_384, "EMSA1(SHA-3(384))", 0)
+#define MULTIHASH_EL7  (MhType::ecdsa_secp256r1_sha3_512, "EMSA1(SHA-3(512))", 0)
 
-#define MULTIHASH_EL8  (MhType::kEcdsaSecp384r1Sha2_224, "EMSA1(SHA-224)",    1)
-#define MULTIHASH_EL9  (MhType::kEcdsaSecp384r1Sha2_256, "EMSA1(SHA-256)",    1)
-#define MULTIHASH_EL10 (MhType::kEcdsaSecp384r1Sha2_384, "EMSA1(SHA-384)",    1)
-#define MULTIHASH_EL11 (MhType::kEcdsaSecp384r1Sha2_512, "EMSA1(SHA-512)",    1)
-#define MULTIHASH_EL12 (MhType::kEcdsaSecp384r1Sha3_224, "EMSA1(SHA-3(224))", 1)
-#define MULTIHASH_EL13 (MhType::kEcdsaSecp384r1Sha3_256, "EMSA1(SHA-3(256))", 1)
-#define MULTIHASH_EL14 (MhType::kEcdsaSecp384r1Sha3_384, "EMSA1(SHA-3(384))", 1)
-#define MULTIHASH_EL15 (MhType::kEcdsaSecp384r1Sha3_512, "EMSA1(SHA-3(512))", 1)
+#define MULTIHASH_EL8  (MhType::ecdsa_secp384r1_sha2_224, "EMSA1(SHA-224)",    1)
+#define MULTIHASH_EL9  (MhType::ecdsa_secp384r1_sha2_256, "EMSA1(SHA-256)",    1)
+#define MULTIHASH_EL10 (MhType::ecdsa_secp384r1_sha2_384, "EMSA1(SHA-384)",    1)
+#define MULTIHASH_EL11 (MhType::ecdsa_secp384r1_sha2_512, "EMSA1(SHA-512)",    1)
+#define MULTIHASH_EL12 (MhType::ecdsa_secp384r1_sha3_224, "EMSA1(SHA-3(224))", 1)
+#define MULTIHASH_EL13 (MhType::ecdsa_secp384r1_sha3_256, "EMSA1(SHA-3(256))", 1)
+#define MULTIHASH_EL14 (MhType::ecdsa_secp384r1_sha3_384, "EMSA1(SHA-3(384))", 1)
+#define MULTIHASH_EL15 (MhType::ecdsa_secp384r1_sha3_512, "EMSA1(SHA-3(512))", 1)
 
 #define NUM_MULTIHASH 16
 

@@ -55,7 +55,7 @@ namespace shared_model {
 
       std::string multuhash_public_key;
       iroha::multihash::encodeHexAppend(
-          iroha::multihash::Type::kEd25519Sha2_256,
+          iroha::multihash::Type::ed25519_sha2_256,
           ursaToIrohaBuffer(public_key),
           multuhash_public_key);
 
@@ -85,7 +85,7 @@ namespace shared_model {
 
       std::string multuhash_public_key;
       iroha::multihash::encodeHexAppend(
-          iroha::multihash::Type::kEd25519Sha2_256,
+          iroha::multihash::Type::ed25519_sha2_256,
           ursaToIrohaBuffer(public_key),
           multuhash_public_key);
 

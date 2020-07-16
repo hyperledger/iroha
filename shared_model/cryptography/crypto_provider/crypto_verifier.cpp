@@ -47,7 +47,7 @@ namespace {
     using iroha::multihash::Type;
     switch (public_key.type) {
 #if defined(ED25519_PROVIDER)
-      case Type::kEd25519Sha2_256:
+      case Type::ed25519_sha2_256:
         return ED25519_PROVIDER::verify(signature, source_range, pubkey_range);
 #endif
       default:
@@ -103,7 +103,7 @@ namespace {
     };
     if (get_size(public_key) == DefaultVerifier::kPublicKeyLength
         and get_size(signature) == DefaultVerifier::kSignatureLength) {
-      return verifySpecificType(iroha::multihash::Type::kEd25519Sha3_256,
+      return verifySpecificType(iroha::multihash::Type::ed25519_sha3_256,
                                 signature,
                                 source.range(),
                                 public_key,

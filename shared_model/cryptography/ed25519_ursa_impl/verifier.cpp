@@ -17,7 +17,7 @@ iroha::expected::Result<void, std::string> Verifier::verify(
     shared_model::interface::types::SignatureByteRangeView signature,
     shared_model::interface::types::ByteRange source,
     shared_model::interface::types::PublicKeyByteRangeView public_key) const {
-  assert(type == iroha::multihash::Type::kEd25519Sha2_256);
+  assert(type == iroha::multihash::Type::ed25519_sha2_256);
 
   ExternError err;
 
@@ -35,5 +35,5 @@ iroha::expected::Result<void, std::string> Verifier::verify(
 }
 
 std::vector<iroha::multihash::Type> Verifier::getSupportedTypes() const {
-  return {iroha::multihash::Type::kEd25519Sha2_256};
+  return {iroha::multihash::Type::ed25519_sha2_256};
 }

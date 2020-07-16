@@ -33,14 +33,14 @@ namespace {
         std::extent_v<decltype(kEd25519ImportBase)>;
 
     switch (type) {
-      case iroha::multihash::Type::kEd25519Sha2_224:
-      case iroha::multihash::Type::kEd25519Sha2_256:
-      case iroha::multihash::Type::kEd25519Sha2_384:
-      case iroha::multihash::Type::kEd25519Sha2_512:
-      case iroha::multihash::Type::kEd25519Sha3_224:
-      case iroha::multihash::Type::kEd25519Sha3_256:
-      case iroha::multihash::Type::kEd25519Sha3_384:
-      case iroha::multihash::Type::kEd25519Sha3_512: {
+      case iroha::multihash::Type::ed25519_sha2_224:
+      case iroha::multihash::Type::ed25519_sha2_256:
+      case iroha::multihash::Type::ed25519_sha2_384:
+      case iroha::multihash::Type::ed25519_sha2_512:
+      case iroha::multihash::Type::ed25519_sha3_224:
+      case iroha::multihash::Type::ed25519_sha3_256:
+      case iroha::multihash::Type::ed25519_sha3_384:
+      case iroha::multihash::Type::ed25519_sha3_512: {
         const size_t kPublicKeySize = 32;
         ByteRange public_key_range{public_key};
         if (public_key_range.size() != kPublicKeySize) {

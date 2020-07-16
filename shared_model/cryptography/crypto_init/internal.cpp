@@ -63,7 +63,7 @@ namespace {
               using iroha::multihash::Type;
               switch (public_key.type) {
 #if defined(ED25519_PROVIDER)
-                case Type::kEd25519Sha2_256:
+                case Type::ed25519_sha2_256:
                   return std::make_unique<
                       CryptoSignerInternal<ED25519_PROVIDER>>(
                       std::move(keypair));

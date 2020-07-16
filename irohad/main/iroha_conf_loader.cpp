@@ -20,6 +20,7 @@
 #include "common/files.hpp"
 #include "common/result.hpp"
 #include "main/iroha_conf_literals.hpp"
+#include "multihash/converters.hpp"
 #include "multihash/type.hpp"
 #include "torii/tls_params.hpp"
 
@@ -671,24 +672,13 @@ inline void JsonDeserializerImpl::getVal<iroha::multihash::Type>(
     iroha::multihash::Type &dest,
     const rapidjson::Value &src) {
   assert_fatal(src.IsString(), path + " must be a string");
-  std::string str_type = src.GetString();
-  using iroha::multihash::Type;
-  static std::unordered_map<std::string, Type> map{
-      {"Ed25519_SHA2_224", Type::kEd25519Sha2_224},
-      {"Ed25519_SHA2_256", Type::kEd25519Sha2_256},
-      {"Ed25519_SHA2_384", Type::kEd25519Sha2_384},
-      {"Ed25519_SHA2_512", Type::kEd25519Sha2_512},
-      {"Ed25519_SHA3_224", Type::kEd25519Sha3_224},
-      {"Ed25519_SHA3_256", Type::kEd25519Sha3_256},
-      {"Ed25519_SHA3_384", Type::kEd25519Sha3_384},
-      {"Ed25519_SHA3_512", Type::kEd25519Sha3_512}};
-  auto it = map.find(str_type);
-  if (it == map.end()) {
+  auto opt_multihash_type = iroha::multihash::fromString(src.GetString());
+  if (not opt_multihash_type) {
     throw JsonDeserializerException{fmt::format(
         "Unknown signature type specified. Allowed values are: '{}'.",
-        fmt::join(map | boost::adaptors::map_keys, "', '"))};
+        fmt::join(iroha::multihash::getAllSignatureTypes(), "', '"))};
   }
-  dest = it->second;
+  dest = opt_multihash_type.value();
 }
 
 template <>

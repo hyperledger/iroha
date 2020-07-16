@@ -84,7 +84,7 @@ TEST(VarIntTest, TryReadTruncatedBuffer) {
 }
 
 static const std::initializer_list<Type> kTypes = {
-    Type::sha256, Type::blake2s128, Type::kEd25519Sha2_256};
+    Type::sha256, Type::blake2s128, Type::ed25519_sha2_256};
 static const std::basic_string<std::byte> kData = "some data"_bytestring;
 
 class MultihashTestTypeParam : public ::testing::TestWithParam<Type> {};
