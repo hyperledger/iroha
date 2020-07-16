@@ -64,7 +64,7 @@ namespace iroha {
     auto get_provider_conf_param =
         [&config, &kFallbackDefaultParam](IrohadConfig::Crypto::ProviderId tag)
         -> IrohadConfig::Crypto::ProviderVariant const & {
-      const auto conf_it = config.providers.find(config.signer);
+      const auto conf_it = config.providers.find(tag);
       if (conf_it == config.providers.end()) {
         if (tag == config_members::kCryptoProviderDefault) {
           return kFallbackDefaultParam;
@@ -98,8 +98,8 @@ namespace iroha {
         };
     for (auto const &verifier : config.verifiers) {
       get_initializer(verifier).what_to_init.init_verifier =
-          [&crypto_provider](auto signer) {
-            crypto_provider.verifier->addSpecificVerifier(std::move(signer));
+          [&crypto_provider](auto verifier) {
+            crypto_provider.verifier->addSpecificVerifier(std::move(verifier));
           };
     }
 

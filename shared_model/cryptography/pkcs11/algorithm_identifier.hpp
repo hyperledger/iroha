@@ -47,6 +47,7 @@ namespace shared_model::crypto::pkcs11 {
 
   std::optional<std::unique_ptr<Botan::Public_Key>> createPublicKeyOfType(
       iroha::multihash::Type multihash_type,
+      Botan::PKCS11::Session &session,
       shared_model::interface::types::PublicKeyByteRangeView raw_data);
 
   // generates temporary objects, lost after session closed

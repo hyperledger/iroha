@@ -34,6 +34,8 @@
 #include "interfaces/common_objects/byte_range.hpp"
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
+#include "logger/logger_fwd.hpp"
+#include "multihash/converters.hpp"
 #include "multihash/multihash.hpp"
 #include "multihash/type.hpp"
 
@@ -173,7 +175,8 @@ namespace {
 
   std::unique_ptr<pkcs11::Verifier> makeVerifier(
       std::shared_ptr<Botan::PKCS11::Module> module,
-      pkcs11::OperationContextFactory operation_context_factory) {
+      pkcs11::OperationContextFactory operation_context_factory,
+      logger::LoggerPtr log) {
     std::vector<iroha::multihash::Type> all_types{
         pkcs11::getAllMultihashTypes()};
     std::vector<iroha::multihash::Type> supported_types;
@@ -181,8 +184,12 @@ namespace {
                  all_types.end(),
                  std::back_inserter(supported_types),
                  [&](iroha::multihash::Type multihash_type) {
-                   return isAlgoSupported(
+                   bool const is_supported = isAlgoSupported(
                        operation_context_factory, module, multihash_type);
+                   log->trace("Algorithm {} is {}supported",
+                              multihash_type,
+                              is_supported ? "" : "not ");
+                   return is_supported;
                  });
     return std::make_unique<pkcs11::Verifier>(
         std::move(operation_context_factory), std::move(supported_types));
@@ -212,7 +219,9 @@ void iroha::initCryptoProviderPkcs11(iroha::PartialCryptoInit initializer,
           };
 
       initializer.init_verifier.value()(
-          makeVerifier(std::move(module), std::move(make_op_context)));
+          makeVerifier(std::move(module),
+                       std::move(make_op_context),
+                       log_manager->getChild("VerifierInit")->getLogger()));
     }
   } catch (Botan::Exception const &ex) {
     throw InitCryptoProviderException{ex.what()};

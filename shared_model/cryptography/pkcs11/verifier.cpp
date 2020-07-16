@@ -32,17 +32,6 @@ Verifier::Verifier(OperationContextFactory operation_context_factory,
     : operation_context_factory_(std::move(operation_context_factory)),
       supported_types_(std::move(supported_types)) {
   auto operation_context = operation_context_factory_();
-  /*
-  for (Botan::PKCS11::MechanismType mech :
-       operation_context.slot.get_mechanism_list()) {
-    getMultihashType(mech) | [&](iroha::multihash::Type type) {
-      if (operation_context.slot.get_mechanism_info(mech).flags & CKA_VERIFY) {
-        supported_types_.emplace_back();
-      }
-    };
-  }
-  */
-
   Botan::PKCS11::Info module_info = operation_context.module.get_info();
   Botan::PKCS11::SlotInfo slot_info = operation_context.slot.get_slot_info();
   description_ = fmt::format(
@@ -64,8 +53,12 @@ iroha::expected::Result<void, std::string> Verifier::verify(
     shared_model::interface::types::ByteRange message,
     shared_model::interface::types::PublicKeyByteRangeView public_key) const {
   try {
+    // the temporary public key will be destroyed with this operation_context
+    auto operation_context = operation_context_factory_();
+
     auto opt_emsa_name = getEmsaName(type);
-    auto opt_pkcs11_pubkey = createPublicKeyOfType(type, public_key);
+    auto opt_pkcs11_pubkey =
+        createPublicKeyOfType(type, operation_context.session, public_key);
     assert(opt_emsa_name);
     assert(opt_pkcs11_pubkey);
     if (not opt_emsa_name or not opt_pkcs11_pubkey) {
