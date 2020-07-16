@@ -23,6 +23,10 @@
 #include "cryptography/hsm_utimaco/init.hpp"
 #endif
 
+#if defined(USE_PKCS11)
+#include "cryptography/pkcs11/init.hpp"
+#endif
+
 using namespace shared_model::crypto;
 
 namespace {
@@ -113,6 +117,13 @@ namespace iroha {
                 initCryptoProviderUtimaco(initializer.what_to_init,
                                           param,
                                           log_manager->getChild("Utimaco"));
+              },
+#endif
+#if defined(USE_PKCS11)
+              [&](IrohadConfig::Crypto::Pkcs11 const &param) {
+                initCryptoProviderPkcs11(initializer.what_to_init,
+                                         param,
+                                         log_manager->getChild("Pkcs11"));
               },
 #endif
               [&](auto const &param) {
