@@ -55,12 +55,18 @@ namespace config_members {
   extern const char *kProviders;
   extern const char *kCryptoProviderDefault;
   extern const char *kCryptoProviderUtimaco;
+  extern const char *kCryptoProviderPkcs11;
   extern const char *kDevices;
   extern const char *kAuthentication;
   extern const char *kTempKey;
   extern const char *kGroup;
   extern const char *kKey;
   extern const char *kName;
+  extern const char *kLibraryPath;
+  extern const char *kSlotId;
+  extern const char *kPin;
+  extern const char *kLabel;
+  extern const char *kId;
 
 }  // namespace config_members
 

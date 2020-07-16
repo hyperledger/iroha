@@ -55,10 +55,16 @@ namespace config_members {
   const char *kProviders = "providers";
   const char *kCryptoProviderDefault = "default";
   const char *kCryptoProviderUtimaco = "utimaco";
+  const char *kCryptoProviderPkcs11 = "pkcs11";
   const char *kDevices = "devices";
   const char *kAuthentication = "authentication";
   const char *kTempKey = "temporary_key";
   const char *kGroup = "group";
   const char *kKey = "key";
   const char *kName = "name";
+  const char *kLibraryPath = "library_file_path";
+  const char *kSlotId = "slot_id";
+  const char *kPin = "pin";
+  const char *kLabel = "label";
+  const char *kId = "id";
 }  // namespace config_members

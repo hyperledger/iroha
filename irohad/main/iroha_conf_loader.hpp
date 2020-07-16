@@ -106,6 +106,8 @@ struct IrohadConfig {
     };
 
     struct Pkcs11 {
+      static char const *kName;
+
       struct ObjectAttrs {
         std::optional<std::string> label;
         std::optional<std::vector<uint8_t>> id;

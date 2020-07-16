@@ -37,6 +37,8 @@ char const *IrohadConfig::Crypto::Default::kName =
     config_members::kCryptoProviderDefault;
 char const *IrohadConfig::Crypto::HsmUtimaco::kName =
     config_members::kCryptoProviderUtimaco;
+char const *IrohadConfig::Crypto::Pkcs11::kName =
+    config_members::kCryptoProviderPkcs11;
 
 class JsonDeserializerException : public std::runtime_error {
   using std::runtime_error::runtime_error;
@@ -591,6 +593,43 @@ JsonDeserializerImpl::getVal<IrohadConfig::Crypto::HsmUtimaco::Signer>(
   assert_fatal(src.IsObject(), path + " must be an object.");
   const auto obj = src.GetObject();
   getValByKey(path, dest.signing_key, obj, config_members::kKey);
+  getValByKey(path, dest.type, obj, config_members::Type);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11>(
+    const std::string &path,
+    IrohadConfig::Crypto::Pkcs11 &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.library_file, obj, config_members::kLibraryPath);
+  getValByKey(path, dest.slot_id, obj, config_members::kSlotId);
+  getValByKey(path, dest.pin, obj, config_members::kPin);
+  getValByKey(path, dest.signer, obj, config_members::kSigner);
+}
+
+template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::ObjectAttrs>(
+    const std::string &path,
+    IrohadConfig::Crypto::Pkcs11::ObjectAttrs &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.label, obj, config_members::kLabel);
+  getValByKey(path, dest.id, obj, config_members::kId);
+}
+
+template <>
+inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::Signer>(
+    const std::string &path,
+    IrohadConfig::Crypto::Pkcs11::Signer &dest,
+    const rapidjson::Value &src) {
+  assert_fatal(src.IsObject(), path + " must be an object.");
+  const auto obj = src.GetObject();
+  getValByKey(path, dest.pin, obj, config_members::kPin);
+  getValByKey(path, dest.signer_key_attrs, obj, config_members::kKey);
   getValByKey(path, dest.type, obj, config_members::Type);
 }
 
