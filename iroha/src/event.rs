@@ -87,7 +87,7 @@ pub mod connection {
     use iroha_network::mock::prelude::*;
     #[cfg(not(feature = "mock"))]
     use iroha_network::prelude::*;
-    use std::{convert::TryFrom, fmt::Debug};
+    use std::{convert::TryFrom, fmt::Debug, str::FromStr};
 
     /// Criteria to filter `Occurrences` based on.
     #[derive(Clone, Debug, Io, Encode, Decode)]
@@ -123,6 +123,20 @@ pub mod connection {
                 Occurrence::Created(_) => OccurrenceType::Created,
                 Occurrence::Updated(_) => OccurrenceType::Updated,
                 Occurrence::Deleted(_) => OccurrenceType::Deleted,
+            }
+        }
+    }
+
+    impl FromStr for OccurrenceType {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s.trim().to_lowercase().as_ref() {
+                "created" => Ok(OccurrenceType::Created),
+                "updated" => Ok(OccurrenceType::Updated),
+                "deleted" => Ok(OccurrenceType::Deleted),
+                "all" => Ok(OccurrenceType::All),
+                _ => Err("Failed to parse OccurrenceType.".to_string()),
             }
         }
     }
@@ -169,6 +183,25 @@ pub mod connection {
                 Entity::Transaction(_) => EntityType::Transaction,
                 Entity::Block(_) => EntityType::Block,
                 Entity::Time => EntityType::Time,
+            }
+        }
+    }
+
+    impl FromStr for EntityType {
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s.trim().to_lowercase().as_ref() {
+                "account" => Ok(EntityType::Account),
+                "asset_definition" => Ok(EntityType::AssetDefinition),
+                "asset" => Ok(EntityType::Asset),
+                "domain" => Ok(EntityType::Domain),
+                "peer" => Ok(EntityType::Peer),
+                "transaction" => Ok(EntityType::Transaction),
+                "block" => Ok(EntityType::Block),
+                "time" => Ok(EntityType::Time),
+                "all" => Ok(EntityType::All),
+                _ => Err("Failed to parse EntityType.".to_string()),
             }
         }
     }
