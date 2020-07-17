@@ -97,7 +97,7 @@ pub mod connection {
     }
 
     /// Which type of `Occurrences` should be added to filter.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[derive(Clone, Debug, Io, Encode, Decode, Eq, PartialEq)]
     pub enum OccurrenceType {
         /// Filter `Occurrence::Created` events.
         Created,
@@ -109,8 +109,26 @@ pub mod connection {
         All,
     }
 
+    impl OccurrenceType {
+        /// Returns if the `occurrence` matches this `OccurrenceType` filter.
+        pub fn filter(&self, occurrence: &Occurrence) -> bool {
+            let occurrence_type: OccurrenceType = occurrence.into();
+            *self == OccurrenceType::All || *self == occurrence_type
+        }
+    }
+
+    impl From<&Occurrence> for OccurrenceType {
+        fn from(occurrence: &Occurrence) -> Self {
+            match occurrence {
+                Occurrence::Created(_) => OccurrenceType::Created,
+                Occurrence::Updated(_) => OccurrenceType::Updated,
+                Occurrence::Deleted(_) => OccurrenceType::Deleted,
+            }
+        }
+    }
+
     /// Which type of `Entities` should be added to filter.
-    #[derive(Clone, Debug, Io, Encode, Decode)]
+    #[derive(Clone, Debug, Io, Encode, Decode, Eq, PartialEq)]
     pub enum EntityType {
         /// Filter `Entity::Account` events.
         Account,
@@ -130,6 +148,29 @@ pub mod connection {
         Time,
         /// Filter all types of `Entity`.
         All,
+    }
+
+    impl EntityType {
+        /// Returns if the `entity` matches this `EntityType` filter.
+        pub fn filter(&self, entity: &Entity) -> bool {
+            let entity_type: EntityType = entity.into();
+            *self == EntityType::All || *self == entity_type
+        }
+    }
+
+    impl From<&Entity> for EntityType {
+        fn from(entity: &Entity) -> Self {
+            match entity {
+                Entity::Account(_) => EntityType::Account,
+                Entity::AssetDefinition(_) => EntityType::AssetDefinition,
+                Entity::Asset(_) => EntityType::Asset,
+                Entity::Domain(_) => EntityType::Domain,
+                Entity::Peer(_) => EntityType::Peer,
+                Entity::Transaction(_) => EntityType::Transaction,
+                Entity::Block(_) => EntityType::Block,
+                Entity::Time => EntityType::Time,
+            }
+        }
     }
 
     impl Criteria {
@@ -167,6 +208,7 @@ pub mod connection {
                 .verify(&Vec::from(&self.criteria))
                 .expect("Failed to verify Connect Request");
             ValidConnectRequest {
+                criteria: self.criteria.clone(),
                 _authority: self.signature.public_key,
             }
         }
@@ -174,24 +216,29 @@ pub mod connection {
 
     /// Validated `ConnectRequest`.
     pub struct ValidConnectRequest {
+        criteria: Criteria,
         _authority: PublicKey,
     }
 
     impl From<ValidConnectRequest> for Filter {
-        fn from(_valid_connect_request: ValidConnectRequest) -> Self {
-            Filter {}
+        fn from(valid_connect_request: ValidConnectRequest) -> Self {
+            Filter {
+                criteria: valid_connect_request.criteria,
+            }
         }
     }
 
     /// Filter to apply to Events stream before sending to Consumers.
     #[derive(Debug)]
-    pub struct Filter {}
+    pub struct Filter {
+        criteria: Criteria,
+    }
 
     impl Filter {
         /// Apply filter and decide - to send Event to the Consumer or not to send.
-        pub fn apply(&self, _occurrence: &Occurrence) -> Option<()> {
-            //TODO: implement filter
-            Some(())
+        pub fn apply(&self, occurrence: &Occurrence) -> bool {
+            self.criteria.occurrence_type.filter(occurrence)
+                && self.criteria.entity_type.filter(occurrence.entity())
         }
     }
 
@@ -210,7 +257,7 @@ pub mod connection {
 
         /// Forwards the `occurrence` over the `stream` if it matches the `filter`.
         pub async fn consume(&mut self, occurrence: &Occurrence) -> Result<(), String> {
-            if self.filter.apply(occurrence).is_some() {
+            if self.filter.apply(occurrence) {
                 let occurrence: Vec<u8> = occurrence.clone().into();
                 self.stream
                     .write_all(&occurrence)
@@ -241,6 +288,40 @@ pub mod connection {
             f.debug_struct("EventConnection")
                 .field("filter", &self.filter)
                 .finish()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn occurrences_are_filtered_correctly() {
+            let filter = Filter {
+                criteria: Criteria::new(OccurrenceType::Created, EntityType::All),
+            };
+            let occurrences = vec![
+                Occurrence::Updated(Entity::Time),
+                Occurrence::Created(Entity::Block(Vec::new())),
+                Occurrence::Created(Entity::Transaction(Vec::new())),
+            ];
+            let filtered_occurrences: Vec<Occurrence> = occurrences
+                .iter()
+                .cloned()
+                .filter(|occurrence| filter.apply(occurrence))
+                .collect();
+            let occurrences: Vec<u8> = occurrences
+                .iter()
+                .skip(1)
+                .map(|occurrence| Vec::<u8>::from(occurrence))
+                .flatten()
+                .collect();
+            let filtered_occurrences: Vec<u8> = filtered_occurrences
+                .iter()
+                .map(|occurrence| Vec::<u8>::from(occurrence))
+                .flatten()
+                .collect();
+            assert_eq!(occurrences, filtered_occurrences);
         }
     }
 }
