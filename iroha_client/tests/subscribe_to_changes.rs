@@ -2,7 +2,7 @@
 mod tests {
     use async_std::{prelude::*, task};
     use iroha::{config::Configuration, event::*, isi, prelude::*};
-    use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
+    use iroha_client::{client::Client, config::Configuration as ClientConfiguration, prelude::*};
     use std::time::Duration;
     use tempfile::TempDir;
 
@@ -33,7 +33,7 @@ mod tests {
             &ClientConfiguration::from_iroha_configuration(&configuration),
         );
         let mut stream = iroha_client
-            .subscribe_to_block_changes()
+            .subscribe_to_changes(OccurrenceType::All, EntityType::Block)
             .await
             .expect("Failed to execute request.");
         let domain_name = "global";
@@ -92,7 +92,7 @@ mod tests {
             &ClientConfiguration::from_iroha_configuration(&configuration),
         );
         let mut stream = iroha_client
-            .subscribe_to_transaction_changes()
+            .subscribe_to_changes(OccurrenceType::All, EntityType::Transaction)
             .await
             .expect("Failed to execute request.");
         let domain_name = "global";

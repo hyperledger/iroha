@@ -113,10 +113,7 @@ impl Debug for Client {
 pub mod maintenance {
     use super::*;
     use async_std::stream::StreamExt;
-    use iroha::{
-        event::{Entity, Occurrence},
-        maintenance::*,
-    };
+    use iroha::{event::Occurrence, maintenance::*};
 
     impl Client {
         pub fn with_maintenance(configuration: &Configuration) -> MaintenanceClient {
@@ -179,44 +176,21 @@ pub mod maintenance {
             }
         }
 
-        pub async fn subscribe_to_block_changes(
+        pub async fn subscribe_to_changes(
             &mut self,
+            occurrence_type: OccurrenceType,
+            entity_type: EntityType,
         ) -> Result<impl Stream<Item = Occurrence>, String> {
             let network = Network::new(&self.torii_connect_url);
             let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
-            let initial_message: Vec<u8> = Criteria::new(OccurrenceType::All, EntityType::Block)
+            let initial_message: Vec<u8> = Criteria::new(occurrence_type, entity_type)
                 .sign(key_pair)
                 .into();
             let connection = network
                 .connect(&initial_message)
                 .await
                 .expect("Failed to connect.")
-                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."))
-                .filter(|occurrence| match occurrence.entity() {
-                    Entity::Block(_) => true,
-                    _ => false,
-                });
-            Ok(connection)
-        }
-
-        pub async fn subscribe_to_transaction_changes(
-            &mut self,
-        ) -> Result<impl Stream<Item = Occurrence>, String> {
-            let network = Network::new(&self.torii_connect_url);
-            let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
-            let initial_message: Vec<u8> =
-                Criteria::new(OccurrenceType::All, EntityType::Transaction)
-                    .sign(key_pair)
-                    .into();
-            let connection = network
-                .connect(&initial_message)
-                .await
-                .expect("Failed to connect.")
-                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."))
-                .filter(|occurrence| match occurrence.entity() {
-                    Entity::Transaction(_) => true,
-                    _ => false,
-                });
+                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."));
             Ok(connection)
         }
     }
