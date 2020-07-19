@@ -33,7 +33,7 @@ Verifier::Verifier(OperationContextFactory operation_context_factory,
       supported_types_(std::move(supported_types)) {
   auto operation_context = operation_context_factory_();
   Botan::PKCS11::Info module_info = operation_context.module.get_info();
-  Botan::PKCS11::SlotInfo slot_info = operation_context.slot.get_slot_info();
+  Botan::PKCS11::SlotInfo slot_info = operation_context.slot->get_slot_info();
   description_ = fmt::format(
       "PKCS11 cryptographic verifier "
       "using library {} version {}.{} from {}, "
@@ -58,7 +58,7 @@ iroha::expected::Result<void, std::string> Verifier::verify(
 
     auto opt_emsa_name = getEmsaName(type);
     auto opt_pkcs11_pubkey =
-        createPublicKeyOfType(type, operation_context.session, public_key);
+        createPublicKeyOfType(type, *operation_context.session, public_key);
     assert(opt_emsa_name);
     assert(opt_pkcs11_pubkey);
     if (not opt_emsa_name or not opt_pkcs11_pubkey) {

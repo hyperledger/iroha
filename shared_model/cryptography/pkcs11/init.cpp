@@ -48,10 +48,11 @@ namespace {
       Botan::PKCS11::Module &module,
       Botan::PKCS11::SlotId slot_id,
       std::optional<std::string> pin) {
-    Botan::PKCS11::Slot slot{module, slot_id};
+    auto slot = std::make_unique<Botan::PKCS11::Slot>(module, slot_id);
+    auto session = std::make_unique<Botan::PKCS11::Session>(*slot, true);
     // open a read-only session
     pkcs11::OperationContext op_ctx{
-        module, slot, Botan::PKCS11::Session{slot, true}};
+        module, std::move(slot), std::move(session)};
     if (pin) {
       // login for private token objects access
       Botan::PKCS11::secure_string pkcs11_pin;
@@ -60,7 +61,7 @@ namespace {
           pin->begin(), pin->end(), std::back_inserter(pkcs11_pin), [](auto c) {
             return static_cast<std::decay_t<decltype(*pkcs11_pin.data())>>(c);
           });
-      op_ctx.session.login(Botan::PKCS11::UserType::User, pkcs11_pin);
+      op_ctx.session->login(Botan::PKCS11::UserType::User, pkcs11_pin);
     }
     return op_ctx;
   }
@@ -71,6 +72,15 @@ namespace {
       std::shared_ptr<Botan::PKCS11::Module> module,
       Botan::PKCS11::SlotId slot_id,
       std::optional<std::string> default_pin) {
+    /*
+    return std::make_unique<pkcs11::Signer>(
+        std::move(module),
+        makeOperationContext(*module, slot_id, default_pin),
+        nullptr,
+        "emsa_name",
+        config.type);
+    */
+
     auto &signer_pin = config.pin ? config.pin : default_pin;
     pkcs11::OperationContext op_ctx{
         makeOperationContext(*module, slot_id, signer_pin)};
@@ -93,7 +103,7 @@ namespace {
     }
 
     auto matching_keys{Botan::PKCS11::ObjectFinder{
-        op_ctx.session, signer_key_attrs->attributes()}
+        *op_ctx.session, signer_key_attrs->attributes()}
                            .find()};
     if (matching_keys.empty()) {
       throw InitCryptoProviderException{"No matching signer key found."};
@@ -103,7 +113,7 @@ namespace {
           "Found more than one signing key matching given attributes."};
     }
     auto opt_signer_key = pkcs11::loadPrivateKeyOfType(
-        config.type, op_ctx.session, matching_keys[0]);
+        config.type, *op_ctx.session, matching_keys[0]);
     if (not opt_signer_key) {
       throw InitCryptoProviderException{"Could not load private key."};
     }

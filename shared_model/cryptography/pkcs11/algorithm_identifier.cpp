@@ -106,7 +106,8 @@ namespace shared_model::crypto::pkcs11 {
   props.add_binary(                                                       \
       BOOST_PP_TUPLE_ELEM(2, 0, attr),                                    \
       reinterpret_cast<uint8_t const *>(BOOST_PP_TUPLE_ELEM(2, 1, attr)), \
-      sizeof(BOOST_PP_TUPLE_ELEM(2, 1, attr)));
+      sizeof(BOOST_PP_TUPLE_ELEM(2, 1, attr)) - 1 /* cut the null byte */ \
+  );
 
 #define SET_ATTRS_FOR_KEY_TYPE(key_type, props)       \
   BOOST_PP_SEQ_FOR_EACH(SET_BINARY_ATTR_FROM_LITERAL, \
@@ -226,7 +227,7 @@ namespace shared_model::crypto::pkcs11 {
     Botan::PKCS11::ObjectHandle pub_key_handle = CK_INVALID_HANDLE;
     Botan::PKCS11::ObjectHandle priv_key_handle = CK_INVALID_HANDLE;
     Botan::PKCS11::Mechanism mechanism = {CKM_EC_KEY_PAIR_GEN, nullptr, 0};
-    op_ctx.module->C_GenerateKeyPair(op_ctx.session.handle(),
+    op_ctx.module->C_GenerateKeyPair(op_ctx.session->handle(),
                                      &mechanism,
                                      const_cast<Botan::PKCS11::Attribute *>(
                                          pub_key_props->attributes().data()),
@@ -241,9 +242,9 @@ namespace shared_model::crypto::pkcs11 {
         and priv_key_handle != CK_INVALID_HANDLE) {
       return std::make_pair(
           std::make_unique<Botan::PKCS11::PKCS11_ECDSA_PrivateKey>(
-              op_ctx.session, pub_key_handle),
+              *op_ctx.session, pub_key_handle),
           std::make_unique<Botan::PKCS11::PKCS11_ECDSA_PublicKey>(
-              op_ctx.session, pub_key_handle));
+              *op_ctx.session, pub_key_handle));
     }
 
     return std::nullopt;

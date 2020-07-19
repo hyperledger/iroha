@@ -85,7 +85,7 @@
 
 namespace iroha {
   namespace multihash {
-    enum Type : uint64_t {
+    enum class Type : uint64_t {
 #define IROHA_MULTIHASH_GET_TYPE(_, i, ...)            \
   BOOST_PP_TUPLE_ELEM(3, 1, IROHA_MULTIHASH_TYPE(i)) = \
       BOOST_PP_TUPLE_ELEM(3, 2, IROHA_MULTIHASH_TYPE(i)),

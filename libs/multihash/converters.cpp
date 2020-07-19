@@ -26,10 +26,11 @@ namespace iroha::multihash {
   }
 
   std::optional<Type> fromString(std::string_view source) {
-#define IROHA_MULTIHASH_MAP_TYPE(_, i, ...)                     \
-  if (source.compare(BOOST_PP_STRINGIZE(                        \
-          BOOST_PP_TUPLE_ELEM(3, 2, IROHA_MULTIHASH_TYPE(i))))) \
-    return BOOST_PP_TUPLE_ELEM(3, 1, IROHA_MULTIHASH_TYPE(i));
+#define IROHA_MULTIHASH_MAP_TYPE(_, i, ...)                    \
+  if (source.compare(BOOST_PP_STRINGIZE(                       \
+          BOOST_PP_TUPLE_ELEM(3, 1, IROHA_MULTIHASH_TYPE(i)))) \
+      == 0)                                                    \
+    return Type::BOOST_PP_TUPLE_ELEM(3, 1, IROHA_MULTIHASH_TYPE(i));
     BOOST_PP_REPEAT(IROHA_MULTIHASH_TYPES_NUMBER, IROHA_MULTIHASH_MAP_TYPE, )
 #undef IROHA_MULTIHASH_MAP_TYPE
     return std::nullopt;

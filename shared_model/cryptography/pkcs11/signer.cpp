@@ -37,7 +37,7 @@ Signer::Signer(std::shared_ptr<Botan::PKCS11::Module> module,
       public_key_(iroha::multihash::encode<std::string>(
           multihash_type, makeByteRange(private_key_->public_key_bits()))) {
   Botan::PKCS11::Info module_info = operation_context_.module.get_info();
-  Botan::PKCS11::SlotInfo slot_info = operation_context_.slot.get_slot_info();
+  Botan::PKCS11::SlotInfo slot_info = operation_context_.slot->get_slot_info();
   description_ = fmt::format(
       "PKCS11 cryptographic signer "
       "using library {} version {}.{} from {}, "

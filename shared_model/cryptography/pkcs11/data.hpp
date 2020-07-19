@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 
 #include <botan/p11_module.h>
 #include <botan/p11_session.h>
@@ -18,8 +19,8 @@ namespace shared_model::crypto::pkcs11 {
 
   struct OperationContext {
     Botan::PKCS11::Module &module;
-    Botan::PKCS11::Slot slot;
-    Botan::PKCS11::Session session;
+    std::unique_ptr<Botan::PKCS11::Slot> slot;
+    std::unique_ptr<Botan::PKCS11::Session> session;
   };
 
   using OperationContextFactory = std::function<OperationContext()>;
