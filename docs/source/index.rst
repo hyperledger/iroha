@@ -17,6 +17,6 @@ As Hyperledger Iroha is an open-source project, we will also cover contribution 
     :numbered:
 
     iroha_2_whitepaper.md
-    guides/develop-iroha-module.md
+    guides/*
     references/glossary.md
     community/CONTRIBUTING.md
