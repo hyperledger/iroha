@@ -339,11 +339,7 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::Configuration,
-        event::connection::{Criteria, EntityType, OccurrenceType},
-        peer::PeerId,
-    };
+    use crate::{config::Configuration, peer::PeerId};
     use async_std::{sync, task};
     use std::time::Duration;
 
@@ -377,81 +373,5 @@ mod tests {
             }
         });
         std::thread::sleep(Duration::from_millis(50));
-    }
-
-    #[async_std::test]
-    async fn events_are_sent_over_connection() {
-        let config =
-            Configuration::from_path(CONFIGURATION_PATH).expect("Failed to load configuration.");
-        let torii_url = config.torii_configuration.torii_url.to_string();
-        let torii_connect_url = format!("{}{}", config.torii_configuration.torii_url, 0);
-        let (tx_tx, _) = sync::channel(100);
-        let (sumeragi_message_sender, _) = sync::channel(100);
-        let (block_sync_message_sender, _) = sync::channel(100);
-        let (events_sender, events_receiver) = sync::channel(100);
-        let mut torii = Torii::new(
-            (&torii_url, &torii_connect_url),
-            Arc::new(RwLock::new(WorldStateView::new(Peer::new(
-                PeerId::new(&config.torii_configuration.torii_url, &config.public_key),
-                &Vec::new(),
-            )))),
-            tx_tx,
-            sumeragi_message_sender,
-            block_sync_message_sender,
-            System::new(&config),
-            (events_sender.clone(), events_receiver),
-        );
-        task::spawn(async move {
-            if let Err(e) = torii.start().await {
-                eprintln!("Failed to start Torii: {}", e);
-            }
-        });
-        task::sleep(Duration::from_millis(100)).await;
-        let changes_received = Arc::new(RwLock::new(Vec::new()));
-        let changes_arc_clone = changes_received.clone();
-        task::spawn(async move {
-            let network = Network::new(&torii_connect_url);
-            let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
-            let initial_message: Vec<u8> = Criteria::new(OccurrenceType::All, EntityType::All)
-                .sign(key_pair)
-                .into();
-            let mut connection = network
-                .connect(&initial_message)
-                .await
-                .expect("Failed to connect.")
-                .map(|vector| Occurrence::try_from(vector).expect("Failed to parse Occurrence."));
-            while let Some(change) = connection.next().await {
-                changes_arc_clone.write().await.push(change.clone());
-                println!("Change received {:?}", change);
-            }
-        });
-        let changes_sent = vec![
-            Occurrence::Created(Entity::Block(vec![1, 2, 3])),
-            Occurrence::Updated(Entity::Time),
-            Occurrence::Deleted(Entity::Account(Account::new("alice", "wonderland"))),
-        ];
-        let changes_sent_clone = changes_sent.clone();
-        task::spawn(async move {
-            for change in changes_sent_clone {
-                task::sleep(Duration::from_millis(100)).await;
-                events_sender
-                    .try_send(change.clone())
-                    .expect("Failed to send event.");
-            }
-        });
-        task::sleep(Duration::from_millis(1000)).await;
-        let changes_sent: Vec<u8> = changes_sent
-            .iter()
-            .map(|change| Vec::<u8>::from(change))
-            .flatten()
-            .collect();
-        let changes_received: Vec<u8> = changes_received
-            .read()
-            .await
-            .iter()
-            .map(|change| Vec::<u8>::from(change))
-            .flatten()
-            .collect();
-        assert_eq!(changes_received, changes_sent);
     }
 }

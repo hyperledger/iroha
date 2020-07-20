@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use async_std::{prelude::*, task};
+    use async_std::{future, task};
     use iroha::{config::Configuration, event::*, isi, prelude::*};
     use iroha_client::{client::Client, config::Configuration as ClientConfiguration, prelude::*};
     use std::time::Duration;
@@ -45,25 +45,34 @@ mod tests {
         let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
             &configuration,
         ));
-        iroha_client
-            .submit(create_asset.into())
-            .await
-            .expect("Failed to prepare state.");
-        while let Some(change) = stream.next().await {
-            println!("Change received {:?}", change);
-            match change {
-                Occurrence::Created(entity)
-                | Occurrence::Updated(entity)
-                | Occurrence::Deleted(entity) => match entity {
-                    Entity::Block(_) => {
-                        println!("Entity changed: {:?}", entity);
-                        return ();
+        task::spawn(async move {
+            task::sleep(Duration::from_millis(300)).await;
+            iroha_client
+                .submit(create_asset.into())
+                .await
+                .expect("Failed to prepare state.");
+        });
+        future::timeout(
+            Duration::from_millis(1000),
+            task::spawn(async move {
+                while let Some(change) = stream.next() {
+                    println!("Change received {:?}", change);
+                    match change {
+                        Occurrence::Created(entity)
+                        | Occurrence::Updated(entity)
+                        | Occurrence::Deleted(entity) => match entity {
+                            Entity::Block(_) => {
+                                println!("Entity changed: {:?}", entity);
+                                return ();
+                            }
+                            _ => println!("Received not expected change: {:?}", entity),
+                        },
                     }
-                    _ => println!("Received not expected change: {:?}", entity),
-                },
-            }
-        }
-        panic!("Failed to receive change.");
+                }
+            }),
+        )
+        .await
+        .expect("Changes not received.");
     }
 
     #[async_std::test]
@@ -104,24 +113,33 @@ mod tests {
         let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
             &configuration,
         ));
-        iroha_client
-            .submit(create_asset.into())
-            .await
-            .expect("Failed to prepare state.");
-        while let Some(change) = stream.next().await {
-            println!("Change received {:?}", change);
-            match change {
-                Occurrence::Created(entity)
-                | Occurrence::Updated(entity)
-                | Occurrence::Deleted(entity) => match entity {
-                    Entity::Transaction(_) => {
-                        println!("Entity changed: {:?}", entity);
-                        return ();
+        task::spawn(async move {
+            task::sleep(Duration::from_millis(300)).await;
+            iroha_client
+                .submit(create_asset.into())
+                .await
+                .expect("Failed to prepare state.");
+        });
+        future::timeout(
+            Duration::from_millis(1000),
+            task::spawn(async move {
+                while let Some(change) = stream.next() {
+                    println!("Change received {:?}", change);
+                    match change {
+                        Occurrence::Created(entity)
+                        | Occurrence::Updated(entity)
+                        | Occurrence::Deleted(entity) => match entity {
+                            Entity::Transaction(_) => {
+                                println!("Entity changed: {:?}", entity);
+                                return ();
+                            }
+                            _ => println!("Received not expected change: {:?}", entity),
+                        },
                     }
-                    _ => println!("Received not expected change: {:?}", entity),
-                },
-            }
-        }
-        panic!("Failed to receive change.");
+                }
+            }),
+        )
+        .await
+        .expect("Changes not received.");
     }
 }
