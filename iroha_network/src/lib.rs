@@ -5,7 +5,6 @@ use async_std::{
     net::{TcpListener, TcpStream},
     prelude::*,
     sync::RwLock,
-    task::{Context, Poll},
 };
 use iroha_derive::{log, Io};
 use parity_scale_codec::{Decode, Encode};
@@ -15,7 +14,6 @@ use std::{
     future::Future,
     io::{prelude::*, ErrorKind},
     net::TcpStream as SyncTcpStream,
-    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -156,6 +154,9 @@ impl Connection {
             .set_read_timeout(Some(Duration::from_millis(timeout_millis)))
             .expect("Set read timeout call failed.");
         tcp_stream
+            .set_nonblocking(true)
+            .expect("Failed to set stream to be nonblocking.");
+        tcp_stream
             .write_all(initial_message)
             .expect("Failed to write initial message.");
         tcp_stream
@@ -165,31 +166,33 @@ impl Connection {
     }
 }
 
-impl Stream for Connection {
+impl Iterator for Connection {
     type Item = Vec<u8>;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn next(&mut self) -> Option<Self::Item> {
         let mut buffer = [0u8; BUFFER_SIZE];
-        match self.tcp_stream.read(&mut buffer) {
-            Ok(read_size) => {
-                let bytes: Vec<u8> = buffer[..read_size].to_vec();
-                let receipt: Vec<u8> = Receipt::Ok.into();
-                if let Err(e) = self.tcp_stream.write_all(&receipt) {
-                    eprintln!("Write receipt to stream failed: {}", e);
-                    return Poll::Ready(None);
+        loop {
+            match self.tcp_stream.read(&mut buffer) {
+                Ok(read_size) => {
+                    let bytes: Vec<u8> = buffer[..read_size].to_vec();
+                    let receipt: Vec<u8> = Receipt::Ok.into();
+                    if let Err(e) = self.tcp_stream.write_all(&receipt) {
+                        eprintln!("Write receipt to stream failed: {}", e);
+                        return None;
+                    }
+                    if let Err(e) = self.tcp_stream.flush() {
+                        eprintln!("Flush stream with receipt failed: {}", e);
+                        return None;
+                    }
+                    return Some(bytes);
                 }
-                if let Err(e) = self.tcp_stream.flush() {
-                    eprintln!("Flush stream with receipt failed: {}", e);
-                    return Poll::Ready(None);
-                }
-                Poll::Ready(Some(bytes))
-            }
-            Err(e) => {
-                if ErrorKind::WouldBlock == e.kind() {
-                    Poll::Pending
-                } else {
-                    eprintln!("Read data from stream failed: {}", e);
-                    Poll::Ready(None)
+                Err(e) => {
+                    if ErrorKind::WouldBlock == e.kind() {
+                        continue;
+                    } else {
+                        eprintln!("Read data from stream failed: {}", e);
+                        return None;
+                    }
                 }
             }
         }
