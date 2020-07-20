@@ -61,8 +61,10 @@ namespace shared_model::crypto::pkcs11 {
 
 // - Botan::PKCS11::AttributeType
 // - Attribute value, currently only binary data supported
-#define ATTRS_FOR_KEY_TYPE_EL0 ((Botan::PKCS11::AttributeType::EcdsaParams, "secp256r1"))
-#define ATTRS_FOR_KEY_TYPE_EL1 ((Botan::PKCS11::AttributeType::EcdsaParams, "secp384r1"))
+// secp256r1:
+#define ATTRS_FOR_KEY_TYPE_EL0 ((Botan::PKCS11::AttributeType::EcdsaParams, "\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07"))
+// secp384r1:
+#define ATTRS_FOR_KEY_TYPE_EL1 ((Botan::PKCS11::AttributeType::EcdsaParams, "\x06\x05\x2b\x81\x04\x00\x22"))
 
 #define NUM_KEY_TYPES 1
 
