@@ -321,6 +321,8 @@ mod maintenance {
     use futures::executor;
     use iroha_client::{client::Client, config::Configuration, prelude::*};
 
+    const HEALTH: &str = "health";
+    const METRICS: &str = "metrics";
     const CONNECT: &str = "connect";
     const ENTITY_TYPE: &str = "entity";
     const EVENT_TYPE: &str = "event";
@@ -328,6 +330,8 @@ mod maintenance {
     pub fn build_app<'a, 'b>() -> App<'a, 'b> {
         App::new(MAINTENANCE)
             .about("Use this command to use maintenance functionality.")
+            .subcommand(App::new(HEALTH).about("Use this command to check peer's health."))
+            .subcommand(App::new(METRICS).about("Use this command to scrape peer's metrics."))
             .subcommand(
                 App::new(CONNECT)
                     .about("Use this command to connect to the peer and start consuming events.")
@@ -362,6 +366,40 @@ mod maintenance {
                 }
             }
         }
+        if matches.subcommand_matches(HEALTH).is_some() {
+            println!("Checking peer's health.");
+            health();
+        }
+        if matches.subcommand_matches(METRICS).is_some() {
+            println!("Retrieving peer's metrics.");
+            metrics();
+        }
+    }
+
+    fn health() {
+        let mut iroha_client = Client::with_maintenance(
+            &Configuration::from_path("config.json").expect("Failed to build configuration"),
+        );
+        executor::block_on(async {
+            let result = iroha_client
+                .health()
+                .await
+                .expect("Failed to execute request.");
+            println!("Health is {:?}", result);
+        });
+    }
+
+    fn metrics() {
+        let mut iroha_client = Client::with_maintenance(
+            &Configuration::from_path("config.json").expect("Failed to build configuration"),
+        );
+        executor::block_on(async {
+            let result = iroha_client
+                .scrape_metrics()
+                .await
+                .expect("Failed to execute request.");
+            println!("{:?}", result);
+        });
     }
 
     fn connect(entity_type: &str, event_type: &str) -> Result<(), String> {
@@ -389,6 +427,44 @@ mod maintenance {
         use tempfile::TempDir;
 
         const CONFIGURATION_PATH: &str = "tests/test_config.json";
+
+        #[async_std::test]
+        async fn cli_check_health_should_work() {
+            task::spawn(async {
+                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
+                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                    .expect("Failed to load configuration.");
+                configuration
+                    .kura_configuration
+                    .kura_block_store_path(temp_dir.path());
+                let iroha = Iroha::new(configuration.clone());
+                iroha.start().await.expect("Failed to start Iroha.");
+                //Prevents temp_dir from clean up untill the end of the tests.
+                #[allow(clippy::empty_loop)]
+                loop {}
+            });
+            task::sleep(Duration::from_millis(300)).await;
+            super::health();
+        }
+
+        #[async_std::test]
+        async fn cli_scrape_metrics_should_work() {
+            task::spawn(async {
+                let temp_dir = TempDir::new().expect("Failed to create TempDir.");
+                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                    .expect("Failed to load configuration.");
+                configuration
+                    .kura_configuration
+                    .kura_block_store_path(temp_dir.path());
+                let iroha = Iroha::new(configuration.clone());
+                iroha.start().await.expect("Failed to start Iroha.");
+                //Prevents temp_dir from clean up untill the end of the tests.
+                #[allow(clippy::empty_loop)]
+                loop {}
+            });
+            task::sleep(Duration::from_millis(300)).await;
+            super::metrics();
+        }
 
         #[async_std::test]
         async fn cli_connect_to_consume_block_changes_should_work() {
