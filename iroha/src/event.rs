@@ -82,12 +82,14 @@ impl Into<Event> for Occurrence {
 /// Module `connection` provides functionality needed for Iroha Events consumers.
 pub mod connection {
     use super::*;
-    use async_std::prelude::*;
+    use async_std::{future, prelude::*};
     #[cfg(feature = "mock")]
     use iroha_network::mock::prelude::*;
     #[cfg(not(feature = "mock"))]
     use iroha_network::prelude::*;
-    use std::{convert::TryFrom, fmt::Debug, str::FromStr};
+    use std::{convert::TryFrom, fmt::Debug, str::FromStr, time::Duration};
+
+    const TIMEOUT: Duration = Duration::from_millis(1000);
 
     /// Criteria to filter `Occurrences` based on.
     #[derive(Clone, Debug, Io, Encode, Decode)]
@@ -292,20 +294,19 @@ pub mod connection {
         pub async fn consume(&mut self, occurrence: &Occurrence) -> Result<(), String> {
             if self.filter.apply(occurrence) {
                 let occurrence: Vec<u8> = occurrence.clone().into();
-                self.stream
-                    .write_all(&occurrence)
+                future::timeout(TIMEOUT, self.stream.write_all(&occurrence))
                     .await
+                    .map_err(|e| format!("Failed to write message: {}", e))?
                     .map_err(|e| format!("Failed to write message: {}", e))?;
-                self.stream
-                    .flush()
+                future::timeout(TIMEOUT, self.stream.flush())
                     .await
+                    .map_err(|e| format!("Failed to flush: {}", e))?
                     .map_err(|e| format!("Failed to flush: {}", e))?;
                 //TODO: replace with known size.
                 let mut receipt = vec![0u8; 1000];
-                let read_size = self
-                    .stream
-                    .read(&mut receipt)
+                let read_size = future::timeout(TIMEOUT, self.stream.read(&mut receipt))
                     .await
+                    .map_err(|e| format!("Failed to read receipt: {}", e))?
                     .map_err(|e| format!("Failed to read receipt: {}", e))?;
                 let _receipt = Receipt::try_from(receipt[..read_size].to_vec())?;
             }

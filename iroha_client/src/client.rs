@@ -1,5 +1,4 @@
 use crate::config::Configuration;
-use async_std::stream::Stream;
 use iroha::{crypto::KeyPair, event::connection::*, prelude::*, torii::uri};
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
@@ -112,7 +111,6 @@ impl Debug for Client {
 
 pub mod maintenance {
     use super::*;
-    use async_std::stream::StreamExt;
     use iroha::{event::Occurrence, maintenance::*};
 
     impl Client {
@@ -180,7 +178,7 @@ pub mod maintenance {
             &mut self,
             occurrence_type: OccurrenceType,
             entity_type: EntityType,
-        ) -> Result<impl Stream<Item = Occurrence>, String> {
+        ) -> Result<impl Iterator<Item = Occurrence>, String> {
             let network = Network::new(&self.torii_connect_url);
             let key_pair = KeyPair::generate().expect("Failed to generate a Key Pair.");
             let initial_message: Vec<u8> = Criteria::new(occurrence_type, entity_type)

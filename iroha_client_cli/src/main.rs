@@ -316,7 +316,6 @@ mod asset {
 
 mod maintenance {
     use super::*;
-    use async_std::prelude::*;
     use clap::ArgMatches;
     use futures::executor;
     use iroha_client::{client::Client, config::Configuration, prelude::*};
@@ -407,11 +406,12 @@ mod maintenance {
         let event_type: OccurrenceType = event_type.parse()?;
         let entity_type: EntityType = entity_type.parse()?;
         executor::block_on(async {
-            let mut stream = iroha_client
+            let stream = iroha_client
                 .subscribe_to_changes(event_type, entity_type)
                 .await
                 .expect("Failed to execute request.");
-            while let Some(change) = stream.next().await {
+            println!("Successfully connected. Listening for changes.");
+            for change in stream {
                 println!("Change received {:?}", change);
             }
         });
@@ -423,13 +423,13 @@ mod maintenance {
         use async_std::task;
         use iroha::{config::Configuration, isi, prelude::*};
         use iroha_client::{client::Client, config::Configuration as ClientConfiguration};
-        use std::time::Duration;
+        use std::{thread, time::Duration};
         use tempfile::TempDir;
 
         const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
-        #[async_std::test]
-        async fn cli_check_health_should_work() {
+        #[test]
+        fn cli_check_health_should_work() {
             task::spawn(async {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
@@ -443,12 +443,12 @@ mod maintenance {
                 #[allow(clippy::empty_loop)]
                 loop {}
             });
-            task::sleep(Duration::from_millis(300)).await;
+            thread::sleep(Duration::from_millis(300));
             super::health();
         }
 
-        #[async_std::test]
-        async fn cli_scrape_metrics_should_work() {
+        #[test]
+        fn cli_scrape_metrics_should_work() {
             task::spawn(async {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
@@ -462,12 +462,12 @@ mod maintenance {
                 #[allow(clippy::empty_loop)]
                 loop {}
             });
-            task::sleep(Duration::from_millis(300)).await;
+            thread::sleep(Duration::from_millis(300));
             super::metrics();
         }
 
-        #[async_std::test]
-        async fn cli_connect_to_consume_block_changes_should_work() {
+        #[test]
+        fn cli_connect_to_consume_block_changes_should_work() {
             task::spawn(async {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
                 let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
@@ -481,11 +481,8 @@ mod maintenance {
                 #[allow(clippy::empty_loop)]
                 loop {}
             });
-            task::sleep(Duration::from_millis(300)).await;
-            let connection_future = async_std::future::timeout(
-                Duration::from_millis(300),
-                task::spawn(async { super::connect("transaction", "all") }),
-            );
+            thread::sleep(Duration::from_millis(600));
+            thread::spawn(|| super::connect("all", "all"));
             let domain_name = "global";
             let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
             let create_asset = isi::Register {
@@ -496,13 +493,9 @@ mod maintenance {
                 &Configuration::from_path(CONFIGURATION_PATH)
                     .expect("Failed to load configuration."),
             ));
-            iroha_client
-                .submit(create_asset.into())
-                .await
+            thread::sleep(Duration::from_millis(300));
+            task::block_on(iroha_client.submit(create_asset.into()))
                 .expect("Failed to prepare state.");
-            if let Ok(result) = connection_future.await {
-                result.expect("Failed to connect.")
-            }
         }
     }
 }

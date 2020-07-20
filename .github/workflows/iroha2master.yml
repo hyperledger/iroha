@@ -23,7 +23,7 @@ jobs:
     - name: Measure lines of code tests coverage
       uses: actions-rs/tarpaulin@v0.1
       with:
-        args: '-v'
+        args: '-v -- --test-threads 1'
     - name: Archive code coverage results
       uses: actions/upload-artifact@v1
       with:
@@ -38,7 +38,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Run benchmarks
-      run: cargo bench --workspace --jobs 1 --verbose
+      run: cargo bench --workspace --verbose -- --test-threads=1
   deploy:
     needs: [coverage, bench]
     runs-on: ubuntu-latest
@@ -49,7 +49,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Test
-      run: cargo test --workspace --release --jobs 1 --verbose
+      run: cargo test --workspace --release --verbose -- --test-threads=1
     - name: Build
       run: cargo build --release --verbose
     - name: Archive build 

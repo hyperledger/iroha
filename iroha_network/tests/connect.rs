@@ -24,7 +24,7 @@ mod tests {
             .connect(&[0u8, 10])
             .await
             .expect("Failed to connect.");
-        while let Some(mut change) = connection.next().await {
+        while let Some(mut change) = connection.next() {
             println!("Change #{} - {:?}", actual_changes.len(), change);
             actual_changes.append(&mut change);
         }
