@@ -244,7 +244,7 @@ TYPED_TEST(CryptoUsageTest, SignAndVerifyTransactionkWithWrongSignature) {
  */
 TEST(CryptoUsageTest, UnimplementedCryptoMultihashPubkey) {
   std::string hex_pubkey;
-  iroha::multihash::encodeHexAppend(
+  iroha::multihash::encodeBinAppend(
       iroha::multihash::Type{123}, "blah"_byterange, hex_pubkey);
 
   using namespace shared_model::interface::types;

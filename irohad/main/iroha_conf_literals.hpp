@@ -46,6 +46,7 @@ namespace config_members {
   extern const std::unordered_map<std::string, logger::LogLevel> LogLevels;
   extern const char *InitialPeers;
   extern const char *Address;
+  extern const char *PrivateKey;
   extern const char *PublicKey;
   extern const char *TlsCertificatePath;
   extern const char *UtilityService;

@@ -23,7 +23,7 @@ Signer::Signer(std::shared_ptr<Connection> connection,
                int cxi_algo)
     : connection_(std::move(connection)),
       key_(std::move(key)),
-      public_key_(iroha::multihash::encode<std::string>(
+      public_key_(iroha::multihash::encodeBin<std::string>(
           multihash_type,
           cxiToIrohaBufferView(cxi::KeyBlob{
               connection_->cxi->key_export(

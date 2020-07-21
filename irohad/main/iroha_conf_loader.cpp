@@ -623,6 +623,24 @@ JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::ObjectAttrs>(
 }
 
 template <>
+inline void
+JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::HexOrAttrsIdKey>(
+    const std::string &path,
+    IrohadConfig::Crypto::Pkcs11::HexOrAttrsIdKey &dest,
+    const rapidjson::Value &src) {
+  if (src.IsObject()) {
+    IrohadConfig::Crypto::Pkcs11::ObjectAttrs attrs;
+    getVal(path, attrs, src);
+    dest = std::move(attrs);
+  } else if (src.IsString()) {
+    dest = src.GetString();
+  } else {
+    throw JsonDeserializerException{
+        fmt::format("{} must be an object or a string", path)};
+  }
+}
+
+template <>
 inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::Signer>(
     const std::string &path,
     IrohadConfig::Crypto::Pkcs11::Signer &dest,
@@ -630,7 +648,8 @@ inline void JsonDeserializerImpl::getVal<IrohadConfig::Crypto::Pkcs11::Signer>(
   assert_fatal(src.IsObject(), path + " must be an object.");
   const auto obj = src.GetObject();
   getValByKey(path, dest.pin, obj, config_members::kPin);
-  getValByKey(path, dest.signer_key_attrs, obj, config_members::kKey);
+  getValByKey(path, dest.private_key, obj, config_members::PrivateKey);
+  getValByKey(path, dest.public_key, obj, config_members::PublicKey);
   getValByKey(path, dest.type, obj, config_members::Type);
 }
 

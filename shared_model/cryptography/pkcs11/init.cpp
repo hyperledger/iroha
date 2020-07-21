@@ -23,8 +23,11 @@
 #include <sys/types.h>
 #include <boost/range/adaptor/map.hpp>
 #include <utility>
+#include <variant>
+#include <vector>
 #include "common/hexutils.hpp"
 #include "common/result.hpp"
+#include "common/visitor.hpp"
 #include "cryptography/blob.hpp"
 #include "cryptography/crypto_init/from_config.hpp"
 #include "cryptography/pkcs11/algorithm_identifier.hpp"
@@ -35,11 +38,13 @@
 #include "interfaces/common_objects/range_types.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "logger/logger_fwd.hpp"
+#include "main/iroha_conf_loader.hpp"
 #include "multihash/converters.hpp"
 #include "multihash/multihash.hpp"
 #include "multihash/type.hpp"
 
 using namespace shared_model::crypto;
+using namespace shared_model::interface::types;
 
 using iroha::InitCryptoProviderException;
 
@@ -66,63 +71,111 @@ namespace {
     return op_ctx;
   }
 
+  template <typename LoaderFunc>
+  // Botan::PKCS11::ObjectHandle getKeyByAttrs(
+  auto getKeyByAttrs(
+      Botan::PKCS11::Session &session,
+      Botan::PKCS11::ObjectClass key_type,
+      std::optional<IrohadConfig::Crypto::Pkcs11::ObjectAttrs> const &attrs,
+      iroha::multihash::Type multihash_type,
+      LoaderFunc loader_func)
+      -> decltype(loader_func(multihash_type,
+                              session,
+                              Botan::PKCS11::ObjectHandle{})
+                      .value()) {
+    auto pkcs11_key_attrs =
+        pkcs11::getPkcs11KeyProperties(key_type, multihash_type);
+    if (not pkcs11_key_attrs) {
+      throw InitCryptoProviderException{"Unsupported algorithm."};
+    }
+
+    if (attrs) {
+      if (attrs->label) {
+        pkcs11_key_attrs->add_string(Botan::PKCS11::AttributeType::Label,
+                                     attrs->label.value());
+      }
+      if (attrs->id) {
+        pkcs11_key_attrs->add_binary(Botan::PKCS11::AttributeType::Id,
+                                     attrs->id.value());
+      }
+    }
+
+    auto matching_keys{
+        Botan::PKCS11::ObjectFinder{session, pkcs11_key_attrs->attributes()}
+            .find()};
+    if (matching_keys.empty()) {
+      throw InitCryptoProviderException{"No key found."};
+    }
+    if (matching_keys.size() > 1) {
+      throw InitCryptoProviderException{"Found more than one key."};
+    }
+
+    auto opt_key = loader_func(multihash_type, session, matching_keys.front());
+    if (not opt_key) {
+      throw InitCryptoProviderException{"Unsupported key type."};
+    }
+
+    return std::move(opt_key).value();
+  }
+
   // throws InitCryptoProviderException
   std::unique_ptr<CryptoSigner> makeSigner(
       IrohadConfig::Crypto::Pkcs11::Signer const &config,
       std::shared_ptr<Botan::PKCS11::Module> module,
       Botan::PKCS11::SlotId slot_id,
       std::optional<std::string> default_pin) {
-    /*
-    return std::make_unique<pkcs11::Signer>(
-        std::move(module),
-        makeOperationContext(*module, slot_id, default_pin),
-        nullptr,
-        "emsa_name",
-        config.type);
-    */
-
     auto &signer_pin = config.pin ? config.pin : default_pin;
     pkcs11::OperationContext op_ctx{
         makeOperationContext(*module, slot_id, signer_pin)};
 
-    auto signer_key_attrs = pkcs11::getPkcs11PrivateKeyProperties(config.type);
     auto emsa_name = pkcs11::getEmsaName(config.type);
-    if (not signer_key_attrs or not emsa_name) {
+    if (not emsa_name) {
       throw InitCryptoProviderException{"Unsupported algorithm."};
     }
 
-    if (config.signer_key_attrs) {
-      if (config.signer_key_attrs->label) {
-        signer_key_attrs->add_string(Botan::PKCS11::AttributeType::Label,
-                                     config.signer_key_attrs->label.value());
-      }
-      if (config.signer_key_attrs->id) {
-        signer_key_attrs->add_binary(Botan::PKCS11::AttributeType::Id,
-                                     config.signer_key_attrs->id.value());
-      }
-    }
-
-    auto matching_keys{Botan::PKCS11::ObjectFinder{
-        *op_ctx.session, signer_key_attrs->attributes()}
-                           .find()};
-    if (matching_keys.empty()) {
-      throw InitCryptoProviderException{"No matching signer key found."};
-    }
-    if (matching_keys.size() > 1) {
+    std::unique_ptr<Botan::Private_Key> private_key;
+    try {
+      private_key = getKeyByAttrs(*op_ctx.session,
+                                  Botan::PKCS11::ObjectClass::PrivateKey,
+                                  config.private_key,
+                                  config.type,
+                                  pkcs11::loadPrivateKeyOfType);
+    } catch (InitCryptoProviderException const &e) {
       throw InitCryptoProviderException{
-          "Found more than one signing key matching given attributes."};
-    }
-    auto opt_signer_key = pkcs11::loadPrivateKeyOfType(
-        config.type, *op_ctx.session, matching_keys[0]);
-    if (not opt_signer_key) {
-      throw InitCryptoProviderException{"Could not load private key."};
+          fmt::format("Could not load private key: {}", e.what())};
     }
 
-    return std::make_unique<pkcs11::Signer>(std::move(module),
-                                            std::move(op_ctx),
-                                            std::move(opt_signer_key).value(),
-                                            emsa_name.value(),
-                                            config.type);
+    std::string public_key_hex_multihash;
+    try {
+      public_key_hex_multihash = std::visit(
+          iroha::make_visitor(
+              [&config](std::string const &hex) {
+                return iroha::multihash::encodeHex<std::string>(config.type,
+                                                                std::move(hex));
+              },
+              [&op_ctx, &config](
+                  IrohadConfig::Crypto::Pkcs11::ObjectAttrs const &attrs) {
+                auto public_key =
+                    getKeyByAttrs(*op_ctx.session,
+                                  Botan::PKCS11::ObjectClass::PublicKey,
+                                  attrs,
+                                  config.type,
+                                  pkcs11::loadPublicKeyOfType);
+                return iroha::multihash::encodeBin<std::string>(
+                    config.type, makeByteRange(public_key->public_key_bits()));
+              }),
+          config.public_key);
+    } catch (InitCryptoProviderException const &e) {
+      throw InitCryptoProviderException{
+          fmt::format("Could not load private key: {}", e.what())};
+    }
+
+    return std::make_unique<pkcs11::Signer>(
+        std::move(module),
+        std::move(op_ctx),
+        std::move(private_key),
+        emsa_name.value(),
+        PublicKeyHexStringView{public_key_hex_multihash});
   }
 
   bool isAlgoSupported(
@@ -140,24 +193,14 @@ namespace {
 
       using namespace shared_model::interface::types;
 
-      pkcs11::Signer signer{module,
-                            std::move(op_ctx),
-                            std::move(opt_keypair->first),
-                            opt_emsa_name.value(),
-                            multihash_type};
-
-      // parse and check public_key from signer
-      auto signer_multihash_pubkey =
-          iroha::multihash::createFromBuffer(
-              makeByteRange(
-                  iroha::hexstringToBytestringResult(signer.publicKey())
-                      .assumeValue()))
-              .assumeValue();
-      if (signer_multihash_pubkey.type != multihash_type
-          or signer_multihash_pubkey.data
-              != makeByteRange(opt_keypair->second->public_key_bits())) {
-        return false;
-      }
+      pkcs11::Signer signer{
+          module,
+          std::move(op_ctx),
+          std::move(opt_keypair->first),
+          opt_emsa_name.value(),
+          PublicKeyHexStringView{iroha::multihash::encodeBin<std::string>(
+              multihash_type,
+              makeByteRange(opt_keypair->second->public_key_bits()))}};
 
       pkcs11::Verifier verifier{std::move(operation_context_factory),
                                 {multihash_type}};

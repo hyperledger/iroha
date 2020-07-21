@@ -53,11 +53,14 @@ namespace shared_model::crypto::pkcs11 {
 
 #define NUM_MULTIHASH 16
 
+// TODO change ATTRS_FOR_KEY_TYPE_EL# and KEY_TYPE_EL#
+
 // - Botan::PKCS11::KeyType
 // - Botan::PKCS11 private key class
+// - Botan::PKCS11 public key class
 // - Botan::PKCS11 public key creator function (session, multihash_type, raw_pubkey)
-#define KEY_TYPE_EL0 (P11KeyType::Ec, Botan::PKCS11::PKCS11_ECDSA_PrivateKey, createEcPublicKey)
-#define KEY_TYPE_EL1 (P11KeyType::Ec, Botan::PKCS11::PKCS11_ECDSA_PrivateKey, createEcPublicKey)
+#define KEY_TYPE_EL0 (P11KeyType::Ec, Botan::PKCS11::PKCS11_ECDSA_PrivateKey, Botan::PKCS11::PKCS11_ECDSA_PublicKey, createEcPublicKey)
+#define KEY_TYPE_EL1 (P11KeyType::Ec, Botan::PKCS11::PKCS11_ECDSA_PrivateKey, Botan::PKCS11::PKCS11_ECDSA_PublicKey, createEcPublicKey)
 
 // - Botan::PKCS11::AttributeType
 // - Attribute value, currently only binary data supported
@@ -74,7 +77,7 @@ namespace shared_model::crypto::pkcs11 {
   BOOST_PP_TUPLE_ELEM(3, 2, BOOST_PP_CAT(MULTIHASH_EL, i))
 #define KEY_TYPE_DATA_FOR_MULTIHASH_EL(mh_i, key_i) \
   BOOST_PP_TUPLE_ELEM(                              \
-      3, key_i, BOOST_PP_CAT(KEY_TYPE_EL, KEY_TYPE_FOR_MULTIHASH_EL(mh_i)))
+      4, key_i, BOOST_PP_CAT(KEY_TYPE_EL, KEY_TYPE_FOR_MULTIHASH_EL(mh_i)))
 
   std::optional<char const *> getEmsaName(
       iroha::multihash::Type multihash_type) {
@@ -135,8 +138,7 @@ namespace shared_model::crypto::pkcs11 {
       return std::nullopt;
     }
 
-    Botan::PKCS11::ObjectProperties props{
-        Botan::PKCS11::ObjectClass::PrivateKey};
+    Botan::PKCS11::ObjectProperties props{key_type};
 
     props.add_numeric(Botan::PKCS11::AttributeType::KeyType,
                       static_cast<CK_KEY_TYPE>(opt_pkcs11_key_type.value()));
@@ -159,6 +161,21 @@ namespace shared_model::crypto::pkcs11 {
 #define SW(z, i, ...)                                              \
   case BOOST_PP_TUPLE_ELEM(3, 0, MULTIHASH_EL##i):                 \
     return std::make_unique<KEY_TYPE_DATA_FOR_MULTIHASH_EL(i, 1)>( \
+        session, object_handle);
+
+    switch (multihash_type) { BOOST_PP_REPEAT(NUM_MULTIHASH, SW, ) }
+#undef SW
+
+    return std::nullopt;
+  }
+
+  std::optional<std::unique_ptr<Botan::Public_Key>> loadPublicKeyOfType(
+      iroha::multihash::Type multihash_type,
+      Botan::PKCS11::Session &session,
+      Botan::PKCS11::ObjectHandle object_handle) {
+#define SW(z, i, ...)                                              \
+  case BOOST_PP_TUPLE_ELEM(3, 0, MULTIHASH_EL##i):                 \
+    return std::make_unique<KEY_TYPE_DATA_FOR_MULTIHASH_EL(i, 2)>( \
         session, object_handle);
 
     switch (multihash_type) { BOOST_PP_REPEAT(NUM_MULTIHASH, SW, ) }
@@ -195,7 +212,7 @@ namespace shared_model::crypto::pkcs11 {
       shared_model::interface::types::PublicKeyByteRangeView pubkey_raw) {
 #define SW(z, i, ...)                              \
   case BOOST_PP_TUPLE_ELEM(3, 0, MULTIHASH_EL##i): \
-    return KEY_TYPE_DATA_FOR_MULTIHASH_EL(i, 2)(   \
+    return KEY_TYPE_DATA_FOR_MULTIHASH_EL(i, 3)(   \
         session, multihash_type, pubkey_raw);
 
     switch (multihash_type) { BOOST_PP_REPEAT(NUM_MULTIHASH, SW, ) }

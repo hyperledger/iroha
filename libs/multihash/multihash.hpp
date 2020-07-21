@@ -61,7 +61,7 @@ namespace iroha {
      * @param[out] output container to write to
      */
     template <typename OutputContainer>
-    inline void encodeHexAppend(Type multihash_type,
+    inline void encodeBinAppend(Type multihash_type,
                                 shared_model::interface::types::ByteRange input,
                                 OutputContainer &output) {
       std::basic_string<std::byte> prefix_bin;
@@ -84,10 +84,34 @@ namespace iroha {
      * @param[out] output container to write to
      */
     template <typename OutputContainer>
-    inline OutputContainer encode(
+    inline OutputContainer encodeBin(
         Type multihash_type, shared_model::interface::types::ByteRange input) {
       OutputContainer result;
-      encodeHexAppend(multihash_type, input, result);
+      encodeBinAppend(multihash_type, input, result);
+      return result;
+    }
+
+    /**
+     * Encode data with its type in multihash format and return as a hex string.
+     * https://github.com/multiformats/multihash
+     * @tparam OutputContainer destination byte string container type
+     * @param[in] type of data to encode
+     * @param[in] input hex data to encode
+     * @param[out] output container to write to
+     */
+    template <typename OutputContainer>
+    inline OutputContainer encodeHex(Type multihash_type,
+                                     std::string hex_input) {
+      std::basic_string<std::byte> prefix_bin;
+      encodeVarIntType(multihash_type, prefix_bin);
+      encodeVarInt(iroha::hexstringToBytestringSize(hex_input), prefix_bin);
+
+      OutputContainer result;
+      iroha::bytestringToHexstringAppend(
+          shared_model::interface::types::ByteRange{prefix_bin.data(),
+                                                    prefix_bin.size()},
+          result);
+      result.append(hex_input);
       return result;
     }
   }  // namespace multihash

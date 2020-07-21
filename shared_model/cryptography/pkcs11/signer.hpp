@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "cryptography/pkcs11/data.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
 #include "multihash/type.hpp"
 
 namespace Botan {
@@ -36,7 +37,7 @@ namespace shared_model::crypto::pkcs11 {
            OperationContext operation_context,
            std::unique_ptr<Botan::Private_Key> private_key,
            char const *emsa_name,
-           iroha::multihash::Type multihash_type);
+           interface::types::PublicKeyHexStringView public_key);
 
     virtual ~Signer();
 

@@ -45,6 +45,7 @@ namespace config_members {
       {"error", logger::LogLevel::kError},
       {"critical", logger::LogLevel::kCritical}};
   const char *Address = "address";
+  const char *PrivateKey = "private_key";
   const char *PublicKey = "public_key";
   const char *InitialPeers = "initial_peers";
   const char *TlsCertificatePath = "tls_certificate_path";

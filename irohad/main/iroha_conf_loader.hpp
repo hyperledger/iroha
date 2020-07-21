@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "common/result_fwd.hpp"
@@ -113,9 +114,12 @@ struct IrohadConfig {
         std::optional<std::vector<uint8_t>> id;
       };
 
+      using HexOrAttrsIdKey = std::variant<std::string, ObjectAttrs>;
+
       struct Signer {
         std::optional<std::string> pin;
-        std::optional<ObjectAttrs> signer_key_attrs;
+        std::optional<ObjectAttrs> private_key;
+        HexOrAttrsIdKey public_key;
         iroha::multihash::Type type;
       };
 

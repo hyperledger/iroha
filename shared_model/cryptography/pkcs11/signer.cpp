@@ -27,15 +27,14 @@ Signer::Signer(std::shared_ptr<Botan::PKCS11::Module> module,
                OperationContext operation_context,
                std::unique_ptr<Botan::Private_Key> private_key,
                char const *emsa_name,
-               iroha::multihash::Type multihash_type)
+               interface::types::PublicKeyHexStringView public_key)
     : module_(std::move(module)),
       operation_context_(std::move(operation_context)),
       private_key_(std::move(private_key)),
       rng_(std::make_unique<Botan::AutoSeeded_RNG>()),
       signer_(
           std::make_unique<Botan::PK_Signer>(*private_key_, *rng_, emsa_name)),
-      public_key_(iroha::multihash::encode<std::string>(
-          multihash_type, makeByteRange(private_key_->public_key_bits()))) {
+      public_key_(static_cast<PublicKeyHexStringView>(public_key)) {
   Botan::PKCS11::Info module_info = operation_context_.module.get_info();
   Botan::PKCS11::SlotInfo slot_info = operation_context_.slot->get_slot_info();
   description_ = fmt::format(

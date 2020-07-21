@@ -37,10 +37,19 @@ namespace shared_model::crypto::pkcs11 {
   std::optional<Botan::PKCS11::KeyType> getPkcs11KeyType(
       iroha::multihash::Type multihash_type);
 
+  std::optional<Botan::PKCS11::ObjectProperties> getPkcs11KeyProperties(
+      Botan::PKCS11::ObjectClass key_type,
+      iroha::multihash::Type multihash_type);
+
   std::optional<Botan::PKCS11::ObjectProperties> getPkcs11PrivateKeyProperties(
       iroha::multihash::Type multihash_type);
 
   std::optional<std::unique_ptr<Botan::Private_Key>> loadPrivateKeyOfType(
+      iroha::multihash::Type multihash_type,
+      Botan::PKCS11::Session &session,
+      Botan::PKCS11::ObjectHandle object_handle);
+
+  std::optional<std::unique_ptr<Botan::Public_Key>> loadPublicKeyOfType(
       iroha::multihash::Type multihash_type,
       Botan::PKCS11::Session &session,
       Botan::PKCS11::ObjectHandle object_handle);
