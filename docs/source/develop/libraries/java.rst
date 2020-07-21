@@ -18,7 +18,7 @@ How to use
 ^^^^^^^^^^
 
 - `JitPack <https://jitpack.io/#hyperledger/iroha-java>`__
-- `GitHub <https://github.com/hyperledger/iroha>`__
+- `GitHub <https://github.com/hyperledger/iroha-java>`__
 
 Example code
 ^^^^^^^^^^^^
