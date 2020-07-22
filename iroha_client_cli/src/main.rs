@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use iroha_client::config::Configuration;
 
 const CONFIG: &str = "config";
 const DOMAIN: &str = "domain";
@@ -33,20 +34,23 @@ fn main() {
             maintenance::build_app(),
             )
         .get_matches();
-    if let Some(configuration_path) = matches.value_of(CONFIG) {
-        println!("Value for config: {}", configuration_path);
-    }
+    let configuration_path = matches
+        .value_of(CONFIG)
+        .expect("Failed to get configuration path.");
+    println!("Value for config: {}", configuration_path);
+    let configuration =
+        Configuration::from_path(configuration_path).expect("Failed to load configuration");
     if let Some(ref matches) = matches.subcommand_matches(DOMAIN) {
-        domain::process(matches);
+        domain::process(matches, &configuration);
     }
     if let Some(ref matches) = matches.subcommand_matches(ACCOUNT) {
-        account::process(matches);
+        account::process(matches, &configuration);
     }
     if let Some(ref matches) = matches.subcommand_matches(ASSET) {
-        asset::process(matches);
+        asset::process(matches, &configuration);
     }
     if let Some(ref matches) = matches.subcommand_matches(MAINTENANCE) {
-        maintenance::process(matches);
+        maintenance::process(matches, &configuration);
     }
 }
 
@@ -75,19 +79,17 @@ mod domain {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(ADD) {
             if let Some(domain_name) = matches.value_of(DOMAIN_NAME) {
                 println!("Adding a new Domain with a name: {}", domain_name);
-                create_domain(domain_name);
+                create_domain(domain_name, configuration);
             }
         }
     }
 
-    fn create_domain(domain_name: &str) {
-        let configuration =
-            &Configuration::from_path("config.json").expect("Failed to load configuration.");
-        let mut iroha_client = Client::new(&configuration);
+    fn create_domain(domain_name: &str, configuration: &Configuration) {
+        let mut iroha_client = Client::new(configuration);
         let create_domain = isi::Add {
             object: Domain::new(domain_name.to_string()),
             destination_id: PeerId::new(&configuration.torii_url, &configuration.public_key),
@@ -142,7 +144,7 @@ mod account {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(account_name) = matches.value_of(ACCOUNT_NAME) {
                 println!("Creating account with a name: {}", account_name);
@@ -150,22 +152,25 @@ mod account {
                     println!("Creating account with a domain's name: {}", domain_name);
                     if let Some(public_key) = matches.value_of(ACCOUNT_KEY) {
                         println!("Creating account with a public key: {}", public_key);
-                        create_account(account_name, domain_name, public_key);
+                        create_account(account_name, domain_name, public_key, configuration);
                     }
                 }
             }
         }
     }
 
-    fn create_account(account_name: &str, domain_name: &str, _public_key: &str) {
+    fn create_account(
+        account_name: &str,
+        domain_name: &str,
+        _public_key: &str,
+        configuration: &Configuration,
+    ) {
         let key_pair = KeyPair::generate().expect("Failed to generate KeyPair.");
         let create_account = isi::Register {
             object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
             destination_id: String::from(domain_name),
         };
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+        let mut iroha_client = Client::new(configuration);
         executor::block_on(iroha_client.submit(create_account.into()))
             .expect("Failed to create account.");
     }
@@ -229,7 +234,7 @@ mod asset {
                 )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(REGISTER) {
             if let Some(asset_name) = matches.value_of(ASSET_NAME) {
                 println!("Registering asset defintion with a name: {}", asset_name);
@@ -238,7 +243,7 @@ mod asset {
                         "Registering asset definition with a domain's name: {}",
                         domain_name
                     );
-                    register_asset_definition(asset_name, domain_name);
+                    register_asset_definition(asset_name, domain_name, configuration);
                 }
             }
         }
@@ -252,7 +257,7 @@ mod asset {
                     );
                     if let Some(amount) = matches.value_of(QUANTITY) {
                         println!("Minting asset's quantity: {}", amount);
-                        mint_asset(asset_id, account_id, amount);
+                        mint_asset(asset_id, account_id, amount, configuration);
                     }
                 }
             }
@@ -262,16 +267,18 @@ mod asset {
                 println!("Getting asset with an identification: {}", asset_id);
                 if let Some(account_id) = matches.value_of(ASSET_ACCOUNT_ID) {
                     println!("Getting account with an identification: {}", account_id);
-                    get_asset(asset_id, account_id);
+                    get_asset(asset_id, account_id, configuration);
                 }
             }
         }
     }
 
-    fn register_asset_definition(asset_name: &str, domain_name: &str) {
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+    fn register_asset_definition(
+        asset_name: &str,
+        domain_name: &str,
+        configuration: &Configuration,
+    ) {
+        let mut iroha_client = Client::new(configuration);
         executor::block_on(
             iroha_client.submit(
                 isi::Register {
@@ -284,7 +291,12 @@ mod asset {
         .expect("Failed to create account.");
     }
 
-    fn mint_asset(asset_definition_id: &str, account_id: &str, quantity: &str) {
+    fn mint_asset(
+        asset_definition_id: &str,
+        account_id: &str,
+        quantity: &str,
+        configuration: &Configuration,
+    ) {
         let quantity: u32 = quantity.parse().expect("Failed to parse Asset quantity.");
         let mint_asset = isi::Mint {
             object: quantity,
@@ -293,17 +305,13 @@ mod asset {
                 account_id: AccountId::from(account_id),
             },
         };
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+        let mut iroha_client = Client::new(configuration);
         executor::block_on(iroha_client.submit(mint_asset.into()))
             .expect("Failed to create account.");
     }
 
-    fn get_asset(_asset_id: &str, account_id: &str) {
-        let mut iroha_client = Client::new(
-            &Configuration::from_path("config.json").expect("Failed to load configuration."),
-        );
+    fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
+        let mut iroha_client = Client::new(configuration);
         let query_result = executor::block_on(iroha_client.request(
             &client::assets::by_account_id(<Account as Identifiable>::Id::from(account_id)),
         ))
@@ -353,13 +361,13 @@ mod maintenance {
             )
     }
 
-    pub fn process(matches: &ArgMatches<'_>) {
+    pub fn process(matches: &ArgMatches<'_>, configuration: &Configuration) {
         if let Some(ref matches) = matches.subcommand_matches(CONNECT) {
             if let Some(entity_type) = matches.value_of(ENTITY_TYPE) {
                 println!("Connecting to consume events for: {}", entity_type);
                 if let Some(event_type) = matches.value_of(EVENT_TYPE) {
                     println!("Connecting to consume events: {}", event_type);
-                    if let Err(err) = connect(entity_type, event_type) {
+                    if let Err(err) = connect(entity_type, event_type, configuration) {
                         eprintln!("Failed to connect: {}", err)
                     }
                 }
@@ -367,18 +375,16 @@ mod maintenance {
         }
         if matches.subcommand_matches(HEALTH).is_some() {
             println!("Checking peer's health.");
-            health();
+            health(configuration);
         }
         if matches.subcommand_matches(METRICS).is_some() {
             println!("Retrieving peer's metrics.");
-            metrics();
+            metrics(configuration);
         }
     }
 
-    fn health() {
-        let mut iroha_client = Client::with_maintenance(
-            &Configuration::from_path("config.json").expect("Failed to build configuration"),
-        );
+    fn health(configuration: &Configuration) {
+        let mut iroha_client = Client::with_maintenance(configuration);
         executor::block_on(async {
             let result = iroha_client
                 .health()
@@ -388,10 +394,8 @@ mod maintenance {
         });
     }
 
-    fn metrics() {
-        let mut iroha_client = Client::with_maintenance(
-            &Configuration::from_path("config.json").expect("Failed to build configuration"),
-        );
+    fn metrics(configuration: &Configuration) {
+        let mut iroha_client = Client::with_maintenance(configuration);
         executor::block_on(async {
             let result = iroha_client
                 .scrape_metrics()
@@ -401,8 +405,12 @@ mod maintenance {
         });
     }
 
-    fn connect(entity_type: &str, event_type: &str) -> Result<(), String> {
-        let mut iroha_client = Client::with_maintenance(&Configuration::from_path("config.json")?);
+    fn connect(
+        entity_type: &str,
+        event_type: &str,
+        configuration: &Configuration,
+    ) -> Result<(), String> {
+        let mut iroha_client = Client::with_maintenance(configuration);
         let event_type: OccurrenceType = event_type.parse()?;
         let entity_type: EntityType = entity_type.parse()?;
         executor::block_on(async {
@@ -430,29 +438,33 @@ mod maintenance {
 
         #[test]
         fn cli_check_health_should_work() {
-            task::spawn(async {
+            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load configuration.");
+            let client_configuration =
+                ClientConfiguration::from_iroha_configuration(&configuration);
+            task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                    .expect("Failed to load configuration.");
                 configuration
                     .kura_configuration
                     .kura_block_store_path(temp_dir.path());
-                let iroha = Iroha::new(configuration.clone());
+                let iroha = Iroha::new(configuration);
                 iroha.start().await.expect("Failed to start Iroha.");
                 //Prevents temp_dir from clean up untill the end of the tests.
                 #[allow(clippy::empty_loop)]
                 loop {}
             });
             thread::sleep(Duration::from_millis(300));
-            super::health();
+            super::health(&client_configuration);
         }
 
         #[test]
         fn cli_scrape_metrics_should_work() {
-            task::spawn(async {
+            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load configuration.");
+            let client_configuration =
+                ClientConfiguration::from_iroha_configuration(&configuration);
+            task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                    .expect("Failed to load configuration.");
                 configuration
                     .kura_configuration
                     .kura_block_store_path(temp_dir.path());
@@ -463,15 +475,17 @@ mod maintenance {
                 loop {}
             });
             thread::sleep(Duration::from_millis(300));
-            super::metrics();
+            super::metrics(&client_configuration);
         }
 
         #[test]
         fn cli_connect_to_consume_block_changes_should_work() {
-            task::spawn(async {
+            let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
+                .expect("Failed to load configuration.");
+            let client_configuration =
+                ClientConfiguration::from_iroha_configuration(&configuration);
+            task::spawn(async move {
                 let temp_dir = TempDir::new().expect("Failed to create TempDir.");
-                let mut configuration = Configuration::from_path(CONFIGURATION_PATH)
-                    .expect("Failed to load configuration.");
                 configuration
                     .kura_configuration
                     .kura_block_store_path(temp_dir.path());
@@ -482,17 +496,15 @@ mod maintenance {
                 loop {}
             });
             thread::sleep(Duration::from_millis(600));
-            thread::spawn(|| super::connect("all", "all"));
+            let client_configuration_clone = client_configuration.clone();
+            thread::spawn(move || super::connect("all", "all", &client_configuration_clone));
             let domain_name = "global";
             let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
             let create_asset = isi::Register {
                 object: AssetDefinition::new(asset_definition_id),
                 destination_id: domain_name.to_string(),
             };
-            let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
-                &Configuration::from_path(CONFIGURATION_PATH)
-                    .expect("Failed to load configuration."),
-            ));
+            let mut iroha_client = Client::new(&client_configuration);
             thread::sleep(Duration::from_millis(300));
             task::block_on(iroha_client.submit(create_asset.into()))
                 .expect("Failed to prepare state.");
