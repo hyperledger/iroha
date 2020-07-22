@@ -6,6 +6,7 @@
 #ifndef IROHA_BATCH_HELPER_HPP
 #define IROHA_BATCH_HELPER_HPP
 
+#include <boost/move/iterator.hpp>
 #include <boost/range/irange.hpp>
 
 #include "framework/result_fixture.hpp"
