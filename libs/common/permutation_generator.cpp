@@ -33,22 +33,27 @@ RandomEngine Seeder::makePrng() const {
 }
 
 Seeder &Seeder::feed(const char *seed_start, size_t seed_length) {
-  const ValueType *full_numbers_start =
-      reinterpret_cast<const ValueType *>(seed_start);
-  const ValueType *full_numbers_end =
-      full_numbers_start + seed_length / sizeof(ValueType);
+  char const *full_numbers_start = seed_start;
+  char const *full_numbers_end =
+      seed_start + seed_length / sizeof(ValueType) * sizeof(ValueType);
 
-  for (; full_numbers_start < full_numbers_end; ++full_numbers_start) {
-    feed(*full_numbers_start);
+  for (; full_numbers_start < full_numbers_end;) {
+    ValueType value = 0;
+    char const *this_number_end = full_numbers_start + sizeof(ValueType);
+    for (; full_numbers_start < this_number_end; ++full_numbers_start) {
+      value <<= 8;
+      value |= *full_numbers_start;
+    }
+    feed(value);
   }
 
-  const char *tail_start = reinterpret_cast<const char *>(full_numbers_end);
+  const char *tail_start = full_numbers_end;
   const char *seed_end = seed_start + seed_length;
   if (tail_start < seed_end) {
     ValueType tail = 0;
     for (; tail_start < seed_end; ++tail_start) {
-      tail |= *tail_start;
       tail <<= 8;
+      tail |= *tail_start;
     }
     feed(tail);
   }
