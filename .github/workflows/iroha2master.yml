@@ -49,7 +49,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Test
-      run: cargo test --workspace --release --verbose -- --test-threads=1
+      run: cargo test --workspace --release --verbose
     - name: Build
       run: cargo build --release --verbose
     - name: Archive build 
