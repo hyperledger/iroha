@@ -38,7 +38,7 @@ jobs:
         path: ${{ env.CACHE_PATHS }}
         key: ${{ hashFiles('Cargo.toml') }}
     - name: Run benchmarks
-      run: cargo bench --workspace --verbose -- --test-threads=1
+      run: cargo bench --workspace --verbose
   deploy:
     needs: [coverage, bench]
     runs-on: ubuntu-latest
