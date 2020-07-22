@@ -146,3 +146,53 @@ pub mod isi {
         }
     }
 }
+
+/// Query module provides `IrohaQuery` Domain related implementations.
+pub mod query {
+    use super::*;
+    use crate::query::IrohaQuery;
+    use parity_scale_codec::{Decode, Encode};
+    use std::time::SystemTime;
+
+    /// Get information related to the domain with a specified `domain_name`.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetDomain {
+        /// Identification of an domain to find information about.
+        pub domain_name: <Domain as Identifiable>::Id,
+    }
+
+    /// Result of the `GetDomain` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetDomainResult {
+        /// Domain information.
+        pub domain: Domain,
+    }
+
+    impl GetDomain {
+        /// Build a `GetDomain` query in the form of a `QueryRequest`.
+        pub fn build_request(domain_name: <Domain as Identifiable>::Id) -> QueryRequest {
+            let query = GetDomain { domain_name };
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetDomain {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            Ok(QueryResult::GetDomain(GetDomainResult {
+                domain: world_state_view
+                    .read_domain(&self.domain_name)
+                    .map(Clone::clone)
+                    .ok_or("Failed to get a domain.")?,
+            }))
+        }
+    }
+}
