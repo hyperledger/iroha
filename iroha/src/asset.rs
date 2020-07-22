@@ -525,6 +525,63 @@ pub mod query {
             }))
         }
     }
+
+    /// To get the state of all assets in an account filtered by assets definition,
+    /// GetAccountAssetsWithDefinition query can be used.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAccountAssetsWithDefinition {
+        account_id: <Account as Identifiable>::Id,
+        asset_definition_id: AssetDefinitionId,
+    }
+
+    /// Result of the `GetAccountAssetsWithDefinition` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAccountAssetsWithDefinitionResult {
+        /// Assets types which are needed to be included in query result.
+        pub assets: Vec<Asset>,
+    }
+
+    impl GetAccountAssetsWithDefinition {
+        /// Build a `GetAccountAssetsWithDefinition` query in the form of a `QueryRequest`.
+        pub fn build_request(
+            account_id: <Account as Identifiable>::Id,
+            asset_definition_id: AssetDefinitionId,
+        ) -> QueryRequest {
+            let query = GetAccountAssetsWithDefinition {
+                account_id,
+                asset_definition_id,
+            };
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAccountAssetsWithDefinition {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            let assets: Vec<Asset> = world_state_view
+                .read_account(&self.account_id)
+                .ok_or(format!(
+                    "No account with id: {:?} found in the current world state: {:?}.",
+                    &self.account_id, world_state_view
+                ))?
+                .assets
+                .values()
+                .cloned()
+                .filter(|asset| asset.id.definition_id == self.asset_definition_id)
+                .collect();
+            Ok(QueryResult::GetAccountAssetsWithDefinition(
+                GetAccountAssetsWithDefinitionResult { assets },
+            ))
+        }
+    }
 }
 
 #[cfg(test)]

@@ -31,6 +31,11 @@ log = { version = "0.4", features = ["std", "serde"] }
 criterion = "0.3"
 futures = "0.3.4"
 tempfile = "3"
+cucumber = { package = "cucumber_rust", version = "^0.6.8" }
+
+[[test]]
+name = "cucumber"
+harness = false
 
 [[bench]]
 name = "torii"

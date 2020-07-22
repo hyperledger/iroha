@@ -194,11 +194,36 @@ pub mod maintenance {
     }
 }
 
+pub mod domain {
+    use super::*;
+    use iroha::domain::query::*;
+
+    pub fn by_name(domain_name: String) -> QueryRequest {
+        GetDomain::build_request(domain_name)
+    }
+}
+
+pub mod account {
+    use super::*;
+    use iroha::account::query::*;
+
+    pub fn by_id(account_id: AccountId) -> QueryRequest {
+        GetAccount::build_request(account_id)
+    }
+}
+
 pub mod assets {
     use super::*;
-    use iroha::asset::query::GetAccountAssets;
+    use iroha::asset::query::*;
 
     pub fn by_account_id(account_id: <Account as Identifiable>::Id) -> QueryRequest {
         GetAccountAssets::build_request(account_id)
+    }
+
+    pub fn by_account_id_and_definition_id(
+        account_id: AccountId,
+        asset_definition_id: AssetDefinitionId,
+    ) -> QueryRequest {
+        GetAccountAssetsWithDefinition::build_request(account_id, asset_definition_id)
     }
 }
