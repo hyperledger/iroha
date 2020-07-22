@@ -98,3 +98,8 @@ find_package(ed25519 REQUIRED CONFIG)
 #              fmt                #
 ###################################
 find_package(fmt 5.3.0 REQUIRED CONFIG)
+
+###################################
+#            rocksdb              #
+###################################
+find_package(RocksDB CONFIG REQUIRED)
