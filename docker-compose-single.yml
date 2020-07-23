@@ -9,9 +9,9 @@ services:
       TORII_URL: iroha:1337
       TORII_CONNECT_URL: iroha:8888
       MAX_FAULTY_PEERS: 0
-      IROHA_PUBLIC_KEY: '{"inner": [207, 157, 30, 3, 197, 179, 35, 16, 222, 95, 102, 27, 234, 80, 45, 44, 152, 242, 69, 245, 24, 125, 189, 215, 62, 200, 92, 14, 37, 234, 246, 64]}'
-      IROHA_PRIVATE_KEY: '{"inner": [19, 158, 252, 4, 218, 222, 30, 200, 21, 72, 109, 226, 132, 255, 6, 22, 159, 135, 12, 116, 227, 47, 82, 250, 30, 89, 89, 208, 245, 232, 114, 42, 207, 157, 30, 3, 197, 179, 35, 16, 222, 95, 102, 27, 234, 80, 45, 44, 152, 242, 69, 245, 24, 125, 189, 215, 62, 200, 92, 14, 37, 234, 246, 64]}'
-      IROHA_TRUSTED_PEERS: '[{"address":"iroha:1337", "public_key": {"inner": [207, 157, 30, 3, 197, 179, 35, 16, 222, 95, 102, 27, 234, 80, 45, 44, 152, 242, 69, 245, 24, 125, 189, 215, 62, 200, 92, 14, 37, 234, 246, 64]}}]'
+      IROHA_PUBLIC_KEY: 'ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0'
+      IROHA_PRIVATE_KEY: '{"digest_function": "ed25519", "payload": "9ac47abf59b356e0bd7dcbbbb4dec080e302156a48ca907e47cb6aea1d32719e7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}'
+      IROHA_TRUSTED_PEERS: '[{"address":"iroha:1337", "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}]'
     ports:
       - "1337:1337"
       - "8888:8888"

@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use async_std::task;
-    use iroha::crypto::KeyPair;
     use iroha::{config::Configuration, peer::PeerId as IrohaPeerId, Iroha};
     use iroha_client_no_std::{
         asset::isi::AssetInstruction,
@@ -14,6 +13,7 @@ mod tests {
         peer::PeerId,
         prelude::*,
     };
+    use iroha_crypto::KeyPair;
     use std::time::Duration;
     use tempfile::TempDir;
 
@@ -167,7 +167,7 @@ mod tests {
             .enumerate()
             .map(|(i, key_pair)| PeerId {
                 address: format!("127.0.0.1:{}", 1337 + i),
-                public_key: key_pair.public_key,
+                public_key: key_pair.public_key.clone(),
             })
             .collect();
         for (peer_id, key_pair) in peer_ids.iter().zip(peer_keys) {

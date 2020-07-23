@@ -40,11 +40,11 @@ mod tests {
         let (public_key, _) = configuration.key_pair();
         let create_account1 = isi::Instruction::Domain(DomainInstruction::RegisterAccount(
             String::from(domain_name),
-            Account::with_signatory(account1_name, domain_name, public_key),
+            Account::with_signatory(account1_name, domain_name, public_key.clone()),
         ));
         let create_account2 = isi::Instruction::Domain(DomainInstruction::RegisterAccount(
             String::from(domain_name),
-            Account::with_signatory(account2_name, domain_name, public_key),
+            Account::with_signatory(account2_name, domain_name, public_key.clone()),
         ));
         let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
         let quantity: u32 = 200;

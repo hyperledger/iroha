@@ -3,7 +3,7 @@
 //! `RequestedTransaction` is the start of the Transaction lifecycle.
 
 use crate::prelude::*;
-use iroha::crypto::{Hash, KeyPair, Signature};
+use iroha_crypto::{Hash, KeyPair, Signature};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;

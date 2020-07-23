@@ -151,13 +151,12 @@ impl WorldStateView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::Signatures;
     use crate::{
         block::BlockHeader,
-        crypto::KeyPair,
         peer::{Peer, PeerId},
         permission::Permission,
     };
+    use iroha_crypto::{KeyPair, Signatures};
     use std::collections::BTreeMap;
 
     #[async_std::test]
@@ -190,8 +189,11 @@ mod tests {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account =
-            Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+        let mut account = Account::with_signatory(
+            &account_id.name,
+            &account_id.domain_name,
+            public_key.clone(),
+        );
         account.assets.insert(asset_id, asset);
         let mut accounts = BTreeMap::new();
         accounts.insert(account_id, account);

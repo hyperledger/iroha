@@ -5,12 +5,12 @@
 use self::message::*;
 use crate::{
     block::PendingBlock,
-    crypto::{Hash, KeyPair},
     event::{Entity, EventsSender, Occurrence},
     peer::PeerId,
     prelude::*,
 };
 use async_std::sync::RwLock;
+use iroha_crypto::{Hash, KeyPair};
 use iroha_derive::*;
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use std::{
@@ -517,12 +517,12 @@ impl VotingBlock {
 pub mod message {
     use crate::{
         block::ValidBlock,
-        crypto::{Hash, KeyPair, Signature, Signatures},
         peer::PeerId,
         sumeragi::{InitializedNetworkTopology, Role, Sumeragi, VotingBlock},
         torii::uri,
         tx::AcceptedTransaction,
     };
+    use iroha_crypto::{Hash, KeyPair, Signature, Signatures};
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};
@@ -1155,7 +1155,8 @@ pub mod message {
 
 /// This module contains all configuration related logic.
 pub mod config {
-    use crate::{crypto::KeyPair, peer::PeerId};
+    use crate::peer::PeerId;
+    use iroha_crypto::KeyPair;
     use serde::Deserialize;
     use std::env;
 
@@ -1428,7 +1429,7 @@ mod tests {
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key;
+            config.public_key = ids[i].public_key.clone();
             config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1545,7 +1546,7 @@ mod tests {
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key;
+            config.public_key = ids[i].public_key.clone();
             config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1685,7 +1686,7 @@ mod tests {
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key;
+            config.public_key = ids[i].public_key.clone();
             config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1836,7 +1837,7 @@ mod tests {
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key;
+            config.public_key = ids[i].public_key.clone();
             config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(
@@ -1985,7 +1986,7 @@ mod tests {
             config.sumeragi_configuration.key_pair = keys[i].clone();
             config.sumeragi_configuration.peer_id = ids[i].clone();
             config.private_key = keys[i].private_key.clone();
-            config.public_key = ids[i].public_key;
+            config.public_key = ids[i].public_key.clone();
             config.torii_configuration.torii_url = ids[i].address.clone();
             config.sumeragi_configuration.trusted_peers(ids.clone());
             let sumeragi = Arc::new(RwLock::new(

@@ -1,0 +1,13 @@
+[package]
+name = "iroha_crypto_cli"
+version = "0.1.0"
+authors = ["Nikita Puzankov <humb1t@yandex.ru>", "Egor Ivkov < <e.o.ivkov@gmail.com>", "Vladislav Markushin <negigic@gmail.com>", "武宮誠 <takemiya@soramitsu.co.jp>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = "2.33.0"
+iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto"}
+serde_json = "1.0"
+hex = "0.4.0"

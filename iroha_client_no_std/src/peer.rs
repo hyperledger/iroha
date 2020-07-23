@@ -6,7 +6,7 @@ use crate::{
     isi::*,
     Identifiable,
 };
-use iroha::crypto::PublicKey;
+use iroha_crypto::PublicKey;
 use iroha_derive::*;
 use parity_scale_codec::{Decode, Encode};
 use serde::Deserialize;
@@ -28,7 +28,7 @@ impl PeerId {
     pub fn new(address: &str, public_key: &PublicKey) -> Self {
         PeerId {
             address: address.to_string(),
-            public_key: *public_key,
+            public_key: public_key.clone(),
         }
     }
 }
