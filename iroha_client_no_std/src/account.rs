@@ -1,7 +1,7 @@
 //! This module contains `Account` structure and it's implementation.
 
 use crate::prelude::*;
-use iroha::crypto::PublicKey;
+use iroha_crypto::PublicKey;
 use parity_scale_codec::{Decode, Encode};
 use std::{
     collections::BTreeMap,
@@ -121,6 +121,7 @@ pub mod isi {
 pub mod query {
     use super::*;
     use crate::query::IrohaQuery;
+    use iroha_crypto::Signature;
     use iroha_derive::*;
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
@@ -149,7 +150,7 @@ pub mod query {
                     .expect("Failed to get System Time.")
                     .as_millis()
                     .to_string(),
-                signature: Option::None,
+                signature: Option::<Signature>::None,
                 query: query.into(),
             }
         }

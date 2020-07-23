@@ -268,8 +268,9 @@ pub mod config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{crypto::KeyPair, peer::PeerId};
+    use crate::peer::PeerId;
     use async_std::sync;
+    use iroha_crypto::KeyPair;
     use tempfile::TempDir;
 
     #[async_std::test]
@@ -293,7 +294,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key,
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))
@@ -314,7 +315,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key,
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))
@@ -333,7 +334,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key,
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))
@@ -359,7 +360,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key,
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))
@@ -376,7 +377,7 @@ mod tests {
                 .validate(&WorldStateView::new(Peer::new(
                     PeerId {
                         address: "127.0.0.1:8080".to_string(),
-                        public_key: keypair.public_key,
+                        public_key: keypair.public_key.clone(),
                     },
                     &Vec::new(),
                 )))
@@ -402,7 +403,7 @@ mod tests {
             .validate(&WorldStateView::new(Peer::new(
                 PeerId {
                     address: "127.0.0.1:8080".to_string(),
-                    public_key: keypair.public_key,
+                    public_key: keypair.public_key.clone(),
                 },
                 &Vec::new(),
             )))

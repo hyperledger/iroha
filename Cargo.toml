@@ -5,6 +5,8 @@ members = [
   "iroha_client",
   "iroha_client_no_std",
   "iroha_client_cli",
+  "iroha_crypto",
+  "iroha_crypto_cli",
   "iroha_macro",
   "iroha_macro/iroha_derive",
   "iroha_network",

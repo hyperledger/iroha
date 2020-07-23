@@ -9,7 +9,6 @@ pub mod block_sync;
 #[cfg(feature = "bridge")]
 pub mod bridge;
 pub mod config;
-pub mod crypto;
 #[cfg(feature = "dex")]
 pub mod dex;
 pub mod domain;
@@ -111,8 +110,11 @@ impl Iroha {
             account_id: account_id.clone(),
         };
         let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-        let mut account =
-            Account::with_signatory(&account_id.name, &account_id.domain_name, config.public_key);
+        let mut account = Account::with_signatory(
+            &account_id.name,
+            &account_id.domain_name,
+            config.public_key.clone(),
+        );
         account.assets.insert(asset_id, asset);
         let mut accounts = BTreeMap::new();
         accounts.insert(account_id, account);
@@ -282,7 +284,6 @@ pub mod prelude {
         account::{Account, Id as AccountId},
         asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId},
         block::{CommittedBlock, PendingBlock, ValidBlock},
-        crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature},
         domain::Domain,
         isi::{Add, Demint, Instruction, Mint, Register, Remove, Transfer},
         peer::{Peer, PeerId},
@@ -296,4 +297,7 @@ pub mod prelude {
     #[doc(inline)]
     #[cfg(feature = "bridge")]
     pub use crate::bridge::{Bridge, BridgeDefinition, BridgeDefinitionId, BridgeId, BridgeKind};
+
+    #[doc(inline)]
+    pub use iroha_crypto::{Hash, KeyPair, PrivateKey, PublicKey, Signature};
 }

@@ -1,11 +1,8 @@
 //! This module contains `Block` structures for each state, it's transitions, implementations and related traits
 //! implementations.
 
-use crate::{
-    crypto::{self, KeyPair, Signatures},
-    merkle::MerkleTree,
-    prelude::*,
-};
+use crate::{merkle::MerkleTree, prelude::*};
+use iroha_crypto::{KeyPair, Signatures};
 use iroha_derive::Io;
 use parity_scale_codec::{Decode, Encode};
 use std::time::SystemTime;
@@ -108,7 +105,7 @@ pub struct BlockHeader {
 impl BlockHeader {
     /// Calculate hash of the current block header.
     pub fn hash(&self) -> Hash {
-        crypto::hash(self.into())
+        iroha_crypto::hash(self.into())
     }
 }
 
@@ -233,10 +230,8 @@ impl CommittedBlock {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        block::{BlockHeader, ValidBlock},
-        crypto::Signatures,
-    };
+    use crate::block::{BlockHeader, ValidBlock};
+    use iroha_crypto::Signatures;
 
     #[test]
     pub fn committed_and_valid_block_hashes_are_equal() {

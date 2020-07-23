@@ -1,13 +1,10 @@
 //! This module contains `Configuration` structure and related implementation.
 use crate::{
-    block_sync::config::BlockSyncConfiguration,
-    crypto::{KeyPair, PrivateKey, PublicKey},
-    kura::config::KuraConfiguration,
-    peer::PeerId,
-    queue::config::QueueConfiguration,
-    sumeragi::config::SumeragiConfiguration,
+    block_sync::config::BlockSyncConfiguration, kura::config::KuraConfiguration, peer::PeerId,
+    queue::config::QueueConfiguration, sumeragi::config::SumeragiConfiguration,
     torii::config::ToriiConfiguration,
 };
+use iroha_crypto::{KeyPair, PrivateKey, PublicKey};
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -50,7 +47,7 @@ impl Configuration {
         let mut configuration: Configuration = serde_json::from_reader(reader)
             .map_err(|e| format!("Failed to deserialize json from reader: {}", e))?;
         configuration.sumeragi_configuration.key_pair = KeyPair {
-            public_key: configuration.public_key,
+            public_key: configuration.public_key.clone(),
             private_key: configuration.private_key.clone(),
         };
         configuration.sumeragi_configuration.peer_id = PeerId::new(
@@ -69,7 +66,7 @@ impl Configuration {
         self.queue_configuration.load_environment()?;
         self.logger_configuration.load_environment()?;
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
-            self.public_key = serde_json::from_str(&public_key)
+            self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
         }
         if let Ok(private_key) = env::var(IROHA_PRIVATE_KEY) {
@@ -77,16 +74,18 @@ impl Configuration {
                 .map_err(|e| format!("Failed to parse Private Key: {}", e))?;
         }
         self.sumeragi_configuration.key_pair = KeyPair {
-            public_key: self.public_key,
+            public_key: self.public_key.clone(),
             private_key: self.private_key.clone(),
         };
-        self.sumeragi_configuration.peer_id =
-            PeerId::new(&self.torii_configuration.torii_url, &self.public_key);
+        self.sumeragi_configuration.peer_id = PeerId::new(
+            &self.torii_configuration.torii_url,
+            &self.public_key.clone(),
+        );
         Ok(())
     }
     /// Gets `public_key` and `private_key` configuration parameters.
     pub fn key_pair(&self) -> (PublicKey, PrivateKey) {
-        (self.public_key, self.private_key.clone())
+        (self.public_key.clone(), self.private_key.clone())
     }
 }
 
@@ -94,7 +93,6 @@ impl Configuration {
 mod tests {
     use super::*;
     use crate::peer::PeerId;
-    use std::convert::TryFrom;
 
     const CONFIGURATION_PATH: &str = "tests/test_config.json";
 
@@ -102,27 +100,25 @@ mod tests {
     fn parse_example_json() -> Result<(), String> {
         let configuration = Configuration::from_path(CONFIGURATION_PATH)
             .map_err(|e| format!("Failed to read configuration from example config: {}", e))?;
+        let public_key = PublicKey {
+            digest_function: iroha_crypto::ED_25519.to_string(),
+            payload: hex::decode(
+                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+            )
+            .expect("Failed to decode"),
+        };
         let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])?,
+                public_key: public_key.clone(),
             },
             PeerId {
                 address: "localhost:1338".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])?,
+                public_key: public_key.clone(),
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])?,
+                public_key: public_key.clone(),
             },
         ];
         assert_eq!(
@@ -138,58 +134,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_public_key_success() {
-        let public_key_string = "{\"inner\": [101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]}";
-        let expected_public_key = PublicKey::try_from(vec![
-            101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22,
-            28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-        ])
-        .expect("Failed to parse PublicKey from Vec.");
-        let result = serde_json::from_str(public_key_string).expect("Failed to parse Public Key.");
-        assert_eq!(expected_public_key, result);
-    }
-
-    #[test]
-    fn parse_private_key_success() {
-        let private_key_string = "{\"inner\": [113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20, 245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]}";
-        let expected_private_key = PrivateKey::try_from(vec![
-            113, 107, 241, 108, 182, 178, 31, 12, 5, 183, 243, 184, 83, 0, 238, 122, 77, 86, 20,
-            245, 144, 31, 128, 92, 166, 251, 245, 106, 167, 188, 20, 8, 101, 170, 80, 164, 103, 38,
-            73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40,
-            26, 61, 248, 40, 159, 58, 53,
-        ])
-        .expect("Failed to convert PrivateKey from Vector.");
-        let result = serde_json::from_str(private_key_string).expect("Failed to parse PrivateKey");
-        assert_eq!(expected_private_key, result);
-    }
-
-    #[test]
     fn parse_trusted_peers_success() {
-        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key":{"inner": [101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]}}, {"address":"localhost:1338", "public_key":{"inner": [101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]}}, {"address": "195.162.0.1:23", "public_key":{"inner": [101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117, 15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53]}}]"#;
+        let trusted_peers_string = r#"[{"address":"127.0.0.1:1337", "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address":"localhost:1338", "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}, {"address": "195.162.0.1:23", "public_key": "ed207233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0"}]"#;
+        let public_key = PublicKey {
+            digest_function: iroha_crypto::ED_25519.to_string(),
+            payload: hex::decode(
+                "7233bfc89dcbd68c19fde6ce6158225298ec1131b6a130d1aeb454c1ab5183c0",
+            )
+            .expect("Failed to decode"),
+        };
         let expected_trusted_peers = vec![
             PeerId {
                 address: "127.0.0.1:1337".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])
-                .expect("Failed to parse PublicKey from Vec."),
+                public_key: public_key.clone(),
             },
             PeerId {
                 address: "localhost:1338".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])
-                .expect("Failed to parse PublicKey from Vec."),
+                public_key: public_key.clone(),
             },
             PeerId {
                 address: "195.162.0.1:23".to_string(),
-                public_key: PublicKey::try_from(vec![
-                    101, 170, 80, 164, 103, 38, 73, 61, 223, 133, 83, 139, 247, 77, 176, 84, 117,
-                    15, 22, 28, 155, 125, 80, 226, 40, 26, 61, 248, 40, 159, 58, 53,
-                ])
-                .expect("Failed to parse PublicKey from Vec."),
+                public_key: public_key.clone(),
             },
         ];
         let result: Vec<PeerId> =

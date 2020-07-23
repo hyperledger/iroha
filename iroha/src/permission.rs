@@ -182,7 +182,8 @@ pub mod isi {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::{account::Id as AccountId, crypto::KeyPair, peer::PeerId};
+        use crate::{account::Id as AccountId, peer::PeerId};
+        use iroha_crypto::KeyPair;
         use std::collections::BTreeMap;
 
         #[test]
@@ -203,8 +204,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -243,8 +247,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -305,8 +312,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddDomain);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -345,8 +355,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -407,8 +420,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::AddListener);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -447,8 +463,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("NOT_ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -509,8 +528,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::RegisterAccount(None));
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -558,8 +580,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAccount(Some(domain_name.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -599,8 +624,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -663,8 +691,11 @@ pub mod isi {
             };
             let asset =
                 Asset::with_permission(asset_id.clone(), Permission::RegisterAssetDefinition(None));
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -712,8 +743,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RegisterAssetDefinition(Some(domain_name.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -754,8 +788,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -823,8 +860,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::TransferAsset(None, Some(transfer_asset_definition_id.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -880,8 +920,11 @@ pub mod isi {
                     Some(transfer_asset_definition_id.clone()),
                 ),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -925,8 +968,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -997,8 +1043,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::AddSignatory(None, Some(multisignature_account_id.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1050,8 +1099,11 @@ pub mod isi {
                     Some(multisignature_account_id.clone()),
                 ),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1095,8 +1147,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1167,8 +1222,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::RemoveSignatory(None, Some(multisignature_account_id.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1224,8 +1282,11 @@ pub mod isi {
                     Some(multisignature_account_id.clone()),
                 ),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1269,8 +1330,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1341,8 +1405,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::MintAsset(None, Some(mint_asset_definition_id.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1394,8 +1461,11 @@ pub mod isi {
                     Some(mint_asset_definition_id.clone()),
                 ),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1439,8 +1509,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
@@ -1511,8 +1584,11 @@ pub mod isi {
                 asset_id.clone(),
                 Permission::DemintAsset(None, Some(demint_asset_definition_id.clone())),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1564,8 +1640,11 @@ pub mod isi {
                     Some(demint_asset_definition_id.clone()),
                 ),
             );
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
@@ -1609,8 +1688,11 @@ pub mod isi {
                 AssetDefinition::new(asset_definition_id),
             );
             let account_id = AccountId::new("ROOT", &domain_name);
-            let account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id.clone(), account);
             let domain = Domain {
