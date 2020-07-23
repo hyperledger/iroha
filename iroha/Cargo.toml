@@ -26,6 +26,7 @@ maintenance = { status = "actively-developed" }
 iroha_derive = { version = "=0.1.0", path = "../iroha_macro/iroha_derive" }
 iroha_network = { version = "=0.1.0", path = "../iroha_network" }
 iroha_logger = { version = "=0.1.0", path = "../iroha_logger"}
+iroha_crypto = { version = "=0.1.0", path = "../iroha_crypto" }
 async-std = { version = "1.6", features = ["attributes","unstable"] }
 chrono = "0.4"
 cloudevents-sdk = "0.1.0"
@@ -43,6 +44,7 @@ log = { version = "0.4", features = ["std", "serde"] }
 hex-literal = "0.2.1"
 tempfile = "3"
 criterion = "0.3"
+hex = "0.4.0"
 
 [[bench]]
 name = "sumeragi"

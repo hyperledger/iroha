@@ -1,4 +1,5 @@
-use iroha::{config::Configuration as IrohaConfiguration, crypto::PublicKey};
+use iroha::config::Configuration as IrohaConfiguration;
+use iroha_crypto::PublicKey;
 use iroha_logger::config::LoggerConfiguration;
 use serde::Deserialize;
 use std::{env, fmt::Debug, fs::File, io::BufReader, path::Path};
@@ -49,7 +50,7 @@ impl Configuration {
         Configuration {
             torii_url: configuration.torii_configuration.torii_url.clone(),
             logger_configuration: configuration.logger_configuration.clone(),
-            public_key: configuration.public_key,
+            public_key: configuration.public_key.clone(),
             torii_connect_url: configuration.torii_configuration.torii_connect_url.clone(),
             transaction_time_to_live_ms: configuration
                 .queue_configuration
@@ -68,7 +69,7 @@ impl Configuration {
             self.torii_connect_url = torii_connect_url;
         }
         if let Ok(public_key) = env::var(IROHA_PUBLIC_KEY) {
-            self.public_key = serde_json::from_str(&public_key)
+            self.public_key = serde_json::from_value(serde_json::json!(public_key))
                 .map_err(|e| format!("Failed to parse Public Key: {}", e))?;
         }
         if let Ok(proposed_transaction_ttl_ms) = env::var(TRANSACTION_TIME_TO_LIVE_MS) {

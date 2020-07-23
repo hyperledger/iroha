@@ -121,7 +121,8 @@ impl BlockSynchronizer {
 /// The module for block synchronization related peer to peer messages.
 pub mod message {
     use super::{BlockSynchronizer, State};
-    use crate::{block::ValidBlock, crypto::Hash, peer::PeerId, torii::uri};
+    use crate::{block::ValidBlock, peer::PeerId, torii::uri};
+    use iroha_crypto::*;
     use iroha_derive::*;
     use iroha_network::prelude::*;
     use parity_scale_codec::{Decode, Encode};

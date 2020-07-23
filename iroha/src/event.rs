@@ -244,7 +244,7 @@ pub mod connection {
                 .expect("Failed to verify Connect Request");
             ValidConnectRequest {
                 criteria: self.criteria.clone(),
-                _authority: self.signature.public_key,
+                _authority: self.signature.public_key.clone(),
             }
         }
     }
@@ -452,10 +452,10 @@ pub mod isi {
         use crate::{
             account::query::GetAccount,
             block::BlockHeader,
-            crypto::{KeyPair, Signatures},
             peer::{Peer, PeerId},
             permission::Permission,
         };
+        use iroha_crypto::{KeyPair, Signatures};
         use std::collections::BTreeMap;
 
         #[test]
@@ -488,8 +488,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id, account);
@@ -551,8 +554,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id, account);
@@ -678,8 +684,11 @@ pub mod isi {
                 account_id: account_id.clone(),
             };
             let asset = Asset::with_permission(asset_id.clone(), Permission::Anything);
-            let mut account =
-                Account::with_signatory(&account_id.name, &account_id.domain_name, public_key);
+            let mut account = Account::with_signatory(
+                &account_id.name,
+                &account_id.domain_name,
+                public_key.clone(),
+            );
             account.assets.insert(asset_id, asset);
             let mut accounts = BTreeMap::new();
             accounts.insert(account_id, account);

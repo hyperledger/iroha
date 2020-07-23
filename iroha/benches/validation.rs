@@ -113,12 +113,12 @@ fn validate_transaction(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -169,12 +169,12 @@ fn chain_blocks(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -215,12 +215,12 @@ fn sign_blocks(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);
@@ -242,7 +242,7 @@ fn sign_blocks(criterion: &mut Criterion) {
     let world_state_view = WorldStateView::new(Peer::new(
         PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
+            public_key: key_pair.public_key.clone(),
         },
         &Vec::new(),
     ));
@@ -271,12 +271,12 @@ fn validate_blocks(criterion: &mut Criterion) {
         object: Domain::new(domain_name.to_string()),
         destination_id: PeerId {
             address: "127.0.0.1:8080".to_string(),
-            public_key: key_pair.public_key,
+            public_key: key_pair.public_key.clone(),
         },
     };
     let account_name = "account";
     let create_account = isi::Register {
-        object: Account::with_signatory(account_name, domain_name, key_pair.public_key),
+        object: Account::with_signatory(account_name, domain_name, key_pair.public_key.clone()),
         destination_id: String::from(domain_name),
     };
     let asset_definition_id = AssetDefinitionId::new("xor", domain_name);

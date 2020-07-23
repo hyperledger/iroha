@@ -1,6 +1,7 @@
 use crate::config::Configuration;
 use crate::prelude::*;
-use iroha::{crypto::KeyPair, torii::uri};
+use iroha::torii::uri;
+use iroha_crypto::KeyPair;
 use iroha_derive::log;
 use iroha_network::{prelude::*, Network};
 use std::{

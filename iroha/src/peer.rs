@@ -22,7 +22,7 @@ impl PeerId {
     pub fn new(address: &str, public_key: &PublicKey) -> Self {
         PeerId {
             address: address.to_string(),
-            public_key: *public_key,
+            public_key: public_key.clone(),
         }
     }
 }

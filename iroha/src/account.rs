@@ -156,10 +156,11 @@ pub mod isi {
                 )
                 .execute(authority, world_state_view),
                 AccountInstruction::AddSignatory(account_id, public_key) => {
-                    Add::new(*public_key, account_id.clone()).execute(authority, world_state_view)
+                    Add::new(public_key.clone(), account_id.clone())
+                        .execute(authority, world_state_view)
                 }
                 AccountInstruction::RemoveSignatory(account_id, public_key) => {
-                    Remove::new(*public_key, account_id.clone())
+                    Remove::new(public_key.clone(), account_id.clone())
                         .execute(authority, world_state_view)
                 }
             }
@@ -190,7 +191,7 @@ pub mod isi {
         ) -> Result<(), String> {
             PermissionInstruction::CanAddSignatory(authority, self.destination_id.clone(), None)
                 .execute(world_state_view)?;
-            let public_key = self.object;
+            let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find account.")?;
@@ -216,7 +217,7 @@ pub mod isi {
         ) -> Result<(), String> {
             PermissionInstruction::CanRemoveSignatory(authority, self.destination_id.clone(), None)
                 .execute(world_state_view)?;
-            let public_key = self.object;
+            let public_key = self.object.clone();
             let account = world_state_view
                 .account(&self.destination_id)
                 .ok_or("Failed to find account.")?;
