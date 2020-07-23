@@ -9,8 +9,6 @@
 #include <soci/session.h>
 #include BURROW_VM_CALL_HEADER
 #include "ametsuchi/command_executor.hpp"
-#include "ametsuchi/impl/postgres_burrow_storage.hpp"
-#include "ametsuchi/query_executor.hpp"
 #include "common/hexutils.hpp"
 #include "common/result.hpp"
 
@@ -18,13 +16,13 @@ using namespace iroha::ametsuchi;
 
 iroha::expected::Result<std::optional<std::string>, std::string>
 BurrowVmCaller::call(
-    soci::session &sql,
     std::string const &tx_hash,
     shared_model::interface::types::CommandIndexType cmd_index,
     shared_model::interface::types::EvmCodeHexStringView input,
     shared_model::interface::types::AccountIdType const &caller,
     std::optional<shared_model::interface::types::EvmCalleeHexStringView>
         callee,
+    BurrowStorage &burrow_storage,
     CommandExecutor &command_executor,
     SpecificQueryExecutor &query_executor) const {
   const char *callee_raw = callee
@@ -35,7 +33,6 @@ BurrowVmCaller::call(
   std::string nonce = tx_hash;
   const char *nonce_raw =
       const_cast<char *>(nonce.append(numToHexstring(cmd_index)).c_str());
-  PostgresBurrowStorage burrow_storage(sql, tx_hash, cmd_index);
   auto raw_result = VmCall(input_raw,
                            caller.c_str(),
                            callee_raw,
