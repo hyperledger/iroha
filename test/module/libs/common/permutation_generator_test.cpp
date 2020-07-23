@@ -27,29 +27,29 @@ TEST(PermutationTest, SeederPortable) {
   TestSeeder seeder;
   seeder.feed(kSeedString, sizeof(kSeedString));
 
-  const Seeder::ValueType old_seed = 18321097469817268575ull;
+  const Seeder::ValueType old_seed = 1836461661050454545ull;
   EXPECT_EQ(seeder.getCurrentSeed(), old_seed);
 }
 
 TEST(PermutationTest, PrngPortable) {
   auto prng = makeSeededPrng(kSeedString, sizeof(kSeedString));
-  EXPECT_EQ(prng(), 18411566977080829358ull);
-  EXPECT_EQ(prng(), 1542867733836066154ull);
-  EXPECT_EQ(prng(), 14957448015533108087ull);
-  EXPECT_EQ(prng(), 9726285800433590021ull);
-  EXPECT_EQ(prng(), 7000960477383894054ull);
-  EXPECT_EQ(prng(), 13774377099739194617ull);
-  EXPECT_EQ(prng(), 9855892305214809794ull);
-  EXPECT_EQ(prng(), 4375420897913288132ull);
-  EXPECT_EQ(prng(), 3961499137579268468ull);
-  EXPECT_EQ(prng(), 563129626573376221ull);
+  EXPECT_EQ(prng(), 156325153285836724ull);
+  EXPECT_EQ(prng(), 13311736527361153936ull);
+  EXPECT_EQ(prng(), 18096387757423010509ull);
+  EXPECT_EQ(prng(), 7650585443747401588ull);
+  EXPECT_EQ(prng(), 11348867370419244846ull);
+  EXPECT_EQ(prng(), 2979086026387263581ull);
+  EXPECT_EQ(prng(), 14233412580210913118ull);
+  EXPECT_EQ(prng(), 8772078191537298753ull);
+  EXPECT_EQ(prng(), 17137604657093593059ull);
+  EXPECT_EQ(prng(), 12426436247396118143ull);
 }
 
 TEST(PermutationTest, PermutationPortable) {
   std::vector<size_t> generated_now;
   generatePermutation(
       generated_now, makeSeededPrng(kSeedString, sizeof(kSeedString)), 10);
-  const std::vector<size_t> generated_before{{8, 9, 5, 4, 6, 2, 1, 7, 0, 3}};
+  const std::vector<size_t> generated_before{{4, 5, 9, 0, 1, 6, 3, 8, 2, 7}};
   EXPECT_EQ(generated_now, generated_before);
 }
 
