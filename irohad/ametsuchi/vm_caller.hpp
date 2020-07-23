@@ -15,24 +15,21 @@
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "interfaces/common_objects/types.hpp"
 
-namespace soci {
-  class session;
-}
-
 namespace iroha::ametsuchi {
+  class BurrowStorage;
   class CommandExecutor;
   class SpecificQueryExecutor;
 
   class VmCaller {
    public:
     virtual iroha::expected::Result<std::optional<std::string>, std::string>
-    call(soci::session &sql,
-         std::string const &tx_hash,
+    call(std::string const &tx_hash,
          shared_model::interface::types::CommandIndexType cmd_index,
          shared_model::interface::types::EvmCodeHexStringView input,
          shared_model::interface::types::AccountIdType const &caller,
          std::optional<shared_model::interface::types::EvmCalleeHexStringView>
              callee,
+         BurrowStorage &burrow_storage,
          CommandExecutor &command_executor,
          SpecificQueryExecutor &query_executor) const = 0;
   };

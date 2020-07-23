@@ -71,7 +71,7 @@ using CallEngineBasicTest = BasicExecutorTest<CallEngineTest>;
  */
 TEST_P(CallEngineBasicTest, EngineError) {
   EXPECT_CALL(*getBackendParam().vm_caller_,
-              call(_, _, _, kCode, kAdminId, Optional(kCallee), _, _))
+              call(_, _, kCode, kAdminId, Optional(kCallee), _, _, _))
       .WillOnce(::testing::Return(iroha::expected::makeError("engine error")));
   checkCommandError(callEngine(kAdminId, kAdminId, kCallee, kCode), 3);
 }
@@ -88,7 +88,7 @@ TEST_P(CallEnginePermissionTest, CommandPermissionTest) {
   ASSERT_NO_FATAL_FAILURE(prepareState({}));
 
   EXPECT_CALL(*getBackendParam().vm_caller_,
-              call(_, _, _, kCode, kUserId, Optional(kCallee), _, _))
+              call(_, _, kCode, kUserId, Optional(kCallee), _, _, _))
       .Times(isEnoughPermissions() ? 1 : 0)
       .WillRepeatedly(::testing::Return(iroha::expected::makeValue("success")));
 
