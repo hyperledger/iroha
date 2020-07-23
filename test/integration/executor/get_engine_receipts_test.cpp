@@ -174,7 +174,7 @@ struct GetEngineReceiptsTest : public ExecutorTestBase {
         set_expectation(
             EXPECT_CALL(
                 *getBackendParam().vm_caller_,
-                call(_, tx_hash, cmd_idx, input, kUserId, callee, _, _)))
+                call(tx_hash, cmd_idx, input, kUserId, callee, _, _, _)))
             .WillOnce(::testing::Return(
                 iroha::expected::makeValue(std::move(engine_response))));
   }

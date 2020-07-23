@@ -1550,9 +1550,9 @@ namespace iroha {
           }
 
           using namespace shared_model::interface::types;
+          PostgresBurrowStorage burrow_storage(*sql_, tx_hash, cmd_index);
           return vm_caller_->get()
               .call(
-                  *sql_,
                   tx_hash,
                   cmd_index,
                   EvmCodeHexStringView{command.input()},
@@ -1561,6 +1561,7 @@ namespace iroha {
                       ? std::optional<EvmCalleeHexStringView>{command.callee()
                                                                   ->get()}
                       : std::optional<EvmCalleeHexStringView>{std::nullopt},
+                  burrow_storage,
                   *this,
                   *specific_query_executor_)
               .match(
