@@ -477,6 +477,88 @@ pub mod query {
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
 
+    /// To get the state of all assets,
+    /// GetAllAssets query can be used.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAllAssets {}
+
+    /// Result of the `GetAllAssets` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAllAssetsResult {
+        /// Assets types which are needed to be included in query result.
+        pub assets: Vec<Asset>,
+    }
+
+    impl GetAllAssets {
+        /// Build a `GetAllAssets` query in the form of a `QueryRequest`.
+        pub fn build_request() -> QueryRequest {
+            let query = GetAllAssets {};
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAllAssets {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            let assets: Vec<Asset> = world_state_view
+                .read_all_assets()
+                .into_iter()
+                .cloned()
+                .collect();
+            Ok(QueryResult::GetAllAssets(GetAllAssetsResult { assets }))
+        }
+    }
+
+    /// To get the state of all assets,
+    /// GetAllAssetsDefinitions query can be used.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAllAssetsDefinitions {}
+
+    /// Result of the `GetAllAssetsDefinitions` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAllAssetsDefinitionsResult {
+        /// Assets types which are needed to be included in query result.
+        pub assets_definitions: Vec<AssetDefinition>,
+    }
+
+    impl GetAllAssetsDefinitions {
+        /// Build a `GetAllAssetsDefinitions` query in the form of a `QueryRequest`.
+        pub fn build_request() -> QueryRequest {
+            let query = GetAllAssetsDefinitions {};
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAllAssetsDefinitions {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            let assets_definitions: Vec<AssetDefinition> = world_state_view
+                .read_all_assets_definitions()
+                .into_iter()
+                .cloned()
+                .collect();
+            Ok(QueryResult::GetAllAssetsDefinitions(
+                GetAllAssetsDefinitionsResult { assets_definitions },
+            ))
+        }
+    }
+
     /// To get the state of all assets in an account (a balance),
     /// GetAccountAssets query can be used.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]

@@ -50,6 +50,12 @@ impl Identifiable for Domain {
     type Id = Name;
 }
 
+impl PartialEq for Domain {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
 /// Iroha Special Instructions module provides `DomainInstruction` enum with all legal types of
 /// Domain related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `DomainInstruction` variants into generic ISI.
@@ -153,6 +159,46 @@ pub mod query {
     use crate::query::IrohaQuery;
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
+
+    /// Get information related to all domains.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAllDomains {}
+
+    /// Result of the `GetAllDomains` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAllDomainsResult {
+        /// Domain information.
+        pub domains: Vec<Domain>,
+    }
+
+    impl GetAllDomains {
+        /// Build a `GetAllDomains` query in the form of a `QueryRequest`.
+        pub fn build_request() -> QueryRequest {
+            let query = GetAllDomains {};
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAllDomains {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            Ok(QueryResult::GetAllDomains(GetAllDomainsResult {
+                domains: world_state_view
+                    .read_all_domains()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            }))
+        }
+    }
 
     /// Get information related to the domain with a specified `domain_name`.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]

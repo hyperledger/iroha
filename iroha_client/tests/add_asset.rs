@@ -56,7 +56,7 @@ mod tests {
         ))
         .await;
         //Then
-        let request = client::assets::by_account_id(account_id);
+        let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
             .await

@@ -130,7 +130,7 @@ mod tests {
         let mut iroha_client = Client::new(&ClientConfiguration::from_iroha_configuration(
             &configuration_clone,
         ));
-        let request = client::assets::by_account_id(account_id);
+        let request = client::asset::by_account_id(account_id);
         let query_result = iroha_client
             .request(&request)
             .await

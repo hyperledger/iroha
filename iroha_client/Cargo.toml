@@ -28,10 +28,12 @@ serde_json = "1.0"
 log = { version = "0.4", features = ["std", "serde"] }
 
 [dev-dependencies]
+async-trait = "0.1.31"
 criterion = "0.3"
+cucumber = { package = "cucumber_rust", git = "https://github.com/bbqsrc/cucumber-rust", branch = "feature/async" }
 futures = "0.3.4"
+port_check = "0.1.5"
 tempfile = "3"
-cucumber = { package = "cucumber_rust", version = "^0.6.8" }
 
 [[test]]
 name = "cucumber"

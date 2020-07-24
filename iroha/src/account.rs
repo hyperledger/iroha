@@ -305,6 +305,45 @@ pub mod query {
     use parity_scale_codec::{Decode, Encode};
     use std::time::SystemTime;
 
+    /// Get information related to all accounts.
+    #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
+    pub struct GetAllAccounts {}
+
+    /// Result of the `GetAllAccounts` execution.
+    #[derive(Clone, Debug, Encode, Decode)]
+    pub struct GetAllAccountsResult {
+        /// Accounts information.
+        pub accounts: Vec<Account>,
+    }
+
+    impl GetAllAccounts {
+        /// Build a `GetAllAccounts` query in the form of a `QueryRequest`.
+        pub fn build_request() -> QueryRequest {
+            let query = GetAllAccounts {};
+            QueryRequest {
+                timestamp: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .expect("Failed to get System Time.")
+                    .as_millis()
+                    .to_string(),
+                signature: Option::None,
+                query: query.into(),
+            }
+        }
+    }
+
+    impl Query for GetAllAccounts {
+        #[log]
+        fn execute(&self, world_state_view: &WorldStateView) -> Result<QueryResult, String> {
+            Ok(QueryResult::GetAllAccounts(GetAllAccountsResult {
+                accounts: world_state_view
+                    .read_all_accounts()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            }))
+        }
+    }
     /// Get information related to the account with a specified `account_id`.
     #[derive(Clone, Debug, Io, IntoQuery, Encode, Decode)]
     pub struct GetAccount {
