@@ -92,7 +92,7 @@ mod tests {
             &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ));
         //Then
-        let request = client::assets::by_account_id(account2_id);
+        let request = client::asset::by_account_id(account2_id);
         iroha_client
             .request(&request)
             .await
