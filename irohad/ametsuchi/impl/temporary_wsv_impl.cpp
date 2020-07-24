@@ -5,11 +5,13 @@
 
 #include "ametsuchi/impl/temporary_wsv_impl.hpp"
 
+#include <soci/error.h>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/format.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/postgres_command_executor.hpp"
 #include "ametsuchi/tx_executor.hpp"
+#include "common/stubborn_caller.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/permission_to_string.hpp"
 #include "interfaces/transaction.hpp"
@@ -26,7 +28,7 @@ namespace iroha {
               std::move(command_executor))),
           log_manager_(std::move(log_manager)),
           log_(log_manager_->getLogger()) {
-      sql_ << "BEGIN";
+      retryOnException<soci::soci_error>(log_, [this]() { sql_ << "BEGIN"; });
     }
 
     expected::Result<void, validation::CommandError>
@@ -127,7 +129,8 @@ namespace iroha {
           savepoint_name_{std::move(savepoint_name)},
           is_released_{false},
           log_(std::move(log)) {
-      sql_ << "SAVEPOINT " + savepoint_name_ + ";";
+      retryOnException<soci::soci_error>(
+          log_, [this]() { sql_ << "SAVEPOINT " + savepoint_name_ + ";"; });
     }
 
     void TemporaryWsvImpl::SavepointWrapperImpl::release() {

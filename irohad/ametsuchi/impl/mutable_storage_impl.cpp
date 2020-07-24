@@ -6,6 +6,7 @@
 #include "ametsuchi/impl/mutable_storage_impl.hpp"
 
 #include <fmt/core.h>
+#include <soci/error.h>
 #include <boost/variant/apply_visitor.hpp>
 #include <rxcpp/operators/rx-all.hpp>
 #include "ametsuchi/command_executor.hpp"
@@ -17,6 +18,7 @@
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
 #include "ametsuchi/ledger_state.hpp"
 #include "ametsuchi/tx_executor.hpp"
+#include "common/stubborn_caller.hpp"
 #include "interfaces/commands/command.hpp"
 #include "interfaces/iroha_internal/block.hpp"
 #include "logger/logger.hpp"
@@ -43,7 +45,7 @@ namespace iroha {
           block_storage_(std::move(block_storage)),
           committed(false),
           log_(log_manager->getLogger()) {
-      sql_ << "BEGIN";
+      retryOnException<soci::soci_error>(log_, [this]() { sql_ << "BEGIN"; });
     }
 
     bool MutableStorageImpl::apply(
