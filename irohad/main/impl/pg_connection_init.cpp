@@ -5,6 +5,7 @@
 
 #include "main/impl/pg_connection_init.hpp"
 
+#include <soci/rowset.h>
 #include <boost/functional/hash.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include "ametsuchi/impl/pool_wrapper.hpp"
@@ -92,6 +93,22 @@ namespace {
   void processPqNotice(void *arg, const char *message) {
     auto *log = reinterpret_cast<logger::Logger *>(arg);
     log->debug("{}", formatPostgresMessage(message));
+  }
+
+  iroha::expected::Result<void, std::string> rollbackAllPreparedTxs(
+      soci::session &sql) {
+    try {
+      soci::rowset<std::string> tx_ids =
+          (sql.prepare << "SELECT gid FROM pg_prepared_xacts "
+                          "WHERE database = current_database()");
+      for (auto it = tx_ids.begin(); it != tx_ids.end(); ++it) {
+        sql << "rollback prepared '" << *it << "'";
+      }
+    } catch (std::exception &e) {
+      return fmt::format("Roling back prepared transactions failed: {}",
+                         e.what());
+    }
+    return iroha::expected::Value<void>();
   }
 
   iroha::expected::Result<void, std::string> dropDatabaseIfExists(
@@ -440,10 +457,13 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
 
 iroha::expected::Result<void, std::string>
 PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) {
-  return getMaintenanceSession(options) | [&](auto maintenance_sql)
-             -> iroha::expected::Result<void, std::string> {
-    return dropDatabaseIfExists(*maintenance_sql, options.workingDbName());
-  };
+  return getWorkingDbSession(options) |
+      [&](auto wsv_sql) { return rollbackAllPreparedTxs(*wsv_sql); }
+  | [&] {
+      return getMaintenanceSession(options) | [&](auto maintenance_sql) {
+        return dropDatabaseIfExists(*maintenance_sql, options.workingDbName());
+      };
+    };
 }
 
 iroha::expected::Result<void, std::string> PgConnectionInit::createSchema(
