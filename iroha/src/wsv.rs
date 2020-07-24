@@ -12,6 +12,7 @@ pub struct WorldStateView {
     pub blocks: Vec<CommittedBlock>,
 }
 
+/// WARNING!!! INTERNAL USE ONLY!!!
 impl WorldStateView {
     /// Default `WorldStateView` constructor.
     pub fn new(peer: Peer) -> Self {
@@ -69,6 +70,20 @@ impl WorldStateView {
         self.peer.domains.get_mut(name)
     }
 
+    /// Get all `Domain`s without an ability to modify them.
+    pub fn read_all_domains(&self) -> Vec<&Domain> {
+        self.peer.domains.values().collect()
+    }
+
+    /// Get all `Account`s without an ability to modify them.
+    pub fn read_all_accounts(&self) -> Vec<&Account> {
+        self.peer
+            .domains
+            .values()
+            .flat_map(|domain| domain.accounts.values())
+            .collect()
+    }
+
     /// Get `Account` without an ability to modify it.
     pub fn read_account(&self, id: &<Account as Identifiable>::Id) -> Option<&Account> {
         self.read_domain(&id.domain_name)?.accounts.get(id)
@@ -77,6 +92,25 @@ impl WorldStateView {
     /// Get `Account` with an ability to modify it.
     pub fn account(&mut self, id: &<Account as Identifiable>::Id) -> Option<&mut Account> {
         self.domain(&id.domain_name)?.accounts.get_mut(id)
+    }
+
+    /// Get all `Asset`s without an ability to modify them.
+    pub fn read_all_assets(&self) -> Vec<&Asset> {
+        self.peer
+            .domains
+            .values()
+            .flat_map(|domain| domain.accounts.values())
+            .flat_map(|account| account.assets.values())
+            .collect()
+    }
+
+    /// Get all `Asset Definition`s without an ability to modify them.
+    pub fn read_all_assets_definitions(&self) -> Vec<&AssetDefinition> {
+        self.peer
+            .domains
+            .values()
+            .flat_map(|domain| domain.asset_definitions.values())
+            .collect()
     }
 
     /// Get `Asset` without an ability to modify it.

@@ -3,7 +3,7 @@ use criterion::*;
 use futures::executor;
 use iroha::{config::Configuration, isi, prelude::*};
 use iroha_client::{
-    client::{assets, Client},
+    client::{asset, Client},
     config::Configuration as ClientConfiguration,
 };
 use std::thread;
@@ -55,7 +55,7 @@ fn query_requests(criterion: &mut Criterion) {
         mint_asset.into(),
     ]))
     .expect("Failed to prepare state.");
-    let request = assets::by_account_id(account_id);
+    let request = asset::by_account_id(account_id);
     thread::sleep(std::time::Duration::from_millis(1500));
     let mut success_count = 0;
     let mut failures_count = 0;

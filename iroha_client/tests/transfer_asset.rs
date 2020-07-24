@@ -90,15 +90,22 @@ mod tests {
             &configuration.sumeragi_configuration.pipeline_time_ms() * 2,
         ));
         //Then
-        let request = client::assets::by_account_id(account2_id.clone());
+        let request = client::asset::by_account_id(account2_id.clone());
         let query_result = iroha_client
             .request(&request)
             .await
             .expect("Failed to execute request.");
         if let QueryResult::GetAccountAssets(result) = query_result {
-            let asset = result.assets.first().expect("Asset should exist.");
-            assert_eq!(quantity, asset.quantity,);
-            assert_eq!(account2_id, asset.id.account_id,);
+            assert_eq!(
+                result
+                    .assets
+                    .iter()
+                    .filter(|asset| {
+                        asset.quantity == quantity && asset.id.account_id == account2_id
+                    })
+                    .count(),
+                1
+            );
         } else {
             panic!("Wrong Query Result Type.");
         }

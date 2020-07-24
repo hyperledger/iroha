@@ -14,6 +14,7 @@ Feature: Decentralized Exchange
     And seller Account places Exchange Order 100usd for 20 xor
     Then Iroha transfer 20 amount of Asset with definition xor in domain exchange from seller account in domain exchange to buyer account in domain exchange
     And Iroha transfer 100 amount of Asset with definition usd in domain exchange from account buyer in domain exchange to seller account in domain exchange
+    And Iroha Peer is down
 
   Scenario: Buyer exchanges 1btc for 20eth across bridges
     Given Iroha Peer is up
@@ -34,6 +35,7 @@ Feature: Decentralized Exchange
     And Iroha mint 20 amount of Asset with definition eth in domain exchange to buyer Account in domain exchange using eth Bridge
     And Iroha transfer 1 amount of Asset with definition btc in domain exchange from seller account in domain exchange to buyer account in domain exchange
     And Iroha transfer 20 amount of Asset with definition eth in domain exchange from buyer account in domain exchange to seller account in domain exchange
+    And Iroha Peer is down
 
   Scenario: Liquidity provider exchanges with seller
     Given Iroha Peer is up
@@ -52,3 +54,4 @@ Feature: Decentralized Exchange
     And seller Account places Exchange Order 20eth for 1btc
     Then Iroha transfer 1 amount of Asset with definition btc in domain exchange from seller account in domain exchange to liquidity_provider account in domain exchange
     And Iroha transfer 20 amount of Asset with definition eth in domain exchange from liquidity_provider account in domain exchange to seller account in domain exchange
+    And Iroha Peer is down

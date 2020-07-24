@@ -182,7 +182,7 @@ mod asset {
     use futures::executor;
     use iroha::{isi, prelude::*};
     use iroha_client::{
-        client::{self, Client},
+        client::{asset, Client},
         config::Configuration,
     };
 
@@ -312,9 +312,9 @@ mod asset {
 
     fn get_asset(_asset_id: &str, account_id: &str, configuration: &Configuration) {
         let mut iroha_client = Client::new(configuration);
-        let query_result = executor::block_on(iroha_client.request(
-            &client::assets::by_account_id(<Account as Identifiable>::Id::from(account_id)),
-        ))
+        let query_result = executor::block_on(iroha_client.request(&asset::by_account_id(
+            <Account as Identifiable>::Id::from(account_id),
+        )))
         .expect("Failed to get asset.");
         if let QueryResult::GetAccountAssets(result) = query_result {
             println!("Get Asset result: {:?}", result);
