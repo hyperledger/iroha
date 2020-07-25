@@ -12,10 +12,10 @@
 #include <rxcpp/operators/rx-flat_map.hpp>
 #include <rxcpp/operators/rx-map.hpp>
 #include "ametsuchi/impl/flat_file_block_storage.hpp"
-#include "ametsuchi/impl/k_times_reconnection_strategy.hpp"
 #include "ametsuchi/impl/pool_wrapper.hpp"
 #include "ametsuchi/impl/postgres_block_storage_factory.hpp"
 #include "ametsuchi/impl/storage_impl.hpp"
+#include "ametsuchi/impl/stubborn_reconnection_strategy.hpp"
 #include "ametsuchi/impl/tx_presence_cache_impl.hpp"
 #include "ametsuchi/impl/wsv_restorer_impl.hpp"
 #include "ametsuchi/vm_caller.hpp"
@@ -265,7 +265,7 @@ Irohad::RunResult Irohad::initStorage(
              |
              [this] {
                return PgConnectionInit::prepareConnectionPool(
-                   iroha::ametsuchi::KTimesReconnectionStrategyFactory{10},
+                   iroha::ametsuchi::StubbornReconnectionStrategyFactory{},
                    *pg_opt_,
                    kDbPoolSize,
                    log_manager_);

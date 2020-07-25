@@ -62,6 +62,10 @@ add_library(k_times_reconnection_strategy
     impl/k_times_reconnection_strategy.cpp
     )
 
+add_library(stubborn_reconnection_strategy
+    impl/stubborn_reconnection_strategy.cpp
+    )
+
 add_library(tx_executor impl/tx_executor.cpp)
 target_link_libraries(tx_executor
     common
@@ -155,6 +159,7 @@ target_link_libraries(ametsuchi
     pg_connection_init
     flat_file_storage
     k_times_reconnection_strategy
+    stubborn_reconnection_strategy
     postgres_indexer
     postgres_storage
     logger
