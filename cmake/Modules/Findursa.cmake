@@ -37,7 +37,7 @@ if(NOT TARGET hyperledger_ursa_build)
     BUILD_IN_SOURCE   1
     BUILD_COMMAND     ${CMAKE_COMMAND} -E
       env OPENSSL_DIR=${OPENSSL_ROOT_DIR}
-      cargo build --release --no-default-features --features="ffi"
+      cargo build --release
     CONFIGURE_COMMAND "" # remove configure step
     UPDATE_COMMAND    "" # remove update step
     INSTALL_COMMAND   "" # remove install step
