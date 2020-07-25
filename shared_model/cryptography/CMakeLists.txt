@@ -8,6 +8,7 @@
 
 add_subdirectory(model_impl)
 add_subdirectory(ed25519_sha3_impl)
+add_subdirectory(gost3410_impl)
 
 add_library(shared_model_cryptography
   crypto_provider/crypto_verifier.cpp
