@@ -155,7 +155,7 @@ namespace shared_model {
       MOCK_CONST_METHOD0(accountId, const types::AccountIdType &());
       MOCK_CONST_METHOD0(key, const types::AccountDetailKeyType &());
       MOCK_CONST_METHOD0(value, const types::AccountDetailValueType &());
-      MOCK_CONST_METHOD0(needToCheckEmpty, bool());
+      MOCK_CONST_METHOD0(checkEmpty, bool());
       MOCK_CONST_METHOD0(oldValue,
                          const std::optional<types::AccountDetailValueType>());
     };

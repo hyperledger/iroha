@@ -15,7 +15,7 @@ namespace shared_model {
           .appendNamed("key", key())
           .appendNamed("value", value())
           .appendNamed("old_value", oldValue())
-          .appendNamed("absent previous value is checked: ", needToCheckEmpty())
+          .appendNamed("absent previous value is checked: ", checkEmpty())
           .finalize();
     }
 

@@ -197,6 +197,7 @@ namespace shared_model {
        * @param key to be in that command
        * @param value to be in that command
        * @param old_value to be in that command
+       * @param check_empty to be in that command
        * @return pointer to the created command
        */
       FactoryResult<MockCompareAndSetAccountDetail>
@@ -205,7 +206,7 @@ namespace shared_model {
           const types::AccountDetailKeyType &key,
           const types::AccountDetailValueType &value,
           const std::optional<types::AccountDetailValueType> old_value,
-          bool need_to_check_empty) const;
+          bool check_empty) const;
 
       /**
        * Construct a mocked SetSettingValue

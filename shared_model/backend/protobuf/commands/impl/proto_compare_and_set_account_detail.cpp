@@ -28,8 +28,8 @@ namespace shared_model {
       return compare_and_set_account_detail_.value();
     }
 
-    bool CompareAndSetAccountDetail::needToCheckEmpty() const {
-      return compare_and_set_account_detail_.need_to_check_empty();
+    bool CompareAndSetAccountDetail::checkEmpty() const {
+      return compare_and_set_account_detail_.check_empty();
     }
 
     const std::optional<interface::types::AccountDetailValueType>
