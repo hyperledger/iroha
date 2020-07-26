@@ -2037,9 +2037,9 @@ namespace iroha {
     }
 
     /**
-     * @given commands
-     * @when trying to set new kv with not empty oldValue
-     * @then corresponding error code is returned
+     * @given no old account detail value
+     * @when trying to set new kv with not empty oldValue in legacy mode
+     * @then the new value is set despite expected old value does not match
      */
     TEST_F(CompareAndSetAccountDetail, NewDetailWithNotEmptyOldValueLegacy) {
       addOnePerm(shared_model::interface::permissions::Role::kGetMyAccDetail);
