@@ -16,7 +16,7 @@ namespace shared_model{
     bool CryptoProviderGOST3410::verify(SignatureByteRangeView signature,
                                            const Blob &orig,
                                            PublicKeyByteRangeView public_key) {
-      return Verifier::verify(signature, orig, public_key);
+      return gost3410_sha512::Verifier::verifyGost3410Sha512(signature, orig.range(), public_key);
     }
 
 Seed CryptoProviderGOST3410::generateSeed() {

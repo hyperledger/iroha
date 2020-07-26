@@ -3,9 +3,8 @@
 
 #include "cryptography/crypto_provider/crypto_verifier_multihash.hpp"
 
-namespace shared_model {
-  namespace crypto {
-    class Verifier : public shared_model::crypto::CryptoVerifierMultihash{
+namespace shared_model::crypto::gost3410_sha512 {
+    class Verifier : public shared_model::crypto::CryptoVerifierMultihash {
       public:
       ~Verifier() override;
 
@@ -16,7 +15,7 @@ namespace shared_model {
           shared_model::interface::types::PublicKeyByteRangeView public_key)
           const override;
 
-      static bool verifyEd25519Sha3(
+      static bool verifyGost3410Sha512(
           shared_model::interface::types::SignatureByteRangeView signature,
           shared_model::interface::types::ByteRange source,
           shared_model::interface::types::PublicKeyByteRangeView public_key);
@@ -29,8 +28,6 @@ namespace shared_model {
       //     const Blob &orig,
       //     shared_model::interface::types::PublicKeyByteRangeView public_key);
     };
-    
-  } // namespace crypto
-} // namespace shared_model
+  } // namespace shared_model::crypto::gost3410_sha512
 
 #endif //GOST_CRYPTO_VERIFIER_HPP
