@@ -164,7 +164,7 @@ class FieldValidatorTest : public ValidatorsTest {
                               "tx_hash",
                               // permissions are always valid
                               "permissions",
-                              "need_to_check_empty"}) {
+                              "check_empty"}) {
       field_validators.insert(makeNullValidator(field));
     }
   }
