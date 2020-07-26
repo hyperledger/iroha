@@ -166,7 +166,7 @@ class FieldValidatorTest : public ValidatorsTest {
                               "permissions",
                               "dm_id",
                               "payload",
-                              "need_to_check_empty"}) {
+                              "check_empty"}) {
       field_validators.insert(makeNullValidator(field));
     }
   }

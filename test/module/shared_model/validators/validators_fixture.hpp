@@ -73,7 +73,7 @@ class ValidatorsTest : public ::testing::Test {
         {"iroha.protocol.SetAccountQuorum.account_id", setString(account_id)},
         {"iroha.protocol.CompareAndSetAccountDetail.account_id",
          setString(account_id)},
-        {"iroha.protocol.CompareAndSetAccountDetail.need_to_check_empty",
+        {"iroha.protocol.CompareAndSetAccountDetail.check_empty",
          setBool(true)},
         {"iroha.protocol.AppendRole.role_name", setString(role_name)},
         {"iroha.protocol.DetachRole.role_name", setString(role_name)},

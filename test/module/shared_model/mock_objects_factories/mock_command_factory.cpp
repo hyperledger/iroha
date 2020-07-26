@@ -321,7 +321,7 @@ namespace shared_model {
         const std::optional<
             shared_model::interface::types::AccountDetailValueType>
             cmd_old_value,
-        bool need_to_check_empty) const {
+        bool check_empty) const {
       return createFactoryResult<MockCompareAndSetAccountDetail>(
           [&](FactoryResult<MockCompareAndSetAccountDetail> specific_cmd_mock) {
             EXPECT_CALL(*specific_cmd_mock, accountId())
@@ -330,8 +330,8 @@ namespace shared_model {
                 .WillRepeatedly(ReturnRefOfCopy(cmd_key));
             EXPECT_CALL(*specific_cmd_mock, value())
                 .WillRepeatedly(ReturnRefOfCopy(cmd_value));
-            EXPECT_CALL(*specific_cmd_mock, needToCheckEmpty())
-                .WillRepeatedly(Return(need_to_check_empty));
+            EXPECT_CALL(*specific_cmd_mock, checkEmpty())
+                .WillRepeatedly(Return(check_empty));
             EXPECT_CALL(*specific_cmd_mock, oldValue())
                 .WillRepeatedly(Return(cmd_old_value));
 

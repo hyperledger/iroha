@@ -40,7 +40,7 @@ namespace shared_model {
        * @return true, if empty oldValue in command must match absent value in
        * WSV, false if any oldValue in command matches absent in WSV (legacy)
        */
-      virtual bool needToCheckEmpty() const = 0;
+      virtual bool checkEmpty() const = 0;
 
       /**
        * @return the value expected before the change
