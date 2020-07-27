@@ -479,7 +479,7 @@ namespace iroha {
           (ordering_str_.empty() ? "" : ordering_str_.c_str()),
           related_txs,
           (first_hash
-               ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = :hash LIMIT 1))"
+               ? R"(, base_row AS(SELECT row FROM my_txs WHERE hash = lower(:hash) LIMIT 1))"
                : ""),
           (first_hash ? R"(JOIN base_row ON my_txs.row >= base_row.row)" : ""));
 
@@ -767,7 +767,7 @@ namespace iroha {
       std::string hash_str = boost::algorithm::join(
           q.transactionHashes()
               | boost::adaptors::transformed(
-                    [](const auto &h) { return "'" + h.hex() + "'"; }),
+                    [](const auto &h) { return "lower('" + h.hex() + "')"; }),
           ", ");
 
       using QueryTuple =
@@ -1485,7 +1485,7 @@ namespace iroha {
               target as (
                 select distinct creator_id as t
                 from tx_positions
-                where hash=:tx_hash
+                where hash=lower(:tx_hash)
               ),
               {}
             select
@@ -1501,7 +1501,7 @@ namespace iroha {
               has_perms.perm
             from
               target
-              left join engine_calls on engine_calls.tx_hash = :tx_hash
+              left join engine_calls on engine_calls.tx_hash = lower(:tx_hash)
               left join burrow_tx_logs on engine_calls.call_id = burrow_tx_logs.call_id
               left join burrow_tx_logs_topics on burrow_tx_logs.log_idx = burrow_tx_logs_topics.log_idx
               right outer join has_perms on true
