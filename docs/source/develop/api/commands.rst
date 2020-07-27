@@ -236,7 +236,7 @@ Validation
 ^^^^^^^^^^
 
 1. Caller is a valid Iroha account ID
-2. The transaction creator has a role with can_call_engine permission
+2. The transaction creator has a role with either can_call_engine or can_call_engine_on_my_behalf permission
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
