@@ -11,8 +11,8 @@
 #include <backend/plain/signature.hpp>
 #include "ametsuchi/impl/postgres_wsv_command.hpp"
 #include "ametsuchi/impl/postgres_wsv_query.hpp"
+#include "framework/make_peer_pointee_matcher.hpp"
 #include "framework/test_logger.hpp"
-#include "integration/acceptance/fake_peer_fixture.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 #include "module/irohad/ametsuchi/ametsuchi_fixture.hpp"
 

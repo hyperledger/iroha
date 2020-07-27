@@ -55,7 +55,7 @@ function(make_copy_command SRC_DIR DEST_PATH)
   set(SRC_PATH "${SRC_DIR}/${FILE_NAME}")
   add_custom_command(
     OUTPUT "${DEST_PATH}"
-    DEPENDS hyperledger_ursa_build "${SRC_PATH}"
+    DEPENDS hyperledger_ursa_build
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SRC_PATH}" "${DEST_PATH}"
   )
   if(NOT TARGET ${DEPENDER_TARGET})

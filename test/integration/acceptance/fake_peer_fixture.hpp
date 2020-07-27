@@ -11,30 +11,13 @@
 #include "backend/protobuf/block.hpp"
 #include "framework/integration_framework/fake_peer/fake_peer.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
+#include "framework/make_peer_pointee_matcher.hpp"
 #include "interfaces/common_objects/string_view_types.hpp"
 
 template <size_t N>
 void checkBlockHasNTxs(
     const std::shared_ptr<const shared_model::interface::Block> &block) {
   ASSERT_EQ(block->transactions().size(), N);
-}
-
-auto makePeerPointeeMatcher(
-    shared_model::interface::types::AddressType address,
-    shared_model::interface::types::PublicKeyHexStringView pubkey) {
-  return ::testing::Truly(
-      [address = std::move(address), pubkey = std::string{pubkey}](
-          std::shared_ptr<shared_model::interface::Peer> peer) {
-        return peer->address() == address and peer->pubkey() == pubkey;
-      });
-}
-
-auto makePeerPointeeMatcher(
-    std::shared_ptr<shared_model::interface::Peer> peer) {
-  // TODO [IR-658] artyom-yurin 30.09.2019: Rewrite using operator ==
-  return makePeerPointeeMatcher(
-      peer->address(),
-      shared_model::interface::types::PublicKeyHexStringView{peer->pubkey()});
 }
 
 class FakePeerFixture : public AcceptanceFixture {
