@@ -457,13 +457,14 @@ CREATE INDEX IF NOT EXISTS burrow_tx_logs_topics_log_idx
 
 iroha::expected::Result<void, std::string>
 PgConnectionInit::dropWorkingDatabase(const PostgresOptions &options) {
-  return getWorkingDbSession(options) |
-      [&](auto wsv_sql) { return rollbackAllPreparedTxs(*wsv_sql); }
-  | [&] {
-      return getMaintenanceSession(options) | [&](auto maintenance_sql) {
-        return dropDatabaseIfExists(*maintenance_sql, options.workingDbName());
-      };
-    };
+  // if working db exists, try rolling back txs that would prevent its dropping
+  getWorkingDbSession(options) |
+      [&](auto wsv_sql) { return rollbackAllPreparedTxs(*wsv_sql); };
+
+  // and then drop it if it exists
+  return getMaintenanceSession(options) | [&](auto maintenance_sql) {
+    return dropDatabaseIfExists(*maintenance_sql, options.workingDbName());
+  };
 }
 
 iroha::expected::Result<void, std::string> PgConnectionInit::createSchema(
