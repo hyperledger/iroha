@@ -7,8 +7,6 @@
 #include <botan/x509_key.h>
 #include <botan/rng.h>
 #include <botan/data_src.h>
-#include <botan/base64.h>
-#include <iostream>
 
 using shared_model::interface::types::PublicKeyByteRangeView;
 using shared_model::interface::types::SignatureByteRangeView;
@@ -57,10 +55,9 @@ namespace iroha {
     Botan::PK_Verifier verifier(*key, EMSA);
     verifier.update(msg, msgsize);
     auto sigt = std::string(reinterpret_cast<const char*>(signature.t.data()), signature.t.size());
-    std::cout << "Sign in verify: \n" << sigt << std::endl;
+    
     auto res = verifier.check_signature(
-      //reinterpret_cast<const uint8_t*>(sig.data()), sig.size()
-      Botan::base64_decode(sigt)
+      reinterpret_cast<const uint8_t*>(sig.data()), sig.size()
       );
     delete key;
     return res;
@@ -107,28 +104,29 @@ namespace iroha {
     return kp;
   }
   
-    std::vector<uint8_t> sign(const uint8_t *msg,
-                    size_t msgsize,
-                    const uint8_t* priv, size_t privLen){
-      
-      auto ds = Botan::DataSource_Memory(priv, privLen);
-      auto key = Botan::PKCS8::load_key(ds);
+  std::vector<uint8_t> sign(const uint8_t *msg,
+                  size_t msgsize,
+                  const uint8_t* priv, size_t privLen){
+    
+    auto ds = Botan::DataSource_Memory(priv, privLen);
+    auto key = Botan::PKCS8::load_key(ds);
 
-      Botan::AutoSeeded_RNG rng;
-      Botan::PK_Signer signer(*key.get(), rng, EMSA);
-      signer.update(msg, msgsize);
-      std::vector<uint8_t> signature = signer.signature(rng);
-      
-      //assert(signature.size() == iroha::sig_t::size());
-      //std::copy_n(sig.begin(), signature.size(), signature.begin());
-      return signature;
-    }
+    Botan::AutoSeeded_RNG rng;
+    Botan::PK_Signer signer(*key.get(), rng, EMSA);
+    signer.update(msg, msgsize);
+    std::vector<uint8_t> signature = signer.signature(rng);
+    
+    //assert(signature.size() == iroha::sig_t::size());
+    //std::copy_n(sig.begin(), signature.size(), signature.begin());
+    return signature;
+  }
 
-    std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen){
-      auto sig = sign(reinterpret_cast<const uint8_t*>(msg.data()), msg.size(),
-                        priv, privLen);
-      return Botan::base64_encode(sig.data(), sig.size());
-    }
+  std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen){
+    auto sig = sign(reinterpret_cast<const uint8_t*>(msg.data()), msg.size(),
+                      priv, privLen);
+    return std::string(reinterpret_cast<const char*>(sig.data()), sig.size());
+    //return Botan::base64_encode(sig.data(), sig.size());
+  }
 }
 
 // class keypair{

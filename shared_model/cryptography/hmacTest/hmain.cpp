@@ -9,7 +9,7 @@ int main(){
   shared_model::crypto::Blob blob("My message!?");
   auto sign = cryptoProvider::sign(blob, kp);
 
-  std::cout << "Sign: " << sign << std::endl;
+  //std::cout << "Sign: " << sign << std::endl;
   
   auto byteRange = shared_model::interface::types::makeByteRange(sign);
   auto signByteRange = shared_model::interface::types::SignatureByteRangeView(byteRange);
