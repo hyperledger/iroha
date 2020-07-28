@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <boost/variant.hpp>
+#include "ametsuchi/setting_query.hpp"
 #include "backend/protobuf/query_responses/proto_query_response.hpp"
 #include "backend/protobuf/transaction.hpp"
 #include "builders/protobuf/queries.hpp"
@@ -12,9 +13,12 @@
 #include "framework/common_constants.hpp"
 #include "framework/integration_framework/integration_test_framework.hpp"
 #include "integration/acceptance/acceptance_fixture.hpp"
+#include "interfaces/permissions.hpp"
 #include "interfaces/query_responses/account_asset_response.hpp"
+#include "module/shared_model/builders/protobuf/test_block_builder.hpp"
 #include "module/shared_model/cryptography/crypto_defaults.hpp"
 #include "utils/query_error_response_visitor.hpp"
+#include "validators/field_validator.hpp"
 
 using namespace integration_framework;
 using namespace shared_model;
@@ -227,20 +231,81 @@ TEST_F(TransferAsset, EmptyDesc) {
  * TODO mboldyrev 18.01.2019 IR-226 remove, covered by field validator test
  *
  * @given pair of users with all required permissions
- * @when execute tx with TransferAsset command with very long description
+ * @when execute tx with TransferAsset command with a description longer than
+ * stateless validator allows
  * @then the tx hasn't passed stateless validation
  *       (aka skipProposal throws)
  */
-TEST_F(TransferAsset, LongDesc) {
+TEST_F(TransferAsset, LongDescStateless) {
   IntegrationTestFramework(1)
       .setInitialState(kAdminKeypair)
       .sendTxAwait(makeFirstUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(makeSecondUser(), CHECK_TXS_QUANTITY(1))
       .sendTxAwait(addAssets(), CHECK_TXS_QUANTITY(1))
-      .sendTx(
-          complete(baseTx().transferAsset(
-              kUserId, kUser2Id, kAssetId, std::string(100000, 'a'), kAmount)),
-          CHECK_STATELESS_INVALID);
+      .sendTx(complete(baseTx().transferAsset(
+                  kUserId,
+                  kUser2Id,
+                  kAssetId,
+                  std::string(
+                      validation::FieldValidator::kMaxDescriptionSize + 1, 'a'),
+                  kAmount)),
+              CHECK_STATELESS_INVALID);
+}
+
+/**
+ * TODO mboldyrev 18.01.2019 IR-226 transform to SFV test
+ *
+ * @given pair of users with all required permissions
+ * @when execute tx with TransferAsset command with a description longer than
+ * iroha::ametsuchi::kMaxDescriptionSizeKey settings value
+ * @then the tx hasn't passed stateful validation
+ */
+TEST_F(TransferAsset, LongDescStateful) {
+  const size_t max_descr_size_setting{10};
+
+  auto send_ast_tx = complete(baseTx(kAdminId).transferAsset(
+      kAdminId,
+      kUserId,
+      kAssetId,
+      std::string(max_descr_size_setting + 1, 'a'),
+      kAmount));
+
+  IntegrationTestFramework itf{1};
+  itf.setInitialState(
+         kAdminKeypair,
+         TestBlockBuilder()
+             .transactions(std::vector<shared_model::proto::Transaction>{
+                 shared_model::proto::TransactionBuilder()
+                     .creatorAccountId(kAdminId)
+                     .createdTime(iroha::time::now())
+                     .addPeer(itf.getAddress(),
+                              PublicKeyHexStringView{kAdminKeypair.publicKey()})
+                     .createRole(kAdminRole,
+                                 {interface::permissions::Role::kRoot})
+                     .createDomain(kDomain, kAdminRole)
+                     .createAccount(
+                         kAdminName,
+                         kDomain,
+                         PublicKeyHexStringView{kAdminKeypair.publicKey()})
+                     .createAccount(
+                         kUser,
+                         kDomain,
+                         PublicKeyHexStringView{kUserKeypair.publicKey()})
+                     .createAsset(kAssetName, kDomain, 1)
+                     .addAssetQuantity(kAssetId, kAmount)
+                     .setSettingValue(iroha::ametsuchi::kMaxDescriptionSizeKey,
+                                      std::to_string(max_descr_size_setting))
+                     .quorum(1)
+                     .build()
+                     .signAndAddSignature(kAdminKeypair)
+                     .finish()})
+             .createdTime(iroha::time::now())
+             .height(1)
+             .build())
+      .sendTx(send_ast_tx)
+      .checkStatus(send_ast_tx.hash(), CHECK_STATELESS_VALID)
+      .checkStatus(send_ast_tx.hash(), CHECK_ENOUGH_SIGNATURES)
+      .checkStatus(send_ast_tx.hash(), CHECK_STATEFUL_INVALID);
 }
 
 /**
