@@ -7,6 +7,7 @@
 #include <botan/x509_key.h>
 #include <botan/rng.h>
 #include <botan/data_src.h>
+#include <botan/base64.h>
 #include <iostream>
 
 using shared_model::interface::types::PublicKeyByteRangeView;
@@ -55,7 +56,12 @@ namespace iroha {
 
     Botan::PK_Verifier verifier(*key, EMSA);
     verifier.update(msg, msgsize);
-    auto res = verifier.check_signature(reinterpret_cast<const uint8_t*>(sig.data()), sig.size());
+    auto sigt = std::string(reinterpret_cast<const char*>(signature.t.data()), signature.t.size());
+    std::cout << "Sign in verify: \n" << sigt << std::endl;
+    auto res = verifier.check_signature(
+      //reinterpret_cast<const uint8_t*>(sig.data()), sig.size()
+      Botan::base64_decode(sigt)
+      );
     delete key;
     return res;
   }
@@ -77,24 +83,52 @@ namespace iroha {
     throw std::logic_error("Not implemented");
   }
 
-  keypair_t create_keypair(blob_t<32> seed){
+  Keypair create_keypair(blob_t<32> seed){
     throw std::logic_error("Not implemented");
   }
 
-  keypair_t create_keypair() {
+  Keypair create_keypair() {
     Botan::AutoSeeded_RNG rng;
     auto key = Botan::GOST_3410_PrivateKey(rng, Botan::EC_Group(ECGName));
 
     auto pvkey = Botan::PKCS8::BER_encode(key);
     auto pbkey = Botan::X509::BER_encode(key);
+    auto pbkey2 = Botan::X509::PEM_encode(key);
 
-    keypair_t kp; //TODO
-    //kp.privkey = std::vector<uint8_t>(pvkey.begin(), pvkey.end()).data();
-    //kp.pubkey = reinterpret_cast<const blob*>(pbkey.data());
+    auto blob = shared_model::crypto::Blob(std::vector<uint8_t>(pvkey.begin(), pvkey.end()));
+    auto pvk = shared_model::crypto::PrivateKey(blob);
+    auto str = std::string(pbkey.begin(), pbkey.end());
+    auto pbk = shared_model::interface::types::PublicKeyHexStringView(pbkey2);//(str);
+
+    Keypair kp = Keypair(pbk, pvk);
+    // kp.privkey = std::vector<uint8_t>(pvkey.begin(), pvkey.end()).data();
+    // kp.pubkey = reinterpret_cast<const blob*>(pbkey.data());
 
     return kp;
   }
   
+    std::vector<uint8_t> sign(const uint8_t *msg,
+                    size_t msgsize,
+                    const uint8_t* priv, size_t privLen){
+      
+      auto ds = Botan::DataSource_Memory(priv, privLen);
+      auto key = Botan::PKCS8::load_key(ds);
+
+      Botan::AutoSeeded_RNG rng;
+      Botan::PK_Signer signer(*key.get(), rng, EMSA);
+      signer.update(msg, msgsize);
+      std::vector<uint8_t> signature = signer.signature(rng);
+      
+      //assert(signature.size() == iroha::sig_t::size());
+      //std::copy_n(sig.begin(), signature.size(), signature.begin());
+      return signature;
+    }
+
+    std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen){
+      auto sig = sign(reinterpret_cast<const uint8_t*>(msg.data()), msg.size(),
+                        priv, privLen);
+      return Botan::base64_encode(sig.data(), sig.size());
+    }
 }
 
 // class keypair{

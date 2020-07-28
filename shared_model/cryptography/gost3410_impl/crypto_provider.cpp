@@ -29,18 +29,20 @@ Seed CryptoProviderGOST3410::generateSeed() {
     }
 
     Keypair CryptoProviderGOST3410::generateKeypair() {
-      auto keypair = iroha::create_keypair();
-      return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
-                     PrivateKey(keypair.privkey.to_string()));
+      // auto keypair = 
+      return iroha::create_keypair();
+      // return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
+      //                PrivateKey(keypair.privkey.to_string()));
     }
 
     Keypair CryptoProviderGOST3410::generateKeypair(const Seed &seed) {
       assert(seed.size() == kSeedLength);
-      auto keypair = iroha::create_keypair(
+      // auto keypair =
+      return iroha::create_keypair(
           iroha::blob_t<kSeedLength>::from_raw(seed.blob().data()));
 
-      return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
-                     PrivateKey(keypair.privkey.to_string()));
+      // return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
+      //                PrivateKey(keypair.privkey.to_string()));
     }
 
     constexpr size_t CryptoProviderGOST3410::kHashLength;

@@ -4,9 +4,13 @@
 #include <string>
 #include <string_view>
 
-#include "common/blob.hpp"
-#include "crypto/keypair.hpp"
+#include "cryptography/blob.hpp"
+#include "cryptography/keypair.hpp" //TODO: move convertation to impl from internal
+#include "crypto/keypair.hpp" // remove
 #include "interfaces/common_objects/string_view_types.hpp"
+#include <vector>
+
+using shared_model::crypto::Keypair;
 
 namespace iroha {
   sig_t sign(const uint8_t *msg,
@@ -15,6 +19,11 @@ namespace iroha {
               const privkey_t &priv);
 
   sig_t sign(std::string_view msg, const pubkey_t &pub, const privkey_t &priv);
+
+  std::vector<uint8_t> sign(const uint8_t *msg,
+                    size_t msgsize,
+                    const uint8_t* priv, size_t privLen);
+  std::string sign(const std::string& msg, const uint8_t* priv, size_t privLen);
 
   bool verify(const uint8_t *msg,
               size_t msgsize,
@@ -30,9 +39,9 @@ namespace iroha {
 
   blob_t<32> create_seed(std::string passphrase);
 
-  keypair_t create_keypair(blob_t<32> seed);
+  Keypair create_keypair(blob_t<32> seed);
 
-  keypair_t create_keypair();
+  Keypair create_keypair();
 
 } // namespace iroha
 
