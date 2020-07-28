@@ -857,7 +857,7 @@ Structure
     "Source account ID", "ID of the account to withdraw the asset from", "already existent", "makoto@soramitsu"
     "Destination account ID", "ID of the account to send the asset to", "already existent", "alex@california"
     "Asset ID", "ID of the asset to transfer", "already existent", "usd#usa"
-    "Description", "Message to attach to the transfer", "Max length of description (set in genesis block, by default is 64)", "here's my money take it"
+    "Description", "Message to attach to the transfer", "Max length of description (set in genesis block, by default is 100*1024)", "here's my money take it"
     "Amount", "amount of the asset to transfer", "0 <= precision <= 255", "200.20"
 
 Validation

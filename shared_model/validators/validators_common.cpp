@@ -11,12 +11,10 @@ namespace shared_model {
   namespace validation {
 
     ValidatorsConfig::ValidatorsConfig(uint64_t max_batch_size,
-                                       std::shared_ptr<const Settings> settings,
                                        bool partial_ordered_batches_are_valid,
                                        bool txs_duplicates_allowed)
         : max_batch_size(max_batch_size),
           partial_ordered_batches_are_valid(partial_ordered_batches_are_valid),
-          settings(settings),
           txs_duplicates_allowed(txs_duplicates_allowed) {}
 
     bool validateHexString(const std::string &str) {
