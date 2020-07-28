@@ -260,10 +260,7 @@ namespace shared_model {
 
       std::optional<ValidationError> operator()(
           const interface::SetSettingValue &set_setting_value) const {
-        // genesis block does not undergo stateless validation
-        return ValidationError(
-            "SetSettingValue",
-            {"The command can only be called from genesis block"});
+        return std::nullopt;
       }
 
      private:

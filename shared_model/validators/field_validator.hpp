@@ -214,7 +214,7 @@ namespace shared_model {
           crypto::DefaultHashProvider::kHashLength;
       /// limit for the set account detail size in bytes
       static constexpr size_t value_size = 4 * 1024 * 1024;
-      static constexpr size_t kMaxDescriptionSize = 100 * 1024 * 1024;  // 100M
+      static constexpr size_t kMaxDescriptionSize = 100 * 1024;  // 100K
     };
 
     std::optional<ValidationError> validatePubkey(
