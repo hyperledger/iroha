@@ -124,9 +124,7 @@ namespace shared_model {
     FieldValidator::FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                                    time_t future_gap,
                                    TimeFunction time_provider)
-        : future_gap_(future_gap),
-          time_provider_(time_provider),
-          max_description_size(config->settings->max_description_size) {}
+        : future_gap_(future_gap), time_provider_(time_provider) {}
 
     std::optional<ValidationError> FieldValidator::validateAccountId(
         const interface::types::AccountIdType &account_id) const {
@@ -358,11 +356,11 @@ namespace shared_model {
 
     std::optional<ValidationError> FieldValidator::validateDescription(
         const interface::types::DescriptionType &description) const {
-      if (description.size() > max_description_size) {
+      if (description.size() > kMaxDescriptionSize) {
         return ValidationError(
             "Description",
             {fmt::format("Size should be less or equal '{}'.",
-                         max_description_size)});
+                         kMaxDescriptionSize)});
       }
       return std::nullopt;
     }

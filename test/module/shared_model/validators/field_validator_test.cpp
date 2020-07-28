@@ -68,22 +68,8 @@ class FieldValidatorTest : public ValidatorsTest {
         .str();
   }
 
-  std::shared_ptr<shared_model::validation::ValidatorsConfig>
-      validators_custom_config;
-
-  const size_t kCustomMaxDescriptionSize = 128;
-
  public:
   FieldValidatorTest() : field_validator(iroha::test::kTestsValidatorsConfig) {
-    shared_model::validation::Settings testSettings{};
-    testSettings.max_description_size = kCustomMaxDescriptionSize;
-
-    this->validators_custom_config =
-        std::make_shared<shared_model::validation::ValidatorsConfig>(
-            iroha::test::getTestsMaxBatchSize(),
-            std::make_shared<const shared_model::validation::Settings>(
-                std::move(testSettings)));
-
     field_validators.insert(makeValidator("public_key",
                                           &FieldValidator::validatePubkey,
                                           &FieldValidatorTest::public_key,
@@ -610,11 +596,13 @@ class FieldValidatorTest : public ValidatorsTest {
   std::vector<FieldTestCase> description_test_cases{
       makeValidCase(&FieldValidatorTest::description, "valid description"),
       makeValidCase(&FieldValidatorTest::description, ""),
-      makeValidCase(&FieldValidatorTest::description, std::string(64, 0)),
-      makeInvalidCase("long_description",
-                      "value",
-                      &FieldValidatorTest::description,
-                      std::string(65, '0'))};
+      makeValidCase(&FieldValidatorTest::description,
+                    std::string(FieldValidator::kMaxDescriptionSize, 0)),
+      makeInvalidCase(
+          "long_description",
+          "value",
+          &FieldValidatorTest::description,
+          std::string(FieldValidator::kMaxDescriptionSize + 1, '0'))};
 
   std::vector<FieldTestCase> quorum_test_cases{
       makeValidCase(&FieldValidatorTest::quorum, 1),
@@ -907,43 +895,4 @@ TEST_F(FieldValidatorTest, QueryContainerFieldsValidation) {
         this->runTestCases(field);
       },
       [] {});
-}
-
-/**
- * @given field validator with custom config
- * @when try to give a description with a length of default limit
- * @then description is valid
- */
-TEST_F(FieldValidatorTest, TryReachDefaultLimit) {
-  validation::FieldValidator custom_field_validator(validators_custom_config);
-
-  auto error = custom_field_validator.validateDescription(
-      std::string(shared_model::validation::kDefaultDescriptionSize + 1, 0));
-  ASSERT_EQ(error, std::nullopt);
-}
-
-/**
- * @given field validator with custom config
- * @when try to give a description with max length of config
- * @then description is valid
- */
-TEST_F(FieldValidatorTest, TryReachNewMaxSize) {
-  validation::FieldValidator custom_field_validator(validators_custom_config);
-
-  auto error = custom_field_validator.validateDescription(
-      std::string(kCustomMaxDescriptionSize, 0));
-  ASSERT_EQ(error, std::nullopt);
-}
-
-/**
- * @given field validator with custom config
- * @when try to give a description with length of config limit
- * @then description is invalid
- */
-TEST_F(FieldValidatorTest, TrySetSizeMoreThatNewMax) {
-  validation::FieldValidator custom_field_validator(validators_custom_config);
-
-  auto error = custom_field_validator.validateDescription(
-      std::string(kCustomMaxDescriptionSize + 1, 0));
-  ASSERT_TRUE(error);
 }

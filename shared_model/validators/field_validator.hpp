@@ -43,6 +43,8 @@ namespace shared_model {
       using TimeFunction = std::function<iroha::ts64_t()>;
 
      public:
+      // todo igor-egorov 05.04.2018 IR-439 Remove ValidatorsConfig from
+      // FieldValidator
       FieldValidator(std::shared_ptr<ValidatorsConfig> config,
                      time_t future_gap = kDefaultFutureGap,
                      TimeFunction time_provider = [] {
@@ -212,7 +214,7 @@ namespace shared_model {
           crypto::DefaultHashProvider::kHashLength;
       /// limit for the set account detail size in bytes
       static constexpr size_t value_size = 4 * 1024 * 1024;
-      size_t max_description_size;
+      static constexpr size_t kMaxDescriptionSize = 100 * 1024 * 1024;  // 100M
     };
 
     std::optional<ValidationError> validatePubkey(
