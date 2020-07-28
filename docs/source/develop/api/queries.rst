@@ -564,11 +564,20 @@ Request Schema
 
 .. code-block:: proto
 
+    message Ordering {
+      message FieldOrdering {
+        Field field = 1;
+        Direction direction = 2;
+      }
+      repeated FieldOrdering sequence = 1;
+    }
+
     message TxPaginationMeta {
         uint32 page_size = 1;
         oneof opt_first_tx_hash {
             string first_tx_hash = 2;
         }
+        Ordering ordering = 3;
     }
 
     message GetAccountAssetTransactions {
@@ -588,6 +597,8 @@ Request Structure
     "Asset ID", "asset id in order to filter transactions containing this asset", "<asset_name>#<domain_id>", "jpy#japan"
     "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
     "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+    "ordering", "how the results should be ordered (before pagination is applied)", "see fields below", "see fields below"
+    "ordering.sequence", "ordeing spec, like in SQL ORDER BY", "sequence of fields and directions", "[{kCreatedTime, kAscending}, {kPosition, kDescending}]"
 
 Response Schema
 ---------------
