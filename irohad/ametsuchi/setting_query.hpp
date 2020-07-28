@@ -25,6 +25,9 @@ namespace iroha {
           std::string>
       get() = 0;
     };
+
+    extern const shared_model::interface::types::SettingKeyType
+        kMaxDescriptionSizeKey;
   }  // namespace ametsuchi
 }  // namespace iroha
 

@@ -867,6 +867,7 @@ Validation
 2. An amount is a positive number and asset precision is consistent with the asset definition
 3. Source account has enough amount of asset to transfer and is not zero
 4. Source account can transfer money, and destination account can receive money (their roles have these permissions)
+5. Description length is less than 100*1024 (one hundred kilobytes) and less than 'MaxDescriptionSize' setting value if set.
 
 Possible Stateful Validation Errors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -881,6 +882,7 @@ Possible Stateful Validation Errors
     "5", "No such asset found", "Cannot find such asset", "Make sure asset name and precision are correct"
     "6", "Not enough balance", "Source account's balance is too low to perform the operation", "Add asset to account or choose lower value to subtract"
     "7", "Too much asset to transfer", "Resulting asset quantity of destination account would exceed the allowed maximum", "Make sure that the final destination value is less than 2^256 / 10^asset_precision"
+    "8", "Too long description", "Too long description", "Ensure that description length matches the criteria above (or just shorten it)"
 
 .. [#f1] https://www.ietf.org/rfc/rfc1035.txt
 .. [#f2] https://www.ietf.org/rfc/rfc1123.txt
