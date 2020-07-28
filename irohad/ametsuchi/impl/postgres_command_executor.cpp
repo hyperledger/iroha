@@ -20,6 +20,7 @@
 #include "ametsuchi/impl/postgres_specific_query_executor.hpp"
 #include "ametsuchi/impl/soci_std_optional.hpp"
 #include "ametsuchi/impl/soci_utils.hpp"
+#include "ametsuchi/setting_query.hpp"
 #include "ametsuchi/vm_caller.hpp"
 #include "interfaces/commands/add_asset_quantity.hpp"
 #include "interfaces/commands/add_peer.hpp"
@@ -1276,7 +1277,8 @@ namespace iroha {
 
       transfer_asset_statements_ = makeCommandStatements(
           sql_,
-          R"(
+          fmt::format(
+              R"(
           WITH %s
             new_src_quantity AS
             (
@@ -1324,6 +1326,12 @@ namespace iroha {
                     value < (2::decimal ^ 256) / (10::decimal ^ precision)
                 FROM new_dest_quantity, asset
                 WHERE asset_id = :asset_id
+
+                -- description length
+                UNION
+                SELECT 8, :description_length <= setting_value::integer
+                FROM setting
+                WHERE setting_key = '{}'
             ),
             insert_src AS
             (
@@ -1352,6 +1360,7 @@ namespace iroha {
               %s
               ELSE (SELECT code FROM checks WHERE not result ORDER BY code ASC LIMIT 1)
           END AS result)",
+              iroha::ametsuchi::kMaxDescriptionSizeKey),
           {(boost::format(R"(
               has_role_perm AS (%s),
               has_grantable_perm AS (%s),
@@ -1903,6 +1912,7 @@ namespace iroha {
       executor.use("asset_id", asset_id);
       executor.use("quantity", quantity);
       executor.use("precision", precision);
+      executor.use("description_length", command.description().size());
 
       return executor.execute();
     }
@@ -1936,6 +1946,14 @@ namespace iroha {
         const std::string &,
         shared_model::interface::types::CommandIndexType,
         bool do_validation) {
+      if (do_validation) {
+        // when we decide to allow settings updates, we just add permissions
+        return makeCommandError(
+            "SetSettingValue",
+            2,
+            "Currently SetSettingValue is only allowed in genesis block.");
+      }
+
       auto &key = command.key();
       auto &value = command.value();
 
