@@ -2,6 +2,9 @@
 #define GOST_CRYPTO_VERIFIER_HPP
 
 #include "cryptography/crypto_provider/crypto_verifier_multihash.hpp"
+#include "interfaces/common_objects/string_view_types.hpp"
+#include "cryptography/keypair.hpp"
+#include "crypto/keypair.hpp"
 
 namespace shared_model::crypto::gost3410_sha512 {
     class Verifier : public shared_model::crypto::CryptoVerifierMultihash {
@@ -21,12 +24,6 @@ namespace shared_model::crypto::gost3410_sha512 {
           shared_model::interface::types::PublicKeyByteRangeView public_key);
 
       std::vector<iroha::multihash::Type> getSupportedTypes() const override;
-    
-
-      // static bool verify(
-      //     shared_model::interface::types::SignatureByteRangeView signature,
-      //     const Blob &orig,
-      //     shared_model::interface::types::PublicKeyByteRangeView public_key);
     };
   } // namespace shared_model::crypto::gost3410_sha512
 

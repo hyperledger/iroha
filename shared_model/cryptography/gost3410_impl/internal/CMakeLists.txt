@@ -18,6 +18,4 @@ add_library(gost3410_crypto
 )
 target_link_libraries(gost3410_crypto
   ${BOTAN_LIBRARIES}
-  shared_model_cryptography_model
-  common
 )

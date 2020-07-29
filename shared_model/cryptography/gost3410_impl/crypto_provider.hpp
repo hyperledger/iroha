@@ -18,10 +18,7 @@ namespace shared_model {
           const Blob &orig,
           shared_model::interface::types::PublicKeyByteRangeView public_key);
     
-      static Seed generateSeed();
-      static Seed generateSeed(const std::string &passphrase);
       static Keypair generateKeypair();
-      static Keypair generateKeypair(const Seed &seed);
 
       static const char *kName;
       static constexpr size_t kHashLength = 256 / 8;

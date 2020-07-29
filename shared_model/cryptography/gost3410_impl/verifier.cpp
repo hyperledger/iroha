@@ -21,24 +21,16 @@ bool Verifier::verifyGost3410Sha512(
     shared_model::interface::types::SignatureByteRangeView signature,
     shared_model::interface::types::ByteRange source,
     shared_model::interface::types::PublicKeyByteRangeView public_key){
-  return iroha::verify(reinterpret_cast<const uint8_t*>(source.data()), source.size(), public_key, signature);
+  const shared_model::interface::types::ByteRange &pub = public_key;
+  const shared_model::interface::types::ByteRange &sig = signature;
+  return iroha::verify(
+    reinterpret_cast<const uint8_t*>(source.data()), source.size(),
+    reinterpret_cast<const uint8_t*>(pub.data()), pub.size(),
+    reinterpret_cast<const uint8_t*>(sig.data()), sig.size()
+    );
 }
 
 
 std::vector<iroha::multihash::Type> Verifier::getSupportedTypes() const {
   return {iroha::multihash::Type::kGost3410Sha_512};
 }
-
-// using shared_model::interface::types::PublicKeyByteRangeView;
-// using shared_model::interface::types::SignatureByteRangeView;
-
-// namespace shared_model {
-//   namespace crypto {
-    // bool Verifier::verify(SignatureByteRangeView signature,
-    //                       const Blob &orig,
-    //                       PublicKeyByteRangeView public_key) {
-    //   auto& blob = orig.blob();
-    //   return iroha::verify(blob.data(), blob.size(), public_key, signature);
-    // }
-//   } // namespace crypto
-// } // namespace shared_model

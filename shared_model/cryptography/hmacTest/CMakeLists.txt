@@ -1,3 +1,5 @@
+#Temprorary test executable. It will be removed later
+
 if(NOT PKG_CONFIG_FOUND)
   find_package(PkgConfig REQUIRED)
 endif()

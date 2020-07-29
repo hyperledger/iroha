@@ -19,30 +19,12 @@ namespace shared_model{
       return gost3410_sha512::Verifier::verifyGost3410Sha512(signature, orig.range(), public_key);
     }
 
-Seed CryptoProviderGOST3410::generateSeed() {
-      return Seed(iroha::create_seed().to_string());
-    }
-
-    Seed CryptoProviderGOST3410::generateSeed(
-        const std::string &passphrase) {
-      return Seed(iroha::create_seed(passphrase).to_string());
-    }
-
     Keypair CryptoProviderGOST3410::generateKeypair() {
-      // auto keypair = 
-      return iroha::create_keypair();
-      // return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
-      //                PrivateKey(keypair.privkey.to_string()));
-    }
+      auto key_pair = iroha::create_keypair();
+      auto pbk = shared_model::interface::types::PublicKeyHexStringView(key_pair.first);
+      auto pvk = shared_model::crypto::PrivateKey(shared_model::crypto::Blob(key_pair.second));
 
-    Keypair CryptoProviderGOST3410::generateKeypair(const Seed &seed) {
-      assert(seed.size() == kSeedLength);
-      // auto keypair =
-      return iroha::create_keypair(
-          iroha::blob_t<kSeedLength>::from_raw(seed.blob().data()));
-
-      // return Keypair(PublicKeyHexStringView{keypair.pubkey.to_hexstring()},
-      //                PrivateKey(keypair.privkey.to_string()));
+      return Keypair(pbk, pvk);
     }
 
     constexpr size_t CryptoProviderGOST3410::kHashLength;

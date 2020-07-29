@@ -1,6 +1,8 @@
 #include <iostream>
 #include "cryptography/gost3410_impl/crypto_provider.hpp"
 
+//Temprorary test executable. It will be removed later.
+
 using cryptoProvider = shared_model::crypto::CryptoProviderGOST3410;
 
 int main(){
@@ -21,7 +23,10 @@ int main(){
   auto kpbrange = shared_model::interface::types::PublicKeyByteRangeView(kpbytes);
 
   auto res = cryptoProvider::verify(signByteRange, blob, kpbrange);
-
   std::cout << (res ? "Good" : "Bad") << std::endl;
+
+  auto m2 = shared_model::crypto::Blob("Not the same");
+  res = cryptoProvider::verify(signByteRange, m2, kpbrange);
+  std::cout << (!res ? "Good" : "Bad") << std::endl;
   return 0;
 }
