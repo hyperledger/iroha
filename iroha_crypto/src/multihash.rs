@@ -6,16 +6,23 @@ use std::{
 };
 
 pub const ED_25519_PUB_STR: &str = "ed25519-pub";
+pub const SECP_256_K1_PUB_STR: &str = "secp256k1-pub";
 
+/// Type of digest function.
+/// The corresponding byte codes are taken from [official multihash table](https://github.com/multiformats/multicodec/blob/master/table.csv)
 #[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum DigestFunction {
     Ed25519Pub = 0xed,
+    Secp256k1Pub = 0xe7,
 }
 
 impl Display for DigestFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", ED_25519_PUB_STR)
+        match self {
+            DigestFunction::Ed25519Pub => write!(f, "{}", ED_25519_PUB_STR),
+            DigestFunction::Secp256k1Pub => write!(f, "{}", SECP_256_K1_PUB_STR),
+        }
     }
 }
 
@@ -25,6 +32,7 @@ impl FromStr for DigestFunction {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             ED_25519_PUB_STR => Ok(DigestFunction::Ed25519Pub),
+            SECP_256_K1_PUB_STR => Ok(DigestFunction::Secp256k1Pub),
             _ => Err("The specified digest function is not supported.".to_string()),
         }
     }
@@ -42,6 +50,7 @@ impl TryFrom<u8> for DigestFunction {
     fn try_from(byte: u8) -> Result<Self, Self::Error> {
         match byte {
             byte if byte == DigestFunction::Ed25519Pub as u8 => Ok(DigestFunction::Ed25519Pub),
+            byte if byte == DigestFunction::Secp256k1Pub as u8 => Ok(DigestFunction::Secp256k1Pub),
             _ => Err("The specified digest function is not supported.".to_string()),
         }
     }

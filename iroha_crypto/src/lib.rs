@@ -3,13 +3,14 @@
 
 pub mod multihash;
 
-use multihash::Multihash;
+use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
 use serde::{de::Error as SerdeError, Deserialize};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug, Display, Formatter},
+    str::FromStr,
 };
 use ursa::{
     blake2::{
@@ -19,15 +20,47 @@ use ursa::{
     keys::{
         KeyGenOption as UrsaKeyGenOption, PrivateKey as UrsaPrivateKey, PublicKey as UrsaPublicKey,
     },
-    signatures::{ed25519::Ed25519Sha512, SignatureScheme, Signer},
+    signatures::{ed25519::Ed25519Sha512, secp256k1::EcdsaSecp256k1Sha256, SignatureScheme},
 };
 
-pub const SIGNATURE_LENGTH: usize = 64;
 pub const HASH_LENGTH: usize = 32;
 pub const ED_25519: &str = "ed25519";
+pub const SECP_256_K1: &str = "secp256k1";
 
 /// Represents hash of Iroha entities like `Block` or `Transaction.
 pub type Hash = [u8; HASH_LENGTH];
+
+#[derive(Clone)]
+pub enum Algorithm {
+    Ed25519,
+    Secp256k1,
+}
+
+impl Default for Algorithm {
+    fn default() -> Self {
+        Algorithm::Ed25519
+    }
+}
+
+impl FromStr for Algorithm {
+    type Err = String;
+    fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
+        match algorithm {
+            ED_25519 => Ok(Algorithm::Ed25519),
+            SECP_256_K1 => Ok(Algorithm::Secp256k1),
+            _ => Err(format!("The {} algorithm is not supported.", algorithm)),
+        }
+    }
+}
+
+impl Display for Algorithm {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Algorithm::Ed25519 => write!(f, "{}", ED_25519),
+            Algorithm::Secp256k1 => write!(f, "{}", SECP_256_K1),
+        }
+    }
+}
 
 pub enum KeyGenOption {
     UseSeed(Vec<u8>),
@@ -41,7 +74,7 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
         match key_gen_option {
             KeyGenOption::UseSeed(seed) => Ok(UrsaKeyGenOption::UseSeed(seed)),
             KeyGenOption::FromPrivateKey(key) => {
-                if key.digest_function == ED_25519 {
+                if key.digest_function == ED_25519 || key.digest_function == SECP_256_K1 {
                     Ok(UrsaKeyGenOption::FromSecretKey(UrsaPrivateKey(key.payload)))
                 } else {
                     Err(format!(
@@ -51,6 +84,29 @@ impl TryFrom<KeyGenOption> for UrsaKeyGenOption {
                 }
             }
         }
+    }
+}
+
+#[derive(Default)]
+pub struct KeyGenConfiguration {
+    pub key_gen_option: Option<KeyGenOption>,
+    pub algorithm: Algorithm,
+}
+
+impl KeyGenConfiguration {
+    pub fn use_seed(mut self, seed: Vec<u8>) -> KeyGenConfiguration {
+        self.key_gen_option = Some(KeyGenOption::UseSeed(seed));
+        self
+    }
+
+    pub fn use_private_key(mut self, private_key: PrivateKey) -> KeyGenConfiguration {
+        self.key_gen_option = Some(KeyGenOption::FromPrivateKey(private_key));
+        self
+    }
+
+    pub fn with_algorithm(mut self, algorithm: Algorithm) -> KeyGenConfiguration {
+        self.algorithm = algorithm;
+        self
     }
 }
 
@@ -64,48 +120,32 @@ pub struct KeyPair {
 }
 
 impl KeyPair {
-    /// Generates a pair of Public and Private key with the corresponding `KeyGenOption`.
-    /// Returns `Err(String)` with error message if failed.
-    pub fn generate_with_option(key_gen_option: KeyGenOption) -> Result<Self, String> {
-        let (public_key, ursa_private_key) = Ed25519Sha512
-            .keypair(Some(key_gen_option.try_into()?))
-            .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
-        let public_key: [u8; 32] = public_key[..]
-            .try_into()
-            .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
-        let mut private_key = [0; 64];
-        private_key.copy_from_slice(ursa_private_key.as_ref());
-        Ok(KeyPair {
-            public_key: PublicKey {
-                digest_function: ED_25519.to_string(),
-                payload: public_key.to_vec(),
-            },
-            private_key: PrivateKey {
-                digest_function: ED_25519.to_string(),
-                payload: private_key.to_vec(),
-            },
-        })
-    }
-
-    /// Generates a pair of Public and Private key.
+    /// Generates a pair of Public and Private key with `Algorithm::default()` selected as generation algorithm.
     /// Returns `Err(String)` with error message if failed.
     pub fn generate() -> Result<Self, String> {
-        let (public_key, ursa_private_key) = Ed25519Sha512
-            .keypair(None)
-            .map_err(|e| format!("Failed to generate Ed25519Sha512 key pair: {}", e))?;
-        let public_key: [u8; 32] = public_key[..]
-            .try_into()
-            .map_err(|e| format!("Public key should be [u8;32]: {}", e))?;
-        let mut private_key = [0; 64];
-        private_key.copy_from_slice(ursa_private_key.as_ref());
+        Self::generate_with_configuration(KeyGenConfiguration::default())
+    }
+
+    /// Generates a pair of Public and Private key with the corresponding `KeyGenConfiguration`.
+    /// Returns `Err(String)` with error message if failed.
+    pub fn generate_with_configuration(configuration: KeyGenConfiguration) -> Result<Self, String> {
+        let key_gen_option: Option<UrsaKeyGenOption> = configuration
+            .key_gen_option
+            .map(|key_gen_option| key_gen_option.try_into())
+            .transpose()?;
+        let (public_key, private_key) = match configuration.algorithm {
+            Algorithm::Ed25519 => Ed25519Sha512.keypair(key_gen_option),
+            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().keypair(key_gen_option),
+        }
+        .map_err(|e| format!("Failed to generate key pair: {}", e))?;
         Ok(KeyPair {
             public_key: PublicKey {
-                digest_function: ED_25519.to_string(),
-                payload: public_key.to_vec(),
+                digest_function: configuration.algorithm.to_string(),
+                payload: public_key.as_ref().to_vec(),
             },
             private_key: PrivateKey {
-                digest_function: ED_25519.to_string(),
-                payload: private_key.to_vec(),
+                digest_function: configuration.algorithm.to_string(),
+                payload: private_key.as_ref().to_vec(),
             },
         })
     }
@@ -143,9 +183,9 @@ impl TryFrom<&Multihash> for PublicKey {
     type Error = String;
 
     fn try_from(multihash: &Multihash) -> Result<Self, Self::Error> {
-        match multihash.digest_function.to_string().as_ref() {
-            multihash::ED_25519_PUB_STR => Ok(ED_25519.to_string()),
-            _ => Err("Digest function not implemented.".to_string()),
+        match multihash.digest_function {
+            MultihashDigestFunction::Ed25519Pub => Ok(ED_25519.to_string()),
+            MultihashDigestFunction::Secp256k1Pub => Ok(SECP_256_K1.to_string()),
         }
         .map(|digest_function| PublicKey {
             digest_function,
@@ -159,14 +199,13 @@ impl TryFrom<&PublicKey> for Multihash {
 
     fn try_from(public_key: &PublicKey) -> Result<Self, Self::Error> {
         match public_key.digest_function.as_ref() {
-            ED_25519 => Ok(multihash::ED_25519_PUB_STR),
+            ED_25519 => Ok(MultihashDigestFunction::Ed25519Pub),
+            SECP_256_K1 => Ok(MultihashDigestFunction::Secp256k1Pub),
             _ => Err("Digest function not implemented.".to_string()),
         }
-        .and_then(|digest_function| {
-            Ok(Multihash {
-                digest_function: digest_function.parse()?,
-                payload: public_key.payload.clone(),
-            })
+        .map(|digest_function| Multihash {
+            digest_function,
+            payload: public_key.payload.clone(),
         })
     }
 }
@@ -212,8 +251,6 @@ impl Display for PrivateKey {
     }
 }
 
-type Ed25519Signature = [u8; SIGNATURE_LENGTH];
-
 /// Calculates hash of the given bytes.
 pub fn hash(bytes: Vec<u8>) -> Hash {
     let vec_hash = VarBlake2b::new(32)
@@ -232,38 +269,39 @@ pub struct Signature {
     /// public-key of an approved authority.
     pub public_key: PublicKey,
     /// Ed25519 signature is placed here.
-    signature: Ed25519Signature,
+    signature: Vec<u8>,
 }
 
 impl Signature {
     /// Creates new `Signature` by signing payload via `private_key`.
     pub fn new(key_pair: KeyPair, payload: &[u8]) -> Result<Signature, String> {
-        if key_pair.public_key.digest_function == ED_25519 {
-            let private_key = UrsaPrivateKey(key_pair.private_key.payload.to_vec());
-            let transaction_signature = Signer::new(&Ed25519Sha512, &private_key)
-                .sign(payload)
-                .map_err(|e| format!("Failed to sign payload: {}", e))?;
-            let mut signature = [0; SIGNATURE_LENGTH];
-            signature.copy_from_slice(&transaction_signature);
-            Ok(Signature {
-                public_key: key_pair.public_key,
-                signature,
-            })
-        } else {
-            Err("Unsupported digest function.".to_string())
+        let private_key = UrsaPrivateKey(key_pair.private_key.payload.to_vec());
+        let algorithm: Algorithm = key_pair.public_key.digest_function.parse()?;
+        let signature = match algorithm {
+            Algorithm::Ed25519 => Ed25519Sha512::new().sign(payload, &private_key),
+            Algorithm::Secp256k1 => EcdsaSecp256k1Sha256::new().sign(payload, &private_key),
         }
+        .map_err(|e| format!("Failed to sign payload: {}", e))?;
+        Ok(Signature {
+            public_key: key_pair.public_key,
+            signature,
+        })
     }
 
     /// Verify `message` using signed data and `public_key`.
     pub fn verify(&self, message: &[u8]) -> Result<(), String> {
-        Ed25519Sha512::new()
-            .verify(
-                message,
-                &self.signature,
-                &UrsaPublicKey(self.public_key.payload.to_vec()),
-            )
-            .map_err(|e| e.to_string())
-            .map(|_| ())
+        let public_key = UrsaPublicKey(self.public_key.payload.to_vec());
+        let algorithm: Algorithm = self.public_key.digest_function.parse()?;
+        match algorithm {
+            Algorithm::Ed25519 => {
+                Ed25519Sha512::new().verify(message, &self.signature, &public_key)
+            }
+            Algorithm::Secp256k1 => {
+                EcdsaSecp256k1Sha256::new().verify(message, &self.signature, &public_key)
+            }
+        }
+        .map_err(|e| e.to_string())
+        .map(|_| ())
     }
 }
 
@@ -346,11 +384,29 @@ mod tests {
     };
 
     #[test]
-    fn create_signature() {
-        let key_pair = KeyPair::generate().expect("Failed to generate key pair.");
-        let result = Signature::new(key_pair.clone(), b"Test message to sign.")
-            .expect("Failed to create signature.");
-        assert_eq!(result.public_key, key_pair.public_key);
+    fn create_signature_ed25519() {
+        let key_pair = KeyPair::generate_with_configuration(
+            KeyGenConfiguration::default().with_algorithm(Algorithm::Ed25519),
+        )
+        .expect("Failed to generate key pair.");
+        let message = b"Test message to sign.";
+        let signature =
+            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        assert_eq!(signature.public_key, key_pair.public_key);
+        assert!(signature.verify(message).is_ok())
+    }
+
+    #[test]
+    fn create_signature_secp256k1() {
+        let key_pair = KeyPair::generate_with_configuration(
+            KeyGenConfiguration::default().with_algorithm(Algorithm::Secp256k1),
+        )
+        .expect("Failed to generate key pair.");
+        let message = b"Test message to sign.";
+        let signature =
+            Signature::new(key_pair.clone(), message).expect("Failed to create signature.");
+        assert_eq!(signature.public_key, key_pair.public_key);
+        assert!(signature.verify(message).is_ok())
     }
 
     #[test]
@@ -379,6 +435,19 @@ mod tests {
                 }
             ),
             "ed201509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                PublicKey {
+                    digest_function: SECP_256_K1.to_string(),
+                    payload: hex::decode(
+                        "0312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc"
+                    )
+                    .expect("Failed to decode public key.")
+                }
+            ),
+            "e7210312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc"
         )
     }
 
@@ -409,6 +478,29 @@ mod tests {
                 private_key: PrivateKey {
                     digest_function: ED_25519.to_string(),
                     payload: hex::decode("3a7991af1abb77f3fd27cc148404a6ae4439d095a63591b77c788d53f708a02a1509a611ad6d97b01d871e58ed00c8fd7c3917b6ca61a8c2833a19e000aac2e4")
+                    .expect("Failed to decode private key"),
+                }
+            }
+        );
+        assert_eq!(
+            serde_json::from_str::<'_, TestJson>("{
+                \"public_key\": \"e7210312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc\",
+                \"private_key\": {
+                    \"digest_function\": \"secp256k1\",
+                    \"payload\": \"4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445\"
+                }
+            }").expect("Failed to deserialize."),
+            TestJson {
+                public_key: PublicKey {
+                    digest_function: SECP_256_K1.to_string(),
+                    payload: hex::decode(
+                        "0312273e8810581e58948d3fb8f9e8ad53aaa21492ebb8703915bbb565a21b7fcc"
+                    )
+                    .expect("Failed to decode public key.")
+                },
+                private_key: PrivateKey {
+                    digest_function: SECP_256_K1.to_string(),
+                    payload: hex::decode("4df4fca10762d4b529fe40a2188a60ca4469d2c50a825b5f33adc2cb78c69445")
                     .expect("Failed to decode private key"),
                 }
             }
