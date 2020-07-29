@@ -25,7 +25,7 @@ static void BM_CreateKeypair(benchmark::State &state) {
   private_key_t priv{};
 
   while (state.KeepRunning()) {
-    ed25519_create_keypair(&priv, &pub);
+    iroha_ed25519_create_keypair(&priv, &pub);
   }
 }
 BENCHMARK(BM_CreateKeypair);
@@ -35,14 +35,14 @@ static void BM_Sign(benchmark::State &state) {
   private_key_t priv{};
   signature_t sig{};
 
-  ed25519_create_keypair(&priv, &pub);
+  iroha_ed25519_create_keypair(&priv, &pub);
 
   while (state.KeepRunning()) {
     state.PauseTiming();
     auto data = ConstructRandomVector(state.range(0));
     state.ResumeTiming();
 
-    ed25519_sign(&sig, data.data(), data.size(), &pub, &priv);
+    iroha_ed25519_sign(&sig, data.data(), data.size(), &pub, &priv);
   }
 }
 BENCHMARK(BM_Sign)->RangeMultiplier(2)->Range(1 << 10, 1 << 18);
@@ -52,15 +52,15 @@ static void BM_Verify(benchmark::State &state) {
   private_key_t priv{};
   signature_t sig{};
 
-  ed25519_create_keypair(&priv, &pub);
+  iroha_ed25519_create_keypair(&priv, &pub);
 
   while (state.KeepRunning()) {
     state.PauseTiming();
     auto data = ConstructRandomVector(state.range(0));
-    ed25519_sign(&sig, data.data(), data.size(), &pub, &priv);
+    iroha_ed25519_sign(&sig, data.data(), data.size(), &pub, &priv);
     state.ResumeTiming();
 
-    ed25519_verify(&sig, data.data(), data.size(), &pub);
+    iroha_ed25519_verify(&sig, data.data(), data.size(), &pub);
   }
 }
 BENCHMARK(BM_Verify)->RangeMultiplier(2)->Range(1 << 10, 1 << 18);
