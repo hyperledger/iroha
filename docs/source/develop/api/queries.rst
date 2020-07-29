@@ -15,6 +15,61 @@ The validation for all queries includes:
 - query counter — checked to be incremented with every subsequent query from query creator
 - roles — depending on the query creator's role: the range of state available to query can relate to to the same account, account in the domain, to the whole chain, or not allowed at all
 
+Result Pagination
+^^^^^^^^^^^^^^^^^
+
+Some queries support `TxPaginationMeta` that allows to customise and sort the query result in different ways what could be used in development.
+Pagination works together with ordering prameters, similar to `ORDERING BY in SQL languages <https://www.postgresql.org/docs/12/sql-select.html#SQL-ORDERBY>`_ – "the result rows are sorted according to the specified expression (in Iroha – Field). If two rows are equal according to the leftmost expression, they are compared according to the next expression and so on."
+
+Here is how the "expression" is specified:
+
+.. code-block:: proto
+
+    enum Field {
+    kCreatedTime = 0;
+    kPosition = 1;
+    }
+
+There are 2 bases for ordering – on creation time and depending on the position in the block.
+
+Now, the ordering itself:
+
+.. code-block:: proto
+
+    message Ordering {
+      message FieldOrdering {
+        Field field = 1;
+        Direction direction = 2;
+      }
+      repeated FieldOrdering sequence = 1;
+    }
+
+There is an ascending and descending directions for each Field.
+
+After ordering is specified, pagination can be executed:
+
+.. code-block:: proto
+
+    message TxPaginationMeta {
+        uint32 page_size = 1;
+        oneof opt_first_tx_hash {
+            string first_tx_hash = 2;
+        }
+        Ordering ordering = 3;
+    }
+
+What is added to the request structure in case of pagination
+------------------------------------------------------------
+
+.. csv-table::
+    :header: "Field", "Description", "Constraint", "Example"
+    :widths: 15, 30, 20, 15
+
+    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
+    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
+    "ordering", "how the results should be ordered (before pagination is applied)", "see fields below", "see fields below"
+    "ordering.sequence", "ordeing spec, like in SQL ORDER BY", "sequence of fields and directions", "[{kCreatedTime, kAscending}, {kPosition, kDescending}]"
+
 Engine Receipts
 ^^^^^^^^^^^^^^^
 
@@ -285,6 +340,7 @@ Purpose
 -------
 
 GetTransactions is used for retrieving information about transactions, based on their hashes.
+
 .. note:: This query is valid if and only if all the requested hashes are correct: corresponding transactions exist, and the user has a permission to retrieve them
 
 Request Schema
@@ -343,33 +399,16 @@ Purpose
 GetPendingTransactions is used for retrieving a list of pending (not fully signed) `multisignature transactions <../../concepts_architecture/glossary.html#multisignature-transactions>`_
 or `batches of transactions <../../concepts_architecture/glossary.html#batch-of-transactions>`__ issued by account of query creator.
 
-.. note:: This query uses pagination for quicker and more convenient query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
 
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-    }
-
     message GetPendingTransactions {
         TxPaginationMeta pagination_meta = 1;
     }
-
-Request Structure
------------------
-
-.. csv-table::
-    :header: "Field", "Description", "Constraint", "Example"
-    :widths: 15, 30, 20, 15
-
-    "Page size", "maximum amount of transactions returned in the response", "page_size > 0", "5"
-    "First tx hash", "optional - hash of the first transaction in the starting batch", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
 
 All the user's semi-signed multisignature (pending) transactions can be queried.
 Maximum amount of transactions contained in a response can be limited by **page_size** field.
@@ -483,19 +522,12 @@ Purpose
 
 In a case when a list of transactions per account is needed, `GetAccountTransactions` query can be formed.
 
-.. note:: This query uses pagination for quicker and more convenient query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
-
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-    }
 
     message GetAccountTransactions {
         string account_id = 1;
@@ -510,8 +542,6 @@ Request Structure
     :widths: 15, 30, 20, 15
 
     "Account ID", "account id to request transactions from", "<account_name>@<domain_id>", "makoto@soramitsu"
-    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
-    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
 
 Response Schema
 ---------------
@@ -557,28 +587,12 @@ Purpose
 
 `GetAccountAssetTransactions` query returns all transactions associated with given account and asset.
 
-.. note:: This query uses pagination for query responses.
+.. note:: This query uses `pagination <#result-pagination>`_ for quicker and more convenient query responses. Please read about it and specify pagination before sending the query request as well as `the request structure <#what-is-added-to-the-request-structure-in-case-of-pagination>`_.
 
 Request Schema
 --------------
 
 .. code-block:: proto
-
-    message Ordering {
-      message FieldOrdering {
-        Field field = 1;
-        Direction direction = 2;
-      }
-      repeated FieldOrdering sequence = 1;
-    }
-
-    message TxPaginationMeta {
-        uint32 page_size = 1;
-        oneof opt_first_tx_hash {
-            string first_tx_hash = 2;
-        }
-        Ordering ordering = 3;
-    }
 
     message GetAccountAssetTransactions {
         string account_id = 1;
@@ -595,10 +609,6 @@ Request Structure
 
     "Account ID", "account id to request transactions from", "<account_name>@<domain_id>", "makoto@soramitsu"
     "Asset ID", "asset id in order to filter transactions containing this asset", "<asset_name>#<domain_id>", "jpy#japan"
-    "Page size", "size of the page to be returned by the query, if the response contains fewer transactions than a page size, then next tx hash will be empty in response", "page_size > 0", "5"
-    "First tx hash", "hash of the first transaction in the page. If that field is not set — then the first transactions are returned", "hash in hex format", "bddd58404d1315e0eb27902c5d7c8eb0602c16238f005773df406bc191308929"
-    "ordering", "how the results should be ordered (before pagination is applied)", "see fields below", "see fields below"
-    "ordering.sequence", "ordeing spec, like in SQL ORDER BY", "sequence of fields and directions", "[{kCreatedTime, kAscending}, {kPosition, kDescending}]"
 
 Response Schema
 ---------------
