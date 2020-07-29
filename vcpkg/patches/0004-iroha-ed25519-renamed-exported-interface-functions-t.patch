@@ -1,4 +1,4 @@
-From df902d7b8671ed76c3fc15faa1b6ebdf02a5deb3 Mon Sep 17 00:00:00 2001
+From e0e08702738031682067d408486a17303d116f32 Mon Sep 17 00:00:00 2001
 From: Mikhail Boldyrev <miboldyrev@gmail.com>
 Date: Sun, 28 Jun 2020 10:33:41 -0500
 Subject: [PATCH 4/4] iroha-ed25519: renamed exported interface functions to
@@ -6,13 +6,13 @@ Subject: [PATCH 4/4] iroha-ed25519: renamed exported interface functions to
 
 ---
  ...dd-check-for-amd64-64-24k-pic-target.patch |   6 +-
- ...-interface-functions-to-include-iroh.patch | 973 ++++++++++++++++++
+ ...-interface-functions-to-include-iroh.patch | 980 ++++++++++++++++++
  ports/iroha-ed25519/portfile.cmake            |   4 +-
- 3 files changed, 979 insertions(+), 4 deletions(-)
+ 3 files changed, 986 insertions(+), 4 deletions(-)
  create mode 100644 ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
 
 diff --git a/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
-index 70d3edcc0..228ce1245 100644
+index 70d3edcc0..aa482de13 100644
 --- a/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
 +++ b/ports/iroha-ed25519/0001-Add-check-for-amd64-64-24k-pic-target.patch
 @@ -1,7 +1,7 @@
@@ -30,15 +30,15 @@ index 70d3edcc0..228ce1245 100644
               )
  -- 
 -2.25.1
-+2.26.2
++2.27.0
  
 diff --git a/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch b/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
 new file mode 100644
-index 000000000..3937b5de8
+index 000000000..68f5a65da
 --- /dev/null
 +++ b/ports/iroha-ed25519/0002-renamed-exported-interface-functions-to-include-iroh.patch
-@@ -0,0 +1,973 @@
-+From 03612fef9143e43df5da5f85af62d2eb06036f11 Mon Sep 17 00:00:00 2001
+@@ -0,0 +1,980 @@
++From 124a9351b7f7597eaf8204a313f844c447af3e49 Mon Sep 17 00:00:00 2001
 +From: Mikhail Boldyrev <miboldyrev@gmail.com>
 +Date: Sun, 28 Jun 2020 10:18:08 -0500
 +Subject: [PATCH 2/2] renamed exported interface functions to include
@@ -55,7 +55,7 @@ index 000000000..3937b5de8
 + include/ed25519/ed25519/sha512.h        |  8 ++---
 + lib/ed25519/amd64-64-24k-pic/ed25519.c  | 48 ++++++++++++-------------
 + lib/ed25519/amd64-64-24k-pic/hram.c     |  2 +-
-+ lib/ed25519/ref10/ed25519.c             | 40 ++++++++++-----------
++ lib/ed25519/ref10/ed25519.c             | 48 ++++++++++++-------------
 + lib/hash/sha2_openssl/sha256.c          |  8 ++---
 + lib/hash/sha2_openssl/sha512.c          |  8 ++---
 + lib/hash/sha2_sphlib/sha2_256.c         |  6 ++--
@@ -72,7 +72,7 @@ index 000000000..3937b5de8
 + test/randombytes/random.cpp             |  2 +-
 + util/helpers.hpp                        |  4 +--
 + util/tosha3/tosha3.cpp                  |  2 +-
-+ 26 files changed, 142 insertions(+), 142 deletions(-)
++ 26 files changed, 146 insertions(+), 146 deletions(-)
 +
 +diff --git a/benchmark/benchmark.cpp b/benchmark/benchmark.cpp
 +index 7269edf..9c05152 100644
@@ -445,7 +445,7 @@ index 000000000..3937b5de8
 ++  iroha_ed25519_sha512(hram,playground,smlen);
 + }
 +diff --git a/lib/ed25519/ref10/ed25519.c b/lib/ed25519/ref10/ed25519.c
-+index 0e80c6b..e51a26d 100644
++index 0e80c6b..708ae3c 100644
 +--- a/lib/ed25519/ref10/ed25519.c
 ++++ b/lib/ed25519/ref10/ed25519.c
 +@@ -4,18 +4,18 @@
@@ -481,31 +481,34 @@ index 000000000..3937b5de8
 +                   unsigned long long msglen, const public_key_t *pk,
 +                   const private_key_t *sk) {
 +   sha_context ctx;
-+@@ -34,8 +34,8 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++@@ -34,19 +34,19 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
 +   ge_p3 R;
 + 
 +   // TODO: it is possible to pre-calculate this hash while reading private key
 +-  sha512_init(&ctx);
 +-  sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
++-  sha512_final(&ctx, az);
 ++  iroha_ed25519_sha512_init(&ctx);
 ++  iroha_ed25519_sha512_update(&ctx, sk->data, ed25519_privkey_SIZE);
-+   sha512_final(&ctx, az);
+++  iroha_ed25519_sha512_final(&ctx, az);
 +   az[0] &= 248;
 +   az[31] &= 63;
-+@@ -43,9 +43,9 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   az[31] |= 64;
 +   /* az: 64-byte H(sk) */
 +   /* az: 32-byte scalar a, 32-byte randomizer z */
 + 
 +-  sha512_init(&ctx);
 +-  sha512_update(&ctx, /* z */ az + 32, 32);
 +-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, nonce);
 ++  iroha_ed25519_sha512_init(&ctx);
 ++  iroha_ed25519_sha512_update(&ctx, /* z */ az + 32, 32);
 ++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
-+   sha512_final(&ctx, nonce);
+++  iroha_ed25519_sha512_final(&ctx, nonce);
 +   /* nonce: 64-byte H(z,msg) */
 + 
-+@@ -54,11 +54,11 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
++   sc_reduce(nonce);
++@@ -54,12 +54,12 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
 +   ge_p3_tobytes(sig->data, &R);
 +   /* sig: [32 bytes R | 32 bytes uninit] */
 + 
@@ -515,12 +518,14 @@ index 000000000..3937b5de8
 +-  sha512_update(&ctx, /* R */ sig->data, 32);
 +-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
 +-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, hram);
 ++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
 ++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
 ++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
-+   sha512_final(&ctx, hram);
+++  iroha_ed25519_sha512_final(&ctx, hram);
 +   /* hram: 64-byte H(R,A,m) */
 + 
++   sc_reduce(hram);
 +@@ -67,7 +67,7 @@ ED25519_EXPORT void ed25519_sign(signature_t *sig, const unsigned char *msg,
 +   /* sig: [32 bytes R | 32 bytes S] */
 + }
@@ -530,7 +535,7 @@ index 000000000..3937b5de8
 +                    unsigned long long msglen, const public_key_t *pk) {
 +   sha_context ctx;
 +   unsigned char pkcopy[32];
-+@@ -83,11 +83,11 @@ ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *m
++@@ -83,12 +83,12 @@ ED25519_EXPORT int ed25519_verify(const signature_t *sig, const unsigned char *m
 +   memcpy(pkcopy, pk->data, 32);
 +   memcpy(rcopy, /* R, first 32 bytes */ sig->data, 32);
 + 
@@ -540,12 +545,14 @@ index 000000000..3937b5de8
 +-  sha512_update(&ctx, /* R */ sig->data, 32);
 +-  sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
 +-  sha512_update(&ctx, msg, msglen);
++-  sha512_final(&ctx, hram);
 ++  iroha_ed25519_sha512_update(&ctx, /* R */ sig->data, 32);
 ++  iroha_ed25519_sha512_update(&ctx, /* A */ pk->data, ed25519_pubkey_SIZE);
 ++  iroha_ed25519_sha512_update(&ctx, msg, msglen);
-+   sha512_final(&ctx, hram);
+++  iroha_ed25519_sha512_final(&ctx, hram);
 +   /* scs: S = nonce + H(R,A,m)a */
 + 
++   sc_reduce(hram);
 +diff --git a/lib/hash/sha2_openssl/sha256.c b/lib/hash/sha2_openssl/sha256.c
 +index 19af165..5718c4b 100644
 +--- a/lib/hash/sha2_openssl/sha256.c
@@ -1009,7 +1016,7 @@ index 000000000..3937b5de8
 +     std::string hpub = bytes2hex((unsigned char *) pub.data(), pub.size());
 + 
 +-- 
-+2.26.2
++2.27.0
 +
 diff --git a/ports/iroha-ed25519/portfile.cmake b/ports/iroha-ed25519/portfile.cmake
 index 675b9226d..2bdfd17c2 100644
