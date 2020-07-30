@@ -6,7 +6,7 @@ fn main() {
     let matches = App::new("iroha_crypto_cli")
         .version("0.1")
         .author("Soramitsu")
-        .about("iroha_crypto_cli is a command line arguments wrapper around `Ursa`.")
+        .about("iroha_crypto_cli is a command line tool used to generate keys for Iroha peers and clients.")
         .arg(
             Arg::with_name("seed")
                 .long("seed")
@@ -32,6 +32,13 @@ fn main() {
                 .possible_value(iroha_crypto::ED_25519)
                 .possible_value(iroha_crypto::SECP_256_K1)
                 .default_value(&default_algorithm)
+        )
+        .arg(
+            Arg::with_name("json")
+            .long("json")
+            .help("If specified the output will be formatted as json.")
+            .takes_value(false)
+            .multiple(false)
         )
         .group(
             ArgGroup::with_name("key_gen_options")
@@ -59,7 +66,14 @@ fn main() {
         KeyPair::generate_with_configuration(key_gen_configuration)
     }
     .expect("Failed to generate keypair.");
-    println!("Public key (multihash): {}", &keypair.public_key);
-    println!("Private key: {}", &keypair.private_key);
-    println!("Digest function: {}", &keypair.public_key.digest_function)
+    if matches.is_present("json") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&keypair).expect("Failed to serialize to json.")
+        )
+    } else {
+        println!("Public key (multihash): {}", &keypair.public_key);
+        println!("Private key: {}", &keypair.private_key);
+        println!("Digest function: {}", &keypair.public_key.digest_function)
+    }
 }
