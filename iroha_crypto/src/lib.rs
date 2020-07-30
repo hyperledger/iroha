@@ -5,7 +5,7 @@ pub mod multihash;
 
 use multihash::{DigestFunction as MultihashDigestFunction, Multihash};
 use parity_scale_codec::{Decode, Encode};
-use serde::{de::Error as SerdeError, Deserialize};
+use serde::{de::Error as SerdeError, Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
@@ -111,7 +111,7 @@ impl KeyGenConfiguration {
 }
 
 /// Pair of Public and Private keys.
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub struct KeyPair {
     /// Public Key.
     pub public_key: PublicKey,
@@ -210,6 +210,15 @@ impl TryFrom<&PublicKey> for Multihash {
     }
 }
 
+impl Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("{}", self))
+    }
+}
+
 impl<'de> Deserialize<'de> for PublicKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -222,10 +231,10 @@ impl<'de> Deserialize<'de> for PublicKey {
 }
 
 /// Private Key used in signatures.
-#[derive(Clone, Deserialize, PartialEq, Default)]
+#[derive(Clone, Deserialize, PartialEq, Default, Serialize)]
 pub struct PrivateKey {
     pub digest_function: String,
-    #[serde(deserialize_with = "from_hex")]
+    #[serde(deserialize_with = "from_hex", serialize_with = "to_hex")]
     pub payload: Vec<u8>,
 }
 
@@ -234,6 +243,13 @@ where
     D: serde::Deserializer<'de>,
 {
     hex::decode(String::deserialize(deserializer)?).map_err(SerdeError::custom)
+}
+
+fn to_hex<S>(payload: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_str(&hex::encode(payload))
 }
 
 impl Debug for PrivateKey {
