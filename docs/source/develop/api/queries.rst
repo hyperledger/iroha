@@ -19,18 +19,27 @@ Result Pagination
 ^^^^^^^^^^^^^^^^^
 
 Some queries support `TxPaginationMeta` that allows to customise and sort the query result in different ways what could be used in development.
-Pagination works together with ordering prameters, similar to `ORDERING BY in SQL languages <https://www.postgresql.org/docs/12/sql-select.html#SQL-ORDERBY>`_ – "the result rows are sorted according to the specified expression (in Iroha – Field). If two rows are equal according to the leftmost expression, they are compared according to the next expression and so on."
+Pagination works together with ordering prameters, similar to `ORDER BY in SQL language <https://www.postgresql.org/docs/12/sql-select.html#SQL-ORDERBY>`_ – "the result rows are sorted according to the specified expression (in Iroha – Field). If two rows are equal according to the leftmost expression, they are compared according to the next expression and so on."
 
 Here is how the "expression" is specified:
 
 .. code-block:: proto
 
     enum Field {
-    kCreatedTime = 0;
-    kPosition = 1;
+      kCreatedTime = 0;
+      kPosition = 1;
     }
 
 There are 2 bases for ordering – on creation time and depending on the position in the block.
+
+There is an ascending and descending directions for each Field:
+
+.. code-block:: proto
+
+    enum Direction {
+      kAscending = 0;
+      kDescending = 1;
+    }
 
 Now, the ordering itself:
 
@@ -43,8 +52,6 @@ Now, the ordering itself:
       }
       repeated FieldOrdering sequence = 1;
     }
-
-There is an ascending and descending directions for each Field.
 
 After ordering is specified, pagination can be executed:
 
