@@ -1,4 +1,4 @@
-//! This module contains enumeration of all legal Iroha Special Instructions `Instruction`,
+//! This module contains enumeration of all possible Iroha Special Instructions `Instruction`,
 //! generic instruction types and related implementations.
 use crate::{prelude::*, query::IrohaQuery};
 use iroha_derive::Io;
@@ -9,7 +9,7 @@ pub mod prelude {
     pub use crate::{account::isi::*, asset::isi::*, domain::isi::*, isi::*, peer::isi::*};
 }
 
-/// Enumeration of all legal Iroha Special Instructions.
+/// Enumeration of all possible Iroha Special Instructions.
 #[derive(Clone, Debug, Io, Encode, Decode)]
 #[allow(clippy::large_enum_variant)]
 pub enum Instruction {
@@ -27,7 +27,7 @@ pub enum Instruction {
     Event(crate::event::isi::EventInstruction),
     /// This variant of Iroha Special Instruction composes two other instructions into one, and
     /// executes them both.
-    Compose(Box<Instruction>, Box<Instruction>),
+    Pair(Box<Instruction>, Box<Instruction>),
     /// This variant of Iroha Special Instruction composes several other instructions into one, and
     /// executes them one by one. If some instruction fails - the whole sequence will fail.
     Sequence(Vec<Instruction>),
@@ -43,40 +43,153 @@ pub enum Instruction {
     Notify(String),
 }
 
+/// Result of `Instruction` execution with changes in `WorldStateView` and output.
+#[derive(Debug)]
+pub struct InstructionResult {
+    /// Instance of `WorldStateView` with changes applied during `Instruction` execution.
+    pub world_state_view: WorldStateView,
+    output: Output,
+}
+
+/// Enumeration of all possible Outputs for `Instruction` execution.
+#[derive(Debug)]
+pub enum Output {
+    /// Variant of instructions output related to `Peer`.
+    Peer(crate::peer::isi::Output),
+    /// Instruction output variants related to `Domain`.
+    Domain(crate::domain::isi::Output),
+    /// Instruction output variants related to `Asset`.
+    Asset(crate::asset::isi::Output),
+    /// Instruction output variants related to `Account`.
+    Account(crate::account::isi::Output),
+    /// Instruction output variants related to `Permission`.
+    Permission(crate::permission::isi::Output),
+    /// Instruction output variants connected to different Iroha Events.
+    Event(crate::event::isi::Output),
+    /// This variant of Iroha Special Instruction output composes two other instructions output into one.
+    Pair(Box<Output>, Box<Output>),
+    /// This variant of Iroha Special Instruction output composes several other instructions output into one.
+    Sequence(Vec<Output>),
+    /// Iroha Query result as output.
+    ExecuteQuery(QueryResult),
+    /// This variant contains `Some` output for executed steps and `None` for skipped.
+    If(
+        Option<Box<Output>>,
+        Option<Box<Output>>,
+        Option<Box<Output>>,
+    ),
+    /// This variant of Iroha Special Instructions output contains an error with the given
+    /// message.
+    Fail(String),
+    /// This variant of Iroha Special Instructions output contains `Result`.
+    Notify(Result<(), String>),
+}
+
 impl Instruction {
     /// Defines the type of the underlying instructions and executes them on `WorldStateView`.
     pub fn execute(
         &self,
         authority: <Account as Identifiable>::Id,
-        world_state_view: &mut WorldStateView,
-    ) -> Result<(), String> {
+        world_state_view: &WorldStateView,
+    ) -> Result<InstructionResult, String> {
         match self {
-            Instruction::Peer(origin) => Ok(origin.execute(authority, world_state_view)?),
-            Instruction::Domain(origin) => Ok(origin.execute(authority, world_state_view)?),
-            Instruction::Asset(origin) => Ok(origin.execute(authority, world_state_view)?),
-            Instruction::Account(origin) => Ok(origin.execute(authority, world_state_view)?),
-            Instruction::Permission(origin) => Ok(origin.execute(world_state_view)?),
-            Instruction::Event(origin) => Ok(origin.execute(authority, world_state_view)?),
-            Instruction::Compose(left, right) => {
-                left.execute(authority.clone(), world_state_view)?;
-                right.execute(authority, world_state_view)?;
-                Ok(())
+            Instruction::Peer(origin) => {
+                let output = origin.execute(authority, world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: output.world_state_view(),
+                    output: Output::Peer(output),
+                })
+            }
+            Instruction::Domain(origin) => {
+                let output = origin.execute(authority, world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: output.world_state_view(),
+                    output: Output::Domain(output),
+                })
+            }
+            Instruction::Asset(origin) => {
+                let output = origin.execute(authority, world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: output.world_state_view(),
+                    output: Output::Asset(output),
+                })
+            }
+            Instruction::Account(origin) => {
+                let output = origin.execute(authority, world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: output.world_state_view(),
+                    output: Output::Account(output),
+                })
+            }
+            Instruction::Permission(origin) => {
+                let output = origin.execute(world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: world_state_view.clone(),
+                    output: Output::Permission(output),
+                })
+            }
+            Instruction::Event(origin) => {
+                let output = origin.execute(authority, world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: output
+                        .world_state_view()
+                        .unwrap_or_else(|| world_state_view.clone()),
+                    output: Output::Event(output),
+                })
+            }
+            Instruction::Pair(left, right) => {
+                let left_output = left.execute(authority.clone(), world_state_view)?;
+                let right_output = right.execute(authority, &left_output.world_state_view)?;
+                Ok(InstructionResult {
+                    world_state_view: right_output.world_state_view,
+                    output: Output::Pair(
+                        Box::new(left_output.output),
+                        Box::new(right_output.output),
+                    ),
+                })
             }
             Instruction::Sequence(sequence) => {
+                let mut world_state_view = world_state_view.clone();
+                let mut outputs = Vec::new();
                 for instruction in sequence {
-                    instruction.execute(authority.clone(), world_state_view)?;
+                    let result = instruction.execute(authority.clone(), &world_state_view)?;
+                    world_state_view = result.world_state_view;
+                    outputs.push(result.output);
                 }
-                Ok(())
+                Ok(InstructionResult {
+                    world_state_view,
+                    output: Output::Sequence(outputs),
+                })
             }
-            Instruction::ExecuteQuery(query) => query.execute(world_state_view).map(|_| ()),
+            Instruction::ExecuteQuery(query) => Ok(InstructionResult {
+                world_state_view: world_state_view.clone(),
+                output: Output::ExecuteQuery(query.execute(world_state_view)?),
+            }),
             Instruction::If(condition, then, otherwise) => {
                 match condition.execute(authority.clone(), world_state_view) {
-                    Ok(_) => then.execute(authority, world_state_view),
+                    Ok(result) => {
+                        let then_result = then.execute(authority, &result.world_state_view)?;
+                        Ok(InstructionResult {
+                            world_state_view: then_result.world_state_view,
+                            output: Output::If(
+                                Some(Box::new(result.output)),
+                                Some(Box::new(then_result.output)),
+                                None,
+                            ),
+                        })
+                    }
                     Err(_) => {
                         if let Some(otherwise) = otherwise {
-                            otherwise.execute(authority, world_state_view)
+                            let else_result = otherwise.execute(authority, world_state_view)?;
+                            Ok(InstructionResult {
+                                world_state_view: else_result.world_state_view,
+                                output: Output::If(None, None, Some(Box::new(else_result.output))),
+                            })
                         } else {
-                            Ok(())
+                            Ok(InstructionResult {
+                                world_state_view: world_state_view.clone(),
+                                output: Output::If(None, None, None),
+                            })
                         }
                     }
                 }
@@ -84,7 +197,10 @@ impl Instruction {
             Instruction::Fail(message) => Err(message.into()),
             Instruction::Notify(message) => {
                 println!("Notification: {}", message);
-                Ok(())
+                Ok(InstructionResult {
+                    world_state_view: world_state_view.clone(),
+                    output: Output::Notify(Ok(())),
+                })
             }
         }
     }

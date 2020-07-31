@@ -421,7 +421,7 @@ pub mod isi {
 
         #[test]
         fn test_register_bridge_test_should_pass() {
-            let mut testkit = TestKit::new();
+            let testkit = TestKit::new();
             let bridge_owner_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
@@ -432,17 +432,19 @@ pub mod isi {
                 kind: BridgeKind::IClaim,
                 owner_account_id: bridge_owner_account.id.clone(),
             };
-            let world_state_view = &mut testkit.world_state_view;
+            let mut world_state_view = testkit.world_state_view;
             let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
             let register_account = domain.register_account(bridge_owner_account.clone());
-            register_account
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge owner account");
+            world_state_view = register_account
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register bridge owner account")
+                .world_state_view();
             let register_bridge =
                 register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition);
-            register_bridge
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge");
+            world_state_view = register_bridge
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register bridge")
+                .world_state_view;
             let bridge_query = query_bridge(BridgeId::new(&bridge_definition.id.name));
             let query_result = bridge_query
                 .execute(&world_state_view)
@@ -487,7 +489,7 @@ pub mod isi {
 
         #[test]
         fn test_register_external_asset_should_pass() {
-            let mut testkit = TestKit::new();
+            let testkit = TestKit::new();
             let bridge_owner_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
@@ -498,24 +500,28 @@ pub mod isi {
                 kind: BridgeKind::IClaim,
                 owner_account_id: bridge_owner_account.id.clone(),
             };
-            let world_state_view = &mut testkit.world_state_view;
+            let mut world_state_view = testkit.world_state_view;
             let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
-            domain
+            world_state_view = domain
                 .register_account(bridge_owner_account)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge owner account");
-            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge");
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register bridge owner account")
+                .world_state_view();
+            world_state_view =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to register bridge")
+                    .world_state_view;
             let external_asset = ExternalAsset {
                 bridge_id: BridgeId::new(&bridge_definition.id.name),
                 name: "DOT Token".to_string(),
                 id: "DOT".to_string(),
                 decimals: 12,
             };
-            register_external_asset(&external_asset)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register external asset");
+            world_state_view = register_external_asset(&external_asset)
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register external asset")
+                .world_state_view;
             let bridge_query = query_bridge(BridgeId::new(&bridge_definition.id.name));
             let query_result = bridge_query
                 .execute(&world_state_view)
@@ -531,7 +537,7 @@ pub mod isi {
 
         #[test]
         fn test_add_client_should_pass() {
-            let mut testkit = TestKit::new();
+            let testkit = TestKit::new();
             let bridge_owner_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
@@ -542,18 +548,22 @@ pub mod isi {
                 kind: BridgeKind::IClaim,
                 owner_account_id: bridge_owner_account.id.clone(),
             };
-            let world_state_view = &mut testkit.world_state_view;
+            let mut world_state_view = testkit.world_state_view;
             let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
-            domain
+            world_state_view = domain
                 .register_account(bridge_owner_account)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge owner account");
-            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge");
-            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to add bridge client");
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register bridge owner account")
+                .world_state_view();
+            world_state_view =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to register bridge")
+                    .world_state_view;
+            world_state_view = add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to add bridge client")
+                .world_state_view;
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
                 .execute(&world_state_view)
                 .expect("failed to query a bridge");
@@ -563,7 +573,7 @@ pub mod isi {
 
         #[test]
         fn test_remove_client_should_pass() {
-            let mut testkit = TestKit::new();
+            let testkit = TestKit::new();
             let bridge_owner_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
@@ -574,27 +584,33 @@ pub mod isi {
                 kind: BridgeKind::IClaim,
                 owner_account_id: bridge_owner_account.id.clone(),
             };
-            let world_state_view = &mut testkit.world_state_view;
+            let mut world_state_view = testkit.world_state_view;
             let domain = world_state_view.peer().domains.get_mut("Company").unwrap();
-            domain
+            world_state_view = domain
                 .register_account(bridge_owner_account)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge owner account");
-            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge");
-            add_client(&bridge_definition.id, bridge_owner_public_key.clone())
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to add bridge client");
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register bridge owner account")
+                .world_state_view();
+            world_state_view =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to register bridge")
+                    .world_state_view;
+            world_state_view = add_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to add bridge client")
+                .world_state_view;
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
                 .execute(&world_state_view)
                 .expect("failed to query a bridge");
             let clients = get_clients(&query_result).expect("failed to get bridge clients");
             assert_eq!(clients, &[bridge_owner_public_key.clone()]);
 
-            remove_client(&bridge_definition.id, bridge_owner_public_key.clone())
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to remove bridge client");
+            world_state_view =
+                remove_client(&bridge_definition.id, bridge_owner_public_key.clone())
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to remove bridge client")
+                    .world_state_view;
             let query_result = query_bridge(BridgeId::new(&bridge_definition.id.name))
                 .execute(&world_state_view)
                 .expect("failed to query a bridge");
@@ -604,7 +620,7 @@ pub mod isi {
 
         #[test]
         fn test_external_transfer_should_pass() {
-            let mut testkit = TestKit::new();
+            let testkit = TestKit::new();
             let bridge_owner_public_key = KeyPair::generate()
                 .expect("Failed to generate KeyPair.")
                 .public_key;
@@ -620,36 +636,40 @@ pub mod isi {
                 kind: BridgeKind::IClaim,
                 owner_account_id: bridge_owner_account.id.clone(),
             };
-            let world_state_view = &mut testkit.world_state_view;
+            let mut world_state_view = testkit.world_state_view;
             let accounts = [&bridge_owner_account, &recipient_account];
             for account in &accounts {
-                world_state_view
+                world_state_view = world_state_view
                     .peer()
                     .domains
                     .get_mut("Company")
                     .unwrap()
                     .register_account((*account).clone())
-                    .execute(testkit.root_account_id.clone(), world_state_view)
-                    .expect("failed to register bridge owner account");
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to register bridge owner account")
+                    .world_state_view();
             }
-            register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register bridge");
+            world_state_view =
+                register_bridge(world_state_view.read_peer().id.clone(), &bridge_definition)
+                    .execute(testkit.root_account_id.clone(), &world_state_view)
+                    .expect("failed to register bridge")
+                    .world_state_view;
             let external_asset = ExternalAsset {
                 bridge_id: BridgeId::new(&bridge_definition.id.name),
                 name: "DOT Token".to_string(),
                 id: "DOT".to_string(),
                 decimals: 12,
             };
-            register_external_asset(&external_asset)
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to register external asset");
+            world_state_view = register_external_asset(&external_asset)
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to register external asset")
+                .world_state_view;
             let external_incoming_transaction = ExternalTransaction {
                 hash: "0x9e58e3c750a53475f8613f100c1ccfd81083fb5c8cc8d5ed149b8e877bd1123f".into(),
                 payload: b"77bd1123fd5ed1750a53475f8619e58e3ccfd81083fb5c8cc849b8e83f100c1c"
                     .to_vec(),
             };
-            handle_incoming_transfer(
+            world_state_view = handle_incoming_transfer(
                 &bridge_definition.id,
                 &external_asset.id,
                 10,
@@ -657,8 +677,9 @@ pub mod isi {
                 recipient_account.id.clone(),
                 &external_incoming_transaction,
             )
-            .execute(testkit.root_account_id.clone(), world_state_view)
-            .expect("failed to handle incoming transaction");
+            .execute(testkit.root_account_id.clone(), &world_state_view)
+            .expect("failed to handle incoming transaction")
+            .world_state_view;
             let asset_definition_id =
                 AssetDefinitionId::new(&external_asset.id, &bridge_definition.id.name);
             let asset = world_state_view
@@ -671,24 +692,26 @@ pub mod isi {
             assert_eq!(asset.quantity, 10);
             assert_eq!(asset.big_quantity, 20);
             let bridge_account_id = AccountId::new(BRIDGE_ACCOUNT_NAME, BRIDGE_NAME);
-            recipient_account
+            world_state_view = recipient_account
                 .transfer_asset_to(asset.clone(), bridge_account_id.clone())
-                .execute(testkit.root_account_id.clone(), world_state_view)
-                .expect("failed to transfer asset to the bridge");
+                .execute(testkit.root_account_id.clone(), &world_state_view)
+                .expect("failed to transfer asset to the bridge")
+                .world_state_view();
             let external_outgoing_transaction = ExternalTransaction {
                 hash: "0xb8e877bd1123fd5ed1c849f8613f100c1c750a534759e58e3ccfd81083fb5c8c".into(),
                 payload: b"3475fa5cc849b8e83f100c1c8619e58e3ccfd81083fb5c877bd1123fd5ed1750"
                     .to_vec(),
             };
-            handle_outgoing_transfer(
+            world_state_view = handle_outgoing_transfer(
                 &bridge_definition.id,
                 &external_asset.id,
                 asset.quantity,
                 asset.big_quantity,
                 &external_outgoing_transaction,
             )
-            .execute(testkit.root_account_id.clone(), world_state_view)
-            .expect("failed to handle outgoing transaction");
+            .execute(testkit.root_account_id.clone(), &world_state_view)
+            .expect("failed to handle outgoing transaction")
+            .world_state_view;
             let asset = world_state_view
                 .read_asset(&AssetId {
                     definition_id: asset_definition_id,
@@ -718,10 +741,11 @@ pub mod isi {
 pub mod query {
     use super::asset::*;
     use super::*;
+    use crate::{account, asset};
 
     /// Constructor of Iroha Query for retrieving list of all registered bridges.
     pub fn query_bridges_list(bridge_owner_id: <Account as Identifiable>::Id) -> IrohaQuery {
-        crate::asset::query::GetAccountAssets::build_request(bridge_owner_id).query
+        asset::query::GetAccountAssets::build_request(bridge_owner_id).query
     }
 
     /// A helper function for decoding a list of bridge definitions from the query result.
@@ -750,7 +774,7 @@ pub mod query {
 
     /// Constructor of Iroha Query for retrieving information about the bridge.
     pub fn query_bridge(bridge_id: <Bridge as Identifiable>::Id) -> IrohaQuery {
-        crate::account::query::GetAccount::build_request(AccountId::new(
+        account::query::GetAccount::build_request(AccountId::new(
             BRIDGE_ACCOUNT_NAME,
             bridge_id.name(),
         ))

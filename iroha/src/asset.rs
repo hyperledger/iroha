@@ -17,7 +17,7 @@ use std::{
 /// Asset entity represents some sort of commodity or value.
 #[derive(Clone, Debug, Encode, Decode)]
 pub struct AssetDefinition {
-    /// An Identification of the `Asset`.
+    /// An Identification of the `AssetDefinition`.
     pub id: <AssetDefinition as Identifiable>::Id,
 }
 
@@ -191,7 +191,7 @@ impl Identifiable for Asset {
     type Id = AssetId;
 }
 
-/// Iroha Special Instructions module provides `AssetInstruction` enum with all legal types of
+/// Iroha Special Instructions module provides `AssetInstruction` enum with all possible types of
 /// Asset related instructions as variants, implementations of generic Iroha Special Instructions
 /// and the `From/Into` implementations to convert `AssetInstruction` variants into generic ISI.
 pub mod isi {
@@ -199,7 +199,7 @@ pub mod isi {
     use crate::permission::isi::PermissionInstruction;
     use iroha_derive::*;
 
-    /// Enumeration of all legal Asset related Instructions.
+    /// Enumeration of all possible Asset related Instructions.
     #[derive(Clone, Debug, Io, Encode, Decode)]
     pub enum AssetInstruction {
         /// Variant of the generic `Mint` instruction for `u32` --> `Asset`.
@@ -216,14 +216,31 @@ pub mod isi {
         DemintParameterAsset(String, <Asset as Identifiable>::Id),
     }
 
+    /// Enumeration of all possible Outputs for `AccountInstruction` execution.
+    #[derive(Debug)]
+    pub enum Output {
+        /// Variant of output for `AssetInstruction::MintAsset`.
+        MintAsset(WorldStateView),
+        /// Variant of output for `AssetInstruction::MintBigAsset`.
+        MintBigAsset(WorldStateView),
+        /// Variant of output for `AssetInstruction::MintParameterAsset`.
+        MintParameterAsset(WorldStateView),
+        /// Variant of output for `AssetInstruction::DemintAsset`.
+        DemintAsset(WorldStateView),
+        /// Variant of output for `AssetInstruction::DemintBigAsset`.
+        DemintBigAsset(WorldStateView),
+        /// Variant of output for `AssetInstruction::DemintParameterAsset`.
+        DemintParameterAsset(WorldStateView),
+    }
+
     impl AssetInstruction {
         /// Executes `AssetInstruction` on the given `WorldStateView`.
         /// Returns `Ok(())` if execution succeeded and `Err(String)` with error message if not.
         pub fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             match self {
                 AssetInstruction::MintAsset(quantity, asset_id) => {
                     Mint::new(*quantity, asset_id.clone()).execute(authority, world_state_view)
@@ -250,18 +267,33 @@ pub mod isi {
         }
     }
 
+    impl Output {
+        /// Get instance of `WorldStateView` with changes applied during `Instruction` execution.
+        pub fn world_state_view(&self) -> WorldStateView {
+            match self {
+                Output::MintAsset(world_state_view)
+                | Output::MintBigAsset(world_state_view)
+                | Output::MintParameterAsset(world_state_view)
+                | Output::DemintAsset(world_state_view)
+                | Output::DemintBigAsset(world_state_view)
+                | Output::DemintParameterAsset(world_state_view) => world_state_view.clone(),
+            }
+        }
+    }
+
     impl Mint<Asset, u32> {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanMintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
@@ -274,7 +306,7 @@ pub mod isi {
                     self.object,
                 )),
             }
-            Ok(())
+            Ok(Output::MintAsset(world_state_view))
         }
     }
 
@@ -282,14 +314,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanMintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
@@ -302,7 +335,7 @@ pub mod isi {
                     self.object,
                 )),
             }
-            Ok(())
+            Ok(Output::MintBigAsset(world_state_view))
         }
     }
 
@@ -328,14 +361,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanMintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or(format!(
@@ -353,7 +387,7 @@ pub mod isi {
                     self.object.clone(),
                 )),
             }
-            Ok(())
+            Ok(Output::MintParameterAsset(world_state_view))
         }
     }
 
@@ -370,14 +404,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanDemintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
@@ -388,7 +423,7 @@ pub mod isi {
                 .quantity
                 .checked_sub(self.object)
                 .ok_or("Not enough quantity to demint.")?;
-            Ok(())
+            Ok(Output::DemintAsset(world_state_view))
         }
     }
 
@@ -396,14 +431,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanDemintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset.")?;
@@ -414,7 +450,7 @@ pub mod isi {
                 .big_quantity
                 .checked_sub(self.object)
                 .ok_or("Not enough big quantity to demint.")?;
-            Ok(())
+            Ok(Output::DemintBigAsset(world_state_view))
         }
     }
 
@@ -440,14 +476,15 @@ pub mod isi {
         pub(crate) fn execute(
             &self,
             authority: <Account as Identifiable>::Id,
-            world_state_view: &mut WorldStateView,
-        ) -> Result<(), String> {
+            world_state_view: &WorldStateView,
+        ) -> Result<Output, String> {
             PermissionInstruction::CanDemintAsset(
                 authority,
                 self.destination_id.definition_id.clone(),
                 None,
             )
             .execute(world_state_view)?;
+            let mut world_state_view = world_state_view.clone();
             world_state_view
                 .asset_definition(&self.destination_id.definition_id)
                 .ok_or("Failed to find asset definition.")?;
@@ -455,7 +492,7 @@ pub mod isi {
                 .asset(&self.destination_id)
                 .ok_or("Asset not found.")?;
             asset.store.remove(&self.object).ok_or("Key not found.")?;
-            Ok(())
+            Ok(Output::DemintParameterAsset(world_state_view))
         }
     }
 
@@ -723,31 +760,38 @@ mod tests {
         let domain = world_state_view.domain(domain_name).unwrap();
         let account_id = AccountId::new("root", &domain_name);
         let asset_def = AssetDefinition::new(AssetDefinitionId::new("XOR", "Company"));
-        domain
+        world_state_view = domain
             .register_asset(asset_def.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to register asset");
+            .expect("failed to register asset")
+            .world_state_view();
         let asset_id = AssetId::new(asset_def.id, account_id.clone());
-        Mint::new(10u32, asset_id.clone())
+        world_state_view = Mint::new(10u32, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to mint asset");
-        Demint::new(10u32, asset_id.clone())
+            .expect("failed to mint asset")
+            .world_state_view();
+        world_state_view = Demint::new(10u32, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to demint asset");
+            .expect("failed to demint asset")
+            .world_state_view();
         assert_eq!(world_state_view.asset(&asset_id).unwrap().quantity, 0);
-        Mint::new(20u128, asset_id.clone())
+        world_state_view = Mint::new(20u128, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to big mint asset");
-        Demint::new(20u128, asset_id.clone())
+            .expect("failed to big mint asset")
+            .world_state_view();
+        world_state_view = Demint::new(20u128, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to big demint asset");
+            .expect("failed to big demint asset")
+            .world_state_view();
         assert_eq!(world_state_view.asset(&asset_id).unwrap().big_quantity, 0);
-        Mint::new(("key".to_string(), b"value".to_vec()), asset_id.clone())
+        world_state_view = Mint::new(("key".to_string(), b"value".to_vec()), asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to big mint asset");
-        Demint::new("key".to_string(), asset_id.clone())
+            .expect("failed to big mint asset")
+            .world_state_view();
+        world_state_view = Demint::new("key".to_string(), asset_id.clone())
             .execute(account_id, &mut world_state_view)
-            .expect("failed to big demint asset");
+            .expect("failed to big demint asset")
+            .world_state_view();
         assert!(world_state_view
             .asset(&asset_id)
             .unwrap()
@@ -763,14 +807,16 @@ mod tests {
         let domain = world_state_view.domain(domain_name).unwrap();
         let account_id = AccountId::new("root", &domain_name);
         let asset_def = AssetDefinition::new(AssetDefinitionId::new("XOR", "Company"));
-        domain
+        world_state_view = domain
             .register_asset(asset_def.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to register asset");
+            .expect("failed to register asset")
+            .world_state_view();
         let asset_id = AssetId::new(asset_def.id, account_id.clone());
-        Mint::new(10u32, asset_id.clone())
+        world_state_view = Mint::new(10u32, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to mint asset");
+            .expect("failed to mint asset")
+            .world_state_view();
         assert_eq!(
             Demint::new(11u32, asset_id.clone())
                 .execute(account_id.clone(), &mut world_state_view)
@@ -778,9 +824,10 @@ mod tests {
             "Not enough quantity to demint.".to_string()
         );
         assert_eq!(world_state_view.asset(&asset_id).unwrap().quantity, 10);
-        Mint::new(20u128, asset_id.clone())
+        world_state_view = Mint::new(20u128, asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to big mint asset");
+            .expect("failed to big mint asset")
+            .world_state_view();
         assert_eq!(
             Demint::new(21u128, asset_id.clone())
                 .execute(account_id.clone(), &mut world_state_view)
@@ -788,9 +835,10 @@ mod tests {
             "Not enough big quantity to demint.".to_string()
         );
         assert_eq!(world_state_view.asset(&asset_id).unwrap().big_quantity, 20);
-        Mint::new(("key".to_string(), b"value".to_vec()), asset_id.clone())
+        world_state_view = Mint::new(("key".to_string(), b"value".to_vec()), asset_id.clone())
             .execute(account_id.clone(), &mut world_state_view)
-            .expect("failed to big mint asset");
+            .expect("failed to big mint asset")
+            .world_state_view();
         assert_eq!(
             Demint::new("other_key".to_string(), asset_id.clone())
                 .execute(account_id, &mut world_state_view)

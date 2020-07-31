@@ -15,7 +15,7 @@ pub struct QueryRequest {
     pub query: IrohaQuery,
 }
 
-/// Enumeration of all legal Iroha Queries.
+/// Enumeration of all possible Iroha Queries.
 #[derive(Clone, Debug, Encode, Decode)]
 pub enum IrohaQuery {
     /// Query all Assets.
@@ -37,7 +37,7 @@ pub enum IrohaQuery {
 }
 
 /// Result of queries execution.
-#[derive(Debug, Io, Encode, Decode)]
+#[derive(Clone, Debug, Io, Encode, Decode)]
 pub enum QueryResult {
     /// Query all Assets.
     GetAllAssets(asset::query::GetAllAssetsResult),
